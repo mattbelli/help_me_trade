@@ -1,0 +1,32 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env/
+*.egg-info/
+dist/
+build/
+
+# Local data (added in later bullets)
+*.db
+data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+package-lock.json
+next-env.d.ts

@@ -1,0 +1,590 @@
+"""FastAPI app: poll Alpaca, store snapshots, serve JSON + simple HTML."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Body, Query, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from brokers.alpaca import AlpacaAdapter
+from brokers.market_stream import market_hub
+from brokers.errors import BrokerError
+from brokers.factory import (
+    active_broker_name,
+    get_broker,
+    get_enabled_broker_names,
+)
+from config.settings import (
+    add_watchlist_symbol,
+    apply_settings_patch,
+    broker_is_configured,
+    create_watchlist,
+    delete_watchlist,
+    get_chart_layout,
+    get_watchlist,
+    get_watchlists_state,
+    load_settings,
+    mask_settings,
+    primary_broker,
+    remove_watchlist_symbol,
+    save_chart_layout,
+    save_watchlist,
+    set_active_watchlist,
+    update_watchlist,
+)
+from db.chart_features import (
+    create_price_alert,
+    delete_price_alert,
+    init_chart_features,
+    list_price_alerts,
+    mark_alert_triggered,
+)
+from db.sqlite import get_all_latest_snapshots, get_latest_snapshot, init_db, save_snapshot
+
+ROOT = Path(__file__).resolve().parent.parent
+POLL_INTERVAL_SECONDS = max(
+    5, int(os.environ.get("POLL_INTERVAL_SECONDS", "20"))
+)
+logger = logging.getLogger(__name__)
+
+
+async def _poll_once() -> None:
+    for broker_name in get_enabled_broker_names():
+        if not broker_is_configured(broker_name):
+            logger.warning("Skipping %s — not configured", broker_name)
+            continue
+        try:
+            broker = get_broker(broker_name)
+            captured_at = save_snapshot(
+                account=broker.get_account(),
+                positions=broker.get_positions(),
+                orders=broker.get_open_orders(),
+                broker=broker_name,
+            )
+            logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
+        except BrokerError as exc:
+            logger.warning("Poll failed for %s: %s", broker_name, exc)
+
+
+async def _poll_loop() -> None:
+    while True:
+        await _poll_once()
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
+async def _alert_symbol_loop() -> None:
+    while True:
+        symbols = {
+            str(a["symbol"]).upper()
+            for a in list_price_alerts(active_only=True)
+        }
+        await market_hub.ensure_symbols(symbols)
+        await asyncio.sleep(30)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    init_chart_features()
+    await market_hub.start()
+    await _poll_once()
+    poll_task = asyncio.create_task(_poll_loop())
+    alert_task = asyncio.create_task(_alert_symbol_loop())
+    yield
+    poll_task.cancel()
+    alert_task.cancel()
+    for task in (poll_task, alert_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    await market_hub.stop()
+
+
+app = FastAPI(title="Help Me Trade", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health() -> dict[str, int | str]:
+    return {"status": "ok", "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+
+
+@app.websocket("/ws/market")
+async def ws_market(websocket: WebSocket):
+    await market_hub.handle_client(websocket)
+
+
+@app.get("/api/broker")
+def api_broker():
+    settings = load_settings()
+    primary = primary_broker()
+    brokers_payload: dict = {}
+
+    for name in ("alpaca", "schwab"):
+        cfg = settings["brokers"].get(name, {})
+        entry: dict = {
+            "enabled": bool(cfg.get("enabled")),
+            "configured": broker_is_configured(name),
+        }
+        if name == "schwab":
+            from brokers.schwab_auth import auth_status
+
+            entry["auth"] = auth_status()
+        brokers_payload[name] = entry
+
+    return {
+        "broker": primary,
+        "primary_broker": primary,
+        "brokers": brokers_payload,
+    }
+
+
+def _combined_snapshot_response() -> dict | None:
+    all_snaps = get_all_latest_snapshots()
+    if not all_snaps:
+        return None
+
+    primary = primary_broker()
+    primary_snap = next((s for s in all_snaps if s["broker"] == primary), all_snaps[0])
+
+    return {
+        **primary_snap,
+        "primary_broker": primary,
+        "broker": primary_snap["broker"],
+        "snapshots": all_snaps,
+    }
+
+
+@app.get("/api/snapshot")
+def api_snapshot():
+    data = _combined_snapshot_response()
+    if data is None:
+        return JSONResponse({"error": "No snapshot yet"}, status_code=503)
+    return data
+
+
+@app.get("/api/settings")
+def api_get_settings():
+    return mask_settings(load_settings())
+
+
+@app.put("/api/settings")
+def api_put_settings(patch: dict = Body(...)):
+    try:
+        updated = apply_settings_patch(patch)
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return mask_settings(updated)
+
+
+@app.get("/api/watchlist")
+def api_get_watchlist():
+    return {"symbols": get_watchlist()}
+
+
+@app.get("/api/watchlists")
+def api_get_watchlists():
+    return get_watchlists_state()
+
+
+@app.put("/api/watchlists/active")
+def api_set_active_watchlist(body: dict = Body(...)):
+    list_id = str(body.get("id", "")).strip()
+    if not list_id:
+        return JSONResponse({"error": "id is required"}, status_code=400)
+    try:
+        state = set_active_watchlist(list_id)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return state
+
+
+@app.post("/api/watchlists")
+def api_create_watchlist(body: dict = Body(...)):
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    symbols = body.get("symbols")
+    if symbols is not None and not isinstance(symbols, list):
+        return JSONResponse({"error": "symbols must be a list"}, status_code=400)
+    try:
+        state = create_watchlist(name, symbols if isinstance(symbols, list) else None)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return state
+
+
+@app.put("/api/watchlists/{list_id}")
+def api_update_watchlist(list_id: str, body: dict = Body(...)):
+    name = body.get("name")
+    symbols = body.get("symbols")
+    if name is not None and not isinstance(name, str):
+        return JSONResponse({"error": "name must be a string"}, status_code=400)
+    if symbols is not None and not isinstance(symbols, list):
+        return JSONResponse({"error": "symbols must be a list"}, status_code=400)
+    try:
+        state = update_watchlist(
+            list_id,
+            name=name if isinstance(name, str) else None,
+            symbols=symbols if isinstance(symbols, list) else None,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return state
+
+
+@app.delete("/api/watchlists/{list_id}")
+def api_delete_watchlist(list_id: str):
+    try:
+        state = delete_watchlist(list_id)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return state
+
+
+@app.get("/api/watchlist/market")
+def api_watchlist_market(symbols: str = ""):
+    broker = _require_alpaca()
+    if isinstance(broker, JSONResponse):
+        return broker
+
+    symbol_list = [
+        s.strip().upper()
+        for s in symbols.split(",")
+        if s.strip()
+    ]
+    if not symbol_list:
+        symbol_list = get_watchlist()
+    if not symbol_list:
+        return {"quotes": {}}
+
+    try:
+        bars_by_symbol = broker.get_stock_bars_batch(symbol_list, days=12)
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    quotes: dict[str, dict] = {}
+    for sym in symbol_list:
+        bars = bars_by_symbol.get(sym, [])
+        if not bars:
+            continue
+        closes = [b.close for b in bars]
+        price = closes[-1]
+        prev = closes[-2] if len(closes) >= 2 else price
+        change_pct = ((price - prev) / prev * 100) if prev else 0.0
+        quotes[sym] = {
+            "price": price,
+            "change_pct": round(change_pct, 2),
+            "sparkline": [round(c, 4) for c in closes[-7:]],
+        }
+
+    return {"quotes": quotes}
+
+
+@app.put("/api/watchlist")
+def api_put_watchlist(body: dict = Body(...)):
+    symbols = body.get("symbols")
+    if not isinstance(symbols, list):
+        return JSONResponse({"error": "symbols must be a list"}, status_code=400)
+    return {"symbols": save_watchlist(symbols)}
+
+
+@app.post("/api/watchlist")
+def api_add_watchlist_symbol(body: dict = Body(...)):
+    symbol = str(body.get("symbol", "")).strip().upper()
+    if not symbol:
+        return JSONResponse({"error": "symbol is required"}, status_code=400)
+    try:
+        symbols = add_watchlist_symbol(symbol)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"symbols": symbols}
+
+
+@app.delete("/api/watchlist/{symbol}")
+def api_remove_watchlist_symbol(symbol: str):
+    sym = symbol.strip().upper()
+    try:
+        updated = remove_watchlist_symbol(sym)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"symbols": updated}
+
+
+@app.get("/api/chart-layout")
+def api_get_chart_layout():
+    return {"layout": get_chart_layout()}
+
+
+@app.put("/api/chart-layout")
+def api_put_chart_layout(body: dict = Body(...)):
+    layout = body.get("layout")
+    if not isinstance(layout, list):
+        return JSONResponse({"error": "layout must be a list"}, status_code=400)
+    return {"layout": save_chart_layout(layout)}
+
+
+@app.get("/api/symbols/search")
+def api_symbol_search(q: str = "", limit: int = 10):
+    broker = _require_alpaca()
+    if isinstance(broker, JSONResponse):
+        return broker
+    if limit < 1 or limit > 25:
+        return JSONResponse({"error": "limit must be 1–25"}, status_code=400)
+    try:
+        results = broker.search_symbols(q, limit=limit)
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    return {"query": q, "symbols": results}
+
+
+@app.get("/api/positions")
+def api_positions():
+    data = get_latest_snapshot()
+    if data is None:
+        return JSONResponse({"error": "No snapshot yet"}, status_code=503)
+    return {
+        "captured_at": data["captured_at"],
+        "position_count": data["position_count"],
+        "positions": data["positions"],
+    }
+
+
+@app.get("/api/orders")
+def api_orders():
+    data = get_latest_snapshot()
+    if data is None:
+        return JSONResponse({"error": "No snapshot yet"}, status_code=503)
+    return {
+        "captured_at": data["captured_at"],
+        "open_order_count": data["open_order_count"],
+        "open_orders": data["open_orders"],
+    }
+
+
+@app.get("/api/account")
+def api_account():
+    data = get_latest_snapshot()
+    if data is None:
+        return JSONResponse({"error": "No snapshot yet"}, status_code=503)
+    return {"captured_at": data["captured_at"], **data["account"]}
+
+
+def _require_alpaca() -> AlpacaAdapter | JSONResponse:
+    if not broker_is_configured("alpaca"):
+        return JSONResponse(
+            {"error": "Alpaca is not configured. Add API keys in Settings."},
+            status_code=501,
+        )
+    try:
+        broker = get_broker("alpaca")
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    if not isinstance(broker, AlpacaAdapter):
+        return JSONResponse({"error": "Alpaca adapter unavailable"}, status_code=501)
+    return broker
+
+
+@app.get("/api/portfolio/history")
+def api_portfolio_history(range: str = "1W"):
+    broker = _require_alpaca()
+    if isinstance(broker, JSONResponse):
+        return broker
+
+    valid = {"1D", "3D", "1W", "1M", "1Y", "ALL"}
+    if range not in valid:
+        return JSONResponse(
+            {"error": f"Invalid range. Use one of: {', '.join(sorted(valid))}"},
+            status_code=400,
+        )
+
+    try:
+        points = broker.get_portfolio_history(range)
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    return {
+        "range": range,
+        "points": [
+            {
+                "timestamp": p.timestamp,
+                "equity": p.equity,
+                "profit_loss": p.profit_loss,
+                "profit_loss_pct": p.profit_loss_pct,
+            }
+            for p in points
+        ],
+    }
+
+
+@app.get("/api/bars")
+def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
+    broker = _require_alpaca()
+    if isinstance(broker, JSONResponse):
+        return broker
+
+    if days < 1 or days > 3650:
+        return JSONResponse({"error": "days must be 1–3650"}, status_code=400)
+
+    try:
+        bars = broker.get_stock_bars(symbol, timeframe=timeframe, days=days)
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    return {
+        "symbol": symbol.strip().upper(),
+        "timeframe": timeframe,
+        "bars": [
+            {
+                "time": b.time,
+                "open": b.open,
+                "high": b.high,
+                "low": b.low,
+                "close": b.close,
+                "volume": b.volume,
+            }
+            for b in bars
+        ],
+    }
+
+
+@app.get("/api/price-alerts")
+def api_list_alerts(symbol: str | None = None):
+    return {"alerts": list_price_alerts(symbol=symbol, active_only=True)}
+
+
+@app.post("/api/price-alerts")
+def api_create_alert(body: dict = Body(...)):
+    symbol = str(body.get("symbol", "")).strip()
+    price = body.get("price")
+    direction = str(body.get("direction", "cross"))
+    note = str(body.get("note", ""))
+    if not symbol or price is None:
+        return JSONResponse(
+            {"error": "symbol and price are required"}, status_code=400
+        )
+    try:
+        price_f = float(price)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "price must be a number"}, status_code=400)
+    alert = create_price_alert(
+        symbol=symbol, price=price_f, direction=direction, note=note
+    )
+    return alert
+
+
+@app.delete("/api/price-alerts/{alert_id}")
+def api_delete_alert(alert_id: int):
+    if not delete_price_alert(alert_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
+
+
+@app.post("/api/price-alerts/{alert_id}/trigger")
+def api_trigger_alert(alert_id: int):
+    active = [a for a in list_price_alerts(active_only=True) if int(a["id"]) == alert_id]
+    if not active:
+        return JSONResponse({"error": "Not found or already triggered"}, status_code=404)
+    mark_alert_triggered(alert_id)
+    return {"ok": True, "alert": active[0]}
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard() -> str:
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Help Me Trade</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #0f1115; color: #e8eaed; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .meta { color: #9aa0a6; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .card { background: #1a1d24; border: 1px solid #2a2f3a; border-radius: 8px; padding: 1rem 1.25rem; min-width: 140px; }
+    .card label { display: block; color: #9aa0a6; font-size: 0.75rem; text-transform: uppercase; }
+    .card span { font-size: 1.25rem; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+    th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid #2a2f3a; }
+    th { color: #9aa0a6; font-size: 0.8rem; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <h1>Trading Diary</h1>
+  <p class="meta" id="updated">Loading...</p>
+  <div class="cards" id="account-cards"></div>
+  <h2>Open positions</h2>
+  <table>
+    <thead><tr>
+      <th>Symbol</th><th>Qty</th><th>Side</th><th>Price</th><th>Value</th><th>Unrealized P/L</th>
+    </tr></thead>
+    <tbody id="positions-body"></tbody>
+  </table>
+  <h2>Open orders</h2>
+  <table>
+    <thead><tr>
+      <th>Symbol</th><th>Qty</th><th>Side</th><th>Type</th><th>Status</th><th>Filled</th>
+    </tr></thead>
+    <tbody id="orders-body"></tbody>
+  </table>
+  <script>
+    function money(n) { return "$" + Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+    function plClass(n) { return Number(n) >= 0 ? "color:#3dd68c" : "color:#f07178"; }
+
+    async function refresh() {
+      const res = await fetch("/api/snapshot");
+      if (!res.ok) { document.getElementById("updated").textContent = "Waiting for first snapshot..."; return; }
+      const data = await res.json();
+      document.getElementById("updated").textContent =
+        "Last updated: " + new Date(data.captured_at).toLocaleString() + " (polls every __POLL_SECONDS__s)";
+
+      const a = data.account;
+      document.getElementById("account-cards").innerHTML = [
+        ["Cash", money(a.cash)],
+        ["Buying power", money(a.buying_power)],
+        ["Portfolio", money(a.portfolio_value)],
+        ["Status", a.status],
+      ].map(([label, val]) =>
+        `<div class="card"><label>${label}</label><span>${val}</span></div>`
+      ).join("");
+
+      const posBody = document.getElementById("positions-body");
+      if (!data.positions.length) {
+        posBody.innerHTML = '<tr><td colspan="6" style="color:#9aa0a6">No open positions</td></tr>';
+      } else {
+        posBody.innerHTML = data.positions.map(p => `<tr>
+          <td>${p.symbol}</td><td>${p.qty}</td><td>${p.side}</td>
+          <td>${money(p.current_price)}</td><td>${money(p.market_value)}</td>
+          <td style="${plClass(p.unrealized_pl)}">${money(p.unrealized_pl)}</td>
+        </tr>`).join("");
+      }
+
+      const ordBody = document.getElementById("orders-body");
+      if (!data.open_orders.length) {
+        ordBody.innerHTML = '<tr><td colspan="6" style="color:#9aa0a6">No open orders</td></tr>';
+      } else {
+        ordBody.innerHTML = data.open_orders.map(o => `<tr>
+          <td>${o.symbol}</td><td>${o.qty}</td><td>${o.side}</td>
+          <td>${o.order_type}</td><td>${o.status}</td><td>${o.filled_qty}</td>
+        </tr>`).join("");
+      }
+    }
+    refresh();
+    setInterval(refresh, 15000);
+  </script>
+</body>
+</html>""".replace("__POLL_SECONDS__", str(POLL_INTERVAL_SECONDS))
