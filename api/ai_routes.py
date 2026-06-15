@@ -1,0 +1,241 @@
+"""AI API routes."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import uuid
+
+from fastapi import APIRouter, Body, Query
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from ai.insights import generate_insight_paragraph
+from ai.llm.factory import get_llm_provider_name
+from ai.memories import get_memory_service
+from ai.reflection.service import run_reflection
+from ai.research.graph import run_research
+from ai.rules.engine import evaluate_on_event
+from db.ai_tables import (
+    MEMORY_TYPES,
+    create_rule,
+    delete_rule,
+    get_research_artifact,
+    get_rule,
+    list_memories,
+    list_reflection_runs,
+    list_research_artifacts,
+    list_rule_events,
+    list_rules,
+    update_rule,
+)
+from db.sqlite import get_latest_snapshot
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api", tags=["ai"])
+
+
+@router.get("/insights/stream")
+async def insights_stream():
+    snapshot = get_latest_snapshot()
+    if snapshot is None:
+        return JSONResponse({"error": "No snapshot yet"}, status_code=503)
+
+    async def event_generator():
+        yield f"event: status\ndata: {json.dumps({'provider': get_llm_provider_name()})}\n\n"
+        try:
+            parts: list[str] = []
+            async for chunk in _stream_insight(snapshot):
+                parts.append(chunk)
+                payload = json.dumps({"text": chunk})
+                yield f"event: token\ndata: {payload}\n\n"
+                await asyncio.sleep(0)
+            final = "".join(parts)
+            yield f"event: done\ndata: {json.dumps({'text': final})}\n\n"
+        except Exception as exc:
+            logger.exception("Insight stream failed")
+            yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _stream_insight(snapshot: dict):
+    from ai.insights import build_insight_messages
+    from ai.llm.factory import get_llm
+
+    llm = get_llm()
+    messages = build_insight_messages(snapshot)
+    async for chunk in llm.astream(messages, max_tokens=300):
+        yield chunk
+
+
+@router.get("/memories")
+def api_list_memories(
+    type: str | None = Query(None, alias="type"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    if type is not None and type not in MEMORY_TYPES:
+        return JSONResponse(
+            {
+                "error": f"type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
+            },
+            status_code=400,
+        )
+    service = get_memory_service()
+    return {"memories": service.list(memory_type=type, limit=limit)}
+
+
+@router.post("/memories")
+def api_create_memory(body: dict = Body(...)):
+    memory_type = str(body.get("type", "")).strip()
+    content = str(body.get("content", "")).strip()
+    metadata = body.get("metadata")
+    if memory_type not in MEMORY_TYPES:
+        return JSONResponse(
+            {
+                "error": f"type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
+            },
+            status_code=400,
+        )
+    if not content:
+        return JSONResponse({"error": "content is required"}, status_code=400)
+    if metadata is not None and not isinstance(metadata, dict):
+        return JSONResponse({"error": "metadata must be an object"}, status_code=400)
+    try:
+        record = get_memory_service().add(
+            content, memory_type=memory_type, metadata=metadata
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return record
+
+
+@router.post("/research/run")
+def api_run_research(body: dict = Body(...)):
+    topic = str(body.get("topic", "")).strip()
+    symbol = body.get("symbol")
+    if not topic:
+        return JSONResponse({"error": "topic is required"}, status_code=400)
+    sym = str(symbol).strip().upper() if symbol else None
+    try:
+        result = run_research(topic=topic, symbol=sym)
+    except Exception as exc:
+        logger.exception("Research run failed")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return result
+
+
+@router.get("/research")
+def api_list_research(limit: int = Query(20, ge=1, le=100)):
+    return {"artifacts": list_research_artifacts(limit=limit)}
+
+
+@router.get("/research/{artifact_id}")
+def api_get_research(artifact_id: int):
+    artifact = get_research_artifact(artifact_id)
+    if artifact is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return artifact
+
+
+@router.post("/reflection/run")
+def api_run_reflection():
+    try:
+        result = run_reflection()
+    except Exception as exc:
+        logger.exception("Reflection failed")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return result
+
+
+@router.get("/reflection")
+def api_list_reflection(limit: int = Query(20, ge=1, le=100)):
+    return {"runs": list_reflection_runs(limit=limit)}
+
+
+@router.get("/rules")
+def api_list_rules():
+    return {"rules": list_rules()}
+
+
+@router.get("/rules/events")
+def api_list_rule_events(limit: int = Query(50, ge=1, le=200)):
+    return {"events": list_rule_events(limit=limit)}
+
+
+@router.get("/rules/{rule_id}")
+def api_get_rule(rule_id: str):
+    rule = get_rule(rule_id)
+    if rule is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return rule
+
+
+@router.post("/rules")
+def api_create_rule(body: dict = Body(...)):
+    name = str(body.get("name", "")).strip()
+    conditions = body.get("conditions")
+    action = body.get("action")
+    rule_id = str(body.get("id", "")).strip() or f"rule-{uuid.uuid4().hex[:8]}"
+    enabled = body.get("enabled", True)
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    if not isinstance(conditions, dict):
+        return JSONResponse({"error": "conditions must be an object"}, status_code=400)
+    if not isinstance(action, dict):
+        return JSONResponse({"error": "action must be an object"}, status_code=400)
+    if get_rule(rule_id):
+        return JSONResponse({"error": "Rule id already exists"}, status_code=409)
+    try:
+        rule = create_rule(
+            rule_id=rule_id,
+            name=name,
+            conditions=conditions,
+            action=action,
+            enabled=bool(enabled),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return rule
+
+
+@router.put("/rules/{rule_id}")
+def api_update_rule(rule_id: str, body: dict = Body(...)):
+    patch: dict = {}
+    if "name" in body:
+        patch["name"] = str(body["name"]).strip()
+    if "conditions" in body:
+        if not isinstance(body["conditions"], dict):
+            return JSONResponse({"error": "conditions must be an object"}, status_code=400)
+        patch["conditions"] = body["conditions"]
+    if "action" in body:
+        if not isinstance(body["action"], dict):
+            return JSONResponse({"error": "action must be an object"}, status_code=400)
+        patch["action"] = body["action"]
+    if "enabled" in body:
+        patch["enabled"] = bool(body["enabled"])
+    rule = update_rule(rule_id, **patch)
+    if rule is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return rule
+
+
+@router.delete("/rules/{rule_id}")
+def api_delete_rule(rule_id: str):
+    if not delete_rule(rule_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
+
+
+@router.post("/rules/evaluate")
+def api_evaluate_rules(body: dict = Body(...)):
+    event = body.get("event")
+    if not isinstance(event, dict):
+        return JSONResponse({"error": "event must be an object"}, status_code=400)
+    triggered = evaluate_on_event(event)
+    return {"triggered": triggered}

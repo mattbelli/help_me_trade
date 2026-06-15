@@ -38,6 +38,7 @@ from config.settings import (
     set_active_watchlist,
     update_watchlist,
 )
+from db.ai_tables import init_ai_tables
 from db.chart_features import (
     create_price_alert,
     delete_price_alert,
@@ -46,6 +47,9 @@ from db.chart_features import (
     mark_alert_triggered,
 )
 from db.sqlite import get_all_latest_snapshots, get_latest_snapshot, init_db, save_snapshot
+from ai.rules.engine import evaluate_on_snapshot
+from ai.reflection.scheduler import reflection_loop
+from api.ai_routes import router as ai_router
 
 ROOT = Path(__file__).resolve().parent.parent
 POLL_INTERVAL_SECONDS = max(
@@ -68,6 +72,15 @@ async def _poll_once() -> None:
                 broker=broker_name,
             )
             logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
+            snapshot = get_latest_snapshot(broker_name)
+            if snapshot:
+                triggered = evaluate_on_snapshot(snapshot)
+                if triggered:
+                    logger.info(
+                        "Rules triggered on poll (%s): %s",
+                        broker_name,
+                        [t["rule_id"] for t in triggered],
+                    )
         except BrokerError as exc:
             logger.warning("Poll failed for %s: %s", broker_name, exc)
 
@@ -92,14 +105,17 @@ async def _alert_symbol_loop() -> None:
 async def lifespan(app: FastAPI):
     init_db()
     init_chart_features()
+    init_ai_tables()
     await market_hub.start()
     await _poll_once()
     poll_task = asyncio.create_task(_poll_loop())
     alert_task = asyncio.create_task(_alert_symbol_loop())
+    reflection_task = asyncio.create_task(reflection_loop())
     yield
     poll_task.cancel()
     alert_task.cancel()
-    for task in (poll_task, alert_task):
+    reflection_task.cancel()
+    for task in (poll_task, alert_task, reflection_task):
         try:
             await task
         except asyncio.CancelledError:
@@ -108,6 +124,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Help Me Trade", lifespan=lifespan)
+app.include_router(ai_router)
 
 app.add_middleware(
     CORSMiddleware,

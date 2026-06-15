@@ -1,0 +1,481 @@
+"""SQLite tables for AI memories, research artifacts, rules, and reflections."""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DB_PATH = Path(
+    os.environ.get("TRADING_DB_PATH", str(ROOT / "data" / "trading.db"))
+)
+
+MEMORY_TYPES = frozenset({"preference", "lesson", "research"})
+
+
+def _connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
+    with _connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS research_artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic TEXT NOT NULL,
+                symbol TEXT,
+                markdown TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'completed',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS reflection_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary TEXT NOT NULL,
+                lessons_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'completed',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                conditions_json TEXT NOT NULL,
+                action_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rule_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (rule_id) REFERENCES rules(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_memories_type_created
+                ON memories(memory_type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_research_created
+                ON research_artifacts(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_reflection_created
+                ON reflection_runs(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_rule_events_created
+                ON rule_events(created_at DESC);
+            """
+        )
+
+
+def _row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "type": row["memory_type"],
+        "content": row["content"],
+        "metadata": json.loads(row["metadata_json"] or "{}"),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def create_memory(
+    *,
+    memory_type: str,
+    content: str,
+    metadata: dict[str, Any] | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    if memory_type not in MEMORY_TYPES:
+        raise ValueError(f"memory_type must be one of: {', '.join(sorted(MEMORY_TYPES))}")
+    text = content.strip()
+    if not text:
+        raise ValueError("content is required")
+
+    init_ai_tables(db_path)
+    now = _now()
+    meta = metadata or {}
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO memories (memory_type, content, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (memory_type, text, json.dumps(meta), now, now),
+        )
+        row = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        conn.commit()
+    return _row_to_memory(row)
+
+
+def list_memories(
+    *,
+    memory_type: str | None = None,
+    limit: int = 50,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    init_ai_tables(db_path)
+    limit = max(1, min(limit, 200))
+    with _connect(db_path) as conn:
+        if memory_type:
+            if memory_type not in MEMORY_TYPES:
+                raise ValueError(
+                    f"memory_type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
+                )
+            rows = conn.execute(
+                """
+                SELECT * FROM memories
+                WHERE memory_type = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (memory_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM memories
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+    return [_row_to_memory(r) for r in rows]
+
+
+def search_memories(
+    query: str,
+    *,
+    memory_type: str | None = None,
+    limit: int = 10,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Simple keyword search for local memory store."""
+    init_ai_tables(db_path)
+    q = query.strip().lower()
+    if not q:
+        return list_memories(memory_type=memory_type, limit=limit, db_path=db_path)
+
+    with _connect(db_path) as conn:
+        if memory_type:
+            rows = conn.execute(
+                """
+                SELECT * FROM memories
+                WHERE memory_type = ? AND LOWER(content) LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (memory_type, f"%{q}%", limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM memories
+                WHERE LOWER(content) LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (f"%{q}%", limit),
+            ).fetchall()
+    return [_row_to_memory(r) for r in rows]
+
+
+def save_research_artifact(
+    *,
+    topic: str,
+    markdown: str,
+    symbol: str | None = None,
+    status: str = "completed",
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    init_ai_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO research_artifacts (topic, symbol, markdown, status, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (topic.strip(), (symbol or "").strip() or None, markdown, status, now),
+        )
+        row = conn.execute(
+            "SELECT * FROM research_artifacts WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        conn.commit()
+    return _row_to_research(row)
+
+
+def get_research_artifact(
+    artifact_id: int, db_path: Path = DEFAULT_DB_PATH
+) -> dict[str, Any] | None:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM research_artifacts WHERE id = ?", (artifact_id,)
+        ).fetchone()
+    return _row_to_research(row) if row else None
+
+
+def list_research_artifacts(
+    *, limit: int = 20, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict[str, Any]]:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM research_artifacts
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (max(1, min(limit, 100)),),
+        ).fetchall()
+    return [_row_to_research(r) for r in rows]
+
+
+def _row_to_research(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "topic": row["topic"],
+        "symbol": row["symbol"],
+        "markdown": row["markdown"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+    }
+
+
+def save_reflection_run(
+    *,
+    summary: str,
+    lessons: list[dict[str, Any]],
+    status: str = "completed",
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    init_ai_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO reflection_runs (summary, lessons_json, status, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (summary, json.dumps(lessons), status, now),
+        )
+        row = conn.execute(
+            "SELECT * FROM reflection_runs WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        conn.commit()
+    return _row_to_reflection(row)
+
+
+def list_reflection_runs(
+    *, limit: int = 20, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict[str, Any]]:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM reflection_runs
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (max(1, min(limit, 100)),),
+        ).fetchall()
+    return [_row_to_reflection(r) for r in rows]
+
+
+def _row_to_reflection(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "summary": row["summary"],
+        "lessons": json.loads(row["lessons_json"] or "[]"),
+        "status": row["status"],
+        "created_at": row["created_at"],
+    }
+
+
+def _row_to_rule(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "enabled": bool(row["enabled"]),
+        "conditions": json.loads(row["conditions_json"]),
+        "action": json.loads(row["action_json"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def create_rule(
+    *,
+    rule_id: str,
+    name: str,
+    conditions: dict[str, Any],
+    action: dict[str, Any],
+    enabled: bool = True,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    init_ai_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO rules (id, name, enabled, conditions_json, action_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                rule_id,
+                name.strip(),
+                1 if enabled else 0,
+                json.dumps(conditions),
+                json.dumps(action),
+                now,
+                now,
+            ),
+        )
+        row = conn.execute("SELECT * FROM rules WHERE id = ?", (rule_id,)).fetchone()
+        conn.commit()
+    return _row_to_rule(row)
+
+
+def update_rule(
+    rule_id: str,
+    *,
+    name: str | None = None,
+    conditions: dict[str, Any] | None = None,
+    action: dict[str, Any] | None = None,
+    enabled: bool | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM rules WHERE id = ?", (rule_id,)).fetchone()
+        if not row:
+            return None
+        current = _row_to_rule(row)
+        updated = {
+            "name": name if name is not None else current["name"],
+            "conditions": conditions if conditions is not None else current["conditions"],
+            "action": action if action is not None else current["action"],
+            "enabled": enabled if enabled is not None else current["enabled"],
+            "updated_at": _now(),
+        }
+        conn.execute(
+            """
+            UPDATE rules
+            SET name = ?, enabled = ?, conditions_json = ?, action_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                updated["name"],
+                1 if updated["enabled"] else 0,
+                json.dumps(updated["conditions"]),
+                json.dumps(updated["action"]),
+                updated["updated_at"],
+                rule_id,
+            ),
+        )
+        row = conn.execute("SELECT * FROM rules WHERE id = ?", (rule_id,)).fetchone()
+        conn.commit()
+    return _row_to_rule(row)
+
+
+def delete_rule(rule_id: str, db_path: Path = DEFAULT_DB_PATH) -> bool:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        cursor = conn.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_rule(rule_id: str, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any] | None:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM rules WHERE id = ?", (rule_id,)).fetchone()
+    return _row_to_rule(row) if row else None
+
+
+def list_rules(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM rules ORDER BY created_at DESC"
+        ).fetchall()
+    return [_row_to_rule(r) for r in rows]
+
+
+def record_rule_event(
+    *,
+    rule_id: str,
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    init_ai_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO rule_events (rule_id, event_type, payload_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (rule_id, event_type, json.dumps(payload or {}), now),
+        )
+        row = conn.execute(
+            "SELECT * FROM rule_events WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        conn.commit()
+    return {
+        "id": int(row["id"]),
+        "rule_id": row["rule_id"],
+        "event_type": row["event_type"],
+        "payload": json.loads(row["payload_json"] or "{}"),
+        "created_at": row["created_at"],
+    }
+
+
+def list_rule_events(
+    *, limit: int = 50, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict[str, Any]]:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM rule_events
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (max(1, min(limit, 200)),),
+        ).fetchall()
+    return [
+        {
+            "id": int(r["id"]),
+            "rule_id": r["rule_id"],
+            "event_type": r["event_type"],
+            "payload": json.loads(r["payload_json"] or "{}"),
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
