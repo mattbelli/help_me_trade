@@ -14,7 +14,7 @@ import {
 const PANEL_LABELS: Record<RailPanelId, { title: string; hint: string }> = {
   watchlist: { title: "Watchlist", hint: "Symbols and quick chart jump" },
   rss: { title: "RSS feed", hint: "News — coming soon" },
-  insights: { title: "AI insights", hint: "Chat — coming soon" },
+  insights: { title: "AI insights", hint: "Live portfolio summary on each poll" },
 };
 
 type Props = {

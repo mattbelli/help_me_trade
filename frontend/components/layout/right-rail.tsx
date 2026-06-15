@@ -169,7 +169,6 @@ function RightRailInner() {
             {config.panels.rss && <RssPlaceholder />}
             {config.panels.insights && (
               <div className="flex min-h-0 flex-1 flex-col p-3">
-                <p className="mb-2 text-sm font-medium">AI insights</p>
                 <InsightsPanel />
               </div>
             )}

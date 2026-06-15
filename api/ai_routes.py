@@ -233,6 +233,7 @@ async def _stream_insight(snapshot: dict):
 @router.get("/memories")
 def api_list_memories(
     type: str | None = Query(None, alias="type"),
+    q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ):
     if type is not None and type not in MEMORY_TYPES:
@@ -243,7 +244,19 @@ def api_list_memories(
             status_code=400,
         )
     service = get_memory_service()
+    if q and q.strip():
+        return {
+            "memories": service.search(q.strip(), memory_type=type, limit=limit)
+        }
     return {"memories": service.list(memory_type=type, limit=limit)}
+
+
+@router.get("/memories/{memory_id}")
+def api_get_memory(memory_id: int):
+    record = get_memory_service().get(memory_id)
+    if record is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return record
 
 
 @router.post("/memories")
@@ -269,6 +282,45 @@ def api_create_memory(body: dict = Body(...)):
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     return record
+
+
+@router.patch("/memories/{memory_id}")
+def api_patch_memory(memory_id: int, body: dict = Body(...)):
+    content = body.get("content")
+    memory_type = body.get("type")
+    metadata = body.get("metadata")
+    if memory_type is not None:
+        memory_type = str(memory_type).strip()
+        if memory_type not in MEMORY_TYPES:
+            return JSONResponse(
+                {
+                    "error": f"type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
+                },
+                status_code=400,
+            )
+    if content is not None and not str(content).strip():
+        return JSONResponse({"error": "content cannot be empty"}, status_code=400)
+    if metadata is not None and not isinstance(metadata, dict):
+        return JSONResponse({"error": "metadata must be an object"}, status_code=400)
+    try:
+        record = get_memory_service().update(
+            memory_id,
+            content=str(content).strip() if content is not None else None,
+            memory_type=memory_type,
+            metadata=metadata,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    if record is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return record
+
+
+@router.delete("/memories/{memory_id}")
+def api_delete_memory(memory_id: int):
+    if not get_memory_service().delete(memory_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
 
 
 @router.post("/research/run")

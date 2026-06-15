@@ -2,51 +2,33 @@
 
 Personal trading diary / copilot. Built in small **tracer bullets** so each step is understandable before adding the next layer.
 
-## Bullet 0 — Alpaca paper API setup
+## Quick start
 
-**Goal:** Confirm your Alpaca paper API keys work (no app code yet).
+### Backend (port 8000)
 
-### 1. Create a virtual environment
-
-```powershell
-cd c:\Users\matth\Documents\Vibing\help_me_trade
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+cp .env.example .env        # add Alpaca paper keys
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### 2. Configure secrets
+### Frontend (port 3001)
 
-```powershell
-copy .env.example .env
+```bash
+cd frontend
+bun install
+bun run dev
 ```
 
-Edit `.env` and set:
+Open **http://localhost:3001**. The API defaults to `http://127.0.0.1:8000`.
 
-| Variable | Value |
-|----------|-------|
-| `APCA_API_KEY_ID` | Your paper **Key ID** from Alpaca |
-| `APCA_API_SECRET_KEY` | Your paper **Secret Key** (shown once when created) |
-| `APCA_API_BASE_URL` | `https://paper-api.alpaca.markets` (no `/v2` at the end) |
+### Verify AI stack (mock LLM, no API key)
 
-Get keys: [Alpaca Paper Dashboard](https://app.alpaca.markets/paper/dashboard/overview) → API Keys.
-
-**Edit `.env`, not `.env.example`.** The example file is a template only and may be committed to git.
-
-**Never commit `.env`** — it is in `.gitignore`.
-
-### 3. Verify connectivity
-
-```powershell
-python scripts/verify_alpaca.py
+```bash
+LLM_PROVIDER=mock python3 scripts/test_ai_stack.py
 ```
-
-You should see account status, buying power, and cash printed. If you get `401`, double-check both key ID and secret.
-
-### Paper vs live
-
-- **Paper** (`paper-api.alpaca.markets`) — fake money, safe for learning.
-- **Live** (`api.alpaca.markets`) — real money. We stay on paper until you explicitly switch.
 
 ## Roadmap
 
@@ -56,174 +38,130 @@ You should see account status, buying power, and cash printed. If you get `401`,
 | 1 | Done | Fetch data in terminal (separate scripts) |
 | 2 | Done | SQLite + FastAPI API |
 | 3 UI | Done | Next.js + shadcn dashboard |
-| 3 AI | — | First cloud LLM insight |
-| 4 | — | Ollama provider |
-| 5 | In progress | Schwab adapter |
+| 3 AI | Done | LLM providers, insights, agent chat, research, memories, rules |
+| 4 | Done | Ollama + OpenAI-compatible providers (OpenAI, Anthropic, DeepSeek, OpenRouter) |
+| 5 | Partial | Schwab adapter (account/positions/orders; charts still use Alpaca) |
 
-See `References/` for the full architecture vision.
+See `References/` for the long-term architecture vision.
+
+## App pages
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Overview — account, positions, orders, P&L chart |
+| `/trading` | Chart, watchlist, price alerts |
+| `/charts` | Multi-chart grid |
+| `/research` | Deep research runs with HTML reports |
+| `/memories` | Browse, search, add, edit, delete agent memories |
+| `/agents` | Streaming copilot chat with tools and per-chat model picker |
+
+**Settings** (sidebar gear): broker credentials and AI provider keys/models.
+
+**Right rail**: watchlist, live AI insights (refreshes on each broker poll), RSS placeholder.
+
+## AI setup
+
+1. Open **Settings → AI**
+2. Choose provider (OpenAI, Anthropic, DeepSeek, OpenRouter, Ollama, or Mock for offline dev)
+3. Enter API key and model (or use defaults)
+4. Save — used for insights, research, reflection, and chat
+
+**Per-chat model:** on `/agents`, pick a model in the chat input without changing global settings.
+
+**Deep research web sources:** set `SEARXNG_URL` in `.env` for real web search; otherwise mock snippets are used.
+
+**Memories:** standard chat sessions auto-extract preferences/lessons into Mem0 + SQLite. Manage them on `/memories`.
+
+## Bullet 0 — Alpaca paper API setup
+
+**Goal:** Confirm your Alpaca paper API keys work.
+
+### Configure secrets
+
+Copy `.env.example` to `.env` and set:
+
+| Variable | Value |
+|----------|-------|
+| `APCA_API_KEY_ID` | Paper **Key ID** from Alpaca |
+| `APCA_API_SECRET_KEY` | Paper **Secret Key** |
+| `APCA_API_BASE_URL` | `https://paper-api.alpaca.markets` |
+
+Get keys: [Alpaca Paper Dashboard](https://app.alpaca.markets/paper/dashboard/overview) → API Keys.
+
+**Never commit `.env`** — it is in `.gitignore`.
+
+### Verify connectivity
+
+```bash
+python scripts/verify_alpaca.py
+```
+
+### Paper vs live
+
+- **Paper** (`paper-api.alpaca.markets`) — fake money, safe for learning.
+- **Live** (`api.alpaca.markets`) — real money. Stay on paper until you explicitly switch.
 
 ## Bullet 1 — Fetch data (terminal)
 
-**Goal:** Pull data through the broker adapter — one script per resource.
-
-```powershell
-python -m scripts.fetch_account    # cash, buying power, portfolio value
-python -m scripts.fetch_positions  # filled holdings only
-python -m scripts.fetch_orders     # pending / open orders
+```bash
+python -m scripts.fetch_account
+python -m scripts.fetch_positions
+python -m scripts.fetch_orders
 ```
 
-| Script | Alpaca endpoint | When it's empty |
-|--------|-----------------|-----------------|
-| `fetch_account` | `/v2/account` | (always has account info) |
-| `fetch_positions` | `/v2/positions` | Normal before any fills |
-| `fetch_orders` | `/v2/orders?status=open` | Normal when nothing is queued |
+| Script | When it's empty |
+|--------|-----------------|
+| `fetch_positions` | Normal before any fills |
+| `fetch_orders` | Normal when nothing is queued |
 
-**Positions vs orders:** an order waiting for market open shows in `fetch_orders`, not `fetch_positions`, until it fills.
+## Bullet 2 — SQLite + API
 
-### What each file does
-
-| File | Role |
-|------|------|
-| `brokers/base.py` | `Position`, `Account`, `Order` types + `BrokerAdapter` interface |
-| `brokers/alpaca.py` | Talks to Alpaca API, maps response to our types |
-| `brokers/schwab.py` | Stub for Bullet 5 |
-| `scripts/fetch_*.py` | One CLI per resource |
-| `scripts/_broker_cli.py` | Shared JSON output helper (not run directly) |
-
-## Bullet 2 — SQLite + web dashboard
-
-**Goal:** Poll Alpaca every 45 seconds, save snapshots to SQLite, view in the browser.
-
-### Start the server
-
-```powershell
-pip install -r requirements.txt
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-If port 8000 is busy (`WinError 10013`), either stop the other process or pick another port:
-
-```powershell
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8001
-# then open http://127.0.0.1:8001
-```
-
-To see what is using port 8000 on Windows: `netstat -ano | findstr ":8000"`
-
-Open http://127.0.0.1:8000 in your browser.
-
-### API endpoints (JSON)
+Polls enabled brokers every ~20s, saves snapshots to `data/trading.db`.
 
 | Endpoint | Returns |
 |----------|---------|
 | `GET /api/snapshot` | Latest account + positions + orders |
-| `GET /api/positions` | Latest positions only |
-| `GET /api/orders` | Latest open orders only |
-| `GET /api/account` | Latest account summary |
+| `GET /api/positions` | Positions only |
+| `GET /api/orders` | Open orders only |
+| `GET /api/account` | Account summary |
 | `GET /health` | Server status |
 
-Data is stored in `data/trading.db` (gitignored). The server polls Alpaca on startup and every 45s.
+## Bullet 3 — Dashboard + AI
 
-### What each file does
+### Key AI endpoints
 
-| File | Role |
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/insights/stream` | SSE portfolio insight paragraph |
+| `POST /api/chat` | Agent chat (SSE) |
+| `GET/POST/PATCH/DELETE /api/memories` | Memory CRUD |
+| `POST /api/research/run` | Deep research report |
+| `GET /api/ai/providers` | Provider catalog for settings UI |
+
+### Project layout
+
+| Area | Path |
 |------|------|
-| `db/sqlite.py` | Creates tables, saves/reads snapshots |
-| `api/main.py` | FastAPI app, background poller, JSON API |
-
-## Bullet 3 — Next.js + shadcn dashboard
-
-**Goal:** Proper UI that reads from the FastAPI backend (no AI yet).
-
-### Run both servers (two terminals)
-
-**Terminal 1 — API (port 8000):**
-```powershell
-cd c:\Users\matth\Documents\Vibing\help_me_trade
-.\.venv\Scripts\Activate.ps1
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-**Terminal 2 — Frontend (port 3001, uses Bun):**
-```powershell
-cd c:\Users\matth\Documents\Vibing\help_me_trade\frontend
-.\dev.ps1
-```
-
-Or after restarting the terminal: `bun run dev`
-
-Open **http://localhost:3001**
-
-Use a different port: `bun run dev -- -p 3005` (CORS allows any localhost port).
-
-### Bun setup (one time)
-
-If `bun` is not recognized:
-
-```powershell
-powershell -c "irm bun.sh/install.ps1 | iex"
-```
-
-Restart the terminal. See [frontend/README.md](frontend/README.md) for all frontend commands.
-
-### Shadcn project setup (already done)
-
-If you need to recreate the frontend:
-```powershell
-bunx shadcn@latest create -n frontend -t next -d -y
-cd frontend
-bun install
-```
-Use `-n frontend` for the name — a positional `frontend` alone will hang on an interactive prompt.
-
-### Frontend layout
-
-| Component | Shows |
-|-----------|--------|
-| Account cards | Cash, buying power, portfolio, status |
-| Positions table | Filled holdings |
-| Orders table | Pending orders |
-| Insights panel | Placeholder for AI (next bullet) |
-
-Swap in blocks from [shoogle.dev](https://shoogle.dev/search?tab=explore) anytime — drop them in `frontend/components/` and we'll wire them up.
+| FastAPI app | `api/main.py`, `api/ai_routes.py` |
+| Brokers | `brokers/alpaca.py`, `brokers/schwab.py` |
+| AI stack | `ai/llm/`, `ai/chat/`, `ai/research/`, `ai/memories/` |
+| Frontend | `frontend/` (Next.js 16, Bun) |
+| Integration tests | `scripts/test_ai_stack.py` |
 
 ## Schwab broker setup
 
-Schwab uses **OAuth** (not API keys like Alpaca). You need a [Schwab Developer](https://developer.schwab.com) app approved first.
-
-### 1. Add Schwab credentials to `.env`
+Schwab uses **OAuth**. See [Schwab Developer](https://developer.schwab.com).
 
 ```env
-BROKER=schwab
 SCHWAB_API_KEY=your_app_key
 SCHWAB_APP_SECRET=your_app_secret
 SCHWAB_CALLBACK_URL=https://127.0.0.1:8182
 ```
 
-The callback URL must **exactly match** what you registered in the Schwab developer portal.
-
-### 2. Log in once (saves token to disk)
-
-```powershell
+```bash
 python -m scripts.schwab_login
 ```
 
-A browser opens for Schwab login. Token is saved to `data/schwab_token.json` (gitignored).
+Token saved to `data/schwab_token.json`. Enable Schwab in Settings alongside Alpaca for a combined overview.
 
-### 3. Restart the API
-
-```powershell
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-The dashboard shows a **SCHWAB** badge and days until weekly re-auth.
-
-### Switch back to Alpaca
-
-Set `BROKER=alpaca` in `.env` and restart the API.
-
-### Multiple Schwab accounts
-
-If you have more than one linked account, set `SCHWAB_ACCOUNT_HASH` in `.env` (the API will tell you the hash if needed).
-
-
+Charts and market data still require Alpaca as primary broker.

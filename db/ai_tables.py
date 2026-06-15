@@ -221,6 +221,66 @@ def search_memories(
     return [_row_to_memory(r) for r in rows]
 
 
+def get_memory(
+    memory_id: int, db_path: Path = DEFAULT_DB_PATH
+) -> dict[str, Any] | None:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+    return _row_to_memory(row) if row else None
+
+
+def update_memory(
+    memory_id: int,
+    *,
+    content: str | None = None,
+    memory_type: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+        if not row:
+            return None
+        current = _row_to_memory(row)
+        new_type = memory_type if memory_type is not None else current["type"]
+        if new_type not in MEMORY_TYPES:
+            raise ValueError(
+                f"memory_type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
+            )
+        new_content = content.strip() if content is not None else current["content"]
+        if not new_content:
+            raise ValueError("content is required")
+        new_meta = metadata if metadata is not None else current["metadata"]
+        now = _now()
+        conn.execute(
+            """
+            UPDATE memories
+            SET memory_type = ?, content = ?, metadata_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (new_type, new_content, json.dumps(new_meta), now, memory_id),
+        )
+        updated = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+        conn.commit()
+    return _row_to_memory(updated)
+
+
+def delete_memory(memory_id: int, db_path: Path = DEFAULT_DB_PATH) -> bool:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def create_research_run(
     *,
     topic: str,

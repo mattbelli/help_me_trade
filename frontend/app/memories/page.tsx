@@ -1,15 +1,5 @@
-import { ComingSoonPage } from "@/components/placeholders/coming-soon-page";
+import { MemoriesPage } from "@/components/memories/memories-page";
 
-export default function MemoriesPage() {
-  return (
-    <ComingSoonPage
-      title="Memories"
-      description="Stored agent memory and trading context."
-      bullets={[
-        "Browse what the agent remembers about your style and rules",
-        "Edit or prune memories before they influence recommendations",
-        "Link memories to specific symbols or journal entries",
-      ]}
-    />
-  );
+export default function Page() {
+  return <MemoriesPage />;
 }

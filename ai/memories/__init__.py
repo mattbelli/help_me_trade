@@ -5,7 +5,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from db.ai_tables import create_memory, list_memories, search_memories
+from db.ai_tables import (
+    create_memory,
+    delete_memory,
+    get_memory,
+    list_memories,
+    search_memories,
+    update_memory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +98,43 @@ class MemoryService:
             except Exception as exc:
                 logger.warning("Mem0 search failed, falling back to local: %s", exc)
         return search_memories(query, memory_type=memory_type, limit=limit)
+
+    def get(self, memory_id: int) -> dict[str, Any] | None:
+        return get_memory(memory_id)
+
+    def update(
+        self,
+        memory_id: int,
+        *,
+        content: str | None = None,
+        memory_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        record = update_memory(
+            memory_id,
+            content=content,
+            memory_type=memory_type,
+            metadata=metadata,
+        )
+        if record is None:
+            return None
+        if self._mem0 is not None and content is not None:
+            try:
+                self._mem0.add(
+                    content,
+                    user_id=USER_ID,
+                    metadata={
+                        "category": record["type"],
+                        **record.get("metadata", {}),
+                        "local_id": memory_id,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Mem0 update mirror failed (local saved): %s", exc)
+        return record
+
+    def delete(self, memory_id: int) -> bool:
+        return delete_memory(memory_id)
 
 
 _memory_service: MemoryService | None = None

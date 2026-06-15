@@ -44,14 +44,12 @@ const NAV_ITEMS: {
     label: "Research",
     description: "Deep dives",
     icon: Search,
-    soon: true,
   },
   {
     href: "/memories",
     label: "Memories",
     description: "Agent recall",
     icon: Brain,
-    soon: true,
   },
   {
     href: "/agents",

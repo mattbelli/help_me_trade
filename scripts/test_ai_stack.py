@@ -165,6 +165,27 @@ def main() -> int:
             listed.status_code == 200 and len(listed.json()["memories"]) >= 1,
         )
 
+        memory_id = pref.json()["id"]
+        patched = client.patch(
+            f"/api/memories/{memory_id}",
+            json={"content": "Risk 1.5% per trade"},
+        )
+        _check("memory_patch", patched.status_code == 200)
+        _check(
+            "memory_patch_content",
+            patched.json().get("content") == "Risk 1.5% per trade",
+        )
+
+        search = client.get("/api/memories", params={"q": "1.5%"})
+        _check(
+            "memory_search",
+            search.status_code == 200
+            and any(m["id"] == memory_id for m in search.json()["memories"]),
+        )
+
+        deleted = client.delete(f"/api/memories/{memory_id}")
+        _check("memory_delete", deleted.status_code == 200)
+
         research = client.post(
             "/api/research/run",
             json={"topic": "AAPL momentum", "symbol": "AAPL", "depth": "quick"},
