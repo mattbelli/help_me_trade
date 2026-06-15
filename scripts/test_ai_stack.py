@@ -205,6 +205,27 @@ def main() -> int:
         delete = client.delete(f"/api/rules/{rule_id}")
         _check("rule_delete", delete.status_code == 200)
 
+        with client.stream(
+            "POST",
+            "/api/chat",
+            json={
+                "messages": [
+                    {
+                        "id": "u1",
+                        "role": "user",
+                        "parts": [{"type": "text", "text": "Summarize my portfolio"}],
+                    }
+                ]
+            },
+        ) as chat_resp:
+            _check("chat_status", chat_resp.status_code == 200)
+            _check(
+                "chat_stream_header",
+                chat_resp.headers.get("x-vercel-ai-ui-message-stream") == "v1",
+            )
+            body = "".join(chat_resp.iter_text())
+            _check("chat_done", "data: [DONE]" in body, body[-200:])
+
         print("\nAll AI stack checks passed.")
         return 0
 

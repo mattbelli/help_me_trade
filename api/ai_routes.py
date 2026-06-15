@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from ai.chat.agent import run_chat_stream
 from ai.insights import generate_insight_paragraph
 from ai.llm.factory import get_llm, get_llm_provider_name
 from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
@@ -58,6 +59,29 @@ def api_ai_providers():
         ],
         "defaults": DEFAULT_AI_SETTINGS,
     }
+
+
+@router.post("/chat")
+async def api_chat(body: dict = Body(...)):
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return JSONResponse({"error": "messages must be a list"}, status_code=400)
+
+    async def event_generator():
+        for chunk in run_chat_stream(messages):
+            yield chunk
+            await asyncio.sleep(0)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "x-vercel-ai-ui-message-stream": "v1",
+        },
+    )
 
 
 @router.get("/insights/stream")
