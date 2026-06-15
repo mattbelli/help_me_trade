@@ -56,9 +56,8 @@ const NAV_ITEMS: {
   {
     href: "/agents",
     label: "Agents",
-    description: "Runs & CLI",
+    description: "Copilot chat",
     icon: Bot,
-    soon: true,
   },
 ];
 

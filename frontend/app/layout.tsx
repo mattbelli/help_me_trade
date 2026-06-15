@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import "./globals.css"
 import { AppShell } from "@/components/layout/app-shell"
 import { ThemeProvider } from "@/components/theme-provider"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 const plexSans = IBM_Plex_Sans({
@@ -36,9 +37,11 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <Suspense fallback={null}>
-            <AppShell>{children}</AppShell>
-          </Suspense>
+          <TooltipProvider>
+            <Suspense fallback={null}>
+              <AppShell>{children}</AppShell>
+            </Suspense>
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>
