@@ -122,6 +122,15 @@ def main() -> int:
             ),
         )
 
+        models = client.get("/api/ai/models")
+        _check("ai_models", models.status_code == 200)
+        models_json = models.json()
+        _check(
+            "ai_models_catalog",
+            models_json.get("provider") == "mock"
+            and len(models_json.get("models", [])) >= 1,
+        )
+
         text = get_llm().complete([LLMMessage("user", "portfolio insight")])
         _check("llm_complete", len(text) > 10, text[:80])
 
@@ -251,6 +260,7 @@ def main() -> int:
                     }
                 ],
                 "mode": "quick",
+                "model": "mock",
             },
         ) as chat_resp:
             _check("chat_status", chat_resp.status_code == 200)

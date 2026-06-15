@@ -82,12 +82,13 @@ def extract_memories_from_turn(
     user_text: str,
     assistant_text: str,
     session_id: str,
+    model: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return memory records created from a chat turn."""
     if not user_text.strip() or not assistant_text.strip():
         return []
 
-    llm = get_llm()
+    llm = get_llm(model=model)
     messages = [
         LLMMessage(
             role="system",

@@ -30,57 +30,65 @@ def clear_llm_cache() -> None:
     _cached_provider = None
 
 
-def get_llm(*, force_refresh: bool = False) -> LLMClient:
-    global _cached, _cached_provider
-    if force_refresh:
-        clear_llm_cache()
-
-    provider = get_llm_provider_name()
-    if _cached is not None and _cached_provider == provider:
-        return _cached
-
-    ai = get_resolved_ai_settings()
-    creds = provider_credentials(provider, ai)
-
+def _build_llm_client(
+    provider: str, creds: dict[str, str], *, model: str | None = None
+) -> LLMClient:
+    resolved_model = (model or creds.get("model") or "").strip()
     if provider == "openai":
-        client: LLMClient = OpenAICompatibleLLM(
+        return OpenAICompatibleLLM(
             provider="openai",
             api_key=creds["api_key"],
             base_url=creds["base_url"],
-            model=creds["model"],
+            model=resolved_model,
         )
-    elif provider == "deepseek":
-        client = OpenAICompatibleLLM(
+    if provider == "deepseek":
+        return OpenAICompatibleLLM(
             provider="deepseek",
             api_key=creds["api_key"],
             base_url=creds["base_url"],
-            model=creds["model"],
+            model=resolved_model,
         )
-    elif provider == "openrouter":
-        client = OpenAICompatibleLLM(
+    if provider == "openrouter":
+        return OpenAICompatibleLLM(
             provider="openrouter",
             api_key=creds["api_key"],
             base_url=creds["base_url"],
-            model=creds["model"],
+            model=resolved_model,
             extra_headers={
                 "HTTP-Referer": "https://github.com/BeerBelly69/help_me_trade",
                 "X-Title": "Help Me Trade",
             },
         )
-    elif provider == "anthropic":
-        client = AnthropicLLM(
+    if provider == "anthropic":
+        return AnthropicLLM(
             api_key=creds["api_key"],
             base_url=creds["base_url"],
-            model=creds["model"],
+            model=resolved_model,
         )
-    elif provider == "ollama":
-        client = OllamaLLM(
+    if provider == "ollama":
+        return OllamaLLM(
             base_url=creds["base_url"],
-            model=creds["model"],
+            model=resolved_model,
         )
-    else:
-        client = MockLLM()
+    return MockLLM()
 
+
+def get_llm(*, force_refresh: bool = False, model: str | None = None) -> LLMClient:
+    global _cached, _cached_provider
+    if force_refresh:
+        clear_llm_cache()
+
+    provider = get_llm_provider_name()
+    ai = get_resolved_ai_settings()
+    creds = provider_credentials(provider, ai)
+
+    if model:
+        return _build_llm_client(provider, creds, model=model.strip())
+
+    if _cached is not None and _cached_provider == provider:
+        return _cached
+
+    client = _build_llm_client(provider, creds)
     _cached = client
     _cached_provider = provider
     return client

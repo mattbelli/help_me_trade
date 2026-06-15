@@ -14,6 +14,7 @@ from ai.chat.agent import ChatRunResult, finalize_chat_turn, run_chat_stream
 from ai.chat.messages import last_user_text
 from ai.insights import generate_insight_paragraph
 from ai.llm.factory import get_llm, get_llm_provider_name
+from ai.llm.models import list_chat_models
 from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
@@ -70,6 +71,12 @@ def api_ai_providers():
         ],
         "defaults": DEFAULT_AI_SETTINGS,
     }
+
+
+@router.get("/ai/models")
+def api_ai_models():
+    """Chat model catalog for the active provider."""
+    return list_chat_models()
 
 
 @router.get("/chat/sessions")
@@ -132,6 +139,8 @@ async def api_chat(body: dict = Body(...)):
 
     session_id = body.get("sessionId") or body.get("session_id")
     mode = str(body.get("mode", "quick")).strip().lower()
+    model = body.get("model")
+    chat_model = str(model).strip() if model else None
     if mode not in CHAT_MODES:
         return JSONResponse(
             {"error": f"mode must be one of: {', '.join(sorted(CHAT_MODES))}"},
@@ -154,6 +163,7 @@ async def api_chat(body: dict = Body(...)):
                 messages,
                 session_id=session_id,
                 mode=mode,
+                model=chat_model,
                 result=run,
             ):
                 yield chunk
@@ -166,6 +176,7 @@ async def api_chat(body: dict = Body(...)):
                     assistant_text=run.assistant_text,
                     session_id=session_id,
                     mode=mode,
+                    model=chat_model,
                     run=run,
                 )
 

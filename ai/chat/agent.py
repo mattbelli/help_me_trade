@@ -71,6 +71,7 @@ def run_chat_stream(
     *,
     session_id: str | None = None,
     mode: str = "quick",
+    model: str | None = None,
     result: ChatRunResult | None = None,
 ) -> Iterator[str]:
     stream = UIMessageStream()
@@ -113,7 +114,7 @@ def run_chat_stream(
         )
 
     try:
-        llm = get_llm()
+        llm = get_llm(model=model)
         final_messages = _build_final_messages(
             history, user_text=user_text, tool_results=tool_results
         )
@@ -138,6 +139,7 @@ def finalize_chat_turn(
     assistant_text: str,
     session_id: str | None,
     mode: str,
+    model: str | None = None,
     run: ChatRunResult,
 ) -> None:
     _persist_turn(
@@ -146,6 +148,7 @@ def finalize_chat_turn(
         assistant_text=assistant_text,
         session_id=session_id,
         mode=mode,
+        model=model,
         run=run,
     )
 
@@ -157,6 +160,7 @@ def _persist_turn(
     assistant_text: str,
     session_id: str | None,
     mode: str,
+    model: str | None = None,
     run: ChatRunResult,
 ) -> None:
     if not session_id or mode not in PERSISTED_MODES:
@@ -198,4 +202,5 @@ def _persist_turn(
             user_text=user_text,
             assistant_text=assistant_text,
             session_id=session_id,
+            model=model,
         )

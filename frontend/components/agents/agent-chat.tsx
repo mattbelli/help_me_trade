@@ -41,6 +41,8 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Badge } from "@/components/ui/badge";
 import { API_BASE } from "@/lib/api";
 import { AI_PROVIDER_OPTIONS } from "@/lib/ai-settings";
+import { shortModelLabel } from "@/lib/ai-models";
+import { ChatModelSelect } from "@/components/agents/chat-model-select";
 import {
   CHAT_MODE_LABELS,
   type ChatMode,
@@ -119,6 +121,7 @@ function toUiMessages(messages: ChatSessionMessage[]): UIMessage[] {
 
 export function AgentChat() {
   const [activeProvider, setActiveProvider] = useState("mock");
+  const [chatModel, setChatModel] = useState("");
   const [chatMode, setChatMode] = useState<ChatMode>("standard");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState("New chat");
@@ -139,9 +142,10 @@ export function AgentChat() {
         body: {
           sessionId,
           mode: chatMode,
+          model: chatModel || undefined,
         },
       }),
-    [sessionId, chatMode],
+    [sessionId, chatMode, chatModel],
   );
 
   const chatId = sessionId ?? `quick-${chatMode}`;
@@ -280,6 +284,7 @@ export function AgentChat() {
                 >
                   {AI_PROVIDER_OPTIONS.find((p) => p.id === activeProvider)
                     ?.label ?? activeProvider}
+                  {chatModel ? ` · ${shortModelLabel(chatModel)}` : ""}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -397,7 +402,13 @@ export function AgentChat() {
                 </PromptInputBody>
                 <PromptInputFooter>
                   <PromptInputTools>
-                    <span className="text-xs text-muted-foreground">
+                    <ChatModelSelect
+                      provider={activeProvider}
+                      value={chatModel}
+                      onChange={setChatModel}
+                      disabled={isLoading || bootstrapping}
+                    />
+                    <span className="hidden text-xs text-muted-foreground sm:inline">
                       {chatMode === "standard"
                         ? "Mem0 enabled"
                         : chatMode === "private"
