@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
 
+import { ChatSessionSidebar } from "@/components/agents/chat-session-sidebar";
 import {
   Conversation,
   ConversationContent,
@@ -40,6 +41,15 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Badge } from "@/components/ui/badge";
 import { API_BASE } from "@/lib/api";
 import { AI_PROVIDER_OPTIONS } from "@/lib/ai-settings";
+import {
+  CHAT_MODE_LABELS,
+  type ChatMode,
+  type ChatSession,
+  type ChatSessionMessage,
+  createChatSession,
+  fetchChatSession,
+  fetchChatSessions,
+} from "@/lib/chat-sessions";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
@@ -95,8 +105,25 @@ function ToolPartView({
   );
 }
 
+function toUiMessages(messages: ChatSessionMessage[]): UIMessage[] {
+  return messages.map((m) => ({
+    id: m.id,
+    role: m.role as UIMessage["role"],
+    parts: m.parts.map((p) =>
+      p.type === "text"
+        ? { type: "text" as const, text: p.text ?? "" }
+        : { type: "text" as const, text: "" },
+    ),
+  }));
+}
+
 export function AgentChat() {
   const [activeProvider, setActiveProvider] = useState("mock");
+  const [chatMode, setChatMode] = useState<ChatMode>("standard");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionTitle, setSessionTitle] = useState("New chat");
+  const [sidebarRefresh, setSidebarRefresh] = useState(0);
+  const [bootstrapping, setBootstrapping] = useState(true);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/ai/providers`)
@@ -109,184 +136,284 @@ export function AgentChat() {
     () =>
       new DefaultChatTransport({
         api: `${API_BASE}/api/chat`,
+        body: {
+          sessionId,
+          mode: chatMode,
+        },
       }),
-    [],
+    [sessionId, chatMode],
   );
+
+  const chatId = sessionId ?? `quick-${chatMode}`;
 
   const { messages, sendMessage, status, stop, regenerate, setMessages } =
     useChat({
+      id: chatId,
       transport,
+      onFinish: () => {
+        if (chatMode !== "quick") {
+          setSidebarRefresh((n) => n + 1);
+        }
+      },
       onError: (error) => {
         console.error("Chat error:", error);
       },
     });
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessions = await fetchChatSessions();
+        if (!cancelled && sessions.length > 0) {
+          const latest = sessions[0];
+          const detail = await fetchChatSession(latest.id);
+          setSessionId(latest.id);
+          setChatMode(latest.mode);
+          setSessionTitle(detail.title);
+          setMessages(toUiMessages(detail.messages));
+          return;
+        }
+        const session = await createChatSession("standard");
+        if (!cancelled) {
+          setSessionId(session.id);
+          setChatMode("standard");
+          setSessionTitle(session.title);
+        }
+      } catch {
+        if (!cancelled) {
+          setChatMode("quick");
+          setSessionId(null);
+        }
+      } finally {
+        if (!cancelled) setBootstrapping(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setMessages]);
+
   const isLoading = status === "streaming" || status === "submitted";
+
+  const handleNewChat = useCallback(
+    (mode: ChatMode, session?: ChatSession) => {
+      setChatMode(mode);
+      if (mode === "quick") {
+        setSessionId(null);
+        setSessionTitle("Quick chat");
+      } else if (session) {
+        setSessionId(session.id);
+        setSessionTitle(session.title);
+      }
+      setMessages([]);
+    },
+    [setMessages],
+  );
+
+  const handleSelectSession = useCallback(
+    async (session: ChatSession) => {
+      try {
+        const detail = await fetchChatSession(session.id);
+        setSessionId(session.id);
+        setChatMode(session.mode);
+        setSessionTitle(detail.title);
+        setMessages(toUiMessages(detail.messages));
+      } catch (err) {
+        console.error("Failed to load session:", err);
+      }
+    },
+    [setMessages],
+  );
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage) => {
       const text = message.text?.trim();
-      if (!text || isLoading) return;
+      if (!text || isLoading || bootstrapping) return;
       sendMessage({ text });
     },
-    [isLoading, sendMessage],
+    [bootstrapping, isLoading, sendMessage],
   );
 
   const handleSuggestion = useCallback(
     (text: string) => {
-      if (isLoading) return;
+      if (isLoading || bootstrapping) return;
       sendMessage({ text });
     },
-    [isLoading, sendMessage],
+    [bootstrapping, isLoading, sendMessage],
   );
 
   const copyMessage = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      // ignore clipboard errors
+      // ignore
     }
   }, []);
 
+  const modeLabel = CHAT_MODE_LABELS[chatMode];
+
   return (
-    <div className="flex h-[calc(100svh-4rem)] min-h-[560px] flex-col">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold tracking-tight">Agent chat</h1>
-            <Badge variant="secondary" className="rounded-full text-[10px]">
-              Copilot
-            </Badge>
-            <Badge variant="outline" className="rounded-full text-[10px] font-normal">
-              {AI_PROVIDER_OPTIONS.find((p) => p.id === activeProvider)?.label ??
-                activeProvider}
-            </Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Streaming agent with portfolio tools, memories, and research.
-          </p>
-        </div>
-      </div>
+    <div className="-mx-5 -my-8 flex h-[calc(100svh-0px)] min-h-[600px] flex-col lg:-mx-8 lg:-my-10">
+      <div className="flex min-h-0 flex-1 overflow-hidden border-y border-border/80 bg-background">
+        <ChatSessionSidebar
+          activeSessionId={sessionId}
+          activeMode={chatMode}
+          onSelectSession={handleSelectSession}
+          onNewChat={handleNewChat}
+          refreshKey={sidebarRefresh}
+        />
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/30">
-        <Conversation className="min-h-0 flex-1">
-          <ConversationDownload messages={messages} className="z-10" />
-          <ConversationContent>
-            {messages.length === 0 ? (
-              <ConversationEmptyState
-                icon={<Bot className="size-10 opacity-60" strokeWidth={1.5} />}
-                title="Trading copilot"
-                description="Ask about your portfolio, memories, or kick off research."
-              />
-            ) : (
-              messages.map((message, index) => {
-                const text = getMessageText(message);
-                const isLastAssistant =
-                  message.role === "assistant" && index === messages.length - 1;
-
-                return (
-                  <Message key={message.id} from={message.role}>
-                    <MessageContent>
-                      {message.parts.map((part, partIndex) => {
-                        if (part.type === "text") {
-                          return (
-                            <MessageResponse
-                              key={`${message.id}-${partIndex}`}
-                              isAnimating={
-                                isLastAssistant &&
-                                isLoading &&
-                                partIndex === message.parts.length - 1
-                              }
-                            >
-                              {part.text}
-                            </MessageResponse>
-                          );
-                        }
-                        if (isToolUIPart(part)) {
-                          return (
-                            <ToolPartView
-                              key={`${message.id}-${partIndex}`}
-                              part={part}
-                            />
-                          );
-                        }
-                        return null;
-                      })}
-                      {message.role === "assistant" &&
-                        isLastAssistant &&
-                        isLoading &&
-                        message.parts.length === 0 && (
-                          <Shimmer className="text-sm">Thinking…</Shimmer>
-                        )}
-                    </MessageContent>
-                    {message.role === "assistant" && text && !isLoading && (
-                      <MessageActions>
-                        <MessageAction
-                          tooltip="Copy"
-                          label="Copy"
-                          onClick={() => copyMessage(text)}
-                        >
-                          <CopyIcon className="size-3.5" />
-                        </MessageAction>
-                        {index === messages.length - 1 ? (
-                          <MessageAction
-                            tooltip="Regenerate"
-                            label="Regenerate"
-                            onClick={() => regenerate()}
-                          >
-                            <RefreshCwIcon className="size-3.5" />
-                          </MessageAction>
-                        ) : null}
-                      </MessageActions>
-                    )}
-                  </Message>
-                );
-              })
-            )}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
-
-        <div className="border-t border-border/80 bg-background/80 p-3 backdrop-blur-sm">
-          {messages.length === 0 ? (
-            <Suggestions className="mb-3">
-              {SUGGESTIONS.map((s) => (
-                <Suggestion
-                  key={s}
-                  suggestion={s}
-                  onClick={handleSuggestion}
-                />
-              ))}
-            </Suggestions>
-          ) : null}
-
-          <PromptInput onSubmit={handleSubmit} className="rounded-xl">
-            <PromptInputBody>
-              <PromptInputTextarea
-                placeholder="Ask about positions, memories, or market research…"
-                disabled={isLoading}
-              />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
-                <button
-                  type="button"
-                  className={cn(
-                    "text-xs text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setMessages([])}
-                  disabled={isLoading || messages.length === 0}
+        <div className="flex min-w-0 flex-1 flex-col px-5 py-6 lg:px-8">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg font-semibold tracking-tight">
+                  {sessionTitle}
+                </h1>
+                <Badge variant="secondary" className="rounded-full text-[10px]">
+                  {modeLabel.label}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="rounded-full text-[10px] font-normal"
                 >
-                  Clear chat
-                </button>
-              </PromptInputTools>
-              <PromptInputSubmit
-                disabled={isLoading}
-                status={status}
-                onStop={stop}
-              />
-            </PromptInputFooter>
-          </PromptInput>
+                  {AI_PROVIDER_OPTIONS.find((p) => p.id === activeProvider)
+                    ?.label ?? activeProvider}
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {modeLabel.description}
+              </p>
+            </div>
+          </div>
+
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/30">
+            <Conversation className="min-h-0 flex-1">
+              <ConversationDownload messages={messages} className="z-10" />
+              <ConversationContent>
+                {bootstrapping ? (
+                  <ConversationEmptyState
+                    title="Loading chat…"
+                    description="Preparing your session."
+                  />
+                ) : messages.length === 0 ? (
+                  <ConversationEmptyState
+                    icon={
+                      <Bot className="size-10 opacity-60" strokeWidth={1.5} />
+                    }
+                    title="Trading copilot"
+                    description="Ask about your portfolio, memories, or kick off research."
+                  />
+                ) : (
+                  messages.map((message, index) => {
+                    const text = getMessageText(message);
+                    const isLastAssistant =
+                      message.role === "assistant" &&
+                      index === messages.length - 1;
+
+                    return (
+                      <Message key={message.id} from={message.role}>
+                        <MessageContent>
+                          {message.parts.map((part, partIndex) => {
+                            if (part.type === "text") {
+                              return (
+                                <MessageResponse
+                                  key={`${message.id}-${partIndex}`}
+                                  isAnimating={
+                                    isLastAssistant &&
+                                    isLoading &&
+                                    partIndex === message.parts.length - 1
+                                  }
+                                >
+                                  {part.text}
+                                </MessageResponse>
+                              );
+                            }
+                            if (isToolUIPart(part)) {
+                              return (
+                                <ToolPartView
+                                  key={`${message.id}-${partIndex}`}
+                                  part={part}
+                                />
+                              );
+                            }
+                            return null;
+                          })}
+                          {message.role === "assistant" &&
+                            isLastAssistant &&
+                            isLoading &&
+                            message.parts.length === 0 && (
+                              <Shimmer className="text-sm">Thinking…</Shimmer>
+                            )}
+                        </MessageContent>
+                        {message.role === "assistant" && text && !isLoading && (
+                          <MessageActions>
+                            <MessageAction
+                              tooltip="Copy"
+                              label="Copy"
+                              onClick={() => copyMessage(text)}
+                            >
+                              <CopyIcon className="size-3.5" />
+                            </MessageAction>
+                            {index === messages.length - 1 ? (
+                              <MessageAction
+                                tooltip="Regenerate"
+                                label="Regenerate"
+                                onClick={() => regenerate()}
+                              >
+                                <RefreshCwIcon className="size-3.5" />
+                              </MessageAction>
+                            ) : null}
+                          </MessageActions>
+                        )}
+                      </Message>
+                    );
+                  })
+                )}
+              </ConversationContent>
+              <ConversationScrollButton />
+            </Conversation>
+
+            <div className="border-t border-border/80 bg-background/80 p-3 backdrop-blur-sm">
+              {messages.length === 0 && !bootstrapping ? (
+                <Suggestions className="mb-3">
+                  {SUGGESTIONS.map((s) => (
+                    <Suggestion
+                      key={s}
+                      suggestion={s}
+                      onClick={handleSuggestion}
+                    />
+                  ))}
+                </Suggestions>
+              ) : null}
+
+              <PromptInput onSubmit={handleSubmit} className="rounded-xl">
+                <PromptInputBody>
+                  <PromptInputTextarea
+                    placeholder="Ask about positions, memories, or market research…"
+                    disabled={isLoading || bootstrapping}
+                  />
+                </PromptInputBody>
+                <PromptInputFooter>
+                  <PromptInputTools>
+                    <span className="text-xs text-muted-foreground">
+                      {chatMode === "standard"
+                        ? "Mem0 enabled"
+                        : chatMode === "private"
+                          ? "Private — not saved to memory"
+                          : "Quick — ephemeral"}
+                    </span>
+                  </PromptInputTools>
+                  <PromptInputSubmit
+                    disabled={isLoading || bootstrapping}
+                    status={status}
+                    onStop={stop}
+                  />
+                </PromptInputFooter>
+              </PromptInput>
+            </div>
+          </div>
         </div>
       </div>
     </div>

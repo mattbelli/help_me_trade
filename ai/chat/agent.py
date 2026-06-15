@@ -5,13 +5,28 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from typing import Any
 
+from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.messages import last_user_text, ui_messages_to_llm
 from ai.chat.stream import UIMessageStream
 from ai.chat.tools import TOOL_DEFINITIONS, execute_tool, plan_tools
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm, get_llm_provider_name
+from db.chat_sessions import (
+    PERSISTED_MODES,
+    get_chat_session,
+    save_chat_message,
+    title_from_first_message,
+    update_chat_session_title,
+)
+
+
+@dataclass
+class ChatRunResult:
+    assistant_text: str = ""
+    memories_saved: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _system_prompt() -> str:
@@ -51,16 +66,23 @@ def _build_final_messages(
     ]
 
 
-def run_chat_stream(messages: list[dict[str, Any]]) -> Iterator[str]:
+def run_chat_stream(
+    messages: list[dict[str, Any]],
+    *,
+    session_id: str | None = None,
+    mode: str = "quick",
+    result: ChatRunResult | None = None,
+) -> Iterator[str]:
     stream = UIMessageStream()
+    run = result or ChatRunResult()
     yield stream.start()
     yield stream.start_step()
 
     user_text = last_user_text(messages)
     if not user_text:
-        yield from stream.text_chunks(
-            "Send a message to start chatting with your trading copilot."
-        )
+        text = "Send a message to start chatting with your trading copilot."
+        yield from stream.text_chunks(text)
+        run.assistant_text = text
         yield stream.finish_step()
         yield stream.finish()
         yield stream.done()
@@ -71,9 +93,7 @@ def run_chat_stream(messages: list[dict[str, Any]]) -> Iterator[str]:
     tool_results: list[dict[str, Any]] = []
 
     if planned:
-        reasoning = (
-            f"Planning {len(planned)} tool call(s) for: {user_text[:120]}"
-        )
+        reasoning = f"Planning {len(planned)} tool call(s) for: {user_text[:120]}"
         yield from stream.reasoning_chunks(reasoning)
 
     for tool_name, tool_input in planned:
@@ -104,7 +124,78 @@ def run_chat_stream(messages: list[dict[str, Any]]) -> Iterator[str]:
             f"Unable to reach the configured LLM ({get_llm_provider_name()}): {exc}"
         )
 
+    run.assistant_text = response
     yield from stream.text_chunks(response)
     yield stream.finish_step()
     yield stream.finish()
     yield stream.done()
+
+
+def finalize_chat_turn(
+    *,
+    messages: list[dict[str, Any]],
+    user_text: str,
+    assistant_text: str,
+    session_id: str | None,
+    mode: str,
+    run: ChatRunResult,
+) -> None:
+    _persist_turn(
+        messages=messages,
+        user_text=user_text,
+        assistant_text=assistant_text,
+        session_id=session_id,
+        mode=mode,
+        run=run,
+    )
+
+
+def _persist_turn(
+    *,
+    messages: list[dict[str, Any]],
+    user_text: str,
+    assistant_text: str,
+    session_id: str | None,
+    mode: str,
+    run: ChatRunResult,
+) -> None:
+    if not session_id or mode not in PERSISTED_MODES:
+        return
+
+    session = get_chat_session(session_id)
+    if session is None:
+        return
+
+    last_user = messages[-1] if messages else None
+    user_parts = (
+        last_user.get("parts", [{"type": "text", "text": user_text}])
+        if isinstance(last_user, dict)
+        else [{"type": "text", "text": user_text}]
+    )
+    user_id = (
+        str(last_user.get("id"))
+        if isinstance(last_user, dict) and last_user.get("id")
+        else f"msg_{uuid.uuid4().hex[:12]}"
+    )
+
+    save_chat_message(
+        session_id=session_id,
+        role="user",
+        parts=user_parts if isinstance(user_parts, list) else [{"type": "text", "text": user_text}],
+        message_id=user_id,
+    )
+    save_chat_message(
+        session_id=session_id,
+        role="assistant",
+        parts=[{"type": "text", "text": assistant_text}],
+    )
+
+    if session.get("title") == "New chat":
+        update_chat_session_title(session_id, title_from_first_message(user_text))
+
+    if mode == "standard":
+        run.memories_saved = extract_memories_from_turn(
+            user_text=user_text,
+            assistant_text=assistant_text,
+            session_id=session_id,
+        )

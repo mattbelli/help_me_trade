@@ -10,7 +10,8 @@ import uuid
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ai.chat.agent import run_chat_stream
+from ai.chat.agent import ChatRunResult, finalize_chat_turn, run_chat_stream
+from ai.chat.messages import last_user_text
 from ai.insights import generate_insight_paragraph
 from ai.llm.factory import get_llm, get_llm_provider_name
 from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
@@ -30,6 +31,14 @@ from db.ai_tables import (
     list_rule_events,
     list_rules,
     update_rule,
+)
+from db.chat_sessions import (
+    CHAT_MODES,
+    create_chat_session,
+    delete_chat_session,
+    get_chat_session_with_messages,
+    list_chat_sessions,
+    update_chat_session_title,
 )
 from db.sqlite import get_latest_snapshot
 
@@ -61,16 +70,102 @@ def api_ai_providers():
     }
 
 
+@router.get("/chat/sessions")
+def api_list_chat_sessions(limit: int = Query(50, ge=1, le=200)):
+    return {"sessions": list_chat_sessions(limit=limit)}
+
+
+@router.post("/chat/sessions")
+def api_create_chat_session(body: dict = Body(...)):
+    mode = str(body.get("mode", "standard")).strip().lower()
+    title = str(body.get("title", "New chat")).strip()
+    if mode not in CHAT_MODES:
+        return JSONResponse(
+            {"error": f"mode must be one of: {', '.join(sorted(CHAT_MODES))}"},
+            status_code=400,
+        )
+    if mode == "quick":
+        return JSONResponse(
+            {"error": "Use POST /api/chat with mode=quick for ephemeral chats"},
+            status_code=400,
+        )
+    try:
+        session = create_chat_session(mode=mode, title=title)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return session
+
+
+@router.get("/chat/sessions/{session_id}")
+def api_get_chat_session(session_id: str):
+    session = get_chat_session_with_messages(session_id)
+    if session is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return session
+
+
+@router.patch("/chat/sessions/{session_id}")
+def api_patch_chat_session(session_id: str, body: dict = Body(...)):
+    title = body.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return JSONResponse({"error": "title is required"}, status_code=400)
+    session = update_chat_session_title(session_id, title)
+    if session is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return session
+
+
+@router.delete("/chat/sessions/{session_id}")
+def api_delete_chat_session(session_id: str):
+    if not delete_chat_session(session_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
+
+
 @router.post("/chat")
 async def api_chat(body: dict = Body(...)):
     messages = body.get("messages")
     if not isinstance(messages, list):
         return JSONResponse({"error": "messages must be a list"}, status_code=400)
 
+    session_id = body.get("sessionId") or body.get("session_id")
+    mode = str(body.get("mode", "quick")).strip().lower()
+    if mode not in CHAT_MODES:
+        return JSONResponse(
+            {"error": f"mode must be one of: {', '.join(sorted(CHAT_MODES))}"},
+            status_code=400,
+        )
+    if session_id is not None:
+        session_id = str(session_id).strip()
+    if mode in ("standard", "private") and not session_id:
+        return JSONResponse(
+            {"error": "sessionId is required for standard and private chats"},
+            status_code=400,
+        )
+
+    run = ChatRunResult()
+    user_text = last_user_text(messages)
+
     async def event_generator():
-        for chunk in run_chat_stream(messages):
-            yield chunk
-            await asyncio.sleep(0)
+        try:
+            for chunk in run_chat_stream(
+                messages,
+                session_id=session_id,
+                mode=mode,
+                result=run,
+            ):
+                yield chunk
+                await asyncio.sleep(0)
+        finally:
+            if user_text and run.assistant_text:
+                finalize_chat_turn(
+                    messages=messages,
+                    user_text=user_text,
+                    assistant_text=run.assistant_text,
+                    session_id=session_id,
+                    mode=mode,
+                    run=run,
+                )
 
     return StreamingResponse(
         event_generator(),

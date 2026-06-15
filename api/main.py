@@ -40,6 +40,7 @@ from config.settings import (
 )
 from ai.llm.factory import clear_llm_cache
 from db.ai_tables import init_ai_tables
+from db.chat_sessions import init_chat_tables
 from db.chart_features import (
     create_price_alert,
     delete_price_alert,
@@ -107,6 +108,7 @@ async def lifespan(app: FastAPI):
     init_db()
     init_chart_features()
     init_ai_tables()
+    init_chat_tables()
     await market_hub.start()
     await _poll_once()
     poll_task = asyncio.create_task(_poll_loop())

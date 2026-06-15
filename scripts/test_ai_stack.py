@@ -20,10 +20,12 @@ os.environ.setdefault("LLM_PROVIDER", "mock")
 def _seed_snapshot(db_path: Path) -> None:
     from brokers.base import Account, Order, Position
     from db.ai_tables import init_ai_tables
+    from db.chat_sessions import init_chat_tables
     from db.sqlite import init_db, save_snapshot
 
     init_db(db_path)
     init_ai_tables(db_path)
+    init_chat_tables(db_path)
     account = Account(
         id="test-acct",
         status="ACTIVE",
@@ -215,7 +217,8 @@ def main() -> int:
                         "role": "user",
                         "parts": [{"type": "text", "text": "Summarize my portfolio"}],
                     }
-                ]
+                ],
+                "mode": "quick",
             },
         ) as chat_resp:
             _check("chat_status", chat_resp.status_code == 200)
@@ -225,6 +228,54 @@ def main() -> int:
             )
             body = "".join(chat_resp.iter_text())
             _check("chat_done", "data: [DONE]" in body, body[-200:])
+
+        session = client.post(
+            "/api/chat/sessions", json={"mode": "standard", "title": "Test session"}
+        )
+        _check("chat_session_create", session.status_code == 200)
+        sid = session.json()["id"]
+
+        private = client.post("/api/chat/sessions", json={"mode": "private"})
+        _check("chat_session_private", private.status_code == 200)
+
+        listed = client.get("/api/chat/sessions")
+        _check("chat_session_list", listed.status_code == 200 and len(listed.json()["sessions"]) >= 2)
+
+        with client.stream(
+            "POST",
+            "/api/chat",
+            json={
+                "sessionId": sid,
+                "mode": "standard",
+                "messages": [
+                    {
+                        "id": "u2",
+                        "role": "user",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "text": "I prefer 1% risk per trade on swing setups",
+                            }
+                        ],
+                    }
+                ],
+            },
+        ) as persisted:
+            _check("chat_persisted_status", persisted.status_code == 200)
+            _ = "".join(persisted.iter_text())
+
+        detail = client.get(f"/api/chat/sessions/{sid}")
+        _check(
+            "chat_messages_saved",
+            detail.status_code == 200 and len(detail.json().get("messages", [])) >= 2,
+        )
+
+        memories = client.get("/api/memories", params={"type": "preference"})
+        _check(
+            "chat_memory_extract",
+            memories.status_code == 200,
+            str(memories.json()),
+        )
 
         print("\nAll AI stack checks passed.")
         return 0
