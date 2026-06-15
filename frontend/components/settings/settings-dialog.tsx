@@ -24,6 +24,8 @@ import {
   SECRET_MASK,
   type AppSettings,
 } from "@/lib/api";
+import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
+import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -48,13 +50,7 @@ const EMPTY: AppSettings = {
       account_hash: "",
     },
   },
-  ai: {
-    provider: "openai",
-    openai_api_key: "",
-    openai_model: "gpt-4o",
-    anthropic_api_key: "",
-    ollama_base_url: "http://localhost:11434",
-  },
+  ai: DEFAULT_AI_SETTINGS,
 };
 
 export function SettingsDialog({ collapsed = false }: Props) {
@@ -71,7 +67,13 @@ export function SettingsDialog({ collapsed = false }: Props) {
     setLoading(true);
     setError(null);
     fetchSettings()
-      .then(setDraft)
+      .then((data) =>
+        setDraft({
+          ...EMPTY,
+          ...data,
+          ai: normalizeAiSettings(data.ai),
+        }),
+      )
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load settings"),
       )
@@ -84,7 +86,10 @@ export function SettingsDialog({ collapsed = false }: Props) {
     setMessage(null);
     try {
       const saved = await saveSettings(draft);
-      setDraft(saved);
+      setDraft({
+        ...saved,
+        ai: normalizeAiSettings(saved.ai),
+      });
       setMessage("Settings saved. Polling will use the updated brokers.");
       await refresh();
       setTimeout(() => setOpen(false), 600);
@@ -365,93 +370,14 @@ export function SettingsDialog({ collapsed = false }: Props) {
             </TabsContent>
 
             <TabsContent value="ai" className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="ai-provider">Provider</Label>
-                <select
-                  id="ai-provider"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={draft.ai.provider}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      ai: { ...d.ai, provider: e.target.value },
-                    }))
-                  }
-                >
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="ollama">Ollama (local)</option>
-                </select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="openai-key">OpenAI API key</Label>
-                <Input
-                  id="openai-key"
-                  type="password"
-                  value={
-                    draft.ai.openai_api_key === SECRET_MASK
-                      ? ""
-                      : draft.ai.openai_api_key
-                  }
-                  placeholder={
-                    draft.ai.openai_api_key === SECRET_MASK
-                      ? SECRET_MASK
-                      : "sk-…"
-                  }
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      ai: { ...d.ai, openai_api_key: e.target.value },
-                    }))
-                  }
-                />
-                <Label htmlFor="openai-model">OpenAI model</Label>
-                <Input
-                  id="openai-model"
-                  value={draft.ai.openai_model}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      ai: { ...d.ai, openai_model: e.target.value },
-                    }))
-                  }
-                />
-                <Label htmlFor="anthropic-key">Anthropic API key</Label>
-                <Input
-                  id="anthropic-key"
-                  type="password"
-                  value={
-                    draft.ai.anthropic_api_key === SECRET_MASK
-                      ? ""
-                      : draft.ai.anthropic_api_key
-                  }
-                  placeholder={
-                    draft.ai.anthropic_api_key === SECRET_MASK
-                      ? SECRET_MASK
-                      : "sk-ant-…"
-                  }
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      ai: { ...d.ai, anthropic_api_key: e.target.value },
-                    }))
-                  }
-                />
-                <Label htmlFor="ollama-url">Ollama base URL</Label>
-                <Input
-                  id="ollama-url"
-                  value={draft.ai.ollama_base_url}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      ai: { ...d.ai, ollama_base_url: e.target.value },
-                    }))
-                  }
-                />
-              </div>
+              <AiProviderSettings
+                value={draft.ai}
+                onChange={(ai) => setDraft((d) => ({ ...d, ai }))}
+              />
               <p className="text-xs text-muted-foreground">
-                AI insights are not wired yet — keys are saved for the next
-                bullet.
+                Keys are stored locally in{" "}
+                <code className="text-[11px]">data/settings.json</code>. Custom
+                base URLs support proxies, Azure OpenAI, and compatible gateways.
               </p>
             </TabsContent>
           </Tabs>

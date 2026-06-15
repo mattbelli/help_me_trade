@@ -109,6 +109,17 @@ def main() -> int:
         from ai.llm.factory import get_llm, get_llm_provider_name
 
         _check("llm_provider", get_llm_provider_name() == "mock")
+
+        providers = client.get("/api/ai/providers")
+        _check("ai_providers", providers.status_code == 200)
+        provider_ids = {p["id"] for p in providers.json()["providers"]}
+        _check(
+            "ai_provider_catalog",
+            {"openai", "anthropic", "deepseek", "openrouter", "ollama"}.issubset(
+                provider_ids
+            ),
+        )
+
         text = get_llm().complete([LLMMessage("user", "portfolio insight")])
         _check("llm_complete", len(text) > 10, text[:80])
 

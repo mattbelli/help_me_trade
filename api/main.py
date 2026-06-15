@@ -38,6 +38,7 @@ from config.settings import (
     set_active_watchlist,
     update_watchlist,
 )
+from ai.llm.factory import clear_llm_cache
 from db.ai_tables import init_ai_tables
 from db.chart_features import (
     create_price_alert,
@@ -203,6 +204,7 @@ def api_get_settings():
 def api_put_settings(patch: dict = Body(...)):
     try:
         updated = apply_settings_patch(patch)
+        clear_llm_cache()
     except (TypeError, ValueError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     return mask_settings(updated)

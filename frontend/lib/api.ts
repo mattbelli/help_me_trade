@@ -1,3 +1,5 @@
+import type { AiSettings } from "./ai-settings";
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -187,13 +189,7 @@ export type AppSettings = {
       account_hash: string;
     };
   };
-  ai: {
-    provider: string;
-    openai_api_key: string;
-    openai_model: string;
-    anthropic_api_key: string;
-    ollama_base_url: string;
-  };
+  ai: AiSettings;
 };
 
 export async function fetchSettings(): Promise<AppSettings> {

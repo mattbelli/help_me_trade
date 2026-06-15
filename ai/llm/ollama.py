@@ -9,18 +9,14 @@ from collections.abc import AsyncIterator, Iterator
 import httpx
 
 from ai.llm.base import LLMMessage
-from config.settings import load_settings
 
 
 class OllamaLLM:
     provider = "ollama"
 
-    def __init__(self) -> None:
-        ai = load_settings()["ai"]
-        self._base_url = str(
-            ai.get("ollama_base_url", "http://localhost:11434")
-        ).rstrip("/")
-        self._model = str(ai.get("openai_model", "llama3.2")).strip() or "llama3.2"
+    def __init__(self, *, base_url: str, model: str) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._model = model.strip() or "llama3.2"
 
     def complete(self, messages: list[LLMMessage], *, max_tokens: int = 1024) -> str:
         payload = {

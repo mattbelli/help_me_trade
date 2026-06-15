@@ -12,6 +12,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from config.ai_providers import DEFAULT_AI_SETTINGS, SECRET_AI_KEY_FIELDS, VALID_PROVIDERS
+
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "data" / "settings.json"
 SECRET_MASK = "********"
@@ -21,8 +23,7 @@ SECRET_KEYS = frozenset(
         "api_secret_key",
         "api_key",
         "app_secret",
-        "openai_api_key",
-        "anthropic_api_key",
+        *SECRET_AI_KEY_FIELDS,
     }
 )
 
@@ -46,13 +47,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "account_hash": "",
         },
     },
-    "ai": {
-        "provider": "openai",
-        "openai_api_key": "",
-        "openai_model": "gpt-4o",
-        "anthropic_api_key": "",
-        "ollama_base_url": "http://localhost:11434",
-    },
+    "ai": DEFAULT_AI_SETTINGS.copy(),
     "watchlist": ["SPY", "QQQ", "AAPL", "NVDA", "MU", "AMD"],
     "watchlists": {
         "active_id": "main",
@@ -104,12 +99,39 @@ def _env_defaults() -> dict[str, Any]:
             },
         },
         "ai": {
-            "provider": os.environ.get("AI_PROVIDER", "openai").strip() or "openai",
+            "provider": os.environ.get("LLM_PROVIDER", os.environ.get("AI_PROVIDER", "mock")).strip()
+            or "mock",
             "openai_api_key": os.environ.get("OPENAI_API_KEY", "").strip(),
-            "openai_model": os.environ.get("OPENAI_MODEL", "gpt-4o").strip(),
+            "openai_base_url": os.environ.get(
+                "OPENAI_BASE_URL", DEFAULT_AI_SETTINGS["openai_base_url"]
+            ).strip(),
+            "openai_model": os.environ.get("OPENAI_MODEL", DEFAULT_AI_SETTINGS["openai_model"]).strip(),
             "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY", "").strip(),
+            "anthropic_base_url": os.environ.get(
+                "ANTHROPIC_BASE_URL", DEFAULT_AI_SETTINGS["anthropic_base_url"]
+            ).strip(),
+            "anthropic_model": os.environ.get(
+                "ANTHROPIC_MODEL", DEFAULT_AI_SETTINGS["anthropic_model"]
+            ).strip(),
+            "deepseek_api_key": os.environ.get("DEEPSEEK_API_KEY", "").strip(),
+            "deepseek_base_url": os.environ.get(
+                "DEEPSEEK_BASE_URL", DEFAULT_AI_SETTINGS["deepseek_base_url"]
+            ).strip(),
+            "deepseek_model": os.environ.get(
+                "DEEPSEEK_MODEL", DEFAULT_AI_SETTINGS["deepseek_model"]
+            ).strip(),
+            "openrouter_api_key": os.environ.get("OPENROUTER_API_KEY", "").strip(),
+            "openrouter_base_url": os.environ.get(
+                "OPENROUTER_BASE_URL", DEFAULT_AI_SETTINGS["openrouter_base_url"]
+            ).strip(),
+            "openrouter_model": os.environ.get(
+                "OPENROUTER_MODEL", DEFAULT_AI_SETTINGS["openrouter_model"]
+            ).strip(),
             "ollama_base_url": os.environ.get(
-                "OLLAMA_BASE_URL", "http://localhost:11434"
+                "OLLAMA_BASE_URL", DEFAULT_AI_SETTINGS["ollama_base_url"]
+            ).strip(),
+            "ollama_model": os.environ.get(
+                "OLLAMA_MODEL", DEFAULT_AI_SETTINGS["ollama_model"]
             ).strip(),
         },
     }
@@ -202,6 +224,9 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
 
     if "ai" in patch and isinstance(patch["ai"], dict):
         merge_section(current["ai"], patch["ai"], secret_keys=SECRET_KEYS)
+        provider = str(current["ai"].get("provider", "mock")).strip().lower()
+        if provider not in VALID_PROVIDERS:
+            current["ai"]["provider"] = "mock"
 
     if "watchlist" in patch and isinstance(patch["watchlist"], list):
         current["watchlist"] = normalize_watchlist(patch["watchlist"])

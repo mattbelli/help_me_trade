@@ -11,7 +11,8 @@ from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ai.insights import generate_insight_paragraph
-from ai.llm.factory import get_llm_provider_name
+from ai.llm.factory import get_llm, get_llm_provider_name
+from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.graph import run_research
@@ -34,6 +35,29 @@ from db.sqlite import get_latest_snapshot
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["ai"])
+
+
+@router.get("/ai/providers")
+def api_ai_providers():
+    """Provider catalog with default base URLs and models for the settings UI."""
+    return {
+        "active_provider": get_llm_provider_name(),
+        "providers": [
+            {
+                "id": pid,
+                "label": meta["label"],
+                "requires_key": bool(meta.get("requires_key")),
+                "key_field": meta.get("key_field"),
+                "base_url_field": meta.get("base_url_field"),
+                "model_field": meta.get("model_field"),
+                "default_base_url": meta.get("default_base_url", ""),
+                "default_model": meta.get("default_model", ""),
+                "key_placeholder": meta.get("key_placeholder", ""),
+            }
+            for pid, meta in AI_PROVIDERS.items()
+        ],
+        "defaults": DEFAULT_AI_SETTINGS,
+    }
 
 
 @router.get("/insights/stream")
