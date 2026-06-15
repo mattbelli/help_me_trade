@@ -22,7 +22,7 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     "run_research": {
         "title": "Run research",
-        "description": "Run the LangGraph research workflow for a topic or symbol.",
+        "description": "Run deep Odysseus-style research for a topic or symbol (portfolio, bars, memories, web).",
     },
 }
 

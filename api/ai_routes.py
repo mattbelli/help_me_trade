@@ -17,7 +17,9 @@ from ai.llm.factory import get_llm, get_llm_provider_name
 from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
+from ai.research.depth import RESEARCH_DEPTHS
 from ai.research.graph import run_research
+from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
 from db.ai_tables import (
     MEMORY_TYPES,
@@ -262,20 +264,65 @@ def api_create_memory(body: dict = Body(...)):
 def api_run_research(body: dict = Body(...)):
     topic = str(body.get("topic", "")).strip()
     symbol = body.get("symbol")
+    depth = str(body.get("depth", "standard")).strip().lower()
     if not topic:
         return JSONResponse({"error": "topic is required"}, status_code=400)
+    if depth not in RESEARCH_DEPTHS:
+        return JSONResponse(
+            {"error": f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"},
+            status_code=400,
+        )
     sym = str(symbol).strip().upper() if symbol else None
     try:
-        result = run_research(topic=topic, symbol=sym)
+        result = run_research(topic=topic, symbol=sym, depth=depth)
     except Exception as exc:
         logger.exception("Research run failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
     return result
 
 
+@router.post("/research/stream")
+async def api_research_stream(body: dict = Body(...)):
+    topic = str(body.get("topic", "")).strip()
+    symbol = body.get("symbol")
+    depth = str(body.get("depth", "standard")).strip().lower()
+    if not topic:
+        return JSONResponse({"error": "topic is required"}, status_code=400)
+    if depth not in RESEARCH_DEPTHS:
+        return JSONResponse(
+            {"error": f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"},
+            status_code=400,
+        )
+    sym = str(symbol).strip().upper() if symbol else None
+
+    async def event_generator():
+        async for chunk in astream_deep_research(topic=topic, symbol=sym, depth=depth):
+            yield chunk
+            await asyncio.sleep(0)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/research")
 def api_list_research(limit: int = Query(20, ge=1, le=100)):
     return {"artifacts": list_research_artifacts(limit=limit)}
+
+
+@router.get("/research/{artifact_id}/html")
+def api_get_research_html(artifact_id: int):
+    artifact = get_research_artifact(artifact_id)
+    if artifact is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    html = artifact.get("html")
+    if not html:
+        return JSONResponse({"error": "HTML report not available"}, status_code=404)
+    from fastapi.responses import HTMLResponse
+
+    return HTMLResponse(content=html)
 
 
 @router.get("/research/{artifact_id}")

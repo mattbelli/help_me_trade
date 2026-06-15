@@ -1,15 +1,5 @@
-import { ComingSoonPage } from "@/components/placeholders/coming-soon-page";
+import { ResearchPage } from "@/components/research/research-page";
 
-export default function ResearchPage() {
-  return (
-    <ComingSoonPage
-      title="Research"
-      description="Deep stock research and external report ingestion."
-      bullets={[
-        "Pull structured research from your preferred providers",
-        "Save summaries alongside positions and trades",
-        "Feed context into the AI insights panel",
-      ]}
-    />
-  );
+export default function Page() {
+  return <ResearchPage />;
 }

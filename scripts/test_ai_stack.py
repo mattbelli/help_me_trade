@@ -158,16 +158,48 @@ def main() -> int:
 
         research = client.post(
             "/api/research/run",
-            json={"topic": "AAPL momentum", "symbol": "AAPL"},
+            json={"topic": "AAPL momentum", "symbol": "AAPL", "depth": "quick"},
         )
         _check("research_run", research.status_code == 200, research.text)
-        artifact_id = research.json().get("artifact_id")
+        research_json = research.json()
+        artifact_id = research_json.get("artifact_id")
         _check("research_artifact", artifact_id is not None)
+        _check("research_depth", research_json.get("depth") == "quick")
+        _check("research_html", bool(research_json.get("html")))
         artifact = client.get(f"/api/research/{artifact_id}")
         _check(
             "research_get",
             artifact.status_code == 200 and "#" in artifact.json()["markdown"],
         )
+        _check(
+            "research_get_html_field",
+            artifact.status_code == 200 and artifact.json().get("html"),
+        )
+        html_page = client.get(f"/api/research/{artifact_id}/html")
+        _check(
+            "research_html_route",
+            html_page.status_code == 200 and "<!DOCTYPE html>" in html_page.text,
+        )
+        _check(
+            "research_sources",
+            isinstance(artifact.json().get("sources"), list),
+        )
+
+        with client.stream(
+            "POST",
+            "/api/research/stream",
+            json={"topic": "NVDA sector scan", "symbol": "NVDA", "depth": "quick"},
+        ) as stream_resp:
+            _check("research_stream_status", stream_resp.status_code == 200)
+            events: list[tuple[str, str]] = []
+            current_event = ""
+            for line in stream_resp.iter_lines():
+                if line.startswith("event:"):
+                    current_event = line.split(":", 1)[1].strip()
+                elif line.startswith("data:"):
+                    events.append((current_event, line.split(":", 1)[1].strip()))
+            event_types = [e[0] for e in events]
+            _check("research_stream_done", "done" in event_types, str(event_types))
 
         reflection = client.post("/api/reflection/run")
         _check("reflection_run", reflection.status_code == 200)

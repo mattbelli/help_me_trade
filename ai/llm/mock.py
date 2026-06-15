@@ -52,6 +52,55 @@ class MockLLM:
                     ],
                 }
             )
+        if "trading research editor" in combined or "source_catalog" in combined:
+            return json.dumps(
+                {
+                    "title": "Mock Research Report",
+                    "summary": (
+                        "Mock deep research complete. Trend is neutral with moderate "
+                        "volatility. Consider monitoring key support before adding exposure."
+                    ),
+                    "metrics": [
+                        {"label": "Trend", "value": "Neutral"},
+                        {"label": "Volatility", "value": "Moderate"},
+                    ],
+                    "sections": [
+                        {
+                            "heading": "Key observations",
+                            "body": (
+                                "Price action shows consolidation. Volume is in line with "
+                                "the 20-day average."
+                            ),
+                            "citations": ["src_1"],
+                        }
+                    ],
+                    "risks": ["Earnings surprise", "Macro rate sensitivity"],
+                    "next_steps": ["Watch support", "Size positions conservatively"],
+                    "sources": [
+                        {
+                            "id": "src_1",
+                            "title": "Portfolio snapshot",
+                            "type": "portfolio",
+                        }
+                    ],
+                }
+            )
+        if "research planner" in combined or '"queries"' in combined:
+            return json.dumps(
+                {"queries": ["momentum outlook", "sector peers and risks"]}
+            )
+        if "extract trading research findings" in combined:
+            return json.dumps(
+                {
+                    "findings": [
+                        {
+                            "source_id": "src_1",
+                            "claim": "Portfolio exposure is balanced with moderate risk.",
+                            "confidence": "medium",
+                        }
+                    ]
+                }
+            )
         if any(
             word in combined
             for word in ("research", "analyze", "outline", "report", "topic:")

@@ -87,6 +87,24 @@ def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON rule_events(created_at DESC);
             """
         )
+        for ddl in (
+            "ALTER TABLE research_artifacts ADD COLUMN report_json TEXT",
+            "ALTER TABLE research_artifacts ADD COLUMN html TEXT",
+            "ALTER TABLE research_artifacts ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE research_artifacts ADD COLUMN depth TEXT NOT NULL DEFAULT 'standard'",
+            "ALTER TABLE research_artifacts ADD COLUMN updated_at TEXT",
+        ):
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass
+        conn.execute(
+            """
+            UPDATE research_artifacts
+            SET updated_at = created_at
+            WHERE updated_at IS NULL OR updated_at = ''
+            """
+        )
 
 
 def _row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
@@ -203,12 +221,11 @@ def search_memories(
     return [_row_to_memory(r) for r in rows]
 
 
-def save_research_artifact(
+def create_research_run(
     *,
     topic: str,
-    markdown: str,
     symbol: str | None = None,
-    status: str = "completed",
+    depth: str = "standard",
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_ai_tables(db_path)
@@ -216,16 +233,108 @@ def save_research_artifact(
     with _connect(db_path) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO research_artifacts (topic, symbol, markdown, status, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO research_artifacts (
+                topic, symbol, markdown, status, created_at,
+                report_json, html, sources_json, depth, updated_at
+            ) VALUES (?, ?, '', 'running', ?, NULL, NULL, '[]', ?, ?)
             """,
-            (topic.strip(), (symbol or "").strip() or None, markdown, status, now),
+            (topic.strip(), (symbol or "").strip() or None, now, depth, now),
         )
         row = conn.execute(
             "SELECT * FROM research_artifacts WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
         conn.commit()
     return _row_to_research(row)
+
+
+def save_research_artifact(
+    *,
+    topic: str,
+    markdown: str,
+    symbol: str | None = None,
+    status: str = "completed",
+    report_json: dict[str, Any] | None = None,
+    html: str | None = None,
+    sources: list[dict[str, Any]] | None = None,
+    depth: str = "standard",
+    artifact_id: int | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    init_ai_tables(db_path)
+    now = _now()
+    payload = json.dumps(report_json) if report_json is not None else None
+    sources_json = json.dumps(sources or [])
+    with _connect(db_path) as conn:
+        if artifact_id is not None:
+            conn.execute(
+                """
+                UPDATE research_artifacts
+                SET topic = ?, symbol = ?, markdown = ?, status = ?,
+                    report_json = ?, html = ?, sources_json = ?, depth = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    topic.strip(),
+                    (symbol or "").strip() or None,
+                    markdown,
+                    status,
+                    payload,
+                    html,
+                    sources_json,
+                    depth,
+                    now,
+                    artifact_id,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM research_artifacts WHERE id = ?", (artifact_id,)
+            ).fetchone()
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO research_artifacts (
+                    topic, symbol, markdown, status, created_at,
+                    report_json, html, sources_json, depth, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    topic.strip(),
+                    (symbol or "").strip() or None,
+                    markdown,
+                    status,
+                    now,
+                    payload,
+                    html,
+                    sources_json,
+                    depth,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM research_artifacts WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+        conn.commit()
+    return _row_to_research(row)
+
+
+def update_research_status(
+    artifact_id: int,
+    *,
+    status: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE research_artifacts
+            SET status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (status, _now(), artifact_id),
+        )
+        conn.commit()
 
 
 def get_research_artifact(
@@ -256,13 +365,24 @@ def list_research_artifacts(
 
 
 def _row_to_research(row: sqlite3.Row) -> dict[str, Any]:
+    report_raw = row["report_json"] if "report_json" in row.keys() else None
+    html = row["html"] if "html" in row.keys() else None
+    sources_raw = row["sources_json"] if "sources_json" in row.keys() else "[]"
+    depth = row["depth"] if "depth" in row.keys() else "standard"
+    updated = row["updated_at"] if "updated_at" in row.keys() else row["created_at"]
+    report = json.loads(report_raw) if report_raw else None
     return {
         "id": int(row["id"]),
         "topic": row["topic"],
         "symbol": row["symbol"],
         "markdown": row["markdown"],
         "status": row["status"],
+        "depth": depth,
+        "report": report,
+        "html": html,
+        "sources": json.loads(sources_raw or "[]"),
         "created_at": row["created_at"],
+        "updated_at": updated,
     }
 
 
