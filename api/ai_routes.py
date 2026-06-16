@@ -79,6 +79,17 @@ def api_ai_models():
     return list_chat_models()
 
 
+@router.get("/ai/research-config")
+def api_research_config():
+    from config.research import get_searxng_url
+
+    url = get_searxng_url()
+    return {
+        "searxng_url": url,
+        "web_search": "searxng" if url else "mock",
+    }
+
+
 @router.get("/chat/sessions")
 def api_list_chat_sessions(limit: int = Query(50, ge=1, le=200)):
     return {"sessions": list_chat_sessions(limit=limit)}

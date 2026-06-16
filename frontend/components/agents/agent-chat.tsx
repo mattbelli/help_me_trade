@@ -6,6 +6,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
 
 import { ChatSessionSidebar } from "@/components/agents/chat-session-sidebar";
+import { ResearchToolOutput } from "@/components/agents/research-tool-output";
 import {
   Conversation,
   ConversationContent,
@@ -79,6 +80,7 @@ function ToolPartView({
     part.type === "dynamic-tool"
       ? part.toolName
       : part.type.replace(/^tool-/, "");
+  const toolName = title;
 
   return (
     <Tool defaultOpen={part.state === "output-available"}>
@@ -97,10 +99,17 @@ function ToolPartView({
           <ToolInput input={part.input} />
         ) : null}
         {"output" in part && part.output !== undefined ? (
-          <ToolOutput
-            output={part.output}
-            errorText={"errorText" in part ? part.errorText : undefined}
-          />
+          toolName === "run_research" || part.type === "tool-run_research" ? (
+            <ResearchToolOutput
+              output={part.output}
+              errorText={"errorText" in part ? part.errorText : undefined}
+            />
+          ) : (
+            <ToolOutput
+              output={part.output}
+              errorText={"errorText" in part ? part.errorText : undefined}
+            />
+          )
         ) : null}
       </ToolContent>
     </Tool>

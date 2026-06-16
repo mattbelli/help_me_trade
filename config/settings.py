@@ -48,6 +48,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         },
     },
     "ai": DEFAULT_AI_SETTINGS.copy(),
+    "research": {
+        "searxng_url": "",
+    },
     "watchlist": ["SPY", "QQQ", "AAPL", "NVDA", "MU", "AMD"],
     "watchlists": {
         "active_id": "main",
@@ -133,6 +136,9 @@ def _env_defaults() -> dict[str, Any]:
             "ollama_model": os.environ.get(
                 "OLLAMA_MODEL", DEFAULT_AI_SETTINGS["ollama_model"]
             ).strip(),
+        },
+        "research": {
+            "searxng_url": os.environ.get("SEARXNG_URL", "").strip().rstrip("/"),
         },
     }
 
@@ -227,6 +233,13 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
         provider = str(current["ai"].get("provider", "mock")).strip().lower()
         if provider not in VALID_PROVIDERS:
             current["ai"]["provider"] = "mock"
+
+    if "research" in patch and isinstance(patch["research"], dict):
+        if "research" not in current or not isinstance(current.get("research"), dict):
+            current["research"] = {"searxng_url": ""}
+        url = patch["research"].get("searxng_url")
+        if url is not None:
+            current["research"]["searxng_url"] = str(url).strip().rstrip("/")
 
     if "watchlist" in patch and isinstance(patch["watchlist"], list):
         current["watchlist"] = normalize_watchlist(patch["watchlist"])

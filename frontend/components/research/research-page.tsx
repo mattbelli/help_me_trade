@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ExternalLink, FileSearch, Loader2, Sparkles } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -45,8 +46,12 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 export function ResearchPage() {
+  const searchParams = useSearchParams();
+  const deepLinkId = Number(searchParams.get("id"));
   const [artifacts, setArtifacts] = useState<ResearchArtifact[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(
+    Number.isFinite(deepLinkId) && deepLinkId > 0 ? deepLinkId : null,
+  );
   const [selected, setSelected] = useState<ResearchArtifact | null>(null);
   const [topic, setTopic] = useState("AAPL momentum and sector context");
   const [symbol, setSymbol] = useState("AAPL");
@@ -68,6 +73,12 @@ export function ResearchPage() {
   useEffect(() => {
     void refreshList();
   }, [refreshList]);
+
+  useEffect(() => {
+    if (Number.isFinite(deepLinkId) && deepLinkId > 0) {
+      setSelectedId(deepLinkId);
+    }
+  }, [deepLinkId]);
 
   useEffect(() => {
     if (selectedId == null) {

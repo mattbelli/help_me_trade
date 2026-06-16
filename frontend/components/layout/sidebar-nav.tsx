@@ -8,6 +8,7 @@ import {
   CandlestickChart,
   LayoutDashboard,
   LayoutGrid,
+  Scale,
   Search,
   type LucideIcon,
 } from "lucide-react";
@@ -56,6 +57,12 @@ const NAV_ITEMS: {
     label: "Agents",
     description: "Copilot chat",
     icon: Bot,
+  },
+  {
+    href: "/rules",
+    label: "Rules",
+    description: "Portfolio alerts",
+    icon: Scale,
   },
 ];
 

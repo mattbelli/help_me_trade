@@ -190,6 +190,9 @@ export type AppSettings = {
     };
   };
   ai: AiSettings;
+  research?: {
+    searxng_url: string;
+  };
 };
 
 export async function fetchSettings(): Promise<AppSettings> {

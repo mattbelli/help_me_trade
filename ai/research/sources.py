@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import uuid
 from typing import Any
 
 import httpx
+
+from config.research import get_searxng_url
 
 from ai.memories import get_memory_service
 from brokers.errors import BrokerError
@@ -100,7 +101,7 @@ def fetch_memory_sources(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
 
 
 def web_search(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
-    searxng = os.environ.get("SEARXNG_URL", "").strip().rstrip("/")
+    searxng = get_searxng_url()
     if searxng:
         return _searxng_search(searxng, query, limit=limit)
     return _mock_web_search(query, limit=limit)

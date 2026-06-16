@@ -54,8 +54,9 @@ See `References/` for the long-term architecture vision.
 | `/research` | Deep research runs with HTML reports |
 | `/memories` | Browse, search, add, edit, delete agent memories |
 | `/agents` | Streaming copilot chat with tools and per-chat model picker |
+| `/rules` | Portfolio alert rules and trigger history |
 
-**Settings** (sidebar gear): broker credentials and AI provider keys/models.
+**Settings** (sidebar gear): broker credentials, AI provider keys/models, and SearXNG URL for research.
 
 **Right rail**: watchlist, live AI insights (refreshes on each broker poll), RSS placeholder.
 
@@ -68,9 +69,25 @@ See `References/` for the long-term architecture vision.
 
 **Per-chat model:** on `/agents`, pick a model in the chat input without changing global settings.
 
-**Deep research web sources:** set `SEARXNG_URL` in `.env` for real web search; otherwise mock snippets are used.
+**Deep research web sources:** Settings → **Research** → SearXNG URL, or set `SEARXNG_URL` in `.env`. Without it, mock web snippets are used.
+
+Example local SearXNG:
+
+```bash
+docker run -d --name searxng -p 8080:8080 searxng/searxng
+```
+
+Then set `SEARXNG_URL=http://localhost:8080` and restart the API.
+
+**Real provider smoke test** (requires API key):
+
+```bash
+LLM_PROVIDER=openai python3 scripts/test_ai_provider.py
+```
 
 **Memories:** standard chat sessions auto-extract preferences/lessons into Mem0 + SQLite. Manage them on `/memories`.
+
+**Rules:** portfolio alerts run on each broker poll. Configure presets on `/rules`.
 
 ## Bullet 0 — Alpaca paper API setup
 

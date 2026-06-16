@@ -131,6 +131,13 @@ def main() -> int:
             and len(models_json.get("models", [])) >= 1,
         )
 
+        research_cfg = client.get("/api/ai/research-config")
+        _check("research_config", research_cfg.status_code == 200)
+        _check(
+            "research_config_web",
+            research_cfg.json().get("web_search") in ("mock", "searxng"),
+        )
+
         text = get_llm().complete([LLMMessage("user", "portfolio insight")])
         _check("llm_complete", len(text) > 10, text[:80])
 

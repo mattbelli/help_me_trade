@@ -51,6 +51,7 @@ const EMPTY: AppSettings = {
     },
   },
   ai: DEFAULT_AI_SETTINGS,
+  research: { searxng_url: "" },
 };
 
 export function SettingsDialog({ collapsed = false }: Props) {
@@ -72,6 +73,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
           ...EMPTY,
           ...data,
           ai: normalizeAiSettings(data.ai),
+          research: {
+            searxng_url: data.research?.searxng_url ?? "",
+          },
         }),
       )
       .catch((err) =>
@@ -89,6 +93,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
       setDraft({
         ...saved,
         ai: normalizeAiSettings(saved.ai),
+        research: {
+          searxng_url: saved.research?.searxng_url ?? "",
+        },
       });
       setMessage("Settings saved. Polling will use the updated brokers.");
       await refresh();
@@ -140,6 +147,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
               </TabsTrigger>
               <TabsTrigger value="ai" className="flex-1">
                 AI
+              </TabsTrigger>
+              <TabsTrigger value="research" className="flex-1">
+                Research
               </TabsTrigger>
             </TabsList>
 
@@ -379,6 +389,30 @@ export function SettingsDialog({ collapsed = false }: Props) {
                 <code className="text-[11px]">data/settings.json</code>. Custom
                 base URLs support proxies, Azure OpenAI, and compatible gateways.
               </p>
+            </TabsContent>
+
+            <TabsContent value="research" className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="searxng-url">SearXNG URL (optional)</Label>
+                <Input
+                  id="searxng-url"
+                  value={draft.research?.searxng_url ?? ""}
+                  placeholder="http://localhost:8080"
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...d,
+                      research: { searxng_url: e.target.value.trim() },
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  When set, deep research uses live web search instead of mock
+                  snippets. You can also set{" "}
+                  <code className="text-[11px]">SEARXNG_URL</code> in{" "}
+                  <code className="text-[11px]">.env</code>. Env wins if both are
+                  set.
+                </p>
+              </div>
             </TabsContent>
           </Tabs>
         )}
