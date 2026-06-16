@@ -18,6 +18,9 @@ build/
 *.db
 data/
 
+# User brokerage exports (import via Settings — do not commit)
+imports/*_Transactions_*.json
+
 # OS / editor
 .DS_Store
 Thumbs.db
