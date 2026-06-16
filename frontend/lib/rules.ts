@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE, apiFetch } from "./api";
 
 export type RuleConditions = Record<string, unknown>;
 export type RuleAction = {
@@ -124,14 +124,14 @@ export const RULE_PRESETS: RulePreset[] = [
 ];
 
 export async function listRules(): Promise<Rule[]> {
-  const res = await fetch(`${API_BASE}/api/rules`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/rules`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to load rules (${res.status})`);
   const data = (await res.json()) as { rules: Rule[] };
   return data.rules;
 }
 
 export async function listRuleEvents(limit = 50): Promise<RuleEvent[]> {
-  const res = await fetch(`${API_BASE}/api/rules/events?limit=${limit}`, {
+  const res = await apiFetch(`${API_BASE}/api/rules/events?limit=${limit}`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Failed to load rule events (${res.status})`);
@@ -146,7 +146,7 @@ export async function createRule(body: {
   conditions: RuleConditions;
   action: RuleAction;
 }): Promise<Rule> {
-  const res = await fetch(`${API_BASE}/api/rules`, {
+  const res = await apiFetch(`${API_BASE}/api/rules`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -162,7 +162,7 @@ export async function updateRule(
   id: string,
   body: Partial<Pick<Rule, "name" | "enabled" | "conditions" | "action">>,
 ): Promise<Rule> {
-  const res = await fetch(`${API_BASE}/api/rules/${encodeURIComponent(id)}`, {
+  const res = await apiFetch(`${API_BASE}/api/rules/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -175,7 +175,7 @@ export async function updateRule(
 }
 
 export async function deleteRule(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/rules/${encodeURIComponent(id)}`, {
+  const res = await apiFetch(`${API_BASE}/api/rules/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
   if (!res.ok) {

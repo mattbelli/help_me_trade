@@ -7,15 +7,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DB_PATH = ROOT / "data" / "trading.db"
-
-
-def _connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+from db.base import DEFAULT_DB_PATH, connect as _connect
 
 
 def init_chart_features(db_path: Path = DEFAULT_DB_PATH) -> None:

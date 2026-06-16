@@ -39,6 +39,7 @@ def _system_prompt() -> str:
         "Answer clearly and concisely in markdown when helpful. "
         "You may receive tool results from portfolio snapshots, memories, "
         "or research runs — synthesize them into actionable insight. "
+        "Research is started via start_research (returns a job id), never inline. "
         "Never invent positions or prices not present in tool output.\n\n"
         f"Available tools:\n{tools}"
     )

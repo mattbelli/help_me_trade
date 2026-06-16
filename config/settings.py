@@ -6,6 +6,8 @@ import copy
 import json
 import os
 import re
+import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,9 @@ SECRET_KEYS = frozenset(
 )
 
 load_dotenv(ROOT / ".env")
+
+_settings_lock = threading.Lock()
+_settings_cache: dict[str, Any] | None = None
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "primary_broker": "alpaca",
@@ -143,8 +148,12 @@ def _env_defaults() -> dict[str, Any]:
     }
 
 
-def load_settings() -> dict[str, Any]:
-    """Effective settings: defaults <- env <- saved file."""
+def clear_settings_cache() -> None:
+    global _settings_cache
+    _settings_cache = None
+
+
+def _build_settings() -> dict[str, Any]:
     effective = _deep_merge(DEFAULT_SETTINGS, _env_defaults())
 
     if SETTINGS_PATH.exists():
@@ -158,12 +167,34 @@ def load_settings() -> dict[str, Any]:
     return effective
 
 
+def load_settings() -> dict[str, Any]:
+    """Effective settings: defaults <- env <- saved file."""
+    global _settings_cache
+    if _settings_cache is None:
+        _settings_cache = _build_settings()
+    return copy.deepcopy(_settings_cache)
+
+
 def save_settings(settings: dict[str, Any]) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(
-        json.dumps(settings, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    content = json.dumps(settings, indent=2, sort_keys=True) + "\n"
+    with _settings_lock:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=SETTINGS_PATH.parent,
+            prefix=".settings-",
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+            os.replace(tmp_path, SETTINGS_PATH)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    clear_settings_cache()
 
 
 def _mask_value(key: str, value: Any) -> Any:
@@ -263,6 +294,7 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
         current["chart_layout"] = patch["chart_layout"]
 
     save_settings(current)
+    clear_settings_cache()
     return load_settings()
 
 

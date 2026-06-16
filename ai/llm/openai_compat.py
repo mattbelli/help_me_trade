@@ -47,13 +47,61 @@ class OpenAICompatibleLLM:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
-    def complete(self, messages: list[LLMMessage], *, max_tokens: int = 1024) -> str:
-        payload = self._build_payload(messages, max_tokens=max_tokens)
+    def _build_payload(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int,
+        stream: bool = False,
+        temperature: float | None = None,
+        json_mode: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "max_tokens": max_tokens,
+        }
+        if stream:
+            payload["stream"] = True
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
+
+    def complete(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+        json_mode: bool = False,
+    ) -> str:
+        payload = self._build_payload(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_mode=json_mode,
+        )
         with httpx.Client(timeout=120.0) as client:
             resp = client.post(self._endpoint(), headers=self._headers(), json=payload)
             resp.raise_for_status()
             data = resp.json()
         return str(data["choices"][0]["message"]["content"])
+
+    def complete_json(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 1024,
+        temperature: float = 0.1,
+    ) -> str:
+        return self.complete(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_mode=True,
+        )
 
     def stream(
         self, messages: list[LLMMessage], *, max_tokens: int = 1024
@@ -102,15 +150,3 @@ class OpenAICompatibleLLM:
             if item is None:
                 break
             yield item
-
-    def _build_payload(
-        self, messages: list[LLMMessage], *, max_tokens: int, stream: bool = False
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "model": self._model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "max_tokens": max_tokens,
-        }
-        if stream:
-            payload["stream"] = True
-        return payload

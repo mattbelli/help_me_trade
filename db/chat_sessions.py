@@ -3,31 +3,15 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DB_PATH = Path(
-    os.environ.get("TRADING_DB_PATH", str(ROOT / "data" / "trading.db"))
-)
+from db.base import DEFAULT_DB_PATH, connect as _connect, now_iso as _now
 
 CHAT_MODES = frozenset({"standard", "private", "quick"})
 PERSISTED_MODES = frozenset({"standard", "private"})
-
-
-def _connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def init_chat_tables(db_path: Path = DEFAULT_DB_PATH) -> None:

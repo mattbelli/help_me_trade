@@ -3,17 +3,13 @@
 import { useEffect, useState } from "react";
 
 import {
-  API_BASE,
   fetchWatchlistMarket,
+  marketWsUrl,
   type WatchlistQuote,
 } from "@/lib/api";
 
 const SPARKLINE_REFRESH_MS = 5 * 60_000;
 const RECONNECT_MS = 3_000;
-
-function marketWsUrl() {
-  return `${API_BASE.replace(/^http/, "ws")}/ws/market`;
-}
 
 function symbolsFromKey(key: string): string[] {
   if (!key) return [];

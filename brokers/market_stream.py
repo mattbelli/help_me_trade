@@ -14,6 +14,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from brokers.alpaca import AlpacaAdapter
 from brokers.errors import BrokerError
+from brokers.factory import get_broker
 from config.settings import alpaca_config, broker_is_configured
 
 logger = logging.getLogger(__name__)
@@ -160,8 +161,10 @@ class MarketStreamHub:
         if not missing or not broker_is_configured("alpaca"):
             return
         try:
-            broker = AlpacaAdapter.from_settings()
-            bars_by_symbol = broker.get_stock_bars_batch(missing, days=12)
+            broker = get_broker("alpaca")
+            if not isinstance(broker, AlpacaAdapter):
+                return
+            bars_by_symbol = await broker.aget_stock_bars_batch(missing, days=12)
         except BrokerError as exc:
             logger.warning("Watchlist baseline fetch failed: %s", exc)
             return

@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 from brokers.base import Account, Order, Position
-
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DB_PATH = Path(
-    os.environ.get("TRADING_DB_PATH", str(ROOT / "data" / "trading.db"))
-)
-
-
-def _connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+from db.base import DEFAULT_DB_PATH, connect as _connect
 
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:

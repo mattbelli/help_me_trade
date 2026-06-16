@@ -20,6 +20,7 @@ from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.depth import RESEARCH_DEPTHS
 from ai.research.graph import run_research
+from ai.research.jobs import get_job, submit_research_job
 from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
 from db.ai_tables import (
@@ -74,9 +75,9 @@ def api_ai_providers():
 
 
 @router.get("/ai/models")
-def api_ai_models():
-    """Chat model catalog for the active provider."""
-    return list_chat_models()
+def api_ai_models(provider: str | None = Query(None)):
+    """Chat model catalog for the active or requested provider."""
+    return list_chat_models(provider)
 
 
 @router.get("/ai/research-config")
@@ -335,7 +336,7 @@ def api_delete_memory(memory_id: int):
 
 
 @router.post("/research/run")
-def api_run_research(body: dict = Body(...)):
+async def api_run_research(body: dict = Body(...)):
     topic = str(body.get("topic", "")).strip()
     symbol = body.get("symbol")
     depth = str(body.get("depth", "standard")).strip().lower()
@@ -348,11 +349,30 @@ def api_run_research(body: dict = Body(...)):
         )
     sym = str(symbol).strip().upper() if symbol else None
     try:
-        result = run_research(topic=topic, symbol=sym, depth=depth)
+        job_id = submit_research_job(topic=topic, symbol=sym, depth=depth)
     except Exception as exc:
-        logger.exception("Research run failed")
+        logger.exception("Research enqueue failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
-    return result
+    return {"job_id": job_id, "status": "queued", "topic": topic, "symbol": sym, "depth": depth}
+
+
+@router.get("/research/jobs/{job_id}")
+def api_get_research_job(job_id: str):
+    job = get_job(job_id)
+    if job is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "topic": job.topic,
+        "symbol": job.symbol,
+        "depth": job.depth,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "error": job.error,
+        "result": job.result,
+    }
 
 
 @router.post("/research/stream")

@@ -1,60 +1,71 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Layers } from "lucide-react";
+import { ChevronLeft, Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { cn } from "@/lib/utils";
 
-const STORAGE_KEY = "help-me-trade-sidebar-pinned";
+const STORAGE_KEY = "help-me-trade-sidebar-expanded";
+
+const SIDEBAR_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
+const SIDEBAR_DURATION_MS = 480;
 
 export function Sidebar() {
-  const [pinned, setPinned] = useState(false);
-  const [hovering, setHovering] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [mounted, setMounted] = useState(false);
-
-  const open = pinned || hovering;
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "true") setPinned(true);
+    if (stored !== null) {
+      setExpanded(stored === "true");
+    } else {
+      // Migrate from older "pinned" key — pinned meant stay open.
+      const legacy = localStorage.getItem("help-me-trade-sidebar-pinned");
+      if (legacy !== null) setExpanded(legacy === "true");
+    }
     setMounted(true);
   }, []);
 
-  function togglePin() {
-    setPinned((prev) => {
+  function toggleExpanded() {
+    setExpanded((prev) => {
       const next = !prev;
       localStorage.setItem(STORAGE_KEY, String(next));
       return next;
     });
   }
 
+  const showExpanded = !mounted || expanded;
+
   return (
     <aside
-      data-collapsed={mounted && !open ? "true" : "false"}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
+      data-collapsed={mounted && !expanded ? "true" : "false"}
       className={cn(
-        "group/sidebar relative flex shrink-0 flex-col border-r border-border bg-sidebar",
-        "transition-[width] duration-[320ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
-        open ? "w-56" : "w-[52px]",
+        "relative flex shrink-0 flex-col border-r border-border bg-sidebar",
+        showExpanded ? "w-56" : "w-[52px]",
       )}
+      style={{
+        transition: `width ${SIDEBAR_DURATION_MS}ms ${SIDEBAR_EASE}`,
+      }}
     >
       <div
         className={cn(
           "flex items-center border-b border-border py-4",
-          open ? "px-4" : "justify-center px-0",
+          showExpanded ? "px-4" : "justify-center px-0",
         )}
       >
         <div
           className={cn(
-            "min-w-0 overflow-hidden transition-[opacity,transform] duration-[280ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
-            open
+            "min-w-0 overflow-hidden",
+            showExpanded
               ? "translate-x-0 opacity-100"
-              : "pointer-events-none w-0 -translate-x-2 opacity-0",
+              : "pointer-events-none w-0 -translate-x-1 opacity-0",
           )}
+          style={{
+            transition: `opacity ${SIDEBAR_DURATION_MS}ms ${SIDEBAR_EASE}, transform ${SIDEBAR_DURATION_MS}ms ${SIDEBAR_EASE}`,
+          }}
         >
           <p className="truncate text-[15px] font-medium tracking-tight text-foreground">
             help me trade
@@ -63,7 +74,7 @@ export function Sidebar() {
             Personal trading copilot
           </p>
         </div>
-        {!open && (
+        {!showExpanded && (
           <Layers
             className="size-[18px] text-muted-foreground"
             strokeWidth={1.75}
@@ -72,17 +83,17 @@ export function Sidebar() {
         )}
       </div>
 
-      <SidebarNav collapsed={!open} />
+      <SidebarNav collapsed={!showExpanded} />
 
       <div
         className={cn(
           "mt-auto space-y-1 border-t border-border py-3",
-          open ? "px-2" : "px-1.5",
+          showExpanded ? "px-2" : "px-1.5",
         )}
       >
-        <SettingsDialog collapsed={!open} />
-        <div className={cn(open ? "px-2" : "flex justify-center")}>
-          {open ? (
+        <SettingsDialog collapsed={!showExpanded} />
+        <div className={cn(showExpanded ? "px-2" : "flex justify-center")}>
+          {showExpanded ? (
             <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
               Paper mode
             </p>
@@ -99,34 +110,19 @@ export function Sidebar() {
         type="button"
         variant="outline"
         size="icon-sm"
-        onClick={togglePin}
-        aria-expanded={open}
-        aria-pressed={pinned}
-        aria-label={
-          pinned ? "Unpin sidebar (auto-collapse)" : "Pin sidebar open"
-        }
+        onClick={toggleExpanded}
+        aria-expanded={showExpanded}
+        aria-label={showExpanded ? "Collapse sidebar" : "Expand sidebar"}
         className={cn(
           "absolute top-[18px] -right-3 z-20 size-6 rounded-md border-border bg-sidebar text-muted-foreground shadow-none",
-          "transition-[transform,opacity] duration-[320ms] ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-muted hover:text-foreground",
-          pinned ? "opacity-100" : "opacity-0 group-hover/sidebar:opacity-100",
-          open ? "rotate-0" : "rotate-180",
+          "opacity-100 hover:bg-muted hover:text-foreground",
         )}
+        style={{
+          transition: `transform ${SIDEBAR_DURATION_MS}ms ${SIDEBAR_EASE}`,
+          transform: showExpanded ? "rotate(0deg)" : "rotate(180deg)",
+        }}
       >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="none"
-          aria-hidden
-        >
-          <path
-            d="M7.5 2.5 4 6l3.5 3.5"
-            stroke="currentColor"
-            strokeWidth="1.25"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <ChevronLeft className="size-3.5" strokeWidth={2} aria-hidden />
       </Button>
     </aside>
   );

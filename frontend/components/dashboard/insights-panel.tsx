@@ -6,7 +6,7 @@ import { RefreshCw, Sparkles } from "lucide-react";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Button } from "@/components/ui/button";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 async function consumeInsightsStream(
@@ -14,7 +14,7 @@ async function consumeInsightsStream(
   onToken: (chunk: string) => void,
   onStatus: (provider: string) => void,
 ): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/insights/stream`, { signal });
+  const res = await apiFetch(`${API_BASE}/api/insights/stream`, { signal });
   if (!res.ok) {
     throw new Error(
       res.status === 503

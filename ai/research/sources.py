@@ -12,6 +12,7 @@ import httpx
 from config.research import get_searxng_url
 
 from ai.memories import get_memory_service
+from ai.utils.symbols import extract_symbol
 from brokers.errors import BrokerError
 from brokers.factory import get_broker
 from config.settings import broker_is_configured
@@ -108,7 +109,7 @@ def web_search(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
 
 
 def _mock_web_search(query: str, *, limit: int) -> list[dict[str, Any]]:
-    sym = _extract_symbol(query)
+    sym = extract_symbol(query)
     label = sym or query[:40]
     templates = [
         (
@@ -186,13 +187,6 @@ def fetch_url(url: str) -> str:
     return text[:4000]
 
 
-def _extract_symbol(text: str) -> str | None:
-    match = re.search(r"\b([A-Z]{1,5})\b", text.upper())
-    if match and match.group(1) not in {"I", "A", "THE", "AND", "OR", "FOR"}:
-        return match.group(1)
-    return None
-
-
 def collect_for_query(
     query: str,
     *,
@@ -203,7 +197,7 @@ def collect_for_query(
     portfolio = fetch_portfolio_source()
     if portfolio:
         sources.append(portfolio)
-    sym = symbol or _extract_symbol(query)
+    sym = symbol or extract_symbol(query)
     if sym:
         bars = fetch_bars_source(sym)
         if bars:

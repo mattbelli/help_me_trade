@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
+from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
 from ai.research.depth import DEPTH_CONFIG, RESEARCH_DEPTHS
 from ai.research.report import (
@@ -113,19 +114,14 @@ def _plan_queries(state: DeepResearchState, *, cb: ProgressCallback | None) -> l
             ),
         ),
     ]
-    raw = llm.complete(messages, max_tokens=300)
-    try:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start >= 0 and end > start:
-            parsed = json.loads(raw[start : end + 1])
-            queries = parsed.get("queries", [])
-            if isinstance(queries, list):
-                cleaned = [str(q).strip() for q in queries if str(q).strip()]
-                if cleaned:
-                    return cleaned[:max_queries]
-    except json.JSONDecodeError:
-        pass
+    raw = complete_for_extraction(llm, messages, max_tokens=300)
+    parsed = parse_json_object(raw)
+    if parsed:
+        queries = parsed.get("queries", [])
+        if isinstance(queries, list):
+            cleaned = [str(q).strip() for q in queries if str(q).strip()]
+            if cleaned:
+                return cleaned[:max_queries]
     return [gaps or topic][:max_queries]
 
 
@@ -165,17 +161,12 @@ def _extract_findings(
             )[:10000],
         ),
     ]
-    raw = llm.complete(messages, max_tokens=800)
-    try:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start >= 0 and end > start:
-            parsed = json.loads(raw[start : end + 1])
-            findings = parsed.get("findings", [])
-            if isinstance(findings, list):
-                return [f for f in findings if isinstance(f, dict)]
-    except json.JSONDecodeError:
-        pass
+    raw = complete_for_extraction(llm, messages, max_tokens=800)
+    parsed = parse_json_object(raw)
+    if parsed:
+        findings = parsed.get("findings", [])
+        if isinstance(findings, list):
+            return [f for f in findings if isinstance(f, dict)]
     return [
         {
             "source_id": s.get("id"),
@@ -210,17 +201,12 @@ def _evaluate_gaps(state: DeepResearchState) -> str:
             ),
         ),
     ]
-    raw = llm.complete(messages, max_tokens=120)
+    raw = complete_for_extraction(llm, messages, max_tokens=120)
     if "sufficient" in raw.lower() or '"gaps": ""' in raw:
         return ""
-    try:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start >= 0 and end > start:
-            parsed = json.loads(raw[start : end + 1])
-            return str(parsed.get("gaps", "")).strip()
-    except json.JSONDecodeError:
-        pass
+    parsed = parse_json_object(raw)
+    if parsed:
+        return str(parsed.get("gaps", "")).strip()
     return raw.strip()[:200]
 
 

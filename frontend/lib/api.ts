@@ -3,6 +3,47 @@ import type { AiSettings } from "./ai-settings";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
+export const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN ?? "";
+
+export function apiAuthHeaders(extra?: HeadersInit): HeadersInit {
+  const headers = new Headers(extra);
+  if (API_TOKEN) {
+    headers.set("X-API-Token", API_TOKEN);
+  }
+  return headers;
+}
+
+export async function apiFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = 20_000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: init?.signal ?? controller.signal,
+      headers: apiAuthHeaders(init?.headers),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(
+        "API request timed out — is the backend running on port 8000?",
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function marketWsUrl(): string {
+  const base = `${API_BASE.replace(/^http/, "ws")}/ws/market`;
+  if (!API_TOKEN) return base;
+  return `${base}?token=${encodeURIComponent(API_TOKEN)}`;
+}
+
 export type Account = {
   id: string;
   status: string;
@@ -77,14 +118,19 @@ export type BrokerInfo = {
 };
 
 export async function fetchBroker(): Promise<BrokerInfo> {
-  const res = await fetch(`${API_BASE}/api/broker`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/broker`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }
 
 export async function fetchSnapshot(): Promise<Snapshot> {
-  const res = await fetch(`${API_BASE}/api/snapshot`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/snapshot`, { cache: "no-store" });
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        "API authentication failed — ensure NEXT_PUBLIC_API_TOKEN in frontend/.env.local matches API_TOKEN in .env",
+      );
+    }
     throw new Error(
       res.status === 503
         ? "Waiting for first snapshot from the API..."
@@ -135,7 +181,7 @@ export type BarsResponse = {
 export async function fetchPortfolioHistory(
   range: PnlRange,
 ): Promise<PortfolioHistory> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API_BASE}/api/portfolio/history?range=${encodeURIComponent(range)}`,
     { cache: "no-store" },
   );
@@ -157,7 +203,7 @@ export async function fetchBars(
   if (options?.timeframe) params.set("timeframe", options.timeframe);
   if (options?.days) params.set("days", String(options.days));
 
-  const res = await fetch(`${API_BASE}/api/bars?${params}`, {
+  const res = await apiFetch(`${API_BASE}/api/bars?${params}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -196,13 +242,13 @@ export type AppSettings = {
 };
 
 export async function fetchSettings(): Promise<AppSettings> {
-  const res = await fetch(`${API_BASE}/api/settings`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/settings`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Settings error ${res.status}`);
   return res.json();
 }
 
 export async function saveSettings(patch: AppSettings): Promise<AppSettings> {
-  const res = await fetch(`${API_BASE}/api/settings`, {
+  const res = await apiFetch(`${API_BASE}/api/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -243,13 +289,13 @@ export type WatchlistQuote = {
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {
-  const res = await fetch(`${API_BASE}/api/watchlists`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/watchlists`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Watchlists error ${res.status}`);
   return res.json();
 }
 
 export async function setActiveWatchlist(id: string): Promise<WatchlistsState> {
-  const res = await fetch(`${API_BASE}/api/watchlists/active`, {
+  const res = await apiFetch(`${API_BASE}/api/watchlists/active`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id }),
@@ -262,7 +308,7 @@ export async function createWatchlist(
   name: string,
   symbols?: string[],
 ): Promise<WatchlistsState> {
-  const res = await fetch(`${API_BASE}/api/watchlists`, {
+  const res = await apiFetch(`${API_BASE}/api/watchlists`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, symbols }),
@@ -280,7 +326,7 @@ export async function updateWatchlist(
   id: string,
   patch: { name?: string; symbols?: string[] },
 ): Promise<WatchlistsState> {
-  const res = await fetch(`${API_BASE}/api/watchlists/${encodeURIComponent(id)}`, {
+  const res = await apiFetch(`${API_BASE}/api/watchlists/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -295,7 +341,7 @@ export async function updateWatchlist(
 }
 
 export async function deleteWatchlist(id: string): Promise<WatchlistsState> {
-  const res = await fetch(`${API_BASE}/api/watchlists/${encodeURIComponent(id)}`, {
+  const res = await apiFetch(`${API_BASE}/api/watchlists/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -313,7 +359,7 @@ export async function fetchWatchlistMarket(
   const params = symbols?.length
     ? new URLSearchParams({ symbols: symbols.join(",") })
     : new URLSearchParams();
-  const res = await fetch(`${API_BASE}/api/watchlist/market?${params}`, {
+  const res = await apiFetch(`${API_BASE}/api/watchlist/market?${params}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -327,14 +373,14 @@ export async function fetchWatchlistMarket(
 }
 
 export async function fetchWatchlist(): Promise<string[]> {
-  const res = await fetch(`${API_BASE}/api/watchlist`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/watchlist`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Watchlist error ${res.status}`);
   const data = await res.json();
   return data.symbols ?? [];
 }
 
 export async function saveWatchlist(symbols: string[]): Promise<string[]> {
-  const res = await fetch(`${API_BASE}/api/watchlist`, {
+  const res = await apiFetch(`${API_BASE}/api/watchlist`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ symbols }),
@@ -345,7 +391,7 @@ export async function saveWatchlist(symbols: string[]): Promise<string[]> {
 }
 
 export async function addWatchlistSymbol(symbol: string): Promise<string[]> {
-  const res = await fetch(`${API_BASE}/api/watchlist`, {
+  const res = await apiFetch(`${API_BASE}/api/watchlist`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ symbol }),
@@ -356,7 +402,7 @@ export async function addWatchlistSymbol(symbol: string): Promise<string[]> {
 }
 
 export async function removeWatchlistSymbol(symbol: string): Promise<string[]> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API_BASE}/api/watchlist/${encodeURIComponent(symbol)}`,
     { method: "DELETE" },
   );
@@ -370,7 +416,7 @@ export async function searchSymbols(
   limit = 8,
 ): Promise<string[]> {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
-  const res = await fetch(`${API_BASE}/api/symbols/search?${params}`, {
+  const res = await apiFetch(`${API_BASE}/api/symbols/search?${params}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -384,7 +430,7 @@ export async function searchSymbols(
 }
 
 export async function fetchChartLayout(): Promise<ChartLayoutItem[]> {
-  const res = await fetch(`${API_BASE}/api/chart-layout`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/chart-layout`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Chart layout error ${res.status}`);
   const data = await res.json();
   return data.layout ?? [];
@@ -393,7 +439,7 @@ export async function fetchChartLayout(): Promise<ChartLayoutItem[]> {
 export async function saveChartLayout(
   layout: ChartLayoutItem[],
 ): Promise<ChartLayoutItem[]> {
-  const res = await fetch(`${API_BASE}/api/chart-layout`, {
+  const res = await apiFetch(`${API_BASE}/api/chart-layout`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ layout }),
@@ -417,7 +463,7 @@ export async function fetchPriceAlerts(symbol?: string): Promise<PriceAlert[]> {
   const params = symbol
     ? new URLSearchParams({ symbol })
     : new URLSearchParams();
-  const res = await fetch(`${API_BASE}/api/price-alerts?${params}`, {
+  const res = await apiFetch(`${API_BASE}/api/price-alerts?${params}`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Alerts error ${res.status}`);
@@ -431,7 +477,7 @@ export async function createPriceAlert(payload: {
   direction?: string;
   note?: string;
 }): Promise<PriceAlert> {
-  const res = await fetch(`${API_BASE}/api/price-alerts`, {
+  const res = await apiFetch(`${API_BASE}/api/price-alerts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -441,14 +487,14 @@ export async function createPriceAlert(payload: {
 }
 
 export async function deletePriceAlert(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/price-alerts/${id}`, {
+  const res = await apiFetch(`${API_BASE}/api/price-alerts/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`Delete alert error ${res.status}`);
 }
 
 export async function triggerPriceAlert(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/price-alerts/${id}/trigger`, {
+  const res = await apiFetch(`${API_BASE}/api/price-alerts/${id}/trigger`, {
     method: "POST",
   });
   if (!res.ok) throw new Error(`Trigger alert error ${res.status}`);

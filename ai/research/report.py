@@ -10,20 +10,14 @@ from typing import Any
 
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
+from ai.llm.structured import parse_json_object
 
 
 def _parse_report_json(raw: str, *, topic: str, symbol: str | None) -> dict[str, Any]:
-    text = raw.strip()
-    try:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            parsed = json.loads(text[start : end + 1])
-            if isinstance(parsed, dict):
-                return _normalize_report(parsed, topic=topic, symbol=symbol)
-    except json.JSONDecodeError:
-        pass
-    return _fallback_report(topic=topic, symbol=symbol, body=text)
+    parsed = parse_json_object(raw)
+    if parsed:
+        return _normalize_report(parsed, topic=topic, symbol=symbol)
+    return _fallback_report(topic=topic, symbol=symbol, body=raw.strip())
 
 
 def _normalize_report(

@@ -40,7 +40,7 @@ import {
 } from "@/components/ai-elements/tool";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Badge } from "@/components/ui/badge";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, API_TOKEN, apiFetch } from "@/lib/api";
 import { AI_PROVIDER_OPTIONS } from "@/lib/ai-settings";
 import { shortModelLabel } from "@/lib/ai-models";
 import { ChatModelSelect } from "@/components/agents/chat-model-select";
@@ -74,40 +74,55 @@ function ToolPartView({
 }: {
   part: Extract<UIMessage["parts"][number], { type: string }>;
 }) {
-  if (!isToolUIPart(part)) return null;
+  const toolPart = isToolUIPart(part) ? part : null;
+  const isComplete =
+    toolPart?.state === "output-available" ||
+    toolPart?.state === "output-error" ||
+    toolPart?.state === "output-denied";
+
+  const [open, setOpen] = useState(Boolean(isComplete));
+
+  useEffect(() => {
+    if (isComplete) setOpen(true);
+  }, [isComplete]);
+
+  if (!toolPart) return null;
 
   const title =
-    part.type === "dynamic-tool"
-      ? part.toolName
-      : part.type.replace(/^tool-/, "");
+    toolPart.type === "dynamic-tool"
+      ? toolPart.toolName
+      : toolPart.type.replace(/^tool-/, "");
   const toolName = title;
 
   return (
-    <Tool defaultOpen={part.state === "output-available"}>
-      {part.type === "dynamic-tool" ? (
+    <Tool open={open} onOpenChange={setOpen}>
+      {toolPart.type === "dynamic-tool" ? (
         <ToolHeader
           type="dynamic-tool"
-          state={part.state}
-          toolName={part.toolName}
+          state={toolPart.state}
+          toolName={toolPart.toolName}
           title={title}
         />
       ) : (
-        <ToolHeader type={part.type} state={part.state} title={title} />
+        <ToolHeader type={toolPart.type} state={toolPart.state} title={title} />
       )}
       <ToolContent>
-        {"input" in part && part.input !== undefined ? (
-          <ToolInput input={part.input} />
+        {"input" in toolPart && toolPart.input !== undefined ? (
+          <ToolInput input={toolPart.input} />
         ) : null}
-        {"output" in part && part.output !== undefined ? (
-          toolName === "run_research" || part.type === "tool-run_research" ? (
+        {"output" in toolPart && toolPart.output !== undefined ? (
+          toolName === "start_research" ||
+          toolName === "run_research" ||
+          toolPart.type === "tool-start_research" ||
+          toolPart.type === "tool-run_research" ? (
             <ResearchToolOutput
-              output={part.output}
-              errorText={"errorText" in part ? part.errorText : undefined}
+              output={toolPart.output}
+              errorText={"errorText" in toolPart ? toolPart.errorText : undefined}
             />
           ) : (
             <ToolOutput
-              output={part.output}
-              errorText={"errorText" in part ? part.errorText : undefined}
+              output={toolPart.output}
+              errorText={"errorText" in toolPart ? toolPart.errorText : undefined}
             />
           )
         ) : null}
@@ -138,16 +153,22 @@ export function AgentChat() {
   const [bootstrapping, setBootstrapping] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/ai/providers`)
-      .then((res) => res.json())
-      .then((data) => setActiveProvider(data.active_provider ?? "mock"))
-      .catch(() => setActiveProvider("mock"));
+    function loadProvider() {
+      apiFetch(`${API_BASE}/api/ai/providers`, { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data) => setActiveProvider(data.active_provider ?? "mock"))
+        .catch(() => setActiveProvider("mock"));
+    }
+    loadProvider();
+    window.addEventListener("focus", loadProvider);
+    return () => window.removeEventListener("focus", loadProvider);
   }, []);
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: `${API_BASE}/api/chat`,
+        headers: API_TOKEN ? { "X-API-Token": API_TOKEN } : undefined,
         body: {
           sessionId,
           mode: chatMode,
@@ -412,6 +433,7 @@ export function AgentChat() {
                 <PromptInputFooter>
                   <PromptInputTools>
                     <ChatModelSelect
+                      key={activeProvider}
                       provider={activeProvider}
                       value={chatModel}
                       onChange={setChatModel}

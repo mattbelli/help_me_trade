@@ -9,6 +9,7 @@ from typing import Any
 
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
+from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
 
 logger = logging.getLogger(__name__)
@@ -54,27 +55,21 @@ def _heuristic_memories(user_text: str, assistant_text: str) -> list[dict[str, s
 
 
 def _parse_llm_memories(raw: str) -> list[dict[str, str]]:
-    text = raw.strip()
-    try:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start < 0 or end <= start:
-            return []
-        parsed = json.loads(text[start : end + 1])
-        memories = parsed.get("memories", [])
-        if not isinstance(memories, list):
-            return []
-        out: list[dict[str, str]] = []
-        for item in memories:
-            if not isinstance(item, dict):
-                continue
-            mtype = str(item.get("type", "")).strip()
-            content = str(item.get("content", "")).strip()
-            if mtype in ("preference", "lesson", "research") and content:
-                out.append({"type": mtype, "content": content})
-        return out[:3]
-    except json.JSONDecodeError:
+    parsed = parse_json_object(raw)
+    if not parsed:
         return []
+    memories = parsed.get("memories", [])
+    if not isinstance(memories, list):
+        return []
+    out: list[dict[str, str]] = []
+    for item in memories:
+        if not isinstance(item, dict):
+            continue
+        mtype = str(item.get("type", "")).strip()
+        content = str(item.get("content", "")).strip()
+        if mtype in ("preference", "lesson", "research") and content:
+            out.append({"type": mtype, "content": content})
+    return out[:3]
 
 
 def extract_memories_from_turn(
@@ -107,7 +102,7 @@ def extract_memories_from_turn(
     ]
 
     try:
-        raw = llm.complete(messages, max_tokens=300)
+        raw = complete_for_extraction(llm, messages, max_tokens=300)
         candidates = _parse_llm_memories(raw)
     except Exception as exc:
         logger.warning("LLM memory extraction failed, using heuristics: %s", exc)

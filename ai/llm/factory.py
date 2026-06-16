@@ -17,10 +17,12 @@ _cached_provider: str | None = None
 
 
 def get_llm_provider_name() -> str:
-    env_name = os.environ.get("LLM_PROVIDER", "").strip().lower()
-    if env_name:
-        return env_name if env_name in VALID_PROVIDERS else "mock"
     settings_name = str(get_resolved_ai_settings().get("provider", "mock")).strip().lower()
+    if settings_name in VALID_PROVIDERS and settings_name != "mock":
+        return settings_name
+    env_name = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    if env_name and env_name in VALID_PROVIDERS:
+        return env_name
     return settings_name if settings_name in VALID_PROVIDERS else "mock"
 
 

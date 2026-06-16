@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings } from "lucide-react";
+import { Bot, FileUp, Search, Settings, Wallet } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   fetchSettings,
   saveSettings,
@@ -26,11 +25,25 @@ import {
 } from "@/lib/api";
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
+import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
 import { cn } from "@/lib/utils";
 
 type Props = {
   collapsed?: boolean;
 };
+
+type SettingsSection = "brokers" | "ai" | "research" | "import";
+
+const SECTIONS: {
+  id: SettingsSection;
+  label: string;
+  icon: typeof Wallet;
+}[] = [
+  { id: "brokers", label: "Brokers", icon: Wallet },
+  { id: "ai", label: "AI", icon: Bot },
+  { id: "research", label: "Research", icon: Search },
+  { id: "import", label: "Import", icon: FileUp },
+];
 
 const EMPTY: AppSettings = {
   primary_broker: "alpaca",
@@ -62,6 +75,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [section, setSection] = useState<SettingsSection>("brokers");
 
   useEffect(() => {
     if (!open) return;
@@ -128,32 +142,40 @@ export function SettingsDialog({ collapsed = false }: Props) {
           <span className="text-[13px] font-medium">Settings</span>
         )}
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto bg-popover/95 backdrop-blur-md sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex h-[min(88vh,820px)] max-h-[88vh] w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden bg-popover/95 p-0 backdrop-blur-md sm:!max-w-[min(96vw,80rem)]">
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Brokers, API keys, and AI providers. Stored locally in{" "}
-            <code className="text-xs">data/settings.json</code>.
+            Brokers, AI, research, and imported trade history. Stored locally in{" "}
+            <code className="text-xs">data/</code>.
           </DialogDescription>
         </DialogHeader>
 
+        <div className="flex min-h-0 flex-1">
+          <nav className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-border bg-muted/20 p-4">
+            {SECTIONS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setSection(id)}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium transition-colors",
+                  section === id
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : (
-          <Tabs defaultValue="brokers">
-            <TabsList className="w-full">
-              <TabsTrigger value="brokers" className="flex-1">
-                Brokers
-              </TabsTrigger>
-              <TabsTrigger value="ai" className="flex-1">
-                AI
-              </TabsTrigger>
-              <TabsTrigger value="research" className="flex-1">
-                Research
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="brokers" className="space-y-5 pt-2">
+        ) : section === "brokers" ? (
+          <div className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="primary-broker">Primary broker</Label>
                 <p className="text-xs text-muted-foreground">
@@ -377,9 +399,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
                 Enable both brokers to see a combined overview with separate
                 account sections.
               </p>
-            </TabsContent>
-
-            <TabsContent value="ai" className="space-y-4 pt-2">
+          </div>
+        ) : section === "ai" ? (
+          <div className="space-y-4">
               <AiProviderSettings
                 value={draft.ai}
                 onChange={(ai) => setDraft((d) => ({ ...d, ai }))}
@@ -389,9 +411,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
                 <code className="text-[11px]">data/settings.json</code>. Custom
                 base URLs support proxies, Azure OpenAI, and compatible gateways.
               </p>
-            </TabsContent>
-
-            <TabsContent value="research" className="space-y-4 pt-2">
+          </div>
+        ) : section === "research" ? (
+          <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="searxng-url">SearXNG URL (optional)</Label>
                 <Input
@@ -413,16 +435,20 @@ export function SettingsDialog({ collapsed = false }: Props) {
                   set.
                 </p>
               </div>
-            </TabsContent>
-          </Tabs>
+          </div>
+        ) : (
+          <SettingsTradesPanel />
         )}
+          </div>
+        </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="shrink-0 border-t border-border px-6 py-4">
+        {error && <p className="mb-2 text-sm text-destructive">{error}</p>}
         {message && (
-          <p className="text-sm text-muted-foreground">{message}</p>
+          <p className="mb-2 text-sm text-muted-foreground">{message}</p>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="sm:justify-end">
           <Button
             type="button"
             variant="outline"
@@ -431,10 +457,11 @@ export function SettingsDialog({ collapsed = false }: Props) {
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving || loading}>
+          <Button type="button" onClick={handleSave} disabled={saving || loading || section === "import"}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

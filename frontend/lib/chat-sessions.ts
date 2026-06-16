@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE, apiFetch } from "./api";
 
 export type ChatMode = "standard" | "private" | "quick";
 
@@ -40,7 +40,7 @@ export const CHAT_MODE_LABELS: Record<
 };
 
 export async function fetchChatSessions(): Promise<ChatSession[]> {
-  const res = await fetch(`${API_BASE}/api/chat/sessions`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/chat/sessions`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Chat sessions error ${res.status}`);
   const data = await res.json();
   return data.sessions ?? [];
@@ -50,7 +50,7 @@ export async function createChatSession(
   mode: Exclude<ChatMode, "quick">,
   title = "New chat",
 ): Promise<ChatSession> {
-  const res = await fetch(`${API_BASE}/api/chat/sessions`, {
+  const res = await apiFetch(`${API_BASE}/api/chat/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode, title }),
@@ -67,7 +67,7 @@ export async function createChatSession(
 export async function fetchChatSession(
   sessionId: string,
 ): Promise<ChatSessionDetail> {
-  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+  const res = await apiFetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Chat session error ${res.status}`);
@@ -75,7 +75,7 @@ export async function fetchChatSession(
 }
 
 export async function deleteChatSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+  const res = await apiFetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`Delete session error ${res.status}`);
@@ -85,7 +85,7 @@ export async function renameChatSession(
   sessionId: string,
   title: string,
 ): Promise<ChatSession> {
-  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+  const res = await apiFetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),

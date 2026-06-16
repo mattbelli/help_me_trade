@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from dataclasses import dataclass
@@ -72,6 +73,23 @@ class AlpacaAdapter:
             "APCA-API-KEY-ID": key_id,
             "APCA-API-SECRET-KEY": secret,
         }
+        self._sync_client = httpx.Client(headers=self._headers, timeout=30.0)
+        self._async_client: httpx.AsyncClient | None = None
+
+    def _async_http(self) -> httpx.AsyncClient:
+        if self._async_client is None or self._async_client.is_closed:
+            self._async_client = httpx.AsyncClient(
+                headers=self._headers, timeout=30.0
+            )
+        return self._async_client
+
+    def close(self) -> None:
+        self._sync_client.close()
+
+    async def aclose(self) -> None:
+        if self._async_client is not None and not self._async_client.is_closed:
+            await self._async_client.aclose()
+        self._async_client = None
 
     @classmethod
     def from_env(cls) -> AlpacaAdapter:
@@ -105,6 +123,15 @@ class AlpacaAdapter:
             data_base_url=data_base_url,
         )
 
+    def _parse_http_response(self, response: httpx.Response, path: str) -> dict | list:
+        if response.status_code == 401:
+            raise AlpacaError("Authentication failed (401). Check .env keys.")
+        if response.status_code != 200:
+            raise AlpacaError(
+                f"GET {path} failed ({response.status_code}): {response.text}"
+            )
+        return response.json()
+
     def _request(
         self,
         base: str,
@@ -114,23 +141,30 @@ class AlpacaAdapter:
     ) -> dict | list:
         url = f"{base}{path}"
         try:
-            response = httpx.get(
-                url, headers=self._headers, params=params, timeout=30.0
-            )
+            response = self._sync_client.get(url, params=params)
         except httpx.RequestError as exc:
             raise AlpacaError(f"Network error: {exc}") from exc
+        return self._parse_http_response(response, path)
 
-        if response.status_code == 401:
-            raise AlpacaError("Authentication failed (401). Check .env keys.")
-        if response.status_code != 200:
-            raise AlpacaError(
-                f"GET {path} failed ({response.status_code}): {response.text}"
-            )
-
-        return response.json()
+    async def _arequest(
+        self,
+        base: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> dict | list:
+        url = f"{base}{path}"
+        try:
+            response = await self._async_http().get(url, params=params)
+        except httpx.RequestError as exc:
+            raise AlpacaError(f"Network error: {exc}") from exc
+        return self._parse_http_response(response, path)
 
     def _get(self, path: str) -> dict | list:
         return self._request(self._base_url, path)
+
+    async def _aget(self, path: str) -> dict | list:
+        return await self._arequest(self._base_url, path)
 
     def _get_data(self, path: str, *, params: dict[str, Any] | None = None) -> dict:
         result = self._request(self._data_base_url, path, params=params)
@@ -138,8 +172,16 @@ class AlpacaAdapter:
             raise AlpacaError(f"Unexpected data API response for {path}")
         return result
 
-    def get_account(self) -> Account:
-        data = self._get("/v2/account")
+    async def _aget_data(
+        self, path: str, *, params: dict[str, Any] | None = None
+    ) -> dict:
+        result = await self._arequest(self._data_base_url, path, params=params)
+        if not isinstance(result, dict):
+            raise AlpacaError(f"Unexpected data API response for {path}")
+        return result
+
+    @staticmethod
+    def _parse_account(data: dict) -> Account:
         return Account(
             id=str(data["id"]),
             status=str(data.get("status", "")),
@@ -148,9 +190,11 @@ class AlpacaAdapter:
             portfolio_value=float(data.get("portfolio_value", 0)),
         )
 
-    def get_positions(self) -> list[Position]:
-        raw = self._get("/v2/positions")
+    @staticmethod
+    def _parse_positions(raw: list | dict) -> list[Position]:
         if not raw:
+            return []
+        if isinstance(raw, dict):
             return []
 
         positions: list[Position] = []
@@ -168,9 +212,11 @@ class AlpacaAdapter:
             )
         return positions
 
-    def get_open_orders(self) -> list[Order]:
-        raw = self._get("/v2/orders?status=open")
+    @staticmethod
+    def _parse_orders(raw: list | dict) -> list[Order]:
         if not raw:
+            return []
+        if isinstance(raw, dict):
             return []
 
         orders: list[Order] = []
@@ -190,17 +236,45 @@ class AlpacaAdapter:
             )
         return orders
 
-    def get_portfolio_history(self, range_key: str) -> list[PortfolioHistoryPoint]:
-        if range_key not in _RANGE_TO_ALPACA:
-            raise AlpacaError(f"Unknown range {range_key!r}")
-
-        period, timeframe = _RANGE_TO_ALPACA[range_key]
-        data = self._get(
-            f"/v2/account/portfolio/history?period={period}&timeframe={timeframe}"
-        )
+    def get_account(self) -> Account:
+        data = self._get("/v2/account")
         if not isinstance(data, dict):
-            raise AlpacaError("Unexpected portfolio history response")
+            raise AlpacaError("Unexpected account response")
+        return self._parse_account(data)
 
+    async def aget_account(self) -> Account:
+        data = await self._aget("/v2/account")
+        if not isinstance(data, dict):
+            raise AlpacaError("Unexpected account response")
+        return self._parse_account(data)
+
+    def get_positions(self) -> list[Position]:
+        return self._parse_positions(self._get("/v2/positions"))
+
+    async def aget_positions(self) -> list[Position]:
+        raw = await self._aget("/v2/positions")
+        return self._parse_positions(raw if isinstance(raw, list) else [])
+
+    def get_open_orders(self) -> list[Order]:
+        return self._parse_orders(self._get("/v2/orders?status=open"))
+
+    async def aget_open_orders(self) -> list[Order]:
+        raw = await self._aget("/v2/orders?status=open")
+        return self._parse_orders(raw if isinstance(raw, list) else [])
+
+    async def afetch_snapshot(
+        self,
+    ) -> tuple[Account, list[Position], list[Order]]:
+        account, positions, orders = await asyncio.gather(
+            self.aget_account(),
+            self.aget_positions(),
+            self.aget_open_orders(),
+        )
+        return account, positions, orders
+
+    def _parse_portfolio_history(
+        self, data: dict, range_key: str
+    ) -> list[PortfolioHistoryPoint]:
         timestamps = data.get("timestamp") or []
         equities = data.get("equity") or []
         profit_loss = data.get("profit_loss") or []
@@ -225,6 +299,68 @@ class AlpacaAdapter:
 
         return points
 
+    def get_portfolio_history(self, range_key: str) -> list[PortfolioHistoryPoint]:
+        if range_key not in _RANGE_TO_ALPACA:
+            raise AlpacaError(f"Unknown range {range_key!r}")
+
+        period, timeframe = _RANGE_TO_ALPACA[range_key]
+        data = self._get(
+            f"/v2/account/portfolio/history?period={period}&timeframe={timeframe}"
+        )
+        if not isinstance(data, dict):
+            raise AlpacaError("Unexpected portfolio history response")
+        return self._parse_portfolio_history(data, range_key)
+
+    async def aget_portfolio_history(
+        self, range_key: str
+    ) -> list[PortfolioHistoryPoint]:
+        if range_key not in _RANGE_TO_ALPACA:
+            raise AlpacaError(f"Unknown range {range_key!r}")
+
+        period, timeframe = _RANGE_TO_ALPACA[range_key]
+        data = await self._aget(
+            f"/v2/account/portfolio/history?period={period}&timeframe={timeframe}"
+        )
+        if not isinstance(data, dict):
+            raise AlpacaError("Unexpected portfolio history response")
+        return self._parse_portfolio_history(data, range_key)
+
+    def get_account_activities(
+        self, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        result = self._request(
+            self._base_url, "/v2/account/activities", params=params or {}
+        )
+        if isinstance(result, list):
+            return result
+        return []
+
+    async def aget_account_activities(
+        self, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        result = await self._arequest(
+            self._base_url, "/v2/account/activities", params=params or {}
+        )
+        if isinstance(result, list):
+            return result
+        return []
+
+    @staticmethod
+    def _parse_stock_bars(raw_bars: list) -> list[StockBar]:
+        bars: list[StockBar] = []
+        for item in raw_bars:
+            bars.append(
+                StockBar(
+                    time=str(item["t"]),
+                    open=float(item["o"]),
+                    high=float(item["h"]),
+                    low=float(item["l"]),
+                    close=float(item["c"]),
+                    volume=float(item.get("v", 0)),
+                )
+            )
+        return bars
+
     def get_stock_bars(
         self,
         symbol: str,
@@ -235,6 +371,19 @@ class AlpacaAdapter:
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
         return self.get_stock_bars_range(
+            symbol, timeframe=timeframe, start=start, end=end
+        )
+
+    async def aget_stock_bars(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        days: int = 180,
+    ) -> list[StockBar]:
+        end = datetime.now(UTC)
+        start = end - timedelta(days=days)
+        return await self.aget_stock_bars_range(
             symbol, timeframe=timeframe, start=start, end=end
         )
 
@@ -260,21 +409,31 @@ class AlpacaAdapter:
         }
 
         data = self._get_data(f"/v2/stocks/{symbol}/bars", params=params)
-        raw_bars = data.get("bars") or []
+        return self._parse_stock_bars(data.get("bars") or [])
 
-        bars: list[StockBar] = []
-        for item in raw_bars:
-            bars.append(
-                StockBar(
-                    time=str(item["t"]),
-                    open=float(item["o"]),
-                    high=float(item["h"]),
-                    low=float(item["l"]),
-                    close=float(item["c"]),
-                    volume=float(item.get("v", 0)),
-                )
-            )
-        return bars
+    async def aget_stock_bars_range(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        start: datetime,
+        end: datetime,
+    ) -> list[StockBar]:
+        symbol = symbol.strip().upper()
+        if not symbol:
+            raise AlpacaError("Symbol is required")
+
+        params = {
+            "timeframe": timeframe,
+            "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "limit": 10000,
+            "feed": "iex",
+            "sort": "asc",
+        }
+
+        data = await self._aget_data(f"/v2/stocks/{symbol}/bars", params=params)
+        return self._parse_stock_bars(data.get("bars") or [])
 
     _assets_cache: tuple[float, list[str]] | None = None
     _ASSETS_TTL_SEC = 86_400
@@ -288,6 +447,22 @@ class AlpacaAdapter:
             return AlpacaAdapter._assets_cache[1]
 
         raw = self._get("/v2/assets?status=active&asset_class=us_equity")
+        return self._cache_tradable_symbols(now, raw)
+
+    async def _atradable_symbols(self) -> list[str]:
+        now = time.time()
+        if (
+            AlpacaAdapter._assets_cache is not None
+            and now - AlpacaAdapter._assets_cache[0] < self._ASSETS_TTL_SEC
+        ):
+            return AlpacaAdapter._assets_cache[1]
+
+        raw = await self._aget("/v2/assets?status=active&asset_class=us_equity")
+        return self._cache_tradable_symbols(now, raw)
+
+    def _cache_tradable_symbols(self, now: float, raw: object) -> list[str]:
+        if not isinstance(raw, list):
+            return []
         symbols = sorted(
             str(item["symbol"])
             for item in raw
@@ -299,11 +474,18 @@ class AlpacaAdapter:
         return symbols
 
     def search_symbols(self, query: str, *, limit: int = 10) -> list[str]:
+        return self._filter_symbols(self._tradable_symbols(), query, limit=limit)
+
+    async def asearch_symbols(self, query: str, *, limit: int = 10) -> list[str]:
+        symbols = await self._atradable_symbols()
+        return self._filter_symbols(symbols, query, limit=limit)
+
+    @staticmethod
+    def _filter_symbols(symbols: list[str], query: str, *, limit: int) -> list[str]:
         q = query.strip().upper()
         if not q:
             return []
 
-        symbols = self._tradable_symbols()
         prefix = [s for s in symbols if s.startswith(q)]
         contains = [s for s in symbols if q in s and not s.startswith(q)]
         merged: list[str] = []
@@ -315,36 +497,8 @@ class AlpacaAdapter:
                     return merged
         return merged
 
-    def get_stock_bars_batch(
-        self,
-        symbols: list[str],
-        *,
-        timeframe: str = "1Day",
-        days: int = 12,
-    ) -> dict[str, list[StockBar]]:
-        cleaned = []
-        seen: set[str] = set()
-        for raw in symbols:
-            sym = raw.strip().upper()
-            if sym and sym not in seen:
-                seen.add(sym)
-                cleaned.append(sym)
-        if not cleaned:
-            return {}
-
-        end = datetime.now(UTC)
-        start = end - timedelta(days=days)
-        params = {
-            "symbols": ",".join(cleaned),
-            "timeframe": timeframe,
-            "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "limit": 10000,
-            "feed": "iex",
-        }
-
-        data = self._get_data("/v2/stocks/bars", params=params)
-        raw_bars = data.get("bars") or {}
+    @staticmethod
+    def _parse_batch_bars(raw_bars: object) -> dict[str, list[StockBar]]:
         if not isinstance(raw_bars, dict):
             raise AlpacaError("Unexpected batch bars response")
 
@@ -368,6 +522,65 @@ class AlpacaAdapter:
                 )
             out[str(symbol).upper()] = bars
         return out
+
+    def _batch_bar_params(
+        self,
+        symbols: list[str],
+        *,
+        timeframe: str,
+        days: int,
+    ) -> tuple[list[str], dict[str, Any]]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols:
+            sym = raw.strip().upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                cleaned.append(sym)
+
+        end = datetime.now(UTC)
+        start = end - timedelta(days=days)
+        params = {
+            "symbols": ",".join(cleaned),
+            "timeframe": timeframe,
+            "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "limit": 10000,
+            "feed": "iex",
+        }
+        return cleaned, params
+
+    def get_stock_bars_batch(
+        self,
+        symbols: list[str],
+        *,
+        timeframe: str = "1Day",
+        days: int = 12,
+    ) -> dict[str, list[StockBar]]:
+        cleaned, params = self._batch_bar_params(
+            symbols, timeframe=timeframe, days=days
+        )
+        if not cleaned:
+            return {}
+
+        data = self._get_data("/v2/stocks/bars", params=params)
+        return self._parse_batch_bars(data.get("bars") or {})
+
+    async def aget_stock_bars_batch(
+        self,
+        symbols: list[str],
+        *,
+        timeframe: str = "1Day",
+        days: int = 12,
+    ) -> dict[str, list[StockBar]]:
+        cleaned, params = self._batch_bar_params(
+            symbols, timeframe=timeframe, days=days
+        )
+        if not cleaned:
+            return {}
+
+        data = await self._aget_data("/v2/stocks/bars", params=params)
+        return self._parse_batch_bars(data.get("bars") or {})
 
     def symbol_exists(self, symbol: str) -> bool:
         sym = symbol.strip().upper()

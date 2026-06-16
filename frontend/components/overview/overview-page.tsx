@@ -46,7 +46,7 @@ export function OverviewPage() {
 
   const multiBroker = brokerSnapshots.length > 1;
 
-  if (loading && !snapshot) {
+  if (loading && !snapshot && !error) {
     return (
       <div className="space-y-8">
         <Skeleton className="h-10 w-64" />
@@ -67,7 +67,19 @@ export function OverviewPage() {
         subtitle="Account summary, open positions, and working orders from your broker."
       />
 
-      {error && (
+      {error && !snapshot && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <p>{error}</p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Ensure the API is running:{" "}
+            <code className="text-[11px]">
+              uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+            </code>
+          </p>
+        </div>
+      )}
+
+      {error && snapshot && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>

@@ -13,10 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from brokers.alpaca import AlpacaAdapter
-from brokers.market_stream import market_hub
 from brokers.errors import BrokerError
+from brokers.market_stream import market_hub
 from brokers.factory import (
     active_broker_name,
+    aclose_broker_cache,
+    clear_broker_cache,
     get_broker,
     get_enabled_broker_names,
 )
@@ -49,9 +51,16 @@ from db.chart_features import (
     mark_alert_triggered,
 )
 from db.sqlite import get_all_latest_snapshots, get_latest_snapshot, init_db, save_snapshot
+from db.trades import init_trade_tables
 from ai.rules.engine import evaluate_on_snapshot
 from ai.reflection.scheduler import reflection_loop
 from api.ai_routes import router as ai_router
+from api.trade_routes import router as trade_router
+from api.performance_routes import router as performance_router
+from trading.sync import async_sync_all_enabled_brokers
+from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
+from api.middleware import SecurityMiddleware
+from api.poll_health import poll_health
 
 ROOT = Path(__file__).resolve().parent.parent
 POLL_INTERVAL_SECONDS = max(
@@ -60,78 +69,128 @@ POLL_INTERVAL_SECONDS = max(
 logger = logging.getLogger(__name__)
 
 
+async def _poll_broker(broker_name: str) -> bool:
+    if not broker_is_configured(broker_name):
+        logger.warning("Skipping %s — not configured", broker_name)
+        return False
+    try:
+        broker = get_broker(broker_name)
+        account, positions, orders = await broker.afetch_snapshot()
+        captured_at = save_snapshot(
+            account=account,
+            positions=positions,
+            orders=orders,
+            broker=broker_name,
+        )
+        logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
+        snapshot = get_latest_snapshot(broker_name)
+        if snapshot:
+            triggered = evaluate_on_snapshot(snapshot)
+            if triggered:
+                logger.info(
+                    "Rules triggered on poll (%s): %s",
+                    broker_name,
+                    [t["rule_id"] for t in triggered],
+                )
+        return True
+    except Exception:
+        logger.exception("Poll failed for %s", broker_name)
+        return False
+
+
 async def _poll_once() -> None:
-    for broker_name in get_enabled_broker_names():
-        if not broker_is_configured(broker_name):
-            logger.warning("Skipping %s — not configured", broker_name)
-            continue
-        try:
-            broker = get_broker(broker_name)
-            captured_at = save_snapshot(
-                account=broker.get_account(),
-                positions=broker.get_positions(),
-                orders=broker.get_open_orders(),
-                broker=broker_name,
-            )
-            logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
-            snapshot = get_latest_snapshot(broker_name)
-            if snapshot:
-                triggered = evaluate_on_snapshot(snapshot)
-                if triggered:
-                    logger.info(
-                        "Rules triggered on poll (%s): %s",
-                        broker_name,
-                        [t["rule_id"] for t in triggered],
-                    )
-        except BrokerError as exc:
-            logger.warning("Poll failed for %s: %s", broker_name, exc)
+    broker_names = get_enabled_broker_names()
+    if not broker_names:
+        return
+    results = await asyncio.gather(
+        *[_poll_broker(name) for name in broker_names],
+        return_exceptions=False,
+    )
+    if any(results):
+        poll_health.record_success()
 
 
 async def _poll_loop() -> None:
     while True:
-        await _poll_once()
+        try:
+            await _poll_once()
+        except Exception:
+            logger.exception("Poll loop iteration failed")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
+async def _trade_sync_loop() -> None:
+    """Sync trade ledger from enabled brokers on startup, then periodically."""
+    try:
+        results = await async_sync_all_enabled_brokers()
+        for r in results:
+            logger.info("Trade sync on connect: %s", r)
+    except Exception:
+        logger.exception("Initial trade sync failed")
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            results = await async_sync_all_enabled_brokers()
+            for r in results:
+                logger.info("Periodic trade sync: %s", r)
+        except Exception:
+            logger.exception("Periodic trade sync failed")
 
 
 async def _alert_symbol_loop() -> None:
     while True:
-        symbols = {
-            str(a["symbol"]).upper()
-            for a in list_price_alerts(active_only=True)
-        }
-        await market_hub.ensure_symbols(symbols)
+        try:
+            symbols = {
+                str(a["symbol"]).upper()
+                for a in list_price_alerts(active_only=True)
+            }
+            await market_hub.ensure_symbols(symbols)
+        except Exception:
+            logger.exception("Alert symbol loop iteration failed")
         await asyncio.sleep(30)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not auth_enabled():
+        logger.warning(
+            "API_TOKEN is not set — API and WebSocket routes are unauthenticated. "
+            "Set API_TOKEN in .env for production-like local security."
+        )
     init_db()
     init_chart_features()
     init_ai_tables()
     init_chat_tables()
+    init_trade_tables()
     await market_hub.start()
     await _poll_once()
     poll_task = asyncio.create_task(_poll_loop())
     alert_task = asyncio.create_task(_alert_symbol_loop())
     reflection_task = asyncio.create_task(reflection_loop())
+    sync_task = asyncio.create_task(_trade_sync_loop())
     yield
+    sync_task.cancel()
     poll_task.cancel()
     alert_task.cancel()
     reflection_task.cancel()
-    for task in (poll_task, alert_task, reflection_task):
+    for task in (poll_task, alert_task, reflection_task, sync_task):
         try:
             await task
         except asyncio.CancelledError:
             pass
     await market_hub.stop()
+    await aclose_broker_cache()
 
 
 app = FastAPI(title="Help Me Trade", lifespan=lifespan)
 app.include_router(ai_router)
+app.include_router(trade_router)
+app.include_router(performance_router)
 
+app.add_middleware(SecurityMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origins=frontend_origins(),
     allow_credentials=True,
     allow_methods=["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -139,12 +198,20 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict[str, int | str]:
-    return {"status": "ok", "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+def health() -> dict[str, int | str | float | bool | None]:
+    age = poll_health.age_seconds()
+    return {
+        "status": "ok",
+        "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+        "last_poll_age_seconds": age,
+        "poll_healthy": poll_health.is_healthy(POLL_INTERVAL_SECONDS),
+    }
 
 
 @app.websocket("/ws/market")
 async def ws_market(websocket: WebSocket):
+    if not await verify_websocket_auth(websocket):
+        return
     await market_hub.handle_client(websocket)
 
 
@@ -207,6 +274,7 @@ def api_put_settings(patch: dict = Body(...)):
     try:
         updated = apply_settings_patch(patch)
         clear_llm_cache()
+        clear_broker_cache()
     except (TypeError, ValueError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     return mask_settings(updated)
@@ -278,7 +346,7 @@ def api_delete_watchlist(list_id: str):
 
 
 @app.get("/api/watchlist/market")
-def api_watchlist_market(symbols: str = ""):
+async def api_watchlist_market(symbols: str = ""):
     broker = _require_alpaca()
     if isinstance(broker, JSONResponse):
         return broker
@@ -294,7 +362,7 @@ def api_watchlist_market(symbols: str = ""):
         return {"quotes": {}}
 
     try:
-        bars_by_symbol = broker.get_stock_bars_batch(symbol_list, days=12)
+        bars_by_symbol = await broker.aget_stock_bars_batch(symbol_list, days=12)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
@@ -360,14 +428,14 @@ def api_put_chart_layout(body: dict = Body(...)):
 
 
 @app.get("/api/symbols/search")
-def api_symbol_search(q: str = "", limit: int = 10):
+async def api_symbol_search(q: str = "", limit: int = 10):
     broker = _require_alpaca()
     if isinstance(broker, JSONResponse):
         return broker
     if limit < 1 or limit > 25:
         return JSONResponse({"error": "limit must be 1–25"}, status_code=400)
     try:
-        results = broker.search_symbols(q, limit=limit)
+        results = await broker.asearch_symbols(q, limit=limit)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
     return {"query": q, "symbols": results}
@@ -421,7 +489,7 @@ def _require_alpaca() -> AlpacaAdapter | JSONResponse:
 
 
 @app.get("/api/portfolio/history")
-def api_portfolio_history(range: str = "1W"):
+async def api_portfolio_history(range: str = "1W"):
     broker = _require_alpaca()
     if isinstance(broker, JSONResponse):
         return broker
@@ -434,7 +502,7 @@ def api_portfolio_history(range: str = "1W"):
         )
 
     try:
-        points = broker.get_portfolio_history(range)
+        points = await broker.aget_portfolio_history(range)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
@@ -453,7 +521,7 @@ def api_portfolio_history(range: str = "1W"):
 
 
 @app.get("/api/bars")
-def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
+async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
     broker = _require_alpaca()
     if isinstance(broker, JSONResponse):
         return broker
@@ -462,7 +530,7 @@ def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
         return JSONResponse({"error": "days must be 1–3650"}, status_code=400)
 
     try:
-        bars = broker.get_stock_bars(symbol, timeframe=timeframe, days=days)
+        bars = await broker.aget_stock_bars(symbol, timeframe=timeframe, days=days)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 

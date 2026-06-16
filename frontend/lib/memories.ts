@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE, apiFetch } from "./api";
 
 export type MemoryType = "preference" | "lesson" | "research";
 
@@ -27,7 +27,7 @@ export async function listMemories(params?: {
   if (params?.q?.trim()) search.set("q", params.q.trim());
   if (params?.limit) search.set("limit", String(params.limit));
   const qs = search.toString();
-  const res = await fetch(`${API_BASE}/api/memories${qs ? `?${qs}` : ""}`, {
+  const res = await apiFetch(`${API_BASE}/api/memories${qs ? `?${qs}` : ""}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -42,7 +42,7 @@ export async function createMemory(body: {
   content: string;
   metadata?: Record<string, unknown>;
 }): Promise<MemoryRecord> {
-  const res = await fetch(`${API_BASE}/api/memories`, {
+  const res = await apiFetch(`${API_BASE}/api/memories`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -62,7 +62,7 @@ export async function updateMemory(
     metadata?: Record<string, unknown>;
   },
 ): Promise<MemoryRecord> {
-  const res = await fetch(`${API_BASE}/api/memories/${id}`, {
+  const res = await apiFetch(`${API_BASE}/api/memories/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -75,7 +75,7 @@ export async function updateMemory(
 }
 
 export async function deleteMemory(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/memories/${id}`, {
+  const res = await apiFetch(`${API_BASE}/api/memories/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) {

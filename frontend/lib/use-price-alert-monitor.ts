@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  API_BASE,
   fetchPriceAlerts,
+  marketWsUrl,
   triggerPriceAlert,
   type PriceAlert,
 } from "@/lib/api";
@@ -17,10 +17,6 @@ type Options = {
 };
 
 const RECONNECT_MS = 3_000;
-
-function marketWsUrl() {
-  return `${API_BASE.replace(/^http/, "ws")}/ws/market`;
-}
 
 function crossed(
   prev: number,

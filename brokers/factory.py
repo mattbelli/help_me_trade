@@ -12,6 +12,8 @@ from config.settings import (
     primary_broker,
 )
 
+_broker_cache: dict[str, BrokerAdapter] = {}
+
 
 def active_broker_name() -> str:
     return primary_broker()
@@ -21,8 +23,26 @@ def get_enabled_broker_names() -> list[str]:
     return enabled_brokers()
 
 
-def get_broker(name: str | None = None) -> BrokerAdapter:
-    broker = (name or active_broker_name()).strip().lower()
+def clear_broker_cache() -> None:
+    for broker in _broker_cache.values():
+        close = getattr(broker, "close", None)
+        if callable(close):
+            close()
+    _broker_cache.clear()
+
+
+async def aclose_broker_cache() -> None:
+    for broker in _broker_cache.values():
+        aclose = getattr(broker, "aclose", None)
+        if callable(aclose):
+            await aclose()
+        close = getattr(broker, "close", None)
+        if callable(close):
+            close()
+    _broker_cache.clear()
+
+
+def _create_broker(broker: str) -> BrokerAdapter:
     if broker == "alpaca":
         if not broker_is_configured("alpaca"):
             raise BrokerError(
@@ -36,3 +56,13 @@ def get_broker(name: str | None = None) -> BrokerAdapter:
             )
         return SchwabAdapter.from_settings()
     raise BrokerError(f"Unknown broker {broker!r}. Use alpaca or schwab.")
+
+
+def get_broker(name: str | None = None) -> BrokerAdapter:
+    broker = (name or active_broker_name()).strip().lower()
+    cached = _broker_cache.get(broker)
+    if cached is not None:
+        return cached
+    adapter = _create_broker(broker)
+    _broker_cache[broker] = adapter
+    return adapter

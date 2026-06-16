@@ -8,6 +8,7 @@ import {
   CandlestickChart,
   LayoutDashboard,
   LayoutGrid,
+  LineChart,
   Scale,
   Search,
   type LucideIcon,
@@ -39,6 +40,12 @@ const NAV_ITEMS: {
     label: "Charts",
     description: "Multi-chart grid",
     icon: LayoutGrid,
+  },
+  {
+    href: "/performance",
+    label: "Performance",
+    description: "P&L & trade analytics",
+    icon: LineChart,
   },
   {
     href: "/research",
@@ -82,7 +89,7 @@ export function SidebarNav({ collapsed = false }: Props) {
     >
       <p
         className={cn(
-          "mb-2 px-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground transition-all duration-[280ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
+          "mb-2 px-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground transition-all duration-500 ease-in-out",
           collapsed && "mb-1 h-0 overflow-hidden opacity-0",
         )}
       >
@@ -102,7 +109,7 @@ export function SidebarNav({ collapsed = false }: Props) {
             title={collapsed ? item.label : undefined}
             aria-label={item.label}
             className={cn(
-              "rounded-md border border-transparent transition-[background-color,border-color,color] duration-200",
+              "rounded-md border border-transparent transition-[background-color,border-color,color] duration-300",
               collapsed
                 ? "flex items-center justify-center px-0 py-2.5"
                 : "px-2.5 py-2",

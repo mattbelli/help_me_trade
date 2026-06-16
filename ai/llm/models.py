@@ -10,6 +10,7 @@ import httpx
 from ai.llm.config import get_resolved_ai_settings, provider_credentials
 from ai.llm.factory import get_llm_provider_name
 from config.chat_models import CHAT_MODEL_PRESETS
+from config.ai_providers import VALID_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,11 @@ def _fetch_ollama_models(base_url: str) -> list[dict[str, str]]:
 
 
 def list_chat_models(provider: str | None = None) -> dict[str, Any]:
-    active = provider or get_llm_provider_name()
+    requested = (provider or "").strip().lower()
+    if requested and requested in VALID_PROVIDERS:
+        active = requested
+    else:
+        active = get_llm_provider_name()
     ai = get_resolved_ai_settings()
     creds = provider_credentials(active, ai)
     default_model = creds.get("model", "")

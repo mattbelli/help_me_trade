@@ -81,6 +81,7 @@ export function ChatSessionSidebar({
 
   async function handleDelete(sessionId: string, e: React.MouseEvent) {
     e.stopPropagation();
+    e.preventDefault();
     try {
       await deleteChatSession(sessionId);
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
@@ -166,11 +167,18 @@ export function ChatSessionSidebar({
               const active = session.id === activeSessionId;
               return (
                 <li key={session.id}>
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => onSelectSession(session)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onSelectSession(session);
+                      }
+                    }}
                     className={cn(
-                      "group flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+                      "group flex w-full cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
                       active
                         ? "bg-muted text-foreground"
                         : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -180,15 +188,17 @@ export function ChatSessionSidebar({
                     <span className="min-w-0 flex-1 truncate leading-snug">
                       {session.title}
                     </span>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
                       aria-label="Delete chat"
-                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                      className="size-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
                       onClick={(e) => handleDelete(session.id, e)}
                     >
                       <Trash2Icon className="size-3.5 text-muted-foreground hover:text-destructive" />
-                    </button>
-                  </button>
+                    </Button>
+                  </div>
                 </li>
               );
             })}

@@ -42,11 +42,13 @@ export function ChatModelSelect({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchChatModels()
+    setCatalog(null);
+
+    void fetchChatModels(provider)
       .then((data) => {
         if (cancelled) return;
         setCatalog(data);
-        const stored = readStoredChatModel(data.provider);
+        const stored = readStoredChatModel(provider);
         const resolved = resolveInitialChatModel(data, stored);
         if (resolved.isCustom) {
           setCustomMode(true);
@@ -58,16 +60,16 @@ export function ChatModelSelect({
         onChange(resolved.model);
       })
       .catch(() => {
-        if (!cancelled) {
-          setCatalog({
-            provider,
-            default_model: "mock",
-            models: [{ id: "mock", label: "Mock (offline)" }],
-            supports_custom: false,
-          });
-          onChange("mock");
-        }
+        if (cancelled) return;
+        setCatalog({
+          provider,
+          default_model: "mock",
+          models: [{ id: "mock", label: "Mock (offline)" }],
+          supports_custom: false,
+        });
+        onChange("mock");
       });
+
     return () => {
       cancelled = true;
     };

@@ -18,18 +18,43 @@ class OllamaLLM:
         self._base_url = base_url.rstrip("/")
         self._model = model.strip() or "llama3.2"
 
-    def complete(self, messages: list[LLMMessage], *, max_tokens: int = 1024) -> str:
-        payload = {
+    def complete(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+        json_mode: bool = False,
+    ) -> str:
+        payload: dict[str, Any] = {
             "model": self._model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": False,
             "options": {"num_predict": max_tokens},
         }
+        if temperature is not None:
+            payload["options"]["temperature"] = temperature
+        if json_mode:
+            payload["format"] = "json"
         with httpx.Client(timeout=180.0) as client:
             resp = client.post(f"{self._base_url}/api/chat", json=payload)
             resp.raise_for_status()
             data = resp.json()
         return str(data["message"]["content"])
+
+    def complete_json(
+        self,
+        messages: list[LLMMessage],
+        *,
+        max_tokens: int = 1024,
+        temperature: float = 0.1,
+    ) -> str:
+        return self.complete(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_mode=True,
+        )
 
     def stream(
         self, messages: list[LLMMessage], *, max_tokens: int = 1024

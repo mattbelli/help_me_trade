@@ -8,6 +8,7 @@ from typing import Any
 
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
+from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
 from db.ai_tables import save_reflection_run
 from db.sqlite import get_latest_snapshot
@@ -44,7 +45,7 @@ def run_reflection() -> dict[str, Any]:
             content=f"Reflect on this trading session data:\n{context}",
         ),
     ]
-    raw = llm.complete(messages, max_tokens=800)
+    raw = complete_for_extraction(llm, messages, max_tokens=800)
     summary, lessons = _parse_reflection(raw)
 
     memory = get_memory_service()
@@ -64,27 +65,21 @@ def run_reflection() -> dict[str, Any]:
 
 
 def _parse_reflection(raw: str) -> tuple[str, list[dict[str, Any]]]:
-    text = raw.strip()
-    try:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            parsed = json.loads(text[start : end + 1])
-            summary = str(parsed.get("summary", text))
-            lessons = parsed.get("lessons", [])
-            if isinstance(lessons, list):
-                normalized = []
-                for item in lessons:
-                    if isinstance(item, dict):
-                        normalized.append(
-                            {
-                                "title": str(item.get("title", "Lesson")),
-                                "content": str(item.get("content", "")),
-                            }
-                        )
-                    elif isinstance(item, str):
-                        normalized.append({"title": "Lesson", "content": item})
-                return summary, normalized
-    except json.JSONDecodeError:
-        pass
-    return text, [{"title": "Reflection", "content": text}]
+    parsed = parse_json_object(raw)
+    if parsed:
+        summary = str(parsed.get("summary", raw))
+        lessons = parsed.get("lessons", [])
+        if isinstance(lessons, list):
+            normalized = []
+            for item in lessons:
+                if isinstance(item, dict):
+                    normalized.append(
+                        {
+                            "title": str(item.get("title", "Lesson")),
+                            "content": str(item.get("content", "")),
+                        }
+                    )
+                elif isinstance(item, str):
+                    normalized.append({"title": "Lesson", "content": item})
+            return summary, normalized
+    return raw.strip(), [{"title": "Reflection", "content": raw}]

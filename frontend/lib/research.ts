@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE, apiFetch } from "./api";
 
 export type ResearchDepth = "quick" | "standard" | "deep";
 
@@ -29,7 +29,7 @@ export type ResearchRunResult = {
 export async function listResearchArtifacts(
   limit = 20,
 ): Promise<ResearchArtifact[]> {
-  const res = await fetch(`${API_BASE}/api/research?limit=${limit}`, {
+  const res = await apiFetch(`${API_BASE}/api/research?limit=${limit}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -42,7 +42,7 @@ export async function listResearchArtifacts(
 export async function getResearchArtifact(
   id: number,
 ): Promise<ResearchArtifact> {
-  const res = await fetch(`${API_BASE}/api/research/${id}`, {
+  const res = await apiFetch(`${API_BASE}/api/research/${id}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -60,7 +60,7 @@ export async function runResearch(body: {
   symbol?: string;
   depth?: ResearchDepth;
 }): Promise<ResearchRunResult> {
-  const res = await fetch(`${API_BASE}/api/research/run`, {
+  const res = await apiFetch(`${API_BASE}/api/research/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -85,7 +85,7 @@ export async function streamResearch(
   },
   onEvent: (event: ResearchStreamEvent) => void,
 ): Promise<ResearchRunResult | null> {
-  const res = await fetch(`${API_BASE}/api/research/stream`, {
+  const res = await apiFetch(`${API_BASE}/api/research/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

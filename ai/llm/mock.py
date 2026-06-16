@@ -37,6 +37,38 @@ class MockLLM:
 
     def _synthesize(self, messages: list[LLMMessage]) -> str:
         combined = " ".join(m.content for m in messages).lower()
+        user_text = " ".join(m.content for m in messages if m.role == "user")
+        if "tool planner" in combined:
+            user_lower = user_text.lower()
+            if any(
+                phrase in user_lower
+                for phrase in (
+                    "deep dive",
+                    "research report",
+                    "run research",
+                )
+            ):
+                return json.dumps(
+                    {
+                        "tools": [
+                            {
+                                "name": "start_research",
+                                "arguments": {
+                                    "topic": user_text[:200],
+                                    "depth": "standard",
+                                },
+                            }
+                        ]
+                    }
+                )
+            if any(
+                word in user_lower
+                for word in ("portfolio", "positions", "holdings", "exposure")
+            ):
+                return json.dumps(
+                    {"tools": [{"name": "get_portfolio_snapshot", "arguments": {}}]}
+                )
+            return json.dumps({"tools": []})
         if "reflect" in combined or "lesson" in combined:
             return json.dumps(
                 {
@@ -115,5 +147,4 @@ class MockLLM:
                 "Portfolio snapshot reviewed: cash and positions are stable. "
                 "No urgent risk signals detected in the latest poll."
             )
-        user_text = " ".join(m.content for m in messages if m.role == "user")
         return f"Mock LLM response ({len(user_text)} chars of context)."

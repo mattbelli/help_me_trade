@@ -6,6 +6,7 @@ import { ExternalLink } from "lucide-react";
 import { ToolOutput } from "@/components/ai-elements/tool";
 
 type ResearchOutput = {
+  job_id?: string;
   artifact_id?: number;
   topic?: string;
   symbol?: string | null;
@@ -19,7 +20,7 @@ function isResearchOutput(value: unknown): value is ResearchOutput {
   return (
     typeof value === "object" &&
     value !== null &&
-    ("artifact_id" in value || "topic" in value)
+    ("artifact_id" in value || "job_id" in value || "topic" in value)
   );
 }
 
@@ -34,7 +35,7 @@ export function ResearchToolOutput({
     return <ToolOutput output={output} errorText={errorText} />;
   }
 
-  if (!isResearchOutput(output) || !output.artifact_id) {
+  if (!isResearchOutput(output) || (!output.artifact_id && !output.job_id)) {
     return <ToolOutput output={output} errorText={errorText} />;
   }
 
@@ -58,13 +59,28 @@ export function ResearchToolOutput({
           {summary}
         </p>
       ) : null}
-      <Link
-        href={`/research?id=${output.artifact_id}`}
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium hover:bg-muted"
-      >
-        <ExternalLink className="size-3.5" />
-        View full report
-      </Link>
+      {output.job_id && !output.artifact_id ? (
+        <p className="text-xs text-muted-foreground">
+          Job {output.job_id} queued — open Research to watch progress.
+        </p>
+      ) : null}
+      {output.artifact_id ? (
+        <Link
+          href={`/research?id=${output.artifact_id}`}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium hover:bg-muted"
+        >
+          <ExternalLink className="size-3.5" />
+          View full report
+        </Link>
+      ) : output.job_id ? (
+        <Link
+          href="/research"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium hover:bg-muted"
+        >
+          <ExternalLink className="size-3.5" />
+          Open Research
+        </Link>
+      ) : null}
     </div>
   );
 }

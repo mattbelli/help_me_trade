@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE, apiFetch } from "./api";
 
 export type ChatModelOption = {
   id: string;
@@ -39,8 +39,17 @@ export function writeStoredChatModel(provider: string, model: string): void {
   }
 }
 
-export async function fetchChatModels(): Promise<ChatModelCatalog> {
-  const res = await fetch(`${API_BASE}/api/ai/models`, { cache: "no-store" });
+export async function fetchChatModels(
+  provider?: string,
+): Promise<ChatModelCatalog> {
+  const params = provider
+    ? new URLSearchParams({ provider })
+    : new URLSearchParams();
+  const qs = params.toString();
+  const res = await apiFetch(
+    `${API_BASE}/api/ai/models${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
+  );
   if (!res.ok) {
     throw new Error(`Failed to load chat models (${res.status})`);
   }

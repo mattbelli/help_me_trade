@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from schwab.client import Client
 
 from brokers.base import Account, Order, Position
@@ -41,8 +43,8 @@ class SchwabAdapter:
         response.raise_for_status()
         return response.json()
 
-    def get_account(self) -> Account:
-        data = self._account_payload()
+    @staticmethod
+    def _parse_account(data: dict, account_hash: str) -> Account:
         sec = data.get("securitiesAccount", data)
         balances = sec.get("currentBalances") or sec.get("initialBalances") or {}
 
@@ -61,15 +63,15 @@ class SchwabAdapter:
         )
 
         return Account(
-            id=str(sec.get("accountNumber", self._account_hash)),
+            id=str(sec.get("accountNumber", account_hash)),
             status="ACTIVE",
             cash=cash,
             buying_power=buying_power,
             portfolio_value=portfolio_value,
         )
 
-    def get_positions(self) -> list[Position]:
-        data = self._account_payload()
+    @staticmethod
+    def _parse_positions(data: dict) -> list[Position]:
         sec = data.get("securitiesAccount", data)
         raw_positions = sec.get("positions") or []
 
@@ -107,11 +109,14 @@ class SchwabAdapter:
             )
         return positions
 
-    def get_open_orders(self) -> list[Order]:
+    def _fetch_open_orders(self) -> list[Order]:
         response = self._client.get_orders_for_account(self._account_hash)
         response.raise_for_status()
         raw_orders = response.json() or []
+        return self._parse_orders(raw_orders)
 
+    @staticmethod
+    def _parse_orders(raw_orders: list) -> list[Order]:
         orders: list[Order] = []
         for item in raw_orders:
             status = str(item.get("status", ""))
@@ -145,3 +150,35 @@ class SchwabAdapter:
                 )
             )
         return orders
+
+    def fetch_snapshot(self) -> tuple[Account, list[Position], list[Order]]:
+        """One account round-trip (with positions) plus orders."""
+        data = self._account_payload()
+        account = self._parse_account(data, self._account_hash)
+        positions = self._parse_positions(data)
+        orders = self._fetch_open_orders()
+        return account, positions, orders
+
+    async def afetch_snapshot(
+        self,
+    ) -> tuple[Account, list[Position], list[Order]]:
+        return await asyncio.to_thread(self.fetch_snapshot)
+
+    def get_account(self) -> Account:
+        return self.fetch_snapshot()[0]
+
+    async def aget_account(self) -> Account:
+        return (await self.afetch_snapshot())[0]
+
+    def get_positions(self) -> list[Position]:
+        data = self._account_payload()
+        return self._parse_positions(data)
+
+    async def aget_positions(self) -> list[Position]:
+        return (await self.afetch_snapshot())[1]
+
+    def get_open_orders(self) -> list[Order]:
+        return self._fetch_open_orders()
+
+    async def aget_open_orders(self) -> list[Order]:
+        return (await self.afetch_snapshot())[2]
