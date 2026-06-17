@@ -10,7 +10,6 @@ from db.ai_tables import (
     delete_memory,
     get_memory,
     list_memories,
-    search_memories,
     update_memory,
 )
 
@@ -69,6 +68,8 @@ class MemoryService:
     def search(
         self, query: str, *, memory_type: str | None = None, limit: int = 10
     ) -> list[dict[str, Any]]:
+        from ai.memories.retrieval import retrieve_relevant_memories
+
         if self._mem0 is not None:
             try:
                 results = self._mem0.search(
@@ -97,7 +98,9 @@ class MemoryService:
                         return out[:limit]
             except Exception as exc:
                 logger.warning("Mem0 search failed, falling back to local: %s", exc)
-        return search_memories(query, memory_type=memory_type, limit=limit)
+        return retrieve_relevant_memories(
+            query, memory_type=memory_type, limit=limit
+        )
 
     def get(self, memory_id: int) -> dict[str, Any] | None:
         return get_memory(memory_id)

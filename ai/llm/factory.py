@@ -6,7 +6,7 @@ import os
 
 from ai.llm.anthropic import AnthropicLLM
 from ai.llm.base import LLMClient
-from ai.llm.config import get_resolved_ai_settings, provider_credentials
+from ai.llm.config import get_resolved_ai_settings, provider_credentials, get_default_llm
 from ai.llm.mock import MockLLM
 from ai.llm.ollama import OllamaLLM
 from ai.llm.openai_compat import OpenAICompatibleLLM
@@ -17,13 +17,13 @@ _cached_provider: str | None = None
 
 
 def get_llm_provider_name() -> str:
-    settings_name = str(get_resolved_ai_settings().get("provider", "mock")).strip().lower()
-    if settings_name in VALID_PROVIDERS and settings_name != "mock":
-        return settings_name
+    provider, _ = get_default_llm()
+    if provider in VALID_PROVIDERS and provider != "mock":
+        return provider
     env_name = os.environ.get("LLM_PROVIDER", "").strip().lower()
     if env_name and env_name in VALID_PROVIDERS:
         return env_name
-    return settings_name if settings_name in VALID_PROVIDERS else "mock"
+    return provider if provider in VALID_PROVIDERS else "mock"
 
 
 def clear_llm_cache() -> None:

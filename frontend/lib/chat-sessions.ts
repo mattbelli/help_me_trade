@@ -1,11 +1,14 @@
 import { API_BASE, apiFetch } from "./api";
 
-export type ChatMode = "standard" | "private" | "quick";
+/** UI-facing chat modes (legacy DB values are normalized on read). */
+export type ChatMode = "saved" | "temporary";
+
+export type LegacyChatMode = ChatMode | "standard" | "private" | "quick";
 
 export type ChatSession = {
   id: string;
   title: string;
-  mode: ChatMode;
+  mode: LegacyChatMode;
   created_at: string;
   updated_at: string;
 };
@@ -13,7 +16,7 @@ export type ChatSession = {
 export type ChatSessionMessage = {
   id: string;
   role: "user" | "assistant" | "system";
-  parts: Array<{ type: string; text?: string }>;
+  parts: Array<Record<string, unknown> & { type: string }>;
   created_at: string;
 };
 
@@ -21,21 +24,26 @@ export type ChatSessionDetail = ChatSession & {
   messages: ChatSessionMessage[];
 };
 
+export function normalizeChatMode(mode: string): ChatMode {
+  if (mode === "quick" || mode === "temporary") return "temporary";
+  return "saved";
+}
+
+export function sessionLearnsByDefault(mode: string): boolean {
+  return normalizeChatMode(mode) === "saved" && mode !== "private";
+}
+
 export const CHAT_MODE_LABELS: Record<
   ChatMode,
   { label: string; description: string }
 > = {
-  standard: {
-    label: "Standard",
-    description: "Saved in sidebar + important parts go to memory",
+  saved: {
+    label: "Saved",
+    description: "Persisted in sidebar; memories may be updated after turns",
   },
-  private: {
-    label: "Private",
-    description: "Saved in sidebar only — not sent to memory",
-  },
-  quick: {
-    label: "Quick",
-    description: "Ephemeral — not saved anywhere",
+  temporary: {
+    label: "Temporary",
+    description: "Ephemeral — not saved to sidebar or memory",
   },
 };
 
@@ -47,13 +55,12 @@ export async function fetchChatSessions(): Promise<ChatSession[]> {
 }
 
 export async function createChatSession(
-  mode: Exclude<ChatMode, "quick">,
   title = "New chat",
 ): Promise<ChatSession> {
   const res = await apiFetch(`${API_BASE}/api/chat/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, title }),
+    body: JSON.stringify({ mode: "saved", title }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

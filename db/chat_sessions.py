@@ -8,10 +8,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from db.base import DEFAULT_DB_PATH, connect as _connect, now_iso as _now
+from db.base import DEFAULT_DB_PATH
+from db.base import connect as _connect
+from db.base import now_iso as _now
 
-CHAT_MODES = frozenset({"standard", "private", "quick"})
-PERSISTED_MODES = frozenset({"standard", "private"})
+CHAT_MODES = frozenset({"saved", "temporary", "standard", "private", "quick"})
+PERSISTED_MODES = frozenset({"saved", "standard", "private"})
 
 
 def init_chat_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -71,8 +73,8 @@ def create_chat_session(
 ) -> dict[str, Any]:
     if mode not in CHAT_MODES:
         raise ValueError(f"mode must be one of: {', '.join(sorted(CHAT_MODES))}")
-    if mode == "quick":
-        raise ValueError("quick chats are ephemeral and are not persisted")
+    if mode in ("quick", "temporary"):
+        raise ValueError("temporary chats are ephemeral and are not persisted")
 
     init_chat_tables(db_path)
     sid = session_id or f"chat_{uuid.uuid4().hex[:12]}"
@@ -170,6 +172,49 @@ def save_chat_message(
         )
         row = conn.execute(
             "SELECT * FROM chat_messages WHERE id = ?", (mid,)
+        ).fetchone()
+        conn.commit()
+    return _row_to_message(row)
+
+
+def upsert_chat_message(
+    *,
+    session_id: str,
+    role: str,
+    parts: list[dict[str, Any]],
+    message_id: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Insert or update a chat message by id (for streaming/tool turns)."""
+    init_chat_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        existing = conn.execute(
+            "SELECT id FROM chat_messages WHERE id = ?", (message_id,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE chat_messages
+                SET parts_json = ?, created_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(parts), now, message_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO chat_messages (id, session_id, role, parts_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (message_id, session_id, role, json.dumps(parts), now),
+            )
+        conn.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
+            (now, session_id),
+        )
+        row = conn.execute(
+            "SELECT * FROM chat_messages WHERE id = ?", (message_id,)
         ).fetchone()
         conn.commit()
     return _row_to_message(row)

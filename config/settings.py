@@ -261,9 +261,21 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
 
     if "ai" in patch and isinstance(patch["ai"], dict):
         merge_section(current["ai"], patch["ai"], secret_keys=SECRET_KEYS)
-        provider = str(current["ai"].get("provider", "mock")).strip().lower()
-        if provider not in VALID_PROVIDERS:
-            current["ai"]["provider"] = "mock"
+        from ai.llm.config import maybe_upgrade_default_llm, sync_default_llm_fields
+
+        current["ai"] = maybe_upgrade_default_llm(current["ai"])
+        current["ai"] = sync_default_llm_fields(current["ai"])
+        provider = str(current["ai"].get("provider", "")).strip().lower()
+        if provider not in VALID_PROVIDERS or provider == "mock":
+            fallback = current["ai"].get("default_llm")
+            if isinstance(fallback, dict):
+                fb = str(fallback.get("provider", "")).strip().lower()
+                if fb in VALID_PROVIDERS and fb != "mock":
+                    current["ai"]["provider"] = fb
+                else:
+                    current["ai"]["provider"] = "deepseek"
+            else:
+                current["ai"]["provider"] = "deepseek"
 
     if "research" in patch and isinstance(patch["research"], dict):
         if "research" not in current or not isinstance(current.get("research"), dict):

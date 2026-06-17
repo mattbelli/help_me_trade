@@ -1,5 +1,7 @@
 # Chat / Copilot — Deep Dive & Rebuild Plan
 
+> **Superseded (2026-06-16).** Canonical plan: [`../BUILD.md`](../BUILD.md) §2 (chat + assistant-ui decisions) and §5 Phase 3–4. This file is kept for historical root-cause notes only.
+
 > Companion to `ai-feature-deep-dive-and-vision.md` and `platform-hardening-master-plan.md`. This doc is specifically about the **`/agents` chat page**: why it feels broken, what it should actually be, whether to adopt open-source, and a concrete build plan. No sugarcoating.
 
 ---
@@ -174,6 +176,25 @@ Committed. The chat **conversation host** moves into a Next.js App Router route 
 
 ---
 
+### 3.5 Adopting the two assistant-ui patterns ([mem0](https://www.assistant-ui.com/examples/mem0) + [stockbroker](https://www.assistant-ui.com/examples/stockbroker))
+
+Both example apps are built on **assistant-ui**, but they use **two different runtimes** — and only one matches the §3 decision. The rule we're following: **take the pattern, not the dependency.**
+
+| Example | Runtime it uses | Fits §3 decision? | What we take | What we reject |
+|---------|-----------------|-------------------|--------------|----------------|
+| **Mem0 memory chat** | AI SDK route (`streamText` + `toUIMessageStreamResponse`) | ✅ yes — this *is* our transport | The loop: extract → store → semantic-retrieve → **inject every turn** → visualize/edit. Their memory-viz + privacy-control UI ideas. | The **Mem0 *cloud* SDK** (`MEM0_API_KEY`, `Mem0Client`) called from Node. |
+| **LangGraph stockbroker** | `@assistant-ui/react-langgraph` + a LangGraph **server** runtime | ❌ no — different transport | The **human-in-the-loop approval pattern** + the `requires-action` Approve/Reject **tool card**. | The **LangGraph chat runtime** (interrupts/checkpointer server). |
+
+**✅ DECISION (2026-06-16): adopt both as patterns on the AI-SDK runtime.**
+
+1. **assistant-ui — adopt, via the AI SDK runtime adapter (`@assistant-ui/react-ai-sdk`), in Phase B5.** This is the same adapter the mem0 example uses, so it sits cleanly on top of our `app/api/chat/route.ts`. **Cost accepted:** it *replaces* the current `@ai-sdk/react useChat` + custom `ai-elements` UI layer. We do **not** use `@assistant-ui/react-langgraph`.
+
+2. **Memory stays in Python (single source of truth).** We mirror the mem0 *loop* against our own endpoints — retrieve via `/api/context`, store via `/api/memory/extract` — backed by `ai/memories` + a local embedding index. *Rejected: the hosted Mem0 cloud SDK in Node* — it would add a third memory store, a second secret home (`MEM0_API_KEY` in Node, undoing C6/§3), and ship trading conversations to a third party. If we ever want Mem0's extraction quality specifically, run the open-source **`mem0ai` Python package self-hosted** behind the existing HTTP boundary — adopt the library, not the cloud.
+
+3. **Human-in-the-loop: build the groundwork now, defer live execution to C2.** Phase B5 builds a **generic approval/confirmation tool card** (the stockbroker `requires-action` → Approve/Reject UX) using the **AI SDK's native tool-approval flow** (tool isn't auto-executed → render the card → on approve, submit the tool result). The **actual trade approve→execute path is deferred to C2 (hardening Phase 5)**: the card is only UI; every real order still flows through Python's gated `RiskEngine` + `ExecutionService` + audit log. **No order-execution surface exists in the chat layer until the RiskEngine does.** *(Rejected: adopting the LangGraph chat runtime now — it would reverse the §3 transport decision and stand up checkpoint/thread server infra for a benefit the AI-SDK tool-approval flow already covers. Revisit only if durable, resumable, multi-step agent workflows become a real need.)*
+
+---
+
 ## 4. The feedback loop — how chat actually makes the AI "learn and recommend back"
 
 This is the part that turns it from a chatbot into your copilot. Today it barely exists: memories are written after standard turns but **almost never read back**, and the chat only injects context when you say magic words.
@@ -248,18 +269,19 @@ Order matters, and it's now shaped by the §3 decision: **don't over-invest in t
 - **B2.** Provider/key fetched per-request from Python (Option 1); model routing in the route.
 - **B3.** **Delete** `ai/chat/stream.py` (`UIMessageStream`) and the keyword `plan_tools`. Define AI-SDK tools whose `execute()` calls Python tool endpoints (`get_portfolio_snapshot`, `search_memories`, `start_research`).
 - **B4.** Collapse modes to **Saved** + **Temporary**; add per-chat **Learn** toggle; migrate `private → standard + learn=false`.
-- **B5.** Rich tool-result components (positions table, memory list, research progress card) — assistant-ui gives edit/branch/scroll for free.
+- **B5.** **Adopt assistant-ui via `@assistant-ui/react-ai-sdk`** (replaces `useChat` + `ai-elements`); build rich tool-result components (positions table, memory list, research progress card) — edit/branch/scroll come for free. **Includes the generic approval/confirmation tool card** (stockbroker `requires-action` → Approve/Reject pattern) wired to the AI SDK tool-approval flow — *UI groundwork only, no order execution yet* (see §3.5 decision 3).
 
-### Phase C — Real agent (pairs with hardening Phase 3 / C5+C7)
+### Phase C — Real agent + memory loop (pairs with hardening Phase 3 / C5+C7)
 - **C1.** Native tool-calling loop now lives in the route handler — model decides tools, can chain, can ask clarifying questions. (C5 is effectively *delivered by* the B-phase migration; this phase hardens it.)
 - **C2.** `start_research` enqueues an async Python job; chat never blocks on research.
-- **C3.** Inject portfolio analytics + semantic memories + active rules into every turn (via Python `/api/context`).
+- **C3.** **The mem0 loop, Python-backed (§3.5 decision 2):** inject portfolio analytics + **semantic memories** + active rules into every turn via Python `/api/context`; after learn-enabled turns, store new memories via `/api/memory/extract`. Same UX as the mem0 example, zero data exfiltration.
 
-### Phase D — The feedback loop (the actual vision)
+### Phase D — The feedback loop + safe execution (the actual vision)
 - **D1.** `strategy` memory type + extraction tuned for brainstorming.
 - **D2.** Copilot can propose a rule (confirm-to-save) and, later, a backtest.
 - **D3.** Reflection surfaces strategy outcomes back into chat + memory.
 - **D4.** Visible "Learned: …" curation affordance.
+- **D5. (Gated by hardening C2/Phase 5.)** Light up the **live trade approve→execute** path on top of B5's approval card: the agent's `propose_order` tool renders the Approve/Reject card; on approve, the route calls the gated Python `ExecutionService` (RiskEngine + audit). This is the stockbroker pattern, fully realized — but only once C2 exists.
 
 ---
 
@@ -269,7 +291,8 @@ Order matters, and it's now shaped by the §3 decision: **don't over-invest in t
 - The **"snapshot, no answer"** bug is real and specific: an error/empty completion emits a stream event that makes the client throw away the message. Fix the stream's error handling and you'll stop losing answers. *(Phase A1/A2.)*
 - The **"slow / doesn't save"** issues are mostly **C1** (blocking event loop) plus a silent fallback to ephemeral `quick` mode. Both already have owners in the master plan.
 - **Modes:** go to **Saved (+learn toggle)** and **Temporary**. Done.
-- **Open source:** adopt **libraries, not apps**. **Decided (§3):** chat moves to a **Next.js route handler** on the **Vercel AI SDK** (`streamText`), with **assistant-ui** for the UI. Python stays the brain/tool/data API behind a **BFF boundary** — and the `RiskEngine`/execution (C2) lives *only* in Python. Secrets: **one source of truth in Python** (route fetches provider/key per-request; no keys in Node env). Do **not** bolt on LibreChat/Open WebUI — UX inspiration only.
+- **Open source:** adopt **libraries, not apps**. **Decided (§3):** chat moves to a **Next.js route handler** on the **Vercel AI SDK** (`streamText`), with **assistant-ui** for the UI (via the **AI-SDK runtime adapter**, not the LangGraph one). Python stays the brain/tool/data API behind a **BFF boundary** — and the `RiskEngine`/execution (C2) lives *only* in Python. Secrets: **one source of truth in Python** (route fetches provider/key per-request; no keys in Node env). Do **not** bolt on LibreChat/Open WebUI — UX inspiration only.
+- **The two assistant-ui examples (§3.5):** take both as **patterns, not dependencies**. The [mem0](https://www.assistant-ui.com/examples/mem0) loop runs against **Python memory** (no cloud SDK, no data exfiltration). The [stockbroker](https://www.assistant-ui.com/examples/stockbroker) **human-in-the-loop approval card** is built in B5 as UI groundwork, with **live trade execution deferred to C2/Phase 5** — and we do **not** adopt its LangGraph chat runtime.
 - **The vision** — brainstorm → AI learns → recommends back — requires the **feedback loop in §4**: inject context every turn, capture strategy ideas as structured memory, turn ideas into rules/backtests, and surface tracked outcomes back into the chat. That's what makes it *your* copilot instead of a generic chat box.
 
 Start with Phase A — it's a few hours of work and will immediately make the chat feel real (answers stop disappearing, errors become visible, responses stream). Then redesign modes (Phase B) and build the loop (Phases C–D).

@@ -1,0 +1,31 @@
+---
+description: Help Me Trade project context and safety constraints
+alwaysApply: true
+---
+
+# Help Me Trade
+
+Before multi-file features, read root [AGENTS.md](AGENTS.md) and [References/BUILD.md](References/BUILD.md).
+
+## Safety
+
+- Execution is **read-only** today — no `place_order`, no buy UI until `RiskEngine` + `ExecutionService` exist (Phase 4).
+- Node/Next.js never places orders; Python is the brain.
+
+## Data
+
+- One deduped trade ledger (`trade_events`); import + API sync share `external_key` dedup.
+- Realized P&L (FIFO closed trades) ≠ cash flow (buy/sell ledger amounts).
+
+## Chat (locked)
+
+- Host: `frontend/app/api/chat/route.ts` with Vercel AI SDK `streamText` + **assistant-ui** (`@assistant-ui/react-ai-sdk`).
+- Memory + tools: authenticated Python endpoints only; no Mem0 cloud SDK in Node.
+- Approve/Reject card: UI in Phase 3; execution wired in Phase 4 behind `RiskEngine`.
+
+## Conventions
+
+- Extend existing layers (`brokers/`, `db/`, `ai/`, `api/`, `frontend/`) — don't replace architecture.
+- Ground LLM output in analytics + memories, not raw JSON dumps.
+- Add pytest coverage with behavioral changes; keep each phase runnable.
+- When completing roadmap items, update `References/BUILD.md` then sync `AGENTS.md` (see AGENTS.md § Maintenance).

@@ -72,7 +72,7 @@ SECRET_AI_KEY_FIELDS = frozenset(
 )
 
 DEFAULT_AI_SETTINGS: dict[str, Any] = {
-    "provider": "mock",
+    "provider": "deepseek",
     "openai_api_key": "",
     "openai_base_url": AI_PROVIDERS["openai"]["default_base_url"],
     "openai_model": AI_PROVIDERS["openai"]["default_model"],
@@ -87,4 +87,7 @@ DEFAULT_AI_SETTINGS: dict[str, Any] = {
     "openrouter_model": AI_PROVIDERS["openrouter"]["default_model"],
     "ollama_base_url": AI_PROVIDERS["ollama"]["default_base_url"],
     "ollama_model": AI_PROVIDERS["ollama"]["default_model"],
+    # Provider id -> model ids shown in chat picker; omit or null = show all discovered.
+    "chat_enabled_models": {},
+    "default_llm": {"provider": "deepseek", "model": ""},
 }

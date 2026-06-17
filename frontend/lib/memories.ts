@@ -83,3 +83,26 @@ export async function deleteMemory(id: number): Promise<void> {
     throw new Error(err.error ?? `Failed to delete memory (${res.status})`);
   }
 }
+
+export async function extractTurnMemories(body: {
+  sessionId?: string | null;
+  userText: string;
+  assistantText: string;
+  model?: string;
+}): Promise<MemoryRecord[]> {
+  const res = await apiFetch(`${API_BASE}/api/memory/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionId: body.sessionId ?? undefined,
+      userText: body.userText,
+      assistantText: body.assistantText,
+      model: body.model || undefined,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to extract memories (${res.status})`);
+  }
+  const data = (await res.json()) as { memories: MemoryRecord[] };
+  return data.memories ?? [];
+}

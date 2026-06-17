@@ -231,7 +231,6 @@ def performance_dashboard(
         to_date=to_date,
         limit=100_000,
     )
-    trade_events = [e for e in events if e["event_type"] == "trade"]
     history_trades = [e for e in history_events if e["event_type"] == "trade"]
     summary = trade_summary_stats(
         account_id=account_id,
@@ -247,7 +246,6 @@ def performance_dashboard(
     ]
     stock_round_trips = [rt for rt in round_trips_in_period if not rt["is_option"]]
     wins = sum(1 for r in stock_round_trips if parse_dollar(r["pnl"]) > 0)
-    losses = sum(1 for r in stock_round_trips if parse_dollar(r["pnl"]) < 0)
     realized_total = sum(parse_dollar(rt["pnl"]) for rt in round_trips_in_period)
     daily_cash_flow = daily_trade_stats(
         account_id=account_id,

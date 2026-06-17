@@ -33,7 +33,7 @@ def _check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def _seed_snapshot(db_path: Path) -> None:
-    from brokers.base import Account, Order, Position
+    from brokers.base import Account, Position
     from db.ai_tables import init_ai_tables
     from db.chat_sessions import init_chat_tables
     from db.sqlite import init_db, save_snapshot
@@ -64,6 +64,7 @@ def _seed_snapshot(db_path: Path) -> None:
 
 def _start_server() -> tuple[threading.Thread, str]:
     import uvicorn
+
     from api.main import app
 
     config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")

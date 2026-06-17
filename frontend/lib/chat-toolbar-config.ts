@@ -1,0 +1,59 @@
+/** Tool ids must match keys in `buildChatTools` / Python `TOOL_DEFINITIONS`. */
+export const CHAT_TOOL_OPTIONS = [
+  {
+    id: "get_portfolio_snapshot",
+    label: "Portfolio",
+    description: "Live positions and account snapshot",
+  },
+  {
+    id: "search_memories",
+    label: "Memories",
+    description: "Search saved preferences and lessons",
+  },
+  {
+    id: "start_research",
+    label: "Research",
+    description: "Enqueue deep research jobs",
+  },
+  {
+    id: "get_trade_history",
+    label: "Trade history",
+    description: "Ledger fills and dividends",
+  },
+  {
+    id: "get_performance_insights",
+    label: "Performance",
+    description: "Win rate and P&L scorecard",
+  },
+  {
+    id: "web_search",
+    label: "Web search",
+    description: "SearXNG web index — not live X/Reddit sentiment",
+  },
+  {
+    id: "propose_order",
+    label: "Propose order",
+    description: "Paper trade approval card (no execution)",
+  },
+] as const;
+
+export type ChatToolId = (typeof CHAT_TOOL_OPTIONS)[number]["id"];
+
+export const DEFAULT_ENABLED_TOOLS: ChatToolId[] = CHAT_TOOL_OPTIONS.map(
+  (t) => t.id,
+);
+
+export type ChatSettings = {
+  provider: string;
+  model: string;
+  enabledTools: ChatToolId[];
+  /** When true, relevant memories are injected into the system prompt each turn. */
+  autoInjectMemories: boolean;
+};
+
+export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+  provider: "",
+  model: "",
+  enabledTools: [],
+  autoInjectMemories: false,
+};

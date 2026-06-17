@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from brokers.base import Account, Order, Position
-from db.base import DEFAULT_DB_PATH, connect as _connect
+from db.base import DEFAULT_DB_PATH
+from db.base import connect as _connect
 
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -57,6 +59,12 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
 
             CREATE INDEX IF NOT EXISTS idx_poll_runs_captured
                 ON poll_runs(captured_at DESC);
+
+            CREATE TABLE IF NOT EXISTS snapshot_analytics (
+                poll_run_id INTEGER PRIMARY KEY,
+                analytics_json TEXT NOT NULL,
+                FOREIGN KEY (poll_run_id) REFERENCES poll_runs(id)
+            );
             """
         )
         try:
@@ -153,6 +161,26 @@ def save_snapshot(
     return captured_at
 
 
+def _prior_run_id(conn: sqlite3.Connection, broker: str | None = None) -> int | None:
+    if broker:
+        row = conn.execute(
+            """
+            SELECT id FROM poll_runs
+            WHERE broker = ?
+            ORDER BY captured_at DESC LIMIT 1 OFFSET 1
+            """,
+            (broker,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT id FROM poll_runs
+            ORDER BY captured_at DESC LIMIT 1 OFFSET 1
+            """
+        ).fetchone()
+    return int(row["id"]) if row else None
+
+
 def _latest_run_id(conn: sqlite3.Connection, broker: str | None = None) -> int | None:
     if broker:
         row = conn.execute(
@@ -235,6 +263,173 @@ def _snapshot_from_run(conn: sqlite3.Connection, run_id: int, broker: str) -> di
     }
 
 
+def _load_analytics(conn: sqlite3.Connection, run_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT analytics_json FROM snapshot_analytics WHERE poll_run_id = ?",
+        (run_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return json.loads(row["analytics_json"])
+
+
+def _snapshot_with_analytics(
+    conn: sqlite3.Connection, run_id: int, broker: str
+) -> dict:
+    snapshot = _snapshot_from_run(conn, run_id, broker)
+    analytics = _load_analytics(conn, run_id)
+    if analytics is not None:
+        snapshot["analytics"] = analytics
+    return snapshot
+
+
+def save_snapshot_analytics(
+    broker: str,
+    analytics: dict,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        run_id = _latest_run_id(conn, broker)
+        if run_id is None:
+            return
+        conn.execute(
+            """
+            INSERT INTO snapshot_analytics (poll_run_id, analytics_json)
+            VALUES (?, ?)
+            ON CONFLICT(poll_run_id) DO UPDATE SET analytics_json = excluded.analytics_json
+            """,
+            (run_id, json.dumps(analytics)),
+        )
+        conn.commit()
+
+
+def _run_id_at_or_before(
+    conn: sqlite3.Connection, broker: str, captured_before: str
+) -> int | None:
+    row = conn.execute(
+        """
+        SELECT id FROM poll_runs
+        WHERE broker = ? AND captured_at <= ?
+        ORDER BY captured_at DESC
+        LIMIT 1
+        """,
+        (broker, captured_before),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def get_snapshot_days_ago(
+    broker: str,
+    days: float,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict | None:
+    """Nearest snapshot at or before now - days (for drift vs 1d / 7d ago)."""
+    init_db(db_path)
+    target = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    with _connect(db_path) as conn:
+        run_id = _run_id_at_or_before(conn, broker, target)
+        if run_id is None:
+            return None
+        return _snapshot_from_run(conn, run_id, broker)
+
+
+def list_equity_history(
+    broker: str,
+    *,
+    days: int = 7,
+    max_points: int = 48,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, float | str]]:
+    """Downsampled equity series from poll history for charts / LLM context."""
+    init_db(db_path)
+    since = (datetime.now(UTC) - timedelta(days=max(1, days))).isoformat()
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT pr.id, pr.captured_at, ac.portfolio_value
+            FROM poll_runs pr
+            JOIN account_snapshots ac ON ac.poll_run_id = pr.id
+            WHERE pr.broker = ? AND pr.captured_at >= ?
+            ORDER BY pr.captured_at ASC
+            """,
+            (broker, since),
+        ).fetchall()
+    if not rows:
+        return []
+    if len(rows) <= max_points:
+        return [
+            {
+                "captured_at": str(r["captured_at"]),
+                "equity": float(r["portfolio_value"]),
+            }
+            for r in rows
+        ]
+    step = max(1, len(rows) // max_points)
+    return [
+        {
+            "captured_at": str(rows[i]["captured_at"]),
+            "equity": float(rows[i]["portfolio_value"]),
+        }
+        for i in range(0, len(rows), step)
+    ]
+
+
+def compute_and_save_snapshot_analytics(
+    broker: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict | None:
+    """Compute analytics for the latest snapshot and persist alongside the poll run."""
+    from portfolio.analytics import compute_portfolio_analytics
+
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        run_id = _latest_run_id(conn, broker)
+        if run_id is None:
+            return None
+        snapshot = _snapshot_from_run(conn, run_id, broker)
+        prior_run_id = _prior_run_id(conn, broker)
+        prior_snapshot = (
+            _snapshot_from_run(
+                conn,
+                prior_run_id,
+                broker,
+            )
+            if prior_run_id is not None
+            else None
+        )
+    day_ago_snapshot = get_snapshot_days_ago(broker, 1.0, db_path=db_path)
+    week_ago_snapshot = get_snapshot_days_ago(broker, 7.0, db_path=db_path)
+    equity_series_7d = list_equity_history(broker, days=7, db_path=db_path)
+    analytics = compute_portfolio_analytics(
+        snapshot,
+        prior_snapshot,
+        day_ago_snapshot=day_ago_snapshot,
+        week_ago_snapshot=week_ago_snapshot,
+    )
+    if equity_series_7d:
+        analytics["equity_series_7d"] = equity_series_7d
+    save_snapshot_analytics(broker, analytics, db_path=db_path)
+    return analytics
+
+
+def get_prior_snapshot(
+    broker: str | None = None, db_path: Path = DEFAULT_DB_PATH
+) -> dict | None:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        run_id = _prior_run_id(conn, broker)
+        if run_id is None:
+            return None
+        broker_name = broker or conn.execute(
+            "SELECT broker FROM poll_runs WHERE id = ?", (run_id,)
+        ).fetchone()["broker"]
+        return _snapshot_from_run(conn, run_id, broker_name)
+
+
 def get_latest_snapshot(
     broker: str | None = None, db_path: Path = DEFAULT_DB_PATH
 ) -> dict | None:
@@ -246,7 +441,7 @@ def get_latest_snapshot(
         broker_name = broker or conn.execute(
             "SELECT broker FROM poll_runs WHERE id = ?", (run_id,)
         ).fetchone()["broker"]
-        return _snapshot_from_run(conn, run_id, broker_name)
+        return _snapshot_with_analytics(conn, run_id, broker_name)
 
 
 def get_all_latest_snapshots(db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
@@ -273,6 +468,6 @@ def get_all_latest_snapshots(db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
             ).fetchone()
             if run:
                 snapshots.append(
-                    _snapshot_from_run(conn, int(run["id"]), row["broker"])
+                    _snapshot_with_analytics(conn, int(run["id"]), row["broker"])
                 )
         return snapshots

@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Query
-from fastapi.responses import JSONResponse
 
 from db.analytics import ai_performance_context, performance_dashboard
-from db.trades import daily_trade_stats, symbol_trade_stats, trade_summary_stats
+from db.trades import daily_trade_stats, symbol_trade_stats
 from trading.sync import sync_all_enabled_brokers
 
 router = APIRouter(prefix="/api/performance", tags=["performance"])

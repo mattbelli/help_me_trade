@@ -13,13 +13,15 @@ from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
+from ai.research.citations import enrich_report_citations
 from ai.research.depth import DEPTH_CONFIG, RESEARCH_DEPTHS
 from ai.research.report import (
     build_report_from_findings,
     render_report_html,
     report_to_markdown,
 )
-from ai.research.sources import collect_for_query
+from ai.research.source_text import source_for_analysis
+from ai.research.sources import collect_for_query, normalize_research_symbol, summarize_web_sources
 from db.ai_tables import create_research_run, save_research_artifact, update_research_status
 
 logger = logging.getLogger(__name__)
@@ -134,15 +136,7 @@ def _extract_findings(
     if not sources:
         return []
     llm = get_llm()
-    catalog = [
-        {
-            "id": s.get("id"),
-            "type": s.get("type"),
-            "title": s.get("title"),
-            "snippet": s.get("snippet"),
-        }
-        for s in sources[-12:]
-    ]
+    catalog = [source_for_analysis(s) for s in sources[-12:]]
     messages = [
         LLMMessage(
             role="system",
@@ -201,7 +195,7 @@ def _evaluate_gaps(state: DeepResearchState) -> str:
             ),
         ),
     ]
-    raw = complete_for_extraction(llm, messages, max_tokens=120)
+    raw = llm.complete(messages, max_tokens=120)
     if "sufficient" in raw.lower() or '"gaps": ""' in raw:
         return ""
     parsed = parse_json_object(raw)
@@ -264,6 +258,17 @@ def make_deep_research_nodes(
                 {"query": query, "count": len(batch), "total": len(sources)},
             )
         iteration = int(state.get("iteration", 0)) + 1
+        web_meta = summarize_web_sources(sources)
+        if web_meta.get("warning"):
+            _emit(
+                on_progress,
+                "web_warning",
+                {
+                    "warning": web_meta["warning"],
+                    "mode": web_meta.get("mode"),
+                    "mock_source_count": web_meta.get("mock_source_count", 0),
+                },
+            )
         return {**state, "sources": sources, "iteration": iteration, "pending_queries": []}
 
     def analyze_node(state: DeepResearchState) -> DeepResearchState:
@@ -309,6 +314,11 @@ def make_deep_research_nodes(
             sources=sources,
             findings=findings,
         )
+        report = enrich_report_citations(report, findings, sources)
+        web_meta = summarize_web_sources(sources)
+        if web_meta.get("warning"):
+            report["web_search_warning"] = web_meta["warning"]
+            report["web_search_mode"] = web_meta.get("mode")
         markdown = report_to_markdown(report)
         html = render_report_html(report)
         artifact_id = int(state["artifact_id"])
@@ -408,7 +418,7 @@ def run_deep_research(
     app = build_deep_research_graph(on_progress=on_progress)
     initial: DeepResearchState = {
         "topic": topic.strip(),
-        "symbol": (symbol or "").strip().upper() or None,
+        "symbol": normalize_research_symbol(symbol),
         "depth": depth,
     }
     if artifact_id is not None:

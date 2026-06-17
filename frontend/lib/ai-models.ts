@@ -10,6 +10,9 @@ export type ChatModelCatalog = {
   default_model: string;
   models: ChatModelOption[];
   supports_custom: boolean;
+  source?: "live" | "unavailable";
+  catalog_models?: ChatModelOption[];
+  picker_enabled_ids?: string[] | null;
 };
 
 const CUSTOM_MODEL_VALUE = "__custom__";
@@ -41,10 +44,11 @@ export function writeStoredChatModel(provider: string, model: string): void {
 
 export async function fetchChatModels(
   provider?: string,
+  options?: { catalog?: boolean },
 ): Promise<ChatModelCatalog> {
-  const params = provider
-    ? new URLSearchParams({ provider })
-    : new URLSearchParams();
+  const params = new URLSearchParams();
+  if (provider) params.set("provider", provider);
+  if (options?.catalog) params.set("catalog", "true");
   const qs = params.toString();
   const res = await apiFetch(
     `${API_BASE}/api/ai/models${qs ? `?${qs}` : ""}`,
@@ -60,7 +64,7 @@ export function resolveInitialChatModel(
   catalog: ChatModelCatalog,
   stored: string | null,
 ): { model: string; isCustom: boolean } {
-  const fallback = catalog.default_model || catalog.models[0]?.id || "mock";
+  const fallback = catalog.default_model || catalog.models[0]?.id || "";
   const candidate = stored?.trim() || fallback;
   const known = catalog.models.some((m) => m.id === candidate);
   if (known) {
@@ -70,6 +74,37 @@ export function resolveInitialChatModel(
     return { model: candidate, isCustom: true };
   }
   return { model: fallback, isCustom: false };
+}
+
+export async function fetchDefaultModelOptions(): Promise<{
+  default_llm: { provider: string; model: string };
+  options: Array<{
+    provider: string;
+    model: string;
+    label: string;
+    provider_label: string;
+  }>;
+}> {
+  const res = await apiFetch(`${API_BASE}/api/ai/models/options`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load model options (${res.status})`);
+  }
+  return res.json();
+}
+
+export function defaultLlmKey(provider: string, model: string): string {
+  return `${provider}::${model}`;
+}
+
+export function parseDefaultLlmKey(value: string): { provider: string; model: string } | null {
+  const idx = value.indexOf("::");
+  if (idx <= 0) return null;
+  return {
+    provider: value.slice(0, idx),
+    model: value.slice(idx + 2),
+  };
 }
 
 export function shortModelLabel(model: string): string {

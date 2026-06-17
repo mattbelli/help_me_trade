@@ -38,10 +38,18 @@ export async function apiFetch(
   }
 }
 
-export function marketWsUrl(): string {
-  const base = `${API_BASE.replace(/^http/, "ws")}/ws/market`;
+export function apiUrlWithToken(path: string): string {
+  const isAbsolute = /^(https?|wss?):\/\//i.test(path);
+  const base = isAbsolute
+    ? path
+    : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
   if (!API_TOKEN) return base;
-  return `${base}?token=${encodeURIComponent(API_TOKEN)}`;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}token=${encodeURIComponent(API_TOKEN)}`;
+}
+
+export function marketWsUrl(): string {
+  return apiUrlWithToken(`${API_BASE.replace(/^http/, "ws")}/ws/market`);
 }
 
 export type Account = {

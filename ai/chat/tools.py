@@ -15,9 +15,9 @@ from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
 from ai.research.jobs import submit_research_job
 from ai.utils.symbols import extract_symbol
+from db.analytics import ai_performance_context
 from db.sqlite import get_latest_snapshot
 from db.trades import list_trade_events, trade_summary_stats
-from db.analytics import ai_performance_context
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,22 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "recent closed trades, largest wins/losses. Prefer over guessing performance."
         ),
     },
+    "web_search": {
+        "title": "Web search",
+        "description": (
+            "SearXNG web index: news articles and public pages. Optional site scoping "
+            "(reddit.com, x.com) and time_range=day|week|month|year. NOT live X/Reddit "
+            "feeds — no minute-level windows, no sentiment scores. Say so if user asks."
+        ),
+    },
+    "propose_order": {
+        "title": "Propose order",
+        "description": (
+            "Propose a paper trade for user approval (symbol, side buy|sell, qty, "
+            "order_type market|limit). Shows Approve/Reject card — does not execute. "
+            "Call immediately on buy/sell requests; never narrate a fake tool call."
+        ),
+    },
 }
 
 _TOOL_PLANNER_PROMPT = """You are a tool planner for a trading copilot.
@@ -62,13 +78,15 @@ Available tools:
 - start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"}
 - get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number}
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
+- web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
 
 Rules:
-- Return {"tools": []} when no tool is needed.
+- Return {"tools": []} when no tool is needed (greetings, thanks, small talk).
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
-- Only call start_research when the user explicitly asks for research, a deep dive, or a written report.
+- Only call start_research when the user explicitly asks for a deep research report or written report.
+- Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
-- Prefer 0-2 tools per turn.
+- Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
 """
 
 
@@ -188,5 +206,96 @@ def execute_tool(name: str, args: dict[str, Any]) -> Any:
             account_id=str(account_id) if account_id else None,
             period=period,
         )
+
+    if name == "web_search":
+        from ai.research.sources import (
+            WEB_SEARCH_LIMITATIONS,
+            _build_web_query,
+            web_search,
+            web_search_capabilities,
+            web_search_status,
+        )
+
+        query = str(args.get("query", "")).strip()
+        if not query:
+            return {"error": "query is required"}
+        limit = min(max(int(args.get("limit", 5)), 1), 10)
+        time_range = args.get("time_range")
+        tr = str(time_range).strip().lower() if time_range else None
+        if tr not in ("day", "week", "month", "year"):
+            tr = None
+        sites_raw = args.get("sites")
+        sites: list[str] | None = None
+        if isinstance(sites_raw, list):
+            sites = [str(s).strip() for s in sites_raw if str(s).strip()]
+
+        status = web_search_status()
+        if status.get("uses_mock_web"):
+            return {
+                "error": "searxng_not_configured",
+                "message": (
+                    "SearXNG is not configured. Set SEARXNG_URL in .env or "
+                    "Settings → Research."
+                ),
+                "query": query,
+                "limitations": WEB_SEARCH_LIMITATIONS,
+                "results": [],
+            }
+
+        hits = web_search(
+            query,
+            limit=limit,
+            time_range=tr,
+            sites=sites,
+            allow_mock=False,
+        )
+        resolved_query = _build_web_query(query, sites)
+        real = [h for h in hits if not h.get("search_failed")]
+        return {
+            "capabilities": web_search_capabilities(),
+            "limitations": WEB_SEARCH_LIMITATIONS,
+            "query": query,
+            "resolved_query": resolved_query,
+            "time_range": tr,
+            "sites": sites,
+            "results": [
+                {
+                    "title": hit.get("title"),
+                    "url": hit.get("url"),
+                    "snippet": hit.get("snippet"),
+                    "published": hit.get("published"),
+                    "search_failed": bool(hit.get("search_failed")),
+                }
+                for hit in hits
+            ],
+            "result_count": len(real),
+        }
+
+    if name == "propose_order":
+        symbol = str(args.get("symbol", "")).strip().upper()
+        side = str(args.get("side", "buy")).strip().lower()
+        qty = float(args.get("qty", 0))
+        order_type = str(args.get("order_type", "market")).strip().lower()
+        if not symbol:
+            return {"error": "symbol is required"}
+        if side not in ("buy", "sell"):
+            return {"error": "side must be buy or sell"}
+        if qty <= 0:
+            return {"error": "qty must be positive"}
+        return {
+            "status": "recorded",
+            "proposal": {
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "order_type": order_type,
+                "limit_price": args.get("limit_price"),
+            },
+            "message": (
+                f"Recorded paper intent: {side.upper()} {qty:g} {symbol} "
+                f"({order_type} order). Not sent to your broker — "
+                "live execution requires RiskEngine (Phase 4)."
+            ),
+        }
 
     return {"error": f"Unknown tool {name}"}

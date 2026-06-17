@@ -8,20 +8,28 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Body, Query, WebSocket
+from fastapi import Body, FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from ai.llm.factory import clear_llm_cache
+from ai.reflection.scheduler import reflection_loop
+from ai.rules.engine import evaluate_on_snapshot
+from api.ai_routes import router as ai_router
+from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
+from api.middleware import SecurityMiddleware
+from api.performance_routes import router as performance_router
+from api.poll_health import poll_health
+from api.trade_routes import router as trade_router
 from brokers.alpaca import AlpacaAdapter
 from brokers.errors import BrokerError
-from brokers.market_stream import market_hub
 from brokers.factory import (
-    active_broker_name,
     aclose_broker_cache,
     clear_broker_cache,
     get_broker,
     get_enabled_broker_names,
 )
+from brokers.market_stream import market_hub
 from config.settings import (
     add_watchlist_symbol,
     apply_settings_patch,
@@ -40,9 +48,7 @@ from config.settings import (
     set_active_watchlist,
     update_watchlist,
 )
-from ai.llm.factory import clear_llm_cache
 from db.ai_tables import init_ai_tables
-from db.chat_sessions import init_chat_tables
 from db.chart_features import (
     create_price_alert,
     delete_price_alert,
@@ -50,17 +56,16 @@ from db.chart_features import (
     list_price_alerts,
     mark_alert_triggered,
 )
-from db.sqlite import get_all_latest_snapshots, get_latest_snapshot, init_db, save_snapshot
+from db.chat_sessions import init_chat_tables
+from db.sqlite import (
+    compute_and_save_snapshot_analytics,
+    get_all_latest_snapshots,
+    get_latest_snapshot,
+    init_db,
+    save_snapshot,
+)
 from db.trades import init_trade_tables
-from ai.rules.engine import evaluate_on_snapshot
-from ai.reflection.scheduler import reflection_loop
-from api.ai_routes import router as ai_router
-from api.trade_routes import router as trade_router
-from api.performance_routes import router as performance_router
 from trading.sync import async_sync_all_enabled_brokers
-from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
-from api.middleware import SecurityMiddleware
-from api.poll_health import poll_health
 
 ROOT = Path(__file__).resolve().parent.parent
 POLL_INTERVAL_SECONDS = max(
@@ -83,15 +88,32 @@ async def _poll_broker(broker_name: str) -> bool:
             broker=broker_name,
         )
         logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
+        compute_and_save_snapshot_analytics(broker_name)
         snapshot = get_latest_snapshot(broker_name)
         if snapshot:
-            triggered = evaluate_on_snapshot(snapshot)
+            symbols = {
+                str(p.get("symbol", "")).upper()
+                for p in snapshot.get("positions") or []
+                if p.get("symbol")
+            }
+            quotes = market_hub.quote_snapshot(symbols)
+            triggered = evaluate_on_snapshot(snapshot, quotes=quotes)
             if triggered:
                 logger.info(
                     "Rules triggered on poll (%s): %s",
                     broker_name,
                     [t["rule_id"] for t in triggered],
                 )
+                for item in triggered:
+                    await market_hub.broadcast_alert(
+                        {
+                            "source": "rule",
+                            "rule_id": item["rule_id"],
+                            "rule_name": item["rule_name"],
+                            "action": item["action"],
+                            "broker": broker_name,
+                        }
+                    )
         return True
     except Exception:
         logger.exception("Poll failed for %s", broker_name)

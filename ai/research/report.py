@@ -11,6 +11,7 @@ from typing import Any
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import parse_json_object
+from ai.research.source_text import source_for_analysis
 
 
 def _parse_report_json(raw: str, *, topic: str, symbol: str | None) -> dict[str, Any]:
@@ -94,15 +95,7 @@ def build_report_from_findings(
     findings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     llm = get_llm()
-    source_catalog = [
-        {
-            "id": s.get("id"),
-            "type": s.get("type"),
-            "title": s.get("title"),
-            "snippet": s.get("snippet"),
-        }
-        for s in sources
-    ]
+    source_catalog = [source_for_analysis(s) for s in sources]
     messages = [
         LLMMessage(
             role="system",
@@ -188,6 +181,13 @@ def render_report_html(report: dict[str, Any]) -> str:
         f'<span class="badge">{html.escape(str(symbol))}</span>' if symbol else ""
     )
     generated = html.escape(str(report.get("generated_at", ""))[:19])
+    web_warning = report.get("web_search_warning")
+    warning_html = ""
+    if web_warning:
+        warning_html = f"""
+    <div class="web-warning" role="alert">
+      <strong>Web sources not live:</strong> {html.escape(str(web_warning))}
+    </div>"""
 
     metrics_html = ""
     for m in report.get("metrics") or []:
@@ -301,11 +301,17 @@ def render_report_html(report: dict[str, Any]) -> str:
       color: var(--muted); border: 1px solid var(--border); border-radius: 4px;
       padding: 0.1rem 0.35rem; margin-right: 0.5rem;
     }}
-    a {{ color: #7eb8ff; }}
+    .web-warning {{
+      background: #3d2a14; border: 1px solid #8b6914; color: #f5d78e;
+      border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+    }}
+    .web-warning strong {{ color: #ffe8a3; }}
   </style>
 </head>
 <body>
   <div class="wrap">
+    {warning_html}
     <header class="hero">
       <h1>{title}{sym_badge}</h1>
       <div class="meta">Deep research · {generated}</div>
@@ -330,3 +336,12 @@ def render_report_html(report: dict[str, Any]) -> str:
   </div>
 </body>
 </html>"""
+
+
+def research_html_for_artifact(artifact: dict[str, Any]) -> str | None:
+    """Prefer live render from stored report JSON so template fixes apply to old runs."""
+    report = artifact.get("report")
+    if isinstance(report, dict) and report:
+        return render_report_html(report)
+    html = artifact.get("html")
+    return str(html) if html else None

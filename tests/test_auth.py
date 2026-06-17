@@ -72,3 +72,41 @@ def test_api_rejects_invalid_host(
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "Invalid Host header"
+
+
+def test_api_accepts_query_token(authed_client: TestClient, auth_token: str) -> None:
+    response = authed_client.get(f"/api/settings?token={auth_token}")
+    assert response.status_code == 200
+
+
+def test_delete_research_artifact(authed_client: TestClient, auth_token: str) -> None:
+    from db.ai_tables import create_research_run, get_research_artifact, save_research_artifact
+
+    run = create_research_run(topic="Delete me", symbol="AAPL", depth="quick")
+    artifact_id = int(run["id"])
+    save_research_artifact(
+        topic="Delete me",
+        markdown="# test",
+        symbol="AAPL",
+        html="<html><body>ok</body></html>",
+        artifact_id=artifact_id,
+    )
+
+    missing = authed_client.delete(
+        "/api/research/999999",
+        headers={"X-API-Token": auth_token},
+    )
+    assert missing.status_code == 404
+
+    deleted = authed_client.delete(
+        f"/api/research/{artifact_id}",
+        headers={"X-API-Token": auth_token},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["ok"] is True
+    assert get_research_artifact(artifact_id) is None
+
+    html = authed_client.get(
+        f"/api/research/{artifact_id}/html?token={auth_token}",
+    )
+    assert html.status_code == 404

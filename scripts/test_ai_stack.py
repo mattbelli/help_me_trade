@@ -61,6 +61,7 @@ def _seed_snapshot(db_path: Path) -> None:
 
 def _start_server() -> tuple[threading.Thread, str]:
     import uvicorn
+
     from api.main import app
 
     config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")

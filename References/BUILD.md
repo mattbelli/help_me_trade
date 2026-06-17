@@ -1,5 +1,7 @@
 # Help Me Trade — Build Plan
 
+Agent onboarding: see root [`AGENTS.md`](../AGENTS.md). Update both when phases complete.
+
 **Single source of truth** for vision, current state, architecture, and what to build next.  
 Supersedes the six docs in [`archive/`](archive/) (2026-06-16).
 
@@ -48,6 +50,10 @@ Brokers (Alpaca, Schwab) ──► db/ (SQLite) ──► api/ (FastAPI)
 
 **Chat architecture decision (locked):** Move the **conversation host** to a Next.js route (`app/api/chat/route.ts`) using Vercel AI SDK `streamText`. Python remains the **brain** — portfolio, memory, research, rules, execution. Node never places orders; it only calls authenticated Python endpoints.
 
+**assistant-ui + the two reference examples (locked, 2026-06-16):** Adopt **assistant-ui** for the chat UI via the **AI-SDK runtime adapter** (`@assistant-ui/react-ai-sdk`), *not* the LangGraph adapter — it replaces the current `useChat` + `ai-elements` layer. The [mem0](https://www.assistant-ui.com/examples/mem0) and [stockbroker](https://www.assistant-ui.com/examples/stockbroker) demos are taken as **patterns, not dependencies**:
+- **Memory (mem0 pattern):** mirror the extract → store → semantic-retrieve → inject-every-turn loop against **Python** (`/api/context`, `/api/memory/extract`). Reject the hosted Mem0 cloud SDK in Node (3rd store + 2nd secret home + data exfiltration). Self-hosted `mem0ai` Python is the only acceptable Mem0 path.
+- **Human-in-the-loop (stockbroker pattern):** build the generic Approve/Reject tool card (AI SDK `requires-action` flow) as **UI groundwork in Phase 3**, but **live trade execution is deferred to Phase 4** (RiskEngine gate). Reject the LangGraph *chat* runtime; revisit only if durable, resumable multi-step workflows become a real need.
+
 ---
 
 ## 3. Current state (as of 2026-06-16)
@@ -64,18 +70,19 @@ Brokers (Alpaca, Schwab) ──► db/ (SQLite) ──► api/ (FastAPI)
 | **Performance** | `/performance` — periods, FIFO round-trips, calendar w/ $ labels, realized vs cash-flow toggle, charts |
 | **AI tools** | `get_portfolio_snapshot`, `search_memories`, `start_research` (async job), `get_trade_history`, `get_performance_insights` |
 | **LLM hygiene** | Shared `parse_json_object`; JSON planner for tools (not keyword-only); research job queue |
-| **Chat** | Sessions (standard/private/quick); tool UI; controlled collapsibles |
-| **Tests** | pytest: auth, db/WAL, poll health, structured JSON, tools, symbols, Schwab import |
+| **Chat** | Next.js `app/api/chat/route.ts` + AI SDK `streamText`; **assistant-ui** Thread (`useTradingChatRuntime`); Python brain (`/api/chat/context`, tools, finalize); Saved + Temporary modes; `propose_order` Approve/Reject UI |
+| **Memory loop** | `POST /api/memory/extract`; client `onFinish` is the single extraction trigger (server finalize + legacy `/api/chat` use `extract=False`); inline **“Learned from this chat”** chips (Edit/Discard) under assistant turns |
+| **Tests** | pytest: 74 tests — auth, db/WAL, poll health, tools, portfolio + intelligence P1 + chat brain + memory extract |
 
 ### ◐ Partial / known gaps
 
 | Area | Status |
 |------|--------|
-| **Chat** | Still on Python SSE + hand-rolled `UIMessageStream`; blocking `complete()` + fake typewriter; 3 confusing modes |
-| **Research** | Mock web search when `SEARXNG_URL` unset; fetched article `content` not fed to findings |
-| **Insights** | Raw snapshot JSON → one paragraph; no `PortfolioAnalytics`; no memory injection |
-| **Memories** | Write-heavy; keyword `LIKE` search; dual Mem0/SQLite drift |
-| **Rules** | 4 presets in UI; fires every poll; no WS delivery for portfolio rules |
+| **Chat** | ◐ assistant-ui Thread adopted; legacy Python SSE proxy still used for non-OpenAI-compatible providers (mock/anthropic); learned chips are in-session only (lost on full reload) |
+| **Research** | Mock web clearly labeled + UI banner when `SEARXNG_URL` unset; article `content` fed to findings; SearXNG failures no longer silently mock |
+| **Insights** | `portfolio/analytics.py` on poll + relevant memories injected each refresh |
+| **Memories** | Token-ranked retrieval on chat/insight/research turns; visible turn curation UI shipped; Mem0 when available; dual store drift remains; chip state not rehydrated on reload |
+| **Rules** | Rich facts; `trigger_on: transition` + cooldown; WS `alert` events on fire |
 | **Money** | Still `float` in broker types and ledger (Decimal planned) |
 | **Secrets** | Masked on API; **plaintext on disk** (encryption not done) |
 | **Execution** | Read-only — no `RiskEngine`, no `place_order` |
@@ -112,14 +119,14 @@ Phases are ordered by dependency. Effort: **XS** &lt;1d · **S** 1–2d · **M**
 
 **Remaining from Phase 0–1:**
 
-| Item | Effort | Files |
-|------|--------|-------|
-| Atomic settings writes + lock | S | `config/settings.py` |
-| Settings + broker adapter cache | S | `config/settings.py`, `brokers/factory.py` |
-| Persistent `httpx` client on Alpaca | S | `brokers/alpaca.py` |
-| Offload remaining sync broker I/O (`to_thread` / async) | S | `api/main.py`, `brokers/market_stream.py` |
-| Encrypt secrets at rest | M | `config/secrets.py`, `brokers/schwab_auth.py` |
-| GitHub Actions CI (ruff + pytest) | S | `.github/workflows/ci.yml` |
+| Item | Status | Effort | Files |
+|------|--------|--------|-------|
+| Atomic settings writes + lock | ✅ | S | `config/settings.py` |
+| Settings + broker adapter cache | ✅ | S | `config/settings.py`, `brokers/factory.py` |
+| Persistent `httpx` client on Alpaca | ✅ | S | `brokers/alpaca.py` |
+| GitHub Actions CI (ruff + pytest) | ✅ | S | `.github/workflows/ci.yml` |
+| Offload remaining sync broker I/O (`to_thread` / async) | ◐ | S | `api/main.py`, `brokers/market_stream.py` |
+| Encrypt secrets at rest | ◐ | M | `config/secrets.py`, `brokers/schwab_auth.py` |
 
 ---
 
@@ -159,37 +166,40 @@ Data adapters → Intelligence layer → Insights · Chat · Research · Rules
                       └─ rich fact catalog for rules
 ```
 
-| Priority | Item | Effort |
-|----------|------|--------|
-| **P0** | `portfolio/analytics.py` — compute on poll; feed insights + chat context | M |
-| **P0** | Stop silent mock research; loud “no real source” UI; wire SearXNG or news API | S |
-| **P0** | Pass fetched `content` into findings (not just snippets) | S–M |
-| **P0** | Semantic memory top-k on **every** chat/insight/research turn | M |
-| **P1** | Snapshot diff / time-series (“exposure up vs last week”) | M |
-| **P1** | Programmatic citations from findings→source map | S |
-| **P1** | Expand rule facts (per-symbol, day P&L, quotes) | M |
-| **P1** | Rule `trigger_on: transition` + cooldown; unify alert bus → WS | M |
+| Priority | Item | Status | Effort |
+|----------|------|--------|--------|
+| **P0** | `portfolio/analytics.py` — compute on poll; feed insights + chat context | ✅ core | M |
+| **P0** | Stop silent mock research; loud “no real source” UI; wire SearXNG or news API | ✅ labeled + banner; SearXNG wiring unchanged | S |
+| **P0** | Pass fetched `content` into findings (not just snippets) | ✅ | S–M |
+| **P0** | Semantic memory top-k on **every** chat/insight/research turn | ✅ token-ranked; embeddings later | M |
+| **P1** | Snapshot diff / time-series (“exposure up vs last week”) | ✅ 1d/7d drift + equity series | M |
+| **P1** | Programmatic citations from findings→source map | ✅ | S |
+| **P1** | Expand rule facts (per-symbol, day P&L, quotes) | ✅ | M |
+| **P1** | Rule `trigger_on: transition` + cooldown; unify alert bus → WS | ✅ | M |
 
 ---
 
 ### Phase 3 — Chat copilot rebuild
 
-**Decision:** Next.js `app/api/chat/route.ts` + AI SDK `streamText` + optional **assistant-ui**.
+**Decision:** Next.js `app/api/chat/route.ts` + AI SDK `streamText` + **assistant-ui** (AI-SDK runtime adapter). See §2 for the assistant-ui / mem0 / stockbroker decision.
 
-| Step | Item | Effort |
-|------|------|--------|
-| A | Error visibility + don’t silently fall back to ephemeral mode | XS |
-| B1 | Route handler + `toUIMessageStreamResponse` | M |
-| B2 | Provider/key fetched from Python per request (single secret store) | S |
-| B3 | Delete hand-rolled `UIMessageStream`; tools call Python HTTP | M |
-| B4 | Modes → **Saved** (+ learn toggle) + **Temporary** | S |
-| B5 | Rich tool cards (positions table, research progress) | M |
-| C | Inject analytics + memories + rules every turn via `/api/context` | M |
+| Step | Item | Status | Effort |
+|------|------|--------|--------|
+| A | Error visibility + don’t silently fall back to ephemeral mode | ✅ | XS |
+| B1 | Route handler + `toUIMessageStreamResponse` | ✅ | M |
+| B2 | Provider/key fetched from Python per request (single secret store) | ✅ | S |
+| B3 | Tools call Python HTTP; legacy `UIMessageStream` kept for mock/anthropic fallback only | ◐ | M |
+| B4 | Modes → **Saved** + **Temporary** (saved turns extract via client `onFinish`) | ✅ | S |
+| B5 | **assistant-ui** Thread UI; Approve/Reject for `propose_order` (no execution); legacy `agent-chat.tsx` removed | ✅ | M |
+| C1 | `POST /api/memory/extract`; client-only extraction (`extract=False` on finalize + legacy `/api/chat`) | ✅ | S |
+| C2 | Visible **“Learned from this chat”** chips under assistant turns (Edit/Discard) | ✅ | M |
+| C3 | Python-backed context on turns (`/api/chat/context`, finalize) | ✅ | M |
+| C4 | Rehydrate learned chips when reopening a saved thread | ◐ | S |
 
 **Feedback loop (Phase 3–4):**
 
 - `strategy` memory type from brainstorming
-- Visible “Learned: …” curation after turns
+- Visible “Learned from this chat” curation after turns (in-session; reload persistence in C4)
 - Agent proposes rules (confirm-to-save)
 - Reflection ties outcomes back into chat
 
@@ -207,6 +217,7 @@ Data adapters → Intelligence layer → Insights · Chat · Research · Rules
 | `place_order` on Alpaca only, behind gate | M | `brokers/alpaca.py` |
 | `trading_mode` paper/live + UI banner | S | settings + frontend |
 | Agent `place_order` tool → ExecutionService only | M | never broker directly |
+| **Light up Phase 3 Approve/Reject card** → `propose_order` renders card; approve → gated `ExecutionService` (stockbroker pattern, fully realized) | M | depends on RiskEngine above |
 
 ```
 UI/Agent → OrderIntent → RiskEngine.validate() → approve | reject | needs_confirmation
@@ -238,11 +249,9 @@ UI/Agent → OrderIntent → RiskEngine.validate() → approve | reject | needs_
 
 For a solo developer, the highest leverage sequence:
 
-1. **Finish Phase 0 leftovers** — settings atomicity, adapter cache, CI (1–2 days).
-2. **Intelligence P0** — portfolio analytics + real research sources + memory retrieval (1 week). *Biggest “oh, it’s real” moment.*
-3. **Chat Phase B** — migrate to Next route handler; fix modes (1 week).
-4. **Decimal + RiskEngine design** — before any execution UI (2 weeks).
-5. **Rules transition + alert bus** — make guardrails actually notify (3–4 days).
+1. **Chat Phase 3 (finish)** — rehydrate learned chips on thread reload (C4); optional: drop legacy Python SSE host when all providers route through Next.
+2. **Phase 0 leftovers** — async broker I/O offload, secrets encryption (2–3 days).
+3. **Decimal + RiskEngine design** — before any execution UI (2 weeks).
 
 ---
 
@@ -253,10 +262,12 @@ For a solo developer, the highest leverage sequence:
 | App entry | `api/main.py` |
 | Trade ledger | `db/trades.py`, `imports/`, `trading/sync.py` |
 | Performance analytics | `db/analytics.py`, `api/performance_routes.py` |
-| Chat | `ai/chat/agent.py`, `frontend/components/agents/` |
+| Portfolio analytics | `portfolio/analytics.py`, `db/sqlite.py` (`snapshot_analytics`) |
+| Chat | `frontend/app/api/chat/route.ts`, `frontend/lib/use-trading-chat-runtime.ts`, `frontend/components/assistant-ui/thread.tsx`, `ai/chat/brain.py` |
+| Memory extract + curation | `api/ai_routes.py` (`POST /api/memory/extract`), `frontend/lib/memories.ts`, `frontend/lib/learned-memories-context.tsx`, `frontend/components/agents/turn-learned-memories.tsx` |
 | Tools | `ai/chat/tools.py` |
-| Research | `ai/research/deep_graph.py`, `ai/research/sources.py` |
-| Rules | `ai/rules/engine.py`, `frontend/lib/rules.ts` |
+| Research | `ai/research/citations.py`, `ai/research/deep_graph.py`, `ai/research/sources.py` |
+| Rules | `ai/rules/engine.py`, `brokers/market_stream.py`, `frontend/lib/rules.ts` |
 | Settings / brokers | `config/settings.py`, `brokers/factory.py` |
 | Frontend API client | `frontend/lib/api.ts`, `frontend/lib/performance-api.ts` |
 
@@ -269,11 +280,11 @@ For a solo developer, the highest leverage sequence:
 - [ ] SSE/WS responsive during broker polls
 - [ ] Poll loop survives injected failures; `/health` reports stale data
 - [ ] All API routes reject unauthenticated requests when `API_TOKEN` set
-- [ ] `pytest` in CI on every push
+- [x] `pytest` in CI on every push
 
 ### Copilot
 
-- [ ] Chat streams tokens from AI SDK route (no hand-rolled protocol)
+- [x] Chat streams tokens from AI SDK route (legacy Python SSE proxy remains for some providers)
 - [ ] Every turn gets analytics + top-k memories (no keyword triggers)
 - [ ] Research never presents mock web as real; articles are read, not skimmed
 - [ ] Agent answers “how am I doing?” via `get_performance_insights`, not guessing
@@ -290,6 +301,7 @@ For a solo developer, the highest leverage sequence:
 
 - Schwab order execution (Alpaca paper first)
 - LibreChat / Open WebUI adoption (UX inspiration only)
+- assistant-ui **LangGraph** runtime (`@assistant-ui/react-langgraph`) + hosted **Mem0 cloud** SDK — patterns adopted, dependencies rejected (see §2)
 - Frontend `decimal.js`
 - Full Alembic (lightweight `schema_version` is enough)
 - Autonomous trading without human confirmation on agent orders
@@ -318,6 +330,11 @@ If port 8000 is in use: `netstat -ano | findstr ":8000"` then `taskkill /PID <pi
 
 | Date | Change |
 |------|--------|
+| 2026-06-16 | Phase 3 C1–C3: `POST /api/memory/extract`, client `onFinish` extraction, “Learned from this chat” chips; assistant-ui Thread (B5); server `extract=False` on finalize + legacy chat |
+| 2026-06-16 | Chat: locked assistant-ui (AI-SDK adapter); mem0 + stockbroker adopted as patterns not deps (Python-backed memory, approval card UI in P3 / execution in P4) |
+| 2026-06-16 | Intelligence P1: 1d/7d snapshot drift, programmatic research citations, rich rule facts, transition+cooldown, WS rule alerts |
+| 2026-06-16 | Intelligence P0: research mock labeling, content in findings, memory retrieval on chat/insights |
+| 2026-06-16 | Phase 0 CI (ruff + pytest); `portfolio/analytics.py` on poll; insights wired to structured analytics |
 | 2026-06-16 | Merged six reference docs into this file; originals moved to `archive/` |
 
 *Update this file when priorities shift or phases complete.*

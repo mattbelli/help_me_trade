@@ -127,6 +127,25 @@ class MarketStreamHub:
         for ws in dead:
             self._clients.pop(ws, None)
 
+    def quote_snapshot(self, symbols: set[str] | list[str]) -> dict[str, dict[str, Any]]:
+        normalized = {str(s).strip().upper() for s in symbols if str(s).strip()}
+        return {
+            sym: _quote_payload(self._quotes[sym])
+            for sym in normalized
+            if sym in self._quotes
+        }
+
+    async def broadcast_alert(self, payload: dict[str, Any]) -> None:
+        """Push rule/alert payloads to all connected market WS clients."""
+        dead: list[WebSocket] = []
+        for ws in list(self._clients):
+            try:
+                await ws.send_json({"type": "alert", **payload})
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self._clients.pop(ws, None)
+
     async def ensure_symbols(self, symbols: set[str]) -> None:
         normalized = {s.strip().upper() for s in symbols if s.strip()}
         if normalized == self._pinned:

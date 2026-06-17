@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, FileSearch, Loader2, Sparkles } from "lucide-react";
+import { ExternalLink, FileSearch, Loader2, Sparkles, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -20,11 +20,14 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
+  deleteResearchArtifact,
   getResearchArtifact,
+  getResearchConfig,
   listResearchArtifacts,
   researchHtmlUrl,
   streamResearch,
   type ResearchArtifact,
+  type ResearchConfig,
   type ResearchDepth,
 } from "@/lib/research";
 
@@ -60,6 +63,8 @@ export function ResearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<string | null>(null);
   const [phaseDetail, setPhaseDetail] = useState<string>("");
+  const [researchConfig, setResearchConfig] = useState<ResearchConfig | null>(null);
+  const [streamWarning, setStreamWarning] = useState<string | null>(null);
 
   const refreshList = useCallback(async () => {
     try {
@@ -73,6 +78,12 @@ export function ResearchPage() {
   useEffect(() => {
     void refreshList();
   }, [refreshList]);
+
+  useEffect(() => {
+    void getResearchConfig()
+      .then(setResearchConfig)
+      .catch(() => setResearchConfig(null));
+  }, []);
 
   useEffect(() => {
     if (Number.isFinite(deepLinkId) && deepLinkId > 0) {
@@ -97,6 +108,7 @@ export function ResearchPage() {
     setError(null);
     setPhase("started");
     setPhaseDetail("");
+    setStreamWarning(null);
     try {
       const result = await streamResearch(
         {
@@ -106,7 +118,9 @@ export function ResearchPage() {
         },
         (event) => {
           setPhase(event.phase);
-          if (event.phase === "searching" && event.data.query) {
+          if (event.phase === "web_warning" && event.data.warning) {
+            setStreamWarning(String(event.data.warning));
+          } else if (event.phase === "searching" && event.data.query) {
             setPhaseDetail(String(event.data.query));
           } else if (event.phase === "sources" && event.data.total) {
             setPhaseDetail(`${event.data.total} sources`);
@@ -128,6 +142,23 @@ export function ResearchPage() {
     }
   }
 
+  async function handleDelete(id: number) {
+    if (!window.confirm("Delete this research report? This cannot be undone.")) {
+      return;
+    }
+    setError(null);
+    try {
+      await deleteResearchArtifact(id);
+      if (selectedId === id) {
+        setSelectedId(null);
+        setSelected(null);
+      }
+      await refreshList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete research");
+    }
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -138,6 +169,23 @@ export function ResearchPage() {
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
+        </div>
+      )}
+
+      {researchConfig?.uses_mock_web && (
+        <div
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+          role="alert"
+        >
+          <strong className="font-medium text-amber-100">Mock web search active.</strong>{" "}
+          {researchConfig.warning ??
+            "Configure SearXNG in Settings or set SEARXNG_URL — reports will use placeholder snippets until then."}
+        </div>
+      )}
+
+      {streamWarning && !researchConfig?.uses_mock_web && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          {streamWarning}
         </div>
       )}
 
@@ -226,29 +274,43 @@ export function ResearchPage() {
                     </p>
                   )}
                   {artifacts.map((item) => (
-                    <button
+                    <div
                       key={item.id}
-                      type="button"
-                      onClick={() => setSelectedId(item.id)}
-                      className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      className={`flex items-start gap-1 rounded-lg border px-1 py-1 transition-colors ${
                         selectedId === item.id
                           ? "border-accent/40 bg-accent/10"
                           : "border-transparent hover:bg-muted/50"
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="line-clamp-2 text-sm font-medium">
-                          {item.topic}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(item.id)}
+                        className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="line-clamp-2 text-sm font-medium">
+                            {item.topic}
+                          </p>
+                          <Badge variant="outline" className="shrink-0 text-[10px] uppercase">
+                            {item.depth}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {new Date(item.created_at).toLocaleString()}
+                          {item.symbol ? ` · ${item.symbol}` : ""}
                         </p>
-                        <Badge variant="outline" className="shrink-0 text-[10px] uppercase">
-                          {item.depth}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {new Date(item.created_at).toLocaleString()}
-                        {item.symbol ? ` · ${item.symbol}` : ""}
-                      </p>
-                    </button>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        aria-label={`Delete research: ${item.topic}`}
+                        onClick={() => void handleDelete(item.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
                   ))}
                 </div>
               </ScrollArea>
@@ -265,6 +327,9 @@ export function ResearchPage() {
               {selected && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   {selected.depth} depth · {selected.sources?.length ?? 0} sources
+                  {selected.report?.web_search_warning ? (
+                    <span className="text-amber-400"> · mock web sources</span>
+                  ) : null}
                 </p>
               )}
             </div>
@@ -278,6 +343,18 @@ export function ResearchPage() {
                 <ExternalLink className="size-3.5" />
                 Open full report
               </a>
+            )}
+            {selected && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => void handleDelete(selected.id)}
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </Button>
             )}
           </CardHeader>
           <CardContent className="p-0">

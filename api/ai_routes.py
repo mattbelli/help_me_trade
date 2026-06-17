@@ -11,25 +11,35 @@ from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ai.chat.agent import ChatRunResult, finalize_chat_turn, run_chat_stream
+from ai.chat.brain import (
+    build_turn_context,
+    finalize_turn,
+    is_ephemeral_mode,
+    llm_runtime_config,
+    normalize_chat_mode,
+    run_tool,
+    tool_catalog,
+)
 from ai.chat.messages import last_user_text
-from ai.insights import generate_insight_paragraph
+from ai.chat.memory_extract import extract_memories_from_turn
+from ai.llm.config import get_default_llm
 from ai.llm.factory import get_llm, get_llm_provider_name
-from ai.llm.models import list_chat_models
-from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
+from ai.llm.models import list_chat_models, list_default_model_options
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.depth import RESEARCH_DEPTHS
-from ai.research.graph import run_research
 from ai.research.jobs import get_job, submit_research_job
+from ai.research.report import research_html_for_artifact
 from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
+from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
 from db.ai_tables import (
     MEMORY_TYPES,
     create_rule,
+    delete_research_artifact,
     delete_rule,
     get_research_artifact,
     get_rule,
-    list_memories,
     list_reflection_runs,
     list_research_artifacts,
     list_rule_events,
@@ -54,8 +64,9 @@ router = APIRouter(prefix="/api", tags=["ai"])
 @router.get("/ai/providers")
 def api_ai_providers():
     """Provider catalog with default base URLs and models for the settings UI."""
+    provider, model = get_default_llm()
     return {
-        "active_provider": get_llm_provider_name(),
+        "default_llm": {"provider": provider, "model": model},
         "providers": [
             {
                 "id": pid,
@@ -75,25 +86,46 @@ def api_ai_providers():
 
 
 @router.get("/ai/models")
-def api_ai_models(provider: str | None = Query(None)):
-    """Chat model catalog for the active or requested provider."""
-    return list_chat_models(provider)
+def api_ai_models(
+    provider: str | None = Query(None),
+    catalog: bool = Query(False),
+):
+    """Chat model catalog for the default or requested provider."""
+    return list_chat_models(provider, catalog=catalog)
+
+
+@router.get("/ai/models/options")
+def api_ai_model_options():
+    """Grouped model options for the settings default-model picker."""
+    return list_default_model_options()
 
 
 @router.get("/ai/research-config")
 def api_research_config():
-    from config.research import get_searxng_url
+    from ai.research.sources import web_search_status
 
-    url = get_searxng_url()
-    return {
-        "searxng_url": url,
-        "web_search": "searxng" if url else "mock",
-    }
+    return web_search_status()
 
 
 @router.get("/chat/sessions")
 def api_list_chat_sessions(limit: int = Query(50, ge=1, le=200)):
     return {"sessions": list_chat_sessions(limit=limit)}
+
+
+@router.get("/paper-orders")
+def api_list_paper_orders(
+    session_id: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    from db.paper_orders import list_paper_order_proposals
+
+    return {
+        "orders": list_paper_order_proposals(session_id=session_id, limit=limit),
+        "note": (
+            "Paper proposals only — not broker open orders. "
+            "Live execution requires RiskEngine (Phase 4)."
+        ),
+    }
 
 
 @router.post("/chat/sessions")
@@ -105,9 +137,9 @@ def api_create_chat_session(body: dict = Body(...)):
             {"error": f"mode must be one of: {', '.join(sorted(CHAT_MODES))}"},
             status_code=400,
         )
-    if mode == "quick":
+    if mode in ("quick", "temporary"):
         return JSONResponse(
-            {"error": "Use POST /api/chat with mode=quick for ephemeral chats"},
+            {"error": "Use temporary chat without creating a session"},
             status_code=400,
         )
     try:
@@ -143,6 +175,75 @@ def api_delete_chat_session(session_id: str):
     return {"ok": True}
 
 
+@router.get("/chat/llm-runtime")
+def api_chat_llm_runtime(model: str | None = Query(None)):
+    """LLM credentials for the Next.js chat route (server-to-server only)."""
+    return llm_runtime_config(model=model)
+
+
+@router.get("/chat/tools")
+def api_chat_tools():
+    return {"tools": tool_catalog()}
+
+
+@router.post("/chat/context")
+def api_chat_context(body: dict = Body(...)):
+    user_text = str(body.get("userText") or body.get("user_text") or "").strip()
+    if not user_text:
+        return JSONResponse({"error": "userText is required"}, status_code=400)
+    inject_memories = bool(
+        body.get("injectMemories") or body.get("inject_memories")
+    )
+    return build_turn_context(user_text, inject_memories=inject_memories)
+
+
+@router.post("/chat/tools/execute")
+def api_chat_tool_execute(body: dict = Body(...)):
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    arguments = body.get("arguments")
+    if arguments is not None and not isinstance(arguments, dict):
+        return JSONResponse({"error": "arguments must be an object"}, status_code=400)
+    try:
+        return {"result": run_tool(name, arguments)}
+    except Exception as exc:
+        logger.exception("Tool execute failed: %s", name)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.post("/chat/finalize")
+def api_chat_finalize(body: dict = Body(...)):
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return JSONResponse({"error": "messages must be a list"}, status_code=400)
+    assistant_text = str(body.get("assistantText") or body.get("assistant_text") or "")
+    assistant_message = body.get("assistantMessage") or body.get("assistant_message")
+    if assistant_message is not None and not isinstance(assistant_message, dict):
+        return JSONResponse({"error": "assistantMessage must be an object"}, status_code=400)
+    session_id = body.get("sessionId") or body.get("session_id")
+    mode = str(body.get("mode", "temporary")).strip().lower()
+    model = body.get("model")
+    chat_model = str(model).strip() if model else None
+    if session_id is not None:
+        session_id = str(session_id).strip()
+    if normalize_chat_mode(mode) == "saved" and not session_id:
+        return JSONResponse(
+            {"error": "sessionId is required for saved chats"},
+            status_code=400,
+        )
+    if is_ephemeral_mode(mode):
+        return {"ok": True, "memories_saved": []}
+    return finalize_turn(
+        messages=messages,
+        assistant_text=assistant_text,
+        session_id=session_id,
+        mode=mode,
+        model=chat_model,
+        assistant_message=assistant_message,
+    )
+
+
 @router.post("/chat")
 async def api_chat(body: dict = Body(...)):
     messages = body.get("messages")
@@ -160,9 +261,9 @@ async def api_chat(body: dict = Body(...)):
         )
     if session_id is not None:
         session_id = str(session_id).strip()
-    if mode in ("standard", "private") and not session_id:
+    if mode in ("standard", "private", "saved") and not session_id:
         return JSONResponse(
-            {"error": "sessionId is required for standard and private chats"},
+            {"error": "sessionId is required for saved chats"},
             status_code=400,
         )
 
@@ -190,6 +291,7 @@ async def api_chat(body: dict = Body(...)):
                     mode=mode,
                     model=chat_model,
                     run=run,
+                    extract=False,
                 )
 
     return StreamingResponse(
@@ -234,7 +336,6 @@ async def insights_stream():
 
 async def _stream_insight(snapshot: dict):
     from ai.insights import build_insight_messages
-    from ai.llm.factory import get_llm
 
     llm = get_llm()
     messages = build_insight_messages(snapshot)
@@ -335,6 +436,42 @@ def api_delete_memory(memory_id: int):
     return {"ok": True}
 
 
+@router.post("/memory/extract")
+def api_memory_extract(body: dict = Body(...)):
+    """Extract durable memories from a finished chat turn; return saved records.
+
+    Called by the Next.js chat client after a saved-mode turn so the UI can show
+    a "Learned: …" chip. Single extraction path for the OpenAI-compatible route.
+    """
+    messages = body.get("messages")
+    assistant_text = str(
+        body.get("assistantText") or body.get("assistant_text") or ""
+    ).strip()
+    session_id = body.get("sessionId") or body.get("session_id")
+    if session_id is not None:
+        session_id = str(session_id).strip()
+    model = body.get("model")
+    chat_model = str(model).strip() if model else None
+
+    if isinstance(messages, list):
+        user_text = last_user_text(messages)
+    else:
+        user_text = str(
+            body.get("userText") or body.get("user_text") or ""
+        ).strip()
+
+    if not user_text or not assistant_text:
+        return {"memories": []}
+
+    memories = extract_memories_from_turn(
+        user_text=user_text,
+        assistant_text=assistant_text,
+        session_id=session_id or "chat",
+        model=chat_model,
+    )
+    return {"memories": memories}
+
+
 @router.post("/research/run")
 async def api_run_research(body: dict = Body(...)):
     topic = str(body.get("topic", "")).strip()
@@ -411,7 +548,7 @@ def api_get_research_html(artifact_id: int):
     artifact = get_research_artifact(artifact_id)
     if artifact is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    html = artifact.get("html")
+    html = research_html_for_artifact(artifact)
     if not html:
         return JSONResponse({"error": "HTML report not available"}, status_code=404)
     from fastapi.responses import HTMLResponse
@@ -425,6 +562,13 @@ def api_get_research(artifact_id: int):
     if artifact is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return artifact
+
+
+@router.delete("/research/{artifact_id}")
+def api_delete_research(artifact_id: int):
+    if not delete_research_artifact(artifact_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
 
 
 @router.post("/reflection/run")

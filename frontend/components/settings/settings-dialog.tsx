@@ -26,6 +26,7 @@ import {
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
+import { dispatchSettingsSaved } from "@/lib/settings-events";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -76,6 +77,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [section, setSection] = useState<SettingsSection>("brokers");
+  const [modelsRevision, setModelsRevision] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +100,10 @@ export function SettingsDialog({ collapsed = false }: Props) {
       .finally(() => setLoading(false));
   }, [open]);
 
+  useEffect(() => {
+    if (open) setModelsRevision((n) => n + 1);
+  }, [open]);
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -112,6 +118,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
         },
       });
       setMessage("Settings saved. Polling will use the updated brokers.");
+      setModelsRevision((n) => n + 1);
+      dispatchSettingsSaved();
       await refresh();
       setTimeout(() => setOpen(false), 600);
     } catch (err) {
@@ -405,6 +413,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
               <AiProviderSettings
                 value={draft.ai}
                 onChange={(ai) => setDraft((d) => ({ ...d, ai }))}
+                modelsRevision={modelsRevision}
               />
               <p className="text-xs text-muted-foreground">
                 Keys are stored locally in{" "}

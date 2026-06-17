@@ -84,7 +84,7 @@ def main() -> int:
     }
 
     url = f"{base_url}/v2/account"
-    print(f"Connecting to Alpaca paper API...")
+    print("Connecting to Alpaca paper API...")
     print(f"  GET {url}")
     print()
 

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from db.base import DEFAULT_DB_PATH, connect as _connect
+from db.base import DEFAULT_DB_PATH
+from db.base import connect as _connect
 
 
 def init_chart_features(db_path: Path = DEFAULT_DB_PATH) -> None:

@@ -6,8 +6,14 @@ export type AiProviderId =
   | "openrouter"
   | "ollama";
 
+export type DefaultLlm = {
+  provider: AiProviderId;
+  model: string;
+};
+
 export type AiSettings = {
   provider: AiProviderId | string;
+  default_llm: DefaultLlm;
   openai_api_key: string;
   openai_base_url: string;
   openai_model: string;
@@ -22,6 +28,8 @@ export type AiSettings = {
   openrouter_model: string;
   ollama_base_url: string;
   ollama_model: string;
+  /** Provider id -> model ids allowed in chat picker; omit entry = all discovered models. */
+  chat_enabled_models: Partial<Record<AiProviderId, string[]>>;
 };
 
 export type AiProviderMeta = {
@@ -37,7 +45,8 @@ export type AiProviderMeta = {
 };
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
-  provider: "mock",
+  provider: "deepseek",
+  default_llm: { provider: "deepseek", model: "" },
   openai_api_key: "",
   openai_base_url: "https://api.openai.com/v1",
   openai_model: "gpt-4o",
@@ -52,6 +61,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   openrouter_model: "openai/gpt-4o",
   ollama_base_url: "http://localhost:11434",
   ollama_model: "llama3.2",
+  chat_enabled_models: {},
 };
 
 export const AI_PROVIDER_OPTIONS: {
@@ -59,7 +69,6 @@ export const AI_PROVIDER_OPTIONS: {
   label: string;
   description: string;
 }[] = [
-  { id: "mock", label: "Mock (offline)", description: "Deterministic responses for dev/test" },
   { id: "openai", label: "OpenAI", description: "GPT models via api.openai.com" },
   { id: "anthropic", label: "Anthropic", description: "Claude via api.anthropic.com" },
   { id: "deepseek", label: "DeepSeek", description: "DeepSeek chat API" },
@@ -116,6 +125,54 @@ export const PROVIDER_FIELDS: Record<AiProviderId, ProviderFieldConfig> = {
   },
 };
 
+export function isProviderId(value: string): value is AiProviderId {
+  return value in PROVIDER_FIELDS;
+}
+
+export function getDefaultLlm(ai: AiSettings): DefaultLlm {
+  const block = ai.default_llm;
+  if (block?.provider && isProviderId(block.provider) && block.provider !== "mock") {
+    if (block.model) {
+      return { provider: block.provider, model: block.model };
+    }
+    const fields = PROVIDER_FIELDS[block.provider];
+    const model = String(ai[fields.modelField] || "").trim();
+    if (model) {
+      return { provider: block.provider, model };
+    }
+    return { provider: block.provider, model: "" };
+  }
+  const provider =
+    isProviderId(String(ai.provider)) && ai.provider !== "mock"
+      ? ai.provider
+      : "deepseek";
+  const fields = PROVIDER_FIELDS[provider];
+  const model = String(ai[fields.modelField] || "").trim();
+  return { provider, model };
+}
+
+export function setDefaultLlm(ai: AiSettings, next: DefaultLlm): AiSettings {
+  const fields = PROVIDER_FIELDS[next.provider];
+  return {
+    ...ai,
+    default_llm: next,
+    provider: next.provider,
+    [fields.modelField]: next.model,
+  };
+}
+
 export function normalizeAiSettings(ai: Partial<AiSettings> | undefined): AiSettings {
-  return { ...DEFAULT_AI_SETTINGS, ...ai };
+  const merged = { ...DEFAULT_AI_SETTINGS, ...ai } as AiSettings;
+  if (!merged.chat_enabled_models || typeof merged.chat_enabled_models !== "object") {
+    merged.chat_enabled_models = {};
+  }
+  const resolved = getDefaultLlm(merged);
+  if (resolved.model) {
+    return setDefaultLlm(merged, resolved);
+  }
+  return {
+    ...merged,
+    provider: resolved.provider,
+    default_llm: resolved,
+  };
 }

@@ -20,8 +20,8 @@ from db.trades import (
 )
 from imports.alpaca_activities import parse_alpaca_activities
 from imports.base import ParsedTradeEvent
-from imports.schwab_transactions import _classify_action, _external_key
 from imports.money import parse_dollar
+from imports.schwab_transactions import _classify_action, _external_key
 
 logger = logging.getLogger(__name__)
 

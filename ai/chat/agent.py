@@ -11,16 +11,17 @@ from typing import Any
 from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.messages import last_user_text, ui_messages_to_llm
 from ai.chat.stream import UIMessageStream
-from ai.chat.tools import TOOL_DEFINITIONS, execute_tool, plan_tools
+from ai.chat.tools import TOOL_DEFINITIONS
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm, get_llm_provider_name
 from db.chat_sessions import (
     PERSISTED_MODES,
     get_chat_session,
-    save_chat_message,
     title_from_first_message,
     update_chat_session_title,
+    upsert_chat_message,
 )
+from db.paper_orders import record_paper_order_proposal
 
 
 @dataclass
@@ -29,18 +30,34 @@ class ChatRunResult:
     memories_saved: list[dict[str, Any]] = field(default_factory=list)
 
 
+def chat_system_prompt() -> str:
+    return _system_prompt()
+
+
 def _system_prompt() -> str:
     tools = "\n".join(
         f"- {name}: {meta['description']}"
         for name, meta in TOOL_DEFINITIONS.items()
     )
     return (
-        "You are Help Me Trade, a proactive trading copilot. "
-        "Answer clearly and concisely in markdown when helpful. "
-        "You may receive tool results from portfolio snapshots, memories, "
-        "or research runs — synthesize them into actionable insight. "
-        "Research is started via start_research (returns a job id), never inline. "
-        "Never invent positions or prices not present in tool output.\n\n"
+        "You are Help Me Trade, a trading copilot. "
+        "Answer clearly and concisely in markdown when helpful.\n\n"
+        "Behavior rules:\n"
+        "- Greetings (hi, hello, hey): reply in 1–2 short friendly sentences. "
+        "Do not call tools and do not mention portfolio, positions, or P&L.\n"
+        "- News and public web pages: call web_search (SearXNG). Only cite returned "
+        "snippets/URLs. web_search is NOT live X or Reddit — no tweet streams, no "
+        "subreddit feeds, no clock-time filters (6–8am). time_range is day/week/month "
+        "only. If the user asks for minute-level social sentiment, explain the limit "
+        "and offer day-scoped site:reddit.com or site:x.com search instead.\n"
+        "- Never write fake tool calls like [web_search: ...] or [Calling propose_order...] "
+        "in text. Use the tool API and wait for results before answering.\n"
+        "- Buy/sell requests: call propose_order (symbol, side, qty, order_type market|limit). "
+        "Do not describe calling the tool — call it. The Approve/Reject card is the UI.\n"
+        "- Portfolio, performance, trades: only discuss after calling the matching tool "
+        "in that turn. Never invent positions, prices, or closed trades.\n"
+        "- start_research queues a background job for deep multi-source reports — "
+        "not for quick news or social questions (use web_search instead).\n\n"
         f"Available tools:\n{tools}"
     )
 
@@ -58,7 +75,10 @@ def _build_final_messages(
             + json.dumps(tool_results, indent=2, default=str)
         )
     return [
-        LLMMessage(role="system", content=_system_prompt()),
+        LLMMessage(
+            role="system",
+            content=_system_prompt(),
+        ),
         *history,
         LLMMessage(
             role="user",
@@ -91,28 +111,7 @@ def run_chat_stream(
         return
 
     history = ui_messages_to_llm(messages[:-1] if messages else [])
-    planned = plan_tools(user_text)
     tool_results: list[dict[str, Any]] = []
-
-    if planned:
-        reasoning = f"Planning {len(planned)} tool call(s) for: {user_text[:120]}"
-        yield from stream.reasoning_chunks(reasoning)
-
-    for tool_name, tool_input in planned:
-        tool_call_id = f"call_{uuid.uuid4().hex[:12]}"
-        try:
-            output = execute_tool(tool_name, tool_input)
-        except Exception as exc:
-            output = {"error": str(exc)}
-        tool_results.append(
-            {"tool": tool_name, "input": tool_input, "output": output}
-        )
-        yield from stream.tool_call(
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-            tool_input=tool_input,
-            output=output,
-        )
 
     try:
         llm = get_llm(model=model)
@@ -142,6 +141,8 @@ def finalize_chat_turn(
     mode: str,
     model: str | None = None,
     run: ChatRunResult,
+    assistant_message: dict[str, Any] | None = None,
+    extract: bool = True,
 ) -> None:
     _persist_turn(
         messages=messages,
@@ -151,7 +152,57 @@ def finalize_chat_turn(
         mode=mode,
         model=model,
         run=run,
+        assistant_message=assistant_message,
+        extract=extract,
     )
+
+
+def _last_message_by_role(
+    messages: list[dict[str, Any]], role: str
+) -> dict[str, Any] | None:
+    for msg in reversed(messages):
+        if isinstance(msg, dict) and msg.get("role") == role:
+            return msg
+    return None
+
+
+def _assistant_parts_for_persist(
+    assistant_message: dict[str, Any] | None,
+    assistant_text: str,
+) -> list[dict[str, Any]]:
+    if assistant_message and isinstance(assistant_message.get("parts"), list):
+        parts = assistant_message["parts"]
+        if parts:
+            return parts
+    if assistant_text.strip():
+        return [{"type": "text", "text": assistant_text}]
+    return []
+
+
+def _persist_recorded_proposals(
+    parts: list[dict[str, Any]],
+    *,
+    session_id: str,
+) -> None:
+    seen: set[str] = set()
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        ptype = str(part.get("type", ""))
+        tool_name = part.get("toolName")
+        if ptype != "tool-propose_order" and tool_name != "propose_order":
+            continue
+        output = part.get("output")
+        if not isinstance(output, dict) or output.get("status") != "recorded":
+            continue
+        proposal = output.get("proposal")
+        if not isinstance(proposal, dict):
+            continue
+        key = json.dumps(proposal, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        record_paper_order_proposal(proposal=proposal, session_id=session_id)
 
 
 def _persist_turn(
@@ -163,6 +214,8 @@ def _persist_turn(
     mode: str,
     model: str | None = None,
     run: ChatRunResult,
+    assistant_message: dict[str, Any] | None = None,
+    extract: bool = True,
 ) -> None:
     if not session_id or mode not in PERSISTED_MODES:
         return
@@ -171,34 +224,47 @@ def _persist_turn(
     if session is None:
         return
 
-    last_user = messages[-1] if messages else None
-    user_parts = (
-        last_user.get("parts", [{"type": "text", "text": user_text}])
-        if isinstance(last_user, dict)
-        else [{"type": "text", "text": user_text}]
+    last_msg = messages[-1] if messages else None
+    user_msg = _last_message_by_role(messages, "user")
+    if (
+        user_msg
+        and isinstance(last_msg, dict)
+        and last_msg.get("role") == "user"
+    ):
+        user_parts = user_msg.get("parts")
+        if not isinstance(user_parts, list):
+            user_parts = [{"type": "text", "text": user_text}]
+        user_id = str(user_msg.get("id") or f"msg_{uuid.uuid4().hex[:12]}")
+        upsert_chat_message(
+            session_id=session_id,
+            role="user",
+            parts=user_parts,
+            message_id=user_id,
+        )
+
+    assistant_parts = _assistant_parts_for_persist(
+        assistant_message, assistant_text
     )
-    user_id = (
-        str(last_user.get("id"))
-        if isinstance(last_user, dict) and last_user.get("id")
+    if not assistant_parts:
+        return
+
+    assistant_id = (
+        str(assistant_message.get("id"))
+        if isinstance(assistant_message, dict) and assistant_message.get("id")
         else f"msg_{uuid.uuid4().hex[:12]}"
     )
-
-    save_chat_message(
-        session_id=session_id,
-        role="user",
-        parts=user_parts if isinstance(user_parts, list) else [{"type": "text", "text": user_text}],
-        message_id=user_id,
-    )
-    save_chat_message(
+    upsert_chat_message(
         session_id=session_id,
         role="assistant",
-        parts=[{"type": "text", "text": assistant_text}],
+        parts=assistant_parts,
+        message_id=assistant_id,
     )
+    _persist_recorded_proposals(assistant_parts, session_id=session_id)
 
-    if session.get("title") == "New chat":
+    if session.get("title") == "New chat" and user_text:
         update_chat_session_title(session_id, title_from_first_message(user_text))
 
-    if mode == "standard":
+    if extract and mode == "standard":
         run.memories_saved = extract_memories_from_turn(
             user_text=user_text,
             assistant_text=assistant_text,

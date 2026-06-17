@@ -13,6 +13,23 @@ import httpx
 from ai.llm.base import LLMMessage
 
 
+def _http_error_detail(resp: httpx.Response) -> str:
+    try:
+        body = resp.json()
+        if isinstance(body, dict):
+            err = body.get("error")
+            if isinstance(err, dict) and err.get("message"):
+                return str(err["message"])
+            if body.get("message"):
+                return str(body["message"])
+    except Exception:
+        pass
+    text = resp.text.strip()
+    if text:
+        return text[:500]
+    return resp.reason_phrase or "HTTP error"
+
+
 class OpenAICompatibleLLM:
     """Chat completions client for any OpenAI-compatible HTTP API."""
 
@@ -69,6 +86,15 @@ class OpenAICompatibleLLM:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
+    def _json_mode_allowed(self, messages: list[LLMMessage]) -> bool:
+        """DeepSeek rejects json_object unless the prompt mentions json; reasoner often rejects it entirely."""
+        if self.provider != "deepseek":
+            return True
+        if "reasoner" in self._model.lower():
+            return False
+        combined = " ".join(m.content for m in messages).lower()
+        return "json" in combined
+
     def complete(
         self,
         messages: list[LLMMessage],
@@ -85,7 +111,13 @@ class OpenAICompatibleLLM:
         )
         with httpx.Client(timeout=120.0) as client:
             resp = client.post(self._endpoint(), headers=self._headers(), json=payload)
-            resp.raise_for_status()
+            if resp.is_error:
+                detail = _http_error_detail(resp)
+                raise httpx.HTTPStatusError(
+                    f"{resp.status_code} {resp.reason_phrase} from {self.provider}: {detail}",
+                    request=resp.request,
+                    response=resp,
+                )
             data = resp.json()
         return str(data["choices"][0]["message"]["content"])
 
@@ -100,7 +132,7 @@ class OpenAICompatibleLLM:
             messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            json_mode=True,
+            json_mode=self._json_mode_allowed(messages),
         )
 
     def stream(

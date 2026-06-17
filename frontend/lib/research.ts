@@ -1,4 +1,21 @@
-import { API_BASE, apiFetch } from "./api";
+import { API_BASE, apiFetch, apiUrlWithToken } from "./api";
+
+export type ResearchConfig = {
+  mode: "searxng" | "mock";
+  searxng_url: string;
+  warning: string | null;
+  uses_mock_web: boolean;
+};
+
+export async function getResearchConfig(): Promise<ResearchConfig> {
+  const res = await apiFetch(`${API_BASE}/api/ai/research-config`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load research config (${res.status})`);
+  }
+  return res.json() as Promise<ResearchConfig>;
+}
 
 export type ResearchDepth = "quick" | "standard" | "deep";
 
@@ -52,7 +69,29 @@ export async function getResearchArtifact(
 }
 
 export function researchHtmlUrl(id: number): string {
-  return `${API_BASE}/api/research/${id}/html`;
+  return apiUrlWithToken(`/api/research/${id}/html`);
+}
+
+export async function deleteResearchArtifact(id: number): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/api/research/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(
+      body.error ?? body.detail ?? `Delete research failed (${res.status})`,
+    );
+  }
+}
+
+function parseApiError(
+  body: { error?: string; detail?: string },
+  fallback: string,
+): string {
+  return body.error ?? body.detail ?? fallback;
 }
 
 export async function runResearch(body: {
@@ -66,8 +105,11 @@ export async function runResearch(body: {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Research failed (${res.status})`);
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(parseApiError(err, `Research failed (${res.status})`));
   }
   return res.json() as Promise<ResearchRunResult>;
 }
@@ -85,14 +127,23 @@ export async function streamResearch(
   },
   onEvent: (event: ResearchStreamEvent) => void,
 ): Promise<ResearchRunResult | null> {
-  const res = await apiFetch(`${API_BASE}/api/research/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await apiFetch(
+    `${API_BASE}/api/research/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    600_000,
+  );
   if (!res.ok || !res.body) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error ?? `Research stream failed (${res.status})`);
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(
+      parseApiError(err, `Research stream failed (${res.status})`),
+    );
   }
 
   const reader = res.body.getReader();

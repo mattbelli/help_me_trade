@@ -7,7 +7,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from db.base import DEFAULT_DB_PATH, connect as _connect, now_iso as _now
+from db.base import DEFAULT_DB_PATH
+from db.base import connect as _connect
+from db.base import now_iso as _now
 
 MEMORY_TYPES = frozenset({"preference", "lesson", "research"})
 
@@ -392,6 +394,18 @@ def get_research_artifact(
     return _row_to_research(row) if row else None
 
 
+def delete_research_artifact(
+    artifact_id: int, db_path: Path = DEFAULT_DB_PATH
+) -> bool:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            "DELETE FROM research_artifacts WHERE id = ?", (artifact_id,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def list_research_artifacts(
     *, limit: int = 20, db_path: Path = DEFAULT_DB_PATH
 ) -> list[dict[str, Any]]:
@@ -611,6 +625,31 @@ def record_rule_event(
             "SELECT * FROM rule_events WHERE id = ?", (cursor.lastrowid,)
         ).fetchone()
         conn.commit()
+    return {
+        "id": int(row["id"]),
+        "rule_id": row["rule_id"],
+        "event_type": row["event_type"],
+        "payload": json.loads(row["payload_json"] or "{}"),
+        "created_at": row["created_at"],
+    }
+
+
+def get_last_rule_event(
+    rule_id: str, db_path: Path = DEFAULT_DB_PATH
+) -> dict[str, Any] | None:
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM rule_events
+            WHERE rule_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (rule_id,),
+        ).fetchone()
+    if not row:
+        return None
     return {
         "id": int(row["id"]),
         "rule_id": row["rule_id"],

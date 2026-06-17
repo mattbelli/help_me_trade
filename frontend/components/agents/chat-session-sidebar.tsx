@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  LockIcon,
   MessageSquarePlusIcon,
   Trash2Icon,
   ZapIcon,
@@ -35,12 +34,6 @@ type Props = {
   refreshKey?: number;
 };
 
-function ModeIcon({ mode }: { mode: ChatMode }) {
-  if (mode === "private") return <LockIcon className="size-3" />;
-  if (mode === "quick") return <ZapIcon className="size-3" />;
-  return <MessageSquarePlusIcon className="size-3" />;
-}
-
 export function ChatSessionSidebar({
   activeSessionId,
   activeMode,
@@ -68,12 +61,12 @@ export function ChatSessionSidebar({
     loadSessions();
   }, [loadSessions, refreshKey]);
 
-  async function handleNew(mode: Exclude<ChatMode, "quick">) {
+  async function handleNewSaved() {
     setCreating(true);
     try {
-      const session = await createChatSession(mode);
+      const session = await createChatSession();
       setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
-      onNewChat(mode, session);
+      onNewChat("saved", session);
     } finally {
       setCreating(false);
     }
@@ -86,7 +79,7 @@ export function ChatSessionSidebar({
       await deleteChatSession(sessionId);
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       if (activeSessionId === sessionId) {
-        onNewChat("quick");
+        onNewChat("temporary");
       }
     } catch {
       // ignore
@@ -112,31 +105,23 @@ export function ChatSessionSidebar({
           <DropdownMenuContent align="start" className="w-64">
             <DropdownMenuLabel>Chat mode</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => handleNew("standard")}>
+            <DropdownMenuItem onClick={() => handleNewSaved()}>
               <div className="flex flex-col gap-0.5">
-                <span className="font-medium">{CHAT_MODE_LABELS.standard.label}</span>
+                <span className="font-medium">{CHAT_MODE_LABELS.saved.label}</span>
                 <span className="text-xs text-muted-foreground">
-                  {CHAT_MODE_LABELS.standard.description}
-                </span>
-              </div>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleNew("private")}>
-              <div className="flex flex-col gap-0.5">
-                <span className="font-medium">{CHAT_MODE_LABELS.private.label}</span>
-                <span className="text-xs text-muted-foreground">
-                  {CHAT_MODE_LABELS.private.description}
+                  {CHAT_MODE_LABELS.saved.description}
                 </span>
               </div>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onNewChat("quick")}>
+            <DropdownMenuItem onClick={() => onNewChat("temporary")}>
               <div className="flex flex-col gap-0.5">
                 <span className="flex items-center gap-1.5 font-medium">
                   <ZapIcon className="size-3.5" />
-                  {CHAT_MODE_LABELS.quick.label}
+                  {CHAT_MODE_LABELS.temporary.label}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {CHAT_MODE_LABELS.quick.description}
+                  {CHAT_MODE_LABELS.temporary.description}
                 </span>
               </div>
             </DropdownMenuItem>
@@ -145,11 +130,11 @@ export function ChatSessionSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
-        {activeMode === "quick" && !activeSessionId ? (
+        {activeMode === "temporary" && !activeSessionId ? (
           <div className="mb-2 rounded-md border border-dashed border-border/80 px-2 py-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-1.5 font-medium text-foreground">
               <ZapIcon className="size-3" />
-              Quick chat active
+              Temporary chat active
             </div>
             <p className="mt-1">Not saved to sidebar or memory.</p>
           </div>
@@ -159,12 +144,13 @@ export function ChatSessionSidebar({
           <p className="px-2 py-3 text-xs text-muted-foreground">Loading…</p>
         ) : sessions.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted-foreground">
-            No saved chats yet. Start a standard or private chat.
+            No saved chats yet. Start a saved chat.
           </p>
         ) : (
           <ul className="space-y-0.5">
             {sessions.map((session) => {
               const active = session.id === activeSessionId;
+              const isPrivate = session.mode === "private";
               return (
                 <li key={session.id}>
                   <div
@@ -184,9 +170,14 @@ export function ChatSessionSidebar({
                         : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                     )}
                   >
-                    <ModeIcon mode={session.mode} />
+                    <MessageSquarePlusIcon className="mt-0.5 size-3 shrink-0" />
                     <span className="min-w-0 flex-1 truncate leading-snug">
                       {session.title}
+                      {isPrivate ? (
+                        <span className="ml-1 text-[10px] text-muted-foreground">
+                          (private)
+                        </span>
+                      ) : null}
                     </span>
                     <Button
                       type="button"

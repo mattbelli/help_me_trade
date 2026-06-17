@@ -7,12 +7,13 @@ import sqlite3
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from db.base import DEFAULT_DB_PATH, connect as _connect, now_iso as _now
+from db.base import DEFAULT_DB_PATH
+from db.base import connect as _connect
+from db.base import now_iso as _now
 from imports.base import ParsedTradeEvent
 from imports.money import decimal_to_str, parse_dollar
 
@@ -462,7 +463,6 @@ def _fifo_round_trip_stats(trade_events: list[dict[str, Any]]) -> tuple[int, int
             qty = parse_dollar(row.get("quantity"))
             if qty <= 0:
                 continue
-            price = parse_dollar(row.get("price"))
             fees = parse_dollar(row.get("fees"))
             amount = parse_dollar(row.get("amount"))
 

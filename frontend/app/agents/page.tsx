@@ -1,5 +1,5 @@
-import { AgentChat } from "@/components/agents/agent-chat";
+import { TradingChat } from "@/components/agents/trading-chat";
 
 export default function AgentsPage() {
-  return <AgentChat />;
+  return <TradingChat />;
 }
