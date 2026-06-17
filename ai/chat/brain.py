@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ai.chat.agent import chat_system_prompt, finalize_chat_turn, ChatRunResult
+from ai.chat.agent import ChatRunResult, chat_system_prompt, finalize_chat_turn
 from ai.chat.context import format_memory_context_block, turn_memory_context
 from ai.chat.intent import order_intent_prompt_block
 from ai.chat.messages import last_user_text
 from ai.chat.tools import TOOL_DEFINITIONS, execute_tool
-from ai.llm.config import get_resolved_ai_settings, provider_credentials, get_default_llm
+from ai.llm.config import get_default_llm, get_resolved_ai_settings, provider_credentials
 
 OPENAI_COMPATIBLE_PROVIDERS = frozenset(
     {"openai", "deepseek", "openrouter", "ollama"}

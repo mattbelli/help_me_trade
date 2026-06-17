@@ -20,8 +20,8 @@ from ai.chat.brain import (
     run_tool,
     tool_catalog,
 )
-from ai.chat.messages import last_user_text
 from ai.chat.memory_extract import extract_memories_from_turn
+from ai.chat.messages import last_user_text
 from ai.llm.config import get_default_llm
 from ai.llm.factory import get_llm, get_llm_provider_name
 from ai.llm.models import list_chat_models, list_default_model_options
