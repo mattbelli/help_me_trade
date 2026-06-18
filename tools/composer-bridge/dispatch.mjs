@@ -130,18 +130,19 @@ const started = Date.now();
 console.error(`[composer-bridge] model=${args.model} cwd=${cwd} review=${args.review}`);
 console.error(`[composer-bridge] dispatching (${prompt.length} chars of brief)...\n`);
 
-const agent = await Agent.create({
-  apiKey,
-  model: { id: args.model },
-  local: { cwd, autoReview: args.review },
-});
-
 let status = "finished";
 let result = "";
 let durationMs = Date.now() - started;
 let branches = [];
+let agent;
 
 try {
+  agent = await Agent.create({
+    apiKey,
+    model: { id: args.model },
+    local: { cwd, autoReview: args.review },
+  });
+
   const run = await agent.send(prompt);
   let accumulated = "";
 
@@ -177,9 +178,18 @@ try {
   result = summary?.result ?? accumulated;
   durationMs = summary?.durationMs ?? (Date.now() - started);
   branches = summary?.git?.branches ?? [];
+} catch (err) {
+  // Print only the message + cause; never let the error reach Node's top level,
+  // which would dump the SDK's multi-MB minified bundle source.
+  console.error(`\n[composer-bridge] dispatch failed: ${err?.message ?? err}`);
+  if (err?.cause?.message) console.error(`  cause: ${err.cause.message}`);
+  if (err?.operation) console.error(`  operation: ${err.operation}`);
+  process.exitCode = 1;
 } finally {
-  await agent[Symbol.asyncDispose]?.();
+  if (agent) await agent[Symbol.asyncDispose]?.();
 }
+
+if (process.exitCode === 1) process.exit(1);
 
 console.log(`\n\n=== COMPOSER RESULT (${status}, ${Math.round(durationMs / 1000)}s) ===`);
 if (!args.stream && result) console.log(result);
