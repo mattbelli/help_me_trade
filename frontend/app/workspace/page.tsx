@@ -9,10 +9,7 @@ import { WorkspaceToolbar } from "@/components/workspace/workspace-toolbar";
 import { useConsoleStore } from "@/lib/workspace/use-console-store";
 
 export default function WorkspacePage() {
-  const open = useConsoleStore((s) => s.open);
-  const height = useConsoleStore((s) => s.height);
   const collapsedHeight = useConsoleStore((s) => s.collapsedHeight);
-  const consoleHeight = open ? height : collapsedHeight;
 
   return (
     <WorkspaceToastProvider>
@@ -21,7 +18,7 @@ export default function WorkspacePage() {
 
         <div
           className="relative flex min-h-0 flex-1 flex-col"
-          style={{ paddingBottom: consoleHeight }}
+          style={{ paddingBottom: collapsedHeight }}
         >
           <WorkspaceChatProviders>
             <div className="relative flex min-h-0 flex-1">

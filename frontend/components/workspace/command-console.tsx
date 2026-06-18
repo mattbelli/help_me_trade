@@ -7,7 +7,6 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { motion } from "motion/react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
@@ -21,6 +20,8 @@ import {
   WORKSPACE_COMMANDS,
   useWorkspaceCommands,
 } from "@/lib/workspace/use-workspace-commands";
+
+const SCROLLBACK_MAX_HEIGHT = "min(50vh, 24rem)";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -69,12 +70,12 @@ function CommandAutocomplete({
   if (matches.length === 0) return null;
 
   return (
-    <ul className="absolute bottom-full left-0 z-10 mb-1 max-h-36 w-full overflow-auto rounded-md border border-[var(--border)] bg-[var(--bg-raised)] py-1 shadow-lg">
+    <ul className="overflow-hidden py-1">
       {matches.map((cmd) => (
         <li key={cmd}>
           <button
             type="button"
-            className="w-full px-3 py-1 text-left font-mono text-[11px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+            className="w-full px-3.5 py-1 text-left font-mono text-[11px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)]/60 hover:text-foreground"
             onMouseDown={(e) => {
               e.preventDefault();
               onSelect(cmd);
@@ -89,25 +90,14 @@ function CommandAutocomplete({
 }
 
 export function CommandConsole() {
-  const {
-    open,
-    height,
-    scrollback,
-    collapsedHeight,
-    toggle,
-    setOpen,
-    setHeight,
-    appendScrollback,
-  } = useConsoleStore();
+  const { open, scrollback, toggle, setOpen, appendScrollback } =
+    useConsoleStore();
 
   const { runCommand } = useWorkspaceCommands();
 
   const consoleRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollbackRef = useRef<HTMLDivElement>(null);
-  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(
-    null,
-  );
   const [inputValue, setInputValue] = useState("");
   const [focused, setFocused] = useState(false);
   const [cursorVisible, setCursorVisible] = useState(true);
@@ -122,27 +112,6 @@ export function CommandConsole() {
     if (!open || !scrollbackRef.current) return;
     scrollbackRef.current.scrollTop = scrollbackRef.current.scrollHeight;
   }, [open, scrollback]);
-
-  const onResizePointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!open) return;
-      event.preventDefault();
-      resizeRef.current = { startY: event.clientY, startHeight: height };
-      const onMove = (moveEvent: PointerEvent) => {
-        if (!resizeRef.current) return;
-        const delta = resizeRef.current.startY - moveEvent.clientY;
-        setHeight(resizeRef.current.startHeight + delta);
-      };
-      const onUp = () => {
-        resizeRef.current = null;
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-      };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-    },
-    [height, open, setHeight],
-  );
 
   const focusInput = useCallback(() => {
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -237,33 +206,22 @@ export function CommandConsole() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open, setOpen]);
 
-  const panelHeight = open ? height : collapsedHeight;
-  const showAutocomplete = focused && inputValue === "/";
+  const showAutocomplete = open && focused && inputValue === "/";
+  const hasContentAbove =
+    open && (scrollback.length > 0 || showAutocomplete);
 
   return (
     <motion.div
       ref={consoleRef}
-      className="absolute inset-x-0 bottom-0 z-50 flex flex-col border-t border-[var(--border)] bg-[var(--bg-raised)] shadow-[0_-10px_40px_rgba(0,0,0,0.3)]"
-      animate={{ height: panelHeight }}
-      initial={false}
+      layout
+      className="absolute bottom-3 left-3 z-50 flex w-[min(40rem,calc(100%-1.5rem))] max-w-[40rem] flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-raised)]/85 shadow-lg backdrop-blur-md"
       transition={{ type: "spring", stiffness: 420, damping: 36 }}
     >
-      {open ? (
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize console"
-          className="absolute -top-1.5 right-0 left-0 z-10 h-2 cursor-row-resize"
-          onPointerDown={onResizePointerDown}
-        >
-          <div className="absolute top-1 left-1/2 h-[3px] w-11 -translate-x-1/2 rounded-full bg-[var(--border-strong)]" />
-        </div>
-      ) : null}
-
       {open && scrollback.length > 0 ? (
         <div
           ref={scrollbackRef}
-          className="min-h-0 flex-1 overflow-y-auto px-3.5 py-2"
+          className="overflow-y-auto px-3.5 py-2"
+          style={{ maxHeight: SCROLLBACK_MAX_HEIGHT }}
         >
           <div className="flex flex-col gap-1">
             {scrollback.map((entry) => (
@@ -271,27 +229,25 @@ export function CommandConsole() {
             ))}
           </div>
         </div>
-      ) : open ? (
-        <div className="min-h-0 flex-1" />
+      ) : null}
+
+      {showAutocomplete ? (
+        <CommandAutocomplete
+          filter={inputValue}
+          onSelect={(cmd) => {
+            setInputValue(`${cmd} `);
+            inputRef.current?.focus();
+          }}
+        />
       ) : null}
 
       <form
         onSubmit={onSubmit}
         className={cn(
           "relative flex h-[46px] shrink-0 items-center gap-2 px-3.5",
-          open && "border-t border-[var(--border)]",
+          hasContentAbove && "border-t border-[var(--border)]",
         )}
       >
-        {showAutocomplete ? (
-          <CommandAutocomplete
-            filter={inputValue}
-            onSelect={(cmd) => {
-              setInputValue(`${cmd} `);
-              inputRef.current?.focus();
-            }}
-          />
-        ) : null}
-
         <span className="shrink-0 font-mono text-[var(--c-command)]">›</span>
 
         <div className="relative min-w-0 flex-1">
