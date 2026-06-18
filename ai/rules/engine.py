@@ -136,6 +136,11 @@ def _evaluate_node(node: dict[str, Any], facts: dict[str, Any]) -> bool:
     return False
 
 
+def evaluate_condition(condition: dict[str, Any], facts: dict[str, Any]) -> bool:
+    """Pure evaluation of a rule condition tree against a facts dict."""
+    return _evaluate_node(condition, facts)
+
+
 def _parse_rule_options(action: dict[str, Any]) -> tuple[str, int]:
     trigger_on = str(action.get("trigger_on", "always")).strip().lower()
     if trigger_on not in {"always", "transition"}:
