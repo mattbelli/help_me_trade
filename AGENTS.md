@@ -4,6 +4,10 @@ Personal trading copilot: FastAPI + Next.js, Alpaca/Schwab, local SQLite, provid
 
 **Full roadmap:** [References/BUILD.md](References/BUILD.md)
 
+**▶ Active session?** If work is in progress on `feat/phase6-workspace-shell`, read
+[References/SESSION_HANDOFF.md](References/SESSION_HANDOFF.md) first — it has the
+current state, the Composer-bridge workflow, uncommitted changes, and pending tasks.
+
 ## Before large work
 
 1. Read §6 (what to build next) in [References/BUILD.md](References/BUILD.md)
