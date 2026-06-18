@@ -54,6 +54,8 @@ export type ChatSettings = {
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   provider: "",
   model: "",
-  enabledTools: [],
+  // All tools on by default — an empty list means streamText gets zero tools and
+  // the model fabricates instead of calling web_search / get_performance_insights.
+  enabledTools: DEFAULT_ENABLED_TOOLS,
   autoInjectMemories: false,
 };
