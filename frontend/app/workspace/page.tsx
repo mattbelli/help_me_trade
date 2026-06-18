@@ -1,6 +1,7 @@
 "use client";
 
 import { CommandConsole } from "@/components/workspace/command-console";
+import { CopilotSidebar } from "@/components/workspace/copilot-sidebar";
 import { WorkspaceChatProviders } from "@/components/workspace/workspace-chat";
 import { WorkspaceGrid } from "@/components/workspace/workspace-grid";
 import { WorkspaceToastProvider } from "@/components/workspace/workspace-toast";
@@ -23,7 +24,10 @@ export default function WorkspacePage() {
           style={{ paddingBottom: consoleHeight }}
         >
           <WorkspaceChatProviders>
-            <WorkspaceGrid />
+            <div className="flex min-h-0 flex-1">
+              <WorkspaceGrid />
+              <CopilotSidebar />
+            </div>
             <CommandConsole />
           </WorkspaceChatProviders>
         </div>

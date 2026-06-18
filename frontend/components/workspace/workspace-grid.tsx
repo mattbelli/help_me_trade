@@ -10,7 +10,6 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 import type { ChannelId } from "@/lib/workspace/channels";
 import type { WidgetInstanceConfig } from "@/lib/workspace/layout-persistence";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
@@ -151,7 +150,6 @@ export function WorkspaceGrid() {
     removeWidget,
     pickerOpen,
     setPickerOpen,
-    highlightInstanceId,
   } = useWorkspaceStore();
   const [width, setWidth] = useState(1200);
 
@@ -160,19 +158,20 @@ export function WorkspaceGrid() {
   }, [hydrate]);
 
   useEffect(() => {
-    if (!highlightInstanceId) return;
-    const el = document.getElementById(`widget-${highlightInstanceId}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [highlightInstanceId, layout]);
+    if (!hydrated) return;
 
-  useEffect(() => {
+    const el = document.getElementById("workspace-grid-root");
+    if (!el) return;
+
     function measure() {
-      const el = document.getElementById("workspace-grid-root");
-      if (el) setWidth(el.clientWidth);
+      setWidth(el!.clientWidth);
     }
+
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [hydrated]);
 
   const gridLayout: Layout = useMemo(
@@ -202,7 +201,7 @@ export function WorkspaceGrid() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       {pickerOpen ? (
         <WorkspaceWidgetPicker onClose={() => setPickerOpen(false)} />
       ) : null}
@@ -235,11 +234,7 @@ export function WorkspaceGrid() {
                   <div
                     key={item.i}
                     id={`widget-${item.i}`}
-                    className={cn(
-                      "group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)]",
-                      highlightInstanceId === item.i &&
-                        "animate-pulse ring-2 ring-[var(--c-command)]",
-                    )}
+                    className="group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)]"
                   >
                     <WidgetHeader
                       widgetType={item.type}

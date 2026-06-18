@@ -11,8 +11,6 @@ import {
 } from "react";
 import { motion } from "motion/react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
-import { useAui } from "@assistant-ui/react";
-
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -23,9 +21,6 @@ import {
   WORKSPACE_COMMANDS,
   useWorkspaceCommands,
 } from "@/lib/workspace/use-workspace-commands";
-import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
-
-import { useWorkspaceToast } from "./workspace-toast";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -105,10 +100,7 @@ export function CommandConsole() {
     appendScrollback,
   } = useConsoleStore();
 
-  const ensureChatWidget = useWorkspaceStore((s) => s.ensureChatWidget);
-  const { showToast } = useWorkspaceToast();
   const { runCommand } = useWorkspaceCommands();
-  const aui = useAui();
 
   const consoleRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -175,24 +167,13 @@ export function CommandConsole() {
         return;
       }
 
-      aui.thread().composer().setText(text);
-      aui.thread().composer().send();
-
-      const ensured = ensureChatWidget();
-      if (ensured?.added) {
-        showToast("Chat added — drag to reposition.");
-      }
-
-      appendScrollback({ kind: "sent", text: `sent › ${text}` });
+      setOpen(true);
+      appendScrollback({
+        kind: "output",
+        text: "chat lives in the Copilot →",
+      });
     },
-    [
-      appendScrollback,
-      aui,
-      ensureChatWidget,
-      runCommand,
-      setOpen,
-      showToast,
-    ],
+    [appendScrollback, runCommand, setOpen],
   );
 
   const onSubmit = useCallback(

@@ -4,7 +4,6 @@ import type { ComponentType } from "react";
 
 import { AccountSummaryWidget } from "@/components/workspace/widgets/account-summary-widget";
 import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
-import { ChatWidget } from "@/components/workspace/widgets/chat-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
@@ -90,15 +89,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: "Configured price alerts",
     component: PriceAlertsWidget as WidgetDefinition["component"],
     defaultSize: { w: 12, h: 4, minW: 5, minH: 3 },
-  },
-  {
-    id: "chat",
-    title: "copilot",
-    description: "Trading copilot conversation",
-    multiInstance: false,
-    channelAware: false,
-    component: ChatWidget,
-    defaultSize: { w: 8, h: 8, minW: 5, minH: 5 },
   },
 ];
 
