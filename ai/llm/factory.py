@@ -6,7 +6,12 @@ import os
 
 from ai.llm.anthropic import AnthropicLLM
 from ai.llm.base import LLMClient
-from ai.llm.config import get_default_llm, get_resolved_ai_settings, provider_credentials
+from ai.llm.config import (
+    get_default_llm,
+    get_resolved_ai_settings,
+    provider_config,
+    provider_credentials,
+)
 from ai.llm.mock import MockLLM
 from ai.llm.ollama import OllamaLLM
 from ai.llm.openai_compat import OpenAICompatibleLLM
@@ -83,6 +88,10 @@ def get_llm(*, force_refresh: bool = False, model: str | None = None) -> LLMClie
     provider = get_llm_provider_name()
     ai = get_resolved_ai_settings()
     creds = provider_credentials(provider, ai)
+
+    cfg = provider_config(provider)
+    if cfg.get("requires_key") and not creds.get("api_key"):
+        return MockLLM()
 
     if model:
         return _build_llm_client(provider, creds, model=model.strip())
