@@ -35,6 +35,7 @@ export function CommandConsole() {
     openPalette,
   } = useConsoleStore();
 
+  const consoleRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   const onResizePointerDown = useCallback(
@@ -84,10 +85,25 @@ export function CommandConsole() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [openPalette, toggle]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (consoleRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open, setOpen]);
+
   const panelHeight = open ? height : collapsedHeight;
 
   return (
     <motion.div
+      ref={consoleRef}
       className="absolute inset-x-0 bottom-0 z-50 flex flex-col border-t border-[var(--border)] bg-[var(--bg-raised)] shadow-[0_-10px_40px_rgba(0,0,0,0.3)]"
       animate={{ height: panelHeight }}
       initial={false}
@@ -138,7 +154,7 @@ export function CommandConsole() {
           onClick={toggleMode}
           className={cn(
             "cursor-pointer rounded-md border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1 font-mono text-[10.5px] font-semibold tracking-wide uppercase select-none",
-            mode === "ask" ? "text-[var(--c-accent)]" : "text-[var(--c-amber)]",
+            mode === "ask" ? "text-[var(--c-accent)]" : "text-[var(--c-command)]",
           )}
         >
           {mode === "ask" ? "ASK" : "CMD"}

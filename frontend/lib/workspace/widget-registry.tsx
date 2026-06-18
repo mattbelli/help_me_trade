@@ -30,7 +30,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   {
     id: "account-summary",
     title: "account summary",
-    meta: "live",
     description: "Portfolio, buying power, cash, unrealized P/L",
     component: AccountSummaryWidget,
     defaultSize: { w: 12, h: 3, minW: 4, minH: 2 },

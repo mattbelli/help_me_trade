@@ -139,7 +139,7 @@ export function WorkspaceGrid() {
           className="rounded-md border border-dashed border-[var(--border-strong)] px-2.5 py-1 font-mono text-[11px] text-[var(--fg-dim)] transition-colors hover:border-[var(--c-accent)] hover:bg-[var(--c-accent-soft)] hover:text-foreground"
         >
           + Add widget · or type{" "}
-          <span className="text-[var(--c-accent)]">/add</span>
+          <span className="text-[var(--c-command)]">/add</span>
         </button>
       </div>
 
