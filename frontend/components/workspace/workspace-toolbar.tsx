@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Lock, LockOpen, Plus } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
+import { SettingsDialog } from "@/components/settings/settings-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -320,6 +321,7 @@ export function WorkspaceToolbar() {
           ) : null}
         </div>
 
+        <SettingsDialog collapsed />
         <ThemeSwitcher />
         <span className="min-w-[4.75rem] text-right text-[var(--fg-dim)]">
           {clock}
