@@ -16,6 +16,7 @@ type LearnedMap = Record<string, MemoryRecord[]>;
 type LearnedMemoriesContextValue = {
   byMessage: LearnedMap;
   setLearnedForMessage: (messageId: string, memories: MemoryRecord[]) => void;
+  clearLearnedMemories: () => void;
   removeLearnedMemory: (messageId: string, memoryId: number) => void;
   updateLearnedMemory: (messageId: string, memory: MemoryRecord) => void;
 };
@@ -31,6 +32,7 @@ export function LearnedMemoriesProvider({ children }: { children: ReactNode }) {
       setByMessage((prev) => ({ ...prev, [messageId]: memories })),
     [],
   );
+  const clearLearnedMemories = useCallback(() => setByMessage({}), []);
   const removeLearnedMemory = useCallback(
     (messageId: string, memoryId: number) =>
       setByMessage((prev) => {
@@ -57,10 +59,17 @@ export function LearnedMemoriesProvider({ children }: { children: ReactNode }) {
     () => ({
       byMessage,
       setLearnedForMessage,
+      clearLearnedMemories,
       removeLearnedMemory,
       updateLearnedMemory,
     }),
-    [byMessage, setLearnedForMessage, removeLearnedMemory, updateLearnedMemory],
+    [
+      byMessage,
+      setLearnedForMessage,
+      clearLearnedMemories,
+      removeLearnedMemory,
+      updateLearnedMemory,
+    ],
   );
 
   return (

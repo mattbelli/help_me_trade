@@ -11,6 +11,10 @@ export type MemoryRecord = {
   updated_at: string;
 };
 
+export type SessionMemoryRecord = MemoryRecord & {
+  sourceMessageId?: string | null;
+};
+
 export const MEMORY_TYPE_LABELS: Record<MemoryType, string> = {
   preference: "Preference",
   lesson: "Lesson",
@@ -86,6 +90,7 @@ export async function deleteMemory(id: number): Promise<void> {
 
 export async function extractTurnMemories(body: {
   sessionId?: string | null;
+  sourceMessageId?: string | null;
   userText: string;
   assistantText: string;
   model?: string;
@@ -95,6 +100,7 @@ export async function extractTurnMemories(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       sessionId: body.sessionId ?? undefined,
+      sourceMessageId: body.sourceMessageId ?? undefined,
       userText: body.userText,
       assistantText: body.assistantText,
       model: body.model || undefined,
@@ -105,4 +111,29 @@ export async function extractTurnMemories(body: {
   }
   const data = (await res.json()) as { memories: MemoryRecord[] };
   return data.memories ?? [];
+}
+
+export async function listSessionMemories(
+  sessionId: string,
+): Promise<SessionMemoryRecord[]> {
+  const res = await apiFetch(
+    `${API_BASE}/api/memory/session/${encodeURIComponent(sessionId)}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to load session memories (${res.status})`);
+  }
+  const data = (await res.json()) as {
+    memories: Array<MemoryRecord & { source_message_id?: string | null }>;
+  };
+  return (data.memories ?? [])
+    .filter(
+      (memory): memory is MemoryRecord & { source_message_id: string } =>
+        typeof memory.source_message_id === "string" &&
+        memory.source_message_id.length > 0,
+    )
+    .map(({ source_message_id, ...record }) => ({
+      ...record,
+      sourceMessageId: source_message_id,
+    }));
 }
