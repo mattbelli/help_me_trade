@@ -207,50 +207,60 @@ export function CommandConsole() {
   }, [open, setOpen]);
 
   const showAutocomplete = open && focused && inputValue === "/";
-  const hasContentAbove =
+  const hasOverlayContent =
     open && (scrollback.length > 0 || showAutocomplete);
+
+  const mirrorText = inputValue.length > 0 ? inputValue : "\u00a0";
 
   return (
     <motion.div
       ref={consoleRef}
-      layout
-      className="absolute bottom-3 left-3 z-50 flex w-[min(40rem,calc(100%-1.5rem))] max-w-[40rem] flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-raised)]/85 shadow-lg backdrop-blur-md"
+      className="absolute right-0 bottom-0 left-0 z-50 h-[46px] border-t border-[var(--border)] bg-[var(--bg-raised)]/85 backdrop-blur-md"
       transition={{ type: "spring", stiffness: 420, damping: 36 }}
     >
-      {open && scrollback.length > 0 ? (
-        <div
-          ref={scrollbackRef}
-          className="overflow-y-auto px-3.5 py-2"
-          style={{ maxHeight: SCROLLBACK_MAX_HEIGHT }}
-        >
-          <div className="flex flex-col gap-1">
-            {scrollback.map((entry) => (
-              <ScrollbackLine key={entry.id} entry={entry} />
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {hasOverlayContent ? (
+        <div className="absolute bottom-full left-4 mb-2 w-max max-w-[min(40rem,calc(100%-2rem))] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-raised)]/90 shadow-lg backdrop-blur-md">
+          {open && scrollback.length > 0 ? (
+            <div
+              ref={scrollbackRef}
+              className="overflow-y-auto px-3.5 py-2"
+              style={{ maxHeight: SCROLLBACK_MAX_HEIGHT }}
+            >
+              <div className="flex flex-col gap-1">
+                {scrollback.map((entry) => (
+                  <ScrollbackLine key={entry.id} entry={entry} />
+                ))}
+              </div>
+            </div>
+          ) : null}
 
-      {showAutocomplete ? (
-        <CommandAutocomplete
-          filter={inputValue}
-          onSelect={(cmd) => {
-            setInputValue(`${cmd} `);
-            inputRef.current?.focus();
-          }}
-        />
+          {showAutocomplete ? (
+            <CommandAutocomplete
+              filter={inputValue}
+              onSelect={(cmd) => {
+                setInputValue(`${cmd} `);
+                inputRef.current?.focus();
+              }}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       <form
         onSubmit={onSubmit}
-        className={cn(
-          "relative flex h-[46px] shrink-0 items-center gap-2 px-3.5",
-          hasContentAbove && "border-t border-[var(--border)]",
-        )}
+        className="flex h-full items-center gap-2 px-4"
       >
         <span className="shrink-0 font-mono text-[var(--c-command)]">›</span>
 
-        <div className="relative min-w-0 flex-1">
+        <div className="relative inline-grid min-w-[18rem] max-w-[40rem] items-center rounded-md border border-[var(--border)] bg-[var(--bg-inset)] px-2.5">
+          <span
+            aria-hidden
+            className="invisible col-start-1 row-start-1 whitespace-pre font-mono text-[13px]"
+          >
+            {mirrorText}
+            {focused ? "▋" : ""}
+          </span>
+
           <input
             ref={inputRef}
             type="text"
@@ -268,13 +278,14 @@ export function CommandConsole() {
             spellCheck={false}
             autoComplete="off"
             aria-label="Workspace command line"
-            className="w-full bg-transparent font-mono text-[13px] text-foreground outline-none"
+            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent font-mono text-[13px] text-foreground outline-none"
             style={{ caretColor: "transparent" }}
           />
+
           {focused ? (
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 left-0 flex items-center font-mono text-[13px] text-transparent"
+              className="pointer-events-none col-start-1 row-start-1 flex items-center font-mono text-[13px] text-transparent"
             >
               {inputValue}
               <span
@@ -289,24 +300,32 @@ export function CommandConsole() {
           ) : null}
         </div>
 
-        <span className="hidden font-mono text-[10.5px] text-[var(--fg-faint)] sm:inline">
-          ⌘K
-        </span>
+        <div className="min-w-0 flex-1" aria-hidden />
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground"
-          onClick={toggle}
-          aria-label={open ? "Collapse console" : "Expand console"}
-        >
-          {open ? (
-            <ChevronDownIcon className="size-4" />
-          ) : (
-            <ChevronUpIcon className="size-4" />
-          )}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2.5">
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-[var(--c-accent)]"
+            aria-hidden
+          />
+          <span className="hidden font-mono text-[10.5px] text-[var(--fg-faint)] sm:inline">
+            ⌘K
+          </span>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground"
+            onClick={toggle}
+            aria-label={open ? "Collapse console" : "Expand console"}
+          >
+            {open ? (
+              <ChevronDownIcon className="size-4" />
+            ) : (
+              <ChevronUpIcon className="size-4" />
+            )}
+          </Button>
+        </div>
       </form>
     </motion.div>
   );
