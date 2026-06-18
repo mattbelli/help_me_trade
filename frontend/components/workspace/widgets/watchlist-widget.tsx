@@ -117,13 +117,20 @@ function WatchlistAddRow({
   return (
     <div className={cn(ROW_GRID, "border-b border-[var(--border)] px-2 py-1")}>
       <span />
-      <div ref={wrapRef} className="relative min-w-0">
+      <div
+        ref={wrapRef}
+        className="relative flex min-w-0 items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1"
+      >
+        <span className="shrink-0 font-mono text-[11px] text-[var(--fg-faint)]">
+          +
+        </span>
         <input
           ref={inputRef}
           type="text"
           value={query}
           disabled={submitting}
-          className="w-full bg-transparent px-0 py-0.5 font-mono text-[12px] text-foreground uppercase outline-none placeholder:text-transparent focus:placeholder:text-[var(--fg-faint)]"
+          placeholder="Add symbol"
+          className="min-w-0 flex-1 bg-transparent py-0.5 font-mono text-[12px] text-foreground uppercase outline-none placeholder:text-[var(--fg-faint)]"
           onChange={(e) => {
             const next = e.target.value.toUpperCase();
             setQuery(next);

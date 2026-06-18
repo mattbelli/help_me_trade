@@ -4,6 +4,15 @@ import { create } from "zustand";
 
 const OPEN_STORAGE_KEY = "hmt-copilot-open";
 const PINNED_STORAGE_KEY = "hmt-copilot-pinned";
+const WIDTH_STORAGE_KEY = "hmt-copilot-width";
+
+export const COPILOT_MIN_WIDTH = 320;
+export const COPILOT_MAX_WIDTH = 640;
+export const COPILOT_DEFAULT_WIDTH = 380;
+
+function clampWidth(width: number): number {
+  return Math.min(COPILOT_MAX_WIDTH, Math.max(COPILOT_MIN_WIDTH, width));
+}
 
 function loadOpen(): boolean {
   if (typeof window === "undefined") return false;
@@ -23,6 +32,20 @@ function loadPinned(): boolean {
   }
 }
 
+function loadWidth(): number {
+  if (typeof window === "undefined") return COPILOT_DEFAULT_WIDTH;
+  try {
+    const raw = Number.parseInt(
+      localStorage.getItem(WIDTH_STORAGE_KEY) ?? "",
+      10,
+    );
+    if (Number.isFinite(raw)) return clampWidth(raw);
+  } catch {
+    // ignore
+  }
+  return COPILOT_DEFAULT_WIDTH;
+}
+
 function saveOpen(open: boolean): void {
   try {
     localStorage.setItem(OPEN_STORAGE_KEY, open ? "true" : "false");
@@ -39,23 +62,39 @@ function savePinned(pinned: boolean): void {
   }
 }
 
+function saveWidth(width: number): void {
+  try {
+    localStorage.setItem(WIDTH_STORAGE_KEY, String(clampWidth(width)));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 type CopilotState = {
   open: boolean;
   pinned: boolean;
+  width: number;
   hydrated: boolean;
   hydrate: () => void;
   setOpen: (open: boolean) => void;
   toggle: () => void;
   setPinned: (pinned: boolean) => void;
   togglePinned: () => void;
+  setWidth: (width: number) => void;
 };
 
 export const useCopilotStore = create<CopilotState>((set, get) => ({
   open: false,
   pinned: false,
+  width: COPILOT_DEFAULT_WIDTH,
   hydrated: false,
   hydrate: () => {
-    set({ open: loadOpen(), pinned: loadPinned(), hydrated: true });
+    set({
+      open: loadOpen(),
+      pinned: loadPinned(),
+      width: loadWidth(),
+      hydrated: true,
+    });
   },
   setOpen: (open) => {
     set({ open });
@@ -74,5 +113,10 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
     const next = !get().pinned;
     set({ pinned: next });
     savePinned(next);
+  },
+  setWidth: (width) => {
+    const next = clampWidth(width);
+    set({ width: next });
+    saveWidth(next);
   },
 }));
