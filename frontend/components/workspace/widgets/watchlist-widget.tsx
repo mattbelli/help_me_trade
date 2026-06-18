@@ -1,15 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Moon } from "lucide-react";
+import { Reorder, useDragControls } from "motion/react";
+import { Moon } from "lucide-react";
 
 import { Sparkline } from "@/components/trading/sparkline";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   fetchOvernightTradable,
@@ -25,6 +20,9 @@ import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
+
+const ROW_GRID =
+  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3.25rem] items-center gap-x-1";
 
 function formatPct(value: number): string {
   const sign = value > 0 ? "+" : "";
@@ -42,31 +40,22 @@ function WatchlistAddRow({
   symbols,
   activeListId,
   onUpdated,
-  colSpan,
 }: {
   symbols: string[];
   activeListId: string;
   onUpdated: (state: WatchlistsState) => void;
-  colSpan: number;
 }) {
-  const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const wrapRef = useRef<HTMLTableCellElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-    }
-  }, [editing]);
-
-  useEffect(() => {
     const q = query.trim();
-    if (!editing || q.length < 1) return;
+    if (q.length < 1) return;
 
     const id = setTimeout(() => {
       setLoading(true);
@@ -83,7 +72,7 @@ function WatchlistAddRow({
     }, 200);
 
     return () => clearTimeout(id);
-  }, [query, editing]);
+  }, [query]);
 
   useEffect(() => {
     function onPointerDown(event: PointerEvent) {
@@ -95,11 +84,11 @@ function WatchlistAddRow({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
-  const cancel = useCallback(() => {
-    setEditing(false);
+  const reset = useCallback(() => {
     setQuery("");
     setSuggestions([]);
     setOpen(false);
+    inputRef.current?.focus();
   }, []);
 
   const addSymbol = useCallback(
@@ -109,7 +98,7 @@ function WatchlistAddRow({
 
       const current = symbols.map((s) => s.toUpperCase());
       if (current.includes(symbol)) {
-        cancel();
+        reset();
         return;
       }
 
@@ -119,88 +108,53 @@ function WatchlistAddRow({
           symbols: [...symbols, symbol],
         });
         onUpdated(next);
-        cancel();
+        reset();
       } finally {
         setSubmitting(false);
       }
     },
-    [activeListId, cancel, onUpdated, symbols],
+    [activeListId, onUpdated, reset, symbols],
   );
 
-  if (!editing) {
-    return (
-      <tr>
-        <td
-          colSpan={colSpan}
-          className="border-b border-[var(--border)] px-2 py-1"
-        >
-          <button
-            type="button"
-            className="w-full rounded px-1 py-0.5 text-left font-mono text-[11px] text-[var(--fg-faint)] hover:bg-[var(--bg-hover)] hover:text-foreground"
-            onClick={() => setEditing(true)}
-          >
-            + add symbol
-          </button>
-        </td>
-      </tr>
-    );
-  }
-
   return (
-    <tr>
-      <td
-        ref={wrapRef}
-        colSpan={colSpan}
-        className="relative border-b border-[var(--border)] px-2 py-1"
-      >
-        <div className="flex items-center gap-1.5">
-          <span className="shrink-0 font-mono text-[10px] text-[var(--fg-faint)]">
-            +
+    <div className={cn(ROW_GRID, "border-b border-[var(--border)] px-2 py-1")}>
+      <span />
+      <div ref={wrapRef} className="relative min-w-0">
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          disabled={submitting}
+          className="w-full bg-transparent px-0 py-0.5 font-mono text-[12px] text-foreground uppercase outline-none placeholder:text-transparent focus:placeholder:text-[var(--fg-faint)]"
+          onChange={(e) => {
+            const next = e.target.value.toUpperCase();
+            setQuery(next);
+            if (!next.trim()) {
+              setSuggestions([]);
+              setOpen(false);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void addSymbol(query || suggestions[0] || "");
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              reset();
+            }
+          }}
+          onFocus={() => {
+            if (suggestions.length > 0) setOpen(true);
+          }}
+        />
+        {loading ? (
+          <span className="absolute top-1/2 right-0 -translate-y-1/2 font-mono text-[9px] text-[var(--fg-faint)]">
+            …
           </span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            disabled={submitting}
-            placeholder="Symbol…"
-            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[11px] text-foreground uppercase outline-none placeholder:normal-case placeholder:text-[var(--fg-faint)] focus:border-[var(--border-strong)]"
-            onChange={(e) => {
-              const next = e.target.value.toUpperCase();
-              setQuery(next);
-              if (!next.trim()) {
-                setSuggestions([]);
-                setOpen(false);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void addSymbol(query || suggestions[0] || "");
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                cancel();
-              }
-            }}
-            onBlur={() => {
-              window.setTimeout(() => {
-                if (!wrapRef.current?.contains(document.activeElement)) {
-                  cancel();
-                }
-              }, 120);
-            }}
-            onFocus={() => {
-              if (suggestions.length > 0) setOpen(true);
-            }}
-          />
-          {loading ? (
-            <span className="shrink-0 font-mono text-[9px] text-[var(--fg-faint)]">
-              …
-            </span>
-          ) : null}
-        </div>
+        ) : null}
         {open && suggestions.length > 0 ? (
-          <ul className="absolute right-2 left-2 z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)]">
+          <ul className="absolute right-0 left-0 z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)]">
             {suggestions.map((sym) => (
               <li key={sym}>
                 <button
@@ -217,23 +171,141 @@ function WatchlistAddRow({
             ))}
           </ul>
         ) : null}
-      </td>
-    </tr>
+      </div>
+      <span />
+      <span />
+      <span />
+    </div>
   );
 }
 
-export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
+type Quote = ReturnType<typeof useWatchlistMarket>["quotes"][string];
+
+function WatchlistSymbolRow({
+  symbol,
+  quote,
+  isOvernight,
+  linked,
+  removing,
+  onPublish,
+  onRemove,
+  onDragEnd,
+}: {
+  symbol: string;
+  quote: Quote | undefined;
+  isOvernight: boolean;
+  linked: boolean;
+  removing: boolean;
+  onPublish: () => void;
+  onRemove: () => void;
+  onDragEnd: () => void;
+}) {
+  const controls = useDragControls();
+  const changePct = quote?.change_pct ?? 0;
+  const positive = changePct >= 0;
+
+  return (
+    <Reorder.Item
+      value={symbol}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={onDragEnd}
+      className={cn(
+        ROW_GRID,
+        "group border-b border-[var(--border)] px-2 py-1.5",
+        linked
+          ? "cursor-pointer hover:bg-[var(--bg-hover)]"
+          : "hover:bg-[var(--bg-hover)]",
+      )}
+      onClick={onPublish}
+    >
+      <button
+        type="button"
+        className="cursor-grab select-none font-mono text-[10px] leading-none text-[var(--fg-faint)] opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+        aria-label={`Reorder ${symbol}`}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          controls.start(e);
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        ⋮⋮
+      </button>
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <span className="truncate font-medium text-[var(--c-accent)]">
+          {symbol}
+        </span>
+        {isOvernight ? (
+          <span
+            title="Tradable 24/5 overnight"
+            aria-label="Tradable 24/5 overnight"
+          >
+            <Moon className="size-3 shrink-0 text-[var(--c-blue)]" />
+          </span>
+        ) : null}
+        <button
+          type="button"
+          disabled={removing}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="rounded px-0.5 font-mono text-[11px] leading-none text-[var(--fg-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40"
+          aria-label={`Remove ${symbol}`}
+        >
+          ×
+        </button>
+      </span>
+      <span className="text-right tabular-nums text-foreground">
+        {quote ? formatPrice(quote.price) : "—"}
+      </span>
+      <span
+        className={cn(
+          "text-right tabular-nums",
+          quote
+            ? positive
+              ? "text-[var(--c-green)]"
+              : "text-[var(--c-red)]"
+            : "text-[var(--fg-dim)]",
+        )}
+      >
+        {quote ? formatPct(changePct) : "—"}
+      </span>
+      <div className="flex justify-end">
+        <Sparkline
+          values={quote?.sparkline ?? []}
+          width={48}
+          height={18}
+          className={
+            quote
+              ? positive
+                ? "text-[var(--c-green)]"
+                : "text-[var(--c-red)]"
+              : "text-[var(--fg-faint)]"
+          }
+        />
+      </div>
+    </Reorder.Item>
+  );
+}
+
+export function WatchlistWidget({ config }: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
   const [overnightSymbols, setOvernightSymbols] = useState<Set<string>>(
     new Set(),
   );
+  const dragOrderRef = useRef<string[] | null>(null);
   const setChannelSymbol = useChannelStore((s) => s.setChannelSymbol);
   const channel: ChannelId = config.channel ?? "none";
   const linked = channel !== "none";
+
+  useEffect(() => {
+    dragOrderRef.current = dragOrder;
+  }, [dragOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -273,6 +345,8 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   );
 
   const symbolsKey = useMemo(() => symbols.join(","), [symbols]);
+
+  const orderedSymbols = dragOrder ?? symbols;
 
   useEffect(() => {
     if (symbols.length === 0) return;
@@ -318,13 +392,15 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     [displayList],
   );
 
-  const reorderSymbols = useCallback(
-    async (fromIndex: number, toIndex: number) => {
-      if (!displayList || fromIndex === toIndex) return;
-
-      const reordered = [...displayList.symbols];
-      const [moved] = reordered.splice(fromIndex, 1);
-      reordered.splice(toIndex, 0, moved);
+  const persistReorder = useCallback(
+    async (reordered: string[]) => {
+      if (!displayList) return;
+      if (
+        reordered.length === displayList.symbols.length &&
+        reordered.every((sym, idx) => sym === displayList.symbols[idx])
+      ) {
+        return;
+      }
 
       const prevState = state;
       setState((current) => {
@@ -344,8 +420,10 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           symbols: reordered,
         });
         setState(next);
+        setDragOrder(null);
       } catch (err) {
         if (prevState) setState(prevState);
+        setDragOrder(null);
         setError(
           err instanceof Error ? err.message : "Failed to reorder symbols",
         );
@@ -353,6 +431,12 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     },
     [displayList, state],
   );
+
+  const handleReorderEnd = useCallback(() => {
+    const reordered = dragOrderRef.current;
+    setDragOrder(null);
+    if (reordered) void persistReorder(reordered);
+  }, [persistReorder]);
 
   const publishSymbol = useCallback(
     (symbol: string) => {
@@ -380,180 +464,61 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     );
   }
 
-  const colSpan = 4;
-
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="border-b border-[var(--border)] px-3 py-1.5">
-        {state.lists.length > 1 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center gap-1 font-mono text-[10px] text-[var(--fg-faint)] outline-none hover:text-foreground">
-              {displayList.name}
-              <ChevronDown className="size-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
-            >
-              {state.lists.map((list) => (
-                <DropdownMenuItem
-                  key={list.id}
-                  onSelect={() => onConfigChange({ watchlistId: list.id })}
-                  className="px-2 py-1.5"
-                >
-                  {list.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <p className="font-mono text-[10px] text-[var(--fg-faint)]">
-            {displayList.name}
-          </p>
-        )}
-        {marketLoading ? (
-          <span className="font-mono text-[10px] text-[var(--fg-faint)]">
-            {" "}
-            · loading…
-          </span>
-        ) : null}
-        {linked ? (
-          <p className="mt-0.5 font-mono text-[9px] text-[var(--fg-faint)]">
-            Click a row to link symbol to channel
-          </p>
-        ) : null}
-      </div>
+    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+      {marketLoading ? (
+        <div className="border-b border-[var(--border)] px-3 py-0.5">
+          <span className="text-[10px] text-[var(--fg-faint)]">loading…</span>
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1">
-        <table className="w-full border-collapse font-mono text-[12px]">
-          <thead>
-            <tr>
-              {(["Sym", "Last", "Δ%", "7d"] as const).map((h, idx) => (
-                <th
-                  key={h}
-                  className={cn(
-                    "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
-                    idx === 0 ? "text-left" : "text-right",
-                    h === "7d" && "text-right",
-                  )}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {symbols.map((symbol, index) => {
-              const quote = quotes[symbol];
-              const changePct = quote?.change_pct ?? 0;
-              const positive = changePct >= 0;
-              const isOvernight = overnightSymbols.has(symbol.toUpperCase());
+        <div
+          className={cn(
+            ROW_GRID,
+            "gap-x-1 border-b border-[var(--border)] px-2 py-1.5",
+          )}
+        >
+          <span />
+          {(["Sym", "Last", "Δ%", "7d"] as const).map((h, idx) => (
+            <span
+              key={h}
+              className={cn(
+                "text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                idx === 0 ? "text-left" : "text-right",
+              )}
+            >
+              {h}
+            </span>
+          ))}
+        </div>
 
-              return (
-                <tr
-                  key={symbol}
-                  onClick={() => publishSymbol(symbol)}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (dragIndex === null || dragIndex === index) return;
-                    void reorderSymbols(dragIndex, index);
-                    setDragIndex(null);
-                  }}
-                  className={cn(
-                    "group transition-colors",
-                    linked
-                      ? "cursor-pointer hover:bg-[var(--bg-hover)]"
-                      : "hover:bg-[var(--bg-hover)]",
-                    dragIndex === index && "opacity-50",
-                  )}
-                >
-                  <td className="border-b border-[var(--border)] px-2 py-1.5">
-                    <span className="inline-flex items-center gap-1">
-                      <span
-                        draggable
-                        onDragStart={(e) => {
-                          e.stopPropagation();
-                          setDragIndex(index);
-                          e.dataTransfer.effectAllowed = "move";
-                        }}
-                        onDragEnd={() => setDragIndex(null)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="cursor-grab select-none font-mono text-[10px] leading-none text-[var(--fg-faint)] opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-                        aria-label={`Reorder ${symbol}`}
-                      >
-                        ⠿
-                      </span>
-                      <span className="font-medium text-[var(--c-accent)]">
-                        {symbol}
-                      </span>
-                      {isOvernight ? (
-                        <span
-                          title="Tradable 24/5 overnight"
-                          aria-label="Tradable 24/5 overnight"
-                        >
-                          <Moon className="size-3 shrink-0 text-[var(--c-blue)]" />
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={removing === symbol}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void removeSymbol(symbol);
-                        }}
-                        className="rounded px-0.5 font-mono text-[11px] leading-none text-[var(--fg-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40"
-                        aria-label={`Remove ${symbol}`}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  </td>
-                  <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground">
-                    {quote ? formatPrice(quote.price) : "—"}
-                  </td>
-                  <td
-                    className={cn(
-                      "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
-                      quote
-                        ? positive
-                          ? "text-[var(--c-green)]"
-                          : "text-[var(--c-red)]"
-                        : "text-[var(--fg-dim)]",
-                    )}
-                  >
-                    {quote ? formatPct(changePct) : "—"}
-                  </td>
-                  <td className="border-b border-[var(--border)] px-2 py-1.5 text-right">
-                    <div className="flex justify-end">
-                      <Sparkline
-                        values={quote?.sparkline ?? []}
-                        width={48}
-                        height={18}
-                        className={
-                          quote
-                            ? positive
-                              ? "text-[var(--c-green)]"
-                              : "text-[var(--c-red)]"
-                            : "text-[var(--fg-faint)]"
-                        }
-                      />
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            <WatchlistAddRow
-              symbols={symbols}
-              activeListId={displayList.id}
-              onUpdated={setState}
-              colSpan={colSpan}
+        <Reorder.Group
+          axis="y"
+          values={orderedSymbols}
+          onReorder={setDragOrder}
+          className="m-0 list-none p-0"
+        >
+          {orderedSymbols.map((symbol) => (
+            <WatchlistSymbolRow
+              key={symbol}
+              symbol={symbol}
+              quote={quotes[symbol]}
+              isOvernight={overnightSymbols.has(symbol.toUpperCase())}
+              linked={linked}
+              removing={removing === symbol}
+              onPublish={() => publishSymbol(symbol)}
+              onRemove={() => void removeSymbol(symbol)}
+              onDragEnd={handleReorderEnd}
             />
-          </tbody>
-        </table>
+          ))}
+        </Reorder.Group>
+
+        <WatchlistAddRow
+          symbols={symbols}
+          activeListId={displayList.id}
+          onUpdated={setState}
+        />
       </div>
     </div>
   );

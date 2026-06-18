@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +16,11 @@ type Props = {
   onChange: (channel: ChannelId) => void;
 };
 
+function channelLabel(channel: ChannelId): string {
+  if (channel === "none") return "link";
+  return `CH ${channel}`;
+}
+
 export function ChannelSelector({ channel, onChange }: Props) {
   const activeColor = channelColor(channel);
 
@@ -21,18 +28,30 @@ export function ChannelSelector({ channel, onChange }: Props) {
     <DropdownMenu>
       <DropdownMenuTrigger
         type="button"
-        className="rounded p-0.5 outline-none transition-colors hover:bg-[var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] outline-none transition-colors",
+          channel === "none"
+            ? "border-[var(--border)] text-[var(--fg-faint)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-foreground"
+            : "border-transparent text-foreground hover:brightness-110",
+        )}
+        style={
+          channel !== "none"
+            ? { backgroundColor: `color-mix(in srgb, ${activeColor} 22%, transparent)` }
+            : undefined
+        }
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
         aria-label="Select link channel"
       >
         <span
           className={cn(
-            "block size-2.5 rounded-sm border border-[var(--border)]",
-            channel === "none" && "opacity-50",
+            "size-2 shrink-0 rounded-full",
+            channel === "none" && "border border-[var(--border)] bg-[var(--bg-inset)]",
           )}
-          style={{ backgroundColor: activeColor }}
+          style={channel !== "none" ? { backgroundColor: activeColor } : undefined}
         />
+        <span className="leading-none">{channelLabel(channel)}</span>
+        <ChevronDown className="size-2.5 shrink-0 opacity-70" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
@@ -47,11 +66,15 @@ export function ChannelSelector({ channel, onChange }: Props) {
             <span
               className={cn(
                 "size-2 shrink-0 rounded-full",
-                ch.id === "none" && "opacity-50",
+                ch.id === "none" && "border border-[var(--border)]",
               )}
               style={{ backgroundColor: ch.color }}
             />
-            <span className={channel === ch.id ? "text-foreground" : "text-[var(--fg-dim)]"}>
+            <span
+              className={
+                channel === ch.id ? "text-foreground" : "text-[var(--fg-dim)]"
+              }
+            >
               {ch.label}
             </span>
           </DropdownMenuItem>

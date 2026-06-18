@@ -7,11 +7,13 @@ import { X } from "lucide-react";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { cn } from "@/lib/utils";
 import type { ChannelId } from "@/lib/workspace/channels";
+import { channelColor } from "@/lib/workspace/channels";
 import type { WidgetInstanceConfig } from "@/lib/workspace/layout-persistence";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
 import { ChannelSelector } from "./channel-selector";
+import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
 function useWidgetHeaderMeta(widgetType: string): string | undefined {
@@ -34,18 +36,36 @@ function WidgetHeader({
   channel,
   onChannelChange,
   onRemove,
+  watchlistId,
+  onWatchlistChange,
 }: {
   widgetType: string;
   channelAware?: boolean;
   channel: ChannelId;
   onChannelChange: (channel: ChannelId) => void;
   onRemove: () => void;
+  watchlistId?: string;
+  onWatchlistChange?: (watchlistId: string) => void;
 }) {
   const def = getWidgetDefinition(widgetType);
   const meta = useWidgetHeaderMeta(widgetType);
+  const accentColor = channel !== "none" ? channelColor(channel) : undefined;
 
   return (
-    <div className="workspace-drag-handle flex cursor-grab items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 active:cursor-grabbing">
+    <div
+      className={cn(
+        "workspace-drag-handle relative flex cursor-grab items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 active:cursor-grabbing",
+        accentColor && "border-t-2",
+      )}
+      style={accentColor ? { borderTopColor: accentColor } : undefined}
+    >
+      {accentColor ? (
+        <span
+          className="absolute top-0 bottom-0 left-0 w-1"
+          style={{ backgroundColor: accentColor }}
+          aria-hidden
+        />
+      ) : null}
       <span className="font-mono text-[12px] leading-none tracking-[-1px] text-[var(--fg-faint)]">
         ⠿
       </span>
@@ -55,6 +75,12 @@ function WidgetHeader({
       <span className="font-mono text-[11.5px] font-semibold text-foreground">
         {def?.title ?? widgetType}
       </span>
+      {widgetType === "watchlist" && onWatchlistChange ? (
+        <WatchlistListSelector
+          watchlistId={watchlistId}
+          onSelect={onWatchlistChange}
+        />
+      ) : null}
       {meta ? (
         <span className="font-mono text-[10px] text-[var(--fg-faint)]">
           {meta}
@@ -182,6 +208,9 @@ export function WorkspaceGrid() {
                 const config: WidgetInstanceConfig = item.config ?? {};
                 const channel: ChannelId = config.channel ?? "none";
 
+                const accentColor =
+                  channel !== "none" ? channelColor(channel) : undefined;
+
                 return (
                   <div
                     key={item.i}
@@ -191,6 +220,13 @@ export function WorkspaceGrid() {
                       highlightInstanceId === item.i &&
                         "animate-pulse ring-2 ring-[var(--c-command)]",
                     )}
+                    style={
+                      accentColor
+                        ? {
+                            boxShadow: `inset 3px 0 0 0 ${accentColor}, var(--panel-shadow)`,
+                          }
+                        : undefined
+                    }
                   >
                     <WidgetHeader
                       widgetType={item.type}
@@ -200,6 +236,10 @@ export function WorkspaceGrid() {
                         updateWidgetConfig(item.i, { channel: next })
                       }
                       onRemove={() => removeWidget(item.i)}
+                      watchlistId={config.watchlistId}
+                      onWatchlistChange={(next) =>
+                        updateWidgetConfig(item.i, { watchlistId: next })
+                      }
                     />
                     <div className="min-h-0 flex-1 overflow-auto">
                       {Widget ? (
