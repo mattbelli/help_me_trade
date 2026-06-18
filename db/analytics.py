@@ -14,6 +14,10 @@ PERIODS = frozenset(
     {"day", "week", "month", "quarter", "year", "all", "custom"}
 )
 
+OVERTRADING_TRADES_PER_DAY = 8
+CONCENTRATION_PCT = 0.5
+REVENGE_DAYS = 1
+
 
 def resolve_period(
     period: str,
@@ -209,6 +213,193 @@ def day_of_week_realized(round_trips: list[dict[str, Any]]) -> list[dict[str, An
     ]
 
 
+def compute_profit_factor(round_trips: list[dict[str, Any]]) -> dict[str, Any]:
+    gross_wins = Decimal("0")
+    gross_losses = Decimal("0")
+    for rt in round_trips:
+        pnl = parse_dollar(rt["pnl"])
+        if pnl > 0:
+            gross_wins += pnl
+        elif pnl < 0:
+            gross_losses += -pnl
+
+    profit_factor: float | None = None
+    if gross_losses > 0:
+        profit_factor = round(float(gross_wins / gross_losses), 2)
+
+    return {
+        "gross_wins": decimal_to_str(gross_wins),
+        "gross_losses": decimal_to_str(gross_losses),
+        "profit_factor": profit_factor,
+    }
+
+
+def compute_hold_times(round_trips: list[dict[str, Any]]) -> dict[str, Any]:
+    if not round_trips:
+        return {
+            "avg_hold_days": None,
+            "min_hold_days": None,
+            "max_hold_days": None,
+            "count": 0,
+        }
+
+    hold_days: list[int] = []
+    for rt in round_trips:
+        open_d = date.fromisoformat(rt["open_date"])
+        close_d = date.fromisoformat(rt["close_date"])
+        hold_days.append((close_d - open_d).days)
+
+    total = sum(hold_days)
+    return {
+        "avg_hold_days": round(total / len(hold_days), 1),
+        "min_hold_days": min(hold_days),
+        "max_hold_days": max(hold_days),
+        "count": len(hold_days),
+    }
+
+
+def compute_streaks(round_trips: list[dict[str, Any]]) -> dict[str, Any]:
+    if not round_trips:
+        return {
+            "longest_win": 0,
+            "longest_loss": 0,
+            "current_type": "none",
+            "current_len": 0,
+        }
+
+    ordered = sorted(round_trips, key=lambda r: r["close_date"])
+    longest_win = 0
+    longest_loss = 0
+    cur_win = 0
+    cur_loss = 0
+
+    for rt in ordered:
+        pnl = parse_dollar(rt["pnl"])
+        if pnl > 0:
+            cur_win += 1
+            cur_loss = 0
+            longest_win = max(longest_win, cur_win)
+        elif pnl < 0:
+            cur_loss += 1
+            cur_win = 0
+            longest_loss = max(longest_loss, cur_loss)
+        else:
+            cur_win = 0
+            cur_loss = 0
+
+    if cur_win > 0:
+        current_type = "win"
+        current_len = cur_win
+    elif cur_loss > 0:
+        current_type = "loss"
+        current_len = cur_loss
+    else:
+        current_type = "none"
+        current_len = 0
+
+    return {
+        "longest_win": longest_win,
+        "longest_loss": longest_loss,
+        "current_type": current_type,
+        "current_len": current_len,
+    }
+
+
+def compute_behavioral_flags(
+    round_trips: list[dict[str, Any]],
+    daily_stats: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    flags: list[dict[str, str]] = []
+
+    # Heuristic: unusually high mean trade-event count on days with activity.
+    if daily_stats:
+        active_counts = [d["event_count"] for d in daily_stats if d["event_count"] > 0]
+        if active_counts:
+            mean_events = sum(active_counts) / len(active_counts)
+            if mean_events > OVERTRADING_TRADES_PER_DAY:
+                flags.append(
+                    {
+                        "key": "overtrading",
+                        "label": "Overtrading",
+                        "detail": (
+                            f"Average {mean_events:.1f} trade events per active day "
+                            f"(threshold {OVERTRADING_TRADES_PER_DAY})."
+                        ),
+                    }
+                )
+
+    # Heuristic: one symbol dominates closed round-trip count.
+    if round_trips:
+        by_symbol: dict[str, int] = defaultdict(int)
+        for rt in round_trips:
+            by_symbol[rt["symbol"]] += 1
+        top_symbol = max(by_symbol, key=lambda s: by_symbol[s])
+        top_count = by_symbol[top_symbol]
+        top_pct = top_count / len(round_trips)
+        if top_pct > CONCENTRATION_PCT:
+            flags.append(
+                {
+                    "key": "concentration",
+                    "label": "Concentration",
+                    "detail": (
+                        f"{top_symbol} accounts for {top_pct:.0%} of closed "
+                        f"round-trips ({top_count}/{len(round_trips)})."
+                    ),
+                }
+            )
+
+    # Heuristic: re-entering a symbol shortly after a losing close.
+    revenge_symbols: list[str] = []
+    by_symbol_trips: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for rt in round_trips:
+        by_symbol_trips[rt["symbol"]].append(rt)
+    for symbol, trips in by_symbol_trips.items():
+        ordered = sorted(trips, key=lambda r: r["close_date"])
+        for idx in range(len(ordered) - 1):
+            if parse_dollar(ordered[idx]["pnl"]) >= 0:
+                continue
+            loss_close = date.fromisoformat(ordered[idx]["close_date"])
+            next_open = date.fromisoformat(ordered[idx + 1]["open_date"])
+            if (next_open - loss_close).days <= REVENGE_DAYS:
+                revenge_symbols.append(symbol)
+                break
+    if revenge_symbols:
+        symbols = ", ".join(sorted(set(revenge_symbols)))
+        flags.append(
+            {
+                "key": "revenge_trading",
+                "label": "Revenge trading",
+                "detail": (
+                    f"Re-opened within {REVENGE_DAYS} day(s) after a losing close: "
+                    f"{symbols}."
+                ),
+            }
+        )
+
+    return flags
+
+
+def _round_trips_in_period(
+    *,
+    account_id: str | None,
+    from_date: str | None,
+    to_date: str | None,
+) -> list[dict[str, Any]]:
+    history_events = list_trade_events(
+        account_id=account_id,
+        to_date=to_date,
+        limit=100_000,
+    )
+    history_trades = [e for e in history_events if e["event_type"] == "trade"]
+    round_trips_all = compute_round_trips(history_trades)
+    return [
+        rt
+        for rt in round_trips_all
+        if (not from_date or rt["close_date"] >= from_date)
+        and (not to_date or rt["close_date"] <= to_date)
+    ]
+
+
 def performance_dashboard(
     *,
     account_id: str | None = None,
@@ -299,6 +490,12 @@ def ai_performance_context(
         to_date=dash["to_date"],
     )[:10]
 
+    round_trips_in_period = _round_trips_in_period(
+        account_id=account_id,
+        from_date=dash["from_date"],
+        to_date=dash["to_date"],
+    )
+
     return {
         "period": period,
         "from_date": dash["from_date"],
@@ -310,4 +507,11 @@ def ai_performance_context(
         "recent_closed_trades": dash["round_trips"][:15],
         "largest_wins": dash["top_winners"][:3],
         "largest_losses": dash["top_losers"][:3],
+        "profit_factor": compute_profit_factor(round_trips_in_period),
+        "hold_time": compute_hold_times(round_trips_in_period),
+        "streaks": compute_streaks(round_trips_in_period),
+        "behavioral_flags": compute_behavioral_flags(
+            round_trips_in_period,
+            dash["daily_cash_flow"],
+        ),
     }
