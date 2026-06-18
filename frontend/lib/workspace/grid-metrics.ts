@@ -15,7 +15,11 @@ export function deriveGridCols(containerWidth: number): number {
     (containerWidth + GRID_MARGIN_PX) /
       (GRID_COL_TARGET_PX + GRID_MARGIN_PX),
   );
-  return Math.min(GRID_MAX_COLS, Math.max(GRID_MIN_COLS, raw));
+  return Math.min(GRID_MAX_COLS, Math.max(GRID_DEFAULT_COLS, raw));
+}
+
+export function gridPixelWidth(cols: number): number {
+  return cols * GRID_COL_TARGET_PX + (cols - 1) * GRID_MARGIN_PX;
 }
 
 export function clampLayoutWidth(

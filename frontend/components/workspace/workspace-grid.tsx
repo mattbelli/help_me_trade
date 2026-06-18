@@ -14,8 +14,10 @@ import type { ChannelId } from "@/lib/workspace/channels";
 import {
   clampLayoutWidth,
   deriveGridCols,
+  GRID_COL_TARGET_PX,
   GRID_DEFAULT_COLS,
   GRID_MARGIN_PX,
+  gridPixelWidth,
 } from "@/lib/workspace/grid-metrics";
 import type { WidgetInstanceConfig } from "@/lib/workspace/layout-persistence";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
@@ -24,6 +26,8 @@ import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 import { ChannelSelector } from "./channel-selector";
 import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
+
+const ROW_HEIGHT_PX = 48;
 
 function useWidgetHeaderMeta(widgetType: string): string | undefined {
   const { snapshot } = useSnapshot();
@@ -158,7 +162,9 @@ export function WorkspaceGrid() {
     setPickerOpen,
     setGridCols,
   } = useWorkspaceStore();
-  const [width, setWidth] = useState(1200);
+  const [width, setWidth] = useState(() =>
+    gridPixelWidth(GRID_DEFAULT_COLS),
+  );
   const [cols, setCols] = useState(GRID_DEFAULT_COLS);
 
   useEffect(() => {
@@ -168,15 +174,15 @@ export function WorkspaceGrid() {
   useEffect(() => {
     if (!hydrated) return;
 
-    const el = document.getElementById("workspace-grid-root");
+    const el = document.getElementById("workspace-grid-scroll");
     if (!el) return;
 
     function measure() {
-      const clientWidth = el!.clientWidth;
-      setWidth(clientWidth);
-      const nextCols = deriveGridCols(clientWidth);
+      const availWidth = el!.clientWidth - 32;
+      const nextCols = deriveGridCols(availWidth);
       setCols(nextCols);
       setGridCols(nextCols);
+      setWidth(gridPixelWidth(nextCols));
     }
 
     measure();
@@ -203,7 +209,7 @@ export function WorkspaceGrid() {
     [layout, cols],
   );
 
-  const onLayoutChange = useCallback(
+  const persistLayout = useCallback(
     (nextLayout: Layout) => {
       const merged = layout.map((item) => {
         const cell = nextLayout.find((l) => l.i === item.i);
@@ -221,21 +227,35 @@ export function WorkspaceGrid() {
         <WorkspaceWidgetPicker onClose={() => setPickerOpen(false)} />
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-6">
+      <div
+        id="workspace-grid-scroll"
+        className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-6"
+        style={
+          locked
+            ? undefined
+            : {
+                backgroundImage:
+                  "radial-gradient(circle, color-mix(in srgb, var(--fg-faint) 30%, transparent) 1px, transparent 1px)",
+                backgroundSize: `${GRID_COL_TARGET_PX + GRID_MARGIN_PX}px ${ROW_HEIGHT_PX + GRID_MARGIN_PX}px`,
+                backgroundPosition: "16px 16px",
+                backgroundAttachment: "local",
+              }
+        }
+      >
         {hydrated ? (
-          <div id="workspace-grid-root">
+          <div id="workspace-grid-root" className="relative" style={{ width }}>
             <ReactGridLayout
               className="layout"
               layout={gridLayout}
               cols={cols}
-              rowHeight={48}
+              rowHeight={ROW_HEIGHT_PX}
               width={width}
               margin={[GRID_MARGIN_PX, GRID_MARGIN_PX]}
               containerPadding={[0, 0]}
               compactType={null}
               preventCollision
-              onDragStop={onLayoutChange}
-              onResizeStop={onLayoutChange}
+              onDragStop={persistLayout}
+              onResizeStop={persistLayout}
               draggableHandle=".workspace-drag-handle"
               draggableCancel=".workspace-no-drag"
               resizeHandles={["se", "sw"]}
