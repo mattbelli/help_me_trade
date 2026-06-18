@@ -17,7 +17,10 @@ const STORAGE_KEY = "hmt-workspace-layout";
 
 export const DEFAULT_WORKSPACE_LAYOUT: WorkspaceLayoutItem[] = [
   { i: "account-summary", x: 0, y: 0, w: 12, h: 3, minW: 4, minH: 2 },
-  { i: "positions", x: 0, y: 3, w: 12, h: 6, minW: 4, minH: 3 },
+  { i: "open-orders", x: 0, y: 3, w: 6, h: 5, minW: 4, minH: 3 },
+  { i: "positions", x: 6, y: 3, w: 6, h: 5, minW: 4, minH: 3 },
+  { i: "equity-curve", x: 0, y: 8, w: 6, h: 5, minW: 4, minH: 3 },
+  { i: "watchlist", x: 6, y: 8, w: 6, h: 5, minW: 4, minH: 3 },
 ];
 
 export const localStorageLayoutPersistence: LayoutPersistence = {

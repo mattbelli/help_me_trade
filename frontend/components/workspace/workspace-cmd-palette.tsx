@@ -18,6 +18,7 @@ import {
   WORKSPACE_THEMES,
   type WorkspaceTheme,
 } from "@/lib/workspace/themes";
+import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 
 import { useWorkspaceToast } from "./workspace-toast";
 
@@ -25,6 +26,7 @@ export function WorkspaceCmdPalette() {
   const { showToast } = useWorkspaceToast();
   const { theme, setTheme } = useTheme();
   const { setPaletteOpen, setOpen } = useConsoleStore();
+  const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
   const aui = useAui();
 
   const run = useCallback(
@@ -34,7 +36,7 @@ export function WorkspaceCmdPalette() {
           showToast("/positions — coming soon");
           break;
         case "add":
-          showToast("/add — widget picker coming soon");
+          openWidgetPicker();
           break;
         case "theme": {
           const current = WORKSPACE_THEMES.includes(theme as WorkspaceTheme)
@@ -56,7 +58,7 @@ export function WorkspaceCmdPalette() {
       setPaletteOpen(false);
       setOpen(true);
     },
-    [aui, setOpen, setPaletteOpen, setTheme, showToast, theme],
+    [aui, openWidgetPicker, setOpen, setPaletteOpen, setTheme, showToast, theme],
   );
 
   return (
