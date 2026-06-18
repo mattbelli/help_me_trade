@@ -2,7 +2,12 @@
 
 import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
-import { ChevronRightIcon, MessageSquareIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  MessageSquareIcon,
+  PinIcon,
+  PinOffIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,7 +20,9 @@ const COLLAPSED_WIDTH = 44;
 
 export function CopilotSidebar() {
   const open = useCopilotStore((s) => s.open);
+  const pinned = useCopilotStore((s) => s.pinned);
   const setOpen = useCopilotStore((s) => s.setOpen);
+  const togglePinned = useCopilotStore((s) => s.togglePinned);
   const hydrate = useCopilotStore((s) => s.hydrate);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -24,7 +31,7 @@ export function CopilotSidebar() {
   }, [hydrate]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || pinned) return;
 
     function onPointerDown(event: PointerEvent) {
       const target = event.target;
@@ -35,12 +42,15 @@ export function CopilotSidebar() {
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open, setOpen]);
+  }, [open, pinned, setOpen]);
 
   return (
     <motion.div
       ref={sidebarRef}
-      className="flex shrink-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)]"
+      className={cn(
+        "flex shrink-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)]",
+        !pinned && "absolute top-0 right-0 bottom-0 z-20",
+      )}
       animate={{ width: open ? EXPANDED_WIDTH : COLLAPSED_WIDTH }}
       initial={false}
       transition={{ type: "spring", stiffness: 420, damping: 36 }}
@@ -52,6 +62,24 @@ export function CopilotSidebar() {
               Copilot
             </span>
             <div className="flex-1" />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                "text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground",
+                pinned && "text-foreground",
+              )}
+              onClick={togglePinned}
+              aria-label={pinned ? "Unpin copilot" : "Pin copilot"}
+              title={pinned ? "Float over workspace" : "Pin to sidebar"}
+            >
+              {pinned ? (
+                <PinOffIcon className="size-4" />
+              ) : (
+                <PinIcon className="size-4" />
+              )}
+            </Button>
             <Button
               type="button"
               variant="ghost"

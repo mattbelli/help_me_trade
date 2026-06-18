@@ -45,7 +45,7 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
     <DropdownMenu>
       <DropdownMenuTrigger
         type="button"
-        className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-faint)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-faint)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >

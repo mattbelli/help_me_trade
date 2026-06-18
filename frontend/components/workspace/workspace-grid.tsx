@@ -19,6 +19,8 @@ import { ChannelSelector } from "./channel-selector";
 import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
+const MIN_GRID_WIDTH = 1100;
+
 function useWidgetHeaderMeta(widgetType: string): string | undefined {
   const { snapshot } = useSnapshot();
   const def = getWidgetDefinition(widgetType);
@@ -48,7 +50,7 @@ function WidgetRemoveButton({
         type="button"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
-        className="rounded p-0.5 font-mono text-[12px] text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+        className="workspace-no-drag rounded p-0.5 font-mono text-[12px] text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
         aria-label={`Remove ${title}`}
       >
         <X className="size-3.5" />
@@ -164,7 +166,7 @@ export function WorkspaceGrid() {
     if (!el) return;
 
     function measure() {
-      setWidth(el!.clientWidth);
+      setWidth(Math.max(el!.clientWidth, MIN_GRID_WIDTH));
     }
 
     measure();
@@ -220,6 +222,8 @@ export function WorkspaceGrid() {
               onDragStop={onLayoutChange}
               onResizeStop={onLayoutChange}
               draggableHandle=".workspace-drag-handle"
+              draggableCancel=".workspace-no-drag"
+              resizeHandles={["se", "sw"]}
               isDraggable={!locked}
               isResizable={!locked}
               useCSSTransforms={false}

@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Reorder, useDragControls } from "motion/react";
-import { Moon } from "lucide-react";
-
 import { Sparkline } from "@/components/trading/sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -232,17 +230,18 @@ function WatchlistSymbolRow({
         ⋮⋮
       </button>
       <span className="inline-flex min-w-0 items-center gap-1">
+        <span
+          className="flex size-1.5 shrink-0 items-center justify-center"
+          title={isOvernight ? "Tradable 24/5 overnight" : undefined}
+          aria-label={isOvernight ? "Tradable 24/5 overnight" : undefined}
+        >
+          {isOvernight ? (
+            <span className="size-1.5 rounded-full bg-[var(--c-green)]" />
+          ) : null}
+        </span>
         <span className="truncate font-medium text-[var(--c-accent)]">
           {symbol}
         </span>
-        {isOvernight ? (
-          <span
-            title="Tradable 24/5 overnight"
-            aria-label="Tradable 24/5 overnight"
-          >
-            <Moon className="size-3 shrink-0 text-[var(--c-blue)]" />
-          </span>
-        ) : null}
         <button
           type="button"
           disabled={removing}

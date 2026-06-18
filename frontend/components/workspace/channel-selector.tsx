@@ -22,7 +22,7 @@ export function ChannelSelector({ channel, onChange }: Props) {
       <DropdownMenuTrigger
         type="button"
         className={cn(
-          "size-2.5 shrink-0 rounded-sm border border-[var(--border)] outline-none transition-opacity",
+          "workspace-no-drag size-2.5 shrink-0 rounded-sm border border-[var(--border)] outline-none transition-opacity",
           channel === "none" && "opacity-50",
         )}
         style={

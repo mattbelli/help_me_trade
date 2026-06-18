@@ -24,7 +24,7 @@ export default function WorkspacePage() {
           style={{ paddingBottom: consoleHeight }}
         >
           <WorkspaceChatProviders>
-            <div className="flex min-h-0 flex-1">
+            <div className="relative flex min-h-0 flex-1">
               <WorkspaceGrid />
               <CopilotSidebar />
             </div>

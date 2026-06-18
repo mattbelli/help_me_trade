@@ -110,6 +110,7 @@
     --c-on-accent: #0b0d10;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
     --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 [data-theme="carbon"] {
@@ -166,6 +167,7 @@
     --c-on-accent: #0b0d10;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
     --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 [data-theme="ember"] {
@@ -222,6 +224,7 @@
     --c-on-accent: #1a1208;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.4);
     --c-glow: 0 0 0 1px rgba(232, 146, 83, 0.14);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 [data-theme="paper"] {
@@ -279,6 +282,7 @@
     --c-on-accent: #ffffff;
     --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(60, 50, 30, 0.08);
     --c-glow: 0 0 0 1px rgba(20, 160, 139, 0.12);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 [data-theme="light"] {
@@ -317,6 +321,7 @@
     --sidebar-accent-foreground: oklch(0.28 0.01 85);
     --sidebar-border: oklch(0.9 0.006 85);
     --sidebar-ring: oklch(0.55 0.06 175);
+    --grid-placeholder: color-mix(in srgb, var(--chart-accent) 18%, transparent);
 }
 
 [data-theme="dark"] {
@@ -355,6 +360,7 @@
     --sidebar-accent-foreground: oklch(0.86 0.006 265);
     --sidebar-border: oklch(1 0 0 / 7%);
     --sidebar-ring: oklch(0.55 0.05 175);
+    --grid-placeholder: color-mix(in srgb, var(--chart-accent) 18%, transparent);
 }
 
 .dark {
@@ -393,6 +399,7 @@
     --sidebar-accent-foreground: oklch(0.86 0.006 265);
     --sidebar-border: oklch(1 0 0 / 7%);
     --sidebar-ring: oklch(0.55 0.05 175);
+    --grid-placeholder: color-mix(in srgb, var(--chart-accent) 18%, transparent);
 }
 
 @layer base {
@@ -418,4 +425,46 @@
     );
     background-size: 22px 22px;
   }
+}
+
+/* Workspace grid: themed drag placeholder + resize handles */
+.react-grid-item.react-grid-placeholder {
+  background: var(--grid-placeholder) !important;
+  opacity: 1 !important;
+  border: 1px dashed var(--c-accent, var(--chart-accent));
+  border-radius: 0.5rem;
+}
+
+.react-grid-item > .react-resizable-handle {
+  background-image: none !important;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: var(--fg-faint);
+  border-bottom-color: var(--fg-faint);
+  transition: border-color 150ms ease;
+}
+
+.react-grid-item:hover > .react-resizable-handle::after {
+  border-right-color: var(--c-accent, var(--chart-accent));
+  border-bottom-color: var(--c-accent, var(--chart-accent));
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw::after {
+  right: auto;
+  left: 3px;
+  border-right: none;
+  border-left: 2px solid var(--fg-faint);
+  border-bottom: 2px solid var(--fg-faint);
+}
+
+.react-grid-item:hover > .react-resizable-handle.react-resizable-handle-sw::after {
+  border-left-color: var(--c-accent, var(--chart-accent));
+  border-bottom-color: var(--c-accent, var(--chart-accent));
 }
