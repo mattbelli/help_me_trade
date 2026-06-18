@@ -1,3 +1,4 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   convertToModelMessages,
@@ -130,7 +131,9 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!runtime.openai_compatible) {
+  const isNative =
+    runtime.openai_compatible || runtime.provider === "anthropic";
+  if (!isNative) {
     return proxyLegacyPythonChat({
       messages,
       sessionId,
@@ -158,11 +161,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const openai = createOpenAI({
-    apiKey: runtime.api_key || "not-needed",
-    baseURL: runtime.base_url,
-  });
-
   const tools = buildChatTools(
     enabledToolsWithPendingApprovals(
       messages,
@@ -173,8 +171,25 @@ export async function POST(req: Request) {
   const orderIntent = isOrderIntent(userText);
   const hasProposeOrder = "propose_order" in tools;
 
+  let languageModel;
+  if (runtime.provider === "anthropic") {
+    const anthropic = createAnthropic({
+      apiKey: runtime.api_key || "",
+      ...(runtime.base_url && runtime.base_url !== "https://api.anthropic.com"
+        ? { baseURL: runtime.base_url }
+        : {}),
+    });
+    languageModel = anthropic(resolvedModel);
+  } else {
+    const openai = createOpenAI({
+      apiKey: runtime.api_key || "not-needed",
+      baseURL: runtime.base_url,
+    });
+    languageModel = openai.chat(resolvedModel);
+  }
+
   const result = streamText({
-    model: openai.chat(resolvedModel),
+    model: languageModel,
     system,
     messages: await convertToModelMessages(messages),
     tools,
