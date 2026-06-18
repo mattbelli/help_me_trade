@@ -215,11 +215,11 @@ export function CommandConsole() {
   return (
     <motion.div
       ref={consoleRef}
-      className="absolute right-0 bottom-0 left-0 z-50 h-[46px] border-t border-[var(--border)] bg-[var(--bg-raised)]/85 backdrop-blur-md"
+      className="absolute right-0 bottom-0 left-0 z-50 h-[56px] border-t border-[var(--border)] bg-[var(--bg-raised)]/85 backdrop-blur-md"
       transition={{ type: "spring", stiffness: 420, damping: 36 }}
     >
       {hasOverlayContent ? (
-        <div className="absolute bottom-full left-4 mb-2 w-max max-w-[min(40rem,calc(100%-2rem))] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-raised)]/90 shadow-lg backdrop-blur-md">
+        <div className="absolute bottom-full left-4 mb-2 w-max max-w-[min(40rem,calc(100%-2rem))] overflow-hidden rounded-none border border-[var(--border)] bg-[var(--bg-raised)]/90 shadow-lg backdrop-blur-md">
           {open && scrollback.length > 0 ? (
             <div
               ref={scrollbackRef}
@@ -252,10 +252,10 @@ export function CommandConsole() {
       >
         <span className="shrink-0 font-mono text-[var(--c-command)]">›</span>
 
-        <div className="relative inline-grid min-w-[18rem] max-w-[40rem] items-center rounded-md border border-[var(--border)] bg-[var(--bg-inset)] px-2.5">
+        <div className="relative inline-grid min-w-[16rem] max-w-[32rem] items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-2">
           <span
             aria-hidden
-            className="invisible col-start-1 row-start-1 whitespace-pre font-mono text-[13px]"
+            className="invisible col-start-1 row-start-1 whitespace-pre font-mono text-[14px]"
           >
             {mirrorText}
             {focused ? "▋" : ""}
@@ -278,14 +278,14 @@ export function CommandConsole() {
             spellCheck={false}
             autoComplete="off"
             aria-label="Workspace command line"
-            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent font-mono text-[13px] text-foreground outline-none"
+            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent font-mono text-[14px] text-foreground outline-none"
             style={{ caretColor: "transparent" }}
           />
 
           {focused ? (
             <span
               aria-hidden
-              className="pointer-events-none col-start-1 row-start-1 flex items-center font-mono text-[13px] text-transparent"
+              className="pointer-events-none col-start-1 row-start-1 flex items-center font-mono text-[14px] text-transparent"
             >
               {inputValue}
               <span
