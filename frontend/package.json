@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.71",
     "@ai-sdk/openai": "^3.0.71",
     "@ai-sdk/react": "^3.0.208",
     "@assistant-ui/react": "^0.14.22",
