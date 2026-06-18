@@ -1,17 +1,9 @@
 "use client";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { formatMoney } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export function PositionsWidget() {
   const { snapshot, loading } = useSnapshot();
@@ -23,7 +15,7 @@ export function PositionsWidget() {
 
   if (!snapshot) {
     return (
-      <p className="p-3 text-sm text-muted-foreground">
+      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
         Waiting for positions…
       </p>
     );
@@ -31,64 +23,69 @@ export function PositionsWidget() {
 
   if (positions.length === 0) {
     return (
-      <p className="p-3 text-sm text-muted-foreground">No open positions</p>
+      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+        No open positions
+      </p>
     );
   }
 
   return (
-    <div className="h-full overflow-auto p-1">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="font-mono text-[9px] tracking-wider uppercase">
-              Symbol
-            </TableHead>
-            <TableHead className="text-right font-mono text-[9px] tracking-wider uppercase">
-              Qty
-            </TableHead>
-            <TableHead className="font-mono text-[9px] tracking-wider uppercase">
-              Side
-            </TableHead>
-            <TableHead className="text-right font-mono text-[9px] tracking-wider uppercase">
-              Price
-            </TableHead>
-            <TableHead className="text-right font-mono text-[9px] tracking-wider uppercase">
-              Value
-            </TableHead>
-            <TableHead className="text-right font-mono text-[9px] tracking-wider uppercase">
-              Unrealized
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {positions.map((p) => (
-            <TableRow key={p.symbol}>
-              <TableCell className="font-mono text-xs font-medium">
-                {p.symbol}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs tabular-nums">
-                {p.qty}
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline" className="font-mono text-[10px]">
-                  {p.side}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs tabular-nums">
-                {formatMoney(p.current_price)}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs tabular-nums">
-                {formatMoney(p.market_value)}
-              </TableCell>
-              <TableCell
-                className={`text-right font-mono text-xs tabular-nums ${p.unrealized_pl >= 0 ? "text-pnl-positive" : "text-pnl-negative"}`}
+    <div className="h-full overflow-auto px-1.5 py-1">
+      <table className="w-full border-collapse font-mono text-[12px]">
+        <thead>
+          <tr>
+            {(
+              ["Symbol", "Qty", "Side", "Price", "Value", "Unrealized"] as const
+            ).map((h, idx) => (
+              <th
+                key={h}
+                className={cn(
+                  "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                  idx === 0 ? "text-left" : "text-right",
+                  h === "Side" && "text-left",
+                )}
               >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {positions.map((p) => (
+            <tr
+              key={p.symbol}
+              className="transition-colors hover:bg-[var(--bg-hover)]"
+            >
+              <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
+                {p.symbol}
+              </td>
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+                {p.qty}
+              </td>
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] tracking-wide text-[var(--fg-faint)] uppercase">
+                {p.side}
+              </td>
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+                {formatMoney(p.current_price)}
+              </td>
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground">
+                {formatMoney(p.market_value)}
+              </td>
+              <td
+                className={cn(
+                  "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+                  p.unrealized_pl >= 0
+                    ? "text-[var(--c-green)]"
+                    : "text-[var(--c-red)]",
+                )}
+              >
+                {p.unrealized_pl >= 0 ? "+" : ""}
                 {formatMoney(p.unrealized_pl)}
-              </TableCell>
-            </TableRow>
+              </td>
+            </tr>
           ))}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
     </div>
   );
 }

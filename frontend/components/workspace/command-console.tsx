@@ -88,7 +88,7 @@ export function CommandConsole() {
 
   return (
     <motion.div
-      className="absolute inset-x-0 bottom-0 z-50 flex flex-col border-t border-border bg-card shadow-[0_-10px_40px_color-mix(in_oklch,var(--foreground)_8%,transparent)]"
+      className="absolute inset-x-0 bottom-0 z-50 flex flex-col border-t border-[var(--border)] bg-[var(--bg-raised)] shadow-[0_-10px_40px_rgba(0,0,0,0.3)]"
       animate={{ height: panelHeight }}
       initial={false}
       transition={{ type: "spring", stiffness: 420, damping: 36 }}
@@ -101,7 +101,7 @@ export function CommandConsole() {
           className="absolute -top-1.5 right-0 left-0 z-10 h-2 cursor-row-resize"
           onPointerDown={onResizePointerDown}
         >
-          <div className="absolute top-1 left-1/2 h-0.5 w-11 -translate-x-1/2 rounded-full bg-border" />
+          <div className="absolute top-1 left-1/2 h-[3px] w-11 -translate-x-1/2 rounded-full bg-[var(--border-strong)]" />
         </div>
       ) : null}
 
@@ -115,8 +115,11 @@ export function CommandConsole() {
             </div>
           ) : (
             <div className="flex h-full items-center justify-center p-4">
-              <p className="font-mono text-xs text-muted-foreground">
-                Press <kbd className="rounded border border-border px-1">/</kbd>{" "}
+              <p className="font-mono text-xs text-[var(--fg-dim)]">
+                Press{" "}
+                <kbd className="rounded border border-[var(--border)] px-1">
+                  /
+                </kbd>{" "}
                 for commands
               </p>
             </div>
@@ -127,25 +130,25 @@ export function CommandConsole() {
       <div
         className={cn(
           "flex h-[46px] shrink-0 items-center gap-2.5 px-3.5",
-          open && "border-t border-border",
+          open && "border-t border-[var(--border)]",
         )}
       >
         <button
           type="button"
           onClick={toggleMode}
           className={cn(
-            "cursor-pointer rounded-md border border-border bg-muted/50 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide uppercase select-none",
-            mode === "ask" ? "text-accent" : "text-chart-1",
+            "cursor-pointer rounded-md border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1 font-mono text-[10.5px] font-semibold tracking-wide uppercase select-none",
+            mode === "ask" ? "text-[var(--c-accent)]" : "text-[var(--c-amber)]",
           )}
         >
           {mode === "ask" ? "ASK" : "CMD"}
         </button>
 
-        <span className="font-mono text-muted-foreground">›</span>
+        <span className="font-mono text-[var(--fg-faint)]">›</span>
 
         <button
           type="button"
-          className="flex-1 truncate text-left font-mono text-xs text-muted-foreground"
+          className="flex-1 truncate text-left font-mono text-[13px] text-[var(--fg-faint)]"
           onClick={() => setOpen(true)}
         >
           {mode === "ask"
@@ -153,7 +156,12 @@ export function CommandConsole() {
             : "Type / for command palette"}
         </button>
 
-        <span className="hidden font-mono text-[10px] text-muted-foreground sm:inline">
+        <span className="hidden items-center gap-1.5 font-mono text-[10.5px] text-[var(--fg-faint)] sm:flex">
+          <span className="size-1.5 rounded-full bg-[var(--c-accent)]" />
+          idle
+        </span>
+
+        <span className="hidden font-mono text-[10.5px] text-[var(--fg-faint)] sm:inline">
           ⌘K
         </span>
 
@@ -161,7 +169,7 @@ export function CommandConsole() {
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="text-muted-foreground"
+          className="text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground"
           onClick={toggle}
           aria-label={open ? "Collapse console" : "Expand console"}
         >

@@ -1,4 +1,4 @@
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google"
+import { Inter, JetBrains_Mono } from "next/font/google"
 import { Suspense } from "react"
 
 import "./globals.css"
@@ -7,15 +7,15 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-const plexSans = IBM_Plex_Sans({
+const plexSans = Inter({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-sans",
 })
 
-const plexMono = IBM_Plex_Mono({
+const plexMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-mono",
 })
 

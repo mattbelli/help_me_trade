@@ -1,8 +1,6 @@
 "use client";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useDayPnl } from "@/lib/workspace/use-day-pnl";
@@ -45,64 +43,66 @@ export function WorkspaceToolbar() {
     Boolean(snapshot);
 
   return (
-    <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-card px-3 font-mono text-[11px]">
+    <header className="flex h-11 shrink-0 items-center gap-4 border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[11.5px]">
       <div className="flex items-center gap-2">
-        <span className="grid size-5 place-items-center rounded-md bg-accent text-[10px] font-bold text-accent-foreground">
+        <span
+          className="grid size-5 place-items-center rounded-md text-[11px] font-extrabold text-[var(--c-on-accent)]"
+          style={{
+            backgroundImage:
+              "linear-gradient(135deg, var(--c-accent), var(--c-violet))",
+          }}
+        >
           ▰
         </span>
-        <span className="font-sans text-sm font-semibold tracking-tight">
+        <span className="font-sans text-[13px] font-bold tracking-tight">
           help_me_trade
         </span>
       </div>
 
-      <Badge
-        variant="outline"
-        className="gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[10px] font-normal uppercase"
-      >
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] text-[var(--fg-dim)] capitalize">
         <span
           className={cn(
             "size-1.5 rounded-full",
-            connected ? "bg-pnl-positive" : "bg-muted-foreground",
+            connected
+              ? "bg-[var(--c-green)] shadow-[0_0_8px_var(--c-green)]"
+              : "bg-[var(--fg-faint)]",
           )}
         />
         {broker}
-      </Badge>
+      </span>
 
       {isPaper ? (
-        <Badge
-          variant="outline"
-          className="rounded-full border-accent/35 px-2.5 py-0.5 font-mono text-[10px] font-normal text-accent"
-        >
+        <span className="inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] text-[var(--c-blue)]">
           paper
-        </Badge>
+        </span>
       ) : null}
 
-      <div className="ml-auto flex items-center gap-5 text-muted-foreground">
-        {loading && !snapshot ? (
-          <Skeleton className="h-4 w-48" />
-        ) : snapshot ? (
+      <div className="ml-auto hidden items-center gap-5 text-[var(--fg-dim)] md:flex">
+        {loading && !snapshot ? null : snapshot ? (
           <>
             <span>
-              <span className="text-muted-foreground/70">PORT </span>
+              <span className="text-[var(--fg-faint)]">PORT </span>
               <b className="font-semibold text-foreground">
                 {formatMoney(snapshot.account.portfolio_value)}
               </b>
             </span>
             <span>
-              <span className="text-muted-foreground/70">BP </span>
+              <span className="text-[var(--fg-faint)]">BP </span>
               <b className="font-semibold text-foreground">
                 {formatCompactMoney(snapshot.account.buying_power)}
               </b>
             </span>
             <span>
-              <span className="text-muted-foreground/70">DAY </span>
+              <span className="text-[var(--fg-faint)]">DAY </span>
               {dayLoading && dayPnl == null ? (
                 <b className="font-semibold text-foreground">—</b>
               ) : dayPnl != null ? (
                 <b
                   className={cn(
                     "font-semibold",
-                    dayPnl >= 0 ? "text-pnl-positive" : "text-pnl-negative",
+                    dayPnl >= 0
+                      ? "text-[var(--c-green)]"
+                      : "text-[var(--c-red)]",
                   )}
                 >
                   {formatSignedPnl(dayPnl)}
@@ -115,9 +115,9 @@ export function WorkspaceToolbar() {
         ) : null}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1.5 md:ml-0">
         <ThemeSwitcher />
-        <span className="min-w-[4.75rem] text-right text-muted-foreground">
+        <span className="min-w-[4.75rem] text-right text-[var(--fg-dim)]">
           {clock}
         </span>
       </div>

@@ -45,7 +45,7 @@ export function ThemeSwitcher({ className }: { className?: string }) {
             variant="ghost"
             size="sm"
             className={cn(
-              "font-mono text-xs text-muted-foreground hover:text-foreground",
+              "h-7 gap-1.5 px-2.5 font-mono text-[11px] text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground",
               className,
             )}
           />

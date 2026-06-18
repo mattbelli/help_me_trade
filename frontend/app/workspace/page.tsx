@@ -15,7 +15,7 @@ export default function WorkspacePage() {
 
   return (
     <WorkspaceToastProvider>
-      <div className="-mx-5 -my-8 flex h-[calc(100svh-0px)] min-h-[640px] flex-col overflow-hidden bg-background lg:-mx-8 lg:-my-10">
+      <div className="flex h-svh min-h-[640px] flex-col overflow-hidden bg-background">
         <WorkspaceToolbar />
 
         <div

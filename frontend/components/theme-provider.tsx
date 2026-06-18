@@ -11,8 +11,8 @@ function ThemeProvider({
     <NextThemesProvider
       attribute="data-theme"
       defaultTheme="carbon"
-      themes={["carbon", "ember", "paper", "light", "dark", "system"]}
-      enableSystem
+      themes={["carbon", "ember", "paper", "light", "dark"]}
+      storageKey="hmt-theme-carbon"
       disableTransitionOnChange
       {...props}
     >
