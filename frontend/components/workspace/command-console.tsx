@@ -153,9 +153,8 @@ export function CommandConsole() {
   );
 
   const focusInput = useCallback(() => {
-    setOpen(true);
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [setOpen]);
+  }, []);
 
   const submitLine = useCallback(
     async (raw: string) => {
@@ -319,10 +318,13 @@ export function CommandConsole() {
             ref={inputRef}
             type="text"
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setInputValue(next);
+              if (next.length > 0 && !open) setOpen(true);
+            }}
             onFocus={() => {
               setFocused(true);
-              setOpen(true);
             }}
             onBlur={() => setFocused(false)}
             onKeyDown={onInputKeyDown}

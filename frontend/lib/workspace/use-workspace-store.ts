@@ -20,9 +20,29 @@ type EnsureChatResult = {
   added: boolean;
 };
 
+const LOCKED_STORAGE_KEY = "hmt-workspace-locked";
+
+function loadLocked(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(LOCKED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveLocked(locked: boolean): void {
+  try {
+    localStorage.setItem(LOCKED_STORAGE_KEY, locked ? "true" : "false");
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 type WorkspaceState = {
   layout: WorkspaceLayoutItem[];
   hydrated: boolean;
+  locked: boolean;
   pickerOpen: boolean;
   highlightInstanceId: string | null;
   hydrate: () => void;
@@ -34,6 +54,7 @@ type WorkspaceState = {
     patch: Partial<WidgetInstanceConfig>,
   ) => void;
   removeWidget: (id: string) => void;
+  toggleLock: () => void;
   setPickerOpen: (open: boolean) => void;
   openPicker: () => void;
   setHighlight: (instanceId: string | null) => void;
@@ -103,6 +124,7 @@ let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   layout: DEFAULT_WORKSPACE_LAYOUT,
   hydrated: false,
+  locked: false,
   pickerOpen: false,
   highlightInstanceId: null,
   hydrate: () => {
@@ -110,6 +132,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({
       layout: loaded ?? DEFAULT_WORKSPACE_LAYOUT,
       hydrated: true,
+      locked: loadLocked(),
     });
   },
   updateLayout: (layout) => {
@@ -208,6 +231,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (next.length === layout.length) return;
     set({ layout: next });
     localStorageLayoutPersistence.save(next);
+  },
+  toggleLock: () => {
+    const locked = !get().locked;
+    set({ locked });
+    saveLocked(locked);
   },
   setPickerOpen: (pickerOpen) => set({ pickerOpen }),
   openPicker: () => set({ pickerOpen: true }),
