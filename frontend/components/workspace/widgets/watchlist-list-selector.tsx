@@ -59,7 +59,7 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
         {state.lists.map((list) => (
           <DropdownMenuItem
             key={list.id}
-            onSelect={() => onSelect(list.id)}
+            onClick={() => onSelect(list.id)}
             className="px-2 py-1.5"
           >
             {list.name}

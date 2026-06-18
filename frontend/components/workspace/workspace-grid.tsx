@@ -11,6 +11,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ChannelId } from "@/lib/workspace/channels";
+import {
+  clampLayoutWidth,
+  deriveGridCols,
+  GRID_DEFAULT_COLS,
+  GRID_MARGIN_PX,
+} from "@/lib/workspace/grid-metrics";
 import type { WidgetInstanceConfig } from "@/lib/workspace/layout-persistence";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
@@ -18,8 +24,6 @@ import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 import { ChannelSelector } from "./channel-selector";
 import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
-
-const MIN_GRID_WIDTH = 1100;
 
 function useWidgetHeaderMeta(widgetType: string): string | undefined {
   const { snapshot } = useSnapshot();
@@ -152,8 +156,10 @@ export function WorkspaceGrid() {
     removeWidget,
     pickerOpen,
     setPickerOpen,
+    setGridCols,
   } = useWorkspaceStore();
   const [width, setWidth] = useState(1200);
+  const [cols, setCols] = useState(GRID_DEFAULT_COLS);
 
   useEffect(() => {
     hydrate();
@@ -166,7 +172,11 @@ export function WorkspaceGrid() {
     if (!el) return;
 
     function measure() {
-      setWidth(Math.max(el!.clientWidth, MIN_GRID_WIDTH));
+      const clientWidth = el!.clientWidth;
+      setWidth(clientWidth);
+      const nextCols = deriveGridCols(clientWidth);
+      setCols(nextCols);
+      setGridCols(nextCols);
     }
 
     measure();
@@ -174,20 +184,23 @@ export function WorkspaceGrid() {
     const observer = new ResizeObserver(() => measure());
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hydrated]);
+  }, [hydrated, setGridCols]);
 
   const gridLayout: Layout = useMemo(
     () =>
-      layout.map(({ i, x, y, w, h, minW, minH }) => ({
-        i,
-        x,
-        y,
-        w,
-        h,
-        minW: minW ?? 4,
-        minH: minH ?? 2,
-      })),
-    [layout],
+      layout.map(({ i, x, y, w, h, minW, minH }) => {
+        const clamped = clampLayoutWidth(x, w, cols);
+        return {
+          i,
+          x: clamped.x,
+          y,
+          w: clamped.w,
+          h,
+          minW: Math.min(minW ?? 4, cols),
+          minH: minH ?? 2,
+        };
+      }),
+    [layout, cols],
   );
 
   const onLayoutChange = useCallback(
@@ -208,17 +221,19 @@ export function WorkspaceGrid() {
         <WorkspaceWidgetPicker onClose={() => setPickerOpen(false)} />
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 pt-3 pb-6">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-6">
         {hydrated ? (
           <div id="workspace-grid-root">
             <ReactGridLayout
               className="layout"
               layout={gridLayout}
-              cols={24}
+              cols={cols}
               rowHeight={48}
               width={width}
-              margin={[12, 12]}
+              margin={[GRID_MARGIN_PX, GRID_MARGIN_PX]}
               containerPadding={[0, 0]}
+              compactType={null}
+              preventCollision
               onDragStop={onLayoutChange}
               onResizeStop={onLayoutChange}
               draggableHandle=".workspace-drag-handle"

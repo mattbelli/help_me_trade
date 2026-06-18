@@ -438,11 +438,26 @@
 .react-grid-item > .react-resizable-handle {
   background-image: none !important;
   opacity: 0;
+  z-index: 20;
+  pointer-events: auto;
   transition: opacity 150ms ease;
 }
 
 .react-grid-item:hover > .react-resizable-handle {
   opacity: 1;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+  transform: none;
 }
 
 .react-grid-item > .react-resizable-handle::after {
@@ -459,6 +474,7 @@
 .react-grid-item > .react-resizable-handle.react-resizable-handle-sw::after {
   right: auto;
   left: 3px;
+  bottom: 3px;
   border-right: none;
   border-left: 2px solid var(--fg-faint);
   border-bottom: 2px solid var(--fg-faint);
@@ -467,4 +483,5 @@
 .react-grid-item:hover > .react-resizable-handle.react-resizable-handle-sw::after {
   border-left-color: var(--c-accent, var(--chart-accent));
   border-bottom-color: var(--c-accent, var(--chart-accent));
+  border-right-color: transparent;
 }

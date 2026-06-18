@@ -39,7 +39,7 @@ export function ChannelSelector({ channel, onChange }: Props) {
         {CHANNELS.map((ch) => (
           <DropdownMenuItem
             key={ch.id}
-            onSelect={() => onChange(ch.id)}
+            onClick={() => onChange(ch.id)}
             className="flex items-center gap-2 px-2 py-1.5"
           >
             <span

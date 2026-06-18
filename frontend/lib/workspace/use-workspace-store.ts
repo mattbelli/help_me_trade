@@ -10,6 +10,7 @@ import {
   type WidgetInstanceConfig,
   type WorkspaceLayoutItem,
 } from "./layout-persistence";
+import { GRID_DEFAULT_COLS } from "./grid-metrics";
 import {
   getWidgetDefinition,
   type WidgetDefaultSize,
@@ -22,7 +23,9 @@ type WorkspaceState = {
   hydrated: boolean;
   locked: boolean;
   pickerOpen: boolean;
+  gridCols: number;
   hydrate: () => void;
+  setGridCols: (cols: number) => void;
   updateLayout: (layout: WorkspaceLayoutItem[]) => void;
   addWidget: (type: string) => boolean;
   updateWidgetConfig: (
@@ -52,8 +55,6 @@ function saveLocked(locked: boolean): void {
   }
 }
 
-const GRID_COLS = 24;
-
 function rectsOverlap(
   a: { x: number; y: number; w: number; h: number },
   b: { x: number; y: number; w: number; h: number },
@@ -69,12 +70,14 @@ function rectsOverlap(
 function findPlacement(
   layout: WorkspaceLayoutItem[],
   size: WidgetDefaultSize,
+  cols: number,
 ): { x: number; y: number } {
+  const w = Math.min(size.w, cols);
   const maxY = layout.reduce((max, item) => Math.max(max, item.y + item.h), 0);
 
   for (let y = 0; y <= maxY; y += 1) {
-    for (let x = 0; x <= GRID_COLS - size.w; x += 1) {
-      const candidate = { x, y, w: size.w, h: size.h };
+    for (let x = 0; x <= cols - w; x += 1) {
+      const candidate = { x, y, w, h: size.h };
       const blocked = layout.some((item) => rectsOverlap(candidate, item));
       if (!blocked) return { x, y };
     }
@@ -116,10 +119,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   hydrated: false,
   locked: false,
   pickerOpen: false,
+  gridCols: GRID_DEFAULT_COLS,
+  setGridCols: (gridCols) => {
+    if (get().gridCols !== gridCols) set({ gridCols });
+  },
   hydrate: () => {
     const loaded = localStorageLayoutPersistence.load();
+    let layout = loaded ?? DEFAULT_WORKSPACE_LAYOUT;
+    if (loaded) {
+      const known = loaded.filter((item) => getWidgetDefinition(item.type));
+      if (known.length !== loaded.length) {
+        layout = known;
+        localStorageLayoutPersistence.save(known);
+      }
+    }
     set({
-      layout: loaded ?? DEFAULT_WORKSPACE_LAYOUT,
+      layout,
       hydrated: true,
       locked: loadLocked(),
     });
@@ -132,22 +147,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const def = getWidgetDefinition(type);
     if (!def) return false;
 
-    const { layout } = get();
+    const { layout, gridCols } = get();
 
     if (!def.multiInstance) {
       if (layout.some((item) => item.type === type)) return false;
     }
 
     const instanceId = def.multiInstance ? nextInstanceId(type, layout) : type;
-    const { x, y } = findPlacement(layout, def.defaultSize);
+    const { x, y } = findPlacement(layout, def.defaultSize, gridCols);
     const config = defaultConfigForType(type);
+    const w = Math.min(def.defaultSize.w, gridCols);
 
     const next: WorkspaceLayoutItem = {
       i: instanceId,
       type,
       x,
       y,
-      w: def.defaultSize.w,
+      w,
       h: def.defaultSize.h,
       minW: def.defaultSize.minW,
       minH: def.defaultSize.minH,
