@@ -435,6 +435,7 @@ class AlpacaAdapter:
         return self._parse_stock_bars(data.get("bars") or [])
 
     _assets_cache: tuple[float, list[str]] | None = None
+    _overnight_cache: tuple[float, set[str]] | None = None
     _ASSETS_TTL_SEC = 86_400
 
     def _tradable_symbols(self) -> list[str]:
@@ -462,15 +463,53 @@ class AlpacaAdapter:
     def _cache_tradable_symbols(self, now: float, raw: object) -> list[str]:
         if not isinstance(raw, list):
             return []
-        symbols = sorted(
-            str(item["symbol"])
-            for item in raw
-            if isinstance(item, dict)
-            and item.get("tradable")
-            and str(item.get("symbol", "")).isalpha()
-        )
+        symbols: list[str] = []
+        overnight: set[str] = set()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            sym = str(item.get("symbol", ""))
+            if not sym.isalpha():
+                continue
+            if item.get("tradable"):
+                symbols.append(sym)
+            attrs = item.get("attributes") or []
+            if (
+                isinstance(attrs, list)
+                and "overnight_tradable" in attrs
+                and "overnight_halted" not in attrs
+            ):
+                overnight.add(sym)
+        symbols.sort()
         AlpacaAdapter._assets_cache = (now, symbols)
+        AlpacaAdapter._overnight_cache = (now, overnight)
         return symbols
+
+    def overnight_tradable_symbols(self) -> set[str]:
+        now = time.time()
+        if (
+            AlpacaAdapter._overnight_cache is not None
+            and now - AlpacaAdapter._overnight_cache[0] < self._ASSETS_TTL_SEC
+        ):
+            return AlpacaAdapter._overnight_cache[1]
+
+        self._tradable_symbols()
+        if AlpacaAdapter._overnight_cache is not None:
+            return AlpacaAdapter._overnight_cache[1]
+        return set()
+
+    async def aovernight_tradable_symbols(self) -> set[str]:
+        now = time.time()
+        if (
+            AlpacaAdapter._overnight_cache is not None
+            and now - AlpacaAdapter._overnight_cache[0] < self._ASSETS_TTL_SEC
+        ):
+            return AlpacaAdapter._overnight_cache[1]
+
+        await self._atradable_symbols()
+        if AlpacaAdapter._overnight_cache is not None:
+            return AlpacaAdapter._overnight_cache[1]
+        return set()
 
     def search_symbols(self, query: str, *, limit: int = 10) -> list[str]:
         return self._filter_symbols(self._tradable_symbols(), query, limit=limit)
