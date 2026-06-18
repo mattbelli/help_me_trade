@@ -81,15 +81,16 @@ async def _poll_broker(broker_name: str) -> bool:
     try:
         broker = get_broker(broker_name)
         account, positions, orders = await broker.afetch_snapshot()
-        captured_at = save_snapshot(
+        captured_at = await asyncio.to_thread(
+            save_snapshot,
             account=account,
             positions=positions,
             orders=orders,
             broker=broker_name,
         )
         logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
-        compute_and_save_snapshot_analytics(broker_name)
-        snapshot = get_latest_snapshot(broker_name)
+        await asyncio.to_thread(compute_and_save_snapshot_analytics, broker_name)
+        snapshot = await asyncio.to_thread(get_latest_snapshot, broker_name)
         if snapshot:
             symbols = {
                 str(p.get("symbol", "")).upper()

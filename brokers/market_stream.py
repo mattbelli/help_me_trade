@@ -383,7 +383,8 @@ class MarketStreamHub:
         try:
             from api.alert_checker import check_alerts
 
-            triggered = check_alerts(
+            triggered = await asyncio.to_thread(
+                check_alerts,
                 {symbol: current},
                 prev_quotes={symbol: prev},
             )
