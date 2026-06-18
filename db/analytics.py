@@ -115,6 +115,132 @@ def compute_round_trips(
     return closed
 
 
+def compute_open_lots(
+    trade_events: list[dict[str, Any]],
+    *,
+    stocks_only: bool = False,
+) -> dict[str, dict[str, str]]:
+    """FIFO open lots aggregated per symbol (full trade history, not period-scoped)."""
+    by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for event in trade_events:
+        symbol = event.get("symbol")
+        if not symbol:
+            continue
+        if stocks_only and " " in symbol:
+            continue
+        by_symbol[symbol].append(event)
+
+    open_lots: dict[str, dict[str, str]] = {}
+    for symbol, rows in by_symbol.items():
+        sorted_rows = sorted(rows, key=lambda r: (r["trade_date"], r["id"]))
+        lots: list[tuple[Decimal, Decimal, str]] = []
+
+        for row in sorted_rows:
+            side = (row.get("side") or "").lower()
+            qty = parse_dollar(row.get("quantity"))
+            if qty <= 0:
+                continue
+            fees = parse_dollar(row.get("fees"))
+            amount = parse_dollar(row.get("amount"))
+            trade_date = row["trade_date"]
+
+            if side == "buy":
+                cost_per = (-amount - fees) / qty if qty else Decimal("0")
+                lots.append((qty, cost_per, trade_date))
+                continue
+            if side != "sell":
+                continue
+
+            remaining = qty
+            while remaining > 0 and lots:
+                lot_qty, lot_cost, lot_date = lots[0]
+                take = min(remaining, lot_qty)
+                remaining -= take
+                if take == lot_qty:
+                    lots.pop(0)
+                else:
+                    lots[0] = (lot_qty - take, lot_cost, lot_date)
+
+        if not lots:
+            continue
+
+        total_qty = sum(lot_qty for lot_qty, _, _ in lots)
+        cost_basis = sum(lot_qty * lot_cost for lot_qty, lot_cost, _ in lots)
+        avg_cost = cost_basis / total_qty if total_qty else Decimal("0")
+        open_lots[symbol] = {
+            "quantity": decimal_to_str(total_qty),
+            "avg_cost": decimal_to_str(avg_cost),
+            "cost_basis": decimal_to_str(cost_basis),
+        }
+
+    return open_lots
+
+
+def compute_unrealized(
+    open_lots: dict[str, dict[str, str]],
+    snapshot_positions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Mark open ledger lots to latest snapshot prices (broker values authoritative)."""
+    snapshot_by_symbol: dict[str, dict[str, Any]] = {}
+    for pos in snapshot_positions:
+        symbol = pos.get("symbol")
+        if symbol:
+            snapshot_by_symbol[symbol] = pos
+
+    by_symbol: dict[str, dict[str, Any]] = {}
+    missing_price_symbols: list[str] = []
+    totals_cost = Decimal("0")
+    totals_mv = Decimal("0")
+    totals_ledger = Decimal("0")
+    totals_broker = Decimal("0")
+
+    for symbol, lot in open_lots.items():
+        snap = snapshot_by_symbol.get(symbol)
+        if snap is None:
+            missing_price_symbols.append(symbol)
+            continue
+
+        cost_basis = parse_dollar(lot["cost_basis"])
+        market_value = Decimal(str(snap.get("market_value", 0)))
+        broker_pl = Decimal(str(snap.get("unrealized_pl", 0)))
+        ledger_pl = market_value - cost_basis
+
+        by_symbol[symbol] = {
+            "quantity": lot["quantity"],
+            "cost_basis": lot["cost_basis"],
+            "market_value": decimal_to_str(market_value),
+            "ledger_unrealized_pl": decimal_to_str(ledger_pl),
+            "broker_unrealized_pl": decimal_to_str(broker_pl),
+        }
+        totals_cost += cost_basis
+        totals_mv += market_value
+        totals_ledger += ledger_pl
+        totals_broker += broker_pl
+
+    for symbol, snap in snapshot_by_symbol.items():
+        if symbol in open_lots:
+            continue
+        broker_pl = Decimal(str(snap.get("unrealized_pl", 0)))
+        by_symbol[symbol] = {
+            "cost_basis": None,
+            "ledger_unrealized_pl": None,
+            "broker_unrealized_pl": decimal_to_str(broker_pl),
+        }
+
+    missing_price_symbols.sort()
+
+    return {
+        "by_symbol": by_symbol,
+        "totals": {
+            "cost_basis": decimal_to_str(totals_cost),
+            "market_value": decimal_to_str(totals_mv),
+            "ledger_unrealized_pl": decimal_to_str(totals_ledger),
+            "broker_unrealized_pl": decimal_to_str(totals_broker),
+        },
+        "missing_price_symbols": missing_price_symbols,
+    }
+
+
 def asset_class_breakdown(events: list[dict[str, Any]]) -> dict[str, Any]:
     stock_trades = 0
     option_trades = 0
@@ -481,8 +607,10 @@ def ai_performance_context(
     period: str = "year",
 ) -> dict[str, Any]:
     """Compact structured context for agent tools and reflection."""
-    dash = performance_dashboard(account_id=account_id, period=period)
+    from db.sqlite import get_latest_snapshot
     from db.trades import symbol_trade_stats
+
+    dash = performance_dashboard(account_id=account_id, period=period)
 
     symbols = symbol_trade_stats(
         account_id=account_id,
@@ -494,6 +622,15 @@ def ai_performance_context(
         account_id=account_id,
         from_date=dash["from_date"],
         to_date=dash["to_date"],
+    )
+
+    history_events = list_trade_events(account_id=account_id, limit=100_000)
+    history_trades = [e for e in history_events if e["event_type"] == "trade"]
+    open_lots = compute_open_lots(history_trades)
+    snap = get_latest_snapshot()
+    unrealized = compute_unrealized(
+        open_lots,
+        snap["positions"] if snap else [],
     )
 
     return {
@@ -514,4 +651,5 @@ def ai_performance_context(
             round_trips_in_period,
             dash["daily_cash_flow"],
         ),
+        "unrealized": unrealized,
     }
