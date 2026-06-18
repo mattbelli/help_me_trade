@@ -1,0 +1,162 @@
+"use client";
+
+import { useAui } from "@assistant-ui/react";
+import { useTheme } from "next-themes";
+import { useCallback } from "react";
+
+import {
+  fetchWatchlists,
+  updateWatchlist,
+} from "@/lib/api";
+import { useConsoleStore } from "@/lib/workspace/use-console-store";
+import {
+  WORKSPACE_THEME_LABELS,
+  WORKSPACE_THEMES,
+  type WorkspaceTheme,
+} from "@/lib/workspace/themes";
+import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+
+import { useWorkspaceToast } from "@/components/workspace/workspace-toast";
+
+const WATCHLIST_ADD_RE = /^\/watchlist\s+add\s+([A-Za-z.\-]+)$/i;
+const WATCHLIST_REMOVE_RE = /^\/watchlist\s+remove\s+([A-Za-z.\-]+)$/i;
+const THEME_NAMED_RE = /^\/theme(?:\s+(\w+))?$/i;
+
+export type CommandResult = {
+  handled: boolean;
+  output?: string;
+  error?: string;
+};
+
+export const WORKSPACE_COMMANDS = [
+  "/positions",
+  "/add",
+  "/theme",
+  "/clear",
+  "/watchlist add",
+  "/watchlist remove",
+] as const;
+
+export function useWorkspaceCommands() {
+  const { showToast } = useWorkspaceToast();
+  const { theme, setTheme } = useTheme();
+  const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
+  const clearScrollback = useConsoleStore((s) => s.clearScrollback);
+  const aui = useAui();
+
+  const runCommand = useCallback(
+    async (rawInput: string): Promise<CommandResult> => {
+      const value = rawInput.trim();
+      if (!value.startsWith("/")) {
+        return { handled: false };
+      }
+
+      const addMatch = WATCHLIST_ADD_RE.exec(value);
+      if (addMatch) {
+        const symbol = addMatch[1].trim().toUpperCase();
+        if (!symbol) {
+          return { handled: true, error: "symbol required" };
+        }
+
+        try {
+          const state = await fetchWatchlists();
+          const active = state.lists.find((list) => list.id === state.active_id);
+          if (!active) {
+            return { handled: true, error: "no active watchlist" };
+          }
+          if (active.symbols.includes(symbol)) {
+            return { handled: true, output: `${symbol} already in watchlist` };
+          }
+          await updateWatchlist(active.id, {
+            symbols: [...active.symbols, symbol],
+          });
+          showToast(`Added ${symbol} to watchlist`);
+          return { handled: true, output: `added ${symbol} to watchlist` };
+        } catch (err) {
+          const msg =
+            err instanceof Error ? err.message : "failed to add symbol";
+          return { handled: true, error: msg };
+        }
+      }
+
+      const removeMatch = WATCHLIST_REMOVE_RE.exec(value);
+      if (removeMatch) {
+        const symbol = removeMatch[1].trim().toUpperCase();
+        if (!symbol) {
+          return { handled: true, error: "symbol required" };
+        }
+
+        try {
+          const state = await fetchWatchlists();
+          const active = state.lists.find((list) => list.id === state.active_id);
+          if (!active) {
+            return { handled: true, error: "no active watchlist" };
+          }
+          if (!active.symbols.includes(symbol)) {
+            return { handled: true, output: `${symbol} not in watchlist` };
+          }
+          await updateWatchlist(active.id, {
+            symbols: active.symbols.filter((s) => s !== symbol),
+          });
+          showToast(`Removed ${symbol} from watchlist`);
+          return { handled: true, output: `removed ${symbol} from watchlist` };
+        } catch (err) {
+          const msg =
+            err instanceof Error ? err.message : "failed to remove symbol";
+          return { handled: true, error: msg };
+        }
+      }
+
+      const themeMatch = THEME_NAMED_RE.exec(value);
+      if (themeMatch) {
+        const named = themeMatch[1]?.toLowerCase();
+        if (named) {
+          if (!WORKSPACE_THEMES.includes(named as WorkspaceTheme)) {
+            return {
+              handled: true,
+              error: `unknown theme: ${named} (carbon, ember, paper)`,
+            };
+          }
+          setTheme(named);
+          const label = WORKSPACE_THEME_LABELS[named as WorkspaceTheme];
+          showToast(`Theme: ${label}`);
+          return { handled: true, output: `theme → ${label.toLowerCase()}` };
+        }
+
+        const current = WORKSPACE_THEMES.includes(theme as WorkspaceTheme)
+          ? (theme as WorkspaceTheme)
+          : "carbon";
+        const idx = WORKSPACE_THEMES.indexOf(current);
+        const next = WORKSPACE_THEMES[(idx + 1) % WORKSPACE_THEMES.length];
+        setTheme(next);
+        showToast(`Theme: ${WORKSPACE_THEME_LABELS[next]}`);
+        return {
+          handled: true,
+          output: `theme → ${WORKSPACE_THEME_LABELS[next].toLowerCase()}`,
+        };
+      }
+
+      switch (value.split(/\s+/)[0]) {
+        case "/positions":
+          showToast("/positions — coming soon");
+          return { handled: true, output: "positions — coming soon" };
+        case "/add":
+          openWidgetPicker();
+          return { handled: true, output: "widget picker opened" };
+        case "/clear":
+          void aui.threads().switchToNewThread();
+          clearScrollback();
+          showToast("Chat cleared");
+          return { handled: true, output: "chat cleared" };
+        default:
+          return {
+            handled: true,
+            error: `unknown command: ${value.split(/\s+/)[0]}`,
+          };
+      }
+    },
+    [aui, clearScrollback, openWidgetPicker, setTheme, showToast, theme],
+  );
+
+  return { runCommand };
+}

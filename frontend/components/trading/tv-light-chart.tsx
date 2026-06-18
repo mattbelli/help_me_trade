@@ -51,9 +51,18 @@ import {
 type Props = {
   symbol: string;
   compact?: boolean;
+  timeframe?: ChartTimeframe;
+  style?: "candle" | "line";
+  livePrice?: number;
 };
 
-export function TvLightChart({ symbol, compact = false }: Props) {
+export function TvLightChart({
+  symbol,
+  compact = false,
+  timeframe: timeframeProp,
+  style: styleProp,
+  livePrice,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const mainRef = useRef<ISeriesApi<"Candlestick" | "Line"> | null>(null);
@@ -63,10 +72,14 @@ export function TvLightChart({ symbol, compact = false }: Props) {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timeframe, setTimeframe] = useState<ChartTimeframe>(
+  const [internalTimeframe, setInternalTimeframe] = useState<ChartTimeframe>(
     CHART_TIMEFRAMES[4],
   );
-  const [style, setStyle] = useState<"candle" | "line">("candle");
+  const [internalStyle, setInternalStyle] = useState<"candle" | "line">("candle");
+  const timeframe = timeframeProp ?? internalTimeframe;
+  const style = styleProp ?? internalStyle;
+  const isControlledTimeframe = timeframeProp != null;
+  const isControlledStyle = styleProp != null;
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [legend, setLegend] = useState<string>("");
   const [session, setSession] = useState(sessionLabel());
@@ -252,6 +265,23 @@ export function TvLightChart({ symbol, compact = false }: Props) {
     );
   }, [alerts, loading]);
 
+  useEffect(() => {
+    if (livePrice == null || loading) return;
+    const bars = barsRef.current;
+    if (bars.length === 0) return;
+
+    const last = bars[bars.length - 1];
+    last.close = livePrice;
+    last.high = Math.max(last.high, livePrice);
+    last.low = Math.min(last.low, livePrice);
+
+    if (style === "line") {
+      mainRef.current?.update({ time: last.time, value: livePrice });
+    } else {
+      mainRef.current?.update(last);
+    }
+  }, [livePrice, loading, style]);
+
   return (
     <div
       className={`relative flex h-full w-full flex-col ${compact ? "min-h-0" : "min-h-[460px]"}`}
@@ -265,7 +295,9 @@ export function TvLightChart({ symbol, compact = false }: Props) {
               size="sm"
               variant={timeframe.label === tf.label ? "secondary" : "ghost"}
               className="h-7 px-2 text-xs"
-              onClick={() => setTimeframe(tf)}
+              onClick={() => {
+                if (!isControlledTimeframe) setInternalTimeframe(tf);
+              }}
             >
               {tf.label}
             </Button>
@@ -276,7 +308,9 @@ export function TvLightChart({ symbol, compact = false }: Props) {
             size="sm"
             variant={style === "candle" ? "secondary" : "ghost"}
             className="h-7 px-2 text-xs"
-            onClick={() => setStyle("candle")}
+            onClick={() => {
+              if (!isControlledStyle) setInternalStyle("candle");
+            }}
           >
             Candles
           </Button>
@@ -285,7 +319,9 @@ export function TvLightChart({ symbol, compact = false }: Props) {
             size="sm"
             variant={style === "line" ? "secondary" : "ghost"}
             className="h-7 px-2 text-xs"
-            onClick={() => setStyle("line")}
+            onClick={() => {
+              if (!isControlledStyle) setInternalStyle("line");
+            }}
           >
             Line
           </Button>

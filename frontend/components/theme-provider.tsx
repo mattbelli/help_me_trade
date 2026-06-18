@@ -9,9 +9,10 @@ function ThemeProvider({
 }: React.ComponentProps<typeof NextThemesProvider>) {
   return (
     <NextThemesProvider
-      attribute="class"
-      defaultTheme="system"
-      enableSystem
+      attribute="data-theme"
+      defaultTheme="carbon"
+      themes={["carbon", "ember", "paper", "light", "dark"]}
+      storageKey="hmt-theme-carbon"
       disableTransitionOnChange
       {...props}
     >
@@ -55,7 +56,11 @@ function ThemeHotkey() {
         return
       }
 
-      setTheme(resolvedTheme === "dark" ? "light" : "dark")
+      setTheme(
+        resolvedTheme === "paper" || resolvedTheme === "light"
+          ? "carbon"
+          : "paper",
+      )
     }
 
     window.addEventListener("keydown", onKeyDown)

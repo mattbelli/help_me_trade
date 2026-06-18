@@ -437,6 +437,26 @@ export async function searchSymbols(
   return data.symbols ?? [];
 }
 
+export async function fetchOvernightTradable(
+  symbols: string[],
+): Promise<string[]> {
+  if (symbols.length === 0) return [];
+  const params = new URLSearchParams({ symbols: symbols.join(",") });
+  const res = await apiFetch(
+    `${API_BASE}/api/symbols/overnight?${params}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Overnight symbols error ${res.status}`,
+    );
+  }
+  const data = await res.json();
+  return data.overnight_tradable ?? [];
+}
+
 export async function fetchChartLayout(): Promise<ChartLayoutItem[]> {
   const res = await apiFetch(`${API_BASE}/api/chart-layout`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Chart layout error ${res.status}`);

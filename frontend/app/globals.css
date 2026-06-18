@@ -6,11 +6,12 @@
 @import "react-grid-layout/css/styles.css";
 @import "react-resizable/css/styles.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *, [data-theme="carbon"] *, [data-theme="ember"] *, [data-theme="dark"] *));
 
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
     --color-pnl-positive: var(--pnl-positive);
     --color-pnl-negative: var(--pnl-negative);
     --color-chart-accent: var(--chart-accent);
@@ -55,6 +56,236 @@
 }
 
 :root {
+    --background: #131519;
+    --foreground: #e9e7e3;
+    --card: #181b21;
+    --card-foreground: #e9e7e3;
+    --popover: #181b21;
+    --popover-foreground: #e9e7e3;
+    --primary: #e9e7e3;
+    --primary-foreground: #131519;
+    --secondary: #1e2228;
+    --secondary-foreground: #e9e7e3;
+    --muted: #1e2228;
+    --muted-foreground: #9aa1ab;
+    --accent: #1e2228;
+    --accent-foreground: #e9e7e3;
+    --destructive: #ef6f6c;
+    --border: #262b33;
+    --input: #262b33;
+    --ring: #5ad1be;
+    --chart-1: #5ad1be;
+    --chart-2: #6cb0ff;
+    --chart-3: #b08cff;
+    --chart-4: #e3b341;
+    --chart-5: #e0975b;
+    --chart-accent: #5ad1be;
+    --pnl-positive: #5bc98a;
+    --pnl-negative: #ef6f6c;
+    --radius: 0.625rem;
+    --sidebar: #0e1013;
+    --sidebar-foreground: #e9e7e3;
+    --sidebar-primary: #5ad1be;
+    --sidebar-primary-foreground: #0e1013;
+    --sidebar-accent: #1e2228;
+    --sidebar-accent-foreground: #e9e7e3;
+    --sidebar-border: #262b33;
+    --sidebar-ring: #5ad1be;
+    --panel: #181b21;
+    --bg-raised: #181b21;
+    --bg-inset: #0e1013;
+    --bg-hover: #1e2228;
+    --border-strong: #333a44;
+    --fg-dim: #9aa1ab;
+    --fg-faint: #616873;
+    --c-accent: #5ad1be;
+    --c-accent-soft: rgba(90, 209, 190, 0.12);
+    --c-violet: #b08cff;
+    --c-blue: #6cb0ff;
+    --c-green: #5bc98a;
+    --c-red: #ef6f6c;
+    --c-yellow: #e3b341;
+    --c-amber: #e0975b;
+    --c-command: #ff8c42;
+    --c-on-accent: #0b0d10;
+    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
+    --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+}
+
+[data-theme="carbon"] {
+    --background: #131519;
+    --foreground: #e9e7e3;
+    --card: #181b21;
+    --card-foreground: #e9e7e3;
+    --popover: #181b21;
+    --popover-foreground: #e9e7e3;
+    --primary: #e9e7e3;
+    --primary-foreground: #131519;
+    --secondary: #1e2228;
+    --secondary-foreground: #e9e7e3;
+    --muted: #1e2228;
+    --muted-foreground: #9aa1ab;
+    --accent: #1e2228;
+    --accent-foreground: #e9e7e3;
+    --destructive: #ef6f6c;
+    --border: #262b33;
+    --input: #262b33;
+    --ring: #5ad1be;
+    --chart-1: #5ad1be;
+    --chart-2: #6cb0ff;
+    --chart-3: #b08cff;
+    --chart-4: #e3b341;
+    --chart-5: #e0975b;
+    --chart-accent: #5ad1be;
+    --pnl-positive: #5bc98a;
+    --pnl-negative: #ef6f6c;
+    --radius: 0.625rem;
+    --sidebar: #0e1013;
+    --sidebar-foreground: #e9e7e3;
+    --sidebar-primary: #5ad1be;
+    --sidebar-primary-foreground: #0e1013;
+    --sidebar-accent: #1e2228;
+    --sidebar-accent-foreground: #e9e7e3;
+    --sidebar-border: #262b33;
+    --sidebar-ring: #5ad1be;
+    --panel: #181b21;
+    --bg-raised: #181b21;
+    --bg-inset: #0e1013;
+    --bg-hover: #1e2228;
+    --border-strong: #333a44;
+    --fg-dim: #9aa1ab;
+    --fg-faint: #616873;
+    --c-accent: #5ad1be;
+    --c-accent-soft: rgba(90, 209, 190, 0.12);
+    --c-violet: #b08cff;
+    --c-blue: #6cb0ff;
+    --c-green: #5bc98a;
+    --c-red: #ef6f6c;
+    --c-yellow: #e3b341;
+    --c-amber: #e0975b;
+    --c-on-accent: #0b0d10;
+    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
+    --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+}
+
+[data-theme="ember"] {
+    --background: #16130f;
+    --foreground: #f0e9df;
+    --card: #1c1813;
+    --card-foreground: #f0e9df;
+    --popover: #1c1813;
+    --popover-foreground: #f0e9df;
+    --primary: #f0e9df;
+    --primary-foreground: #16130f;
+    --secondary: #221d16;
+    --secondary-foreground: #f0e9df;
+    --muted: #221d16;
+    --muted-foreground: #ab9f8d;
+    --accent: #221d16;
+    --accent-foreground: #f0e9df;
+    --destructive: #ef7163;
+    --border: #2e2820;
+    --input: #2e2820;
+    --ring: #e89253;
+    --chart-1: #e89253;
+    --chart-2: #7ab6ff;
+    --chart-3: #c79bff;
+    --chart-4: #e6bb46;
+    --chart-5: #7cc07a;
+    --chart-accent: #e89253;
+    --pnl-positive: #7cc07a;
+    --pnl-negative: #ef7163;
+    --radius: 0.625rem;
+    --sidebar: #0f0c09;
+    --sidebar-foreground: #f0e9df;
+    --sidebar-primary: #e89253;
+    --sidebar-primary-foreground: #0f0c09;
+    --sidebar-accent: #221d16;
+    --sidebar-accent-foreground: #f0e9df;
+    --sidebar-border: #2e2820;
+    --sidebar-ring: #e89253;
+    --panel: #1c1813;
+    --bg-raised: #1c1813;
+    --bg-inset: #0f0c09;
+    --bg-hover: #221d16;
+    --border-strong: #3d352a;
+    --fg-dim: #ab9f8d;
+    --fg-faint: #6b6051;
+    --c-accent: #e89253;
+    --c-accent-soft: rgba(232, 146, 83, 0.14);
+    --c-violet: #c79bff;
+    --c-blue: #7ab6ff;
+    --c-green: #7cc07a;
+    --c-red: #ef7163;
+    --c-yellow: #e6bb46;
+    --c-amber: #e89253;
+    --c-on-accent: #1a1208;
+    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.4);
+    --c-glow: 0 0 0 1px rgba(232, 146, 83, 0.14);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+}
+
+[data-theme="paper"] {
+    --background: #f3f1ec;
+    --foreground: #26251f;
+    --card: #fbfaf7;
+    --card-foreground: #26251f;
+    --popover: #fbfaf7;
+    --popover-foreground: #26251f;
+    --primary: #26251f;
+    --primary-foreground: #f3f1ec;
+    --secondary: #eceae3;
+    --secondary-foreground: #26251f;
+    --muted: #eceae3;
+    --muted-foreground: #6a6f76;
+    --accent: #eceae3;
+    --accent-foreground: #26251f;
+    --destructive: #d23b34;
+    --border: #ddd8ce;
+    --input: #ddd8ce;
+    --ring: #14a08b;
+    --chart-1: #14a08b;
+    --chart-2: #2f78d6;
+    --chart-3: #7c54e0;
+    --chart-4: #b9851a;
+    --chart-5: #c0742a;
+    --chart-accent: #14a08b;
+    --pnl-positive: #1f9d57;
+    --pnl-negative: #d23b34;
+    --radius: 0.625rem;
+    --sidebar: #fbfaf7;
+    --sidebar-foreground: #26251f;
+    --sidebar-primary: #14a08b;
+    --sidebar-primary-foreground: #fbfaf7;
+    --sidebar-accent: #eceae3;
+    --sidebar-accent-foreground: #26251f;
+    --sidebar-border: #ddd8ce;
+    --sidebar-ring: #14a08b;
+    --panel: #fbfaf7;
+    --bg-raised: #fbfaf7;
+    --bg-inset: #e9e6df;
+    --bg-hover: #eceae3;
+    --border-strong: #c9c3b6;
+    --fg-dim: #6a6f76;
+    --fg-faint: #9b9b91;
+    --c-accent: #14a08b;
+    --c-accent-soft: rgba(20, 160, 139, 0.12);
+    --c-violet: #7c54e0;
+    --c-blue: #2f78d6;
+    --c-green: #1f9d57;
+    --c-red: #d23b34;
+    --c-yellow: #b9851a;
+    --c-amber: #c0742a;
+    --c-command: #c2410c;
+    --c-on-accent: #ffffff;
+    --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(60, 50, 30, 0.08);
+    --c-glow: 0 0 0 1px rgba(20, 160, 139, 0.12);
+    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+}
+
+[data-theme="light"] {
     --background: oklch(0.985 0.004 85);
     --foreground: oklch(0.22 0.01 85);
     --card: oklch(1 0.002 85);
@@ -90,6 +321,46 @@
     --sidebar-accent-foreground: oklch(0.28 0.01 85);
     --sidebar-border: oklch(0.9 0.006 85);
     --sidebar-ring: oklch(0.55 0.06 175);
+    --grid-placeholder: color-mix(in srgb, var(--chart-accent) 18%, transparent);
+}
+
+[data-theme="dark"] {
+    --background: oklch(0.19 0.004 265);
+    --foreground: oklch(0.86 0.006 265);
+    --card: oklch(0.22 0.005 265);
+    --card-foreground: oklch(0.86 0.006 265);
+    --popover: oklch(0.22 0.005 265);
+    --popover-foreground: oklch(0.86 0.006 265);
+    --primary: oklch(0.86 0.006 265);
+    --primary-foreground: oklch(0.19 0.004 265);
+    --secondary: oklch(0.25 0.005 265);
+    --secondary-foreground: oklch(0.86 0.006 265);
+    --muted: oklch(0.25 0.005 265);
+    --muted-foreground: oklch(0.58 0.008 265);
+    --accent: oklch(0.28 0.02 175);
+    --accent-foreground: oklch(0.78 0.03 175);
+    --destructive: oklch(0.65 0.14 25);
+    --border: oklch(1 0 0 / 7%);
+    --input: oklch(1 0 0 / 10%);
+    --ring: oklch(0.55 0.05 175);
+    --chart-1: oklch(0.58 0.06 175);
+    --chart-2: oklch(0.58 0.008 265);
+    --chart-3: oklch(0.48 0.008 265);
+    --chart-4: oklch(0.4 0.008 265);
+    --chart-5: oklch(0.32 0.008 265);
+    --chart-accent: oklch(0.58 0.06 175);
+    --pnl-positive: oklch(0.68 0.08 155);
+    --pnl-negative: oklch(0.62 0.1 25);
+    --radius: 0.375rem;
+    --sidebar: oklch(0.17 0.004 265);
+    --sidebar-foreground: oklch(0.86 0.006 265);
+    --sidebar-primary: oklch(0.58 0.06 175);
+    --sidebar-primary-foreground: oklch(0.17 0.004 265);
+    --sidebar-accent: oklch(0.23 0.006 265);
+    --sidebar-accent-foreground: oklch(0.86 0.006 265);
+    --sidebar-border: oklch(1 0 0 / 7%);
+    --sidebar-ring: oklch(0.55 0.05 175);
+    --grid-placeholder: color-mix(in srgb, var(--chart-accent) 18%, transparent);
 }
 
 .dark {
@@ -128,6 +399,7 @@
     --sidebar-accent-foreground: oklch(0.86 0.006 265);
     --sidebar-border: oklch(1 0 0 / 7%);
     --sidebar-ring: oklch(0.55 0.05 175);
+    --grid-placeholder: color-mix(in srgb, var(--chart-accent) 18%, transparent);
 }
 
 @layer base {
@@ -153,4 +425,63 @@
     );
     background-size: 22px 22px;
   }
+}
+
+/* Workspace grid: themed drag placeholder + resize handles */
+.react-grid-item.react-grid-placeholder {
+  background: var(--grid-placeholder) !important;
+  opacity: 1 !important;
+  border: 1px dashed var(--c-accent, var(--chart-accent));
+  border-radius: 0.5rem;
+}
+
+.react-grid-item > .react-resizable-handle {
+  background-image: none !important;
+  opacity: 0;
+  z-index: 20;
+  pointer-events: auto;
+  transition: opacity 150ms ease;
+}
+
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+  transform: none;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: var(--fg-faint);
+  border-bottom-color: var(--fg-faint);
+  transition: border-color 150ms ease;
+}
+
+.react-grid-item:hover > .react-resizable-handle::after {
+  border-right-color: var(--c-accent, var(--chart-accent));
+  border-bottom-color: var(--c-accent, var(--chart-accent));
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw::after {
+  right: auto;
+  left: 3px;
+  bottom: 3px;
+  border-right: none;
+  border-left: 2px solid var(--fg-faint);
+  border-bottom: 2px solid var(--fg-faint);
+}
+
+.react-grid-item:hover > .react-resizable-handle.react-resizable-handle-sw::after {
+  border-left-color: var(--c-accent, var(--chart-accent));
+  border-bottom-color: var(--c-accent, var(--chart-accent));
+  border-right-color: transparent;
 }

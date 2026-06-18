@@ -463,6 +463,30 @@ async def api_symbol_search(q: str = "", limit: int = 10):
     return {"query": q, "symbols": results}
 
 
+@app.get("/api/symbols/overnight")
+async def api_symbols_overnight(symbols: str = ""):
+    broker = _require_alpaca()
+    if isinstance(broker, JSONResponse):
+        return broker
+
+    symbol_list = [
+        s.strip().upper()
+        for s in symbols.split(",")
+        if s.strip()
+    ]
+    if not symbol_list:
+        return {"overnight_tradable": []}
+
+    try:
+        overnight = await broker.aovernight_tradable_symbols()
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+    return {
+        "overnight_tradable": [s for s in symbol_list if s in overnight],
+    }
+
+
 @app.get("/api/positions")
 def api_positions():
     data = get_latest_snapshot()
