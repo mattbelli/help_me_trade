@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Terminal — Term Markdown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0c0e11;
+    --bg-dim: #121418;
+    --fg: #c9d1d9;
+    --fg-dim: #646d7a;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --blue: #58a6ff;
+    --cyan: #3bc9b0;
+    --orange: #d4762b;
+    --magenta: #bc8cff;
+    --border-soft: #212326;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-mono);
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 13px;
+    line-height: 1.5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .prompt-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-soft);
+    flex-shrink: 0;
+    font-size: 12px;
+  }
+  .prompt-line .host { color: var(--green); font-weight: 600; }
+  .prompt-line .sep { color: var(--fg-dim); }
+  .prompt-line .cwd { color: var(--blue); }
+  .prompt-line .prompt-symbol { color: var(--fg-dim); }
+  .prompt-line .right {
+    margin-left: auto;
+    display: flex;
+    gap: 14px;
+    color: var(--fg-dim);
+  }
+  .prompt-line .right .conn { color: var(--green); }
+
+  .output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .block { padding: 6px 14px; }
+  .block + .block { border-top: 1px solid var(--border-soft); }
+
+  .cmd-echo {
+    color: var(--fg-dim);
+    padding: 8px 14px 4px;
+    font-size: 12px;
+  }
+  .cmd-echo .prompt-sym { color: var(--green); }
+  .cmd-echo .cmd-text { color: var(--fg); }
+
+  .tbl {
+    font-size: 12px;
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2px 0;
+  }
+  .tbl th {
+    color: var(--fg-dim);
+    font-weight: 500;
+    text-align: left;
+    padding: 3px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    white-space: nowrap;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+  }
+  .tbl td {
+    padding: 3px 10px;
+    white-space: nowrap;
+  }
+  .tbl tr:hover td { background: rgba(88,166,255,.04); }
+
+  .box-table {
+    font-size: 12px;
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2px 0;
+  }
+  .box-table th, .box-table td {
+    padding: 2px 10px;
+    border: 1px solid var(--border-soft);
+    white-space: nowrap;
+  }
+  .box-table th {
+    color: var(--fg-dim);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    background: var(--bg-dim);
+  }
+
+  .kv {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 24px;
+    padding: 4px 14px;
+    font-size: 12px;
+  }
+  .kv .pair { display: flex; gap: 6px; }
+  .kv .k { color: var(--fg-dim); }
+  .kv .v { color: var(--fg); }
+
+  .status-line {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 5px 14px;
+    background: var(--bg-dim);
+    border-top: 1px solid var(--border-soft);
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+  .status-line .item { display: flex; gap: 4px; }
+  .status-line .label { color: var(--fg-dim); }
+  .status-line .spark { margin-left: auto; color: var(--fg-dim); }
+  .status-line .help { color: var(--fg-dim); cursor: default; }
+  .status-line .help kbd {
+    background: var(--bg);
+    padding: 0 5px;
+    border-radius: 2px;
+    border: 1px solid var(--border-soft);
+  }
+
+  .slash-popup {
+    display: none;
+    position: absolute;
+    bottom: 36px;
+    left: 14px;
+    right: 14px;
+    max-width: 500px;
+    background: var(--bg-dim);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.5);
+    z-index: 10;
+  }
+  .slash-popup.show { display: block; }
+  .slash-popup .input-line {
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    gap: 6px;
+  }
+  .slash-popup .input-line .pre { color: var(--green); font-weight: 600; }
+  .slash-popup .input-line input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .slash-popup .input-line input::placeholder { color: var(--fg-dim); }
+  .slash-popup .completions { padding: 4px 0; max-height: 180px; overflow-y: auto; }
+  .slash-popup .completions .c {
+    display: flex;
+    gap: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .slash-popup .completions .c .k { color: var(--cyan); min-width: 90px; }
+  .slash-popup .completions .c .d { color: var(--fg-dim); }
+  .slash-popup .completions .c.active { background: rgba(88,166,255,.1); }
+  .slash-popup .completions .c .badge {
+    margin-left: auto;
+    color: var(--fg-dim);
+    font-size: 10px;
+  }
+
+  .spark-bar {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 14px;
+  }
+  .spark-bar .bar { width: 3px; border-radius: 1px; background: var(--fg-dim); }
+  .spark-bar .bar.green { background: var(--green); }
+  .spark-bar .bar.red { background: var(--red); }
+
+  .toast {
+    position: fixed;
+    bottom: 40px;
+    left: 14px;
+    background: var(--bg-dim);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 6px 14px;
+    font-size: 11px;
+    color: var(--green);
+    opacity: 0;
+    transition: opacity .2s;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div style="position:relative;height:100vh;display:flex;flex-direction:column;">
+
+  <div class="prompt-line">
+    <span class="host">trader@alpaca</span>
+    <span class="sep">:</span>
+    <span class="cwd">~/portfolio</span>
+    <span class="prompt-symbol">$</span>
+    <div class="right">
+      <span class="conn">● connected</span>
+      <span id="clock">09:32 ET</span>
+    </div>
+  </div>
+
+  <div class="output" id="output">
+    <div class="cmd-echo"><span class="prompt-sym">$</span> <span class="cmd-text"> /dashboard</span></div>
+    <div class="block">
+      <div class="kv">
+        <span class="pair"><span class="k">Portfolio</span><span class="v">$247,342</span></span>
+        <span class="pair"><span class="k">Buying Power</span><span class="v" style="color:var(--blue);">$72,400</span></span>
+        <span class="pair"><span class="k">Exposure</span><span class="v">68%</span></span>
+        <span class="pair"><span class="k">Day P&amp;L</span><span class="v" style="color:var(--green);">+$1,284</span></span>
+        <span class="pair"><span class="k">Open Positions</span><span class="v">4</span></span>
+        <span class="pair"><span class="k">Open Orders</span><span class="v" style="color:var(--yellow);">1</span></span>
+      </div>
+    </div>
+    <div class="block">
+      <table class="tbl">
+        <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th><th>P&amp;L</th><th>Day Δ%</th><th>Weight</th><th>7d Spark</th></tr></thead>
+        <tbody>
+          <tr><td style="color:var(--cyan);">NVDA</td><td style="color:var(--green);">LONG</td><td>250</td><td>$845.20</td><td>$892.40</td><td style="color:var(--green);">+$11,800</td><td style="color:var(--green);">+2.14%</td><td>34%</td>
+            <td><span class="spark-bar"><span class="bar green" style="height:4px"></span><span class="bar green" style="height:7px"></span><span class="bar green" style="height:10px"></span><span class="bar" style="height:8px"></span><span class="bar green" style="height:6px"></span><span class="bar green" style="height:9px"></span><span class="bar green" style="height:14px"></span></span></td>
+          </tr>
+          <tr><td style="color:var(--cyan);">TSLA</td><td style="color:var(--green);">LONG</td><td>120</td><td>$318.50</td><td>$338.70</td><td style="color:var(--green);">+$2,424</td><td style="color:var(--green);">+5.80%</td><td>22%</td>
+            <td><span class="spark-bar"><span class="bar" style="height:3px"></span><span class="bar" style="height:5px"></span><span class="bar green" style="height:4px"></span><span class="bar green" style="height:8px"></span><span class="bar green" style="height:6px"></span><span class="bar green" style="height:11px"></span><span class="bar green" style="height:13px"></span></span></td>
+          </tr>
+          <tr><td style="color:var(--cyan);">AAPL</td><td style="color:var(--green);">LONG</td><td>90</td><td>$198.30</td><td>$195.10</td><td style="color:var(--red);">-$288</td><td style="color:var(--red);">-0.40%</td><td>12%</td>
+            <td><span class="spark-bar"><span class="bar red" style="height:10px"></span><span class="bar" style="height:7px"></span><span class="bar red" style="height:5px"></span><span class="bar" style="height:6px"></span><span class="bar red" style="height:4px"></span><span class="bar" style="height:5px"></span><span class="bar" style="height:3px"></span></span></td>
+          </tr>
+          <tr><td style="color:var(--cyan);">SPY</td><td style="color:var(--green);">LONG</td><td>35</td><td>$548.00</td><td>$556.22</td><td style="color:var(--green);">+$288</td><td style="color:var(--green);">+0.20%</td><td>8%</td>
+            <td><span class="spark-bar"><span class="bar" style="height:5px"></span><span class="bar" style="height:4px"></span><span class="bar" style="height:6px"></span><span class="bar" style="height:5px"></span><span class="bar green" style="height:7px"></span><span class="bar" style="height:6px"></span><span class="bar" style="height:8px"></span></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cmd-echo"><span class="prompt-sym">$</span> <span class="cmd-text"> /orders</span></div>
+    <div class="block">
+      <table class="box-table">
+        <thead><tr><th>ID</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Filled</th><th>Price</th><th>Status</th><th>Time</th></tr></thead>
+        <tbody>
+          <tr><td style="color:var(--fg-dim);">#38472</td><td style="color:var(--cyan);">NVDA</td><td style="color:var(--green);">BUY</td><td>Limit</td><td>200</td><td>100</td><td>$880.00</td><td style="color:var(--yellow);">partial</td><td>09:27:14</td></tr>
+          <tr><td style="color:var(--fg-dim);">#38471</td><td style="color:var(--cyan);">TSLA</td><td style="color:var(--red);">SELL</td><td>Limit</td><td>50</td><td>50</td><td>$345.00</td><td style="color:var(--green);">filled</td><td>09:15:03</td></tr>
+          <tr><td style="color:var(--fg-dim);">#38470</td><td style="color:var(--cyan);">AMD</td><td style="color:var(--green);">BUY</td><td>Market</td><td>100</td><td>100</td><td>$128.35</td><td style="color:var(--green);">filled</td><td>09:12:48</td></tr>
+          <tr><td style="color:var(--fg-dim);">#38469</td><td style="color:var(--cyan);">SPY</td><td style="color:var(--green);">BUY</td><td>Stop Limit</td><td>10</td><td>0</td><td>$550.00</td><td style="color:var(--fg-dim);">pending</td><td>08:55:00</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cmd-echo"><span class="prompt-sym">$</span> <span class="cmd-text"> /watchlist</span></div>
+    <div class="block">
+      <div style="color:var(--fg-dim);font-size:11px;margin-bottom:2px;">2 bullish · 2 neutral · scan: 09:32:17 ET</div>
+      <table class="tbl">
+        <thead><tr><th>Symbol</th><th>Last</th><th>Δ</th><th>Δ%</th><th>Vol</th><th>RSI</th><th>ATR</th><th>Signal</th></tr></thead>
+        <tbody>
+          <tr><td style="color:var(--cyan);">NVDA</td><td>$892.40</td><td style="color:var(--green);">+$18.73</td><td style="color:var(--green);">+2.14%</td><td>28.4M</td><td>62</td><td>$24.50</td><td style="color:var(--green);">▲ bullish</td></tr>
+          <tr><td style="color:var(--cyan);">MSTR</td><td>$1,542.10</td><td style="color:var(--green);">+$69.28</td><td style="color:var(--green);">+4.70%</td><td>5.2M</td><td>71</td><td>$42.80</td><td style="color:var(--green);">▲ bullish</td></tr>
+          <tr><td style="color:var(--cyan);">AMD</td><td>$128.35</td><td style="color:var(--red);">-$1.69</td><td style="color:var(--red);">-1.30%</td><td>42.1M</td><td>44</td><td>$5.20</td><td style="color:var(--fg-dim);">— neutral</td></tr>
+          <tr><td style="color:var(--cyan);">TSLA</td><td>$338.70</td><td style="color:var(--green);">+$18.57</td><td style="color:var(--green);">+5.80%</td><td>95.3M</td><td>68</td><td>$12.30</td><td style="color:var(--green);">▲ bullish</td></tr>
+          <tr><td style="color:var(--cyan);">QQQ</td><td>$482.15</td><td style="color:var(--green);">+$2.88</td><td style="color:var(--green);">+0.60%</td><td>18.7M</td><td>55</td><td>$6.75</td><td style="color:var(--fg-dim);">— neutral</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cmd-echo"><span class="prompt-sym">$</span> <span class="cmd-text"> /trade</span></div>
+    <div class="block">
+      <div class="kv" style="margin-bottom:4px;">
+        <span class="pair"><span class="k">Symbol</span><span class="v">NVDA</span></span>
+        <span class="pair"><span class="k">Side</span><span class="v" style="color:var(--green);">BUY</span></span>
+        <span class="pair"><span class="k">Type</span><span class="v">Stop Limit</span></span>
+        <span class="pair"><span class="k">Qty</span><span class="v">50</span></span>
+        <span class="pair"><span class="k">Limit</span><span class="v">$885.00</span></span>
+        <span class="pair"><span class="k">Stop</span><span class="v">$880.00</span></span>
+      </div>
+      <div style="display:flex;gap:8px;font-size:11px;">
+        <button id="buyBtn" style="background:var(--green);color:#0d1117;border:none;padding:4px 16px;border-radius:3px;font-family:var(--font-mono);font-size:11px;font-weight:600;cursor:pointer;">BUY</button>
+        <button id="sellBtn" style="background:var(--red);color:#fff;border:none;padding:4px 16px;border-radius:3px;font-family:var(--font-mono);font-size:11px;font-weight:600;cursor:pointer;">SELL</button>
+        <span style="color:var(--fg-dim);margin-left:8px;align-self:center;">edit with /trade SYM QTY TYPE PRICE</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="slash-popup" id="slashPopup">
+    <div class="input-line">
+      <span class="pre">$/</span>
+      <input type="text" id="slashInput" placeholder="command..." autofocus>
+    </div>
+    <div class="completions" id="completions">
+      <div class="c active"><span class="k">dashboard</span><span class="d">Portfolio overview</span><span class="badge">⌘D</span></div>
+      <div class="c"><span class="k">positions</span><span class="d">Position details</span><span class="badge">⌘P</span></div>
+      <div class="c"><span class="k">orders</span><span class="d">Open orders</span><span class="badge">⌘O</span></div>
+      <div class="c"><span class="k">watchlist</span><span class="d">Scanner</span><span class="badge">⌘W</span></div>
+      <div class="c"><span class="k">trade</span><span class="d">Place order</span><span class="badge">⌘T</span></div>
+      <div class="c"><span class="k">history</span><span class="d">Order history</span><span class="badge">⌘H</span></div>
+    </div>
+  </div>
+
+  <div class="status-line">
+    <div class="item"><span class="label">pos</span><span>4</span></div>
+    <div class="item"><span class="label">orders</span><span style="color:var(--yellow);">1</span></div>
+    <div class="item"><span class="label">bp</span><span style="color:var(--blue);">$72.4k</span></div>
+    <div class="item"><span class="label">p&amp;l</span><span style="color:var(--green);">+$4,820</span></div>
+    <div class="item"><span class="label">day</span><span style="color:var(--green);">+$1,284</span></div>
+    <div class="spark"></div>
+    <div class="help"><kbd>/</kbd> commands · <kbd>Tab</kbd> complete · <kbd>↑↓</kbd> nav</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+  const output = document.getElementById('output');
+  const slashPopup = document.getElementById('slashPopup');
+  const slashInput = document.getElementById('slashInput');
+  const completions = document.getElementById('completions');
+  const toast = document.getElementById('toast');
+  let slashOpen = false;
+
+  const commands = {
+    dashboard: 'Portfolio overview',
+    positions: 'Position details',
+    orders: 'Open orders',
+    watchlist: 'Scanner',
+    trade: 'Place order',
+    history: 'Order history',
+    help: 'Show help'
+  };
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 1500);
+  }
+
+  function scrollToBottom() {
+    output.scrollTop = output.scrollHeight;
+  }
+
+  function filterCommands(q) {
+    const items = completions.querySelectorAll('.c');
+    let first = null;
+    items.forEach(c => {
+      const k = c.querySelector('.k').textContent;
+      if (k.startsWith(q)) {
+        c.style.display = '';
+        if (!first) first = c;
+      } else {
+        c.style.display = 'none';
+      }
+    });
+    items.forEach(c => c.classList.remove('active'));
+    if (first) first.classList.add('active');
+  }
+
+  function moveSel(dir) {
+    const items = [...completions.querySelectorAll('.c')].filter(c => c.style.display !== 'none');
+    const idx = items.findIndex(c => c.classList.contains('active'));
+    items[idx]?.classList.remove('active');
+    const next = (idx + dir + items.length) % items.length;
+    items[next]?.classList.add('active');
+  }
+
+  function executeCommand(name) {
+    slashOpen = false;
+    slashPopup.classList.remove('show');
+
+    const cmdEcho = document.createElement('div');
+    cmdEcho.className = 'cmd-echo';
+    cmdEcho.innerHTML = `<span class="prompt-sym">$</span> <span class="cmd-text"> /${name}</span>`;
+    output.appendChild(cmdEcho);
+
+    const block = document.createElement('div');
+    block.className = 'block';
+
+    const data = {
+      dashboard: `<div class="kv"><span class="pair"><span class="k">Portfolio</span><span class="v">$247,342</span></span>
+        <span class="pair"><span class="k">Buying Power</span><span class="v" style="color:var(--blue);">$72,400</span></span>
+        <span class="pair"><span class="k">Exposure</span><span class="v">68%</span></span>
+        <span class="pair"><span class="k">Day P&amp;L</span><span class="v" style="color:var(--green);">+$1,284</span></span>
+        <span class="pair"><span class="k">Positions</span><span class="v">4</span></span>
+        <span class="pair"><span class="k">Open Orders</span><span class="v" style="color:var(--yellow);">1</span></span>
+      </div>
+      <table class="tbl"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Day Δ</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--cyan);">NVDA</td><td style="color:var(--green);">LONG</td><td>250</td><td>$845.20</td><td>$892.40</td><td style="color:var(--green);">+$11,800</td><td style="color:var(--green);">+2.14%</td></tr>
+        <tr><td style="color:var(--cyan);">TSLA</td><td style="color:var(--green);">LONG</td><td>120</td><td>$318.50</td><td>$338.70</td><td style="color:var(--green);">+$2,424</td><td style="color:var(--green);">+5.80%</td></tr>
+        <tr><td style="color:var(--cyan);">AAPL</td><td style="color:var(--green);">LONG</td><td>90</td><td>$198.30</td><td>$195.10</td><td style="color:var(--red);">-$288</td><td style="color:var(--red);">-0.40%</td></tr>
+        <tr><td style="color:var(--cyan);">SPY</td><td style="color:var(--green);">LONG</td><td>35</td><td>$548.00</td><td>$556.22</td><td style="color:var(--green);">+$288</td><td style="color:var(--green);">+0.20%</td></tr>
+      </tbody></table>`,
+
+      positions: `<table class="tbl"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Day Δ</th><th>Weight</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--cyan);">NVDA</td><td style="color:var(--green);">LONG</td><td>250</td><td>$845.20</td><td>$892.40</td><td style="color:var(--green);">+$11,800</td><td style="color:var(--green);">+2.14%</td><td>34%</td></tr>
+        <tr><td style="color:var(--cyan);">TSLA</td><td style="color:var(--green);">LONG</td><td>120</td><td>$318.50</td><td>$338.70</td><td style="color:var(--green);">+$2,424</td><td style="color:var(--green);">+5.80%</td><td>22%</td></tr>
+        <tr><td style="color:var(--cyan);">AAPL</td><td style="color:var(--green);">LONG</td><td>90</td><td>$198.30</td><td>$195.10</td><td style="color:var(--red);">-$288</td><td style="color:var(--red);">-0.40%</td><td>12%</td></tr>
+        <tr><td style="color:var(--cyan);">SPY</td><td style="color:var(--green);">LONG</td><td>35</td><td>$548.00</td><td>$556.22</td><td style="color:var(--green);">+$288</td><td style="color:var(--green);">+0.20%</td><td>8%</td></tr>
+      </tbody></table>`,
+
+      orders: `<table class="box-table"><thead><tr><th>ID</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Filled</th><th>Price</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--fg-dim);">#38472</td><td style="color:var(--cyan);">NVDA</td><td style="color:var(--green);">BUY</td><td>Limit</td><td>200</td><td>100</td><td>$880.00</td><td style="color:var(--yellow);">partial</td></tr>
+        <tr><td style="color:var(--fg-dim);">#38471</td><td style="color:var(--cyan);">TSLA</td><td style="color:var(--red);">SELL</td><td>Limit</td><td>50</td><td>50</td><td>$345.00</td><td style="color:var(--green);">filled</td></tr>
+        <tr><td style="color:var(--fg-dim);">#38470</td><td style="color:var(--cyan);">AMD</td><td style="color:var(--green);">BUY</td><td>Market</td><td>100</td><td>100</td><td>$128.35</td><td style="color:var(--green);">filled</td></tr>
+        <tr><td style="color:var(--fg-dim);">#38469</td><td style="color:var(--cyan);">SPY</td><td style="color:var(--green);">BUY</td><td>Stop Limit</td><td>10</td><td>0</td><td>$550.00</td><td style="color:var(--fg-dim);">pending</td></tr>
+      </tbody></table>`,
+
+      watchlist: `<div style="color:var(--fg-dim);font-size:11px;margin-bottom:4px;">2 bullish · 2 neutral · scan: 09:32 ET</div>
+      <table class="tbl"><thead><tr><th>Symbol</th><th>Last</th><th>Δ</th><th>Δ%</th><th>Vol</th><th>RSI</th><th>Signal</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--cyan);">NVDA</td><td>$892.40</td><td style="color:var(--green);">+$18.73</td><td style="color:var(--green);">+2.14%</td><td>28.4M</td><td>62</td><td style="color:var(--green);">▲</td></tr>
+        <tr><td style="color:var(--cyan);">MSTR</td><td>$1,542.10</td><td style="color:var(--green);">+$69.28</td><td style="color:var(--green);">+4.70%</td><td>5.2M</td><td>71</td><td style="color:var(--green);">▲</td></tr>
+        <tr><td style="color:var(--cyan);">AMD</td><td>$128.35</td><td style="color:var(--red);">-$1.69</td><td style="color:var(--red);">-1.30%</td><td>42.1M</td><td>44</td><td style="color:var(--fg-dim);">—</td></tr>
+        <tr><td style="color:var(--cyan);">TSLA</td><td>$338.70</td><td style="color:var(--green);">+$18.57</td><td style="color:var(--green);">+5.80%</td><td>95.3M</td><td>68</td><td style="color:var(--green);">▲</td></tr>
+        <tr><td style="color:var(--cyan);">QQQ</td><td>$482.15</td><td style="color:var(--green);">+$2.88</td><td style="color:var(--green);">+0.60%</td><td>18.7M</td><td>55</td><td style="color:var(--fg-dim);">—</td></tr>
+      </tbody></table>`,
+
+      trade: `<div class="kv" style="margin-bottom:4px;">
+        <span class="pair"><span class="k">Symbol</span><span class="v">NVDA</span></span>
+        <span class="pair"><span class="k">Side</span><span class="v" style="color:var(--green);">BUY</span></span>
+        <span class="pair"><span class="k">Type</span><span class="v">Stop Limit</span></span>
+        <span class="pair"><span class="k">Qty</span><span class="v">50</span></span>
+        <span class="pair"><span class="k">Limit</span><span class="v">$885.00</span></span>
+        <span class="pair"><span class="k">Stop</span><span class="v">$880.00</span></span>
+      </div><div style="font-size:11px;color:var(--fg-dim);">Use /trade SYM QTY TYPE PRICE to order.</div>`,
+
+      history: `<table class="tbl"><thead><tr><th>ID</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Price</th><th>Status</th><th>Filled At</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--fg-dim);">#38471</td><td style="color:var(--cyan);">TSLA</td><td style="color:var(--red);">SELL</td><td>Limit</td><td>50</td><td>$345.00</td><td style="color:var(--green);">filled</td><td>09:15:03</td></tr>
+        <tr><td style="color:var(--fg-dim);">#38470</td><td style="color:var(--cyan);">AMD</td><td style="color:var(--green);">BUY</td><td>Market</td><td>100</td><td>$128.35</td><td style="color:var(--green);">filled</td><td>09:12:48</td></tr>
+        <tr><td style="color:var(--fg-dim);">#38468</td><td style="color:var(--cyan);">QQQ</td><td style="color:var(--green);">BUY</td><td>Market</td><td>25</td><td>$482.15</td><td style="color:var(--green);">filled</td><td>08:30:12</td></tr>
+        <tr><td style="color:var(--fg-dim);">#38462</td><td style="color:var(--cyan);">AAPL</td><td style="color:var(--green);">BUY</td><td>Limit</td><td>90</td><td>$198.30</td><td style="color:var(--green);">filled</td><td>Jun 14</td></tr>
+        <tr><td style="color:var(--fg-dim);">#38455</td><td style="color:var(--cyan);">NVDA</td><td style="color:var(--green);">BUY</td><td>Market</td><td>100</td><td>$842.00</td><td style="color:var(--green);">filled</td><td>Jun 12</td></tr>
+      </tbody></table>`
+    };
+
+    block.innerHTML = data[name] || `<div style="color:var(--fg-dim);font-size:12px;">No data for /${name}</div>`;
+    output.appendChild(block);
+    scrollToBottom();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement?.tagName !== 'INPUT') {
+      e.preventDefault();
+      if (slashOpen) return;
+      slashOpen = true;
+      slashPopup.classList.add('show');
+      slashInput.value = '';
+      filterCommands('');
+      slashInput.focus();
+    }
+    if (e.key === 'Escape') {
+      if (slashOpen) { slashOpen = false; slashPopup.classList.remove('show'); slashInput.blur(); }
+    }
+    if (e.key === 'Enter' && slashOpen) {
+      const active = completions.querySelector('.c.active');
+      if (active) { executeCommand(active.querySelector('.k').textContent); slashInput.value = ''; }
+    }
+    if (e.key === 'ArrowDown' && slashOpen) { e.preventDefault(); moveSel(1); }
+    if (e.key === 'ArrowUp' && slashOpen) { e.preventDefault(); moveSel(-1); }
+  });
+
+  slashInput.addEventListener('input', () => filterCommands(slashInput.value));
+
+  completions.querySelectorAll('.c').forEach(c => {
+    c.addEventListener('click', () => {
+      executeCommand(c.querySelector('.k').textContent);
+      slashInput.value = '';
+    });
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target.id === 'buyBtn') showToast('Order placed: BUY 50 NVDA Stop Limit $885/$880');
+    if (e.target.id === 'sellBtn') showToast('Order placed: SELL 50 NVDA');
+  });
+
+  function updateClock() {
+    const d = new Date();
+    const et = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false });
+    document.getElementById('clock').textContent = et + ' ET';
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+  scrollToBottom();
+</script>
+</body>
+</html>

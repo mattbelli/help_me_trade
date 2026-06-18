@@ -2,11 +2,8 @@
 
 Personal trading copilot: FastAPI + Next.js, Alpaca/Schwab, local SQLite, provider-agnostic LLM.
 
-**Full roadmap:** [References/BUILD.md](References/BUILD.md)
-
-**▶ Active session?** If work is in progress on `feat/phase6-workspace-shell`, read
-[References/SESSION_HANDOFF.md](References/SESSION_HANDOFF.md) first — it has the
-current state, the Composer-bridge workflow, uncommitted changes, and pending tasks.
+**Full roadmap:** [References/BUILD.md](References/BUILD.md) — committed, sequenced plan (source of truth for *what to build next*).
+**Product vision + decisions:** [References/IDEA_BANK.md](References/IDEA_BANK.md) — the founder's committed direction and the *why* (widget dashboard + bottom "Hermes" console, proactive background agent, headless-core + gateway + thin clients, autonomy/safety stance). **Mostly things we *will* build** — read it for direction and for the **build sequencing (§ Build sequencing)** that says *when* each piece folds into the roadmap. BUILD.md sequences these into execution.
 
 ## Before large work
 

@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="carbon">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Help Me Trade — UI draft v2 (matte · widgets · console)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ─────────── Theme tokens (this is the "config file" surface) ─────────── */
+  :root[data-theme="carbon"] {
+    --bg: #131519;
+    --bg-raised: #181b21;
+    --bg-inset: #0e1013;
+    --bg-hover: #1e2228;
+    --panel: #181b21;
+    --border: #262b33;
+    --border-strong: #333a44;
+    --fg: #e9e7e3;
+    --fg-dim: #9aa1ab;
+    --fg-faint: #616873;
+    --accent: #5ad1be;
+    --accent-soft: rgba(90,209,190,.12);
+    --violet: #b08cff;
+    --blue: #6cb0ff;
+    --green: #5bc98a;
+    --red: #ef6f6c;
+    --yellow: #e3b341;
+    --amber: #e0975b;
+    --shadow: 0 1px 0 rgba(255,255,255,.02), 0 8px 30px rgba(0,0,0,.35);
+    --glow: 0 0 0 1px var(--accent-soft);
+  }
+  :root[data-theme="paper"] {
+    --bg: #f3f1ec;
+    --bg-raised: #fbfaf7;
+    --bg-inset: #e9e6df;
+    --bg-hover: #eceae3;
+    --panel: #fbfaf7;
+    --border: #ddd8ce;
+    --border-strong: #c9c3b6;
+    --fg: #26251f;
+    --fg-dim: #6a6f76;
+    --fg-faint: #9b9b91;
+    --accent: #14a08b;
+    --accent-soft: rgba(20,160,139,.12);
+    --violet: #7c54e0;
+    --blue: #2f78d6;
+    --green: #1f9d57;
+    --red: #d23b34;
+    --yellow: #b9851a;
+    --amber: #c0742a;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 10px 30px rgba(60,50,30,.08);
+    --glow: 0 0 0 1px var(--accent-soft);
+  }
+  :root[data-theme="ember"] {
+    --bg: #16130f;
+    --bg-raised: #1c1813;
+    --bg-inset: #0f0c09;
+    --bg-hover: #221d16;
+    --panel: #1c1813;
+    --border: #2e2820;
+    --border-strong: #3d352a;
+    --fg: #f0e9df;
+    --fg-dim: #ab9f8d;
+    --fg-faint: #6b6051;
+    --accent: #e89253;
+    --accent-soft: rgba(232,146,83,.14);
+    --violet: #c79bff;
+    --blue: #7ab6ff;
+    --green: #7cc07a;
+    --red: #ef7163;
+    --yellow: #e6bb46;
+    --amber: #e89253;
+    --shadow: 0 1px 0 rgba(255,255,255,.02), 0 8px 30px rgba(0,0,0,.4);
+    --glow: 0 0 0 1px var(--accent-soft);
+  }
+
+  :root {
+    --radius: 10px;
+    --radius-sm: 7px;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    transition: background .3s, color .3s;
+  }
+
+  /* ─────────── Top toolbar ─────────── */
+  .toolbar {
+    display: flex; align-items: center; gap: 16px;
+    height: 44px; padding: 0 14px;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    font-family: var(--mono); font-size: 11.5px;
+  }
+  .toolbar .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; letter-spacing: -.01em; }
+  .toolbar .brand .mark {
+    width: 20px; height: 20px; border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), var(--violet));
+    display: grid; place-items: center; color: #0b0d10; font-size: 12px; font-weight: 800;
+  }
+  .toolbar .brand .name { font-family: var(--sans); }
+  .toolbar .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    background: var(--bg-inset); border: 1px solid var(--border); color: var(--fg-dim);
+  }
+  .toolbar .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .toolbar .chip.paper { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 35%, transparent); }
+  .toolbar .summary { margin-left: auto; display: flex; gap: 20px; color: var(--fg-dim); }
+  .toolbar .summary .k { color: var(--fg-faint); }
+  .toolbar .summary b { color: var(--fg); font-weight: 600; }
+  .toolbar .summary b.green { color: var(--green); } .toolbar .summary b.red { color: var(--red); }
+  .toolbar .tools { display: flex; align-items: center; gap: 6px; }
+  .toolbar .tbtn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 10px; border-radius: var(--radius-sm);
+    background: transparent; border: 1px solid transparent; color: var(--fg-dim);
+    font-family: var(--mono); font-size: 11px; cursor: pointer; transition: all .12s;
+  }
+  .toolbar .tbtn:hover { background: var(--bg-hover); color: var(--fg); border-color: var(--border); }
+  .toolbar .clock { color: var(--fg-dim); min-width: 76px; text-align: right; }
+
+  /* theme menu */
+  .menu { position: relative; }
+  .menu .pop {
+    display: none; position: absolute; right: 0; top: 34px; z-index: 60;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); min-width: 180px; padding: 5px; overflow: hidden;
+  }
+  .menu.open .pop { display: block; }
+  .menu .pop .mi { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--mono); font-size: 11.5px; color: var(--fg-dim); }
+  .menu .pop .mi:hover { background: var(--bg-hover); color: var(--fg); }
+  .menu .pop .mi .sw { width: 12px; height: 12px; border-radius: 4px; border: 1px solid var(--border-strong); }
+  .menu .pop .mi.active { color: var(--fg); }
+  .menu .pop .mi.active::after { content: "✓"; margin-left: auto; color: var(--accent); }
+  .menu .pop .hint { padding: 6px 9px 4px; font-size: 10px; color: var(--fg-faint); border-top: 1px solid var(--border); margin-top: 4px; }
+
+  /* ─────────── Stage ─────────── */
+  .stage { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+  .dash { position: absolute; inset: 0; overflow-y: auto; padding: 16px 18px 86px; transition: filter .3s, opacity .3s; }
+  .dash.dimmed { filter: saturate(.7) brightness(.6); }
+
+  .dash-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .dash-head h1 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .dash-head .layout-name { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
+  .dash-head .spacer { flex: 1; }
+  .dash-head .ghost {
+    font-family: var(--mono); font-size: 11px; color: var(--fg-dim);
+    height: 28px; padding: 0 11px; border-radius: var(--radius-sm);
+    border: 1px dashed var(--border-strong); background: transparent; cursor: pointer; transition: all .12s;
+  }
+  .dash-head .ghost:hover { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
+
+  /* widget grid */
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .widget {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column;
+    min-height: 150px; transition: box-shadow .15s, border-color .15s, transform .12s;
+  }
+  .widget.wide { grid-column: span 2; }
+  .widget.dragging { opacity: .4; }
+  .widget.drop-target { border-color: var(--accent); box-shadow: var(--glow); }
+  .widget .wh {
+    display: flex; align-items: center; gap: 8px; padding: 9px 11px;
+    border-bottom: 1px solid var(--border); cursor: grab;
+  }
+  .widget .wh:active { cursor: grabbing; }
+  .widget .wh .grip { color: var(--fg-faint); font-size: 12px; letter-spacing: -1px; }
+  .widget .wh .wt { font-family: var(--mono); font-size: 11.5px; font-weight: 600; }
+  .widget .wh .wmeta { font-family: var(--mono); font-size: 10px; color: var(--fg-faint); }
+  .widget .wh .wc { margin-left: auto; display: flex; gap: 3px; }
+  .widget .wh .wc button {
+    width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent;
+    color: var(--fg-faint); cursor: pointer; font-size: 12px; display: grid; place-items: center; transition: all .12s;
+  }
+  .widget .wh .wc button:hover { background: var(--bg-hover); color: var(--fg); }
+  .widget .wbody { padding: 11px; overflow: auto; flex: 1; }
+
+  /* tiles inside summary widget */
+  .tilegrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .tile { background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 12px; }
+  .tile .lab { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-faint); }
+  .tile .val { font-family: var(--mono); font-size: 19px; font-weight: 600; margin-top: 5px; letter-spacing: -.01em; }
+  .tile .sub { font-family: var(--mono); font-size: 10.5px; margin-top: 2px; color: var(--fg-dim); }
+
+  table.t { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  table.t th { text-align: left; color: var(--fg-faint); font-weight: 500; padding: 5px 8px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); }
+  table.t td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.t tr:last-child td { border-bottom: none; }
+  table.t tbody tr:hover td { background: var(--bg-hover); }
+  .green { color: var(--green); } .red { color: var(--red); } .yellow { color: var(--yellow); }
+  .accentc { color: var(--accent); } .dim { color: var(--fg-faint); }
+
+  .spark { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 16px; }
+  .spark .b { width: 3px; border-radius: 1px; background: var(--fg-faint); opacity: .55; }
+  .spark .b.green { background: var(--green); opacity: 1; } .spark .b.red { background: var(--red); opacity: 1; }
+
+  .feed { display: flex; flex-direction: column; gap: 7px; }
+  .ins { display: flex; gap: 9px; padding: 9px; border-radius: var(--radius-sm); background: var(--bg-inset); border: 1px solid var(--border); border-left: 2px solid var(--fg-faint); }
+  .ins.warn { border-left-color: var(--amber); } .ins.good { border-left-color: var(--green); } .ins.info { border-left-color: var(--blue); }
+  .ins .bd .h { font-size: 12px; font-weight: 500; }
+  .ins .bd .d { font-size: 11px; color: var(--fg-dim); margin-top: 2px; line-height: 1.45; }
+  .ins .bd .a { margin-top: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--accent); cursor: pointer; }
+  .ins .bd .a:hover { text-decoration: underline; }
+
+  .chartph { height: 100%; min-height: 120px; border-radius: var(--radius-sm); background:
+    repeating-linear-gradient(90deg, transparent, transparent 34px, var(--border) 34px, var(--border) 35px),
+    var(--bg-inset);
+    position: relative; }
+  .chartph svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* ─────────── Widget picker ─────────── */
+  .picker {
+    display: none; position: absolute; z-index: 70; top: 52px; right: 18px; width: 280px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .picker.show { display: block; }
+  .picker .ph { padding: 9px 12px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-faint); border-bottom: 1px solid var(--border); }
+  .picker .pi { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; transition: background .1s; }
+  .picker .pi:hover { background: var(--bg-hover); }
+  .picker .pi .ico { width: 26px; height: 26px; border-radius: 7px; background: var(--bg-inset); border: 1px solid var(--border); display: grid; place-items: center; color: var(--accent); font-family: var(--mono); }
+  .picker .pi .t { font-size: 12.5px; font-weight: 500; }
+  .picker .pi .d { font-size: 11px; color: var(--fg-dim); }
+
+  /* ─────────── Hermes console ─────────── */
+  .console {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 50;
+    display: flex; flex-direction: column;
+    background: var(--bg-raised); border-top: 1px solid var(--border);
+    box-shadow: 0 -10px 40px rgba(0,0,0,.3);
+    transition: height .26s cubic-bezier(.16,1,.3,1);
+    height: 46px;
+  }
+  .console.open { height: 54vh; }
+  .console .grip { position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; }
+  .console .grip::after { content: ""; position: absolute; top: 3px; left: 50%; transform: translateX(-50%); width: 44px; height: 3px; border-radius: 3px; background: var(--border-strong); }
+
+  .clog { flex: 1; overflow-y: auto; padding: 14px 16px; display: none; }
+  .console.open .clog { display: block; }
+  .blk { padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .blk:last-child { border-bottom: none; }
+  .blk .echo { font-family: var(--mono); font-size: 12px; color: var(--fg-dim); margin-bottom: 6px; }
+  .blk .echo .p { color: var(--accent); font-weight: 600; }
+  .msg { display: flex; gap: 11px; }
+  .msg .who { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; min-width: 58px; }
+  .msg.user .who { color: var(--blue); } .msg.hermes .who { color: var(--accent); }
+  .msg .txt { flex: 1; font-size: 13px; line-height: 1.55; }
+  .msg .txt .mono { font-family: var(--mono); } .msg .txt b.green { color: var(--green); } .msg .txt b.red { color: var(--red); }
+  .learned { margin-top: 8px; display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; background: color-mix(in srgb, var(--violet) 12%, transparent); border: 1px solid color-mix(in srgb, var(--violet) 35%, transparent); border-radius: 999px; font-family: var(--mono); font-size: 10.5px; color: var(--violet); }
+  .learned .x { color: var(--fg-faint); cursor: pointer; }
+
+  .order-card { margin-top: 8px; max-width: 440px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .order-card .oc-h { display: flex; justify-content: space-between; padding: 8px 12px; background: var(--bg-hover); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11px; }
+  .order-card .oc-h .tag { color: var(--amber); }
+  .order-card .oc-b { padding: 10px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px; font-family: var(--mono); font-size: 12px; }
+  .order-card .oc-b .k { color: var(--fg-faint); }
+  .order-card .risk { padding: 6px 12px; font-family: var(--mono); font-size: 10.5px; color: var(--fg-dim); border-top: 1px solid var(--border); }
+  .order-card .risk .ok { color: var(--green); }
+  .order-card .oc-a { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+  .order-card .oc-a button { flex: 1; padding: 7px; border: none; border-radius: var(--radius-sm); font-family: var(--mono); font-weight: 600; font-size: 11.5px; cursor: pointer; }
+  .order-card .approve { background: var(--green); color: #06210d; }
+  .order-card .reject { background: var(--bg-hover); color: var(--fg); border: 1px solid var(--border); }
+
+  .cbar { height: 46px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 14px; }
+  .console.open .cbar { border-top: 1px solid var(--border); }
+  .cbar .mode { font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--accent); padding: 3px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-inset); cursor: pointer; user-select: none; }
+  .cbar .mode.cmd { color: var(--amber); }
+  .cbar .p { font-family: var(--mono); color: var(--fg-faint); }
+  .cbar input { flex: 1; background: transparent; border: none; outline: none; color: var(--fg); font-family: var(--mono); font-size: 13px; }
+  .cbar input::placeholder { color: var(--fg-faint); }
+  .cbar .right { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 10.5px; color: var(--fg-faint); }
+  .cbar .agent { display: inline-flex; align-items: center; gap: 6px; }
+  .cbar .agent .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .cbar .agent.thinking .dot { animation: pulse 1s infinite; }
+  .cbar .toggle { cursor: pointer; color: var(--fg-faint); padding: 2px 6px; }
+  .cbar .toggle:hover { color: var(--fg); }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+  .palette { display: none; position: absolute; bottom: 50px; left: 14px; width: 340px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; z-index: 55; }
+  .palette.show { display: block; }
+  .palette .ph { padding: 7px 12px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-faint); border-bottom: 1px solid var(--border); }
+  .palette .opt { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; font-family: var(--mono); font-size: 12px; }
+  .palette .opt .k { color: var(--accent); min-width: 110px; } .palette .opt .d { color: var(--fg-dim); font-size: 11px; }
+  .palette .opt.active, .palette .opt:hover { background: var(--bg-hover); }
+
+  /* ─────────── Top-down notifications (iPhone-style) ─────────── */
+  .notif-stack { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; flex-direction: column; gap: 8px; width: 360px; max-width: 92vw; }
+  .notif {
+    background: color-mix(in srgb, var(--bg-raised) 86%, transparent);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border-strong); border-radius: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.4);
+    padding: 11px 13px; display: flex; gap: 11px; cursor: pointer;
+    transform: translateY(-130%); opacity: 0; transition: transform .4s cubic-bezier(.16,1,.3,1), opacity .3s;
+  }
+  .notif.in { transform: translateY(0); opacity: 1; }
+  .notif .icon { width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent), var(--violet)); color: #0b0d10; font-weight: 800; font-size: 14px; }
+  .notif .body { flex: 1; min-width: 0; }
+  .notif .body .row { display: flex; align-items: baseline; gap: 8px; }
+  .notif .body .app { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-faint); }
+  .notif .body .when { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--fg-faint); }
+  .notif .body .title { font-size: 13px; font-weight: 600; margin-top: 1px; }
+  .notif .body .text { font-size: 12px; color: var(--fg-dim); margin-top: 2px; line-height: 1.4; }
+  .notif .body .acts { display: flex; gap: 7px; margin-top: 9px; }
+  .notif .body .acts button { flex: 1; padding: 6px; border-radius: 8px; border: none; font-family: var(--mono); font-size: 11px; font-weight: 600; cursor: pointer; }
+  .notif .body .acts .ok { background: var(--green); color: #06210d; }
+  .notif .body .acts .no { background: var(--bg-hover); color: var(--fg); border: 1px solid var(--border); }
+
+  /* ─────────── Onboarding ─────────── */
+  .onb { position: fixed; inset: 0; z-index: 200; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(8px); display: grid; place-items: center; }
+  .onb.hide { display: none; }
+  .onb .card { width: 460px; max-width: 92vw; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); padding: 24px; }
+  .onb .card .mark { width: 40px; height: 40px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), var(--violet)); display: grid; place-items: center; color: #0b0d10; font-weight: 800; font-size: 20px; margin-bottom: 14px; }
+  .onb .card h2 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+  .onb .card p { color: var(--fg-dim); font-size: 13px; margin-top: 5px; line-height: 1.5; }
+  .onb .card label { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin: 16px 0 6px; }
+  .onb .card input, .onb .card textarea { width: 100%; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 11px; color: var(--fg); font-family: var(--sans); font-size: 13px; resize: vertical; }
+  .onb .card input:focus, .onb .card textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
+  .onb .card .row { display: flex; gap: 10px; margin-top: 20px; }
+  .onb .card .row button { flex: 1; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-inset); color: var(--fg); font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer; }
+  .onb .card .row button.primary { background: var(--accent); color: #06210d; border-color: var(--accent); }
+
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <div class="brand"><span class="mark">▰</span><span class="name" id="brandName">help_me_trade</span></div>
+  <span class="chip"><span class="dot"></span> Alpaca</span>
+  <span class="chip paper">paper</span>
+  <div class="summary">
+    <span><span class="k">PORT</span> <b>$247,342</b></span>
+    <span><span class="k">BP</span> <b>$72.4k</b></span>
+    <span><span class="k">DAY</span> <b class="green">+$1,284</b></span>
+    <span><span class="k">P&L</span> <b class="green">+$4,820</b></span>
+  </div>
+  <div class="tools">
+    <button class="tbtn" id="addBtn">+ widget</button>
+    <div class="menu" id="themeMenu">
+      <button class="tbtn" id="themeBtn">◐ theme</button>
+      <div class="pop">
+        <div class="mi active" data-theme="carbon"><span class="sw" style="background:#131519"></span> Carbon</div>
+        <div class="mi" data-theme="ember"><span class="sw" style="background:#16130f"></span> Ember</div>
+        <div class="mi" data-theme="paper"><span class="sw" style="background:#f3f1ec"></span> Paper</div>
+        <div class="hint">+ add your own in <code>themes.toml</code></div>
+      </div>
+    </div>
+    <span class="clock" id="clock">09:32 ET</span>
+  </div>
+</div>
+
+<!-- Stage -->
+<div class="stage">
+  <div class="dash" id="dash">
+    <div class="dash-head">
+      <h1>Workspace</h1>
+      <span class="layout-name" id="layoutName">default layout</span>
+      <div class="spacer"></div>
+      <button class="ghost" id="addGhost">+ Add widget · or type <span class="accentc" style="color:var(--accent)">/add</span></button>
+    </div>
+    <div class="grid" id="grid"><!-- widgets injected --></div>
+  </div>
+
+  <!-- widget picker -->
+  <div class="picker" id="picker">
+    <div class="ph">Add a widget</div>
+    <!-- items injected -->
+  </div>
+
+  <!-- Console -->
+  <div class="console" id="console">
+    <div class="grip" id="grip"></div>
+    <div class="clog" id="clog"></div>
+    <div class="cbar">
+      <span class="mode" id="mode">ASK</span>
+      <span class="p" id="psym">›</span>
+      <input id="cin" placeholder="Ask your copilot, or / for commands" autocomplete="off">
+      <div class="right">
+        <span class="agent" id="agent"><span class="dot"></span> idle</span>
+        <span class="toggle" id="toggle">▴</span>
+      </div>
+    </div>
+    <div class="palette" id="palette">
+      <div class="ph">Commands</div>
+      <div class="opt active" data-cmd="add"><span class="k">/add</span><span class="d">add a widget</span></div>
+      <div class="opt" data-cmd="positions"><span class="k">/positions</span><span class="d">open positions</span></div>
+      <div class="opt" data-cmd="trade"><span class="k">/trade</span><span class="d">propose an order</span></div>
+      <div class="opt" data-cmd="research"><span class="k">/research</span><span class="d">deep dive a symbol</span></div>
+      <div class="opt" data-cmd="theme"><span class="k">/theme</span><span class="d">switch theme</span></div>
+      <div class="opt" data-cmd="reset"><span class="k">/reset</span><span class="d">reset layout</span></div>
+      <div class="opt" data-cmd="clear"><span class="k">/clear</span><span class="d">clear console</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- notifications -->
+<div class="notif-stack" id="notifStack"></div>
+
+<!-- onboarding -->
+<div class="onb" id="onb">
+  <div class="card">
+    <div class="mark">▰</div>
+    <h2>Let's set up your copilot</h2>
+    <p>This is the start of your shared charter — it grows as we work together. You can change all of it later.</p>
+    <label>What should I call your copilot?</label>
+    <input id="onbName" value="Hermes" maxlength="24">
+    <label>How do you want it to help you trade?</label>
+    <textarea id="onbIntent" rows="3" placeholder="e.g. Watch my levels and alert me — I can't stare at charts all day. Keep me disciplined; flag when I'm over-concentrated."></textarea>
+    <div class="row">
+      <button id="onbSkip">Skip for now</button>
+      <button class="primary" id="onbStart">Begin →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ───────────── state ───────────── */
+let agentName = 'Hermes';
+let open = false, cmdMode = false;
+const dashEl = document.getElementById('dash');
+const grid = document.getElementById('grid');
+const consoleEl = document.getElementById('console');
+const clog = document.getElementById('clog');
+const cin = document.getElementById('cin');
+const palette = document.getElementById('palette');
+const agent = document.getElementById('agent');
+const picker = document.getElementById('picker');
+
+/* ───────────── widget definitions ───────────── */
+const WIDGETS = {
+  summary: { title: 'account summary', meta: 'live', wide: true, icon: '∑', desc: 'P&L, BP, exposure tiles', body: () => `
+    <div class="tilegrid">
+      <div class="tile"><div class="lab">Portfolio</div><div class="val">$247,342</div><div class="sub" style="color:var(--green)">+$4,820</div></div>
+      <div class="tile"><div class="lab">Buying Power</div><div class="val" style="color:var(--blue)">$72,400</div><div class="sub">68% deployed</div></div>
+      <div class="tile"><div class="lab">Day P&L</div><div class="val" style="color:var(--green)">+$1,284</div><div class="sub" style="color:var(--green)">+0.52%</div></div>
+      <div class="tile"><div class="lab">Unrealized</div><div class="val" style="color:var(--green)">+$14,224</div><div class="sub">4 lots</div></div>
+    </div>` },
+  positions: { title: 'positions', meta: 'long $168.2k', icon: '⊞', desc: 'Open positions table', body: () => `
+    <table class="t"><thead><tr><th>Sym</th><th>Qty</th><th>Mark</th><th>P&L</th><th>Day</th><th>Wt</th><th>7d</th></tr></thead><tbody>
+      <tr><td class="accentc">NVDA</td><td>250</td><td>$892.40</td><td class="green">+$11,800</td><td class="green">+2.1%</td><td>34%</td><td>${spark([5,8,11,8,7,10,15],'green')}</td></tr>
+      <tr><td class="accentc">TSLA</td><td>120</td><td>$338.70</td><td class="green">+$2,424</td><td class="green">+5.8%</td><td>22%</td><td>${spark([4,5,5,9,7,12,14],'green')}</td></tr>
+      <tr><td class="accentc">AAPL</td><td>90</td><td>$195.10</td><td class="red">-$288</td><td class="red">-0.4%</td><td>12%</td><td>${spark([11,8,6,7,5,6,4],'red')}</td></tr>
+      <tr><td class="accentc">SPY</td><td>35</td><td>$556.22</td><td class="green">+$288</td><td class="green">+0.2%</td><td>8%</td><td>${spark([6,5,7,6,8,7,9],'')}</td></tr>
+    </tbody></table>` },
+  watchlist: { title: 'watchlist', meta: '2 bullish', icon: '◎', desc: 'Scanner & signals', body: () => `
+    <table class="t"><thead><tr><th>Sym</th><th>Last</th><th>Δ%</th><th>RSI</th><th>Signal</th></tr></thead><tbody>
+      <tr><td class="accentc">NVDA</td><td>$892.40</td><td class="green">+2.14%</td><td>62</td><td class="green">▲ bullish</td></tr>
+      <tr><td class="accentc">MSTR</td><td>$1,542.10</td><td class="green">+4.70%</td><td>71</td><td class="green">▲ bullish</td></tr>
+      <tr><td class="accentc">AMD</td><td>$128.35</td><td class="red">-1.30%</td><td>29</td><td class="yellow">⚠ oversold</td></tr>
+      <tr><td class="accentc">QQQ</td><td>$482.15</td><td class="green">+0.60%</td><td>55</td><td class="dim">— neutral</td></tr>
+    </tbody></table>` },
+  insights: { title: agentLabel('insights'), meta: 'live', icon: '✦', desc: 'Proactive agent flags', body: () => `
+    <div class="feed">
+      <div class="ins warn"><div class="bd"><div class="h">NVDA is 34% of book</div><div class="d">Over your 25% single-name cap.</div><div class="a" onclick="ask('how should I trim NVDA?')">Discuss →</div></div></div>
+      <div class="ins good"><div class="bd"><div class="h">Day +$1,284, led by TSLA</div><div class="d">+5.8% intraday · 71% win rate on TSLA.</div><div class="a" onclick="ask('show my TSLA round-trips')">Breakdown →</div></div></div>
+      <div class="ins info"><div class="bd"><div class="h">Order #38472 partial</div><div class="d">NVDA 100/200 filled, open 14m.</div><div class="a" onclick="ask('reprice the NVDA order?')">Ask →</div></div></div>
+    </div>` },
+  pnl: { title: 'equity curve', meta: '30d', icon: '⟁', desc: 'P&L over time', body: () => `
+    <div class="chartph"><svg viewBox="0 0 300 120" preserveAspectRatio="none"><polyline fill="none" stroke="var(--accent)" stroke-width="2" points="0,95 30,90 60,98 90,80 120,84 150,66 180,70 210,52 240,58 270,36 300,28"/><polyline fill="var(--accent-soft)" stroke="none" points="0,95 30,90 60,98 90,80 120,84 150,66 180,70 210,52 240,58 270,36 300,28 300,120 0,120"/></svg></div>` },
+  orders: { title: 'open orders', meta: '1 working', icon: '◈', desc: 'Working & recent orders', body: () => `
+    <table class="t"><thead><tr><th>ID</th><th>Sym</th><th>Side</th><th>Qty</th><th>Px</th><th>Status</th></tr></thead><tbody>
+      <tr><td class="dim">#38472</td><td class="accentc">NVDA</td><td class="green">BUY</td><td>200</td><td>$880.00</td><td class="yellow">partial</td></tr>
+      <tr><td class="dim">#38471</td><td class="accentc">TSLA</td><td class="red">SELL</td><td>50</td><td>$345.00</td><td class="green">filled</td></tr>
+    </tbody></table>` },
+  news: { title: 'sources', meta: '@feeds', icon: '❡', desc: 'X handles & subreddits', body: () => `
+    <div class="feed">
+      <div class="ins info"><div class="bd"><div class="h">@adam · 22m</div><div class="d">"Semis bid into the close — watching NVDA flow."</div></div></div>
+      <div class="ins"><div class="bd"><div class="h">r/options · 1h</div><div class="d">Unusual TSLA call volume at $340 strike.</div></div></div>
+    </div>` },
+};
+
+function agentLabel(s) { return `${agentName.toLowerCase()} · ${s}`; }
+function spark(arr, cls) { return `<span class="spark">${arr.map(h=>`<span class="b ${cls}" style="height:${h}px"></span>`).join('')}</span>`; }
+
+const DEFAULT_LAYOUT = ['summary','positions','insights','pnl','watchlist'];
+let layout = [...DEFAULT_LAYOUT];
+
+/* ───────────── render widgets ───────────── */
+function renderGrid() {
+  grid.innerHTML = '';
+  layout.forEach((type, i) => grid.appendChild(makeWidget(type, i)));
+}
+function makeWidget(type, i) {
+  const def = WIDGETS[type];
+  const el = document.createElement('div');
+  el.className = 'widget' + (def.wide ? ' wide' : '');
+  el.draggable = true;
+  el.dataset.type = type;
+  el.innerHTML = `
+    <div class="wh">
+      <span class="grip">⠿</span>
+      <span class="wt">${def.title}</span>
+      <span class="wmeta">${def.meta}</span>
+      <span class="wc">
+        <button title="resize" data-act="wide">⤢</button>
+        <button title="remove" data-act="close">✕</button>
+      </span>
+    </div>
+    <div class="wbody">${def.body()}</div>`;
+  el.querySelector('[data-act="wide"]').onclick = () => { el.classList.toggle('wide'); };
+  el.querySelector('[data-act="close"]').onclick = () => { layout.splice(layout.indexOf(type),1); renderGrid(); };
+  addDrag(el);
+  return el;
+}
+
+/* drag reorder */
+let dragEl = null;
+function addDrag(el) {
+  el.addEventListener('dragstart', () => { dragEl = el; el.classList.add('dragging'); });
+  el.addEventListener('dragend', () => { el.classList.remove('dragging'); dragEl = null; document.querySelectorAll('.widget').forEach(w=>w.classList.remove('drop-target')); commitOrder(); });
+  el.addEventListener('dragover', e => { e.preventDefault(); if (el!==dragEl) el.classList.add('drop-target'); });
+  el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+  el.addEventListener('drop', e => {
+    e.preventDefault(); el.classList.remove('drop-target');
+    if (!dragEl || dragEl===el) return;
+    const nodes = [...grid.children];
+    const from = nodes.indexOf(dragEl), to = nodes.indexOf(el);
+    grid.insertBefore(dragEl, from < to ? el.nextSibling : el);
+  });
+}
+function commitOrder() { layout = [...grid.children].map(w => w.dataset.type); }
+
+/* ───────────── widget picker ───────────── */
+function buildPicker() {
+  picker.querySelectorAll('.pi').forEach(n=>n.remove());
+  Object.entries(WIDGETS).forEach(([type, def]) => {
+    const pi = document.createElement('div');
+    pi.className = 'pi';
+    pi.innerHTML = `<div class="ico">${def.icon}</div><div><div class="t">${def.title}</div><div class="d">${def.desc}</div></div>`;
+    pi.onclick = () => { addWidget(type); togglePicker(false); };
+    picker.appendChild(pi);
+  });
+}
+function addWidget(type) {
+  if (!WIDGETS[type]) return;
+  layout.push(type); renderGrid();
+  grid.lastChild?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function togglePicker(v) { picker.classList.toggle('show', v ?? !picker.classList.contains('show')); }
+document.getElementById('addBtn').onclick = () => togglePicker();
+document.getElementById('addGhost').onclick = () => togglePicker();
+
+/* ───────────── theme ───────────── */
+const themeMenu = document.getElementById('themeMenu');
+document.getElementById('themeBtn').onclick = (e) => { e.stopPropagation(); themeMenu.classList.toggle('open'); };
+themeMenu.querySelectorAll('.mi').forEach(mi => mi.onclick = () => setTheme(mi.dataset.theme));
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  themeMenu.querySelectorAll('.mi').forEach(m => m.classList.toggle('active', m.dataset.theme===t));
+  themeMenu.classList.remove('open');
+}
+document.addEventListener('click', () => themeMenu.classList.remove('open'));
+
+/* ───────────── console ───────────── */
+function setOpen(v){ open=v; consoleEl.classList.toggle('open',v); dashEl.classList.toggle('dimmed',v); document.getElementById('toggle').textContent=v?'▾':'▴'; if(v){cin.focus(); scrollLog();} }
+document.getElementById('toggle').onclick = () => setOpen(!open);
+document.querySelector('.cbar').addEventListener('click', e => { if((e.target.classList.contains('cbar')||e.target.id==='psym') && !open) setOpen(true); });
+document.getElementById('mode').onclick = () => {
+  cmdMode=!cmdMode;
+  const m=document.getElementById('mode'); m.textContent=cmdMode?'CMD':'ASK'; m.classList.toggle('cmd',cmdMode);
+  document.getElementById('psym').textContent=cmdMode?'/':'›';
+  cin.placeholder=cmdMode?'Type a command…':'Ask your copilot, or / for commands'; cin.focus();
+};
+
+const grip=document.getElementById('grip'); let drag=false;
+grip.addEventListener('pointerdown',e=>{drag=true;grip.setPointerCapture(e.pointerId);if(!open)setOpen(true);});
+grip.addEventListener('pointermove',e=>{ if(!drag)return; const h=Math.min(innerHeight-60,Math.max(120,innerHeight-e.clientY)); consoleEl.style.height=h+'px'; });
+grip.addEventListener('pointerup',e=>{drag=false;grip.releasePointerCapture(e.pointerId);});
+
+function scrollLog(){ clog.scrollTop=clog.scrollHeight; }
+function addBlock(html){ const b=document.createElement('div'); b.className='blk'; b.innerHTML=html; clog.appendChild(b); scrollLog(); return b; }
+function userMsg(t){ addBlock(`<div class="msg user"><div class="who">you</div><div class="txt">${t}</div></div>`); }
+function hermesMsg(html){ return addBlock(`<div class="msg hermes"><div class="who">${agentName}</div><div class="txt">${html}</div></div>`); }
+function thinking(on){ agent.classList.toggle('thinking',on); agent.lastChild.textContent= on?' thinking…':' idle'; }
+
+function runCommand(name, arg){
+  palette.classList.remove('show');
+  if(name==='clear'){ clog.innerHTML=''; return; }
+  if(name==='add'){ if(arg&&WIDGETS[arg]){addWidget(arg); hermesMsg(`Added the <b>${WIDGETS[arg].title}</b> widget.`);} else {togglePicker(true); hermesMsg(`Pick a widget to add — or try <span class="mono accentc" style="color:var(--accent)">/add positions</span>.`);} return; }
+  if(name==='reset'){ layout=[...DEFAULT_LAYOUT]; renderGrid(); hermesMsg('Layout reset to the default template.'); return; }
+  if(name==='theme'){ const order=['carbon','ember','paper']; const cur=document.documentElement.getAttribute('data-theme'); setTheme(order[(order.indexOf(cur)+1)%order.length]); hermesMsg(`Theme → <b>${document.documentElement.getAttribute('data-theme')}</b>. Define your own in <span class="mono">themes.toml</span>.`); return; }
+  if(name==='trade'){ addBlock(`<div class="echo"><span class="p">/</span>trade</div>`+orderCard('NVDA','SELL','50','$890.00','Trim toward 25% cap')); return; }
+  if(name==='positions'){ addBlock(`<div class="echo"><span class="p">/</span>positions</div>`+WIDGETS.positions.body()); return; }
+  if(name==='research'){ hermesMsg(`Starting a research job — findings will be cited and posted here. Try <span class="mono accentc" style="color:var(--accent)">/research NVDA</span>.`); return; }
+  hermesMsg(`Unknown command: /${name}`);
+}
+function orderCard(sym,side,qty,px,why){
+  const id='o'+Math.random().toString(36).slice(2,7);
+  return `<div class="order-card" id="${id}"><div class="oc-h"><span class="tag">⚑ PROPOSED ORDER</span><span class="dim">paper · needs approval</span></div>
+    <div class="oc-b"><span class="k">symbol</span><span class="accentc">${sym}</span><span class="k">side</span><span class="${side==='BUY'?'green':'red'}">${side}</span><span class="k">qty</span><span>${qty}</span><span class="k">limit</span><span>${px}</span></div>
+    <div class="risk">RiskEngine: <span class="ok">✓ within limits</span> · exposure 34% → 28%</div>
+    <div class="oc-a"><button class="approve" onclick="resolve('${id}',1)">Approve</button><button class="reject" onclick="resolve('${id}',0)">Reject</button></div></div>`;
+}
+function resolve(id,ok){ const c=document.getElementById(id); if(c) c.querySelector('.oc-a').innerHTML = ok?'<span class="mono" style="color:var(--green);font-size:11.5px">✓ Approved → ExecutionService (paper)</span>':'<span class="mono dim" style="font-size:11.5px">✕ Rejected</span>'; }
+
+function ask(text){
+  setOpen(true); userMsg(text); thinking(true);
+  setTimeout(()=>{ thinking(false); const lc=text.toLowerCase();
+    if(lc.includes('trim')||lc.includes('nvda')||lc.includes('reprice')){
+      const b=hermesMsg(`To bring <span class="mono">NVDA</span> from <b class="red">34%</b> to your <b>25%</b> cap, sell ≈ <b>66 shares</b>. Proposal below — nothing executes until you approve.`+orderCard('NVDA','SELL','66','$890.00','Trim to 25% cap'));
+      b.querySelector('.txt').insertAdjacentHTML('beforeend',`<div class="learned">✦ Learned: prefers ≤25% single-name exposure <span class="x">✕</span></div>`);
+    } else if(lc.includes('tsla')){ hermesMsg(`<span class="mono">TSLA</span>: <b>14 round-trips</b>, <b class="green">71% win</b>, +$6,210 realized, avg hold 2.4d. Want the trade list?`); }
+    else { hermesMsg(`Grounded answer here — from your live snapshot, ledger, and memories, not a guess.`); }
+  },800);
+}
+
+/* input */
+cin.addEventListener('input',()=>{ const v=cin.value;
+  if(v.startsWith('/')){ palette.classList.add('show'); const q=v.slice(1).toLowerCase(); let first=null;
+    palette.querySelectorAll('.opt').forEach(o=>{ const hit=o.dataset.cmd.startsWith(q.split(' ')[0]); o.style.display=hit?'':'none'; o.classList.remove('active'); if(hit&&!first)first=o; });
+    if(first)first.classList.add('active');
+  } else palette.classList.remove('show');
+});
+cin.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ const v=cin.value.trim(); if(!v)return;
+    if(palette.classList.contains('show')){ const a=palette.querySelector('.opt.active:not([style*="none"])'); if(a&&v.startsWith('/')&&v.indexOf(' ')<0){ runCommand(a.dataset.cmd); cin.value=''; palette.classList.remove('show'); return; } }
+    if(v.startsWith('/')){ const [c,...rest]=v.slice(1).split(' '); runCommand(c, rest.join(' ').trim()); } else ask(v);
+    cin.value=''; palette.classList.remove('show');
+  }
+  if(e.key==='Escape'){ palette.classList.remove('show'); if(open)setOpen(false); }
+  if((e.key==='ArrowDown'||e.key==='ArrowUp')&&palette.classList.contains('show')){ e.preventDefault();
+    const opts=[...palette.querySelectorAll('.opt')].filter(o=>o.style.display!=='none'); const i=opts.findIndex(o=>o.classList.contains('active'));
+    opts[i]?.classList.remove('active'); opts[(i+(e.key==='ArrowDown'?1:-1)+opts.length)%opts.length]?.classList.add('active');
+  }
+});
+palette.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{ runCommand(o.dataset.cmd); cin.value=''; });
+
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); setOpen(!open); }
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='j'){ e.preventDefault(); togglePicker(); }
+  if(e.key==='/'&&document.activeElement!==cin&&!document.getElementById('onb').contains(document.activeElement)){ e.preventDefault(); setOpen(true); cin.value='/'; cin.dispatchEvent(new Event('input')); }
+});
+
+/* ───────────── top-down notifications ───────────── */
+function pushNotif({title, text, interactive}){
+  const stack=document.getElementById('notifStack');
+  const n=document.createElement('div'); n.className='notif';
+  n.innerHTML=`<div class="icon">▰</div><div class="body">
+    <div class="row"><span class="app">${agentName}</span><span class="when">now</span></div>
+    <div class="title">${title}</div><div class="text">${text}</div>
+    ${interactive?`<div class="acts"><button class="ok">Accept</button><button class="no">Decline</button></div>`:''}
+  </div>`;
+  const openIt=()=>{ setOpen(true); hermesMsg(`${title} — ${text}`); dismiss(); };
+  n.querySelector('.body').addEventListener('click',e=>{ if(e.target.tagName!=='BUTTON') openIt(); });
+  if(interactive){ n.querySelector('.ok').onclick=()=>{ hermesMsg(`<b class="green">Accepted</b> — ${title}`); setOpen(true); dismiss(); }; n.querySelector('.no').onclick=()=>{ dismiss(); }; }
+  function dismiss(){ n.classList.remove('in'); setTimeout(()=>n.remove(),400); }
+  stack.appendChild(n); requestAnimationFrame(()=>n.classList.add('in'));
+  if(!interactive) setTimeout(dismiss, 6000);
+}
+
+/* ───────────── onboarding ───────────── */
+const onb=document.getElementById('onb');
+function finishOnb(name){
+  if(name){ agentName=name.trim()||'Hermes'; document.getElementById('brandName').textContent='help_me_trade'; }
+  onb.classList.add('hide'); renderGrid();
+  hermesMsg(`Hey — I'm <b>${agentName}</b>. Charter saved. I'll watch your book and surface what matters so you don't have to stare at charts. Try <span class="mono accentc" style="color:var(--accent)">/add</span> to build your dashboard.`);
+  setTimeout(()=>pushNotif({title:'AMD oversold', text:'RSI crossed 30 on 2× volume — a setup you flagged. Want a read?', interactive:true}), 4500);
+}
+document.getElementById('onbStart').onclick=()=>finishOnb(document.getElementById('onbName').value);
+document.getElementById('onbSkip').onclick=()=>finishOnb(null);
+
+/* ───────────── init ───────────── */
+buildPicker(); renderGrid();
+function clock(){ document.getElementById('clock').textContent=new Date().toLocaleString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})+' ET'; }
+clock(); setInterval(clock,1000);
+</script>
+</body>
+</html>

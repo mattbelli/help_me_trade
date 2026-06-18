@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Help Me Trade — Dashboard + Hermes Console (draft)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b0e13;
+    --bg2: #11151c;
+    --bg3: #161b24;
+    --bg4: #1c2330;
+    --border: #232a35;
+    --border-soft: #1a2029;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --fg3: #5b6470;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --blue: #58a6ff;
+    --cyan: #39d2c0;
+    --magenta: #bc8cff;
+    --amber: #d4762b;
+    --radius: 7px;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--sans);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(57,210,192,.05), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ───────────────── Top status bar ───────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 0 16px;
+    height: 38px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .topbar .brand { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 12.5px; }
+  .topbar .brand .glyph { color: var(--cyan); }
+  .topbar .brand .sub { color: var(--fg2); font-weight: 500; }
+  .topbar .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 9px; border-radius: 20px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--fg2);
+  }
+  .topbar .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .topbar .pill.paper { color: var(--blue); border-color: rgba(88,166,255,.35); }
+  .topbar .summary { margin-left: auto; display: flex; gap: 22px; color: var(--fg2); }
+  .topbar .summary .k { color: var(--fg3); }
+  .topbar .summary b { color: var(--fg); font-weight: 600; }
+  .topbar .summary b.green { color: var(--green); }
+  .topbar .summary b.red { color: var(--red); }
+  .topbar .clock { color: var(--fg2); min-width: 78px; text-align: right; }
+
+  /* ───────────────── Stage: rail + dashboard ───────────────── */
+  .stage { flex: 1; display: flex; min-height: 0; position: relative; }
+
+  /* Left rail */
+  .rail {
+    width: 196px; flex-shrink: 0;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 10px 0;
+  }
+  .rail .grp { padding: 12px 14px 5px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg3); }
+  .rail .nav {
+    display: flex; align-items: center; gap: 9px;
+    margin: 1px 8px; padding: 7px 9px; border-radius: 6px;
+    font-family: var(--mono); font-size: 12.5px; color: var(--fg2);
+    cursor: pointer; border: 1px solid transparent; transition: all .12s;
+  }
+  .rail .nav .ic { width: 15px; text-align: center; opacity: .85; }
+  .rail .nav .sc { margin-left: auto; font-size: 10px; color: var(--fg3); }
+  .rail .nav:hover { background: var(--bg3); color: var(--fg); }
+  .rail .nav.active { background: var(--bg4); color: var(--fg); border-color: var(--border); }
+  .rail .nav.active .ic { color: var(--cyan); opacity: 1; }
+  .rail .spacer { flex: 1; }
+  .rail .foot { padding: 10px 16px 2px; font-family: var(--mono); font-size: 10.5px; color: var(--fg3); border-top: 1px solid var(--border-soft); margin-top: 6px; }
+  .rail .foot kbd { color: var(--fg2); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+
+  /* Dashboard */
+  .dash { flex: 1; overflow-y: auto; padding: 18px 22px 90px; min-width: 0; }
+  .dash.dimmed { filter: brightness(.55) saturate(.8); transition: filter .3s; }
+  .dash-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .dash-head h1 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  .dash-head .meta { font-family: var(--mono); font-size: 11px; color: var(--fg2); }
+  .dash-head .meta .green { color: var(--green); }
+
+  /* Stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .tile {
+    background: linear-gradient(180deg, var(--bg2), var(--bg2) 60%, rgba(255,255,255,.012));
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 13px 15px;
+    position: relative; overflow: hidden;
+  }
+  .tile .lab { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg3); }
+  .tile .val { font-family: var(--mono); font-size: 21px; font-weight: 600; margin-top: 5px; letter-spacing: -.01em; }
+  .tile .sub { font-family: var(--mono); font-size: 11px; margin-top: 3px; color: var(--fg2); }
+  .tile .sub.green { color: var(--green); } .tile .sub.red { color: var(--red); }
+  .tile .accent { position: absolute; top: 0; left: 0; width: 3px; height: 100%; }
+
+  /* Panels */
+  .cols { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; }
+  .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .panel .ph { display: flex; align-items: center; justify-content: space-between; padding: 9px 13px; border-bottom: 1px solid var(--border); }
+  .panel .ph .t { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--fg); }
+  .panel .ph .x { font-family: var(--mono); font-size: 10px; color: var(--fg3); }
+
+  table.t { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  table.t th { text-align: left; color: var(--fg3); font-weight: 500; padding: 7px 13px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border-soft); }
+  table.t td { padding: 7px 13px; border-bottom: 1px solid var(--border-soft); }
+  table.t tr:last-child td { border-bottom: none; }
+  table.t tbody tr:hover td { background: var(--bg3); }
+  .green { color: var(--green); } .red { color: var(--red); } .yellow { color: var(--yellow); }
+  .cyan { color: var(--cyan); } .dim { color: var(--fg3); }
+
+  .spark { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 16px; }
+  .spark .b { width: 3px; border-radius: 1px; background: var(--fg3); }
+  .spark .b.green { background: var(--green); } .spark .b.red { background: var(--red); }
+
+  /* Insight feed in side panel */
+  .feed { padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .ic-row { display: flex; gap: 9px; padding: 9px 10px; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 6px; border-left: 2px solid var(--fg3); }
+  .ic-row.warn { border-left-color: var(--amber); }
+  .ic-row.good { border-left-color: var(--green); }
+  .ic-row.info { border-left-color: var(--blue); }
+  .ic-row .badge { font-family: var(--mono); font-size: 13px; line-height: 1.2; }
+  .ic-row .body { flex: 1; }
+  .ic-row .body .h { font-size: 12px; font-weight: 500; }
+  .ic-row .body .d { font-size: 11px; color: var(--fg2); margin-top: 2px; line-height: 1.45; }
+  .ic-row .body .act { margin-top: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--cyan); cursor: pointer; }
+  .ic-row .body .act:hover { text-decoration: underline; }
+
+  /* ───────────────── Hermes console (bottom) ───────────────── */
+  .console {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    display: flex; flex-direction: column;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -12px 40px rgba(0,0,0,.45);
+    transition: height .26s cubic-bezier(.16,1,.3,1);
+    z-index: 40;
+    height: 46px; /* collapsed */
+  }
+  .console.open { height: 56vh; }
+  .console.maxed { height: calc(100% - 6px); }
+  .console.flagged:not(.open) { border-top-color: var(--amber); box-shadow: 0 -2px 0 0 rgba(212,118,43,.5), 0 -12px 40px rgba(0,0,0,.45); }
+
+  /* drag handle */
+  .console .grip {
+    position: absolute; top: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; z-index: 2;
+  }
+  .console .grip::after { content: ""; position: absolute; top: 3px; left: 50%; transform: translateX(-50%); width: 46px; height: 3px; border-radius: 3px; background: var(--border); }
+  .console:hover .grip::after { background: var(--fg3); }
+
+  /* console body (log) */
+  .clog { flex: 1; overflow-y: auto; padding: 12px 16px; display: none; }
+  .console.open .clog, .console.maxed .clog { display: block; }
+
+  .blk { padding: 9px 0; border-bottom: 1px solid var(--border-soft); }
+  .blk:last-child { border-bottom: none; }
+  .blk .echo { font-family: var(--mono); font-size: 12px; color: var(--fg2); margin-bottom: 6px; }
+  .blk .echo .p { color: var(--cyan); font-weight: 600; }
+  .blk .echo .cmd { color: var(--fg); }
+
+  .msg { display: flex; gap: 10px; }
+  .msg .who { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; min-width: 56px; }
+  .msg.user .who { color: var(--blue); }
+  .msg.hermes .who { color: var(--cyan); }
+  .msg .txt { flex: 1; font-size: 13px; line-height: 1.55; color: var(--fg); }
+  .msg .txt .mono { font-family: var(--mono); }
+  .msg .txt b.green { color: var(--green); } .msg .txt b.red { color: var(--red); }
+
+  /* learned chip (memory loop) */
+  .learned { margin-top: 8px; display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; background: rgba(188,140,255,.08); border: 1px solid rgba(188,140,255,.3); border-radius: 20px; font-family: var(--mono); font-size: 10.5px; color: var(--magenta); }
+  .learned .x { color: var(--fg3); cursor: pointer; }
+  .learned .x:hover { color: var(--fg); }
+
+  /* order proposal card (stockbroker pattern) */
+  .order-card { margin-top: 8px; max-width: 460px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .order-card .oc-h { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--bg3); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11px; }
+  .order-card .oc-h .tag { color: var(--amber); }
+  .order-card .oc-b { padding: 10px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px; font-family: var(--mono); font-size: 12px; }
+  .order-card .oc-b .k { color: var(--fg3); }
+  .order-card .risk { padding: 6px 12px; font-family: var(--mono); font-size: 10.5px; color: var(--fg2); border-top: 1px solid var(--border-soft); }
+  .order-card .risk .ok { color: var(--green); }
+  .order-card .oc-a { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+  .order-card .oc-a button { flex: 1; padding: 7px; border: none; border-radius: 5px; font-family: var(--mono); font-weight: 600; font-size: 11.5px; cursor: pointer; }
+  .order-card .approve { background: var(--green); color: #06210d; }
+  .order-card .reject { background: var(--bg4); color: var(--fg); border: 1px solid var(--border); }
+  .order-card.resolved { opacity: .55; }
+
+  /* console input bar (always visible) */
+  .cbar { height: 46px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: var(--bg2); position: relative; z-index: 3; }
+  .console.open .cbar, .console.maxed .cbar { border-top: 1px solid var(--border); }
+  .cbar .mode { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--cyan); padding: 2px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; user-select: none; }
+  .cbar .mode.cmd { color: var(--amber); border-color: rgba(212,118,43,.4); }
+  .cbar .p { font-family: var(--mono); color: var(--fg3); }
+  .cbar input { flex: 1; background: transparent; border: none; outline: none; color: var(--fg); font-family: var(--mono); font-size: 13px; }
+  .cbar input::placeholder { color: var(--fg3); }
+  .cbar .right { display: flex; align-items: center; gap: 14px; font-family: var(--mono); font-size: 10.5px; color: var(--fg3); }
+  .cbar .agent { display: inline-flex; align-items: center; gap: 6px; }
+  .cbar .agent .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); }
+  .cbar .agent.thinking .dot { animation: pulse 1s infinite; }
+  .cbar .flagchip { display: none; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 20px; background: rgba(212,118,43,.12); border: 1px solid rgba(212,118,43,.4); color: var(--amber); cursor: pointer; }
+  .console.flagged:not(.open) .cbar .flagchip { display: inline-flex; }
+  .cbar .toggle { font-family: var(--mono); font-size: 13px; color: var(--fg3); cursor: pointer; padding: 2px 6px; }
+  .cbar .toggle:hover { color: var(--fg); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* slash palette */
+  .palette {
+    display: none; position: absolute; bottom: 50px; left: 14px; width: 360px;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.6); overflow: hidden; z-index: 50;
+  }
+  .palette.show { display: block; }
+  .palette .ph { padding: 6px 12px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg3); border-bottom: 1px solid var(--border-soft); }
+  .palette .opt { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; font-family: var(--mono); font-size: 12px; }
+  .palette .opt .k { color: var(--cyan); min-width: 96px; }
+  .palette .opt .d { color: var(--fg2); font-size: 11px; }
+  .palette .opt .sc { margin-left: auto; color: var(--fg3); font-size: 10px; }
+  .palette .opt.active, .palette .opt:hover { background: var(--bg4); }
+
+  /* toast */
+  .toast { position: fixed; bottom: 58px; left: 50%; transform: translateX(-50%) translateY(14px); background: var(--bg4); border: 1px solid var(--border); border-radius: 7px; padding: 9px 18px; font-family: var(--mono); font-size: 11.5px; opacity: 0; transition: all .25s; z-index: 99; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg3); }
+</style>
+</head>
+<body>
+
+<!-- ───────── Top status bar ───────── -->
+<div class="topbar">
+  <div class="brand"><span class="glyph">▰</span> help_me_trade <span class="sub">/ copilot</span></div>
+  <span class="pill"><span class="dot"></span> Alpaca</span>
+  <span class="pill paper">paper</span>
+  <div class="summary">
+    <span><span class="k">PORT</span> <b>$247,342</b></span>
+    <span><span class="k">BP</span> <b>$72.4k</b></span>
+    <span><span class="k">EXP</span> <b>68%</b></span>
+    <span><span class="k">DAY</span> <b class="green">+$1,284</b></span>
+    <span><span class="k">P&L</span> <b class="green">+$4,820</b></span>
+  </div>
+  <div class="clock" id="clock">09:32 ET</div>
+</div>
+
+<!-- ───────── Stage ───────── -->
+<div class="stage">
+
+  <!-- Left rail -->
+  <div class="rail">
+    <div class="grp">Workspace</div>
+    <div class="nav active"><span class="ic">◉</span> Overview <span class="sc">⌘1</span></div>
+    <div class="nav"><span class="ic">⊞</span> Positions <span class="sc">⌘2</span></div>
+    <div class="nav"><span class="ic">◫</span> Charts <span class="sc">⌘3</span></div>
+    <div class="nav"><span class="ic">⟁</span> Performance <span class="sc">⌘4</span></div>
+    <div class="nav"><span class="ic">⌕</span> Research <span class="sc">⌘5</span></div>
+    <div class="nav"><span class="ic">❖</span> Memories <span class="sc">⌘6</span></div>
+    <div class="nav"><span class="ic">§</span> Rules <span class="sc">⌘7</span></div>
+    <div class="spacer"></div>
+    <div class="nav"><span class="ic">⚙</span> Settings</div>
+    <div class="foot">Press <kbd>/</kbd> for commands · <kbd>⌘K</kbd> for Hermes</div>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="dash" id="dash">
+    <div class="dash-head">
+      <h1>Overview</h1>
+      <span class="meta">market <span class="green">open</span> · synced 09:32:17 ET · 4 positions · 1 open order</span>
+    </div>
+
+    <div class="tiles">
+      <div class="tile"><span class="accent" style="background:var(--cyan)"></span><div class="lab">Portfolio Value</div><div class="val">$247,342</div><div class="sub green">+$4,820 all-time</div></div>
+      <div class="tile"><span class="accent" style="background:var(--blue)"></span><div class="lab">Buying Power</div><div class="val" style="color:var(--blue)">$72,400</div><div class="sub">68% deployed</div></div>
+      <div class="tile"><span class="accent" style="background:var(--green)"></span><div class="lab">Day P&L</div><div class="val green">+$1,284</div><div class="sub green">+0.52% today</div></div>
+      <div class="tile"><span class="accent" style="background:var(--amber)"></span><div class="lab">Unrealized</div><div class="val green">+$14,224</div><div class="sub">across 4 lots</div></div>
+    </div>
+
+    <div class="cols">
+      <!-- Positions -->
+      <div class="panel">
+        <div class="ph"><span class="t">positions</span><span class="x">long $168.2k · short $0</span></div>
+        <table class="t">
+          <thead><tr><th>Sym</th><th>Qty</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Day</th><th>Wt</th><th>7d</th></tr></thead>
+          <tbody>
+            <tr><td class="cyan">NVDA</td><td>250</td><td>$845.20</td><td>$892.40</td><td class="green">+$11,800</td><td class="green">+2.1%</td><td>34%</td>
+              <td><span class="spark"><span class="b green" style="height:5px"></span><span class="b green" style="height:8px"></span><span class="b green" style="height:11px"></span><span class="b" style="height:8px"></span><span class="b green" style="height:7px"></span><span class="b green" style="height:10px"></span><span class="b green" style="height:15px"></span></span></td></tr>
+            <tr><td class="cyan">TSLA</td><td>120</td><td>$318.50</td><td>$338.70</td><td class="green">+$2,424</td><td class="green">+5.8%</td><td>22%</td>
+              <td><span class="spark"><span class="b" style="height:4px"></span><span class="b" style="height:5px"></span><span class="b green" style="height:5px"></span><span class="b green" style="height:9px"></span><span class="b green" style="height:7px"></span><span class="b green" style="height:12px"></span><span class="b green" style="height:14px"></span></span></td></tr>
+            <tr><td class="cyan">AAPL</td><td>90</td><td>$198.30</td><td>$195.10</td><td class="red">-$288</td><td class="red">-0.4%</td><td>12%</td>
+              <td><span class="spark"><span class="b red" style="height:11px"></span><span class="b" style="height:8px"></span><span class="b red" style="height:6px"></span><span class="b" style="height:7px"></span><span class="b red" style="height:5px"></span><span class="b" style="height:6px"></span><span class="b red" style="height:4px"></span></span></td></tr>
+            <tr><td class="cyan">SPY</td><td>35</td><td>$548.00</td><td>$556.22</td><td class="green">+$288</td><td class="green">+0.2%</td><td>8%</td>
+              <td><span class="spark"><span class="b" style="height:6px"></span><span class="b" style="height:5px"></span><span class="b" style="height:7px"></span><span class="b" style="height:6px"></span><span class="b green" style="height:8px"></span><span class="b" style="height:7px"></span><span class="b green" style="height:9px"></span></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Agent insight feed -->
+      <div class="panel">
+        <div class="ph"><span class="t">hermes · insights</span><span class="x">live</span></div>
+        <div class="feed">
+          <div class="ic-row warn">
+            <div class="badge">⚑</div>
+            <div class="body">
+              <div class="h">NVDA is 34% of book</div>
+              <div class="d">Over your 25% single-name cap. Last time you flagged this you trimmed to ~28%.</div>
+              <div class="act" onclick="openWithFlag()">Discuss in console →</div>
+            </div>
+          </div>
+          <div class="ic-row good">
+            <div class="badge" style="color:var(--green)">▲</div>
+            <div class="body">
+              <div class="h">Day +$1,284, led by TSLA</div>
+              <div class="d">+5.8% intraday. Your win rate on TSLA round-trips is 71% (14 trades).</div>
+              <div class="act" onclick="ask('how have my TSLA round-trips performed?')">Ask for the breakdown →</div>
+            </div>
+          </div>
+          <div class="ic-row info">
+            <div class="badge" style="color:var(--blue)">◷</div>
+            <div class="body">
+              <div class="h">Order #38472 still partial</div>
+              <div class="d">NVDA limit 200 @ $880 — 100/200 filled, open 14m.</div>
+              <div class="act" onclick="ask('should I reprice the open NVDA order?')">Ask Hermes →</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── Hermes console ───────── -->
+  <div class="console" id="console">
+    <div class="grip" id="grip"></div>
+
+    <div class="clog" id="clog">
+      <!-- seeded session -->
+      <div class="blk">
+        <div class="msg hermes">
+          <div class="who">hermes</div>
+          <div class="txt">Morning. Book is up <b class="green">+$1,284</b> on the day. One thing on my radar: <span class="mono">NVDA</span> drifted to <b class="red">34%</b> of the book — past your 25% cap. Want to talk through trimming it?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- command/ask bar -->
+    <div class="cbar">
+      <span class="mode" id="mode" onclick="toggleMode()">ASK</span>
+      <span class="p" id="promptSym">›</span>
+      <input id="cin" placeholder="Ask Hermes anything, or type / for commands" autocomplete="off">
+      <div class="right">
+        <span class="flagchip" onclick="openWithFlag()">⚑ 1 flag</span>
+        <span class="agent" id="agent"><span class="dot"></span> idle</span>
+        <span class="toggle" id="toggle" onclick="toggleConsole()" title="Expand / collapse">▴</span>
+      </div>
+    </div>
+
+    <!-- slash palette -->
+    <div class="palette" id="palette">
+      <div class="ph">Commands</div>
+      <div class="opt active" data-cmd="positions"><span class="k">/positions</span><span class="d">open positions</span><span class="sc">⌘2</span></div>
+      <div class="opt" data-cmd="trade"><span class="k">/trade</span><span class="d">propose an order</span><span class="sc">⌘T</span></div>
+      <div class="opt" data-cmd="research"><span class="k">/research</span><span class="d">deep dive a symbol</span><span class="sc">⌘5</span></div>
+      <div class="opt" data-cmd="performance"><span class="k">/performance</span><span class="d">P&L analytics</span><span class="sc">⌘4</span></div>
+      <div class="opt" data-cmd="rule"><span class="k">/rule</span><span class="d">create an alert</span><span class="sc">⌘7</span></div>
+      <div class="opt" data-cmd="clear"><span class="k">/clear</span><span class="d">clear console</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const consoleEl = document.getElementById('console');
+  const clog = document.getElementById('clog');
+  const cin = document.getElementById('cin');
+  const palette = document.getElementById('palette');
+  const agent = document.getElementById('agent');
+  const mode = document.getElementById('mode');
+  const promptSym = document.getElementById('promptSym');
+  const dash = document.getElementById('dash');
+  const toggleBtn = document.getElementById('toggle');
+  const toastEl = document.getElementById('toast');
+
+  let open = false;
+  let cmdMode = false; // false = ASK (natural language), true = / command
+
+  /* ── open / collapse ── */
+  function setOpen(v) {
+    open = v;
+    consoleEl.classList.toggle('open', v);
+    dash.classList.toggle('dimmed', v);
+    toggleBtn.textContent = v ? '▾' : '▴';
+    if (v) { consoleEl.classList.remove('flagged'); cin.focus(); scrollLog(); }
+  }
+  function toggleConsole() { setOpen(!open); if (consoleEl.classList.contains('maxed')) consoleEl.classList.remove('maxed'); }
+  function openWithFlag() { setOpen(true); scrollLog(); }
+  document.querySelector('.console .cbar').addEventListener('click', e => {
+    if (e.target === document.querySelector('.cbar') && !open) setOpen(true);
+  });
+
+  /* ── mode toggle (ask vs command) ── */
+  function toggleMode() {
+    cmdMode = !cmdMode;
+    mode.textContent = cmdMode ? 'CMD' : 'ASK';
+    mode.classList.toggle('cmd', cmdMode);
+    promptSym.textContent = cmdMode ? '/' : '›';
+    cin.placeholder = cmdMode ? 'Type a command…' : 'Ask Hermes anything, or type / for commands';
+    cin.focus();
+  }
+
+  /* ── drag to resize ── */
+  const grip = document.getElementById('grip');
+  let dragging = false;
+  grip.addEventListener('pointerdown', e => { dragging = true; grip.setPointerCapture(e.pointerId); if (!open) setOpen(true); });
+  grip.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const h = window.innerHeight - e.clientY;
+    const clamped = Math.min(window.innerHeight - 44, Math.max(120, h));
+    consoleEl.classList.remove('maxed');
+    consoleEl.style.height = clamped + 'px';
+  });
+  grip.addEventListener('pointerup', e => { dragging = false; grip.releasePointerCapture(e.pointerId); });
+
+  /* ── helpers ── */
+  function scrollLog() { clog.scrollTop = clog.scrollHeight; }
+  function toast(m) { toastEl.textContent = m; toastEl.classList.add('show'); setTimeout(() => toastEl.classList.remove('show'), 1800); }
+
+  function addBlock(html) {
+    const b = document.createElement('div');
+    b.className = 'blk';
+    b.innerHTML = html;
+    clog.appendChild(b);
+    scrollLog();
+    return b;
+  }
+  function userMsg(t) { addBlock(`<div class="msg user"><div class="who">you</div><div class="txt">${t}</div></div>`); }
+  function hermesMsg(html) { return addBlock(`<div class="msg hermes"><div class="who">hermes</div><div class="txt">${html}</div></div>`); }
+
+  function thinking(on) { agent.classList.toggle('thinking', on); agent.lastChild.textContent = on ? ' thinking…' : ' idle'; }
+
+  /* ── command outputs ── */
+  function runCommand(name) {
+    palette.classList.remove('show');
+    if (name === 'clear') { clog.innerHTML = ''; return; }
+    addBlock(`<div class="echo"><span class="p">/</span><span class="cmd">${name}</span></div>` + cmdOutput(name));
+  }
+
+  function cmdOutput(name) {
+    if (name === 'positions') {
+      return `<table class="t" style="margin-top:4px"><thead><tr><th>Sym</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Wt</th></tr></thead><tbody>
+        <tr><td class="cyan">NVDA</td><td class="green">LONG</td><td>250</td><td>$845.20</td><td>$892.40</td><td class="green">+$11,800</td><td>34%</td></tr>
+        <tr><td class="cyan">TSLA</td><td class="green">LONG</td><td>120</td><td>$318.50</td><td>$338.70</td><td class="green">+$2,424</td><td>22%</td></tr>
+        <tr><td class="cyan">AAPL</td><td class="green">LONG</td><td>90</td><td>$198.30</td><td>$195.10</td><td class="red">-$288</td><td>12%</td></tr>
+        <tr><td class="cyan">SPY</td><td class="green">LONG</td><td>35</td><td>$548.00</td><td>$556.22</td><td class="green">+$288</td><td>8%</td></tr>
+      </tbody></table>`;
+    }
+    if (name === 'trade') { return proposalCardHTML('NVDA','SELL','50','Limit','$890.00','Trim toward your 25% cap'); }
+    if (name === 'research') { return `<div class="msg hermes"><div class="who">hermes</div><div class="txt mono" style="font-size:12px;color:var(--fg2)">Starting research job for a symbol… (use <span style="color:var(--cyan)">/research NVDA</span>). Findings will be cited and posted here.</div></div>`; }
+    if (name === 'performance') {
+      return `<div style="font-family:var(--mono);font-size:12px;color:var(--fg2);margin-top:4px">30d realized <b class="green" style="color:var(--green)">+$8,940</b> · win rate 64% · profit factor 2.1 · avg hold 3.2d</div>`;
+    }
+    if (name === 'rule') { return `<div class="msg hermes"><div class="who">hermes</div><div class="txt mono" style="font-size:12px;color:var(--fg2)">Describe the rule in plain language — e.g. <span style="color:var(--cyan)">"alert me when any name exceeds 25% of the book"</span>.</div></div>`; }
+    return `<div style="font-family:var(--mono);font-size:12px;color:var(--fg3)">No output for /${name}</div>`;
+  }
+
+  function proposalCardHTML(sym, side, qty, type, px, why) {
+    const id = 'oc' + Math.random().toString(36).slice(2,7);
+    return `<div class="order-card" id="${id}">
+      <div class="oc-h"><span class="tag">⚑ PROPOSED ORDER</span><span style="color:var(--fg3)">paper · needs approval</span></div>
+      <div class="oc-b">
+        <span class="k">symbol</span><span class="cyan">${sym}</span>
+        <span class="k">side</span><span class="${side==='BUY'?'green':'red'}">${side}</span>
+        <span class="k">qty</span><span>${qty}</span>
+        <span class="k">type</span><span>${type}</span>
+        <span class="k">limit</span><span>${px}</span>
+        <span class="k">why</span><span style="color:var(--fg2)">${why}</span>
+      </div>
+      <div class="risk">RiskEngine: <span class="ok">✓ within day-loss & exposure limits</span> · est. exposure 34% → 28%</div>
+      <div class="oc-a">
+        <button class="approve" onclick="resolveOrder('${id}', true)">Approve</button>
+        <button class="reject" onclick="resolveOrder('${id}', false)">Reject</button>
+      </div>
+    </div>`;
+  }
+  function resolveOrder(id, ok) {
+    const card = document.getElementById(id);
+    if (card) card.classList.add('resolved');
+    if (card) card.querySelector('.oc-a').innerHTML = ok
+      ? '<span style="font-family:var(--mono);font-size:11.5px;color:var(--green)">✓ Approved → routed to ExecutionService (paper)</span>'
+      : '<span style="font-family:var(--mono);font-size:11.5px;color:var(--fg3)">✕ Rejected — nothing sent</span>';
+    toast(ok ? 'Order approved (paper)' : 'Order rejected');
+  }
+
+  /* ── natural-language ask (canned) ── */
+  function ask(text) {
+    setOpen(true);
+    userMsg(text);
+    thinking(true);
+    setTimeout(() => {
+      thinking(false);
+      const lc = text.toLowerCase();
+      if (lc.includes('trim') || lc.includes('nvda') || lc.includes('reprice')) {
+        const blk = hermesMsg(`To bring <span class="mono">NVDA</span> from <b class="red">34%</b> to your <b>25%</b> cap you'd sell ≈ <b>66 shares</b> (~$58.9k). Here's a proposal — nothing executes until you approve.` + proposalCardHTML('NVDA','SELL','66','Limit','$890.00','Trim to 25% single-name cap'));
+        blk.querySelector('.txt').insertAdjacentHTML('beforeend', `<div class="learned">✦ Learned: prefers ≤25% single-name exposure <span class="x" title="discard">✕</span></div>`);
+      } else if (lc.includes('tsla')) {
+        hermesMsg(`Your <span class="mono">TSLA</span> round-trips: <b>14 closed</b>, <b class="green">71% win rate</b>, +$6,210 realized, avg hold 2.4d. Best entries clustered on pullbacks to the 20-day. Want the trade list?`);
+      } else {
+        hermesMsg(`Grounded answer would go here — pulled from your live snapshot, trade ledger, and memories rather than a guess.`);
+      }
+    }, 850);
+  }
+
+  /* ── input handling ── */
+  cin.addEventListener('input', () => {
+    const v = cin.value;
+    if (v.startsWith('/') || (cmdMode && v.length >= 0)) {
+      palette.classList.add('show');
+      const q = (v.startsWith('/') ? v.slice(1) : v).toLowerCase();
+      let first = null;
+      palette.querySelectorAll('.opt').forEach(o => {
+        const hit = o.dataset.cmd.startsWith(q);
+        o.style.display = hit ? '' : 'none';
+        o.classList.remove('active');
+        if (hit && !first) first = o;
+      });
+      if (first) first.classList.add('active');
+    } else {
+      palette.classList.remove('show');
+    }
+  });
+
+  cin.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const v = cin.value.trim();
+      if (!v) return;
+      if (palette.classList.contains('show')) {
+        const act = palette.querySelector('.opt.active:not([style*="none"])');
+        if (act) { runCommand(act.dataset.cmd); cin.value = ''; palette.classList.remove('show'); return; }
+      }
+      if (v.startsWith('/')) { runCommand(v.slice(1).split(' ')[0]); }
+      else { ask(v); }
+      cin.value = '';
+      palette.classList.remove('show');
+    }
+    if (e.key === 'Escape') { palette.classList.remove('show'); if (open) setOpen(false); }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && palette.classList.contains('show')) {
+      e.preventDefault();
+      const opts = [...palette.querySelectorAll('.opt')].filter(o => o.style.display !== 'none');
+      const i = opts.findIndex(o => o.classList.contains('active'));
+      opts[i]?.classList.remove('active');
+      const n = (i + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+      opts[n]?.classList.add('active');
+    }
+  });
+
+  palette.querySelectorAll('.opt').forEach(o => o.addEventListener('click', () => { runCommand(o.dataset.cmd); cin.value = ''; }));
+
+  /* ── global shortcuts ── */
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setOpen(!open); }
+    if (e.key === '/' && document.activeElement !== cin) { e.preventDefault(); setOpen(true); cin.value = '/'; cin.dispatchEvent(new Event('input')); }
+  });
+
+  /* ── proactive agent flag demo ── */
+  setTimeout(() => {
+    if (!open) {
+      consoleEl.classList.add('flagged');
+      hermesMsg(`⚑ Heads up — <span class="mono">AMD</span> just tripped your watchlist rule: RSI crossed <b>30</b> (oversold) on 2× average volume. Want a quick read?`);
+      toast('Hermes flagged AMD — RSI oversold');
+    }
+  }, 4200);
+
+  /* ── clock ── */
+  function clock() {
+    const d = new Date();
+    const et = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false });
+    document.getElementById('clock').textContent = et + ' ET';
+  }
+  clock(); setInterval(clock, 1000);
+</script>
+</body>
+</html>

@@ -2,8 +2,10 @@
 
 Agent onboarding: see root [`AGENTS.md`](../AGENTS.md). Update both when phases complete.
 
-**Single source of truth** for vision, current state, architecture, and what to build next.  
+**Single source of truth** for current state, architecture, and what to build next.  
 Supersedes the six docs in [`archive/`](archive/) (2026-06-16).
+
+**Companion doc — [`IDEA_BANK.md`](IDEA_BANK.md):** the founder's committed product vision + design decisions (the *why* and *what*). This roadmap is the *how & when*. Most idea-bank items **are** things we'll build — their **ordering** lives in IDEA_BANK § "Build sequencing" and is reflected in §5–6 below. Keep deep rationale/vision in IDEA_BANK; keep the sequenced plan here.
 
 **Stack:** FastAPI (Python, port 8000) + Next.js (port 3001) · Alpaca + Schwab · local SQLite · provider-agnostic LLM.
 
@@ -245,13 +247,54 @@ UI/Agent → OrderIntent → RiskEngine.validate() → approve | reject | needs_
 
 ---
 
+### Phase 6 — Shell & dashboard reimagining (web-first)
+
+The big UX pivot toward the "Hermes" vision. No desktop shell required yet. Detail + rationale: [`IDEA_BANK.md`](IDEA_BANK.md) §1, §3, §9 Tier 1.
+
+| Item | Effort | Notes |
+|------|--------|-------|
+| Bottom command console v1 | M | Port `References/hermes-console-draft.html` into Next; `/` commands + natural-language ask; pages reachable as console views |
+| Theme system + config themes | M | Design tokens + shipped themes + user theme **config file** (Warp/Ghostty matte) |
+| Widget dashboard v1 | L | Widget catalog, drag/move/resize grid, default template, **per-user JSON layout file** |
+| First-run onboarding + agent charter | M | Name the agent; write charter `.md`; seed memory (§2.1) |
+
+### Phase 7 — Proactive agent, tasks, notifications & gateway
+
+The agent comes alive and becomes reachable. Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §2, §4, §7.6, §9 Tier 2.
+
+| Item | Effort | Notes |
+|------|--------|-------|
+| Headless core + gateway + auth | L | Deployable service; gateway auth (tokens/TLS/device pairing); assume remote clients |
+| Secrets-at-rest encryption | M | Graduates from Phase 0 — required once reachable beyond localhost |
+| Proactive engine + Tasks scheduler | L | Background watch loop; scheduled prompts (7AM/4PM); event triggers |
+| Notifications (in-app + Telegram/Discord interactive) | M | Top-down notification widget; **Accept/Decline from phone**; per-channel config; optional desktop sound |
+| Chart-level monitoring | M | Draw-on-chart + plain-language → watchable conditions |
+| Source scripts (X/Reddit via LLM search) | M | Crafted-search ingestion; prototype reliability first (no paid APIs to start) |
+
+### Phase 8 — Desktop shell (Tauri) & multi-window
+
+Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §7.1, §7.6, §9 Tier 3.
+
+| Item | Effort | Notes |
+|------|--------|-------|
+| Tauri shell as thin client of the core | L | Bundle Next + Python sidecars; window → gateway |
+| Multi-window pop-outs | M | Chat / watchlist / chart in separate windows |
+| OS integration | S–M | Native notifications, sound, tray, autostart |
+
+---
+
 ## 6. What to build next (recommended order)
 
-For a solo developer, the highest leverage sequence:
+Full vision-level ordering (Tiers 0–5) lives in [`IDEA_BANK.md`](IDEA_BANK.md) §9. **Tier 0 "door-open seams" are honored continuously** (route all orders through the future execution gate; treat backend as a headless core w/ remote-ready auth; keep storage behind `db/`; feed-agnostic strategy boundary; design-token themes; files-vs-DB split + precise history). Read-only UX/agent work (Phases 6–8) can ship **before** the live-trading gate (Phase 4).
+
+For a solo developer, the highest-leverage near-term sequence:
 
 1. **Chat Phase 3 (finish)** — rehydrate learned chips on thread reload (C4); optional: drop legacy Python SSE host when all providers route through Next.
-2. **Phase 0 leftovers** — async broker I/O offload, secrets encryption (2–3 days).
-3. **Decimal + RiskEngine design** — before any execution UI (2 weeks).
+2. **Phase 0 leftovers** — async broker I/O offload (secrets encryption can defer to Phase 7 when the gateway needs it).
+3. **Phase 6 — Shell pivot** — bottom command console v1, theme/token system, widget dashboard v1, onboarding + charter.
+4. **Phase 7 — Agent alive** — headless core + gateway, proactive engine + tasks, interactive notifications, chart-level monitoring.
+5. **Phase 8 — Tauri desktop shell** — once the web UX + core/gateway are solid.
+6. **Phase 4 — Money & safety** — `Decimal` + `RiskEngine` + `ExecutionService`, **before any live execution UI** (do whenever live trading is the goal; non-execution work above doesn't depend on it).
 
 ---
 
