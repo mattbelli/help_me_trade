@@ -450,6 +450,11 @@ def api_memory_extract(body: dict = Body(...)):
     session_id = body.get("sessionId") or body.get("session_id")
     if session_id is not None:
         session_id = str(session_id).strip()
+    source_message_id = body.get("sourceMessageId") or body.get(
+        "source_message_id"
+    )
+    if source_message_id is not None:
+        source_message_id = str(source_message_id).strip() or None
     model = body.get("model")
     chat_model = str(model).strip() if model else None
 
@@ -468,8 +473,30 @@ def api_memory_extract(body: dict = Body(...)):
         assistant_text=assistant_text,
         session_id=session_id or "chat",
         model=chat_model,
+        source_message_id=source_message_id,
     )
     return {"memories": memories}
+
+
+@router.get("/memory/session/{session_id}")
+def api_list_session_chat_memories(session_id: str):
+    """List chat-extracted memories for a session (for chip rehydration)."""
+    sid = session_id.strip()
+    if not sid:
+        return JSONResponse({"error": "session_id is required"}, status_code=400)
+
+    service = get_memory_service()
+    out: list[dict] = []
+    for record in service.list(limit=200):
+        meta = record.get("metadata") or {}
+        if meta.get("source") != "chat":
+            continue
+        if meta.get("session_id") != sid:
+            continue
+        source_message_id = meta.get("source_message_id")
+        out.append({**record, "source_message_id": source_message_id})
+
+    return {"memories": out}
 
 
 @router.post("/research/run")

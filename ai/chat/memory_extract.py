@@ -77,6 +77,7 @@ def extract_memories_from_turn(
     assistant_text: str,
     session_id: str,
     model: str | None = None,
+    source_message_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return memory records created from a chat turn."""
     if not user_text.strip() or not assistant_text.strip():
@@ -111,12 +112,15 @@ def extract_memories_from_turn(
         candidates = _heuristic_memories(user_text, assistant_text)
 
     memory = get_memory_service()
+    metadata: dict[str, Any] = {"source": "chat", "session_id": session_id}
+    if source_message_id:
+        metadata["source_message_id"] = source_message_id
     saved: list[dict[str, Any]] = []
     for item in candidates:
         record = memory.add(
             item["content"],
             memory_type=item["type"],
-            metadata={"source": "chat", "session_id": session_id},
+            metadata=metadata,
         )
         saved.append(record)
     return saved

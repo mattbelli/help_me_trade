@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useChatSettings } from "@/lib/chat-settings-context";
 import { useLearnedMemories } from "@/lib/learned-memories-context";
-import { extractTurnMemories } from "@/lib/memories";
+import { extractTurnMemories, listSessionMemories } from "@/lib/memories";
 import { usePythonThreadListAdapter } from "@/lib/python-thread-adapter";
 
 const SUGGESTIONS = [
@@ -37,7 +37,7 @@ function messageText(m: UIMessage): string {
 
 function useChatThreadRuntime(): AssistantRuntime {
   const { settingsRef } = useChatSettings();
-  const { setLearnedForMessage } = useLearnedMemories();
+  const { setLearnedForMessage, clearLearnedMemories } = useLearnedMemories();
 
   const transport = useMemo(
     () =>
@@ -54,10 +54,11 @@ function useChatThreadRuntime(): AssistantRuntime {
   );
 
   const id = useAuiState((s) => s.threadListItem.id);
-  const idRef = useRef(id);
+  const remoteId = useAuiState((s) => s.threadListItem.remoteId);
+  const remoteIdRef = useRef(remoteId);
   useEffect(() => {
-    idRef.current = id;
-  }, [id]);
+    remoteIdRef.current = remoteId;
+  }, [remoteId]);
 
   const extractedForMessageRef = useRef<Set<string>>(new Set());
 
@@ -73,7 +74,8 @@ function useChatThreadRuntime(): AssistantRuntime {
       if (!assistantText || !userText) return;
       extractedForMessageRef.current.add(assistant.id);
       extractTurnMemories({
-        sessionId: idRef.current,
+        sessionId: remoteIdRef.current,
+        sourceMessageId: assistant.id,
         userText,
         assistantText,
         model: settingsRef.current.model || undefined,
@@ -87,6 +89,43 @@ function useChatThreadRuntime(): AssistantRuntime {
     },
     [setLearnedForMessage, settingsRef],
   );
+
+  useEffect(() => {
+    if (!remoteId) {
+      clearLearnedMemories();
+      extractedForMessageRef.current.clear();
+      return;
+    }
+
+    let cancelled = false;
+    const sessionId = remoteId;
+    extractedForMessageRef.current.clear();
+    clearLearnedMemories();
+
+    listSessionMemories(sessionId)
+      .then((memories) => {
+        if (cancelled) return;
+        const grouped = new Map<string, typeof memories>();
+        for (const memory of memories) {
+          const messageId = memory.sourceMessageId;
+          if (!messageId) continue;
+          const existing = grouped.get(messageId);
+          if (existing) existing.push(memory);
+          else grouped.set(messageId, [memory]);
+        }
+        for (const [messageId, mems] of grouped) {
+          if (extractedForMessageRef.current.has(messageId)) continue;
+          setLearnedForMessage(messageId, mems);
+        }
+      })
+      .catch(() => {
+        // Leave chips empty; user can still chat.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteId, clearLearnedMemories, setLearnedForMessage]);
 
   const aui = useAui();
   const chat = useChat({
