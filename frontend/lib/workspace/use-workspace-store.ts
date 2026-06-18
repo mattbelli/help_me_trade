@@ -15,13 +15,20 @@ import {
   type WidgetDefaultSize,
 } from "./widget-registry";
 
+type EnsureChatResult = {
+  instanceId: string;
+  added: boolean;
+};
+
 type WorkspaceState = {
   layout: WorkspaceLayoutItem[];
   hydrated: boolean;
   pickerOpen: boolean;
+  highlightInstanceId: string | null;
   hydrate: () => void;
   updateLayout: (layout: WorkspaceLayoutItem[]) => void;
   addWidget: (type: string) => boolean;
+  ensureChatWidget: () => EnsureChatResult | null;
   updateWidgetConfig: (
     instanceId: string,
     patch: Partial<WidgetInstanceConfig>,
@@ -29,6 +36,7 @@ type WorkspaceState = {
   removeWidget: (id: string) => void;
   setPickerOpen: (open: boolean) => void;
   openPicker: () => void;
+  setHighlight: (instanceId: string | null) => void;
 };
 
 const GRID_COLS = 24;
@@ -90,10 +98,13 @@ function defaultConfigForType(type: string): WidgetInstanceConfig | undefined {
   return undefined;
 }
 
+let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   layout: DEFAULT_WORKSPACE_LAYOUT,
   hydrated: false,
   pickerOpen: false,
+  highlightInstanceId: null,
   hydrate: () => {
     const loaded = localStorageLayoutPersistence.load();
     set({
@@ -135,6 +146,51 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ layout: merged, pickerOpen: false });
     localStorageLayoutPersistence.save(merged);
     return true;
+  },
+  ensureChatWidget: () => {
+    const def = getWidgetDefinition("chat");
+    if (!def) return null;
+
+    const { layout } = get();
+    const existing = layout.find((item) => item.type === "chat");
+    if (existing) {
+      return { instanceId: existing.i, added: false };
+    }
+
+    const instanceId = "chat";
+    const { w, h, minW, minH } = def.defaultSize;
+    const shifted = layout.map((item) => ({ ...item, y: item.y + h }));
+    const next: WorkspaceLayoutItem = {
+      i: instanceId,
+      type: "chat",
+      x: 0,
+      y: 0,
+      w,
+      h,
+      minW,
+      minH,
+    };
+
+    const merged = [next, ...shifted];
+    set({ layout: merged });
+    localStorageLayoutPersistence.save(merged);
+    get().setHighlight(instanceId);
+    return { instanceId, added: true };
+  },
+  setHighlight: (instanceId) => {
+    if (highlightTimer) {
+      clearTimeout(highlightTimer);
+      highlightTimer = null;
+    }
+    set({ highlightInstanceId: instanceId });
+    if (instanceId) {
+      highlightTimer = setTimeout(() => {
+        if (get().highlightInstanceId === instanceId) {
+          set({ highlightInstanceId: null });
+        }
+        highlightTimer = null;
+      }, 2500);
+    }
   },
   updateWidgetConfig: (instanceId, patch) => {
     const { layout } = get();

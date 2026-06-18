@@ -1,15 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { motion } from "motion/react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { useAui } from "@assistant-ui/react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useConsoleStore } from "@/lib/workspace/use-console-store";
+import {
+  useConsoleStore,
+  type ScrollbackEntry,
+} from "@/lib/workspace/use-console-store";
+import {
+  WORKSPACE_COMMANDS,
+  useWorkspaceCommands,
+} from "@/lib/workspace/use-workspace-commands";
+import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 
-import { WorkspaceCmdPalette } from "./workspace-cmd-palette";
-import { WorkspaceThread } from "./workspace-chat";
+import { useWorkspaceToast } from "./workspace-toast";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -21,22 +37,99 @@ function isTypingTarget(target: EventTarget | null) {
   );
 }
 
+function ScrollbackLine({ entry }: { entry: ScrollbackEntry }) {
+  return (
+    <div
+      className={cn(
+        "font-mono text-[12px] leading-relaxed whitespace-pre-wrap",
+        entry.kind === "input" && "text-[var(--fg-dim)]",
+        entry.kind === "output" && "text-[var(--fg-faint)]",
+        entry.kind === "error" && "text-[var(--c-danger,#ef4444)]",
+        entry.kind === "sent" && "text-[var(--c-accent)]",
+      )}
+    >
+      {entry.kind === "input" ? (
+        <>
+          <span className="text-[var(--c-command)]">› </span>
+          {entry.text}
+        </>
+      ) : (
+        entry.text
+      )}
+    </div>
+  );
+}
+
+function CommandAutocomplete({
+  filter,
+  onSelect,
+}: {
+  filter: string;
+  onSelect: (command: string) => void;
+}) {
+  const matches = WORKSPACE_COMMANDS.filter((cmd) =>
+    cmd.startsWith(filter.toLowerCase()),
+  );
+
+  if (matches.length === 0) return null;
+
+  return (
+    <ul className="absolute bottom-full left-0 z-10 mb-1 max-h-36 w-full overflow-auto rounded-md border border-[var(--border)] bg-[var(--bg-raised)] py-1 shadow-lg">
+      {matches.map((cmd) => (
+        <li key={cmd}>
+          <button
+            type="button"
+            className="w-full px-3 py-1 text-left font-mono text-[11px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onSelect(cmd);
+            }}
+          >
+            <span className="text-[var(--c-command)]">{cmd}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function CommandConsole() {
   const {
     open,
     height,
-    mode,
-    paletteOpen,
+    scrollback,
     collapsedHeight,
     toggle,
     setOpen,
     setHeight,
-    toggleMode,
-    openPalette,
+    appendScrollback,
   } = useConsoleStore();
 
+  const ensureChatWidget = useWorkspaceStore((s) => s.ensureChatWidget);
+  const { showToast } = useWorkspaceToast();
+  const { runCommand } = useWorkspaceCommands();
+  const aui = useAui();
+
   const consoleRef = useRef<HTMLDivElement>(null);
-  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollbackRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(
+    null,
+  );
+  const [inputValue, setInputValue] = useState("");
+  const [focused, setFocused] = useState(false);
+  const [cursorVisible, setCursorVisible] = useState(true);
+
+  useEffect(() => {
+    if (!focused) return;
+    const id = setInterval(() => setCursorVisible((v) => !v), 530);
+    return () => clearInterval(id);
+  }, [focused]);
+
+  useEffect(() => {
+    if (!open || !scrollbackRef.current) return;
+    scrollbackRef.current.scrollTop = scrollbackRef.current.scrollHeight;
+  }, [open, scrollback]);
 
   const onResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -59,13 +152,78 @@ export function CommandConsole() {
     [height, open, setHeight],
   );
 
+  const focusInput = useCallback(() => {
+    setOpen(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [setOpen]);
+
+  const submitLine = useCallback(
+    async (raw: string) => {
+      const text = raw.trim();
+      if (!text) return;
+
+      if (text.startsWith("/")) {
+        appendScrollback({ kind: "input", text });
+        setOpen(true);
+
+        const result = await runCommand(text);
+        if (result.output) {
+          appendScrollback({ kind: "output", text: result.output });
+        }
+        if (result.error) {
+          appendScrollback({ kind: "error", text: result.error });
+        }
+        return;
+      }
+
+      aui.thread().composer().setText(text);
+      aui.thread().composer().send();
+
+      const ensured = ensureChatWidget();
+      if (ensured?.added) {
+        showToast("Chat added — drag to reposition.");
+      }
+
+      appendScrollback({ kind: "sent", text: `sent › ${text}` });
+    },
+    [
+      appendScrollback,
+      aui,
+      ensureChatWidget,
+      runCommand,
+      setOpen,
+      showToast,
+    ],
+  );
+
+  const onSubmit = useCallback(
+    (event: FormEvent) => {
+      event.preventDefault();
+      const text = inputValue;
+      setInputValue("");
+      void submitLine(text);
+    },
+    [inputValue, submitLine],
+  );
+
+  const onInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        inputRef.current?.blur();
+      }
+    },
+    [setOpen],
+  );
+
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.defaultPrevented || event.repeat) return;
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         toggle();
+        if (!open) focusInput();
         return;
       }
 
@@ -77,13 +235,13 @@ export function CommandConsole() {
         !isTypingTarget(event.target)
       ) {
         event.preventDefault();
-        openPalette();
+        focusInput();
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openPalette, toggle]);
+  }, [focusInput, open, toggle]);
 
   useEffect(() => {
     if (!open) return;
@@ -100,6 +258,7 @@ export function CommandConsole() {
   }, [open, setOpen]);
 
   const panelHeight = open ? height : collapsedHeight;
+  const showAutocomplete = focused && inputValue === "/";
 
   return (
     <motion.div
@@ -121,61 +280,75 @@ export function CommandConsole() {
         </div>
       ) : null}
 
-      {open ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {mode === "ask" ? (
-            <WorkspaceThread />
-          ) : paletteOpen ? (
-            <div className="h-full overflow-auto p-2">
-              <WorkspaceCmdPalette />
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center p-4">
-              <p className="font-mono text-xs text-[var(--fg-dim)]">
-                Press{" "}
-                <kbd className="rounded border border-[var(--border)] px-1">
-                  /
-                </kbd>{" "}
-                for commands
-              </p>
-            </div>
-          )}
+      {open && scrollback.length > 0 ? (
+        <div
+          ref={scrollbackRef}
+          className="min-h-0 flex-1 overflow-y-auto px-3.5 py-2"
+        >
+          <div className="flex flex-col gap-1">
+            {scrollback.map((entry) => (
+              <ScrollbackLine key={entry.id} entry={entry} />
+            ))}
+          </div>
         </div>
+      ) : open ? (
+        <div className="min-h-0 flex-1" />
       ) : null}
 
-      <div
+      <form
+        onSubmit={onSubmit}
         className={cn(
-          "flex h-[46px] shrink-0 items-center gap-2.5 px-3.5",
+          "relative flex h-[46px] shrink-0 items-center gap-2 px-3.5",
           open && "border-t border-[var(--border)]",
         )}
       >
-        <button
-          type="button"
-          onClick={toggleMode}
-          className={cn(
-            "cursor-pointer rounded-md border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1 font-mono text-[10.5px] font-semibold tracking-wide uppercase select-none",
-            mode === "ask" ? "text-[var(--c-accent)]" : "text-[var(--c-command)]",
-          )}
-        >
-          {mode === "ask" ? "ASK" : "CMD"}
-        </button>
+        {showAutocomplete ? (
+          <CommandAutocomplete
+            filter={inputValue}
+            onSelect={(cmd) => {
+              setInputValue(`${cmd} `);
+              inputRef.current?.focus();
+            }}
+          />
+        ) : null}
 
-        <span className="font-mono text-[var(--fg-faint)]">›</span>
+        <span className="shrink-0 font-mono text-[var(--c-command)]">›</span>
 
-        <button
-          type="button"
-          className="flex-1 truncate text-left font-mono text-[13px] text-[var(--fg-faint)]"
-          onClick={() => setOpen(true)}
-        >
-          {mode === "ask"
-            ? "Ask your copilot, or / for commands"
-            : "Type / for command palette"}
-        </button>
-
-        <span className="hidden items-center gap-1.5 font-mono text-[10.5px] text-[var(--fg-faint)] sm:flex">
-          <span className="size-1.5 rounded-full bg-[var(--c-accent)]" />
-          idle
-        </span>
+        <div className="relative min-w-0 flex-1">
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onFocus={() => {
+              setFocused(true);
+              setOpen(true);
+            }}
+            onBlur={() => setFocused(false)}
+            onKeyDown={onInputKeyDown}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Workspace command line"
+            className="w-full bg-transparent font-mono text-[13px] text-foreground outline-none"
+            style={{ caretColor: "transparent" }}
+          />
+          {focused ? (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-0 flex items-center font-mono text-[13px] text-transparent"
+            >
+              {inputValue}
+              <span
+                className={cn(
+                  "text-[var(--c-command)]",
+                  cursorVisible ? "opacity-100" : "opacity-0",
+                )}
+              >
+                ▋
+              </span>
+            </span>
+          ) : null}
+        </div>
 
         <span className="hidden font-mono text-[10.5px] text-[var(--fg-faint)] sm:inline">
           ⌘K
@@ -195,7 +368,7 @@ export function CommandConsole() {
             <ChevronUpIcon className="size-4" />
           )}
         </Button>
-      </div>
+      </form>
     </motion.div>
   );
 }

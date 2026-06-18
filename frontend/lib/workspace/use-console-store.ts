@@ -2,52 +2,52 @@
 
 import { create } from "zustand";
 
-export type ConsoleMode = "ask" | "cmd";
-
 const COLLAPSED_HEIGHT = 46;
 const DEFAULT_OPEN_HEIGHT = 420;
 const MIN_OPEN_HEIGHT = 200;
 const MAX_OPEN_HEIGHT = 720;
 
+export type ScrollbackEntry = {
+  id: string;
+  kind: "input" | "output" | "error" | "sent";
+  text: string;
+};
+
 type ConsoleState = {
   open: boolean;
   height: number;
-  mode: ConsoleMode;
-  paletteOpen: boolean;
+  scrollback: ScrollbackEntry[];
   toggle: () => void;
   setOpen: (open: boolean) => void;
   setHeight: (height: number) => void;
-  setMode: (mode: ConsoleMode) => void;
-  toggleMode: () => void;
-  setPaletteOpen: (open: boolean) => void;
-  openPalette: () => void;
+  appendScrollback: (entry: Omit<ScrollbackEntry, "id">) => void;
+  clearScrollback: () => void;
   collapsedHeight: number;
   minOpenHeight: number;
   maxOpenHeight: number;
 };
 
-export const useConsoleStore = create<ConsoleState>((set, get) => ({
+let scrollbackSeq = 0;
+
+export const useConsoleStore = create<ConsoleState>((set) => ({
   open: false,
   height: DEFAULT_OPEN_HEIGHT,
-  mode: "ask",
-  paletteOpen: false,
+  scrollback: [],
   collapsedHeight: COLLAPSED_HEIGHT,
   minOpenHeight: MIN_OPEN_HEIGHT,
   maxOpenHeight: MAX_OPEN_HEIGHT,
-  toggle: () => set((s) => ({ open: !s.open, paletteOpen: false })),
-  setOpen: (open) => set({ open, paletteOpen: open ? get().paletteOpen : false }),
+  toggle: () => set((s) => ({ open: !s.open })),
+  setOpen: (open) => set({ open }),
   setHeight: (height) =>
     set({
       height: Math.min(MAX_OPEN_HEIGHT, Math.max(MIN_OPEN_HEIGHT, height)),
     }),
-  setMode: (mode) => set({ mode, paletteOpen: mode === "cmd" }),
-  toggleMode: () =>
+  appendScrollback: (entry) =>
     set((s) => ({
-      mode: s.mode === "ask" ? "cmd" : "ask",
-      paletteOpen: s.mode === "ask",
-      open: true,
+      scrollback: [
+        ...s.scrollback,
+        { ...entry, id: `sb-${++scrollbackSeq}` },
+      ],
     })),
-  setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
-  openPalette: () =>
-    set({ open: true, mode: "cmd", paletteOpen: true }),
+  clearScrollback: () => set({ scrollback: [] }),
 }));

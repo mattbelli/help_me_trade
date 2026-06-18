@@ -22,9 +22,8 @@ export default function WorkspacePage() {
           className="relative flex min-h-0 flex-1 flex-col"
           style={{ paddingBottom: consoleHeight }}
         >
-          <WorkspaceGrid />
-
           <WorkspaceChatProviders>
+            <WorkspaceGrid />
             <CommandConsole />
           </WorkspaceChatProviders>
         </div>
