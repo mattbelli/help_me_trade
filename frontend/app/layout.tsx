@@ -29,7 +29,7 @@ export default function RootLayout({
       lang="en"
       suppressHydrationWarning
       className={cn(
-        "dark antialiased",
+        "antialiased",
         plexMono.variable,
         "font-sans",
         plexSans.variable,
