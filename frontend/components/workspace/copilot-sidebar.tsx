@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   ChevronDownIcon,
@@ -27,25 +27,10 @@ export function CopilotSidebar() {
   const setWidth = useCopilotStore((s) => s.setWidth);
   const togglePinned = useCopilotStore((s) => s.togglePinned);
   const hydrate = useCopilotStore((s) => s.hydrate);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
-
-  useEffect(() => {
-    if (!open || pinned) return;
-
-    function onPointerDown(event: PointerEvent) {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (panelRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open, pinned, setOpen]);
 
   const onResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -94,12 +79,11 @@ export function CopilotSidebar() {
 
   return (
     <motion.div
-      ref={panelRef}
       className={cn(
         "absolute z-40 flex flex-col overflow-hidden border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)]",
         pinned
           ? "top-0 right-0 bottom-0 rounded-none border-r-0 border-t-0 border-b-0"
-          : "bottom-3 right-3 max-h-[calc(100svh-6rem)] rounded-lg",
+          : "bottom-3 right-3 h-[32rem] max-h-[calc(100svh-6rem)] rounded-lg",
       )}
       style={{ width }}
       initial={false}
