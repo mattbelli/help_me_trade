@@ -1,0 +1,1 @@
+"""Signal & automation engine primitives."""
