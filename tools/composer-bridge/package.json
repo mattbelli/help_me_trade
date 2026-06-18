@@ -1,0 +1,17 @@
+{
+  "name": "composer-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin wrapper around @cursor/sdk so Claude Code (the orchestrator) can dispatch Composer 2.5 coding agents against this repo. See README.md.",
+  "bin": {
+    "dispatch-composer": "./dispatch.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@connectrpc/connect-node": "^1.7.0",
+    "@cursor/sdk": "^1.0.0"
+  }
+}
