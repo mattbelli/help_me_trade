@@ -115,71 +115,65 @@ function WatchlistAddRow({
   );
 
   return (
-    <div className={cn(ROW_GRID, "border-b border-[var(--border)] px-2 py-1")}>
-      <span />
-      <div
-        ref={wrapRef}
-        className="relative flex min-w-0 items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1"
-      >
-        <span className="shrink-0 font-mono text-[11px] text-[var(--fg-faint)]">
-          +
+    <div
+      ref={wrapRef}
+      className="relative flex items-center gap-x-1 border-b border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5"
+    >
+      <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--fg-faint)]">
+        +
+      </span>
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        disabled={submitting}
+        placeholder="Add symbol"
+        className="min-w-0 flex-1 bg-transparent font-mono text-[12px] uppercase text-foreground outline-none placeholder:text-[var(--fg-faint)]"
+        onChange={(e) => {
+          const next = e.target.value.toUpperCase();
+          setQuery(next);
+          if (!next.trim()) {
+            setSuggestions([]);
+            setOpen(false);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void addSymbol(query || suggestions[0] || "");
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            reset();
+          }
+        }}
+        onFocus={() => {
+          if (suggestions.length > 0) setOpen(true);
+        }}
+      />
+      {loading ? (
+        <span className="absolute top-1/2 right-2 -translate-y-1/2 font-mono text-[9px] text-[var(--fg-faint)]">
+          …
         </span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          disabled={submitting}
-          placeholder="Add symbol"
-          className="min-w-0 flex-1 bg-transparent py-0.5 font-mono text-[12px] text-foreground uppercase outline-none placeholder:text-[var(--fg-faint)]"
-          onChange={(e) => {
-            const next = e.target.value.toUpperCase();
-            setQuery(next);
-            if (!next.trim()) {
-              setSuggestions([]);
-              setOpen(false);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void addSymbol(query || suggestions[0] || "");
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              reset();
-            }
-          }}
-          onFocus={() => {
-            if (suggestions.length > 0) setOpen(true);
-          }}
-        />
-        {loading ? (
-          <span className="absolute top-1/2 right-0 -translate-y-1/2 font-mono text-[9px] text-[var(--fg-faint)]">
-            …
-          </span>
-        ) : null}
-        {open && suggestions.length > 0 ? (
-          <ul className="absolute right-0 left-0 z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)]">
-            {suggestions.map((sym) => (
-              <li key={sym}>
-                <button
-                  type="button"
-                  className="w-full px-2 py-1 text-left font-mono text-[11px] text-foreground hover:bg-[var(--bg-hover)]"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    void addSymbol(sym);
-                  }}
-                >
-                  {sym}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-      <span />
-      <span />
-      <span />
+      ) : null}
+      {open && suggestions.length > 0 ? (
+        <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)]">
+          {suggestions.map((sym) => (
+            <li key={sym}>
+              <button
+                type="button"
+                className="w-full px-2 py-1 text-left font-mono text-[11px] text-foreground hover:bg-[var(--bg-hover)]"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  void addSymbol(sym);
+                }}
+              >
+                {sym}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
