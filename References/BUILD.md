@@ -271,6 +271,21 @@ The agent comes alive and becomes reachable. Detail: [`IDEA_BANK.md`](IDEA_BANK.
 | Chart-level monitoring | M | Draw-on-chart + plain-language → watchable conditions |
 | Source scripts (X/Reddit via LLM search) | M | Crafted-search ingestion; prototype reliability first (no paid APIs to start) |
 
+**Signal & Automation Engine (the substrate — build first within Phase 7).** Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §7.10–7.12. Most of this is backend / **pytest-verifiable** (remote-friendly); node-UI + chart drawing need visual review.
+
+| Item | Effort | Notes |
+|------|--------|-------|
+| Indicator/feature layer | M | Pure functions over bars + portfolio (price, %chg windows, sma/ema, crosses, rsi, atr, rel-strength, position metrics). The vocabulary. ✅ remote |
+| Declarative node-graph rule model + validator | M | Typed DAG (sources/indicators → transforms → conditions → logic → actions); schema-validated **data, never `exec`'d code**. ✅ remote |
+| Evaluator: streaming + scheduled scan | M | One evaluator, two runners (per-tick + batch over a universe); extends `ai/rules/engine.py` + `brokers/market_stream.py`. ✅ remote |
+| Backtest runner | M | Run a rule over history before arming (reuses the above). ✅ remote |
+| AI confirm-to-save authoring (`propose_rule`) | M | NL → validated graph → approval card (the `propose_order` pattern) |
+| Node-based visual builder | L | Langflow/n8n-style canvas — visual editor over the same graph (UI; needs eyes) |
+| Default presets (clearable) + AI playbook | S | Seed rules/scans as data; power user clears |
+| Chart overlay model + Lightweight-Charts expansion | M–L | Decoupled overlay model (drawings/alert-lines/studies/markers); LWC renders; bidirectional draw↔rule (§7.11) |
+
+Declarative-not-code is the locked safety call (no AI-generated `exec`); sandboxed scripting only as a far-future, gated escalation.
+
 ### Phase 8 — Desktop shell (Tauri) & multi-window
 
 Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §7.1, §7.6, §9 Tier 3.
@@ -292,7 +307,7 @@ For a solo developer, the highest-leverage near-term sequence:
 1. **Chat Phase 3 (finish)** — rehydrate learned chips on thread reload (C4); optional: drop legacy Python SSE host when all providers route through Next.
 2. **Phase 0 leftovers** — async broker I/O offload (secrets encryption can defer to Phase 7 when the gateway needs it).
 3. **Phase 6 — Shell pivot** — bottom command console v1, theme/token system, widget dashboard v1, onboarding + charter.
-4. **Phase 7 — Agent alive** — headless core + gateway, proactive engine + tasks, interactive notifications, chart-level monitoring.
+4. **Phase 7 — Agent alive** — the **Signal & Automation Engine** (indicator layer → declarative node-graph rule model → evaluator → backtest; the substrate for alerts/scans/chart studies/AI-proposals, mostly remote/pytest-verifiable), headless core + gateway, proactive engine + tasks, interactive notifications, chart-level monitoring.
 5. **Phase 8 — Tauri desktop shell** — once the web UX + core/gateway are solid.
 6. **Phase 4 — Money & safety** — `Decimal` + `RiskEngine` + `ExecutionService`, **before any live execution UI** (do whenever live trading is the goal; non-execution work above doesn't depend on it).
 
@@ -373,6 +388,7 @@ If port 8000 is in use: `netstat -ano | findstr ":8000"` then `taskkill /PID <pi
 
 | Date | Change |
 |------|--------|
+| 2026-06-18 | Vision fold (IDEA_BANK §7.10–7.12): **Signal & Automation Engine** (one declarative node-graph for rules/alerts/scans/automations; indicator layer; streaming/scan/backtest runners; AI confirm-to-save + node-UI + DSL + clearable presets), **charting over a decoupled overlay model** (expand Lightweight Charts; draw↔rule bidirectional; lib swappable), **grounding-not-training + MCP-not-needed-in-app**. Folded into Phase 7 (engine block) + §6. |
 | 2026-06-16 | Phase 3 C1–C3: `POST /api/memory/extract`, client `onFinish` extraction, “Learned from this chat” chips; assistant-ui Thread (B5); server `extract=False` on finalize + legacy chat |
 | 2026-06-16 | Chat: locked assistant-ui (AI-SDK adapter); mem0 + stockbroker adopted as patterns not deps (Python-backed memory, approval card UI in P3 / execution in P4) |
 | 2026-06-16 | Intelligence P1: 1d/7d snapshot drift, programmatic research citations, rich rule facts, transition+cooldown, WS rule alerts |
