@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+import socket
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -281,14 +284,83 @@ def _searxng_search(
     return out
 
 
+MAX_REDIRECTS = 5
+_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _ip_is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _is_fetch_url_safe(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    if host == "localhost" or host.lower().endswith(".localhost"):
+        return False
+    try:
+        if not _ip_is_public(ipaddress.ip_address(host)):
+            return False
+    except ValueError:
+        pass
+    else:
+        return True
+    port = parsed.port or _DEFAULT_PORTS[parsed.scheme]
+    try:
+        addrinfo = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return False
+    for entry in addrinfo:
+        ip_str = entry[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        if not _ip_is_public(ip):
+            return False
+    return True
+
+
 def fetch_url(url: str) -> str:
     if not url or "research.local" in url:
         return ""
+    if not _is_fetch_url_safe(url):
+        logger.warning("Blocked unsafe URL fetch: %s", url)
+        return ""
     try:
-        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            resp = client.get(url, headers={"User-Agent": "HelpMeTrade-Research/1.0"})
-            resp.raise_for_status()
-            text = resp.text
+        current = url
+        with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+            for _ in range(MAX_REDIRECTS + 1):
+                resp = client.get(
+                    current,
+                    headers={"User-Agent": "HelpMeTrade-Research/1.0"},
+                )
+                if resp.status_code in _REDIRECT_STATUS_CODES:
+                    location = resp.headers.get("Location")
+                    if not location:
+                        resp.raise_for_status()
+                    current = urljoin(current, location)
+                    if not _is_fetch_url_safe(current):
+                        logger.warning("Blocked unsafe URL fetch: %s", current)
+                        return ""
+                    continue
+                resp.raise_for_status()
+                text = resp.text
+                break
+            else:
+                logger.warning("Too many redirects fetching URL: %s", url)
+                return ""
     except Exception as exc:
         logger.warning("URL fetch failed %s: %s", url, exc)
         return ""
