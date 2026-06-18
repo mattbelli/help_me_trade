@@ -1,8 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { Sparkline } from "@/components/trading/sparkline";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   fetchWatchlists,
@@ -11,6 +18,9 @@ import {
   type WatchlistsState,
 } from "@/lib/api";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { useChannelStore } from "@/lib/workspace/use-channel-store";
+import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
@@ -161,11 +171,14 @@ function WatchlistAddSymbol({
   );
 }
 
-export function WatchlistWidget() {
+export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const setChannelSymbol = useChannelStore((s) => s.setChannelSymbol);
+  const channel: ChannelId = config.channel ?? "none";
+  const linked = channel !== "none";
 
   useEffect(() => {
     let cancelled = false;
@@ -193,10 +206,15 @@ export function WatchlistWidget() {
     };
   }, []);
 
-  const activeList = state?.lists.find((list) => list.id === state.active_id);
+  const displayList = useMemo(() => {
+    if (!state) return null;
+    const listId = config.watchlistId ?? state.active_id;
+    return state.lists.find((list) => list.id === listId) ?? null;
+  }, [config.watchlistId, state]);
+
   const symbols = useMemo(
-    () => activeList?.symbols ?? EMPTY_SYMBOLS,
-    [activeList?.symbols],
+    () => displayList?.symbols ?? EMPTY_SYMBOLS,
+    [displayList?.symbols],
   );
 
   const { quotes, loading: marketLoading } = useWatchlistMarket({
@@ -206,11 +224,11 @@ export function WatchlistWidget() {
 
   const removeSymbol = useCallback(
     async (symbol: string) => {
-      if (!activeList) return;
+      if (!displayList) return;
       setRemoving(symbol);
       try {
-        const next = await updateWatchlist(activeList.id, {
-          symbols: activeList.symbols.filter((s) => s !== symbol),
+        const next = await updateWatchlist(displayList.id, {
+          symbols: displayList.symbols.filter((s) => s !== symbol),
         });
         setState(next);
       } catch (err) {
@@ -221,20 +239,28 @@ export function WatchlistWidget() {
         setRemoving(null);
       }
     },
-    [activeList],
+    [displayList],
+  );
+
+  const publishSymbol = useCallback(
+    (symbol: string) => {
+      if (!linked) return;
+      setChannelSymbol(channel, symbol);
+    },
+    [channel, linked, setChannelSymbol],
   );
 
   if (loading && !state) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
 
-  if (error && !activeList) {
+  if (error && !displayList) {
     return (
       <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>
     );
   }
 
-  if (!activeList) {
+  if (!displayList || !state) {
     return (
       <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
         No active watchlist
@@ -245,15 +271,48 @@ export function WatchlistWidget() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-[var(--border)] px-3 py-1.5">
-        <p className="font-mono text-[10px] text-[var(--fg-faint)]">
-          {activeList.name}
-          {marketLoading ? " · loading…" : null}
-        </p>
+        {state.lists.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger className="inline-flex items-center gap-1 font-mono text-[10px] text-[var(--fg-faint)] outline-none hover:text-foreground">
+              {displayList.name}
+              <ChevronDown className="size-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+            >
+              {state.lists.map((list) => (
+                <DropdownMenuItem
+                  key={list.id}
+                  onSelect={() => onConfigChange({ watchlistId: list.id })}
+                  className="px-2 py-1.5"
+                >
+                  {list.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <p className="font-mono text-[10px] text-[var(--fg-faint)]">
+            {displayList.name}
+          </p>
+        )}
+        {marketLoading ? (
+          <span className="font-mono text-[10px] text-[var(--fg-faint)]">
+            {" "}
+            · loading…
+          </span>
+        ) : null}
+        {linked ? (
+          <p className="mt-0.5 font-mono text-[9px] text-[var(--fg-faint)]">
+            Click a row to link symbol to channel
+          </p>
+        ) : null}
       </div>
 
       <WatchlistAddSymbol
         symbols={symbols}
-        activeListId={activeList.id}
+        activeListId={displayList.id}
         onUpdated={setState}
       />
 
@@ -289,7 +348,13 @@ export function WatchlistWidget() {
                 return (
                   <tr
                     key={symbol}
-                    className="group transition-colors hover:bg-[var(--bg-hover)]"
+                    onClick={() => publishSymbol(symbol)}
+                    className={cn(
+                      "group transition-colors",
+                      linked
+                        ? "cursor-pointer hover:bg-[var(--bg-hover)]"
+                        : "hover:bg-[var(--bg-hover)]",
+                    )}
                   >
                     <td className="border-b border-[var(--border)] px-2 py-1.5">
                       <span className="inline-flex items-center gap-1">
@@ -299,7 +364,10 @@ export function WatchlistWidget() {
                         <button
                           type="button"
                           disabled={removing === symbol}
-                          onClick={() => void removeSymbol(symbol)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void removeSymbol(symbol);
+                          }}
                           className="rounded px-0.5 font-mono text-[11px] leading-none text-[var(--fg-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40"
                           aria-label={`Remove ${symbol}`}
                         >

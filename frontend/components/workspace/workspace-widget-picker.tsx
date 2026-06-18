@@ -11,7 +11,10 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
-import { WIDGET_REGISTRY } from "@/lib/workspace/widget-registry";
+import {
+  getWidgetDefinition,
+  WIDGET_REGISTRY,
+} from "@/lib/workspace/widget-registry";
 
 type Props = {
   onClose?: () => void;
@@ -22,8 +25,15 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
   const addWidget = useWorkspaceStore((s) => s.addWidget);
   const setPickerOpen = useWorkspaceStore((s) => s.setPickerOpen);
 
-  const onBoard = new Set(layout.map((item) => item.i));
-  const available = WIDGET_REGISTRY.filter((w) => !onBoard.has(w.id));
+  const singletonTypesOnBoard = new Set(
+    layout
+      .filter((item) => !getWidgetDefinition(item.type)?.multiInstance)
+      .map((item) => item.type),
+  );
+
+  const available = WIDGET_REGISTRY.filter(
+    (w) => w.multiInstance || !singletonTypesOnBoard.has(w.id),
+  );
 
   function close() {
     setPickerOpen(false);
