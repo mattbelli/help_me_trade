@@ -241,11 +241,12 @@ def test_ai_performance_context_includes_enrichment_keys(
         period="all",
     )
 
-    assert "profit_factor" in context
-    assert "hold_time" in context
-    assert "streaks" in context
-    assert "behavioral_flags" in context
-    assert context["profit_factor"]["profit_factor"] is None
-    assert context["hold_time"]["count"] == 1
-    assert context["streaks"]["current_type"] == "win"
+    assert "approximate_fifo" in context
+    fifo = context["approximate_fifo"]
+    assert "profit_factor" in fifo
+    assert "hold_time" in fifo
+    assert "streaks" in fifo
+    assert fifo["profit_factor"]["profit_factor"] is None
+    assert fifo["hold_time"]["count"] == 1
+    assert fifo["streaks"]["current_type"] == "win"
     assert isinstance(context["behavioral_flags"], list)

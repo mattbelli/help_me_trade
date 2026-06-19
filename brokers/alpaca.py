@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -623,6 +624,64 @@ class AlpacaAdapter:
 
         data = await self._aget_data("/v2/stocks/bars", params=params)
         return self._parse_batch_bars(data.get("bars") or {})
+
+    def get_forward_splits(
+        self, symbols: list[str]
+    ) -> dict[str, list[tuple[date, Decimal]]]:
+        """Forward stock splits from Alpaca corporate-actions API (graceful on failure)."""
+        cleaned = sorted({s.strip().upper() for s in symbols if s and s.strip()})
+        if not cleaned:
+            return {}
+
+        try:
+            data = self._get_data(
+                "/v1/corporate-actions",
+                params={
+                    "symbols": ",".join(cleaned),
+                    "types": "forward_split",
+                    "limit": 1000,
+                },
+            )
+        except AlpacaError:
+            return {}
+
+        raw_actions = data.get("corporate_actions") if isinstance(data, dict) else None
+        if not isinstance(raw_actions, dict):
+            raw_actions = data if isinstance(data, dict) else {}
+        entries = raw_actions.get("forward_splits") or []
+        if not isinstance(entries, list):
+            return {}
+
+        by_symbol: dict[str, list[tuple[date, Decimal]]] = {}
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            sym = str(item.get("symbol") or "").upper()
+            if not sym:
+                continue
+            new_rate = item.get("new_rate")
+            old_rate = item.get("old_rate")
+            if new_rate is None or old_rate is None:
+                continue
+            try:
+                old = Decimal(str(old_rate))
+                if old <= 0:
+                    continue
+                ratio = Decimal(str(new_rate)) / old
+            except Exception:
+                continue
+            eff_raw = item.get("ex_date") or item.get("process_date")
+            if not eff_raw:
+                continue
+            try:
+                eff = date.fromisoformat(str(eff_raw))
+            except ValueError:
+                continue
+            by_symbol.setdefault(sym, []).append((eff, ratio))
+
+        for sym, splits in by_symbol.items():
+            splits.sort(key=lambda t: t[0])
+        return by_symbol
 
     def symbol_exists(self, symbol: str) -> bool:
         sym = symbol.strip().upper()

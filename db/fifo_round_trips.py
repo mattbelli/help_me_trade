@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Iterable
 
+from db.corporate_actions import (
+    SplitEvent,
+    SplitFactorsFn,
+    cumulative_split_ratio,
+    get_split_factors,
+)
 from imports.money import decimal_to_str, parse_dollar
 from imports.option_symbol import is_option_symbol
 
@@ -28,6 +35,63 @@ def _fifo_events_by_symbol(
             continue
         by_symbol[symbol].append(event)
     return by_symbol
+
+
+def _equity_symbols(symbols: Iterable[str]) -> set[str]:
+    return {s for s in symbols if s and not is_option_symbol(s)}
+
+
+def _resolve_splits_map(
+    symbols: Iterable[str],
+    split_factors: SplitFactorsFn | None,
+) -> dict[str, list[SplitEvent]]:
+    equity = _equity_symbols(symbols)
+    if not equity:
+        return {}
+    fn = split_factors or get_split_factors
+    return fn(equity)
+
+
+def _split_adjust_rows(
+    rows: list[dict[str, Any]],
+    splits: list[SplitEvent],
+) -> list[dict[str, Any]]:
+    if not splits:
+        return rows
+
+    adjusted: list[dict[str, Any]] = []
+    for row in rows:
+        event_date = date.fromisoformat(row["trade_date"])
+        ratio = cumulative_split_ratio(splits, event_date)
+        if ratio == Decimal("1"):
+            adjusted.append(row)
+            continue
+
+        new_row = dict(row)
+        qty = parse_dollar(row.get("quantity"))
+        if qty > 0:
+            new_row["quantity"] = decimal_to_str(qty * ratio)
+
+        price_raw = row.get("price")
+        if price_raw is not None:
+            price = parse_dollar(price_raw)
+            if price > 0:
+                new_row["price"] = decimal_to_str(price / ratio)
+
+        adjusted.append(new_row)
+    return adjusted
+
+
+def _rows_for_fifo(
+    symbol: str,
+    rows: list[dict[str, Any]],
+    splits_map: dict[str, list[SplitEvent]],
+) -> list[dict[str, Any]]:
+    if is_option_symbol(symbol):
+        # Option corporate actions deferred to R1d.
+        return rows
+    splits = splits_map.get(symbol.upper(), [])
+    return _split_adjust_rows(rows, splits)
 
 
 def _close_long_lots(
@@ -296,9 +360,14 @@ def _process_fifo_rows(
     return closed, stats
 
 
-def fifo_round_trip_stats(trade_events: list[dict[str, Any]]) -> tuple[int, int, int]:
+def fifo_round_trip_stats(
+    trade_events: list[dict[str, Any]],
+    *,
+    split_factors: SplitFactorsFn | None = None,
+) -> tuple[int, int, int]:
     """FIFO round-trip win/loss counts (equities + options)."""
     by_symbol = _fifo_events_by_symbol(trade_events)
+    splits_map = _resolve_splits_map(by_symbol.keys(), split_factors)
     wins = 0
     losses = 0
     round_trips = 0
@@ -306,7 +375,7 @@ def fifo_round_trip_stats(trade_events: list[dict[str, Any]]) -> tuple[int, int,
     for symbol, rows in by_symbol.items():
         _, stats = _process_fifo_rows(
             symbol,
-            rows,
+            _rows_for_fifo(symbol, rows, splits_map),
             collect_closed=False,
             collect_stats=True,
         )
@@ -321,15 +390,17 @@ def fifo_compute_round_trips(
     trade_events: list[dict[str, Any]],
     *,
     stocks_only: bool = False,
+    split_factors: SplitFactorsFn | None = None,
 ) -> list[dict[str, Any]]:
     """FIFO closed trades with realized P&L."""
     by_symbol = _fifo_events_by_symbol(trade_events, stocks_only=stocks_only)
+    splits_map = _resolve_splits_map(by_symbol.keys(), split_factors)
     closed: list[dict[str, Any]] = []
 
     for symbol, rows in by_symbol.items():
         symbol_closed, _ = _process_fifo_rows(
             symbol,
-            rows,
+            _rows_for_fifo(symbol, rows, splits_map),
             collect_closed=True,
             collect_stats=False,
         )
@@ -343,13 +414,18 @@ def fifo_compute_open_lots(
     trade_events: list[dict[str, Any]],
     *,
     stocks_only: bool = False,
+    split_factors: SplitFactorsFn | None = None,
 ) -> dict[str, dict[str, str]]:
     """FIFO open lots aggregated per symbol."""
     by_symbol = _fifo_events_by_symbol(trade_events, stocks_only=stocks_only)
+    splits_map = _resolve_splits_map(by_symbol.keys(), split_factors)
     open_lots: dict[str, dict[str, str]] = {}
 
     for symbol, rows in by_symbol.items():
-        sorted_rows = sorted(rows, key=lambda r: (r["trade_date"], r["id"]))
+        sorted_rows = sorted(
+            _rows_for_fifo(symbol, rows, splits_map),
+            key=lambda r: (r["trade_date"], r["id"]),
+        )
         long_lots: list[tuple[Decimal, Decimal, str]] = []
         short_lots: list[tuple[Decimal, Decimal, str]] = []
         option = is_option_symbol(symbol)

@@ -7,7 +7,9 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from db.behavioral import behavioral_facts
 from db.fifo_round_trips import fifo_compute_open_lots, fifo_compute_round_trips
+from db.realized_pnl import realized_summary
 from db.trades import daily_trade_stats, list_trade_events, trade_summary_stats
 from imports.money import decimal_to_str, parse_dollar
 from imports.option_symbol import is_option_symbol
@@ -421,6 +423,10 @@ def compute_behavioral_flags(
     return flags
 
 
+def _relevant_trade_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [e for e in events if e["event_type"] in ("trade", "option_expired")]
+
+
 def _round_trips_in_period(
     *,
     account_id: str | None,
@@ -432,9 +438,7 @@ def _round_trips_in_period(
         to_date=to_date,
         limit=100_000,
     )
-    history_trades = [
-        e for e in history_events if e["event_type"] in ("trade", "option_expired")
-    ]
+    history_trades = _relevant_trade_events(history_events)
     round_trips_all = compute_round_trips(history_trades)
     return [
         rt
@@ -466,9 +470,8 @@ def performance_dashboard(
         to_date=to_date,
         limit=100_000,
     )
-    history_trades = [
-        e for e in history_events if e["event_type"] in ("trade", "option_expired")
-    ]
+    history_trades = _relevant_trade_events(history_events)
+    period_trades = _relevant_trade_events(events)
     summary = trade_summary_stats(
         account_id=account_id,
         from_date=from_date,
@@ -482,9 +485,16 @@ def performance_dashboard(
         and (not to_date or rt["close_date"] <= to_date)
     ]
     stock_round_trips = [rt for rt in round_trips_in_period if not rt["is_option"]]
-    wins_all = sum(1 for r in round_trips_in_period if parse_dollar(r["pnl"]) > 0)
-    wins = sum(1 for r in stock_round_trips if parse_dollar(r["pnl"]) > 0)
-    realized_total = sum(parse_dollar(rt["pnl"]) for rt in round_trips_in_period)
+    fifo_wins_all = sum(
+        1 for r in round_trips_in_period if parse_dollar(r["pnl"]) > 0
+    )
+    fifo_wins = sum(1 for r in stock_round_trips if parse_dollar(r["pnl"]) > 0)
+    fifo_realized_total = sum(
+        parse_dollar(rt["pnl"]) for rt in round_trips_in_period
+    )
+    full_recon = realized_summary(history_trades)
+    period_recon = realized_summary(period_trades)
+    behavior = behavioral_facts(events)
     daily_cash_flow = daily_trade_stats(
         account_id=account_id,
         from_date=from_date,
@@ -499,15 +509,41 @@ def performance_dashboard(
         "from_date": from_date,
         "to_date": to_date,
         "summary": summary,
-        "realized_pnl": decimal_to_str(realized_total),
+        "realized_pnl": period_recon["realized_closed"],
+        "realized_closed": period_recon["realized_closed"],
+        "closed_win_rate": period_recon["closed_win_rate"],
         "cash_flow_pnl": summary["net_amount"],
+        "position_reconciliation": {
+            "period": {
+                "per_symbol": period_recon["per_symbol"],
+                "open_positions": period_recon["open_positions"],
+                "incomplete_positions": period_recon["incomplete_positions"],
+                "reliability": period_recon["reliability"],
+            },
+            "full_history": {
+                "per_symbol": full_recon["per_symbol"],
+                "open_positions": full_recon["open_positions"],
+                "incomplete_positions": full_recon["incomplete_positions"],
+                "reliability": full_recon["reliability"],
+            },
+        },
+        "behavioral": behavior,
+        "approximate_fifo": {
+            "realized_pnl": decimal_to_str(fifo_realized_total),
+            "win_rate": round(fifo_wins_all / len(round_trips_in_period), 4)
+            if round_trips_in_period
+            else None,
+            "stock_win_rate": round(fifo_wins / len(stock_round_trips), 4)
+            if stock_round_trips
+            else None,
+            "note": "approximate (hold-time only; unreliable for P&L on date-only exports)",
+        },
         "daily_realized": daily_realized,
         "daily_cash_flow": daily_cash_flow,
         "round_trips": round_trips_in_period[:100],
-        "win_rate": round(wins_all / len(round_trips_in_period), 4)
-        if round_trips_in_period
-        else None,
-        "stock_win_rate": round(wins / len(stock_round_trips), 4)
+        "round_trips_note": "approximate (hold-time only)",
+        "win_rate": period_recon["closed_win_rate"],
+        "stock_win_rate": round(fifo_wins / len(stock_round_trips), 4)
         if stock_round_trips
         else None,
         "asset_classes": asset_class_breakdown(events),
@@ -550,11 +586,30 @@ def ai_performance_context(
     )
 
     history_events = list_trade_events(account_id=account_id, limit=100_000)
-    history_trades = [
-        e for e in history_events if e["event_type"] in ("trade", "option_expired")
-    ]
+    history_trades = _relevant_trade_events(history_events)
+    period_events = list_trade_events(
+        account_id=account_id,
+        from_date=dash["from_date"],
+        to_date=dash["to_date"],
+        limit=100_000,
+    )
+    period_trades = _relevant_trade_events(period_events)
     open_lots = compute_open_lots(history_trades)
     snap = get_latest_snapshot()
+    latest_prices: dict[str, Decimal] | None = None
+    if snap and snap.get("positions"):
+        latest_prices = {}
+        for pos in snap["positions"]:
+            symbol = pos.get("symbol")
+            if not symbol:
+                continue
+            price = pos.get("current_price")
+            if price is not None:
+                latest_prices[symbol] = Decimal(str(price))
+
+    full_recon = realized_summary(history_trades, latest_prices=latest_prices)
+    period_recon = realized_summary(period_trades, latest_prices=latest_prices)
+    behavior = behavioral_facts(period_events)
     unrealized = compute_unrealized(
         open_lots,
         snap["positions"] if snap else [],
@@ -564,16 +619,34 @@ def ai_performance_context(
         "period": period,
         "from_date": dash["from_date"],
         "to_date": dash["to_date"],
+        "realized": {
+            "realized_closed": period_recon["realized_closed"],
+            "closed_win_rate": period_recon["closed_win_rate"],
+            "per_symbol": period_recon["per_symbol"],
+            "open_positions": full_recon["open_positions"],
+            "incomplete_positions": full_recon["incomplete_positions"],
+            "reliability": {
+                **period_recon["reliability"],
+                "incomplete_positions": full_recon["reliability"][
+                    "incomplete_positions"
+                ],
+                "open_positions": full_recon["reliability"]["open_positions"],
+            },
+        },
+        "behavioral": behavior,
+        "approximate_fifo": {
+            "profit_factor": compute_profit_factor(round_trips_in_period),
+            "hold_time": compute_hold_times(round_trips_in_period),
+            "streaks": compute_streaks(round_trips_in_period),
+            "recent_closed_trades": dash["round_trips"][:15],
+            "largest_wins": dash["top_winners"][:3],
+            "largest_losses": dash["top_losers"][:3],
+            "note": dash["round_trips_note"],
+        },
         "summary": dash["summary"],
         "asset_classes": dash["asset_classes"],
         "day_of_week": dash["day_of_week"],
         "top_symbols": symbols,
-        "recent_closed_trades": dash["round_trips"][:15],
-        "largest_wins": dash["top_winners"][:3],
-        "largest_losses": dash["top_losers"][:3],
-        "profit_factor": compute_profit_factor(round_trips_in_period),
-        "hold_time": compute_hold_times(round_trips_in_period),
-        "streaks": compute_streaks(round_trips_in_period),
         "behavioral_flags": compute_behavioral_flags(
             round_trips_in_period,
             dash["daily_cash_flow"],
