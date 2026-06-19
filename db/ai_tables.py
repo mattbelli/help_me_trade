@@ -308,8 +308,12 @@ def save_research_artifact(
 ) -> dict[str, Any]:
     init_ai_tables(db_path)
     now = _now()
-    payload = json.dumps(report_json) if report_json is not None else None
-    sources_json = json.dumps(sources or [])
+    payload = (
+        json.dumps(report_json, ensure_ascii=False)
+        if report_json is not None
+        else None
+    )
+    sources_json = json.dumps(sources or [], ensure_ascii=False)
     with _connect(db_path) as conn:
         if artifact_id is not None:
             conn.execute(

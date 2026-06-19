@@ -9,9 +9,13 @@ from datetime import date, timedelta
 import pytest
 
 import db.ai_tables as ai_tables
+from ai.llm.structured import parse_with_retry
 from ai.retrospective import (
     INSUFFICIENT_OOS_NOTE,
+    RETRO_MAX_TOKENS,
+    RetroReport,
     _compute_train_oos_split,
+    _normalize_unicode_text,
     _sanitize_llm_context,
     generate_retrospective_report,
 )
@@ -118,11 +122,23 @@ MOCK_REPORT = {
 class _FixedRetroLLM:
     provider = "mock"
 
+    def __init__(self, payload: dict | None = None) -> None:
+        self.payload = payload if payload is not None else MOCK_REPORT
+
     def complete(self, messages, *, max_tokens: int = 1024) -> str:
-        return json.dumps(MOCK_REPORT)
+        return json.dumps(self.payload)
 
     def complete_json(self, messages, *, max_tokens: int = 1024, temperature: float = 0.1) -> str:
-        return json.dumps(MOCK_REPORT)
+        return json.dumps(self.payload)
+
+
+class _FencedRetroLLM(_FixedRetroLLM):
+    def complete(self, messages, *, max_tokens: int = 1024) -> str:
+        body = json.dumps(self.payload)
+        return f"Here is the retrospective:\n```json\n{body}\n```\nDone."
+
+    def complete_json(self, messages, *, max_tokens: int = 1024, temperature: float = 0.1) -> str:
+        return self.complete(messages, max_tokens=max_tokens)
 
 
 def _synthetic_bars(n: int | None = None) -> list[Bar]:
@@ -343,3 +359,146 @@ def test_generate_retrospective_report(
     )
 
     assert not any(rule["enabled"] for rule in rules)
+
+
+def test_normalize_unicode_text_repairs_em_dash_mojibake() -> None:
+    mojibake = INSUFFICIENT_OOS_NOTE.encode("utf-8").decode("latin-1")
+    assert _normalize_unicode_text(mojibake) == INSUFFICIENT_OOS_NOTE
+
+
+def test_retrospective_parses_fenced_json_and_keeps_valid_rule(
+    monkeypatch,
+    retro_db,
+) -> None:
+    fenced_payload = {
+        **MOCK_REPORT,
+        "narrative": "Realized on closed positions was positive — PLTR lacks cost basis.",
+        "proposed_rules": [
+            {
+                "name": "TSLA RSI oversold",
+                "rationale": "Alert on oversold TSLA.",
+                "spec": {
+                    "name": "TSLA RSI oversold",
+                    "condition": {
+                        "all": [
+                            {
+                                "metric": "rsi_14",
+                                "symbol": "TSLA",
+                                "operator": "lessThan",
+                                "value": 30,
+                            }
+                        ],
+                    },
+                    "action": {
+                        "type": "alert",
+                        "message": "TSLA RSI below 30",
+                        "trigger_on": "transition",
+                        "cooldown_seconds": 86400,
+                    },
+                },
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        "ai.retrospective.resolve_period",
+        lambda period, **kwargs: (ANALYSIS_FROM, ANALYSIS_TO),
+    )
+    _patch_retrospective_deps(monkeypatch)
+    monkeypatch.setattr(
+        "ai.retrospective.get_llm",
+        lambda **kwargs: _FencedRetroLLM(fenced_payload),
+    )
+
+    from ai.retrospective import _call_retrospective_llm
+
+    monkeypatch.setattr(
+        "ai.retrospective._call_retrospective_llm",
+        lambda ctx: _call_retrospective_llm(ctx),
+    )
+
+    result = generate_retrospective_report(period="year")
+
+    assert result["n_proposed_rules"] == 1
+    rules = ai_tables.list_rules(db_path=retro_db)
+    assert len(rules) == 1
+    assert rules[0]["name"] == "TSLA RSI oversold"
+    assert not rules[0]["enabled"]
+
+    artifact = ai_tables.get_research_artifact(result["artifact_id"], db_path=retro_db)
+    assert artifact is not None
+    assert "—" in artifact["markdown"]
+    assert artifact["report"]["proposed_rules"][0]["backtest_metrics"] is not None
+
+
+def test_retrospective_drops_string_condition_rule(
+    monkeypatch,
+    retro_db,
+) -> None:
+    payload = {
+        **MOCK_REPORT,
+        "proposed_rules": [
+            {
+                "name": "String condition (invalid)",
+                "rationale": "Should be dropped.",
+                "spec": {
+                    "name": "String condition (invalid)",
+                    "condition": "when TSLA RSI is below 30",
+                    "action": {"type": "alert", "message": "bad"},
+                },
+            },
+            MOCK_REPORT["proposed_rules"][0],
+        ],
+    }
+
+    monkeypatch.setattr(
+        "ai.retrospective.resolve_period",
+        lambda period, **kwargs: (ANALYSIS_FROM, ANALYSIS_TO),
+    )
+    _patch_retrospective_deps(monkeypatch)
+    monkeypatch.setattr("ai.retrospective.get_llm", lambda **kwargs: _FixedRetroLLM(payload))
+
+    from ai.retrospective import _call_retrospective_llm
+
+    monkeypatch.setattr(
+        "ai.retrospective._call_retrospective_llm",
+        lambda ctx: _call_retrospective_llm(ctx),
+    )
+
+    result = generate_retrospective_report(period="year")
+
+    assert result["n_proposed_rules"] == 1
+    rules = ai_tables.list_rules(db_path=retro_db)
+    assert len(rules) == 1
+    assert rules[0]["name"] == "AAPL RSI oversold"
+
+
+def test_retrospective_llm_uses_higher_max_tokens(monkeypatch) -> None:
+    seen: list[int] = []
+
+    class _TokenSpyLLM(_FixedRetroLLM):
+        def complete_json(self, messages, *, max_tokens: int = 1024, temperature: float = 0.1) -> str:
+            seen.append(max_tokens)
+            return super().complete_json(messages, max_tokens=max_tokens, temperature=temperature)
+
+    monkeypatch.setattr("ai.retrospective.get_llm", lambda **kwargs: _TokenSpyLLM())
+    from ai.retrospective import _call_retrospective_llm
+
+    _call_retrospective_llm(MOCK_CTX)
+
+    assert seen == [RETRO_MAX_TOKENS]
+
+
+def test_parse_with_retry_accepts_fenced_retrospective_json() -> None:
+    payload = {
+        "narrative": "Summary",
+        "what_went_right": ["good trade"],
+        "what_went_wrong": [],
+        "behavioral_observations": [],
+        "proposed_rules": [],
+        "proposed_lessons": [],
+    }
+    raw = f"Analysis complete:\n```json\n{json.dumps(payload)}\n```"
+    parsed = parse_with_retry(raw, RetroReport)
+    assert parsed is not None
+    assert parsed.narrative == "Summary"

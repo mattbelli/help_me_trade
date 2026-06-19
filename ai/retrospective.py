@@ -6,6 +6,7 @@ import copy
 import html
 import json
 import logging
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -15,7 +16,11 @@ from pydantic import BaseModel, Field, field_validator
 import db.ai_tables as ai_tables
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
-from ai.llm.structured import complete_for_extraction, parse_with_retry
+from ai.llm.structured import (
+    complete_for_extraction,
+    extract_json_object,
+    parse_with_retry,
+)
 from ai.memories import get_memory_service
 from brokers.factory import get_broker
 from db.analytics import ai_performance_context, resolve_period
@@ -36,10 +41,32 @@ INSUFFICIENT_OOS_NOTE = (
     "insufficient history for a held-out test — validate manually"
 )
 
+RETRO_MAX_TOKENS = 3800
+
+BACKTESTABLE_METRICS = (
+    "price, rsi_14, sma_50, sma_200, ema_20, pct_change_1d, pct_change_5d, "
+    "atr_14, dist_from_high_252, vol_vs_avg_20, cross_above_sma_200, cross_below_sma_200"
+)
+
+RULE_SPEC_OPERATORS = (
+    "equal, notEqual, lessThan, lessThanInclusive, greaterThan, "
+    "greaterThanInclusive, in, contains"
+)
+
+RULE_SPEC_EXAMPLE = (
+    '{"name":"TSLA oversold alert",'
+    '"condition":{"all":[{"metric":"rsi_14","symbol":"TSLA","operator":"lessThan","value":30}]},'
+    '"action":{"type":"alert","message":"TSLA RSI below 30","trigger_on":"transition",'
+    '"cooldown_seconds":86400}}'
+)
+
 RETRY_PROMPT = (
     "Your previous response was not valid JSON matching the schema. "
     "Return only a JSON object with keys: narrative, what_went_right, "
-    "what_went_wrong, behavioral_observations, proposed_rules, proposed_lessons."
+    "what_went_wrong, behavioral_observations, proposed_rules, proposed_lessons. "
+    "Each proposed_rules[].spec must be a RuleSpec object: condition is a nested "
+    "object (never a string); action.type is always \"alert\". Example spec: "
+    f"{RULE_SPEC_EXAMPLE}"
 )
 
 
@@ -174,6 +201,37 @@ def generate_retrospective_report(
     }
 
 
+def _normalize_unicode_text(text: str) -> str:
+    """Repair UTF-8 text that was mis-decoded as Latin-1/cp1252 (common em-dash mojibake)."""
+    if not text or "\u2014" in text or "—" in text:
+        return text
+    for encoding in ("latin-1", "cp1252"):
+        try:
+            repaired = text.encode(encoding).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+        if repaired != text:
+            return repaired
+    return text
+
+
+def _normalize_report_unicode(report: RetroReport) -> RetroReport:
+    updates: dict[str, Any] = {
+        "narrative": _normalize_unicode_text(report.narrative),
+    }
+    for field in (
+        "what_went_right",
+        "what_went_wrong",
+        "behavioral_observations",
+        "proposed_lessons",
+    ):
+        updates[field] = [_normalize_unicode_text(item) for item in getattr(report, field)]
+    for proposed in report.proposed_rules:
+        proposed.name = _normalize_unicode_text(proposed.name)
+        proposed.rationale = _normalize_unicode_text(proposed.rationale)
+    return report.model_copy(update=updates)
+
+
 def _call_retrospective_llm(ctx: dict[str, Any]) -> RetroReport:
     metrics = ", ".join(sorted(METRIC_REGISTRY))
     system = (
@@ -186,26 +244,36 @@ def _call_retrospective_llm(ctx: dict[str, Any]) -> RetroReport:
         "Treat approximate_fifo as hold-time color only, not headline P&L. "
         "Behavioral observations should reflect concentration, scalping, cadence, timing, asset mix. "
         f"Proposed rules must use ONLY these metrics: {metrics}. "
-        "Each proposed_rules item needs name, rationale, and spec (RuleSpec-shaped dict with "
-        "name, condition, action). Return JSON only."
+        "Prefer symbol-scoped backtestable metrics when possible: "
+        f"{BACKTESTABLE_METRICS}. "
+        "Each proposed_rules item needs name, rationale, and spec (RuleSpec object with "
+        "name, condition, action). "
+        "condition is a NESTED OBJECT — a leaf {metric,symbol,operator,value} or a group "
+        '{"all":[leaf,…]}/{"any":[leaf,…]} — never a string or sentence. '
+        'action.type is always "alert". '
+        f"Valid operators: {RULE_SPEC_OPERATORS}. "
+        "If a finding cannot be a valid metric-based alert, put it in proposed_lessons — "
+        "do NOT invent metrics or emit a string condition. "
+        f"Example spec: {RULE_SPEC_EXAMPLE}. "
+        "Return JSON only."
     )
     user = (
         "Analyze this trading performance context and return the retrospective report JSON:\n"
-        f"{json.dumps(ctx, indent=2, default=str)}"
+        f"{json.dumps(ctx, indent=2, default=str, ensure_ascii=False)}"
     )
     llm = get_llm()
     messages = [
         LLMMessage(role="system", content=system),
         LLMMessage(role="user", content=user),
     ]
-    raw = complete_for_extraction(llm, messages, max_tokens=2500)
+    raw = complete_for_extraction(llm, messages, max_tokens=RETRO_MAX_TOKENS)
     parsed = parse_with_retry(
         raw,
         RetroReport,
         retry_prompt=RETRY_PROMPT,
         llm=llm,
         messages=messages,
-        max_tokens=2500,
+        max_tokens=RETRO_MAX_TOKENS,
     )
     if parsed is None:
         logger.warning("Retrospective LLM output failed validation; using fallback")
@@ -218,7 +286,26 @@ def _call_retrospective_llm(ctx: dict[str, Any]) -> RetroReport:
                 "Check realized.reliability flags before drawing conclusions.",
             ],
         )
-    return parsed
+    # Some models write the narrative as prose OUTSIDE the JSON object (leaving
+    # narrative empty). Recover it from the non-JSON text so the report isn't blank.
+    if not (parsed.narrative or "").strip():
+        prose = _prose_outside_json(raw)
+        if len(prose) >= 80:
+            parsed = parsed.model_copy(update={"narrative": prose})
+    return _normalize_report_unicode(parsed)
+
+
+_FENCE_BLOCK = re.compile(r"```(?:json)?.*?```", re.DOTALL | re.IGNORECASE)
+
+
+def _prose_outside_json(raw: str) -> str:
+    """Return the prose a model wrote around its JSON (used as the narrative when the
+    JSON's narrative field is empty)."""
+    text = _FENCE_BLOCK.sub(" ", raw or "")
+    obj = extract_json_object(raw or "")
+    if obj and obj in text:
+        text = text.replace(obj, " ")
+    return " ".join(text.split()).strip()
 
 
 def _process_proposed_rules(

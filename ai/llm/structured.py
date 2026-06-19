@@ -18,22 +18,33 @@ T = TypeVar("T", bound=BaseModel)
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*\n?", re.IGNORECASE)
 _FENCE_END_RE = re.compile(r"\n?```\s*$")
+_FENCE_BLOCK_RE = re.compile(
+    r"```(?:json)?\s*\n?(.*?)\n?```",
+    re.DOTALL | re.IGNORECASE,
+)
+_TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 
 
 def strip_json_fences(text: str) -> str:
     text = text.strip()
+    match = _FENCE_BLOCK_RE.search(text)
+    if match:
+        return match.group(1).strip()
     text = _FENCE_RE.sub("", text)
     text = _FENCE_END_RE.sub("", text)
     return text.strip()
 
 
-def extract_json_object(text: str) -> str | None:
-    """Balanced-brace extraction (not rfind) with string/escape awareness."""
-    text = strip_json_fences(text)
-    start = text.find("{")
-    if start < 0:
-        return None
+def _relax_trailing_commas(snippet: str) -> str:
+    relaxed = snippet
+    while True:
+        updated = _TRAILING_COMMA_RE.sub(r"\1", relaxed)
+        if updated == relaxed:
+            return relaxed
+        relaxed = updated
 
+
+def _extract_balanced_object(text: str, start: int) -> str | None:
     depth = 0
     in_string = False
     escape = False
@@ -60,15 +71,62 @@ def extract_json_object(text: str) -> str | None:
     return None
 
 
-def parse_json_object(raw: str) -> dict[str, Any] | None:
-    snippet = extract_json_object(raw)
+def _loads_relaxed_dict(snippet: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(_relax_trailing_commas(snippet))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def extract_json_object(
+    text: str, prefer_keys: set[str] | None = None
+) -> str | None:
+    """Balanced-brace extraction with string/escape awareness. When ``prefer_keys`` is
+    given, prefers the object containing the most of those keys (i.e. the one matching the
+    target schema rather than an example object echoed from the prompt), tie-broken by
+    size; otherwise prefers the largest valid object."""
+    text = strip_json_fences(text)
+    candidates: list[str] = []
+    index = 0
+    while index < len(text):
+        start = text.find("{", index)
+        if start < 0:
+            break
+        snippet = _extract_balanced_object(text, start)
+        if snippet:
+            candidates.append(snippet)
+            index = start + len(snippet)
+        else:
+            index = start + 1
+
+    scored: list[tuple[int, int, str]] = []
+    for snippet in candidates:
+        parsed = _loads_relaxed_dict(snippet)
+        if parsed is None:
+            continue
+        key_score = (
+            len(prefer_keys & set(parsed.keys())) if prefer_keys else 0
+        )
+        scored.append((key_score, len(snippet), snippet))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return scored[0][2]
+
+
+def parse_json_object(
+    raw: str, prefer_keys: set[str] | None = None
+) -> dict[str, Any] | None:
+    snippet = extract_json_object(raw, prefer_keys=prefer_keys)
     if not snippet:
         logger.warning("No JSON object found in LLM output (%d chars)", len(raw))
         return None
-    try:
-        parsed = json.loads(snippet)
-    except json.JSONDecodeError as exc:
-        logger.warning("JSON decode failed: %s", exc)
+    parsed = _loads_relaxed_dict(snippet)
+    if parsed is None:
+        logger.warning("JSON decode failed for extracted object (%d chars)", len(snippet))
         return None
     if not isinstance(parsed, dict):
         logger.warning("Expected JSON object, got %s", type(parsed).__name__)
@@ -77,7 +135,7 @@ def parse_json_object(raw: str) -> dict[str, Any] | None:
 
 
 def parse_structured(raw: str, model: type[T]) -> T | None:
-    data = parse_json_object(raw)
+    data = parse_json_object(raw, prefer_keys=set(model.model_fields))
     if data is None:
         return None
     try:
