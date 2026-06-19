@@ -7,8 +7,10 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from db.fifo_round_trips import fifo_compute_open_lots, fifo_compute_round_trips
 from db.trades import daily_trade_stats, list_trade_events, trade_summary_stats
 from imports.money import decimal_to_str, parse_dollar
+from imports.option_symbol import is_option_symbol
 
 PERIODS = frozenset(
     {"day", "week", "month", "quarter", "year", "all", "custom"}
@@ -54,65 +56,7 @@ def compute_round_trips(
     stocks_only: bool = False,
 ) -> list[dict[str, Any]]:
     """FIFO closed trades with realized P&L."""
-    by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for event in trade_events:
-        symbol = event.get("symbol")
-        if not symbol:
-            continue
-        if stocks_only and " " in symbol:
-            continue
-        by_symbol[symbol].append(event)
-
-    closed: list[dict[str, Any]] = []
-    for symbol, rows in by_symbol.items():
-        sorted_rows = sorted(rows, key=lambda r: (r["trade_date"], r["id"]))
-        lots: list[tuple[Decimal, Decimal, str]] = []
-
-        for row in sorted_rows:
-            side = (row.get("side") or "").lower()
-            qty = parse_dollar(row.get("quantity"))
-            if qty <= 0:
-                continue
-            fees = parse_dollar(row.get("fees"))
-            amount = parse_dollar(row.get("amount"))
-            trade_date = row["trade_date"]
-
-            if side == "buy":
-                cost_per = (-amount - fees) / qty if qty else Decimal("0")
-                lots.append((qty, cost_per, trade_date))
-                continue
-            if side != "sell":
-                continue
-
-            remaining = qty
-            proceeds = amount
-            sell_fees = fees
-            open_date = lots[0][2] if lots else trade_date
-
-            while remaining > 0 and lots:
-                lot_qty, lot_cost, lot_date = lots[0]
-                open_date = lot_date
-                take = min(remaining, lot_qty)
-                cost_basis = take * lot_cost
-                pnl = (proceeds * take / qty) - cost_basis - (sell_fees * take / qty)
-                remaining -= take
-                if take == lot_qty:
-                    lots.pop(0)
-                else:
-                    lots[0] = (lot_qty - take, lot_cost, lot_date)
-
-                closed.append(
-                    {
-                        "symbol": symbol,
-                        "open_date": open_date,
-                        "close_date": trade_date,
-                        "quantity": decimal_to_str(take),
-                        "pnl": decimal_to_str(pnl),
-                        "is_option": " " in symbol,
-                    }
-                )
-    closed.sort(key=lambda r: r["close_date"], reverse=True)
-    return closed
+    return fifo_compute_round_trips(trade_events, stocks_only=stocks_only)
 
 
 def compute_open_lots(
@@ -121,59 +65,7 @@ def compute_open_lots(
     stocks_only: bool = False,
 ) -> dict[str, dict[str, str]]:
     """FIFO open lots aggregated per symbol (full trade history, not period-scoped)."""
-    by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for event in trade_events:
-        symbol = event.get("symbol")
-        if not symbol:
-            continue
-        if stocks_only and " " in symbol:
-            continue
-        by_symbol[symbol].append(event)
-
-    open_lots: dict[str, dict[str, str]] = {}
-    for symbol, rows in by_symbol.items():
-        sorted_rows = sorted(rows, key=lambda r: (r["trade_date"], r["id"]))
-        lots: list[tuple[Decimal, Decimal, str]] = []
-
-        for row in sorted_rows:
-            side = (row.get("side") or "").lower()
-            qty = parse_dollar(row.get("quantity"))
-            if qty <= 0:
-                continue
-            fees = parse_dollar(row.get("fees"))
-            amount = parse_dollar(row.get("amount"))
-            trade_date = row["trade_date"]
-
-            if side == "buy":
-                cost_per = (-amount - fees) / qty if qty else Decimal("0")
-                lots.append((qty, cost_per, trade_date))
-                continue
-            if side != "sell":
-                continue
-
-            remaining = qty
-            while remaining > 0 and lots:
-                lot_qty, lot_cost, lot_date = lots[0]
-                take = min(remaining, lot_qty)
-                remaining -= take
-                if take == lot_qty:
-                    lots.pop(0)
-                else:
-                    lots[0] = (lot_qty - take, lot_cost, lot_date)
-
-        if not lots:
-            continue
-
-        total_qty = sum(lot_qty for lot_qty, _, _ in lots)
-        cost_basis = sum(lot_qty * lot_cost for lot_qty, lot_cost, _ in lots)
-        avg_cost = cost_basis / total_qty if total_qty else Decimal("0")
-        open_lots[symbol] = {
-            "quantity": decimal_to_str(total_qty),
-            "avg_cost": decimal_to_str(avg_cost),
-            "cost_basis": decimal_to_str(cost_basis),
-        }
-
-    return open_lots
+    return fifo_compute_open_lots(trade_events, stocks_only=stocks_only)
 
 
 def compute_unrealized(
@@ -250,7 +142,7 @@ def asset_class_breakdown(events: list[dict[str, Any]]) -> dict[str, Any]:
             other += 1
             continue
         sym = e.get("symbol") or ""
-        if " " in sym:
+        if is_option_symbol(sym):
             option_trades += 1
         else:
             stock_trades += 1
@@ -261,6 +153,30 @@ def asset_class_breakdown(events: list[dict[str, Any]]) -> dict[str, Any]:
         "other_events": other,
         "stock_pct": round(stock_trades / total, 4) if total else None,
         "option_pct": round(option_trades / total, 4) if total else None,
+    }
+
+
+def realized_asset_class_breakdown(
+    round_trips: list[dict[str, Any]],
+) -> dict[str, Any]:
+    equity_trips = [rt for rt in round_trips if not rt.get("is_option")]
+    option_trips = [rt for rt in round_trips if rt.get("is_option")]
+
+    def _summary(trips: list[dict[str, Any]]) -> dict[str, Any]:
+        wins = sum(1 for rt in trips if parse_dollar(rt["pnl"]) > 0)
+        losses = sum(1 for rt in trips if parse_dollar(rt["pnl"]) < 0)
+        total_pnl = sum(parse_dollar(rt["pnl"]) for rt in trips)
+        return {
+            "round_trips": len(trips),
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round(wins / len(trips), 4) if trips else None,
+            "realized_pnl": decimal_to_str(total_pnl),
+        }
+
+    return {
+        "equity": _summary(equity_trips),
+        "options": _summary(option_trips),
     }
 
 
@@ -516,7 +432,9 @@ def _round_trips_in_period(
         to_date=to_date,
         limit=100_000,
     )
-    history_trades = [e for e in history_events if e["event_type"] == "trade"]
+    history_trades = [
+        e for e in history_events if e["event_type"] in ("trade", "option_expired")
+    ]
     round_trips_all = compute_round_trips(history_trades)
     return [
         rt
@@ -548,7 +466,9 @@ def performance_dashboard(
         to_date=to_date,
         limit=100_000,
     )
-    history_trades = [e for e in history_events if e["event_type"] == "trade"]
+    history_trades = [
+        e for e in history_events if e["event_type"] in ("trade", "option_expired")
+    ]
     summary = trade_summary_stats(
         account_id=account_id,
         from_date=from_date,
@@ -562,6 +482,7 @@ def performance_dashboard(
         and (not to_date or rt["close_date"] <= to_date)
     ]
     stock_round_trips = [rt for rt in round_trips_in_period if not rt["is_option"]]
+    wins_all = sum(1 for r in round_trips_in_period if parse_dollar(r["pnl"]) > 0)
     wins = sum(1 for r in stock_round_trips if parse_dollar(r["pnl"]) > 0)
     realized_total = sum(parse_dollar(rt["pnl"]) for rt in round_trips_in_period)
     daily_cash_flow = daily_trade_stats(
@@ -583,19 +504,23 @@ def performance_dashboard(
         "daily_realized": daily_realized,
         "daily_cash_flow": daily_cash_flow,
         "round_trips": round_trips_in_period[:100],
+        "win_rate": round(wins_all / len(round_trips_in_period), 4)
+        if round_trips_in_period
+        else None,
         "stock_win_rate": round(wins / len(stock_round_trips), 4)
         if stock_round_trips
         else None,
         "asset_classes": asset_class_breakdown(events),
+        "asset_class_realized": realized_asset_class_breakdown(round_trips_in_period),
         "day_of_week": day_of_week_stats(events),
         "day_of_week_realized": day_of_week_realized(round_trips_in_period),
         "top_winners": sorted(
-            stock_round_trips,
+            round_trips_in_period,
             key=lambda r: parse_dollar(r["pnl"]),
             reverse=True,
         )[:5],
         "top_losers": sorted(
-            stock_round_trips,
+            round_trips_in_period,
             key=lambda r: parse_dollar(r["pnl"]),
         )[:5],
     }
@@ -625,7 +550,9 @@ def ai_performance_context(
     )
 
     history_events = list_trade_events(account_id=account_id, limit=100_000)
-    history_trades = [e for e in history_events if e["event_type"] == "trade"]
+    history_trades = [
+        e for e in history_events if e["event_type"] in ("trade", "option_expired")
+    ]
     open_lots = compute_open_lots(history_trades)
     snap = get_latest_snapshot()
     unrealized = compute_unrealized(

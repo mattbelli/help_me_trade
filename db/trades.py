@@ -14,6 +14,7 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.fifo_round_trips import fifo_round_trip_stats
 from imports.base import ParsedTradeEvent
 from imports.money import decimal_to_str, parse_dollar
 
@@ -75,11 +76,19 @@ def init_trade_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         for ddl in (
             "ALTER TABLE trade_accounts ADD COLUMN last_synced_at TEXT",
             "ALTER TABLE trade_accounts ADD COLUMN broker_external_id TEXT",
+            "ALTER TABLE trade_events ADD COLUMN broker_txn_id TEXT",
         ):
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError:
                 pass
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_events_broker_txn
+                ON trade_events(account_id, broker_txn_id)
+                WHERE broker_txn_id IS NOT NULL
+            """
+        )
 
 
 def get_or_create_broker_account(
@@ -237,12 +246,58 @@ def list_trade_events(
 
 @dataclass
 class ImportWriteResult:
-    batch_id: str
+    batch_id: str | None
     parsed: int
     inserted: int
     duplicates: int
     skipped: int
     warnings: list[str]
+    failed: list[dict[str, Any]]
+
+
+class _ImportBatchFailed(Exception):
+    pass
+
+
+def _validate_trade_event(event: ParsedTradeEvent) -> None:
+    if not event.external_key:
+        raise ValueError("missing external_key")
+    if event.trade_date is None:
+        raise ValueError("missing trade_date")
+
+
+def get_import_dedup_sets(
+    account_id: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> tuple[set[str], set[str]]:
+    """Return existing external_key and broker_txn_id sets for import preview."""
+    init_trade_tables(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT external_key, broker_txn_id
+            FROM trade_events
+            WHERE account_id = ?
+            """,
+            (account_id,),
+        ).fetchall()
+    external_keys = {row["external_key"] for row in rows}
+    broker_txn_ids = {
+        row["broker_txn_id"] for row in rows if row["broker_txn_id"]
+    }
+    return external_keys, broker_txn_ids
+
+
+def is_duplicate_event(
+    event: ParsedTradeEvent,
+    *,
+    external_keys: set[str],
+    broker_txn_ids: set[str],
+) -> bool:
+    if event.broker_txn_id and event.broker_txn_id in broker_txn_ids:
+        return True
+    return event.external_key in external_keys
 
 
 def import_trade_events(
@@ -265,70 +320,84 @@ def import_trade_events(
     imported_at = _now()
     inserted = 0
     duplicates = 0
+    failed: list[dict[str, Any]] = []
 
     with _connect(db_path) as conn:
-        for event in events:
-            event_id = f"evt_{uuid.uuid4().hex[:12]}"
-            try:
+        try:
+            with conn:
+                for row_index, event in enumerate(events):
+                    try:
+                        _validate_trade_event(event)
+                        event_id = f"evt_{uuid.uuid4().hex[:12]}"
+                        conn.execute(
+                            """
+                            INSERT INTO trade_events (
+                                id, account_id, source, event_type, trade_date, symbol, side,
+                                quantity, price, fees, amount, description, external_key,
+                                broker_txn_id, raw_json, imported_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                event_id,
+                                account_id,
+                                source,
+                                event.event_type,
+                                event.trade_date.isoformat(),
+                                event.symbol,
+                                event.side,
+                                decimal_to_str(event.quantity),
+                                decimal_to_str(event.price),
+                                decimal_to_str(event.fees) or "0",
+                                decimal_to_str(event.amount) or "0",
+                                event.description,
+                                event.external_key,
+                                event.broker_txn_id,
+                                json.dumps(event.raw),
+                                imported_at,
+                            ),
+                        )
+                        inserted += 1
+                    except sqlite3.IntegrityError:
+                        duplicates += 1
+                    except Exception as exc:
+                        failed.append({"row_index": row_index, "reason": str(exc)})
+
+                if failed:
+                    raise _ImportBatchFailed()
+
                 conn.execute(
                     """
-                    INSERT INTO trade_events (
-                        id, account_id, source, event_type, trade_date, symbol, side,
-                        quantity, price, fees, amount, description, external_key,
-                        raw_json, imported_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO trade_import_batches (
+                        id, account_id, source, filename, from_date, to_date,
+                        rows_parsed, rows_inserted, rows_skipped, rows_duplicate, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        event_id,
+                        batch_id,
                         account_id,
                         source,
-                        event.event_type,
-                        event.trade_date.isoformat(),
-                        event.symbol,
-                        event.side,
-                        decimal_to_str(event.quantity),
-                        decimal_to_str(event.price),
-                        decimal_to_str(event.fees) or "0",
-                        decimal_to_str(event.amount) or "0",
-                        event.description,
-                        event.external_key,
-                        json.dumps(event.raw),
+                        filename,
+                        from_date,
+                        to_date,
+                        len(events),
+                        inserted,
+                        skipped,
+                        duplicates,
                         imported_at,
                     ),
                 )
-                inserted += 1
-            except sqlite3.IntegrityError:
-                duplicates += 1
-
-        conn.execute(
-            """
-            INSERT INTO trade_import_batches (
-                id, account_id, source, filename, from_date, to_date,
-                rows_parsed, rows_inserted, rows_skipped, rows_duplicate, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                batch_id,
-                account_id,
-                source,
-                filename,
-                from_date,
-                to_date,
-                len(events),
-                inserted,
-                skipped,
-                duplicates,
-                imported_at,
-            ),
-        )
+        except _ImportBatchFailed:
+            inserted = 0
+            batch_id = None
 
     return ImportWriteResult(
         batch_id=batch_id,
         parsed=len(events),
         inserted=inserted,
-        duplicates=duplicates,
+        duplicates=duplicates if not failed else 0,
         skipped=skipped,
         warnings=warnings or [],
+        failed=failed,
     )
 
 
@@ -355,10 +424,11 @@ def trade_summary_stats(
         db_path=db_path,
     )
     trade_events = [e for e in events if e["event_type"] == "trade"]
+    fifo_events = [e for e in events if e["event_type"] in ("trade", "option_expired")]
     fees = sum(parse_dollar(e["fees"]) for e in events)
     net_amount = _sum_amounts(events)
 
-    wins, losses, round_trips = _fifo_round_trip_stats(trade_events)
+    wins, losses, round_trips = fifo_round_trip_stats(fifo_events)
 
     return {
         "event_count": len(events),
@@ -440,63 +510,3 @@ def symbol_trade_stats(
     rows.sort(key=lambda row: abs(parse_dollar(row["net_amount"])), reverse=True)
     return rows
 
-
-def _fifo_round_trip_stats(trade_events: list[dict[str, Any]]) -> tuple[int, int, int]:
-    """FIFO round-trip win/loss counts per symbol (stock trades only in v1)."""
-    by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for event in trade_events:
-        symbol = event.get("symbol")
-        if not symbol or " " in symbol:
-            continue
-        by_symbol[symbol].append(event)
-
-    wins = 0
-    losses = 0
-    round_trips = 0
-
-    for symbol, rows in by_symbol.items():
-        sorted_rows = sorted(rows, key=lambda r: (r["trade_date"], r["id"]))
-        lots: list[tuple[Decimal, Decimal, Decimal]] = []
-
-        for row in sorted_rows:
-            side = (row.get("side") or "").lower()
-            qty = parse_dollar(row.get("quantity"))
-            if qty <= 0:
-                continue
-            fees = parse_dollar(row.get("fees"))
-            amount = parse_dollar(row.get("amount"))
-
-            if side == "buy":
-                cost_per = (-amount - fees) / qty if qty else Decimal("0")
-                lots.append((qty, cost_per, fees))
-                continue
-
-            if side != "sell":
-                continue
-
-            remaining = qty
-            proceeds = amount
-            sell_fees = fees
-            cost_basis = Decimal("0")
-            matched_qty = Decimal("0")
-
-            while remaining > 0 and lots:
-                lot_qty, lot_cost, lot_fees = lots[0]
-                take = min(remaining, lot_qty)
-                cost_basis += take * lot_cost
-                matched_qty += take
-                remaining -= take
-                if take == lot_qty:
-                    lots.pop(0)
-                else:
-                    lots[0] = (lot_qty - take, lot_cost, lot_fees)
-
-            if matched_qty > 0:
-                pnl = proceeds - cost_basis - sell_fees
-                round_trips += 1
-                if pnl > 0:
-                    wins += 1
-                elif pnl < 0:
-                    losses += 1
-
-    return wins, losses, round_trips

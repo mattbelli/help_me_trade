@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from imports.base import ImportParseResult, ParsedTradeEvent
+from imports.base import ImportParseResult, ParsedTradeEvent, extract_broker_txn_id
 from imports.money import parse_dollar, parse_mmddyyyy, parse_quantity
 
 BUY_ACTIONS = frozenset(
@@ -137,6 +137,7 @@ def _parse_row(
         description=description,
         external_key=external_key,
         raw=row,
+        broker_txn_id=extract_broker_txn_id(row),
     )
 
 
@@ -189,6 +190,7 @@ def parse_schwab_transactions_json(
                 description=parsed.description,
                 external_key=f"{base_key}:{occurrence}",
                 raw=parsed.raw,
+                broker_txn_id=parsed.broker_txn_id,
             )
         events.append(parsed)
 

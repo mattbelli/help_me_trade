@@ -12,8 +12,10 @@ from ai.llm.factory import get_llm
 from db.trades import (
     create_trade_account,
     daily_trade_stats,
+    get_import_dedup_sets,
     get_trade_account,
     import_trade_events,
+    is_duplicate_event,
     list_trade_accounts,
     list_trade_events,
     symbol_trade_stats,
@@ -142,15 +144,19 @@ async def api_import_preview(
         return JSONResponse({"error": str(exc)}, status_code=400)
 
     existing_keys: set[str] = set()
+    existing_broker_txn_ids: set[str] = set()
     if account_id:
-        existing = list_trade_events(account_id=account_id, limit=100_000)
-        existing_keys = {e["external_key"] for e in existing}
+        existing_keys, existing_broker_txn_ids = get_import_dedup_sets(account_id)
 
     would_insert = 0
     duplicates = 0
     sample = []
     for event in parsed.events:
-        if account_id and event.external_key in existing_keys:
+        if account_id and is_duplicate_event(
+            event,
+            external_keys=existing_keys,
+            broker_txn_ids=existing_broker_txn_ids,
+        ):
             duplicates += 1
         else:
             would_insert += 1
@@ -177,6 +183,7 @@ async def api_import_preview(
         "duplicates": duplicates,
         "skipped": parsed.skipped,
         "warnings": parsed.warnings[:20],
+        "failed": [],
         "sample": sample,
     }
 
@@ -213,6 +220,7 @@ async def api_import_trades(
         "duplicates": result.duplicates,
         "skipped": result.skipped,
         "warnings": result.warnings[:20],
+        "failed": result.failed,
         "from_date": parsed.from_date,
         "to_date": parsed.to_date,
     }

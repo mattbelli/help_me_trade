@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from imports.base import ParsedTradeEvent
+from imports.base import ParsedTradeEvent, extract_broker_txn_id
 from imports.money import parse_dollar
 
 
@@ -42,7 +42,7 @@ def alpaca_activity_to_event(item: dict[str, Any], *, account_id: str) -> Parsed
         gross = qty * price
         net = -gross if side == "buy" else gross
 
-    activity_id = str(item.get("id", ""))
+    activity_id = str(item.get("id", "")).strip() or None
     trade_date = _parse_activity_date(
         str(item.get("transaction_time") or item.get("date") or "")
     )
@@ -62,6 +62,7 @@ def alpaca_activity_to_event(item: dict[str, Any], *, account_id: str) -> Parsed
         description=f"Alpaca {activity_type} {side} {symbol}",
         external_key=external_key,
         raw=item,
+        broker_txn_id=activity_id or extract_broker_txn_id(item),
     )
 
 
