@@ -13,14 +13,46 @@ Supersedes the six docs in [`archive/`](archive/) (2026-06-16).
 
 ## 1. Product vision
 
-A **personal trading copilot** — not a generic chatbot:
+**An autonomous trading agent that works in the background so the user can work and parent** — not a manual terminal, not a generic chatbot. The user does setup at the desk; the agent runs server-side, watches the market, and reaches the user's **phone** to approve / deny / modify. Trading is the mission; the dashboard is a **cockpit to configure + supervise the agent**, not to click trades.
 
-1. **See** portfolio, charts, and performance grounded in real trade history.
-2. **Research** symbols with cited, data-backed reports (not mock snippets).
-3. **Talk** through strategy and decisions; the AI remembers and recommends back over time.
-4. **Guard** with programmable rules and (later) a mandatory risk gate before any order.
+**Autonomy ladder** (climbed as trust grows): **alert** (tell me) → **propose** (agent sizes a setup, pings my phone, I approve) → **bounded auto-execute** (acts within hard guardrails, reports after). Success metric: *how little the user must watch it and still trust it.* Phone **approval** — not auto-execution — is the life-changing unlock.
 
-**North star loop:** conversation → structured strategy memory → proposed rule/backtest → tracked outcome → recommendation surfaced in chat.
+**The engine is one loop, run continuously:** PERCEIVE → REASON → DECIDE → ACT → DELIVER → LEARN. How each stage works, the current build-state per stage, and the researched best-in-class tech for each live in **[`AGENT_LOOP_RESEARCH.md`](AGENT_LOOP_RESEARCH.md)**.
+
+---
+
+## Realignment — the autonomous agent loop (2026-06-19)
+
+The product crystallized: from "personal trading copilot" (a manual cockpit, a red ocean) to **an autonomous trading agent** (above). **Nothing built is wasted** — most of it *is* the agent's nervous system. The roadmap re-centers on the **loop**; the legacy Phase 0–8 detail in §5 is preserved as the shipped-state record.
+
+**Loop scorecard** (full codebase inventory; deep tech in [`AGENT_LOOP_RESEARCH.md`](AGENT_LOOP_RESEARCH.md)):
+
+| Stage | Built | Critical gap |
+|---|---|---|
+| PERCEIVE | ~85% | fundamentals, news/sentiment, options |
+| REASON | ~75% | durable multi-step agent loop, real RAG, guardrails |
+| DECIDE | ~60% | position sizing, stops, risk model, backtest framework |
+| ACT | ~30% | **risk engine + execution — the bottleneck** |
+| DELIVER | ~50% | phone push / mobile |
+| LEARN | ~70% | decision journal, closed feedback loop, eval |
+
+**Six load-bearing principles** (research-derived — non-negotiable):
+1. **LLM proposes; deterministic code disposes** — the LLM never holds account state and can only make a trade *smaller or absent* within rails, never larger or outside limits.
+2. **Function-calls/SQL for live numbers; RAG only for unstructured text + memory** (vector RAG over prices hallucinates).
+3. **One fail-closed risk chokepoint** — a single, un-bypassable path to the broker.
+4. **Approve/reject/modify is the learning ground truth; P&L is noisy + gated** (≥30–100 trades).
+5. **Provider-agnostic but tiered** — Opus 4.8 (heavy) + Haiku 4.5 (routine), behind a swap layer.
+6. **Every learned artifact stays a human-editable rule/example** — inference-time, no model training.
+
+**Realigned build sequence (R1–R5) — this is now the source of truth for ordering:**
+
+- **R1 — Head start: import → retrospective LEARN** *(zero execution risk; START HERE).* Harden the Schwab history import (corporate actions, options, dedup); the agent deep-researches years of imported trades → behavioral patterns (what went right / wrong) → surfaces in dashboards + a report → proposes rules/strategies. **Every proposed rule must pass the backtest→paper gate (no curve-fit auto-arm).** Bootstraps the agent's model of the user from real data — the cold-start fix, and the first trust-building "it knows me" moment. Lights up PERCEIVE/dashboards + REASON (research over the ledger) + LEARN (extract habits) + DECIDE (backtest proposals), all with **no ACT risk**.
+- **R2 — ACT: the safety spine** *(unblocks the agent acting).* `Decimal` money correctness; **RiskEngine** = single fail-closed chokepoint + guardrails (per-trade risk, heat, daily-loss, drawdown, concentration) + **kill switch**; **ExecutionService** (sole order path) → Alpaca behind the gate; proposal object (TTL + idempotency key = `proposal_id` + payload hash + **TOCTOU re-validation at execution**). Staged: **DRY_RUN → paper → live ramp (25/50/100%) → bounded auto inside a code envelope**. First job: **position-risk-guardian**.
+- **R3 — DELIVER: phone.** One Next.js codebase → **Capacitor** shell; **self-hosted APNs** (`aioapns`); interactive **Approve/Deny/Modify** notification categories (foreground actions; Modify deep-links to the order form); **SSE** dashboard + idempotent REST actions; biometric tiered confirm. (Web push can't do lock-screen buttons; Live Activities deferred.)
+- **R4 — LEARN: close the loop.** Append-only **decision journal** (reasoning recorded *before* outcome; dual human+structured); approve/reject/modify → **user-editable rules** (promote/demote, ExpeL-style GC); **sqlite-vec** memory + `recall_memory` tool; **Langfuse** self-host eval + golden suite.
+- **R5 — deepen PERCEIVE/REASON** *(as the agent's job demands).* Fundamentals/news/calendars (Finnhub/FRED/SEC, own-LLM sentiment); **Pydantic AI + DBOS** durable agent loop; sqlite-vec RAG + rerank; `talipp` live incremental indicators.
+
+**Cross-cutting (honored from R2 on):** `Decimal` everywhere money is computed (SQLite TEXT, not REAL); broker behind a thin `BrokerAdapter`; all orders through the execution gate; broker = source of truth (reconcile on reconnect).
 
 ---
 
@@ -300,16 +332,9 @@ Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §7.1, §7.6, §9 Tier 3.
 
 ## 6. What to build next (recommended order)
 
-Full vision-level ordering (Tiers 0–5) lives in [`IDEA_BANK.md`](IDEA_BANK.md) §9. **Tier 0 "door-open seams" are honored continuously** (route all orders through the future execution gate; treat backend as a headless core w/ remote-ready auth; keep storage behind `db/`; feed-agnostic strategy boundary; design-token themes; files-vs-DB split + precise history). Read-only UX/agent work (Phases 6–8) can ship **before** the live-trading gate (Phase 4).
+**Superseded by the Realignment sequence (R1–R5) near the top of this doc** — the loop-centric plan is now the source of truth for ordering. **Start with R1 (import → retrospective LEARN):** zero execution risk, immediately valuable, and it bootstraps the agent's model of the user from years of real Schwab data.
 
-For a solo developer, the highest-leverage near-term sequence:
-
-1. **Chat Phase 3 (finish)** — rehydrate learned chips on thread reload (C4); optional: drop legacy Python SSE host when all providers route through Next.
-2. **Phase 0 leftovers** — async broker I/O offload (secrets encryption can defer to Phase 7 when the gateway needs it).
-3. **Phase 6 — Shell pivot** — bottom command console v1, theme/token system, widget dashboard v1, onboarding + charter.
-4. **Phase 7 — Agent alive** — the **Signal & Automation Engine** (indicator layer → declarative node-graph rule model → evaluator → backtest; the substrate for alerts/scans/chart studies/AI-proposals, mostly remote/pytest-verifiable), headless core + gateway, proactive engine + tasks, interactive notifications, chart-level monitoring.
-5. **Phase 8 — Tauri desktop shell** — once the web UX + core/gateway are solid.
-6. **Phase 4 — Money & safety** — `Decimal` + `RiskEngine` + `ExecutionService`, **before any live execution UI** (do whenever live trading is the goal; non-execution work above doesn't depend on it).
+Mapping the legacy phases onto the loop: R2 = old **Phase 4** (Money & safety / RiskEngine + ExecutionService); R3 = old **Phase 7** notifications, extended to phone; R4 = the feedback half of Phases 3/7; R5 = data depth (Phase 2) + the durable agent loop. The Tier 0 "door-open seams" (route all orders through the execution gate; backend as headless core; storage behind `db/`; feed-agnostic strategy boundary; design-token themes) are still honored continuously. The legacy Tier/Phase detail below is retained for historical context and the shipped-state record.
 
 ---
 
@@ -362,7 +387,7 @@ For a solo developer, the highest-leverage near-term sequence:
 - assistant-ui **LangGraph** runtime (`@assistant-ui/react-langgraph`) + hosted **Mem0 cloud** SDK — patterns adopted, dependencies rejected (see §2)
 - Frontend `decimal.js`
 - Full Alembic (lightweight `schema_version` is enough)
-- Autonomous trading without human confirmation on agent orders
+- **Un-guarded** autonomous trading. Bounded auto-execution IS the end goal — but only inside the RiskEngine's hard limits + kill switch, reached by climbing the autonomy ladder (alert → propose/approve-on-phone → bounded auto). Nothing auto-executes until R2's fail-closed gate exists.
 
 ---
 
@@ -388,6 +413,7 @@ If port 8000 is in use: `netstat -ano | findstr ":8000"` then `taskkill /PID <pi
 
 | Date | Change |
 |------|--------|
+| 2026-06-19 | **Realignment to autonomous trading agent.** North star reframed (§1) from "personal trading copilot" to an agent that trades in the background so the user can work/parent; dashboard supervises, phone approves. Added the **PERCEIVE→REASON→DECIDE→ACT→DELIVER→LEARN loop** framing + a full codebase scorecard, six load-bearing principles, and a realigned **R1–R5** build sequence (R1 = import→retrospective-LEARN head start, R2 = risk engine + execution, R3 = phone delivery, R4 = close the learn loop, R5 = deepen perceive/reason). Deep per-stage tech research (2026 best-in-class, costs, libraries) saved to **`AGENT_LOOP_RESEARCH.md`**. Recorded north-star memory. |
 | 2026-06-19 | **In-app notifications**: fired rule/scan alerts (already broadcast over `/ws/market`, previously consumed by nothing) now surface as a top-right slide-in **banner** + a top-bar **bell** with unread counter + dropdown history. Backend: ring-buffer in `MarketStreamHub` (id/ts enrichment) + `GET /api/alerts/recent` so a fresh tab shows recent fires; frontend `use-notification-store` + `use-alert-stream` (separate socket from quotes) + bell/banner components. OS notification when tab unfocused. Also cleaned out 5 leftover test/demo rules (always-true "Has open positions" etc.) that were re-firing on every backend restart. |
 | 2026-06-18 | **AI rule authoring (B2)**: `propose_rule` chat tool — NL → validated `RuleSpec` → Approve/Reject card → armed via `create_rule` (the signal scan then fires it). New `ai/chat/alert_intent.py` + tool UI in both chat surfaces. Verified live (authored "NVDA below 200-day SMA" end to end). Also: **a rule is not a memory** — alert-intent turns now skip learned-memory extraction (was wrongly storing the alert as a "preference"). |
 | 2026-06-18 | **Signal engine fires (B1)**: periodic `_signal_scan_loop` (`signals/scan.py`) scans watchlist ∪ positions → fetches daily bars → merges indicator + portfolio facts → `evaluate_rules` → broadcasts alerts. **Verified live** — fired an indicator rule (`SPY_pct_change_1d`) + a portfolio rule off real Alpaca data. Also wired `logging.basicConfig` so app logs (poll/scan/errors) actually print (they were silently dropped), and added `References/STARTUP.md`. |
