@@ -19,6 +19,8 @@ from config.ai_providers import DEFAULT_AI_SETTINGS, SECRET_AI_KEY_FIELDS, VALID
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "data" / "settings.json"
 SECRET_MASK = "********"
+VALID_ALPACA_DATA_FEEDS = frozenset({"iex", "sip"})
+
 SECRET_KEYS = frozenset(
     {
         "api_key_id",
@@ -43,6 +45,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "api_secret_key": "",
             "api_base_url": "https://paper-api.alpaca.markets",
             "data_base_url": "https://data.alpaca.markets",
+            "data_feed": "iex",
         },
         "schwab": {
             "enabled": False,
@@ -95,6 +98,7 @@ def _env_defaults() -> dict[str, Any]:
                 "data_base_url": os.environ.get(
                     "APCA_DATA_BASE_URL", "https://data.alpaca.markets"
                 ).strip(),
+                "data_feed": os.environ.get("APCA_DATA_FEED", "iex").strip(),
             },
             "schwab": {
                 "enabled": broker_env == "schwab",
@@ -569,6 +573,11 @@ def default_chart_layout(symbols: list[str]) -> list[dict]:
     ]
 
 
+def normalize_alpaca_data_feed(value: Any) -> str:
+    feed = str(value or "iex").strip().lower()
+    return feed if feed in VALID_ALPACA_DATA_FEEDS else "iex"
+
+
 def alpaca_config() -> dict[str, str]:
     cfg = load_settings()["brokers"]["alpaca"]
     return {
@@ -580,6 +589,7 @@ def alpaca_config() -> dict[str, str]:
         "data_base_url": str(
             cfg.get("data_base_url", "https://data.alpaca.markets")
         ).strip(),
+        "data_feed": normalize_alpaca_data_feed(cfg.get("data_feed")),
     }
 
 

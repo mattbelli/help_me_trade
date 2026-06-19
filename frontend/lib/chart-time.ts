@@ -6,10 +6,10 @@ export type ChartTimeframe = {
 };
 
 export const CHART_TIMEFRAMES: ChartTimeframe[] = [
-  { label: "1m", value: "1Min", days: 2, intraday: true },
-  { label: "5m", value: "5Min", days: 5, intraday: true },
-  { label: "15m", value: "15Min", days: 10, intraday: true },
-  { label: "1H", value: "1Hour", days: 60, intraday: true },
+  { label: "1m", value: "1Min", days: 10, intraday: true },
+  { label: "5m", value: "5Min", days: 30, intraday: true },
+  { label: "15m", value: "15Min", days: 60, intraday: true },
+  { label: "1H", value: "1Hour", days: 180, intraday: true },
   { label: "1D", value: "1Day", days: 365, intraday: false },
 ];
 

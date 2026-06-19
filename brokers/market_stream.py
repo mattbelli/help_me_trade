@@ -15,11 +15,16 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from brokers.alpaca import AlpacaAdapter
 from brokers.errors import BrokerError
 from brokers.factory import get_broker
-from config.settings import alpaca_config, broker_is_configured
+from config.settings import alpaca_config, broker_is_configured, normalize_alpaca_data_feed
 
 logger = logging.getLogger(__name__)
 
-ALPACA_WS_URL = "wss://stream.data.alpaca.markets/v2/iex"
+
+def alpaca_market_ws_url(feed: str | None = None) -> str:
+    resolved = normalize_alpaca_data_feed(
+        feed if feed is not None else alpaca_config().get("data_feed", "iex")
+    )
+    return f"wss://stream.data.alpaca.markets/v2/{resolved}"
 MAX_WS_SYMBOLS = 30
 RECONNECT_BASE_SEC = 2.0
 RECONNECT_MAX_SEC = 60.0
@@ -222,7 +227,7 @@ class MarketStreamHub:
 
             try:
                 async with websockets.connect(
-                    ALPACA_WS_URL,
+                    alpaca_market_ws_url(cfg.get("data_feed")),
                     additional_headers={
                         "APCA-API-KEY-ID": key_id,
                         "APCA-API-SECRET-KEY": secret,

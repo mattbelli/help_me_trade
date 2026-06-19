@@ -19,7 +19,7 @@ load_dotenv(ROOT / ".env")
 
 
 from brokers.errors import BrokerError
-from config.settings import alpaca_config
+from config.settings import alpaca_config, normalize_alpaca_data_feed
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,7 @@ class AlpacaAdapter:
         key_id: str,
         secret: str,
         data_base_url: str | None = None,
+        data_feed: str = "iex",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         if self._base_url.endswith("/v2"):
@@ -68,6 +69,7 @@ class AlpacaAdapter:
         self._data_base_url = (
             (data_base_url or "https://data.alpaca.markets").strip().rstrip("/")
         )
+        self._data_feed = normalize_alpaca_data_feed(data_feed)
         self._headers = {
             "APCA-API-KEY-ID": key_id,
             "APCA-API-SECRET-KEY": secret,
@@ -101,6 +103,7 @@ class AlpacaAdapter:
         secret = merged.get("api_secret_key", "").strip()
         base_url = merged.get("api_base_url", "").strip()
         data_base_url = merged.get("data_base_url", "").strip()
+        data_feed = normalize_alpaca_data_feed(merged.get("data_feed", "iex"))
         missing = [
             name
             for name, val in [
@@ -120,6 +123,7 @@ class AlpacaAdapter:
             key_id=key_id,
             secret=secret,
             data_base_url=data_base_url,
+            data_feed=data_feed,
         )
 
     def _parse_http_response(self, response: httpx.Response, path: str) -> dict | list:
@@ -403,7 +407,7 @@ class AlpacaAdapter:
             "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "limit": 10000,
-            "feed": "iex",
+            "feed": self._data_feed,
             "sort": "asc",
         }
 
@@ -427,7 +431,7 @@ class AlpacaAdapter:
             "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "limit": 10000,
-            "feed": "iex",
+            "feed": self._data_feed,
             "sort": "asc",
         }
 
@@ -584,7 +588,7 @@ class AlpacaAdapter:
             "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "limit": 10000,
-            "feed": "iex",
+            "feed": self._data_feed,
         }
         return cleaned, params
 
