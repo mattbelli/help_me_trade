@@ -22,6 +22,7 @@ import { useEtClock } from "@/lib/workspace/use-et-clock";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 
 import { ThemeSwitcher } from "./theme-switcher";
+import { NotificationBell } from "./notification-bell";
 
 function formatCompactMoney(value: number): string {
   if (Math.abs(value) >= 1000) {
@@ -321,6 +322,7 @@ export function WorkspaceToolbar() {
           ) : null}
         </div>
 
+        <NotificationBell />
         <SettingsDialog collapsed />
         <ThemeSwitcher />
         <span className="min-w-[4.75rem] text-right text-[var(--fg-dim)]">

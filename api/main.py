@@ -271,6 +271,11 @@ async def ws_market(websocket: WebSocket):
     await market_hub.handle_client(websocket)
 
 
+@app.get("/api/alerts/recent")
+def api_alerts_recent() -> dict[str, list[dict]]:
+    return {"alerts": market_hub.recent_alerts()}
+
+
 @app.get("/api/broker")
 def api_broker():
     settings = load_settings()

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 import websockets
@@ -52,6 +55,9 @@ class MarketStreamHub:
         self._lock = asyncio.Lock()
         self._upstream_task: asyncio.Task | None = None
         self._running = False
+        self._recent_alerts: collections.deque[dict[str, Any]] = collections.deque(
+            maxlen=50
+        )
 
     async def start(self) -> None:
         if self._running:
@@ -142,14 +148,23 @@ class MarketStreamHub:
 
     async def broadcast_alert(self, payload: dict[str, Any]) -> None:
         """Push rule/alert payloads to all connected market WS clients."""
+        enriched = {
+            "id": payload.get("id") or f"alert-{uuid.uuid4().hex[:12]}",
+            "ts": payload.get("ts") or datetime.now(timezone.utc).isoformat(),
+            **payload,
+        }
+        self._recent_alerts.append(enriched)
         dead: list[WebSocket] = []
         for ws in list(self._clients):
             try:
-                await ws.send_json({"type": "alert", **payload})
+                await ws.send_json({"type": "alert", **enriched})
             except Exception:
                 dead.append(ws)
         for ws in dead:
             self._clients.pop(ws, None)
+
+    def recent_alerts(self) -> list[dict[str, Any]]:
+        return list(reversed(self._recent_alerts))
 
     async def ensure_symbols(self, symbols: set[str]) -> None:
         normalized = {s.strip().upper() for s in symbols if s.strip()}
