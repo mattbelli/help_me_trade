@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 import db.ai_tables as ai_tables
 from ai.llm.base import LLMMessage
@@ -43,19 +43,67 @@ RETRY_PROMPT = (
 )
 
 
+def _coerce_str_list(value: Any) -> list[str]:
+    """Tolerate LLMs that return a string or a {key: text} dict where a list of
+    strings is expected (common with non-strict structured-output models)."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, dict):
+        out: list[str] = []
+        for key, val in value.items():
+            if isinstance(val, (dict, list)):
+                val = json.dumps(val, default=str)
+            out.append(f"{key}: {val}" if key else str(val))
+        return out
+    if isinstance(value, list):
+        items: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                items.append(item)
+            elif isinstance(item, dict):
+                items.append("; ".join(f"{k}: {v}" for k, v in item.items()))
+            else:
+                items.append(str(item))
+        return items
+    return [str(value)]
+
+
 class ProposedRule(BaseModel):
     name: str
-    rationale: str
+    rationale: str = ""
     spec: dict[str, Any]
 
 
 class RetroReport(BaseModel):
-    narrative: str
+    narrative: str = ""
     what_went_right: list[str] = Field(default_factory=list)
     what_went_wrong: list[str] = Field(default_factory=list)
     behavioral_observations: list[str] = Field(default_factory=list)
     proposed_rules: list[ProposedRule] = Field(default_factory=list)
     proposed_lessons: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "what_went_right",
+        "what_went_wrong",
+        "behavioral_observations",
+        "proposed_lessons",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_lists(cls, v: Any) -> list[str]:
+        return _coerce_str_list(v)
+
+    @field_validator("proposed_rules", mode="before")
+    @classmethod
+    def _coerce_rules(cls, v: Any) -> Any:
+        # Tolerate a single rule object or a dict-of-rules.
+        if isinstance(v, dict):
+            if {"name", "spec"} & set(v.keys()):
+                return [v]
+            return list(v.values())
+        return v
 
 
 def generate_retrospective_report(
