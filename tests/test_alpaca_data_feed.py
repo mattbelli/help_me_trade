@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -12,8 +13,13 @@ from config.settings import alpaca_config, clear_settings_cache, normalize_alpac
 
 
 @pytest.fixture(autouse=True)
-def _reset_settings_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+def _reset_settings_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Isolate from the dev's real data/settings.json (whose alpaca block would
+    # otherwise shadow the APCA_DATA_FEED env override).
     monkeypatch.delenv("APCA_DATA_FEED", raising=False)
+    monkeypatch.setattr("config.settings.SETTINGS_PATH", tmp_path / "settings.json")
     clear_settings_cache()
     yield
     clear_settings_cache()
