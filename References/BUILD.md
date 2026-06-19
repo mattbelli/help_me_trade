@@ -80,7 +80,7 @@ Brokers (Alpaca, Schwab) ──► db/ (SQLite) ──► api/ (FastAPI)
 
 | Area | Status |
 |------|--------|
-| **Chat** | ◐ assistant-ui Thread adopted; legacy Python SSE proxy still used for non-OpenAI-compatible providers (mock/anthropic); learned chips are in-session only (lost on full reload) |
+| **Chat** | ✅ Native tool-calling works — fixed the `enabledTools: []` default that left the model with no tools (it fabricated); all tools on by default. Anthropic routed through the native path. **Learned chips rehydrate** on reopening a saved thread (C4) + Copilot **thread-history** switcher (pin / rename / delete). Legacy Python SSE proxy now only for `mock`. |
 | **Research** | Mock web clearly labeled + UI banner when `SEARXNG_URL` unset; article `content` fed to findings; SearXNG failures no longer silently mock |
 | **Insights** | `portfolio/analytics.py` on poll + relevant memories injected each refresh |
 | **Memories** | Token-ranked retrieval on chat/insight/research turns; visible turn curation UI shipped; Mem0 when available; dual store drift remains; chip state not rehydrated on reload |
@@ -127,7 +127,7 @@ Phases are ordered by dependency. Effort: **XS** &lt;1d · **S** 1–2d · **M**
 | Settings + broker adapter cache | ✅ | S | `config/settings.py`, `brokers/factory.py` |
 | Persistent `httpx` client on Alpaca | ✅ | S | `brokers/alpaca.py` |
 | GitHub Actions CI (ruff + pytest) | ✅ | S | `.github/workflows/ci.yml` |
-| Offload remaining sync broker I/O (`to_thread` / async) | ◐ | S | `api/main.py`, `brokers/market_stream.py` |
+| Offload remaining sync broker I/O (`to_thread` / async) | ✅ | S | `api/main.py`, `brokers/market_stream.py` — poll-loop DB writes + market-stream alert check wrapped in `asyncio.to_thread` |
 | Encrypt secrets at rest | ◐ | M | `config/secrets.py`, `brokers/schwab_auth.py` |
 
 ---
@@ -148,8 +148,8 @@ Phases are ordered by dependency. Effort: **XS** &lt;1d · **S** 1–2d · **M**
 
 | Item | Effort | Notes |
 |------|--------|-------|
-| Mark-to-market unrealized (open lots vs snapshot) | M | Optional calendar mode |
-| Profit factor, hold time, behavioral flags for AI | M | `db/analytics.py` enrichment |
+| Mark-to-market unrealized (open lots vs snapshot) | M | ✅ shipped — `compute_open_lots` / `compute_unrealized` in the AI bundle |
+| Profit factor, hold time, behavioral flags for AI | M | ✅ shipped — `db/analytics.py` enrichment (profit factor, hold time, win/loss streaks, behavioral flags) in the AI bundle |
 | Decimal in ledger (align w/ Phase 2) | M | See Phase 2 |
 | Multi-account merge UX | S | "All accounts" vs per-broker |
 
@@ -196,7 +196,7 @@ Data adapters → Intelligence layer → Insights · Chat · Research · Rules
 | C1 | `POST /api/memory/extract`; client-only extraction (`extract=False` on finalize + legacy `/api/chat`) | ✅ | S |
 | C2 | Visible **“Learned from this chat”** chips under assistant turns (Edit/Discard) | ✅ | M |
 | C3 | Python-backed context on turns (`/api/chat/context`, finalize) | ✅ | M |
-| C4 | Rehydrate learned chips when reopening a saved thread | ◐ | S |
+| C4 | Rehydrate learned chips when reopening a saved thread | ✅ | S |
 
 **Feedback loop (Phase 3–4):**
 
@@ -240,7 +240,7 @@ UI/Agent → OrderIntent → RiskEngine.validate() → approve | reject | needs_
 | Versioned DB migrations (`schema_version`) | M |
 | Market-hours-aware polling | S |
 | Remove legacy HTML dashboard at `/` | XS |
-| SSRF guard on `fetch_url` | S |
+| SSRF guard on `fetch_url` ✅ | S |
 | Mem0/SQLite → one memory store + embeddings | M |
 | Backtesting harness (bars + metrics) | L |
 | True `astream` for insights/reflection | S–M |
@@ -275,10 +275,10 @@ The agent comes alive and becomes reachable. Detail: [`IDEA_BANK.md`](IDEA_BANK.
 
 | Item | Effort | Notes |
 |------|--------|-------|
-| Indicator/feature layer | M | Pure functions over bars + portfolio (price, %chg windows, sma/ema, crosses, rsi, atr, rel-strength, position metrics). The vocabulary. ✅ remote |
-| Declarative node-graph rule model + validator | M | Typed DAG (sources/indicators → transforms → conditions → logic → actions); schema-validated **data, never `exec`'d code**. ✅ remote |
-| Evaluator: streaming + scheduled scan | M | One evaluator, two runners (per-tick + batch over a universe); extends `ai/rules/engine.py` + `brokers/market_stream.py`. ✅ remote |
-| Backtest runner | M | Run a rule over history before arming (reuses the above). ✅ remote |
+| Indicator/feature layer | M | ✅ **SHIPPED** (#13 `signals/indicators.py` + #14 `signals/features.py` facts-builder). The vocabulary; extends the existing rules engine's facts. |
+| Declarative node-graph rule model + validator | M | ✅ **SHIPPED** (#16 `signals/rule_schema.py` — validated structured rules that **compile to the existing engine's condition dict**, never `exec`'d code). |
+| Evaluator: streaming + scheduled scan | M | ◐ pure `evaluate_condition` exposed (#15); the **streaming + scheduled-scan runtime wiring** (fetch bars → merge indicator facts → fire alerts) is pending — needs live data to verify. |
+| Backtest runner | M | ✅ **SHIPPED** (#15 `signals/backtest.py` — replay a rule over history → fire events). |
 | AI confirm-to-save authoring (`propose_rule`) | M | NL → validated graph → approval card (the `propose_order` pattern) |
 | Node-based visual builder | L | Langflow/n8n-style canvas — visual editor over the same graph (UI; needs eyes) |
 | Default presets (clearable) + AI playbook | S | Seed rules/scans as data; power user clears |
@@ -388,6 +388,7 @@ If port 8000 is in use: `netstat -ano | findstr ":8000"` then `taskkill /PID <pi
 
 | Date | Change |
 |------|--------|
+| 2026-06-18 | Shipped: tool-calling fix (`enabledTools: []` → all tools on by default; ends fabrication) + Anthropic native path (#10, #17); **learned-chip rehydration C4** (#4) + Copilot **thread-history** switcher with pin/rename/delete (#18, #19, #20). Backend: analytics enrichment (#5), async broker I/O offload (#6), mark-to-market unrealized (#7), SSRF guard (#8). **Signal & Automation Engine foundation**: indicators (#13) → facts (#14) → backtest (#15) → validated rule schema (#16), all pure + tested. Workspace UI: settings menu (#9), command-console cleanup + tools-out-of-chat (#17). |
 | 2026-06-18 | Vision fold (IDEA_BANK §7.10–7.12): **Signal & Automation Engine** (one declarative node-graph for rules/alerts/scans/automations; indicator layer; streaming/scan/backtest runners; AI confirm-to-save + node-UI + DSL + clearable presets), **charting over a decoupled overlay model** (expand Lightweight Charts; draw↔rule bidirectional; lib swappable), **grounding-not-training + MCP-not-needed-in-app**. Folded into Phase 7 (engine block) + §6. |
 | 2026-06-16 | Phase 3 C1–C3: `POST /api/memory/extract`, client `onFinish` extraction, “Learned from this chat” chips; assistant-ui Thread (B5); server `extract=False` on finalize + legacy chat |
 | 2026-06-16 | Chat: locked assistant-ui (AI-SDK adapter); mem0 + stockbroker adopted as patterns not deps (Python-backed memory, approval card UI in P3 / execution in P4) |

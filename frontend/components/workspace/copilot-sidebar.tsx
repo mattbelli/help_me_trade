@@ -177,7 +177,7 @@ export function CopilotSidebar() {
                 key="copilot-history-panel"
                 className={cn(
                   "absolute left-0 top-0 bottom-0 z-20 w-[15rem] max-w-[85%] overflow-y-auto",
-                  "border-r border-[var(--border)] bg-[var(--panel)]/92 backdrop-blur-md",
+                  "border-r border-[var(--border)] bg-[var(--panel)]/5 backdrop-blur-lg",
                 )}
                 initial={{ x: -12, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
