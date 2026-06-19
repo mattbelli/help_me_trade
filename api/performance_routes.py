@@ -33,8 +33,13 @@ def api_performance_dashboard(
 def api_ai_performance_context(
     account_id: str | None = None,
     period: str = Query(default="year"),
+    include_trade_context: bool = Query(default=False),
 ) -> dict[str, Any]:
-    return ai_performance_context(account_id=account_id, period=period)
+    return ai_performance_context(
+        account_id=account_id,
+        period=period,
+        include_trade_context=include_trade_context,
+    )
 
 
 @router.post("/sync")

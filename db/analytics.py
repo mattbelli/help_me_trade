@@ -568,6 +568,7 @@ def ai_performance_context(
     period: str = "year",
     custom_from: str | None = None,
     custom_to: str | None = None,
+    include_trade_context: bool = False,
 ) -> dict[str, Any]:
     """Compact structured context for agent tools and reflection."""
     from db.sqlite import get_latest_snapshot
@@ -625,7 +626,7 @@ def ai_performance_context(
         snap["positions"] if snap else [],
     )
 
-    return {
+    result: dict[str, Any] = {
         "period": period,
         "from_date": dash["from_date"],
         "to_date": dash["to_date"],
@@ -663,3 +664,26 @@ def ai_performance_context(
         ),
         "unrealized": unrealized,
     }
+
+    if include_trade_context:
+        from brokers.factory import get_broker
+        from config.settings import broker_is_configured, primary_broker
+        from signals.trade_context import build_entry_style_block
+
+        broker = None
+        broker_name = primary_broker()
+        if broker_is_configured(broker_name):
+            try:
+                broker = get_broker(broker_name)
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "Failed to initialize broker for trade context"
+                )
+        result["entry_style"] = build_entry_style_block(
+            period_trades,
+            broker=broker,
+        )
+
+    return result

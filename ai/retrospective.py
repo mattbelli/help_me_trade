@@ -146,9 +146,14 @@ def generate_retrospective_report(
             period=period,
             custom_from=split["train"]["from"],
             custom_to=split["train"]["to"],
+            include_trade_context=True,
         )
     else:
-        train_ctx = ai_performance_context(account_id=account_id, period=period)
+        train_ctx = ai_performance_context(
+            account_id=account_id,
+            period=period,
+            include_trade_context=True,
+        )
     llm_ctx = _sanitize_llm_context(train_ctx)
     report = _call_retrospective_llm(llm_ctx)
     processed_rules = _process_proposed_rules(report, split)
