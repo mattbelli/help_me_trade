@@ -1,16 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  CHART_TIMEFRAMES,
+  type ChartTimeframe,
+} from "@/lib/chart-time";
 import type { ChannelId } from "@/lib/workspace/channels";
+import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
+import { cn } from "@/lib/utils";
 import {
   clampLayoutWidth,
   deriveGridCols,
@@ -28,6 +35,121 @@ import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
 const ROW_HEIGHT_PX = 48;
+
+const CHART_STYLES = [
+  { label: "Candles", value: "candle" as const },
+  { label: "Line", value: "line" as const },
+];
+
+function resolveChartTimeframe(value?: string): ChartTimeframe {
+  return (
+    CHART_TIMEFRAMES.find((tf) => tf.value === value) ?? CHART_TIMEFRAMES[4]
+  );
+}
+
+const dragSafeControlProps = {
+  onClick: (e: MouseEvent) => e.stopPropagation(),
+  onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+};
+
+function ChartHeaderControls({
+  config,
+  channel,
+  onConfigChange,
+}: {
+  config: WidgetInstanceConfig;
+  channel: ChannelId;
+  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+}) {
+  const channelSymbol = useChannelSymbol(channel);
+  const manualMode = channel === "none";
+  const timeframe = resolveChartTimeframe(config.timeframe);
+  const style = config.style ?? "candle";
+  const symbol =
+    channel !== "none"
+      ? (channelSymbol ?? config.symbol ?? "SPY")
+      : (config.symbol ?? "SPY");
+  const styleLabel =
+    CHART_STYLES.find((s) => s.value === style)?.label ?? "Candles";
+
+  return (
+    <>
+      {manualMode ? (
+        <input
+          type="text"
+          value={config.symbol ?? "SPY"}
+          onChange={(e) =>
+            onConfigChange({
+              symbol: e.target.value.toUpperCase().trim() || "SPY",
+            })
+          }
+          {...dragSafeControlProps}
+          className="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
+        />
+      ) : (
+        <span className="font-mono text-[11px] font-semibold text-[var(--c-accent)]">
+          {symbol}
+        </span>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          type="button"
+          {...dragSafeControlProps}
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          {timeframe.label}
+          <ChevronDown className="size-2.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+        >
+          {CHART_TIMEFRAMES.map((tf) => (
+            <DropdownMenuItem
+              key={tf.value}
+              onClick={() => onConfigChange({ timeframe: tf.value })}
+              className={cn(
+                "px-2 py-1.5",
+                timeframe.value === tf.value
+                  ? "text-foreground"
+                  : "text-[var(--fg-dim)]",
+              )}
+            >
+              {tf.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          type="button"
+          {...dragSafeControlProps}
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          {styleLabel}
+          <ChevronDown className="size-2.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+        >
+          {CHART_STYLES.map((s) => (
+            <DropdownMenuItem
+              key={s.value}
+              onClick={() => onConfigChange({ style: s.value })}
+              className={cn(
+                "px-2 py-1.5",
+                style === s.value ? "text-foreground" : "text-[var(--fg-dim)]",
+              )}
+            >
+              {s.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
 
 function useWidgetHeaderMeta(widgetType: string): string | undefined {
   const { snapshot } = useSnapshot();
@@ -102,6 +224,8 @@ function WidgetHeader({
   onRemove,
   watchlistId,
   onWatchlistChange,
+  config,
+  onConfigChange,
   locked,
 }: {
   widgetType: string;
@@ -111,19 +235,30 @@ function WidgetHeader({
   onRemove: () => void;
   watchlistId?: string;
   onWatchlistChange?: (watchlistId: string) => void;
+  config?: WidgetInstanceConfig;
+  onConfigChange?: (patch: Partial<WidgetInstanceConfig>) => void;
   locked: boolean;
 }) {
   const def = getWidgetDefinition(widgetType);
   const meta = useWidgetHeaderMeta(widgetType);
+  const isChart = widgetType === "chart";
 
   return (
     <div className="workspace-drag-handle relative flex cursor-grab items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 active:cursor-grabbing">
       <span className="font-mono text-[12px] leading-none tracking-[-1px] text-[var(--fg-faint)]">
         ⠿
       </span>
-      <span className="font-mono text-[11.5px] font-semibold text-foreground">
-        {def?.title ?? widgetType}
-      </span>
+      {isChart && config && onConfigChange ? (
+        <ChartHeaderControls
+          config={config}
+          channel={channel}
+          onConfigChange={onConfigChange}
+        />
+      ) : (
+        <span className="font-mono text-[11.5px] font-semibold text-foreground">
+          {def?.title ?? widgetType}
+        </span>
+      )}
       {widgetType === "watchlist" && onWatchlistChange ? (
         <WatchlistListSelector
           watchlistId={watchlistId}
@@ -286,6 +421,10 @@ export function WorkspaceGrid() {
                       watchlistId={config.watchlistId}
                       onWatchlistChange={(next) =>
                         updateWidgetConfig(item.i, { watchlistId: next })
+                      }
+                      config={config}
+                      onConfigChange={(patch) =>
+                        updateWidgetConfig(item.i, patch)
                       }
                       locked={locked}
                     />
