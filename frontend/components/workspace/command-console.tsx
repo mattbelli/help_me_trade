@@ -9,8 +9,6 @@ import {
   type KeyboardEvent,
 } from "react";
 import { motion } from "motion/react";
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   useConsoleStore,
@@ -252,7 +250,7 @@ export function CommandConsole() {
       >
         <span className="shrink-0 font-mono text-[var(--c-command)]">›</span>
 
-        <div className="relative inline-grid min-w-[16rem] max-w-[32rem] items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-2">
+        <div className="relative inline-grid min-w-[16rem] max-w-[64rem] items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1.5">
           <span
             aria-hidden
             className="invisible col-start-1 row-start-1 whitespace-pre font-mono text-[14px]"
@@ -301,31 +299,6 @@ export function CommandConsole() {
         </div>
 
         <div className="min-w-0 flex-1" aria-hidden />
-
-        <div className="flex shrink-0 items-center gap-2.5">
-          <span
-            className="size-1.5 shrink-0 rounded-full bg-[var(--c-accent)]"
-            aria-hidden
-          />
-          <span className="hidden font-mono text-[10.5px] text-[var(--fg-faint)] sm:inline">
-            ⌘K
-          </span>
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground"
-            onClick={toggle}
-            aria-label={open ? "Collapse console" : "Expand console"}
-          >
-            {open ? (
-              <ChevronDownIcon className="size-4" />
-            ) : (
-              <ChevronUpIcon className="size-4" />
-            )}
-          </Button>
-        </div>
       </form>
     </motion.div>
   );
