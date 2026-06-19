@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
-import { motion } from "motion/react";
+import { useCallback, useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   ChevronDownIcon,
   MessageSquareIcon,
+  PanelLeftIcon,
   PinIcon,
   PinOffIcon,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import { CopilotThreadHistory } from "./copilot-thread-history";
 import { WorkspaceThread } from "./workspace-chat";
 
 export function CopilotSidebar() {
+  const [historyOpen, setHistoryOpen] = useState(false);
   const open = useCopilotStore((s) => s.open);
   const pinned = useCopilotStore((s) => s.pinned);
   const width = useCopilotStore((s) => s.width);
@@ -32,6 +34,15 @@ export function CopilotSidebar() {
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setHistoryOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [historyOpen]);
 
   const onResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -95,15 +106,28 @@ export function CopilotSidebar() {
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize copilot"
-        className="absolute top-0 bottom-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-[var(--border-strong)]"
+        className="absolute top-0 bottom-0 left-0 z-30 w-1.5 cursor-col-resize hover:bg-[var(--border-strong)]"
         onPointerDown={onResizePointerDown}
       />
 
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 pl-4">
+      <div className="relative z-40 flex h-10 shrink-0 items-center gap-2 border-b border-[var(--border)] px-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={cn(
+            "text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground",
+            historyOpen && "bg-[var(--bg-hover)] text-foreground",
+          )}
+          onClick={() => setHistoryOpen((prev) => !prev)}
+          aria-label="Chat history"
+          aria-expanded={historyOpen}
+        >
+          <PanelLeftIcon className="size-4" />
+        </Button>
         <span className="font-sans text-[12px] font-medium text-foreground">
           Copilot
         </span>
-        <CopilotThreadHistory />
         <div className="flex-1" />
         <Button
           type="button"
@@ -135,8 +159,38 @@ export function CopilotSidebar() {
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden bg-[var(--bg-inset)]">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-[var(--bg-inset)]">
         <WorkspaceThread />
+
+        <AnimatePresence>
+          {historyOpen ? (
+            <>
+              <motion.div
+                key="copilot-history-backdrop"
+                className="absolute inset-0 z-10"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onPointerDown={() => setHistoryOpen(false)}
+              />
+              <motion.div
+                key="copilot-history-panel"
+                className={cn(
+                  "absolute left-0 top-0 bottom-0 z-20 w-[15rem] max-w-[85%] overflow-y-auto",
+                  "border-r border-[var(--border)] bg-[var(--panel)]/92 backdrop-blur-md",
+                )}
+                initial={{ x: -12, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -12, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 420, damping: 36 }}
+              >
+                <CopilotThreadHistory
+                  onAfterSelect={() => setHistoryOpen(false)}
+                />
+              </motion.div>
+            </>
+          ) : null}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
