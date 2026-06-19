@@ -11,6 +11,7 @@ export type ChatSession = {
   mode: LegacyChatMode;
   created_at: string;
   updated_at: string;
+  pinned?: boolean;
 };
 
 export type ChatSessionMessage = {
@@ -98,5 +99,18 @@ export async function renameChatSession(
     body: JSON.stringify({ title }),
   });
   if (!res.ok) throw new Error(`Rename session error ${res.status}`);
+  return res.json();
+}
+
+export async function setChatSessionPinned(
+  sessionId: string,
+  pinned: boolean,
+): Promise<ChatSession> {
+  const res = await apiFetch(`${API_BASE}/api/chat/sessions/${sessionId}/pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pinned }),
+  });
+  if (!res.ok) throw new Error(`Set pinned error ${res.status}`);
   return res.json();
 }

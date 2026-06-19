@@ -114,6 +114,7 @@ export function usePythonThreadListAdapter(): RemoteThreadListAdapter {
             externalId: session.id,
             title: session.title,
             lastMessageAt: new Date(session.updated_at),
+            custom: { pinned: Boolean(session.pinned) },
           })),
         };
       },
@@ -140,6 +141,7 @@ export function usePythonThreadListAdapter(): RemoteThreadListAdapter {
           externalId: session.id,
           title: session.title,
           lastMessageAt: new Date(session.updated_at),
+          custom: { pinned: Boolean(session.pinned) },
         };
       },
 

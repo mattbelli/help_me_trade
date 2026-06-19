@@ -4,6 +4,7 @@ import { useState, type FC } from "react";
 import {
   MoreHorizontalIcon,
   PencilIcon,
+  PinIcon,
   PlusIcon,
   TrashIcon,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { setChatSessionPinned } from "@/lib/chat-sessions";
 
 export function CopilotThreadHistory({
   onAfterSelect,
@@ -80,6 +82,8 @@ const CopilotThreadHistoryItems: FC<{ onAfterSelect: () => void }> = ({
 const CopilotThreadListItem: FC<{ onAfterSelect: () => void }> = ({
   onAfterSelect,
 }) => {
+  const pinned = useAuiState((s) => Boolean(s.threadListItem.custom?.pinned));
+
   return (
     <ThreadListItemPrimitive.Root
       className={cn(
@@ -90,11 +94,17 @@ const CopilotThreadListItem: FC<{ onAfterSelect: () => void }> = ({
       <ThreadListItemPrimitive.Trigger
         onClick={onAfterSelect}
         className={cn(
-          "flex h-full w-full min-w-0 items-center px-2.5 text-left text-[12px] text-foreground",
+          "flex h-full w-full min-w-0 items-center gap-1.5 px-2.5 text-left text-[12px] text-foreground",
           "group-hover:pe-9 group-has-data-[state=open]:pe-9 group-data-active:pe-9",
           "focus-visible:outline-none",
         )}
       >
+        {pinned ? (
+          <PinIcon
+            className="size-3 shrink-0 text-[var(--fg-dim)] opacity-60"
+            aria-hidden
+          />
+        ) : null}
         <span className="min-w-0 flex-1 truncate">
           <ThreadListItemPrimitive.Title fallback="New chat" />
         </span>
@@ -107,9 +117,12 @@ const CopilotThreadListItem: FC<{ onAfterSelect: () => void }> = ({
 const CopilotThreadListItemMore: FC = () => {
   const aui = useAui();
   const title = useAuiState((s) => s.threadListItem.title);
+  const remoteId = useAuiState((s) => s.threadListItem.remoteId);
+  const pinned = useAuiState((s) => Boolean(s.threadListItem.custom?.pinned));
   const [renameOpen, setRenameOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [pinning, setPinning] = useState(false);
 
   function openRename() {
     setDraft(title?.trim() || "");
@@ -125,6 +138,17 @@ const CopilotThreadListItemMore: FC = () => {
       setRenameOpen(false);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handlePinToggle() {
+    if (!remoteId || pinning) return;
+    setPinning(true);
+    try {
+      await setChatSessionPinned(remoteId, !pinned);
+      await aui.threads().reload();
+    } finally {
+      setPinning(false);
     }
   }
 
@@ -165,6 +189,17 @@ const CopilotThreadListItemMore: FC = () => {
           >
             <PencilIcon className="size-3.5" />
             Rename
+          </ThreadListItemMorePrimitive.Item>
+          <ThreadListItemMorePrimitive.Item
+            className={cn(
+              "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] outline-none select-none",
+              "hover:bg-[var(--bg-hover)] focus:bg-[var(--bg-hover)]",
+              pinning && "pointer-events-none opacity-50",
+            )}
+            onClick={() => void handlePinToggle()}
+          >
+            <PinIcon className="size-3.5" />
+            {pinned ? "Unpin" : "Pin"}
           </ThreadListItemMorePrimitive.Item>
           <ThreadListItemPrimitive.Delete asChild>
             <ThreadListItemMorePrimitive.Item

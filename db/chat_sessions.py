@@ -25,7 +25,8 @@ def init_chat_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 title TEXT NOT NULL DEFAULT 'New chat',
                 mode TEXT NOT NULL DEFAULT 'standard',
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS chat_messages (
@@ -43,15 +44,23 @@ def init_chat_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON chat_messages(session_id, created_at ASC);
             """
         )
+        try:
+            conn.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
 
 
 def _row_to_session(row: sqlite3.Row) -> dict[str, Any]:
+    keys = row.keys()
     return {
         "id": row["id"],
         "title": row["title"],
         "mode": row["mode"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "pinned": bool(row["pinned"]) if "pinned" in keys else False,
     }
 
 
@@ -102,7 +111,7 @@ def list_chat_sessions(
         rows = conn.execute(
             """
             SELECT * FROM chat_sessions
-            ORDER BY updated_at DESC
+            ORDER BY pinned DESC, updated_at DESC
             LIMIT ?
             """,
             (max(1, min(limit, 200)),),
@@ -218,6 +227,22 @@ def upsert_chat_message(
         ).fetchone()
         conn.commit()
     return _row_to_message(row)
+
+
+def set_chat_session_pinned(
+    session_id: str, pinned: bool, db_path: Path = DEFAULT_DB_PATH
+) -> dict[str, Any] | None:
+    init_chat_tables(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE chat_sessions SET pinned = ? WHERE id = ?",
+            (1 if pinned else 0, session_id),
+        )
+        row = conn.execute(
+            "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        conn.commit()
+    return _row_to_session(row) if row else None
 
 
 def update_chat_session_title(

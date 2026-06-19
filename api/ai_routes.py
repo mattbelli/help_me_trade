@@ -52,6 +52,7 @@ from db.chat_sessions import (
     delete_chat_session,
     get_chat_session_with_messages,
     list_chat_sessions,
+    set_chat_session_pinned,
     update_chat_session_title,
 )
 from db.sqlite import get_latest_snapshot
@@ -163,6 +164,17 @@ def api_patch_chat_session(session_id: str, body: dict = Body(...)):
     if not isinstance(title, str) or not title.strip():
         return JSONResponse({"error": "title is required"}, status_code=400)
     session = update_chat_session_title(session_id, title)
+    if session is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return session
+
+
+@router.post("/chat/sessions/{session_id}/pin")
+def api_set_chat_session_pinned(session_id: str, body: dict = Body(...)):
+    pinned = body.get("pinned")
+    if not isinstance(pinned, bool):
+        return JSONResponse({"error": "pinned must be a boolean"}, status_code=400)
+    session = set_chat_session_pinned(session_id, pinned)
     if session is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return session
