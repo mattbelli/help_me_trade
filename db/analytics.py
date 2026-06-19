@@ -566,12 +566,22 @@ def ai_performance_context(
     *,
     account_id: str | None = None,
     period: str = "year",
+    custom_from: str | None = None,
+    custom_to: str | None = None,
 ) -> dict[str, Any]:
     """Compact structured context for agent tools and reflection."""
     from db.sqlite import get_latest_snapshot
     from db.trades import symbol_trade_stats
 
-    dash = performance_dashboard(account_id=account_id, period=period)
+    effective_period = period
+    if custom_from is not None and custom_to is not None:
+        effective_period = "custom"
+    dash = performance_dashboard(
+        account_id=account_id,
+        period=effective_period,
+        custom_from=custom_from,
+        custom_to=custom_to,
+    )
 
     symbols = symbol_trade_stats(
         account_id=account_id,

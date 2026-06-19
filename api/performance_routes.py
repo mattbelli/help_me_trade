@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
+from ai.retrospective import generate_retrospective_report
 from db.analytics import ai_performance_context, performance_dashboard
 from db.trades import daily_trade_stats, symbol_trade_stats
 from trading.sync import sync_all_enabled_brokers
@@ -40,6 +41,14 @@ def api_ai_performance_context(
 def api_sync_trades() -> dict[str, Any]:
     results = sync_all_enabled_brokers()
     return {"results": results}
+
+
+@router.post("/retrospective")
+def api_generate_retrospective(
+    account_id: str | None = None,
+    period: str = Query(default="all"),
+) -> dict[str, Any]:
+    return generate_retrospective_report(account_id=account_id, period=period)
 
 
 @router.get("/calendar")

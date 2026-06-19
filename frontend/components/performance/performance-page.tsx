@@ -16,6 +16,7 @@ import {
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { RetroReportButton } from "@/components/performance/retro-report-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -340,21 +341,24 @@ export function PerformancePage() {
           title="Performance"
           subtitle="Trade ledger analytics — import history + auto-sync from connected brokers."
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={syncing}
-          onClick={() => void handleSync()}
-          className="shrink-0"
-        >
-          {syncing ? (
-            <Loader2 className="mr-2 size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 size-4" />
-          )}
-          Sync brokers
-        </Button>
+        <div className="flex flex-wrap items-start gap-2">
+          <RetroReportButton period={period} accountId={accountId} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={syncing}
+            onClick={() => void handleSync()}
+            className="shrink-0"
+          >
+            {syncing ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 size-4" />
+            )}
+            Sync brokers
+          </Button>
+        </div>
       </div>
 
       {error && (
