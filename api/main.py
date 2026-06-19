@@ -65,11 +65,19 @@ from db.sqlite import (
     save_snapshot,
 )
 from db.trades import init_trade_tables
+from signals.scan import run_signal_scan
 from trading.sync import async_sync_all_enabled_brokers
 
 ROOT = Path(__file__).resolve().parent.parent
 POLL_INTERVAL_SECONDS = max(
     5, int(os.environ.get("POLL_INTERVAL_SECONDS", "20"))
+)
+SIGNAL_SCAN_INTERVAL_SECONDS = max(
+    30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300"))
+)
+logging.basicConfig(
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -142,6 +150,29 @@ async def _poll_loop() -> None:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
+async def _signal_scan_loop() -> None:
+    while True:
+        try:
+            triggered = await run_signal_scan()
+            if triggered:
+                logger.info(
+                    "Signal scan triggered: %s",
+                    [t["rule_id"] for t in triggered],
+                )
+            for item in triggered:
+                await market_hub.broadcast_alert(
+                    {
+                        "source": "signal_scan",
+                        "rule_id": item["rule_id"],
+                        "rule_name": item["rule_name"],
+                        "action": item["action"],
+                    }
+                )
+        except Exception:
+            logger.exception("Signal scan loop iteration failed")
+        await asyncio.sleep(SIGNAL_SCAN_INTERVAL_SECONDS)
+
+
 async def _trade_sync_loop() -> None:
     """Sync trade ledger from enabled brokers on startup, then periodically."""
     try:
@@ -188,15 +219,17 @@ async def lifespan(app: FastAPI):
     await market_hub.start()
     await _poll_once()
     poll_task = asyncio.create_task(_poll_loop())
+    scan_task = asyncio.create_task(_signal_scan_loop())
     alert_task = asyncio.create_task(_alert_symbol_loop())
     reflection_task = asyncio.create_task(reflection_loop())
     sync_task = asyncio.create_task(_trade_sync_loop())
     yield
     sync_task.cancel()
     poll_task.cancel()
+    scan_task.cancel()
     alert_task.cancel()
     reflection_task.cancel()
-    for task in (poll_task, alert_task, reflection_task, sync_task):
+    for task in (poll_task, scan_task, alert_task, reflection_task, sync_task):
         try:
             await task
         except asyncio.CancelledError:
