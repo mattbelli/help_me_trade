@@ -130,3 +130,27 @@ export async function syncTrades(): Promise<{ results: SyncResult[] }> {
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }
+
+export type RetrospectiveResult = {
+  artifact_id: number;
+  period: string;
+  n_proposed_rules: number;
+  n_lessons: number;
+};
+
+export async function runTradeRetrospective(params: {
+  account_id?: string;
+  period?: PerformancePeriod;
+}): Promise<RetrospectiveResult> {
+  const qs = new URLSearchParams();
+  if (params.account_id) qs.set("account_id", params.account_id);
+  if (params.period) qs.set("period", params.period);
+  const res = await apiFetch(`${API_BASE}/api/performance/retrospective?${qs}`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `API error ${res.status}`);
+  }
+  return res.json();
+}
