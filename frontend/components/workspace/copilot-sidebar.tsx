@@ -17,6 +17,7 @@ import {
   useCopilotStore,
 } from "@/lib/workspace/use-copilot-store";
 
+import { CopilotThreadHistory } from "./copilot-thread-history";
 import { WorkspaceThread } from "./workspace-chat";
 
 export function CopilotSidebar() {
@@ -102,6 +103,7 @@ export function CopilotSidebar() {
         <span className="font-sans text-[12px] font-medium text-foreground">
           Copilot
         </span>
+        <CopilotThreadHistory />
         <div className="flex-1" />
         <Button
           type="button"
