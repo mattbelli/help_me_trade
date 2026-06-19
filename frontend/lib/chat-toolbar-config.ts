@@ -35,6 +35,11 @@ export const CHAT_TOOL_OPTIONS = [
     label: "Propose order",
     description: "Paper trade approval card (no execution)",
   },
+  {
+    id: "propose_rule",
+    label: "Propose alert",
+    description: "Signal/alert rule approval card",
+  },
 ] as const;
 
 export type ChatToolId = (typeof CHAT_TOOL_OPTIONS)[number]["id"];

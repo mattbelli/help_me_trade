@@ -9,6 +9,7 @@ import {
   TradingWelcome,
 } from "@/components/agents/trading-chat-parts";
 import { ProposeOrderToolUI } from "@/components/agents/propose-order-tool-ui";
+import { ProposeRuleToolUI } from "@/components/agents/propose-rule-tool-ui";
 import { TradingComposerControls } from "@/components/agents/trading-composer-controls";
 import { ChatSlashCommands } from "@/components/agents/chat-slash-commands";
 import { ChatSettingsProvider } from "@/lib/chat-settings-context";
@@ -22,6 +23,7 @@ function WorkspaceChatProvidersInner({ children }: { children: ReactNode }) {
     <AssistantRuntimeProvider runtime={runtime}>
       <StartResearchToolUI />
       <ProposeOrderToolUI />
+      <ProposeRuleToolUI />
       {children}
     </AssistantRuntimeProvider>
   );

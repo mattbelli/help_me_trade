@@ -18,6 +18,7 @@ from ai.utils.symbols import extract_symbol
 from db.analytics import ai_performance_context
 from db.sqlite import get_latest_snapshot
 from db.trades import list_trade_events, trade_summary_stats
+from signals.rule_schema import Group, Leaf, RuleSpec
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,14 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Call immediately on buy/sell requests; never narrate a fake tool call."
         ),
     },
+    "propose_rule": {
+        "title": "Propose alert rule",
+        "description": (
+            "Propose a signal/alert rule (name, condition over a metric, action). "
+            "Shows an Approve/Reject card; on approval the rule is armed. "
+            "Call on alert/signal/watch/notify requests; never narrate a fake call."
+        ),
+    },
 }
 
 _TOOL_PLANNER_PROMPT = """You are a tool planner for a trading copilot.
@@ -79,6 +88,7 @@ Available tools:
 - get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number}
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
 - web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
+- propose_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
 
 Rules:
 - Return {"tools": []} when no tool is needed (greetings, thanks, small talk).
@@ -87,6 +97,7 @@ Rules:
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
 - Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
+- When the user describes an alert/signal/rule, call propose_rule with a validated spec.
 """
 
 
@@ -298,4 +309,75 @@ def execute_tool(name: str, args: dict[str, Any]) -> Any:
             ),
         }
 
+    if name == "propose_rule":
+        import uuid
+
+        import db.ai_tables as ai_tables
+        from db.ai_tables import create_rule
+
+        try:
+            spec = RuleSpec.model_validate(args.get("spec") or args)
+        except Exception as exc:
+            return {"error": f"Invalid rule spec: {exc}"}
+        engine = spec.to_engine_rule()
+        rule_id = f"rule-{uuid.uuid4().hex[:8]}"
+        try:
+            rule = create_rule(
+                rule_id=rule_id,
+                name=engine["name"],
+                conditions=engine["conditions"],
+                action=engine["action"],
+                enabled=bool(engine.get("enabled", True)),
+                db_path=ai_tables.DEFAULT_DB_PATH,
+            )
+        except Exception as exc:
+            return {"error": str(exc)}
+        return {
+            "status": "created",
+            "rule_id": rule["id"],
+            "rule_name": rule["name"],
+            "summary": _summarize_rule_spec(spec),
+            "message": f"Armed alert: {rule['name']}",
+        }
+
     return {"error": f"Unknown tool {name}"}
+
+
+_OPERATOR_SYMBOLS = {
+    "lessThan": "<",
+    "lessThanInclusive": "≤",
+    "greaterThan": ">",
+    "greaterThanInclusive": "≥",
+    "equal": "==",
+    "notEqual": "!=",
+    "in": "in",
+    "contains": "contains",
+}
+
+
+def _summarize_leaf(leaf: Leaf) -> str:
+    from signals.rule_schema import METRIC_REGISTRY
+
+    entry = METRIC_REGISTRY.get(leaf.metric, {})
+    prefix = f"{leaf.symbol} " if leaf.symbol else ""
+    if entry.get("value_type") == "bool":
+        return f"{prefix}{leaf.metric}"
+    op = _OPERATOR_SYMBOLS.get(leaf.operator.value, leaf.operator.value)
+    return f"{prefix}{leaf.metric} {op} {leaf.value}"
+
+
+def _summarize_rule_spec(spec: RuleSpec) -> str:
+    def walk(condition: Leaf | Group) -> str:
+        if isinstance(condition, Leaf):
+            return _summarize_leaf(condition)
+        if condition.all is not None:
+            return " AND ".join(walk(child) for child in condition.all)
+        if condition.any is not None:
+            return " OR ".join(walk(child) for child in condition.any)
+        if condition.not_ is not None:
+            return f"NOT ({walk(condition.not_)})"
+        return "unknown condition"
+
+    cond_text = walk(spec.condition)
+    action_type = spec.action.type or "alert"
+    return f"{cond_text} → {action_type}"

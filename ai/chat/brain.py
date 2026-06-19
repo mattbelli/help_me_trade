@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ai.chat.agent import ChatRunResult, chat_system_prompt, finalize_chat_turn
+from ai.chat.alert_intent import alert_intent_prompt_block
 from ai.chat.context import format_memory_context_block, turn_memory_context
 from ai.chat.intent import order_intent_prompt_block
 from ai.chat.messages import last_user_text
@@ -50,6 +51,7 @@ def build_turn_context(
     system = (
         chat_system_prompt()
         + order_intent_prompt_block(user_text)
+        + alert_intent_prompt_block(user_text)
         + format_memory_context_block(memories)
     )
     return {

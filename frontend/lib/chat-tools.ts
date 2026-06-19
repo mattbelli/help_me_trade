@@ -83,6 +83,26 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       needsApproval: true,
       execute: async (input) => executePythonTool("propose_order", input),
     }),
+    propose_rule: tool({
+      description:
+        "Propose a signal/alert rule (name, condition, action). Shows Approve/Reject card; on approval the rule is armed. Call on alert/signal/watch requests — do not narrate or fake [Calling propose_rule...].",
+      inputSchema: z.object({
+        spec: z.object({
+          name: z.string(),
+          condition: z.any(),
+          action: z
+            .object({
+              type: z.string().optional(),
+              message: z.string().optional(),
+              trigger_on: z.enum(["always", "transition"]).optional(),
+              cooldown_seconds: z.number().int().min(0).optional(),
+            })
+            .optional(),
+        }),
+      }),
+      needsApproval: true,
+      execute: async (input) => executePythonTool("propose_rule", input),
+    }),
   };
 
   if (!enabled) return all;

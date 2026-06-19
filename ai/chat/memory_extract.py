@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 
+from ai.chat.alert_intent import looks_like_alert_intent
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
@@ -83,6 +84,13 @@ def extract_memories_from_turn(
     if not user_text.strip() or not assistant_text.strip():
         return []
 
+    # A rule is not a memory. If this turn was creating an alert/signal rule, the
+    # rule itself is the durable, executable record — don't ALSO store it as a
+    # "preference" (redundant, and it would mislead future grounding into treating
+    # a one-off alert as a standing preference).
+    if looks_like_alert_intent(user_text):
+        return []
+
     llm = get_llm(model=model)
     messages = [
         LLMMessage(
@@ -91,8 +99,9 @@ def extract_memories_from_turn(
                 "Extract 0-2 durable trading facts from this chat turn for long-term "
                 "memory. Return JSON: {\"memories\": [{\"type\": \"preference\"|\"lesson\", "
                 "\"content\": \"...\"}]}. Only include explicit user preferences, risk "
-                "rules, or lessons — not generic market commentary. Return "
-                "{\"memories\": []} if nothing is worth storing."
+                "rules, or lessons — not generic market commentary, and NOT one-off "
+                "action requests (creating an alert, rule, or order are actions, not "
+                "durable preferences). Return {\"memories\": []} if nothing is worth storing."
             ),
         ),
         LLMMessage(

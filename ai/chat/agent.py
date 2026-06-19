@@ -54,6 +54,8 @@ def _system_prompt() -> str:
         "in text. Use the tool API and wait for results before answering.\n"
         "- Buy/sell requests: call propose_order (symbol, side, qty, order_type market|limit). "
         "Do not describe calling the tool — call it. The Approve/Reject card is the UI.\n"
+        "- Alert/signal/watch requests: call propose_rule with a validated spec "
+        "(do not narrate; the approval card is the UI).\n"
         "- Portfolio, performance, trades: only discuss after calling the matching tool "
         "in that turn. Never invent positions, prices, or closed trades.\n"
         "- start_research queues a background job for deep multi-source reports — "
