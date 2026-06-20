@@ -1,5 +1,11 @@
 # Server setup — migrate dev + runtime to the home Linux server (Option B)
 
+> **✅ COMPLETE (2026-06-20).** Migration is done — `serv` runs the always-on stack (uv CPython 3.12 venv,
+> systemd `hmt-backend`/`hmt-frontend`, Tailscale, nightly backups, Composer bridge on Node 22). For **running
+> the app + viewing it from your devices**, see `STARTUP.md`. This doc is kept as the migration record; a few
+> steps differ from how it actually went (Ubuntu 26.04 had no apt `python3.12`, so we used **uv**; repo lives
+> at `~/dev/help_me_trade`; tailnet name is `serv.tail78aab8.ts.net`).
+
 *One always-on Linux box runs dev + the agent + the backend; phone/laptop are thin clients over Tailscale.
 The Windows-desktop workflow (remote in → run Claude → it stays alive) transfers — you just SSH/remote into
 the Linux box instead. Portability audit (2026-06-20): backend code is Linux-clean, no `C:\` paths or

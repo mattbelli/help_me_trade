@@ -3,57 +3,62 @@
 *Bootstrap for a fresh session. Read this + `AGENTS.md` (codebase map) + `BUILD.md` "Realignment" (the R1–R5
 plan + dated history). Everything else is in those — this is just current focus, next steps, and gotchas.*
 *Other refs: `ARCHITECTURE.md` (guided subsystem tour), `CODE_AUDIT.md` (cleanup backlog; Tier 1 done),
-`WATCHLIST_SPEC.md` (next feature), `SERVER_SETUP.md` (Linux migration).*
+`WATCHLIST_SPEC.md` (parallel feature), `SERVER_SETUP.md` (migration, done), `STARTUP.md` (run + device access),
+`CLAUDE.md` (mission + working agreements, auto-loaded).*
 
-## ACTIVE (2026-06-20): migrating to the home Linux server (Option B)
-Moving dev + runtime from the Windows desktop to an always-on **home Linux server** (`mbelli@192.168.8.50`,
-repo rsync'd to `~/dev/help_me_trade`). Follow **`SERVER_SETUP.md`** to finish the Linux-side setup (venv,
-deps, `ruff`+`pytest` green on Linux, systemd always-on services, Tailscale, tweak `.env`/`NEXT_PUBLIC_API_URL`
-off the Windows `127.0.0.1` values, backups). Server becomes the **sole writer** of `data/trading.db`; Windows
-becomes a one-way backup target (never two-way sync the live DB). After migration, the next feature is the
-**watchlist v3** (`WATCHLIST_SPEC.md`, Phase A = IEX-proxy RVOL + 52w slider + customization, no new deps).
-Note: this repo's auto-memory lives in Claude's *Windows* project dir, so a fresh Linux session won't inherit
-it — these docs are the source of truth.
+## DONE (2026-06-20): the home Linux server is the dev + runtime home
+Migration to the always-on server **`serv`** (`serv.tail78aab8.ts.net` / `100.94.77.104`, user `mbelli`, repo
+`~/dev/help_me_trade`) is **complete**: uv-managed CPython 3.12 venv, deps installed, `ruff` clean + **312
+pytest** green on Linux, systemd `hmt-backend` (`0.0.0.0:8000`) + `hmt-frontend` (`:3001`) enabled, Tailscale
+up, nightly DB backup (`serv` 03:00 → `~/backups/` 14-day retention; `mattpc` pulls 03:30 over Tailscale).
+Composer bridge verified on Node 22. `serv` is the **sole writer** of `data/trading.db`; Windows = one-way
+backup only — **do all work on `serv`**. **Access from any tailnet device:** http://serv.tail78aab8.ts.net:3001
+(see `STARTUP.md`). Deep server specifics are in the `serv-runtime` memory.
 
-**Deferred decision:** Dockerize (backend + frontend + SearXNG via compose, `data/` as a volume) at the
-**live-prep milestone** (Increment 3 era) — 12-factor groundwork (pinned deps, no hardcoded paths, env-based
-config) is already done, so it's a small lift, not a refactor. (Node ≥22 required for the Composer bridge.)
+**Deferred:** Dockerize (backend + frontend + SearXNG via compose, `data/` as a volume) at the **live-prep
+milestone** (Increment 3 era) — 12-factor groundwork already done, so a small lift. (Node ≥22 for the bridge.)
 
 ## State
-Autonomous trading agent; loop = PERCEIVE→REASON→DECIDE→**ACT**→DELIVER→LEARN. **R2 (ACT) just shipped:** a
+Autonomous trading agent; loop = PERCEIVE→REASON→DECIDE→**ACT**→DELIVER→LEARN. **R2 (ACT) shipped:** a
 fail-closed execution **chokepoint** (RiskEngine 10 checks → ExecutionService, the sole broker path) + **real
 Alpaca PAPER execution** for **equities and LONG options**, full lifecycle: **buy-to-open AND sell-to-close**
 (options limit-only, ×100 multiplier). Sells are guarded so they can ONLY reduce a held long — no shorting.
-The agent placed a real paper order end-to-end (TSLA equity queued for Mon open; long-option flow works once
-dates are right). ~16 guardrail/grounding bugs caught by adversarial Sonnet review before commit.
-`execution_mode` default = `dry_run`; flip to `paper` in Settings → Execution/Risk to place orders.
+The agent placed a real paper order end-to-end. ~16 guardrail/grounding bugs caught by adversarial Sonnet
+review before commit. `execution_mode` default = `dry_run`; flip to `paper` in Settings → Execution/Risk.
 **LIVE is hard-blocked server-side** (Increment 3). All committed + pushed (`main`); tests **312** green.
 
-## Next options (pick one — my lean: phone delivery, then live double-gate)
-- **R3 — phone delivery** (Capacitor + self-hosted APNs, approve/deny/modify from phone). The "be a dad"
-  unlock; ties to the deploy model (one server + thin clients). *(sell-to-close: DONE)*
-- **R2 Increment 3 — LIVE behind a typed double-gate** (lower caps, market-hours + duplicate checks). Only
-  after the founder trusts paper for a while.
-- **R2 Increment 4 — bounded auto-execute** (code-defined envelope, no per-order approval inside it).
-- **R3 — phone delivery** (Capacitor + self-hosted APNs, approve/deny/modify from phone). The "be a dad"
-  unlock; ties to the deploy model (one server + thin clients).
-- **R1 backfill** — Schwab Realized-Gain/Loss import (completes P&L on incomplete positions like PLTR) +
-  **futures** (only in Schwab/thinkorswim PDFs / 1099-B; a big chunk of real history, not yet ingested).
-- **Deploy/access** — Tailscale for private laptop+phone access now; the ship model is one always-on server
-  (agent + SQLite source of truth) + thin clients over HTTPS, NOT device sync.
+## NEXT FOCUS — R3: phone delivery (push approval)
+The "be a dad" unlock: the agent finds + sizes a setup → **pushes the phone** with Approve/Reject → tap approve
+while away → order flows through the **existing** chokepoint (RiskEngine → ExecutionService, never a new path).
+Approve / deny / **modify** from the phone. Phone *viewing* already works today (responsive web + PWA over
+Tailscale — no R3 needed per `WATCHLIST_SPEC.md`); R3 adds **push + remote approval**.
+→ **Kickoff prompt for a fresh agent: `References/R3_KICKOFF.md`.** First decision there: PWA + Web Push
+(lighter, recommended) vs Capacitor + APNs.
+
+**Parallel option still open — watchlist v3** (`WATCHLIST_SPEC.md`, Phase A = IEX-proxy RVOL + 52w slider +
+customization, no new deps). Groundwork laid: scans/memory widgets committed; the disliked v2 RVOL work is
+**stashed locally on `serv`** (`stash@{0}`, see `serv-parked-watchlist-v2` memory) for reuse.
+
+Other options: **R2 Inc 3** LIVE behind a typed double-gate; **R2 Inc 4** bounded auto-execute; **R1 backfill**
+Schwab Realized-G/L + futures import.
 
 ## Open threads / gotchas
-- **Parked widget work is uncommitted** (watchlist-v2 [founder DISLIKED it], scans/memory widgets,
-  command-console/dock tweaks). Resolve: revert OR commit-the-good-parts (scans/memory were solid).
-- Free **IEX feed = regular hours only**; no options market-data subscription confirmed → **options orders
-  are limit-only** (premium = `limit_price`). `get_option_quote` returns real bid/ask only if entitled.
-- **Backend** runs on the founder's machine at `127.0.0.1:8000`; LAN access needs `0.0.0.0` + CORS origin +
-  the frontend `NEXT_PUBLIC_API_URL` change (or Tailscale).
-- mem0 OFF; memory store is clean (self-feeding "20% cap" loop fixed with semantic dedup).
+- Free **IEX feed = regular hours only**; no options market-data subscription → **options orders are
+  limit-only** (premium = `limit_price`). `get_option_quote` returns real bid/ask only if entitled.
+- **Access:** backend binds `0.0.0.0:8000` on `serv` via systemd, reachable on the tailnet at
+  `serv.tail78aab8.ts.net` (CORS origin + host allowlist set in `.env`; `NEXT_PUBLIC_API_URL` baked into the
+  build). Plain HTTP is fine over Tailscale's WireGuard — never port-forward to the public internet.
+- **Local-dev port clash:** systemd already holds `:8000` + `:3001`. Stop the services before `./dev.sh`
+  (`sudo systemctl stop hmt-backend hmt-frontend`) or you'll get "address already in use". See `STARTUP.md`.
+- **R3 secure-context note:** Web Push / service workers need HTTPS; plain http over Tailscale won't qualify —
+  R3 will likely need `tailscale serve` (HTTPS on the `*.ts.net` name) in front of the frontend.
+- Parked widget work **RESOLVED**: scans/memory widgets committed; watchlist-v2 stashed (`serv` `stash@{0}`).
+- mem0 OFF; memory store clean (self-feeding "20% cap" loop fixed with semantic dedup).
 
-## Working agreements (also in auto-loaded memory)
+## Working agreements (also in `CLAUDE.md` + auto-loaded memory)
 Build via **Composer** (`node tools/composer-bridge/dispatch.mjs --brief <file>`, one run at a time, logs to
-`tools/composer-bridge/last-run.log`) — not hand-edits. Recon/review via **Sonnet** subagents.
-**Adversarially review safety-critical code (execution/risk) before commit.** Verify the diff + run pytest
-yourself; don't trust self-reports. Founder is **cost-conscious about the Opus main loop** — delegate heavy
-work. Commit cadence: iterate to "happy" → update BUILD.md → commit + push.
+`tools/composer-bridge/last-run.log`) — not hand-edits (trivial one-liners excepted). Recon/review via
+**Sonnet** subagents. **Adversarially review safety-critical code (execution/risk) before commit.** Verify the
+diff + run pytest yourself; don't trust self-reports. Founder is **cost-conscious about the Opus main loop** —
+delegate heavy work. Commit cadence: iterate to "happy" → update BUILD.md → commit + push. Pre-push: `ruff
+check .` + `pytest` + `cd frontend && npm run typecheck` (all three run in CI).
