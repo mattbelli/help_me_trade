@@ -1,205 +1,123 @@
 # Help Me Trade — Agent Brief
 
-Personal trading copilot: FastAPI + Next.js, Alpaca/Schwab, local SQLite, provider-agnostic LLM.
+**What this is:** An autonomous trading agent (not a generic chatbot) whose engine is one continuous loop: PERCEIVE → REASON → DECIDE → ACT → DELIVER → LEARN. FastAPI backend (Python, port 8000) + Next.js frontend (port 3001). Brokers: Alpaca (paper primary) + Schwab. Storage: local SQLite (WAL). LLM: provider-agnostic factory (Anthropic, OpenAI, DeepSeek, Ollama, mock). The dashboard is a cockpit to configure and supervise the agent; the loop runs server-side. **Roadmap (what to build next):** `References/BUILD.md`. **Loop architecture + tech research:** `References/AGENT_LOOP_RESEARCH.md`.
 
-**Full roadmap:** [References/BUILD.md](References/BUILD.md) — committed, sequenced plan (source of truth for *what to build next*).
-**Product vision + decisions:** [References/IDEA_BANK.md](References/IDEA_BANK.md) — the founder's committed direction and the *why* (widget dashboard + bottom "Hermes" console, proactive background agent, headless-core + gateway + thin clients, autonomy/safety stance). **Mostly things we *will* build** — read it for direction and for the **build sequencing (§ Build sequencing)** that says *when* each piece folds into the roadmap. BUILD.md sequences these into execution.
+---
 
 ## Before large work
 
-1. Read §6 (what to build next) in [References/BUILD.md](References/BUILD.md)
+1. Read `References/BUILD.md §6` (current priorities)
 2. Match existing patterns in the module map below
-3. Never add order execution without `RiskEngine` + `ExecutionService` (Phase 4)
-
-## Starting a new agent session
-
-You do **not** need a special keyword. Cursor loads this file and [`.cursor/rules/help-me-trade.mdc`](.cursor/rules/help-me-trade.mdc) automatically in Agent mode.
-
-**Minimal prompt** (context already loaded):
-
-> Work on the next item in BUILD.md §6.
-
-**Directed prompt** (pick a specific phase):
-
-> @References/BUILD.md Implement Phase 0 leftovers: settings atomicity and CI.
-
-**After finishing work**, ask the agent to update docs (or it should do this without being asked):
-
-> Mark Phase 0 CI done in BUILD.md and sync AGENTS.md current state.
+3. Never wire order execution without `RiskEngine` + `ExecutionService` (Phase 4)
 
 ---
 
-## Vision
+## Codebase map
 
-A **personal trading copilot** — not a generic chatbot:
+### Backend
 
-1. **See** portfolio, charts, and performance grounded in real trade history.
-2. **Research** symbols with cited, data-backed reports (not mock snippets).
-3. **Talk** through strategy and decisions; the AI remembers and recommends back over time.
-4. **Guard** with programmable rules and (later) a mandatory risk gate before any order.
+| Subsystem | Key files | Purpose |
+|---|---|---|
+| **App entry** | `api/main.py` | FastAPI app, mounts all routers, starts background loops (`_poll_loop`, `_signal_scan_loop`, reflection scheduler) |
+| **API routes** | `api/ai_routes.py`, `api/performance_routes.py`, `api/trade_routes.py`, `api/alert_checker.py` | REST + SSE endpoints for chat, memory, performance, trades, alerts |
+| **Auth/middleware** | `api/auth.py`, `api/middleware.py`, `api/deps.py` | `API_TOKEN` bearer check, host-header guard, dependency injection |
+| **Brokers** | `brokers/alpaca.py`, `brokers/schwab.py`, `brokers/base.py`, `brokers/factory.py`, `brokers/market_stream.py`, `brokers/errors.py` | `BrokerAdapter` protocol; frozen dataclasses; Alpaca WS quote hub + ring buffer; multi-broker factory |
+| **Config** | `config/settings.py`, `config/ai_providers.py`, `config/research.py` | Pydantic settings loaded from `.env`; broker enable flags; LLM provider config |
+| **DB — ledger** | `db/trades.py`, `db/sqlite.py`, `db/base.py` | `trade_events` table, WAL mode, schema versioning |
+| **DB — analytics** | `db/analytics.py`, `db/realized_pnl.py`, `db/fifo_round_trips.py`, `db/chart_features.py` | Period P&L, cash-flow vs realized toggle, FIFO pairing (unreliable — see gotchas) |
+| **DB — AI/behavioral** | `db/ai_tables.py`, `db/behavioral.py`, `db/chat_sessions.py` | Rules, alerts, memories, insights, reflection, paper orders, chat sessions |
+| **DB — corporate actions** | `db/corporate_actions.py` | Splits/dividends affecting cost basis |
+| **Imports** | `imports/schwab_transactions.py`, `imports/alpaca_activities.py`, `imports/base.py`, `imports/money.py`, `imports/option_symbol.py` | Full-history JSON import; `Decimal` parsing; dedup by `external_key` |
+| **Trading** | `trading/sync.py` | Broker sync on connect + hourly; read-only today |
+| **Portfolio** | `portfolio/analytics.py` | Exposure, concentration, drift flags used by DECIDE stage |
+| **Signals** | `signals/indicators.py`, `signals/features.py` | SMA/EMA/RSI/ATR/crosses; `build_indicator_facts` → flat fact dict for LLM |
+| **Signals — rules** | `signals/rule_schema.py`, `signals/scan.py` | `RuleSpec`, `METRIC_REGISTRY` (~40 metrics), condition evaluation, transition triggers + cooldown |
+| **Signals — backtest** | `signals/backtest.py` | Rule backtesting against historical bars |
+| **Signals — context** | `signals/trade_context.py` | Per-trade signal context capture |
+| **AI — LLM** | `ai/llm/factory.py`, `ai/llm/base.py`, `ai/llm/structured.py`, `ai/llm/config.py` | Provider factory (anthropic/openai/deepseek/openrouter/ollama/mock); `parse_json_object` shared util |
+| **AI — chat** | `ai/chat/brain.py`, `ai/chat/agent.py`, `ai/chat/tools.py`, `ai/chat/context.py`, `ai/chat/stream.py` | Python "brain": tool dispatch, streaming, portfolio/memory/research/rule tools; **`trading` toolset never exposed to chat** |
+| **AI — memory** | `ai/memories/retrieval.py`, `ai/chat/memory_extract.py` | Token-overlap retrieval (RAG placeholder); extraction from conversation turns |
+| **AI — research** | `ai/research/deep_graph.py`, `ai/research/jobs.py`, `ai/research/citations.py`, `ai/research/sources.py` | Async research job queue; LangGraph-ish plan→collect→analyze→synthesize |
+| **AI — rules** | `ai/rules/engine.py` | `evaluate_rules` against snapshot + event facts; fires WS `alert` events |
+| **AI — reflection** | `ai/reflection/service.py`, `ai/reflection/scheduler.py` | Periodic background reflection over trade history |
+| **AI — insights** | `ai/insights.py`, `ai/retrospective.py`, `ai/perf_context.py` | Analytics-grounded insight generation; retrospective summaries |
 
-**North star loop:** conversation → structured strategy memory → proposed rule/backtest → tracked outcome → recommendation surfaced in chat.
+### Frontend
+
+| Subsystem | Key files | Purpose |
+|---|---|---|
+| **Chat runtime** | `frontend/app/api/chat/route.ts`, `frontend/lib/use-trading-chat-runtime.ts` | Next.js route using Vercel AI SDK `streamText`; calls Python brain endpoints |
+| **Chat UI** | `frontend/components/assistant-ui/thread.tsx`, `frontend/components/agents/` | assistant-ui Thread; Approve/Reject order card; turn-learned-memories chips |
+| **Memory** | `frontend/lib/memories.ts`, `frontend/lib/learned-memories-context.tsx`, `frontend/components/agents/turn-learned-memories.tsx` | Client-side extract trigger `onFinish`; Edit/Discard chips |
+| **Workspace shell** | `frontend/components/workspace/workspace-grid.tsx`, `frontend/components/workspace/workspace-toolbar.tsx`, `frontend/components/workspace/command-console.tsx`, `frontend/components/workspace/copilot-sidebar.tsx` | Widget-grid cockpit; bottom command console; right-rail copilot dock |
+| **Workspace state** | `frontend/lib/workspace/use-workspace-store.ts`, `frontend/lib/workspace/widget-registry.tsx`, `frontend/lib/workspace/grid-metrics.ts`, `frontend/lib/workspace/channels.ts`, `frontend/lib/workspace/use-channel-store.ts` | Grid layout, widget registry, channel system, grid dimension math |
+| **Performance** | `frontend/app/performance/`, `frontend/components/performance/`, `frontend/lib/performance-api.ts` | Period P&L, calendar, FIFO charts, realized vs cash-flow toggle |
+| **API client** | `frontend/lib/api.ts`, `frontend/lib/trades-api.ts`, `frontend/lib/research.ts`, `frontend/lib/rules.ts` | Typed fetch wrappers calling FastAPI |
+| **Settings** | `frontend/components/settings/`, `frontend/lib/ai-settings.ts` | Provider/model config, broker settings |
 
 ---
 
-## Stack
+## Agent loop → file map
 
-FastAPI (Python, port 8000) + Next.js (port 3001) · Alpaca + Schwab · local SQLite · provider-agnostic LLM.
+| Stage | Files |
+|---|---|
+| **PERCEIVE** | `brokers/market_stream.py` (WS hub + ring buffer), `brokers/alpaca.py` (snapshot/bars), `signals/indicators.py` + `signals/features.py` (fact dict), `api/main.py` `_poll_loop` + `_signal_scan_loop` |
+| **REASON** | `ai/llm/factory.py` (provider), `ai/chat/brain.py` + `ai/chat/agent.py` (stream + tool planner), `ai/chat/context.py` (grounding), `ai/memories/retrieval.py` (retrieval), `ai/insights.py` |
+| **DECIDE** | `signals/rule_schema.py` + `signals/scan.py` (rule candidates), `ai/rules/engine.py` (evaluate), `portfolio/analytics.py` (exposure/risk flags), `ai/chat/tools.py` `propose_order` |
+| **ACT** | `trading/sync.py` (read-only today) — **RiskEngine + ExecutionService not yet built; this is the bottleneck** |
+| **DELIVER** | `api/alert_checker.py`, `brokers/market_stream.py` WS broadcast, `frontend/lib/workspace/use-alert-stream.ts`, `frontend/components/workspace/notification-banner.tsx` |
+| **LEARN** | `ai/chat/memory_extract.py`, `ai/memories/retrieval.py`, `ai/reflection/service.py`, `db/behavioral.py`, `db/ai_tables.py` |
 
 ---
 
-## Architecture (keep this shape)
+## Key conventions — an agent must know these
 
+**Money is `Decimal`** (stored as SQLite TEXT, never REAL). `imports/money.py` centralizes parsing. Broker types still use `float` — conversion is a known gap.
+
+**Realized P&L ≠ FIFO round-trips.** Net-cash truth (`db/realized_pnl.py`) is reliable. FIFO round-trips (`db/fifo_round_trips.py`) are best-effort and break on: date-only export timestamps (intraday scalps pair wrong), shorts, pre-import-window positions. The Performance UI lets the user toggle between the two views; don't treat FIFO numbers as authoritative.
+
+**Coding tasks go to Composer, not hand-edits.** Dispatch via:
 ```
-Brokers (Alpaca, Schwab) ──► db/ (SQLite) ──► api/ (FastAPI)
-                              │                    │
-                              ▼                    ▼
-                         trade ledger          Next.js UI
-                         snapshots             /agents chat
-                         memories              /performance
-                              │
-                              ▼
-                         ai/ (LLM, research, rules, reflection)
+node tools/composer-bridge/dispatch.mjs --brief <path-to-brief-file>
 ```
+One run at a time. Logs to `tools/composer-bridge/last-run.log`. Brief files live in `References/`. Only hand-edit for trivial one-liners or when Composer is inappropriate.
 
-**Layers — extend, don't replace:**
+**Never expose the `trading` toolset to the chat agent.** Order execution is a separate toolset gated behind RiskEngine (not built). The chat agent has: portfolio, memories, research, web_search, propose_order (card only), propose_rule.
 
-| Layer | Role |
-|-------|------|
-| `brokers/` | `BrokerAdapter` protocol; frozen dataclasses; multi-broker |
-| `db/` | Snapshots, trade ledger, chat, memories, rules, alerts |
-| `ai/llm/` | Provider factory (mock, OpenAI, Anthropic, Ollama, …) |
-| `ai/research/` | LangGraph plan → collect → analyze → synthesize |
-| `trading/` | Broker sync today; **RiskEngine + ExecutionService** later |
-| `api/` | REST + SSE + WebSocket market hub |
-| `frontend/` | App shell, trading, performance, agents, settings |
+**LLM proposes; deterministic code disposes.** The LLM never holds account state. Hard risk limits live in deterministic code, not prompts.
 
-**Locked chat decision:** Move the **conversation host** to Next.js `frontend/app/api/chat/route.ts` using Vercel AI SDK `streamText` + **assistant-ui** (AI-SDK adapter, not LangGraph). Python remains the **brain** — portfolio, memory, research, rules, execution. Node never places orders; it only calls authenticated Python endpoints.
+**Tests:** `pytest` — run targeted subsets and pipe through `| tail` to avoid drowning in output. 230+ tests cover auth, db/WAL, poll health, structured JSON, tools, Schwab import, analytics (realized/behavioral/trade-context), rules/backtest, retrospective + honest-perf guardrails, chat brain, memory extract/dedup.
 
-**Patterns, not dependencies (see [BUILD.md §2](References/BUILD.md)):**
-- **mem0 demo** → extract/store/retrieve/inject loop in **Python** (`/api/context`, `/api/memory/extract`); no hosted Mem0 cloud SDK in Node.
-- **stockbroker demo** → Approve/Reject tool card UI in Phase 3; live `propose_order` → `ExecutionService` only after RiskEngine (Phase 4).
-- Reject assistant-ui **LangGraph** runtime for chat; research may keep LangGraph.
+**Secrets** in gitignored `.env` (repo root) and `frontend/.env.local`. Never commit either. `data/` is gitignored — real ledger SQLite and user trade export files live there.
+
+**Chat host is Next.js** (`frontend/app/api/chat/route.ts`, Vercel AI SDK). Python is the brain — it never hosts the conversation. Node never places orders; it only calls authenticated Python endpoints.
+
+**No LangGraph runtime for chat.** Research may keep LangGraph. Reject assistant-ui LangGraph adapter. No hosted Mem0 cloud SDK in Node.
 
 ---
 
-## Current state (as of 2026-06-16)
-
-### Shipped and working
-
-| Area | What exists |
-|------|-------------|
-| **Brokers** | Alpaca + Schwab adapters; settings-driven enable; paper primary |
-| **Polling** | Multi-broker poll; resilient loops + `poll_health`; WAL SQLite |
-| **Auth** | `API_TOKEN` on API/WS; Host-header check; frontend `X-API-Token` |
-| **Market** | Shared WebSocket hub; price alerts; chart grid |
-| **Trade ledger** | Schwab JSON import; Alpaca/Schwab API sync on connect + hourly; dedup by `external_key` |
-| **Performance** | `/performance` — periods, FIFO round-trips, calendar w/ $ labels, realized vs cash-flow toggle, charts |
-| **AI tools** | `get_portfolio_snapshot`, `search_memories`, `start_research` (async job), `get_trade_history`, `get_performance_insights` |
-| **LLM hygiene** | Shared `parse_json_object`; JSON planner for tools; research job queue |
-| **Chat** | Next.js `app/api/chat/route.ts` + AI SDK streaming; **assistant-ui** Thread (`useTradingChatRuntime`); Python brain endpoints; Saved/Temporary modes; `propose_order` Approve/Reject card |
-| **Memory loop** | Client `onFinish` → `POST /api/memory/extract`; **“Learned from this chat”** chips (Edit/Discard); server finalize + legacy `/api/chat` skip extract (`extract=False`) |
-| **Tests** | pytest: 74 tests — auth, db/WAL, poll health, structured JSON, tools, symbols, Schwab import, portfolio analytics, intelligence P1, chat brain, memory extract |
-
-### Partial / known gaps
-
-| Area | Status |
-|------|--------|
-| **Chat** | assistant-ui Thread shipped; legacy Python SSE proxy for mock/anthropic; learned chips in-session only (not rehydrated on reload) |
-| **Research** | Mock web labeled + Research page banner; full content in findings; configure `SEARXNG_URL` for live search |
-| **Insights** | Analytics on poll + relevant memories each refresh |
-| **Memories** | Token-ranked retrieval; turn curation UI (Edit/Discard chips); Mem0 when available; dual store drift; reload persistence TODO |
-| **Rules** | Rich facts (per-symbol, drift, quotes); `trigger_on: transition` + cooldown; WS `alert` events on fire |
-| **Money** | Still `float` in broker types and ledger (Decimal planned) |
-| **Secrets** | Masked on API; plaintext on disk (encryption not done) |
-| **Execution** | Read-only — no `RiskEngine`, no `place_order` |
-
----
-
-## Guiding principles
-
-1. **Safety before speed** — No live `place_order` until `RiskEngine` + audit log + auth exist.
-2. **Ground before generate** — LLM sees analytics + memories + trade performance, not raw JSON dumps.
-3. **One ledger** — Import (full history) + API sync (incremental) → deduped `trade_events`.
-4. **Realized ≠ cash flow** — Performance UI distinguishes closed-trade P&L from buy/sell cash movement.
-5. **Incremental phases** — Each phase leaves the app runnable.
-6. **Tests ride along** — pytest per phase, not a final bolt-on.
-
----
-
-## What to build next (recommended order)
-
-1. **Chat Phase 3 (finish)** — rehydrate learned chips on thread reload (BUILD.md C4); optional: drop legacy Python SSE host.
-2. **Phase 0 leftovers** — async broker I/O offload, secrets encryption (2–3 days).
-3. **Decimal + RiskEngine design** — before any execution UI (2 weeks).
-
-Phase details, effort estimates, and file targets: [References/BUILD.md §5–6](References/BUILD.md).
-
----
-
-## Key modules
-
-| Concern | Path |
-|---------|------|
-| App entry | `api/main.py` |
-| Trade ledger | `db/trades.py`, `imports/`, `trading/sync.py` |
-| Performance analytics | `db/analytics.py`, `api/performance_routes.py` |
-| Portfolio analytics | `portfolio/analytics.py`, `db/sqlite.py` |
-| Chat | `frontend/app/api/chat/route.ts`, `frontend/lib/use-trading-chat-runtime.ts`, `frontend/components/assistant-ui/thread.tsx`, `ai/chat/brain.py` |
-| Memory extract + curation | `api/ai_routes.py`, `frontend/lib/memories.ts`, `frontend/lib/learned-memories-context.tsx`, `frontend/components/agents/turn-learned-memories.tsx` |
-| Tools | `ai/chat/tools.py` |
-| Memories / retrieval | `ai/memories/retrieval.py`, `ai/chat/context.py` |
-| Research | `ai/research/citations.py`, `ai/research/deep_graph.py`, `ai/research/sources.py` |
-| Rules | `ai/rules/engine.py`, `brokers/market_stream.py` |
-| Settings / brokers | `config/settings.py`, `brokers/factory.py` |
-| Frontend API client | `frontend/lib/api.ts`, `frontend/lib/performance-api.ts` |
-
----
-
-## Safety and out of scope
-
-**Do not wire a buy button or `place_order` until Phase 4 is complete:**
-
-```
-UI/Agent → OrderIntent → RiskEngine.validate() → approve | reject | needs_confirmation
-                              → BrokerAdapter.place_order() (if approved)
-                              → AuditLog
-```
-
-**Out of scope for now:**
-
-- Schwab order execution (Alpaca paper first)
-- LibreChat / Open WebUI adoption (UX inspiration only)
-- assistant-ui **LangGraph** runtime + hosted **Mem0 cloud** SDK in Node (patterns in BUILD.md §2)
-- Frontend `decimal.js`
-- Full Alembic (lightweight `schema_version` is enough)
-- Autonomous trading without human confirmation on agent orders
-
----
-
-## Local dev
+## Run commands
 
 ```powershell
-# API
-cd help_me_trade
-.\.venv\Scripts\Activate.ps1
+# Backend (repo root, activate venv first)
+.venv\Scripts\Activate.ps1
 uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 
 # Frontend
 cd frontend
-bun run dev   # port 3001
+npm run dev        # port 3001  (or: bun run dev)
 ```
 
-Match `API_TOKEN` in `.env` and `NEXT_PUBLIC_API_TOKEN` in `frontend/.env.local`.  
-If port 8000 is in use: `netstat -ano | findstr ":8000"` then `taskkill /PID <pid> /F`.
+Full details + env knobs: `References/STARTUP.md`.
+
+If port 8000 is busy: `netstat -ano | findstr ":8000"` → `taskkill /PID <pid> /F`.
 
 ---
 
 ## Maintenance
 
-When a phase completes or priorities shift, **the agent should update both files** before considering the task done:
+When a phase completes or priorities shift, update **both** before closing:
+1. `References/BUILD.md` — mark items done, adjust §6 priorities
+2. This file — refresh Current state and loop scorecard
 
-1. **[References/BUILD.md](References/BUILD.md)** — mark items ✅, adjust §6 priorities, add doc history row if significant
-2. **This file** — refresh **Current state** and **What to build next** to match BUILD.md
-
-BUILD.md is the source of truth; AGENTS.md is the short briefing agents read first.
+BUILD.md is source of truth; this file is the fast brief agents read first.
