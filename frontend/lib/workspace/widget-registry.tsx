@@ -7,7 +7,9 @@ import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
+import { MemoryWidget } from "@/components/workspace/widgets/memory-widget";
 import { PriceAlertsWidget } from "@/components/workspace/widgets/price-alerts-widget";
+import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
@@ -89,6 +91,20 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: "Configured price alerts",
     component: PriceAlertsWidget as WidgetDefinition["component"],
     defaultSize: { w: 12, h: 4, minW: 5, minH: 3 },
+  },
+  {
+    id: "scans",
+    title: "scans",
+    description: "Armed signal rules and recent fires",
+    component: ScansWidget,
+    defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
+  },
+  {
+    id: "memory",
+    title: "memory",
+    description: "Long-term preferences and lessons the copilot has learned",
+    component: MemoryWidget,
+    defaultSize: { w: 10, h: 5, minW: 4, minH: 3 },
   },
 ];
 
