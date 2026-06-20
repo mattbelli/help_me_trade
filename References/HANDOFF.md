@@ -27,13 +27,22 @@ The agent placed a real paper order end-to-end. ~16 guardrail/grounding bugs cau
 review before commit. `execution_mode` default = `dry_run`; flip to `paper` in Settings → Execution/Risk.
 **LIVE is hard-blocked server-side** (Increment 3). All committed + pushed (`main`); tests **312** green.
 
-## NEXT FOCUS — R3: phone delivery (push approval)
+## NEXT FOCUS — R3: phone delivery (push approval) — IN PROGRESS
 The "be a dad" unlock: the agent finds + sizes a setup → **pushes the phone** with Approve/Reject → tap approve
 while away → order flows through the **existing** chokepoint (RiskEngine → ExecutionService, never a new path).
-Approve / deny / **modify** from the phone. Phone *viewing* already works today (responsive web + PWA over
-Tailscale — no R3 needed per `WATCHLIST_SPEC.md`); R3 adds **push + remote approval**.
-→ **Kickoff prompt for a fresh agent: `References/R3_KICKOFF.md`.** First decision there: PWA + Web Push
-(lighter, recommended) vs Capacitor + APNs.
+
+**Decision locked (2026-06-20):** native client target = **React Native / Expo** (founder has Mac+Xcode and
+wants the native ceiling — Live Activities / Dynamic Island / lock-screen action buttons; assistant-ui's RN
+support shares the chat *runtime*, only the UI restyles). **Web Push is SKIPPED** — validate the approval loop
+via the existing **in-app notification** system, then build the native client straight onto APNs. The whole
+approval *backend* is delivery-agnostic and reused verbatim by RN. See `[[mobile-ux-direction]]` memory.
+
+**Done — R3-A (backend core, 322 tests):** proposal lifecycle + `POST /api/proposals/{id}/approve|reject`
+routing through the existing chokepoint (see BUILD.md history 2026-06-20). **Next — R3-B:** the actionable
+Approve/Reject **card in the Activity tab** (mobile + desktop notification surface) calling those endpoints —
+the validation surface. **Then:** the agent/proactive trigger that *chooses* phone-delivery; Modify; APNs+RN.
+Deferred hardening (before paper-autonomous): stuck-`approving` reconcile on restart; auth-disabled warning.
+→ Original kickoff: `References/R3_KICKOFF.md` (mechanism section now superseded by the RN decision above).
 
 **Parallel option still open — watchlist v3** (`WATCHLIST_SPEC.md`, Phase A = IEX-proxy RVOL + 52w slider +
 customization, no new deps). Groundwork laid: scans/memory widgets committed; the disliked v2 RVOL work is

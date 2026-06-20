@@ -129,6 +129,113 @@ def api_list_paper_orders(
     }
 
 
+@router.post("/proposals")
+async def api_create_proposal(body: dict = Body(...)):
+    from trading.proposals import DEFAULT_PROPOSAL_TTL_SECONDS, create_phone_proposal
+
+    max_ttl = 3600  # hard cap: never let a proposal carry stale terms for long
+    ttl_raw = body.get("ttl_seconds", DEFAULT_PROPOSAL_TTL_SECONDS)
+    try:
+        ttl_seconds = int(ttl_raw)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "ttl_seconds must be an integer"}, status_code=400)
+    if ttl_seconds <= 0:
+        return JSONResponse({"error": "ttl_seconds must be positive"}, status_code=400)
+    if ttl_seconds > max_ttl:
+        return JSONResponse(
+            {"error": f"ttl_seconds must be <= {max_ttl}"}, status_code=400
+        )
+
+    session_id = body.get("session_id") or body.get("sessionId")
+    if session_id is not None:
+        session_id = str(session_id).strip() or None
+
+    order_args = {
+        k: v
+        for k, v in body.items()
+        if k not in ("ttl_seconds", "session_id", "sessionId")
+    }
+    if not order_args.get("symbol") and not order_args.get("option_underlying"):
+        return JSONResponse({"error": "symbol is required"}, status_code=400)
+
+    result = await create_phone_proposal(
+        order_args,
+        session_id=session_id,
+        ttl_seconds=ttl_seconds,
+    )
+    if "error" in result:
+        return JSONResponse({"error": result["error"]}, status_code=400)
+
+    return {
+        "id": result["id"],
+        "summary": result.get("summary") or result["proposal"].get("summary"),
+        "expires_at": result.get("expires_at"),
+        "payload_hash": result.get("payload_hash"),
+        "status": result["status"],
+    }
+
+
+@router.get("/proposals/pending")
+def api_list_pending_proposals():
+    from db.paper_orders import list_pending_proposals
+
+    return {"proposals": list_pending_proposals()}
+
+
+@router.get("/proposals/{proposal_id}")
+def api_get_proposal(proposal_id: str):
+    from db.paper_orders import get_proposal
+
+    row = get_proposal(proposal_id.strip())
+    if row is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return row
+
+
+@router.post("/proposals/{proposal_id}/approve")
+async def api_approve_proposal(proposal_id: str, body: dict | None = Body(None)):
+    from trading.proposals import approve_proposal
+
+    # payload_hash is REQUIRED: it binds the approval to the exact terms the
+    # phone was shown (integrity / anti-confused-deputy). The client gets it from
+    # POST /proposals and GET /proposals/pending.
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": "payload_hash is required"}, status_code=400
+        )
+    raw_hash = body.get("payload_hash")
+    expected_hash = str(raw_hash).strip() if raw_hash is not None else ""
+    if not expected_hash:
+        return JSONResponse(
+            {"error": "payload_hash is required"}, status_code=400
+        )
+
+    outcome = await approve_proposal(proposal_id.strip(), expected_hash=expected_hash)
+    status = outcome.get("status")
+
+    if status == "not_found":
+        return JSONResponse(outcome, status_code=404)
+    if status in ("expired", "hash_mismatch", "blocked", "failed"):
+        return JSONResponse(outcome, status_code=409)
+    if status == "already_decided":
+        return JSONResponse(outcome, status_code=409)
+    return outcome
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def api_reject_proposal(proposal_id: str):
+    from trading.proposals import reject_proposal
+
+    outcome = await reject_proposal(proposal_id.strip())
+    status = outcome.get("status")
+
+    if status == "not_found":
+        return JSONResponse(outcome, status_code=404)
+    if status == "already_decided":
+        return JSONResponse(outcome, status_code=409)
+    return outcome
+
+
 @router.post("/chat/sessions")
 def api_create_chat_session(body: dict = Body(...)):
     mode = str(body.get("mode", "standard")).strip().lower()
