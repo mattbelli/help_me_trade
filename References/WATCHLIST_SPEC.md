@@ -83,12 +83,20 @@ accurate regardless — only the *intraday* RVOL number is feed-sensitive.)
 - **Phase C (deferred):** put/call ratio / options-IV (needs a paid options source); SIP feed if we want
   trustworthy intraday RVOL.
 
-## Open decisions for the founder
-1. **RVOL feed:** pay for SIP, approximate, or accept IEX-as-proxy for now? (Shapes Phase A.)
-2. **Customization scope:** per-watchlist columns or one global set? (Lean: global.)
-3. **Phone:** responsive auto-simplify vs. a separate saved phone layout?
-4. **Finnhub now or later** — add in Phase B, or fold P/E + earnings into the first build?
-5. Put/Call ratio — worth budgeting a paid options source eventually, or drop it?
+## Decisions (locked 2026-06-20)
+- **RVOL feed:** ✅ build on **IEX-as-proxy now, behind a `market_data_feed` switch** (iex|sip). Flip to SIP
+  when the founder activates it — RVOL math is feed-agnostic, zero rework. Label the number "approx" on IEX.
+- **Finnhub:** ✅ Phase B, right after A.
+- **Phone viewing does NOT require R3.** The watchlist is a responsive web component — viewable on a phone
+  browser + "Add to Home Screen" (PWA: icon + full-screen glance), reaching the backend via Tailscale (now)
+  or a small deploy (later). R3/Capacitor's unique value is **push notifications** (the approve-a-trade flow),
+  which a *glance* surface doesn't need. So: build the watchlist responsive + PWA-ready; R3 stays the later
+  "push" milestone. (Caveat: all-day phone use needs the backend reachable 24/7 — machine-on+Tailscale now,
+  small always-on deploy eventually.)
+
+## Still open
+- **Customization scope:** per-watchlist columns or one global set? (Lean: global.)
+- Put/Call ratio — budget a paid options source eventually, or drop it? (Deferred either way.)
 
 ## Build approach
 Revert the parked watchlist-v2 first (clean slate). Then Phase A as a Composer build against this spec, with
