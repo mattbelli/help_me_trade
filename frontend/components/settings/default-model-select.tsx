@@ -76,7 +76,7 @@ export function DefaultModelSelect({
         if (shouldAdopt) {
           onChangeRef.current(
             setDefaultLlm(aiRef.current, {
-              provider: serverDefault.provider,
+              provider: serverDefault.provider as AiProviderId,
               model: serverDefault.model,
             }),
           );

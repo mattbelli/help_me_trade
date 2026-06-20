@@ -290,7 +290,7 @@ export function TradesPage() {
           </Button>
         )}
         {accounts.length > 0 && (
-          <Select value={accountId} onValueChange={setAccountId}>
+          <Select value={accountId} onValueChange={(v) => setAccountId(v ?? "")}>
             <SelectTrigger className="w-[220px]">
               <SelectValue placeholder="Account" />
             </SelectTrigger>

@@ -6,7 +6,7 @@ function restorePart(
   part: ChatSessionMessage["parts"][number],
 ): UIMessage["parts"][number] {
   if (part.type === "text") {
-    return { type: "text", text: part.text ?? "" };
+    return { type: "text", text: typeof part.text === "string" ? part.text : "" };
   }
   // Round-trip tool / step / reasoning parts saved from AI SDK UIMessage
   if (

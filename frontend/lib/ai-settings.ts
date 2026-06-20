@@ -143,7 +143,7 @@ export function getDefaultLlm(ai: AiSettings): DefaultLlm {
     return { provider: block.provider, model: "" };
   }
   const provider =
-    isProviderId(String(ai.provider)) && ai.provider !== "mock"
+    isProviderId(ai.provider) && ai.provider !== "mock"
       ? ai.provider
       : "deepseek";
   const fields = PROVIDER_FIELDS[provider];
