@@ -9,9 +9,9 @@ Linux). Python works on 3.12 (matches CI) or 3.13.*
 ## 0. Prereqs on the Linux server
 ```bash
 # Python 3.12+, Node 20+, git, build basics
-sudo apt update && sudo apt install -y python3.12 python3.12-venv python3-pip git curl
-# Node (20 LTS) + (bun if you prefer it for the frontend)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+sudo apt update && sudo apt install -y python3.12 python3.12-venv python3-pip git curl sqlite3
+# Node 22+ — the Composer bridge needs >=22.13; Node 20 triggers EBADENGINE. (bun optional for the frontend)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
 # Claude Code CLI + Tailscale
 #   - install Claude Code per its docs and run `claude` to auth
 curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up

@@ -15,6 +15,10 @@ becomes a one-way backup target (never two-way sync the live DB). After migratio
 Note: this repo's auto-memory lives in Claude's *Windows* project dir, so a fresh Linux session won't inherit
 it — these docs are the source of truth.
 
+**Deferred decision:** Dockerize (backend + frontend + SearXNG via compose, `data/` as a volume) at the
+**live-prep milestone** (Increment 3 era) — 12-factor groundwork (pinned deps, no hardcoded paths, env-based
+config) is already done, so it's a small lift, not a refactor. (Node ≥22 required for the Composer bridge.)
+
 ## State
 Autonomous trading agent; loop = PERCEIVE→REASON→DECIDE→**ACT**→DELIVER→LEARN. **R2 (ACT) just shipped:** a
 fail-closed execution **chokepoint** (RiskEngine 10 checks → ExecutionService, the sole broker path) + **real
