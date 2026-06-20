@@ -1,0 +1,18 @@
+[Unit]
+Description=help_me_trade frontend (Next.js production server)
+After=network-online.target hmt-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mbelli
+WorkingDirectory=/home/mbelli/dev/help_me_trade/frontend
+# Next.js loads .env.local itself from WorkingDirectory; NEXT_PUBLIC_* are baked in at build time.
+Environment=NODE_ENV=production
+Environment=PORT=3001
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
