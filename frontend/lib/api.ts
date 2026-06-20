@@ -541,3 +541,41 @@ export async function triggerPriceAlert(id: number): Promise<void> {
   });
   if (!res.ok) throw new Error(`Trigger alert error ${res.status}`);
 }
+
+export type PendingProposal = {
+  id: string;
+  summary: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  expires_at: string | null;
+  payload_hash: string;
+};
+
+export async function fetchPendingProposals(): Promise<PendingProposal[]> {
+  const res = await apiFetch(`${API_BASE}/api/proposals/pending`);
+  if (!res.ok) throw new Error(`pending proposals ${res.status}`);
+  const data = await res.json();
+  return data.proposals ?? [];
+}
+
+export async function approveProposal(
+  id: string,
+  payloadHash: string,
+): Promise<{ status: string; [k: string]: unknown }> {
+  const res = await apiFetch(`${API_BASE}/api/proposals/${id}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload_hash: payloadHash }),
+  });
+  return res.json();
+}
+
+export async function rejectProposal(
+  id: string,
+): Promise<{ status: string; [k: string]: unknown }> {
+  const res = await apiFetch(`${API_BASE}/api/proposals/${id}/reject`, {
+    method: "POST",
+  });
+  return res.json();
+}

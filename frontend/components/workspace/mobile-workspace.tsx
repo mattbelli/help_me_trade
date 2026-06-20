@@ -12,11 +12,14 @@ import {
 import { ThemeSwitcher } from "@/components/workspace/theme-switcher";
 import { WorkspaceThread } from "@/components/workspace/workspace-chat";
 import { cn } from "@/lib/utils";
+import { PendingProposalCard } from "@/components/workspace/pending-proposal-card";
+import type { PendingProposal } from "@/lib/api";
 import {
   notificationLabel,
   useNotificationStore,
   type WorkspaceNotification,
 } from "@/lib/workspace/use-notification-store";
+import { usePendingProposals } from "@/lib/workspace/use-pending-proposals";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
 type TabId = "watch" | "portfolio" | "agent" | "activity";
@@ -114,7 +117,12 @@ function PortfolioTab() {
   );
 }
 
-function ActivityTab() {
+type ActivityTabProps = {
+  proposals: PendingProposal[];
+  refetchProposals: () => void;
+};
+
+function ActivityTab({ proposals, refetchProposals }: ActivityTabProps) {
   const notifications = useNotificationStore((s) => s.notifications);
   const hydrate = useNotificationStore((s) => s.hydrate);
 
@@ -130,7 +138,7 @@ function ActivityTab() {
     [notifications],
   );
 
-  if (sorted.length === 0) {
+  if (proposals.length === 0 && sorted.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-[var(--fg-dim)]">
         <Bell className="size-8 text-[var(--fg-faint)]" />
@@ -140,11 +148,29 @@ function ActivityTab() {
   }
 
   return (
-    <ul className="flex flex-col gap-2">
-      {sorted.map((n) => (
-        <ActivityCard key={n.id} notification={n} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-4">
+      {proposals.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-mono text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-dim)]">
+            Pending approvals
+          </h2>
+          {proposals.map((p) => (
+            <PendingProposalCard
+              key={p.id}
+              proposal={p}
+              onResolved={refetchProposals}
+            />
+          ))}
+        </section>
+      ) : null}
+      {sorted.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {sorted.map((n) => (
+            <ActivityCard key={n.id} notification={n} />
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -166,6 +192,7 @@ function ActivityCard({ notification: n }: { notification: WorkspaceNotification
 
 export function MobileWorkspace() {
   const [tab, setTab] = useState<TabId>("watch");
+  const { proposals, refetch } = usePendingProposals();
 
   const activeLabel = TABS.find((t) => t.id === tab)?.label ?? "Watch";
 
@@ -188,7 +215,7 @@ export function MobileWorkspace() {
             <WorkspaceThread />
           </div>
         ) : (
-          <ActivityTab />
+          <ActivityTab proposals={proposals} refetchProposals={refetch} />
         )}
       </main>
 
@@ -204,7 +231,7 @@ export function MobileWorkspace() {
                 type="button"
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 rounded-full px-4 py-1.5 text-[10px] font-medium transition-colors",
+                  "relative flex flex-col items-center gap-0.5 rounded-full px-4 py-1.5 text-[10px] font-medium transition-colors",
                   isActive
                     ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
                     : "text-[var(--fg-faint)] hover:text-foreground",
@@ -213,6 +240,11 @@ export function MobileWorkspace() {
               >
                 <Icon className="size-4" />
                 <span>{t.label}</span>
+                {t.id === "activity" && proposals.length > 0 ? (
+                  <span className="absolute -right-0.5 -top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[var(--c-accent)] px-1 text-[9px] font-semibold leading-none text-[var(--c-on-accent)]">
+                    {proposals.length}
+                  </span>
+                ) : null}
               </button>
             );
           })}

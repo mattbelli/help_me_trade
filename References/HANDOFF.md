@@ -38,10 +38,14 @@ via the existing **in-app notification** system, then build the native client st
 approval *backend* is delivery-agnostic and reused verbatim by RN. See `[[mobile-ux-direction]]` memory.
 
 **Done — R3-A (backend core, 322 tests):** proposal lifecycle + `POST /api/proposals/{id}/approve|reject`
-routing through the existing chokepoint (see BUILD.md history 2026-06-20). **Next — R3-B:** the actionable
-Approve/Reject **card in the Activity tab** (mobile + desktop notification surface) calling those endpoints —
-the validation surface. **Then:** the agent/proactive trigger that *chooses* phone-delivery; Modify; APNs+RN.
-Deferred hardening (before paper-autonomous): stuck-`approving` reconcile on restart; auth-disabled warning.
+routing through the existing chokepoint (see BUILD.md history 2026-06-20).
+**Done — R3-B (mobile Approve/Reject card):** the Activity tab fetches `GET /api/proposals/pending` and
+renders amber Approve/Reject cards (live expiry countdown, badge on the Activity pill tab, toasts) → call
+the endpoints. The in-app loop is end-to-end: `POST /api/proposals` → card → Approve → chokepoint (dry_run
+logs; flip to `paper` to place). **Next — R3-C:** the agent/proactive trigger that *chooses* phone-delivery
+(so the agent — not a manual POST — creates the pending proposal); then Modify; then the **APNs + RN** native
+client (the real lock-screen push). Deferred hardening (before paper-autonomous): stuck-`approving` reconcile
+on restart; auth-disabled warning.
 → Original kickoff: `References/R3_KICKOFF.md` (mechanism section now superseded by the RN decision above).
 
 **Parallel option still open — watchlist v3** (`WATCHLIST_SPEC.md`, Phase A = IEX-proxy RVOL + 52w slider +
