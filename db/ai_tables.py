@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+import string
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +106,13 @@ def _row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _normalize_memory_content(text: str) -> str:
+    """Conservative normalization for dedup: lowercase, collapse whitespace, trim
+    surrounding punctuation. Keeps all tokens so distinct facts stay distinct."""
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    return normalized.strip(string.punctuation + " ")
+
+
 def create_memory(
     *,
     memory_type: str,
@@ -120,7 +129,23 @@ def create_memory(
     init_ai_tables(db_path)
     now = _now()
     meta = metadata or {}
+    norm = _normalize_memory_content(text)
     with _connect(db_path) as conn:
+        # Dedup-on-write: if a same-type memory already holds (a normalized form of)
+        # this content, refresh it instead of inserting a near-identical duplicate.
+        for row in conn.execute(
+            "SELECT * FROM memories WHERE memory_type = ?", (memory_type,)
+        ).fetchall():
+            if _normalize_memory_content(row["content"]) == norm:
+                conn.execute(
+                    "UPDATE memories SET updated_at = ? WHERE id = ?",
+                    (now, row["id"]),
+                )
+                refreshed = conn.execute(
+                    "SELECT * FROM memories WHERE id = ?", (row["id"],)
+                ).fetchone()
+                conn.commit()
+                return _row_to_memory(refreshed)
         cursor = conn.execute(
             """
             INSERT INTO memories (memory_type, content, metadata_json, created_at, updated_at)
