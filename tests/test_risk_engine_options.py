@@ -144,7 +144,9 @@ async def test_option_expired_rejected(monkeypatch, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_option_sell_rejected(monkeypatch, tmp_path: Path) -> None:
+async def test_option_sell_requires_held_position(
+    monkeypatch, tmp_path: Path
+) -> None:
     db = tmp_path / "risk_opt.db"
     _patch_passing_env(monkeypatch, db)
     result = await RiskEngine.validate(
@@ -152,7 +154,7 @@ async def test_option_sell_rejected(monkeypatch, tmp_path: Path) -> None:
         db_path=db,
     )
     assert result.passed is False
-    assert result.blocked_reason == "option sells not supported yet (long buy-to-open only)"
+    assert result.checks["sell_position"] == "fail: no held long position"
 
 
 @pytest.mark.asyncio

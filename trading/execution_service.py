@@ -109,6 +109,9 @@ class ExecutionService:
                 )
                 raise RiskRejectedError(reason)
             elif mode == "paper":
+                position_intent = (
+                    "sell_to_close" if intent.side == "sell" else "buy_to_open"
+                )
                 req = PlaceOrderRequest(
                     client_order_id=execution_id,
                     symbol=intent.occ_symbol or intent.symbol,
@@ -121,6 +124,7 @@ class ExecutionService:
                         else None
                     ),
                     time_in_force="day",
+                    position_intent=position_intent,
                 )
                 adapter = get_broker(intent.broker)
                 try:

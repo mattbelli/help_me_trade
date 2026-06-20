@@ -19,6 +19,7 @@ type ProposalArgs = {
   option_strike?: number;
   option_right?: string;
   multiplier?: number;
+  held_qty?: number;
 };
 
 type ProposalResult = {

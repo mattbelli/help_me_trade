@@ -84,6 +84,32 @@ async def test_aplace_order_includes_limit_price(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_aplace_order_includes_position_intent(monkeypatch) -> None:
+    adapter = _adapter()
+    captured: dict = {}
+
+    async def fake_apost(path: str, *, body: dict):
+        captured["body"] = body
+        return {"id": "ord-789", "status": "accepted"}
+
+    monkeypatch.setattr(adapter, "_apost", fake_apost)
+
+    req = PlaceOrderRequest(
+        client_order_id="exec_stc",
+        symbol="AAPL",
+        side="sell",
+        qty="5",
+        order_type="market",
+        limit_price=None,
+        time_in_force="day",
+        position_intent="sell_to_close",
+    )
+    await adapter.aplace_order(req)
+
+    assert captured["body"]["position_intent"] == "sell_to_close"
+
+
+@pytest.mark.asyncio
 async def test_aplace_order_422_recovers_existing_order(monkeypatch) -> None:
     adapter = _adapter()
     apost_calls = 0

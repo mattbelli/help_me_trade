@@ -136,15 +136,86 @@ async def test_execution_paper_submits_to_broker(monkeypatch, tmp_path: Path) ->
     db = tmp_path / "exec.db"
     _patch_passing_env(monkeypatch, db, execution_mode="paper")
 
+    from brokers.alpaca import AlpacaAdapter
+
+    stub = object.__new__(AlpacaAdapter)
+    stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
+    stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
+    place_mock = AsyncMock(
+        return_value=PlaceOrderResponse(
+            broker_order_id="broker-ord-99",
+            status="accepted",
+            raw={"id": "broker-ord-99", "status": "accepted"},
+        )
+    )
+    stub.aplace_order = place_mock  # type: ignore[method-assign]
+    monkeypatch.setattr("trading.execution_service.get_broker", lambda _n: stub)
+
     result = await ExecutionService.submit(_intent(), db_path=db)
 
     assert result.status == "submitted"
     assert result.broker_order_id == "broker-ord-99"
+    place_mock.assert_called_once()
+    req = place_mock.call_args[0][0]
+    assert req.position_intent == "buy_to_open"
     row = order_executions_mod.get_execution(result.execution_id, db_path=db)
     assert row is not None
     assert row["status"] == "submitted"
     assert row["broker_order_id"] == "broker-ord-99"
     assert row["submitted_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_execution_paper_sell_sets_sell_to_close(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "exec.db"
+    _patch_passing_env(monkeypatch, db, execution_mode="paper")
+
+    from brokers.alpaca import AlpacaAdapter
+
+    stub = object.__new__(AlpacaAdapter)
+    stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
+    stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
+    place_mock = AsyncMock(
+        return_value=PlaceOrderResponse(
+            broker_order_id="broker-sell-1",
+            status="accepted",
+            raw={"id": "broker-sell-1", "status": "accepted"},
+        )
+    )
+    stub.aplace_order = place_mock  # type: ignore[method-assign]
+    monkeypatch.setattr("trading.execution_service.get_broker", lambda _n: stub)
+
+    result = await ExecutionService.submit(
+        _intent(side="sell", qty=Decimal("5")),
+        db_path=db,
+    )
+
+    assert result.status == "submitted"
+    req = place_mock.call_args[0][0]
+    assert req.position_intent == "sell_to_close"
+
+
+@pytest.mark.asyncio
+async def test_execution_live_sell_raises(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "exec.db"
+    _patch_passing_env(monkeypatch, db, execution_mode="live")
+
+    from brokers.alpaca import AlpacaAdapter
+
+    stub = object.__new__(AlpacaAdapter)
+    place_mock = AsyncMock()
+    stub.aplace_order = place_mock  # type: ignore[method-assign]
+    monkeypatch.setattr("trading.execution_service.get_broker", lambda _n: stub)
+
+    with pytest.raises(RiskRejectedError, match="live execution not enabled"):
+        await ExecutionService.submit(
+            _intent(side="sell", qty=Decimal("5")),
+            db_path=db,
+        )
+
+    place_mock.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -47,16 +47,7 @@ class RiskEngine:
         concentration_symbol: str
 
         if is_option:
-            # Options: long buy-to-open, limit-only
-            if intent.side != "buy":
-                checks["option_side"] = "fail: option sells not supported"
-                return RiskCheckResult(
-                    passed=False,
-                    checks=checks,
-                    blocked_reason="option sells not supported yet (long buy-to-open only)",
-                )
-            checks["option_side"] = "pass"
-
+            # Options: long-only (buy-to-open / sell-to-close), limit-only
             if intent.order_type != "limit" or intent.limit_price is None:
                 checks["option_order_type"] = "fail: limit required"
                 return RiskCheckResult(
@@ -86,12 +77,19 @@ class RiskEngine:
                 )
 
             today = datetime.now(UTC).date()
-            if parsed.expiration <= today:
+            if intent.side == "buy" and parsed.expiration <= today:
                 checks["option_expiry"] = "fail: contract expired or expiring today"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
                     blocked_reason="option contract expired or expiring today",
+                )
+            if intent.side == "sell" and parsed.expiration < today:
+                checks["option_expiry"] = "fail: contract expired"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="option contract expired",
                 )
             checks["option_expiry"] = "pass"
 
@@ -224,6 +222,57 @@ class RiskEngine:
         open_orders = snapshot.get("open_orders") or []
         positions = snapshot.get("positions") or []
 
+        if intent.side == "sell":
+            pos = None
+            for p in positions:
+                if str(p.get("symbol", "")).upper() == concentration_symbol:
+                    pos = p
+                    break
+            if (
+                pos is None
+                or pos.get("side") != "long"
+                or Decimal(str(pos.get("qty", 0))) <= Decimal("0")
+            ):
+                checks["sell_position"] = "fail: no held long position"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason=(
+                        "sell-to-close requires a held long position; "
+                        "short selling not supported"
+                    ),
+                )
+            held = Decimal(str(pos["qty"]))
+            pending_sell = Decimal("0")
+            for o in open_orders:
+                if (
+                    str(o.get("symbol", "")).upper() == concentration_symbol
+                    and o.get("side") == "sell"
+                ):
+                    # Clamp per-order remaining at 0 — a data anomaly where
+                    # filled_qty > qty must never inflate `available` into an oversell.
+                    pending_sell += max(
+                        Decimal("0"),
+                        Decimal(str(o.get("qty", 0)))
+                        - Decimal(str(o.get("filled_qty", 0))),
+                    )
+            available = held - pending_sell
+            if qty > available:
+                checks["sell_position"] = (
+                    f"fail: sell qty {qty} exceeds available {available}"
+                )
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason=(
+                        f"sell qty exceeds available position "
+                        f"(held {held}, pending sells {pending_sell})"
+                    ),
+                )
+            checks["sell_position"] = f"pass: closing {qty} of {held} long"
+        else:
+            checks["sell_position"] = "pass: buy"
+
         if is_option:
             checks["live_quote"] = "pass: skipped for options"
             spend_price = intent.limit_price  # type: ignore[assignment]
@@ -275,16 +324,19 @@ class RiskEngine:
         else:
             checks["buying_power"] = "pass: sell"
 
-        # 7. Per-order value cap
-        max_order_value = Decimal(str(cfg["max_order_value_usd"]))
-        if risk_notional > max_order_value:
-            checks["order_value_cap"] = "fail: order exceeds max value"
-            return RiskCheckResult(
-                passed=False,
-                checks=checks,
-                blocked_reason="order exceeds max value",
-            )
-        checks["order_value_cap"] = "pass"
+        # 7. Per-order value cap (buys only — closes must not be blocked)
+        if intent.side == "buy":
+            max_order_value = Decimal(str(cfg["max_order_value_usd"]))
+            if risk_notional > max_order_value:
+                checks["order_value_cap"] = "fail: order exceeds max value"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="order exceeds max value",
+                )
+            checks["order_value_cap"] = "pass"
+        else:
+            checks["order_value_cap"] = "pass: sell"
 
         # 8. Concentration (buys only)
         if intent.side == "buy":

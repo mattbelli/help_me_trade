@@ -6,14 +6,16 @@ plan + dated history). Everything else is in those — this is just current focu
 ## State
 Autonomous trading agent; loop = PERCEIVE→REASON→DECIDE→**ACT**→DELIVER→LEARN. **R2 (ACT) just shipped:** a
 fail-closed execution **chokepoint** (RiskEngine 10 checks → ExecutionService, the sole broker path) + **real
-Alpaca PAPER execution** for **equities and LONG options** (buy-to-open calls/puts, limit-only, ×100
-multiplier). The agent placed a real paper order end-to-end (TSLA equity queued for Mon open; long-option
-flow works once dates are right). ~13 guardrail/grounding bugs caught by adversarial Sonnet review before
-commit. `execution_mode` default = `dry_run`; flip to `paper` in Settings → Execution/Risk to place orders.
-**LIVE is hard-blocked server-side** (Increment 3). All committed + pushed (`main`); tests ~297 green.
+Alpaca PAPER execution** for **equities and LONG options**, full lifecycle: **buy-to-open AND sell-to-close**
+(options limit-only, ×100 multiplier). Sells are guarded so they can ONLY reduce a held long — no shorting.
+The agent placed a real paper order end-to-end (TSLA equity queued for Mon open; long-option flow works once
+dates are right). ~16 guardrail/grounding bugs caught by adversarial Sonnet review before commit.
+`execution_mode` default = `dry_run`; flip to `paper` in Settings → Execution/Risk to place orders.
+**LIVE is hard-blocked server-side** (Increment 3). All committed + pushed (`main`); tests **312** green.
 
-## Next options (pick one — my lean: sell-to-close, then phone delivery)
-- **Sell-to-close** — let the agent EXIT what it opens (options are buy-only today). Finishes the R2 lifecycle.
+## Next options (pick one — my lean: phone delivery, then live double-gate)
+- **R3 — phone delivery** (Capacitor + self-hosted APNs, approve/deny/modify from phone). The "be a dad"
+  unlock; ties to the deploy model (one server + thin clients). *(sell-to-close: DONE)*
 - **R2 Increment 3 — LIVE behind a typed double-gate** (lower caps, market-hours + duplicate checks). Only
   after the founder trusts paper for a while.
 - **R2 Increment 4 — bounded auto-execute** (code-defined envelope, no per-order approval inside it).

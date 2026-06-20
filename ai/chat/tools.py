@@ -432,8 +432,6 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         multiplier = 1
 
         if opt is not None:
-            if side != "buy":
-                return {"error": "options are buy-to-open only (long); side must be buy"}
             order_type = "limit"
             if limit_price_raw is None:
                 return {
@@ -474,6 +472,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             "limit_price": float(limit_price) if limit_price is not None else None,
             "asset_class": asset_class,
         }
+        broker = primary_broker()
         if opt is not None:
             proposal_payload.update(
                 {
@@ -485,13 +484,33 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
                     "multiplier": multiplier,
                 }
             )
+
+        if side == "sell":
+            position_symbol = (occ_symbol or symbol).upper()
+            snapshot = get_latest_snapshot(broker, db_path=DEFAULT_DB_PATH)
+            held_qty: float | None = None
+            if snapshot:
+                for pos in snapshot.get("positions") or []:
+                    if str(pos.get("symbol", "")).upper() == position_symbol:
+                        if pos.get("side") == "long":
+                            held_qty = float(pos.get("qty", 0))
+                        break
+            if held_qty is not None:
+                proposal_payload["held_qty"] = held_qty
+            else:
+                return {
+                    "error": (
+                        f"no held long position for {position_symbol}; "
+                        "sell-to-close requires an existing long"
+                    ),
+                }
+
         recorded = record_paper_order_proposal(
             proposal=proposal_payload,
             session_id=session_id_str,
             db_path=DEFAULT_DB_PATH,
         )
         proposal_id = recorded["id"]
-        broker = primary_broker()
 
         intent = OrderIntent(
             proposal_id=proposal_id,

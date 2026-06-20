@@ -337,6 +337,8 @@ class AlpacaAdapter:
         }
         if req.limit_price is not None:
             body["limit_price"] = req.limit_price
+        if req.position_intent is not None:
+            body["position_intent"] = req.position_intent
 
         try:
             raw = await self._apost("/v2/orders", body=body)
@@ -352,6 +354,14 @@ class AlpacaAdapter:
                 status=order.status,
                 raw={"id": order.id, "status": order.status, "recovered": True},
             )
+        except AlpacaError as exc:
+            # Only retry without position_intent when Alpaca specifically rejects
+            # that field — never swallow unrelated 400s (bad qty, unknown symbol).
+            if req.position_intent is not None and "position_intent" in str(exc).lower():
+                body.pop("position_intent", None)
+                raw = await self._apost("/v2/orders", body=body)
+            else:
+                raise
 
         if not isinstance(raw, dict):
             raise AlpacaError("Unexpected order placement response")

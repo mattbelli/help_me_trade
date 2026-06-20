@@ -17,6 +17,7 @@ type ProposalInput = {
   option_strike?: number;
   option_right?: string;
   multiplier?: number;
+  held_qty?: number;
 };
 
 type Props = {
@@ -50,6 +51,7 @@ export function OrderProposalCard({
   disabled,
 }: Props) {
   const side = (input.side ?? "buy").toUpperCase();
+  const isSell = (input.side ?? "buy").toLowerCase() === "sell";
   const orderType = (input.order_type ?? "market").toUpperCase();
   const isOption = isOptionProposal(input);
   const contracts = input.qty ?? 0;
@@ -70,8 +72,9 @@ export function OrderProposalCard({
           {isOption ? "Paper option order" : "Paper order"} — your approval needed
         </p>
         <p className="text-xs text-muted-foreground">
-          Review below, then approve or reject. Long buy-to-open only; nothing is sent
-          until you approve.
+          {isSell
+            ? "Sell to close — exits a position you already hold; nothing is sent until you approve."
+            : "Review below, then approve or reject. Long buy-to-open only; nothing is sent until you approve."}
         </p>
       </div>
 
@@ -101,6 +104,12 @@ export function OrderProposalCard({
             <dt className="text-muted-foreground">Contracts</dt>
             <dd className="font-medium">{contracts || "—"}</dd>
           </div>
+          {input.held_qty != null ? (
+            <div>
+              <dt className="text-muted-foreground">You hold</dt>
+              <dd className="font-medium">{input.held_qty}</dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-muted-foreground">Side</dt>
             <dd className="font-medium">{side}</dd>
@@ -145,6 +154,12 @@ export function OrderProposalCard({
             <dt className="text-muted-foreground">Qty</dt>
             <dd className="font-medium">{input.qty ?? "—"}</dd>
           </div>
+          {input.held_qty != null ? (
+            <div>
+              <dt className="text-muted-foreground">You hold</dt>
+              <dd className="font-medium">{input.held_qty}</dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-muted-foreground">Type</dt>
             <dd className="font-medium">{orderType}</dd>

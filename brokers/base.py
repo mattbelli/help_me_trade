@@ -55,6 +55,7 @@ class PlaceOrderRequest:
     order_type: str
     limit_price: str | None
     time_in_force: str
+    position_intent: str | None = None
 
 
 @dataclass(frozen=True)

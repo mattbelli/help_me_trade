@@ -147,3 +147,87 @@ async def test_propose_order_over_value_cap_rejected(
     conn.close()
     assert len(rows) == 1
     assert rows[0]["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_propose_order_option_sell_builds_intent(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "propose.db"
+    _patch_passing_env(monkeypatch, db)
+
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from imports.option_symbol import OptionSymbol, to_occ_symbol
+
+    occ = to_occ_symbol(
+        OptionSymbol(
+            underlying="TSLA",
+            expiration=date.today() + timedelta(days=30),
+            strike=Decimal("410"),
+            right="C",
+        )
+    )
+    account = Account(
+        id="acc1",
+        status="ACTIVE",
+        cash=50_000.0,
+        buying_power=100_000.0,
+        portfolio_value=100_000.0,
+    )
+    sqlite_mod.save_snapshot(
+        account,
+        [
+            Position(
+                symbol=occ,
+                qty=2.0,
+                side="long",
+                market_value=700.0,
+                unrealized_pl=0.0,
+                avg_entry_price=3.50,
+                current_price=3.50,
+            )
+        ],
+        [],
+        broker="alpaca",
+        db_path=db,
+    )
+
+    stub = _stub_alpaca()
+    stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
+    monkeypatch.setattr("trading.risk_engine.get_broker", lambda _n: stub)
+
+    result = await execute_tool(
+        "propose_order",
+        {
+            "option_underlying": "TSLA",
+            "option_expiration": (date.today() + timedelta(days=30)).isoformat(),
+            "option_strike": 410,
+            "option_right": "C",
+            "side": "sell",
+            "qty": 1,
+            "limit_price": 3.50,
+        },
+    )
+
+    assert "error" not in result
+    assert result["proposal"]["asset_class"] == "us_option"
+    assert result["proposal"]["side"] == "sell"
+    assert result["proposal"]["held_qty"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_propose_order_equity_sell_includes_held_qty(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "propose.db"
+    _patch_passing_env(monkeypatch, db)
+
+    result = await execute_tool(
+        "propose_order",
+        {"symbol": "AAPL", "side": "sell", "qty": 2, "order_type": "market"},
+    )
+
+    assert result["proposal"]["held_qty"] == 10.0
+    assert result["status"] == "dry_run"
