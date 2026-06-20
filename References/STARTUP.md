@@ -26,8 +26,11 @@ Steps per device:
 
 Manage (sudo prompts for a password on this box):
 - Status: `systemctl status hmt-backend hmt-frontend`
-- After deploying code: `sudo systemctl restart hmt-backend hmt-frontend`
-  (frontend changes also need a rebuild first: `cd frontend && npm run build`)
+- After deploying **backend** code: `sudo systemctl restart hmt-backend`
+- After deploying **frontend** code: **`tools/rebuild-frontend.sh`** (builds `.next` **and** restarts the
+  service as one atomic step). ⚠️ Never run a bare `cd frontend && npm run build` against the live deployment:
+  `next start` loads the build into memory at boot, so building without an immediate restart leaves the running
+  server serving the old module graph against new chunks → **hydration fails → every page goes blank/white**.
 - Logs: `journalctl -u hmt-backend -f`
 
 Unit files + the nightly backup script live in tracked `deploy/`.
