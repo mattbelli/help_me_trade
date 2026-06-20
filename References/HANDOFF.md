@@ -1,0 +1,41 @@
+# Handoff — "you are here" (2026-06-20)
+
+*Bootstrap for a fresh session. Read this + `AGENTS.md` (codebase map) + `BUILD.md` "Realignment" (the R1–R5
+plan + dated history). Everything else is in those — this is just current focus, next steps, and gotchas.*
+
+## State
+Autonomous trading agent; loop = PERCEIVE→REASON→DECIDE→**ACT**→DELIVER→LEARN. **R2 (ACT) just shipped:** a
+fail-closed execution **chokepoint** (RiskEngine 10 checks → ExecutionService, the sole broker path) + **real
+Alpaca PAPER execution** for **equities and LONG options** (buy-to-open calls/puts, limit-only, ×100
+multiplier). The agent placed a real paper order end-to-end (TSLA equity queued for Mon open; long-option
+flow works once dates are right). ~13 guardrail/grounding bugs caught by adversarial Sonnet review before
+commit. `execution_mode` default = `dry_run`; flip to `paper` in Settings → Execution/Risk to place orders.
+**LIVE is hard-blocked server-side** (Increment 3). All committed + pushed (`main`); tests ~297 green.
+
+## Next options (pick one — my lean: sell-to-close, then phone delivery)
+- **Sell-to-close** — let the agent EXIT what it opens (options are buy-only today). Finishes the R2 lifecycle.
+- **R2 Increment 3 — LIVE behind a typed double-gate** (lower caps, market-hours + duplicate checks). Only
+  after the founder trusts paper for a while.
+- **R2 Increment 4 — bounded auto-execute** (code-defined envelope, no per-order approval inside it).
+- **R3 — phone delivery** (Capacitor + self-hosted APNs, approve/deny/modify from phone). The "be a dad"
+  unlock; ties to the deploy model (one server + thin clients).
+- **R1 backfill** — Schwab Realized-Gain/Loss import (completes P&L on incomplete positions like PLTR) +
+  **futures** (only in Schwab/thinkorswim PDFs / 1099-B; a big chunk of real history, not yet ingested).
+- **Deploy/access** — Tailscale for private laptop+phone access now; the ship model is one always-on server
+  (agent + SQLite source of truth) + thin clients over HTTPS, NOT device sync.
+
+## Open threads / gotchas
+- **Parked widget work is uncommitted** (watchlist-v2 [founder DISLIKED it], scans/memory widgets,
+  command-console/dock tweaks). Resolve: revert OR commit-the-good-parts (scans/memory were solid).
+- Free **IEX feed = regular hours only**; no options market-data subscription confirmed → **options orders
+  are limit-only** (premium = `limit_price`). `get_option_quote` returns real bid/ask only if entitled.
+- **Backend** runs on the founder's machine at `127.0.0.1:8000`; LAN access needs `0.0.0.0` + CORS origin +
+  the frontend `NEXT_PUBLIC_API_URL` change (or Tailscale).
+- mem0 OFF; memory store is clean (self-feeding "20% cap" loop fixed with semantic dedup).
+
+## Working agreements (also in auto-loaded memory)
+Build via **Composer** (`node tools/composer-bridge/dispatch.mjs --brief <file>`, one run at a time, logs to
+`tools/composer-bridge/last-run.log`) — not hand-edits. Recon/review via **Sonnet** subagents.
+**Adversarially review safety-critical code (execution/risk) before commit.** Verify the diff + run pytest
+yourself; don't trust self-reports. Founder is **cost-conscious about the Opus main loop** — delegate heavy
+work. Commit cadence: iterate to "happy" → update BUILD.md → commit + push.
