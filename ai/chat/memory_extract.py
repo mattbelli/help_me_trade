@@ -12,6 +12,7 @@ from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
+from db.ai_tables import _is_duplicate, _memory_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +103,15 @@ def extract_memories_from_turn(
         LLMMessage(
             role="system",
             content=(
-                "Extract 0-2 durable trading facts from this chat turn for long-term "
-                "memory. Return JSON: {\"memories\": [{\"type\": \"preference\"|\"lesson\", "
-                "\"content\": \"...\"}]}. Only include explicit user preferences, risk "
-                "rules, or lessons — not generic market commentary, and NOT one-off "
-                "action requests (creating an alert, rule, or order are actions, not "
-                "durable preferences). Return {\"memories\": []} if nothing is worth storing."
+                "Extract ONLY new durable facts the user explicitly stated this turn. "
+                "Return JSON: {\"memories\": [{\"type\": \"preference\"|\"lesson\", "
+                "\"content\": \"...\"}]}. Do NOT extract: the assistant's own statements "
+                "or restatements, facts already known/in memory, risk/config settings, "
+                "or inferences. Only include explicit user preferences or lessons — not "
+                "generic market commentary, and NOT one-off action requests (creating an "
+                "alert, rule, or order are actions, not durable preferences). If the user "
+                "did not explicitly state a new preference or lesson, return "
+                "{\"memories\": []}."
             ),
         ),
         LLMMessage(
@@ -132,6 +136,13 @@ def extract_memories_from_turn(
         metadata["source_message_id"] = source_message_id
     saved: list[dict[str, Any]] = []
     for item in candidates:
+        candidate_tokens = _memory_tokens(item["content"])
+        existing = memory.list(memory_type=item["type"], limit=200)
+        if any(
+            _is_duplicate(candidate_tokens, _memory_tokens(row["content"]))
+            for row in existing
+        ):
+            continue
         record = memory.add(
             item["content"],
             memory_type=item["type"],

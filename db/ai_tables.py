@@ -9,6 +9,7 @@ import string
 from pathlib import Path
 from typing import Any
 
+import db.base as db_base
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
@@ -113,12 +114,127 @@ def _normalize_memory_content(text: str) -> str:
     return normalized.strip(string.punctuation + " ")
 
 
+_MEMORY_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "to",
+        "of",
+        "at",
+        "in",
+        "on",
+        "for",
+        "my",
+        "i",
+        "is",
+        "are",
+        "be",
+        "was",
+        "were",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "can",
+        "it",
+        "its",
+        "this",
+        "that",
+        "these",
+        "those",
+        "me",
+        "we",
+        "you",
+        "your",
+        "he",
+        "she",
+        "they",
+        "them",
+        "their",
+        "our",
+        "or",
+        "and",
+        "but",
+        "if",
+        "as",
+        "by",
+        "from",
+        "with",
+        "about",
+        "into",
+        "no",
+        "not",
+        "than",
+        "per",
+    }
+)
+
+_JACCARD_DEDUP_THRESHOLD = 0.5
+_MIN_SHARED_TOKENS = 2
+_MIN_SHARED_NON_NUMERIC = 1
+
+
+def _memory_tokens(text: str) -> frozenset[str]:
+    """Token set for semantic dedup: lowercase, strip punctuation, drop stopwords."""
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    raw_tokens = normalized.split()
+    tokens: set[str] = set()
+    for raw in raw_tokens:
+        token = raw.strip(string.punctuation)
+        if not token or len(token) == 1 or token in _MEMORY_STOPWORDS:
+            continue
+        tokens.add(token)
+    return frozenset(tokens)
+
+
+def _is_numeric_token(token: str) -> bool:
+    stripped = token.rstrip("%")
+    if not stripped:
+        return False
+    return stripped.replace(".", "", 1).isdigit()
+
+
+def _token_set(value: str | frozenset[str]) -> frozenset[str]:
+    if isinstance(value, frozenset):
+        return value
+    return _memory_tokens(value)
+
+
+def _is_duplicate(a: str | frozenset[str], b: str | frozenset[str]) -> bool:
+    """True when two memory texts express the same fact (token-set similarity)."""
+    tokens_a = _token_set(a)
+    tokens_b = _token_set(b)
+    if not tokens_a or not tokens_b:
+        return False
+    intersection = tokens_a & tokens_b
+    if len(intersection) < _MIN_SHARED_TOKENS:
+        return False
+    non_numeric = {t for t in intersection if not _is_numeric_token(t)}
+    if len(non_numeric) < _MIN_SHARED_NON_NUMERIC:
+        return False
+    union = tokens_a | tokens_b
+    return len(intersection) / len(union) >= _JACCARD_DEDUP_THRESHOLD
+
+
 def create_memory(
     *,
     memory_type: str,
     content: str,
     metadata: dict[str, Any] | None = None,
-    db_path: Path = DEFAULT_DB_PATH,
+    db_path: Path | None = None,
 ) -> dict[str, Any]:
     if memory_type not in MEMORY_TYPES:
         raise ValueError(f"memory_type must be one of: {', '.join(sorted(MEMORY_TYPES))}")
@@ -126,17 +242,22 @@ def create_memory(
     if not text:
         raise ValueError("content is required")
 
-    init_ai_tables(db_path)
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    init_ai_tables(resolved_db)
     now = _now()
     meta = metadata or {}
     norm = _normalize_memory_content(text)
-    with _connect(db_path) as conn:
-        # Dedup-on-write: if a same-type memory already holds (a normalized form of)
-        # this content, refresh it instead of inserting a near-identical duplicate.
+    with _connect(resolved_db) as conn:
+        # Dedup-on-write: refresh an existing same-type memory when the new content
+        # is semantically the same fact (exact or token-set similarity).
+        new_tokens = _memory_tokens(text)
         for row in conn.execute(
             "SELECT * FROM memories WHERE memory_type = ?", (memory_type,)
         ).fetchall():
-            if _normalize_memory_content(row["content"]) == norm:
+            existing = row["content"]
+            if _normalize_memory_content(existing) == norm or _is_duplicate(
+                new_tokens, _memory_tokens(existing)
+            ):
                 conn.execute(
                     "UPDATE memories SET updated_at = ? WHERE id = ?",
                     (now, row["id"]),
@@ -164,11 +285,12 @@ def list_memories(
     *,
     memory_type: str | None = None,
     limit: int = 50,
-    db_path: Path = DEFAULT_DB_PATH,
+    db_path: Path | None = None,
 ) -> list[dict[str, Any]]:
-    init_ai_tables(db_path)
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    init_ai_tables(resolved_db)
     limit = max(1, min(limit, 200))
-    with _connect(db_path) as conn:
+    with _connect(resolved_db) as conn:
         if memory_type:
             if memory_type not in MEMORY_TYPES:
                 raise ValueError(
