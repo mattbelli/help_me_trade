@@ -44,6 +44,28 @@ class Order:
     limit_price: float | None
 
 
+@dataclass(frozen=True)
+class PlaceOrderRequest:
+    """Broker order placement payload (Decimal fields as strings)."""
+
+    client_order_id: str
+    symbol: str
+    side: str
+    qty: str
+    order_type: str
+    limit_price: str | None
+    time_in_force: str
+
+
+@dataclass(frozen=True)
+class PlaceOrderResponse:
+    """Broker acknowledgement after placing an order."""
+
+    broker_order_id: str
+    status: str
+    raw: dict
+
+
 @runtime_checkable
 class BrokerAdapter(Protocol):
     """Every broker (Alpaca, Schwab, ...) implements this interface."""
@@ -63,3 +85,9 @@ class BrokerAdapter(Protocol):
     async def afetch_snapshot(
         self,
     ) -> tuple[Account, list[Position], list[Order]]: ...
+
+    async def aplace_order(self, req: PlaceOrderRequest) -> PlaceOrderResponse: ...
+
+    async def acancel_order(self, broker_order_id: str) -> None: ...
+
+    async def aget_order(self, broker_order_id: str) -> Order: ...

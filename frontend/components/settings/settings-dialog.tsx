@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, FileUp, Search, Settings, Wallet } from "lucide-react";
+import { Bot, FileUp, Search, Settings, Shield, Wallet } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,10 @@ import {
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
+import {
+  DEFAULT_TRADING,
+  TradingRiskSettings,
+} from "@/components/settings/trading-risk-settings";
 import { dispatchSettingsSaved } from "@/lib/settings-events";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +37,7 @@ type Props = {
   collapsed?: boolean;
 };
 
-type SettingsSection = "brokers" | "ai" | "research" | "import";
+type SettingsSection = "brokers" | "execution" | "ai" | "research" | "import";
 
 const SECTIONS: {
   id: SettingsSection;
@@ -41,6 +45,7 @@ const SECTIONS: {
   icon: typeof Wallet;
 }[] = [
   { id: "brokers", label: "Brokers", icon: Wallet },
+  { id: "execution", label: "Execution / Risk", icon: Shield },
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
   { id: "import", label: "Import", icon: FileUp },
@@ -66,6 +71,7 @@ const EMPTY: AppSettings = {
   },
   ai: DEFAULT_AI_SETTINGS,
   research: { searxng_url: "" },
+  trading: DEFAULT_TRADING,
 };
 
 export function SettingsDialog({ collapsed = false }: Props) {
@@ -92,6 +98,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
           research: {
             searxng_url: data.research?.searxng_url ?? "",
           },
+          trading: { ...DEFAULT_TRADING, ...data.trading },
         }),
       )
       .catch((err) =>
@@ -116,6 +123,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
         research: {
           searxng_url: saved.research?.searxng_url ?? "",
         },
+        trading: { ...DEFAULT_TRADING, ...saved.trading },
       });
       setMessage("Settings saved. Polling will use the updated brokers.");
       setModelsRevision((n) => n + 1);
@@ -408,6 +416,11 @@ export function SettingsDialog({ collapsed = false }: Props) {
                 account sections.
               </p>
           </div>
+        ) : section === "execution" ? (
+          <TradingRiskSettings
+            value={draft.trading}
+            onChange={(trading) => setDraft((d) => ({ ...d, trading }))}
+          />
         ) : section === "ai" ? (
           <div className="space-y-4">
               <AiProviderSettings

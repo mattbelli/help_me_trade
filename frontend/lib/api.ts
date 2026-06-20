@@ -225,6 +225,15 @@ export async function fetchBars(
 
 export const SECRET_MASK = "********";
 
+export type TradingSettings = {
+  execution_mode: "dry_run" | "paper" | "live";
+  kill_switch_active: boolean;
+  max_order_value_usd: number;
+  max_position_pct: number;
+  max_open_orders: number;
+  max_daily_orders: number;
+};
+
 export type AppSettings = {
   primary_broker: "alpaca" | "schwab";
   brokers: {
@@ -247,6 +256,7 @@ export type AppSettings = {
   research?: {
     searxng_url: string;
   };
+  trading?: TradingSettings;
 };
 
 export async function fetchSettings(): Promise<AppSettings> {
@@ -294,6 +304,10 @@ export type WatchlistQuote = {
   price: number;
   change_pct: number;
   sparkline: number[];
+  prev_close?: number;
+  volume?: number;
+  day_high?: number;
+  day_low?: number;
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {

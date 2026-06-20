@@ -6,7 +6,7 @@ import asyncio
 
 from schwab.client import Client
 
-from brokers.base import Account, Order, Position
+from brokers.base import Account, Order, PlaceOrderRequest, PlaceOrderResponse, Position
 from brokers.errors import BrokerError
 from brokers.schwab_auth import OPEN_ORDER_STATUSES, create_client, resolve_account_hash
 
@@ -182,3 +182,12 @@ class SchwabAdapter:
 
     async def aget_open_orders(self) -> list[Order]:
         return (await self.afetch_snapshot())[2]
+
+    async def aplace_order(self, req: PlaceOrderRequest) -> PlaceOrderResponse:
+        raise NotImplementedError("Schwab execution not implemented")
+
+    async def acancel_order(self, broker_order_id: str) -> None:
+        raise NotImplementedError("Schwab execution not implemented")
+
+    async def aget_order(self, broker_order_id: str) -> Order:
+        raise NotImplementedError("Schwab execution not implemented")

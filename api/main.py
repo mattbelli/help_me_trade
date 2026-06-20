@@ -57,6 +57,12 @@ from db.chart_features import (
     mark_alert_triggered,
 )
 from db.chat_sessions import init_chat_tables
+from db.order_executions import (
+    count_pending_paper_executions,
+    count_submitted_executions,
+    init_execution_tables,
+)
+from db.paper_orders import init_paper_order_tables
 from db.sqlite import (
     compute_and_save_snapshot_analytics,
     get_all_latest_snapshots,
@@ -66,6 +72,7 @@ from db.sqlite import (
 )
 from db.trades import init_trade_tables
 from signals.scan import run_signal_scan
+from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.sync import async_sync_all_enabled_brokers
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -98,6 +105,10 @@ async def _poll_broker(broker_name: str) -> bool:
         )
         logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
         await asyncio.to_thread(compute_and_save_snapshot_analytics, broker_name)
+        if count_pending_paper_executions(broker_name) > 0:
+            await reconcile_pending_executions(broker_name)
+        if count_submitted_executions(broker_name) > 0:
+            await reconcile_open_executions(broker_name)
         snapshot = await asyncio.to_thread(get_latest_snapshot, broker_name)
         if snapshot:
             symbols = {
@@ -216,7 +227,12 @@ async def lifespan(app: FastAPI):
     init_ai_tables()
     init_chat_tables()
     init_trade_tables()
+    init_paper_order_tables()
+    init_execution_tables()
     await market_hub.start()
+    for name in get_enabled_broker_names():
+        if broker_is_configured(name) and count_pending_paper_executions(name) > 0:
+            await reconcile_pending_executions(name)
     await _poll_once()
     poll_task = asyncio.create_task(_poll_loop())
     scan_task = asyncio.create_task(_signal_scan_loop())
@@ -433,6 +449,7 @@ async def api_watchlist_market(symbols: str = ""):
         if not bars:
             continue
         closes = [b.close for b in bars]
+        latest = bars[-1]
         price = closes[-1]
         prev = closes[-2] if len(closes) >= 2 else price
         change_pct = ((price - prev) / prev * 100) if prev else 0.0
@@ -440,6 +457,10 @@ async def api_watchlist_market(symbols: str = ""):
             "price": price,
             "change_pct": round(change_pct, 2),
             "sparkline": [round(c, 4) for c in closes[-7:]],
+            "prev_close": prev,
+            "volume": float(latest.volume),
+            "day_high": float(latest.high),
+            "day_low": float(latest.low),
         }
 
     return {"quotes": quotes}

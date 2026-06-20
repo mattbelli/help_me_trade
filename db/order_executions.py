@@ -206,3 +206,76 @@ def get_execution(
             "SELECT * FROM order_executions WHERE id = ?", (execution_id,)
         ).fetchone()
     return _row_to_execution(row) if row else None
+
+
+def list_submitted_executions(
+    broker: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict[str, Any]]:
+    init_execution_tables(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM order_executions
+            WHERE status = 'submitted' AND broker = ?
+            ORDER BY created_at ASC
+            """,
+            (broker,),
+        ).fetchall()
+    return [_row_to_execution(row) for row in rows]
+
+
+def count_submitted_executions(
+    broker: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> int:
+    init_execution_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS cnt FROM order_executions
+            WHERE status = 'submitted' AND broker = ?
+            """,
+            (broker,),
+        ).fetchone()
+    return int(row["cnt"]) if row else 0
+
+
+def count_pending_paper_executions(
+    broker: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> int:
+    init_execution_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS cnt FROM order_executions
+            WHERE status = 'pending'
+              AND execution_mode = 'paper'
+              AND broker = ?
+            """,
+            (broker,),
+        ).fetchone()
+    return int(row["cnt"]) if row else 0
+
+
+def list_stale_pending_paper_executions(
+    broker: str,
+    *,
+    min_age_seconds: float = 30,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Pending paper rows older than min_age_seconds (avoid racing in-flight submits)."""
+    init_execution_tables(db_path)
+    cutoff = datetime.now(UTC).timestamp() - min_age_seconds
+    cutoff_iso = datetime.fromtimestamp(cutoff, tz=UTC).isoformat()
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM order_executions
+            WHERE status = 'pending'
+              AND execution_mode = 'paper'
+              AND broker = ?
+              AND created_at < ?
+            ORDER BY created_at ASC
+            """,
+            (broker, cutoff_iso),
+        ).fetchall()
+    return [_row_to_execution(row) for row in rows]

@@ -1,11 +1,15 @@
-"""Sole broker write chokepoint — dry_run in B1; paper/live guarded until B2."""
+"""Sole broker write chokepoint — dry_run logs; paper places Alpaca orders; live guarded."""
 
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from brokers.alpaca import AlpacaError
+from brokers.base import PlaceOrderRequest
+from brokers.factory import get_broker
 from brokers.market_stream import market_hub
 from config.settings import is_kill_switch_active, trading_config
 from db.base import DEFAULT_DB_PATH
@@ -96,14 +100,50 @@ class ExecutionService:
                     status,
                     db_path=db_path,
                 )
-            elif mode in ("paper", "live"):
-                reason = "paper/live execution not wired yet (B2)"
+            elif mode == "live":
+                reason = "live execution not enabled (Increment 3)"
                 update_execution_status(
                     execution_id,
                     "rejected",
                     db_path=db_path,
                 )
                 raise RiskRejectedError(reason)
+            elif mode == "paper":
+                req = PlaceOrderRequest(
+                    client_order_id=execution_id,
+                    symbol=intent.symbol,
+                    side=intent.side,
+                    qty=str(intent.qty),
+                    order_type=intent.order_type,
+                    limit_price=(
+                        str(intent.limit_price)
+                        if intent.limit_price is not None
+                        else None
+                    ),
+                    time_in_force="day",
+                )
+                adapter = get_broker(intent.broker)
+                try:
+                    resp = await adapter.aplace_order(req)
+                except AlpacaError as exc:
+                    update_execution_status(
+                        execution_id,
+                        "rejected",
+                        risk_checks_json={"broker_error": str(exc)},
+                        db_path=db_path,
+                    )
+                    raise RiskRejectedError(str(exc)) from exc
+
+                broker_order_id = resp.broker_order_id
+                status = "submitted"
+                now = datetime.now(UTC).isoformat()
+                update_execution_status(
+                    execution_id,
+                    status,
+                    broker_order_id=broker_order_id,
+                    submitted_at=now,
+                    db_path=db_path,
+                )
             else:
                 reason = f"unknown execution mode: {mode}"
                 update_execution_status(
@@ -114,15 +154,16 @@ class ExecutionService:
                 raise RiskRejectedError(reason)
 
             try:
-                await market_hub.broadcast_alert(
-                    {
-                        "type": "execution",
-                        "execution_id": execution_id,
-                        "status": status,
-                        "symbol": intent.symbol,
-                        "side": intent.side,
-                    }
-                )
+                alert: dict[str, str | None] = {
+                    "type": "execution",
+                    "execution_id": execution_id,
+                    "status": status,
+                    "symbol": intent.symbol,
+                    "side": intent.side,
+                }
+                if broker_order_id is not None:
+                    alert["broker_order_id"] = broker_order_id
+                await market_hub.broadcast_alert(alert)
             except Exception:
                 logger.exception("Failed to broadcast execution alert")
 

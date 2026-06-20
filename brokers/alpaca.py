@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-from brokers.base import Account, Order, Position
+from brokers.base import Account, Order, PlaceOrderRequest, PlaceOrderResponse, Position
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
@@ -43,6 +43,10 @@ class StockBar:
 
 class AlpacaError(BrokerError):
     """Alpaca API request failed."""
+
+
+class AlpacaConflictError(AlpacaError):
+    """Alpaca rejected the request due to a conflict (e.g. duplicate client_order_id)."""
 
 
 _RANGE_TO_ALPACA: dict[str, tuple[str, str]] = {
@@ -167,8 +171,44 @@ class AlpacaAdapter:
     def _get(self, path: str) -> dict | list:
         return self._request(self._base_url, path)
 
-    async def _aget(self, path: str) -> dict | list:
-        return await self._arequest(self._base_url, path)
+    async def _aget(
+        self, path: str, *, params: dict[str, Any] | None = None
+    ) -> dict | list:
+        return await self._arequest(self._base_url, path, params=params)
+
+    def _parse_post_response(self, response: httpx.Response, path: str) -> dict | list:
+        if response.status_code == 401:
+            raise AlpacaError("Authentication failed (401). Check .env keys.")
+        if response.status_code == 422:
+            raise AlpacaConflictError(
+                f"POST {path} conflict (422): {response.text}"
+            )
+        if response.status_code < 200 or response.status_code >= 300:
+            raise AlpacaError(
+                f"POST {path} failed ({response.status_code}): {response.text}"
+            )
+        return response.json()
+
+    async def _apost(self, path: str, *, body: dict[str, Any]) -> dict | list:
+        url = f"{self._base_url}{path}"
+        try:
+            response = await self._async_http().post(url, json=body)
+        except httpx.RequestError as exc:
+            raise AlpacaError(f"Network error: {exc}") from exc
+        return self._parse_post_response(response, path)
+
+    async def _adelete(self, path: str) -> None:
+        url = f"{self._base_url}{path}"
+        try:
+            response = await self._async_http().delete(url)
+        except httpx.RequestError as exc:
+            raise AlpacaError(f"Network error: {exc}") from exc
+        if response.status_code == 401:
+            raise AlpacaError("Authentication failed (401). Check .env keys.")
+        if response.status_code < 200 or response.status_code >= 300:
+            raise AlpacaError(
+                f"DELETE {path} failed ({response.status_code}): {response.text}"
+            )
 
     def _get_data(self, path: str, *, params: dict[str, Any] | None = None) -> dict:
         result = self._request(self._data_base_url, path, params=params)
@@ -217,6 +257,20 @@ class AlpacaAdapter:
         return positions
 
     @staticmethod
+    def _parse_order_item(item: dict) -> Order:
+        limit = item.get("limit_price")
+        return Order(
+            id=str(item["id"]),
+            symbol=str(item["symbol"]),
+            qty=float(item["qty"]),
+            side=str(item.get("side", "")),
+            order_type=str(item.get("type", "")),
+            status=str(item.get("status", "")),
+            filled_qty=float(item.get("filled_qty", 0)),
+            limit_price=float(limit) if limit not in (None, "") else None,
+        )
+
+    @staticmethod
     def _parse_orders(raw: list | dict) -> list[Order]:
         if not raw:
             return []
@@ -225,20 +279,16 @@ class AlpacaAdapter:
 
         orders: list[Order] = []
         for item in raw:
-            limit = item.get("limit_price")
-            orders.append(
-                Order(
-                    id=str(item["id"]),
-                    symbol=str(item["symbol"]),
-                    qty=float(item["qty"]),
-                    side=str(item.get("side", "")),
-                    order_type=str(item.get("type", "")),
-                    status=str(item.get("status", "")),
-                    filled_qty=float(item.get("filled_qty", 0)),
-                    limit_price=float(limit) if limit not in (None, "") else None,
-                )
-            )
+            orders.append(AlpacaAdapter._parse_order_item(item))
         return orders
+
+    @staticmethod
+    def _parse_place_order_response(raw: dict) -> PlaceOrderResponse:
+        return PlaceOrderResponse(
+            broker_order_id=str(raw["id"]),
+            status=str(raw.get("status", "")),
+            raw=raw,
+        )
 
     def get_account(self) -> Account:
         data = self._get("/v2/account")
@@ -275,6 +325,53 @@ class AlpacaAdapter:
             self.aget_open_orders(),
         )
         return account, positions, orders
+
+    async def aplace_order(self, req: PlaceOrderRequest) -> PlaceOrderResponse:
+        body: dict[str, Any] = {
+            "symbol": req.symbol,
+            "qty": req.qty,
+            "side": req.side,
+            "type": req.order_type,
+            "time_in_force": req.time_in_force,
+            "client_order_id": req.client_order_id,
+        }
+        if req.limit_price is not None:
+            body["limit_price"] = req.limit_price
+
+        try:
+            raw = await self._apost("/v2/orders", body=body)
+        except AlpacaConflictError as exc:
+            order = await self.aget_order_by_client_id(req.client_order_id)
+            if order is None:
+                raise AlpacaError(
+                    f"Order conflict for client_order_id {req.client_order_id!r} "
+                    "but existing order not found at broker"
+                ) from exc
+            return PlaceOrderResponse(
+                broker_order_id=order.id,
+                status=order.status,
+                raw={"id": order.id, "status": order.status, "recovered": True},
+            )
+
+        if not isinstance(raw, dict):
+            raise AlpacaError("Unexpected order placement response")
+        return self._parse_place_order_response(raw)
+
+    async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+        raw = await self._aget(
+            "/v2/orders", params={"client_order_ids": client_order_id}
+        )
+        orders = self._parse_orders(raw if isinstance(raw, list) else [])
+        return orders[0] if orders else None
+
+    async def aget_order(self, broker_order_id: str) -> Order:
+        raw = await self._aget(f"/v2/orders/{broker_order_id}")
+        if not isinstance(raw, dict):
+            raise AlpacaError(f"Unexpected order response for {broker_order_id}")
+        return self._parse_order_item(raw)
+
+    async def acancel_order(self, broker_order_id: str) -> None:
+        await self._adelete(f"/v2/orders/{broker_order_id}")
 
     def _parse_portfolio_history(
         self, data: dict, range_key: str

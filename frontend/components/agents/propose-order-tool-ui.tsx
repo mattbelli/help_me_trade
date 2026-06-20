@@ -16,6 +16,8 @@ type ProposalArgs = {
 
 type ProposalResult = {
   status?: string;
+  execution_mode?: string;
+  execution_id?: string;
   proposal?: ProposalArgs;
   message?: string;
   error?: string;
@@ -31,7 +33,7 @@ function ProposalStatusBanner({
   description,
   className,
 }: {
-  variant: "success" | "rejected" | "processing";
+  variant: "success" | "rejected" | "processing" | "dry_run";
   title: string;
   description?: string;
   className?: string;
@@ -49,8 +51,10 @@ function ProposalStatusBanner({
         "my-2 rounded-lg border p-3 text-sm",
         variant === "success" &&
           "border-emerald-500/40 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100",
+        variant === "dry_run" &&
+          "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100",
         variant === "rejected" &&
-          "border-border/70 bg-muted/40 text-muted-foreground",
+          "border-destructive/40 bg-destructive/10 text-destructive dark:text-red-200",
         variant === "processing" &&
           "border-amber-500/30 bg-amber-500/5 text-foreground",
         className,
@@ -72,6 +76,51 @@ function ProposalStatusBanner({
       </div>
     </div>
   );
+}
+
+function executionOutcomeBanner(result: ProposalResult): {
+  variant: "success" | "rejected" | "dry_run";
+  title: string;
+  description: string;
+} {
+  const proposal = result.proposal;
+  const side = (proposal?.side ?? "buy").toUpperCase();
+  const qty = proposal?.qty ?? "—";
+  const symbol = proposal?.symbol ?? "—";
+  const execId = result.execution_id;
+  const trace = execId ? ` Execution ID: ${execId}.` : "";
+
+  if (result.status === "rejected" || result.error) {
+    return {
+      variant: "rejected",
+      title: "Rejected",
+      description: `Rejected: ${result.error ?? result.message ?? "Order was rejected."}${trace}`,
+    };
+  }
+
+  if (result.status === "submitted" || result.execution_mode === "paper") {
+    return {
+      variant: "success",
+      title: "Submitted to Alpaca paper",
+      description: `${side} ${qty} ${symbol} sent to Alpaca paper account.${trace}`,
+    };
+  }
+
+  if (result.status === "dry_run" || result.execution_mode === "dry_run") {
+    return {
+      variant: "dry_run",
+      title: "DRY RUN — no order placed",
+      description:
+        result.message ??
+        `Would ${side} ${qty} ${symbol} — logged only, not sent to broker.${trace}`,
+    };
+  }
+
+  return {
+    variant: "success",
+    title: `Proposal recorded: ${side} ${qty} ${symbol}`,
+    description: (result.message ?? "Order recorded.") + trace,
+  };
 }
 
 export const ProposeOrderToolUI = makeAssistantToolUI<ProposalArgs, ProposalResult>(
@@ -122,35 +171,29 @@ export const ProposeOrderToolUI = makeAssistantToolUI<ProposalArgs, ProposalResu
           <ProposalStatusBanner
             variant="processing"
             title="Recording your approval…"
-            description="This is a paper proposal only — nothing is sent to the broker yet."
+            description="Submitting through the execution service."
           />
         );
       }
 
       if (result && isProposalResult(result)) {
         if (result.error || isError) {
+          const outcome = executionOutcomeBanner(result);
           return (
             <ProposalStatusBanner
-              variant="rejected"
-              title="Could not record proposal"
-              description={result.error ?? "The proposal tool returned an error."}
+              variant={outcome.variant}
+              title={outcome.title}
+              description={outcome.description}
             />
           );
         }
 
-        const proposal = result.proposal ?? args;
-        const side = (proposal.side ?? "buy").toUpperCase();
-        const qty = proposal.qty ?? "—";
-        const symbol = proposal.symbol ?? "—";
-
+        const outcome = executionOutcomeBanner(result);
         return (
           <ProposalStatusBanner
-            variant="success"
-            title={`Proposal recorded: ${side} ${qty} ${symbol}`}
-            description={
-              result.message ??
-              "Saved as paper intent only — not sent to Alpaca/Schwab and not shown under broker open orders."
-            }
+            variant={outcome.variant}
+            title={outcome.title}
+            description={outcome.description}
           />
         );
       }
