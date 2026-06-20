@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import db.ai_tables as ai_tables
 import pytest
 
+import db.ai_tables as ai_tables
 from ai.chat.alert_intent import looks_like_alert_intent
 from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.tools import execute_tool

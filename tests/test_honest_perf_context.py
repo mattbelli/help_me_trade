@@ -5,9 +5,9 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
-import db.ai_tables as ai_tables
 import pytest
 
+import db.ai_tables as ai_tables
 from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.review_intent import looks_like_review_intent
 from ai.chat.tools import execute_tool
