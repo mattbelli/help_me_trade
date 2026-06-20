@@ -136,6 +136,7 @@ def _schwab_transaction_to_event(
         description=description or f"Schwab {action} {symbol}",
         external_key=external_key,
         raw=item,
+        broker_txn_id=tx_id.strip() or None,
     )
 
 

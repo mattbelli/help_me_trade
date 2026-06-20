@@ -85,8 +85,8 @@ def tool_catalog() -> list[dict[str, Any]]:
     ]
 
 
-def run_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
-    return execute_tool(name, dict(arguments or {}))
+async def run_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
+    return await execute_tool(name, dict(arguments or {}))
 
 
 def finalize_turn(

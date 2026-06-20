@@ -21,7 +21,6 @@ from db.chat_sessions import (
     update_chat_session_title,
     upsert_chat_message,
 )
-from db.paper_orders import record_paper_order_proposal
 
 
 @dataclass
@@ -188,32 +187,6 @@ def _assistant_parts_for_persist(
     return []
 
 
-def _persist_recorded_proposals(
-    parts: list[dict[str, Any]],
-    *,
-    session_id: str,
-) -> None:
-    seen: set[str] = set()
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-        ptype = str(part.get("type", ""))
-        tool_name = part.get("toolName")
-        if ptype != "tool-propose_order" and tool_name != "propose_order":
-            continue
-        output = part.get("output")
-        if not isinstance(output, dict) or output.get("status") != "recorded":
-            continue
-        proposal = output.get("proposal")
-        if not isinstance(proposal, dict):
-            continue
-        key = json.dumps(proposal, sort_keys=True)
-        if key in seen:
-            continue
-        seen.add(key)
-        record_paper_order_proposal(proposal=proposal, session_id=session_id)
-
-
 def _persist_turn(
     *,
     messages: list[dict[str, Any]],
@@ -268,7 +241,6 @@ def _persist_turn(
         parts=assistant_parts,
         message_id=assistant_id,
     )
-    _persist_recorded_proposals(assistant_parts, session_id=session_id)
 
     if session.get("title") == "New chat" and user_text:
         update_chat_session_title(session_id, title_from_first_message(user_text))

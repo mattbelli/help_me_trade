@@ -6,6 +6,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import db.ai_tables as ai_tables
+import pytest
+
 from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.review_intent import looks_like_review_intent
 from ai.chat.tools import execute_tool
@@ -79,7 +81,8 @@ def _fifo_trade_lists_have_no_pnl(payload: dict) -> bool:
     return True
 
 
-def test_get_performance_insights_leads_with_reliable_headline(
+@pytest.mark.asyncio
+async def test_get_performance_insights_leads_with_reliable_headline(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -107,7 +110,7 @@ def test_get_performance_insights_leads_with_reliable_headline(
         lambda *_args, **_kwargs: False,
     )
 
-    payload = execute_tool(
+    payload = await execute_tool(
         "get_performance_insights",
         {"period": "all", "account_id": account["id"]},
     )
@@ -176,7 +179,8 @@ def test_review_turn_does_not_create_memory(monkeypatch, tmp_path) -> None:
     assert saved == []
 
 
-def test_get_trade_history_stats_separate_fifo(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_get_trade_history_stats_separate_fifo(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "trades.db"
     _patch_analytics_db(monkeypatch, db_path)
 
@@ -187,7 +191,9 @@ def test_get_trade_history_stats_separate_fifo(tmp_path: Path, monkeypatch) -> N
     account = create_trade_account("Test", "schwab", db_path=db_path)
     import_trade_events(account["id"], events, source="test", db_path=db_path)
 
-    payload = execute_tool("get_trade_history", {"limit": 10, "account_id": account["id"]})
+    payload = await execute_tool(
+        "get_trade_history", {"limit": 10, "account_id": account["id"]}
+    )
 
     stats = payload["stats"]
     assert "win_rate" not in stats

@@ -152,7 +152,7 @@ def plan_tools(user_text: str, *, model: str | None = None) -> list[tuple[str, d
     return planned
 
 
-def execute_tool(name: str, args: dict[str, Any]) -> Any:
+async def execute_tool(name: str, args: dict[str, Any]) -> Any:
     if name == "get_portfolio_snapshot":
         snapshot = get_latest_snapshot()
         if snapshot is None:
@@ -289,30 +289,86 @@ def execute_tool(name: str, args: dict[str, Any]) -> Any:
         }
 
     if name == "propose_order":
+        from decimal import Decimal
+
+        from config.settings import primary_broker
+        from db.base import DEFAULT_DB_PATH
+        from db.paper_orders import record_paper_order_proposal
+        from trading.execution_service import ExecutionService
+        from trading.models import OrderIntent, RiskRejectedError
+
         symbol = str(args.get("symbol", "")).strip().upper()
         side = str(args.get("side", "buy")).strip().lower()
-        qty = float(args.get("qty", 0))
+        qty_raw = args.get("qty", 0)
         order_type = str(args.get("order_type", "market")).strip().lower()
+        limit_price_raw = args.get("limit_price")
+        session_id = args.get("session_id") or args.get("sessionId")
+        session_id_str = str(session_id).strip() if session_id else None
+
         if not symbol:
             return {"error": "symbol is required"}
         if side not in ("buy", "sell"):
             return {"error": "side must be buy or sell"}
+        try:
+            qty = Decimal(str(qty_raw))
+        except Exception:
+            return {"error": "qty must be a number"}
         if qty <= 0:
             return {"error": "qty must be positive"}
+        if order_type not in ("market", "limit"):
+            return {"error": "order_type must be market or limit"}
+
+        limit_price: Decimal | None = None
+        if limit_price_raw is not None:
+            try:
+                limit_price = Decimal(str(limit_price_raw))
+            except Exception:
+                return {"error": "limit_price must be a number"}
+
+        proposal_payload = {
+            "symbol": symbol,
+            "side": side,
+            "qty": float(qty),
+            "order_type": order_type,
+            "limit_price": float(limit_price) if limit_price is not None else None,
+        }
+        recorded = record_paper_order_proposal(
+            proposal=proposal_payload,
+            session_id=session_id_str,
+            db_path=DEFAULT_DB_PATH,
+        )
+        proposal_id = recorded["id"]
+        broker = primary_broker()
+
+        intent = OrderIntent(
+            proposal_id=proposal_id,
+            session_id=session_id_str,
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            order_type=order_type,
+            limit_price=limit_price,
+            broker=broker,
+        )
+
+        try:
+            result = await ExecutionService.submit(intent, db_path=DEFAULT_DB_PATH)
+        except RiskRejectedError as exc:
+            return {
+                "status": "rejected",
+                "error": exc.reason,
+                "proposal_id": proposal_id,
+                "proposal": proposal_payload,
+            }
+
+        message = result.dry_run_log or f"{result.status}: {result.execution_id}"
         return {
-            "status": "recorded",
-            "proposal": {
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "order_type": order_type,
-                "limit_price": args.get("limit_price"),
-            },
-            "message": (
-                f"Recorded paper intent: {side.upper()} {qty:g} {symbol} "
-                f"({order_type} order). Not sent to your broker — "
-                "live execution requires RiskEngine (Phase 4)."
-            ),
+            "status": result.status,
+            "execution_id": result.execution_id,
+            "execution_mode": result.execution_mode,
+            "proposal_id": proposal_id,
+            "proposal": proposal_payload,
+            "message": message,
         }
 
     if name == "propose_rule":

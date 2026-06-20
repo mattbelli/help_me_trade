@@ -70,6 +70,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             }
         ],
     },
+    "trading": {
+        "execution_mode": "dry_run",
+        "kill_switch_active": False,
+        "max_order_value_usd": 50000,
+        "max_position_pct": 30,
+        "max_open_orders": 10,
+        "max_daily_orders": 20,
+    },
 }
 
 
@@ -149,12 +157,21 @@ def _env_defaults() -> dict[str, Any]:
         "research": {
             "searxng_url": os.environ.get("SEARXNG_URL", "").strip().rstrip("/"),
         },
+        "trading": {
+            "execution_mode": os.environ.get("TRADING_EXECUTION_MODE", "dry_run").strip()
+            or "dry_run",
+            "kill_switch_active": os.environ.get("TRADING_KILL_SWITCH", "")
+            .strip()
+            .lower()
+            in ("1", "true", "yes"),
+        },
     }
 
 
 def clear_settings_cache() -> None:
     global _settings_cache
-    _settings_cache = None
+    with _settings_lock:
+        _settings_cache = None
 
 
 def _build_settings() -> dict[str, Any]:
@@ -174,12 +191,14 @@ def _build_settings() -> dict[str, Any]:
 def load_settings() -> dict[str, Any]:
     """Effective settings: defaults <- env <- saved file."""
     global _settings_cache
-    if _settings_cache is None:
-        _settings_cache = _build_settings()
-    return copy.deepcopy(_settings_cache)
+    with _settings_lock:
+        if _settings_cache is None:
+            _settings_cache = _build_settings()
+        return copy.deepcopy(_settings_cache)
 
 
 def save_settings(settings: dict[str, Any]) -> None:
+    global _settings_cache
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     content = json.dumps(settings, indent=2, sort_keys=True) + "\n"
     with _settings_lock:
@@ -198,7 +217,7 @@ def save_settings(settings: dict[str, Any]) -> None:
             except OSError:
                 pass
             raise
-    clear_settings_cache()
+        _settings_cache = copy.deepcopy(settings)
 
 
 def _mask_value(key: str, value: Any) -> Any:
@@ -309,8 +328,29 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     if "chart_layout" in patch and isinstance(patch["chart_layout"], list):
         current["chart_layout"] = patch["chart_layout"]
 
+    if "trading" in patch and isinstance(patch["trading"], dict):
+        if "trading" not in current or not isinstance(current.get("trading"), dict):
+            current["trading"] = copy.deepcopy(DEFAULT_SETTINGS["trading"])
+        trading_patch = patch["trading"]
+        for key, value in trading_patch.items():
+            if key == "kill_switch_active":
+                current["trading"]["kill_switch_active"] = bool(value)
+            elif key == "execution_mode" and str(value).strip() in (
+                "dry_run",
+                "paper",
+                "live",
+            ):
+                current["trading"]["execution_mode"] = str(value).strip()
+            elif key == "max_order_value_usd":
+                current["trading"]["max_order_value_usd"] = float(value)
+            elif key == "max_position_pct":
+                current["trading"]["max_position_pct"] = float(value)
+            elif key == "max_open_orders":
+                current["trading"]["max_open_orders"] = int(value)
+            elif key == "max_daily_orders":
+                current["trading"]["max_daily_orders"] = int(value)
+
     save_settings(current)
-    clear_settings_cache()
     return load_settings()
 
 
@@ -620,6 +660,42 @@ def enabled_brokers() -> list[str]:
     if not enabled:
         return [primary_broker()]
     return enabled
+
+
+def trading_config() -> dict[str, Any]:
+    cfg = load_settings().get("trading", {})
+    defaults = DEFAULT_SETTINGS["trading"]
+    return {
+        "execution_mode": str(cfg.get("execution_mode", defaults["execution_mode"])).strip()
+        or defaults["execution_mode"],
+        "kill_switch_active": bool(
+            cfg.get("kill_switch_active", defaults["kill_switch_active"])
+        ),
+        "max_order_value_usd": float(
+            cfg.get("max_order_value_usd", defaults["max_order_value_usd"])
+        ),
+        "max_position_pct": float(
+            cfg.get("max_position_pct", defaults["max_position_pct"])
+        ),
+        "max_open_orders": int(cfg.get("max_open_orders", defaults["max_open_orders"])),
+        "max_daily_orders": int(cfg.get("max_daily_orders", defaults["max_daily_orders"])),
+    }
+
+
+def is_paper_trading() -> bool:
+    return "paper-api" in alpaca_config()["api_base_url"]
+
+
+def is_kill_switch_active() -> bool:
+    with _settings_lock:
+        settings = _settings_cache if _settings_cache is not None else _build_settings()
+        cfg = settings.get("trading", {})
+        defaults = DEFAULT_SETTINGS["trading"]
+        return bool(cfg.get("kill_switch_active", defaults["kill_switch_active"]))
+
+
+def set_kill_switch(active: bool) -> None:
+    apply_settings_patch({"trading": {"kill_switch_active": active}})
 
 
 def broker_is_configured(name: str) -> bool:

@@ -210,7 +210,7 @@ def api_chat_context(body: dict = Body(...)):
 
 
 @router.post("/chat/tools/execute")
-def api_chat_tool_execute(body: dict = Body(...)):
+async def api_chat_tool_execute(body: dict = Body(...)):
     name = str(body.get("name", "")).strip()
     if not name:
         return JSONResponse({"error": "name is required"}, status_code=400)
@@ -218,7 +218,7 @@ def api_chat_tool_execute(body: dict = Body(...)):
     if arguments is not None and not isinstance(arguments, dict):
         return JSONResponse({"error": "arguments must be an object"}, status_code=400)
     try:
-        return {"result": run_tool(name, arguments)}
+        return {"result": await run_tool(name, arguments)}
     except Exception as exc:
         logger.exception("Tool execute failed: %s", name)
         return JSONResponse({"error": str(exc)}, status_code=500)

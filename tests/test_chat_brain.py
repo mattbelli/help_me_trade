@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from ai.chat.brain import (
     build_turn_context,
     finalize_turn,
@@ -57,8 +59,9 @@ def test_tool_catalog_includes_propose_order():
     assert "web_search" in names
 
 
-def test_run_tool_web_search_requires_query():
-    result = run_tool("web_search", {})
+@pytest.mark.asyncio
+async def test_run_tool_web_search_requires_query():
+    result = await run_tool("web_search", {})
     assert "error" in result
 
 
@@ -71,28 +74,79 @@ def test_build_web_query_scopes_sites() -> None:
     assert "stocks trending" in q
 
 
-def test_run_tool_web_search_unconfigured_returns_error(monkeypatch):
+@pytest.mark.asyncio
+async def test_run_tool_web_search_unconfigured_returns_error(monkeypatch):
     monkeypatch.setattr(
         "ai.research.sources.get_searxng_url",
         lambda: "",
     )
-    result = run_tool("web_search", {"query": "NVDA reddit"})
+    result = await run_tool("web_search", {"query": "NVDA reddit"})
     assert result.get("error") == "searxng_not_configured"
     assert result.get("results") == []
     assert "limitations" in result
 
 
-def test_run_tool_propose_order_requires_symbol():
-    result = run_tool("propose_order", {"side": "buy", "qty": 1})
+@pytest.mark.asyncio
+async def test_run_tool_propose_order_requires_symbol():
+    result = await run_tool("propose_order", {"side": "buy", "qty": 1})
     assert "error" in result
 
 
-def test_run_tool_propose_order_ok():
-    result = run_tool(
+@pytest.mark.asyncio
+async def test_run_tool_propose_order_ok(monkeypatch, tmp_path):
+    from unittest.mock import AsyncMock
+
+    from brokers.alpaca import AlpacaAdapter
+    from brokers.base import Account
+    from config import settings as settings_mod
+    from db import base as db_base
+    from db import order_executions as order_executions_mod
+    from db import paper_orders as paper_orders_mod
+    from db import sqlite as sqlite_mod
+
+    db = tmp_path / "brain.db"
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(sqlite_mod, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(paper_orders_mod, "DEFAULT_DB_PATH", db)
+
+    account = Account(
+        id="acc1",
+        status="ACTIVE",
+        cash=50_000.0,
+        buying_power=100_000.0,
+        portfolio_value=100_000.0,
+    )
+    sqlite_mod.save_snapshot(account, [], [], broker="alpaca", db_path=db)
+
+    mock_broker = object.__new__(AlpacaAdapter)
+    mock_broker.symbol_exists = lambda _s: True  # type: ignore[method-assign]
+    monkeypatch.setattr("trading.risk_engine.get_broker", lambda _n: mock_broker)
+    monkeypatch.setattr(
+        "trading.risk_engine.market_hub.quote_snapshot",
+        lambda _symbols: {"AAPL": {"price": 150.0}},
+    )
+    monkeypatch.setattr("trading.risk_engine.is_kill_switch_active", lambda: False)
+    monkeypatch.setattr(
+        "trading.risk_engine.trading_config",
+        lambda: settings_mod.DEFAULT_SETTINGS["trading"],
+    )
+    monkeypatch.setattr("trading.execution_service.is_kill_switch_active", lambda: False)
+    monkeypatch.setattr(
+        "trading.execution_service.trading_config",
+        lambda: settings_mod.DEFAULT_SETTINGS["trading"],
+    )
+    monkeypatch.setattr(
+        "trading.execution_service.market_hub.broadcast_alert",
+        AsyncMock(),
+    )
+
+    result = await run_tool(
         "propose_order",
         {"symbol": "AAPL", "side": "buy", "qty": 2, "order_type": "market"},
     )
-    assert result["status"] == "recorded"
+    assert result["status"] == "dry_run"
     assert result["proposal"]["symbol"] == "AAPL"
 
 
@@ -117,13 +171,13 @@ def test_looks_like_order_intent():
 
 
 def test_finalize_turn_persists_assistant_tool_parts(tmp_path, monkeypatch):
+    from db import paper_orders as paper_orders_mod
     from db.chat_sessions import (
         create_chat_session,
         get_chat_session,
         get_chat_session_with_messages,
         upsert_chat_message,
     )
-    from db.paper_orders import record_paper_order_proposal
 
     db = tmp_path / "chat.db"
     monkeypatch.setattr(
@@ -133,10 +187,6 @@ def test_finalize_turn_persists_assistant_tool_parts(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "ai.chat.agent.upsert_chat_message",
         lambda **kw: upsert_chat_message(**kw, db_path=db),
-    )
-    monkeypatch.setattr(
-        "ai.chat.agent.record_paper_order_proposal",
-        lambda **kw: record_paper_order_proposal(**kw, db_path=db),
     )
 
     session = create_chat_session(mode="saved", db_path=db)
@@ -156,14 +206,11 @@ def test_finalize_turn_persists_assistant_tool_parts(tmp_path, monkeypatch):
                     "order_type": "market",
                 },
                 "output": {
-                    "status": "recorded",
-                    "proposal": {
-                        "symbol": "NVDA",
-                        "side": "buy",
-                        "qty": 100,
-                        "order_type": "market",
-                    },
-                    "message": "Recorded paper intent",
+                    "status": "dry_run",
+                    "proposal_id": "paper_existing123",
+                    "execution_id": "exec_existing123",
+                    "execution_mode": "dry_run",
+                    "message": "DRY RUN — would place: BUY 100 NVDA market",
                 },
             },
         ],
@@ -190,7 +237,8 @@ def test_finalize_turn_persists_assistant_tool_parts(tmp_path, monkeypatch):
     assert asst["role"] == "assistant"
     asst_parts = asst["parts"]
     assert asst_parts[0]["type"] == "tool-propose_order"
-    assert asst_parts[0]["output"]["status"] == "recorded"
+    assert asst_parts[0]["output"]["status"] == "dry_run"
+    assert paper_orders_mod.list_paper_order_proposals(db_path=db) == []
 
 
 def test_finalize_turn_skips_memory_extract(monkeypatch):
