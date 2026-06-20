@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 _ORDER_INTENT = re.compile(
-    r"\b(buy|sell|purchase|short)\b[\s\S]{0,80}\b(shares?|stock|stocks|position)\b",
+    r"\b(buy|sell|purchase|short)\b[\s\S]{0,80}\b(shares?|stock|stocks|position|call|put|contract|contracts)\b",
     re.IGNORECASE,
 )
 _ORDER_INTENT_TICKER = re.compile(
@@ -20,6 +20,10 @@ _ORDER_FOR_SHARES = re.compile(
     r"\b(?:place\s+(?:an?\s+)?order|order)\s+for\s+\d+\s+[A-Za-z]{1,5}\s+shares?\b",
     re.IGNORECASE,
 )
+_ORDER_OPTION = re.compile(
+    r"\b(call|put|contract|strike|expir)\b",
+    re.IGNORECASE,
+)
 
 
 def looks_like_order_intent(user_text: str) -> bool:
@@ -31,6 +35,7 @@ def looks_like_order_intent(user_text: str) -> bool:
         or _ORDER_INTENT_TICKER.search(text)
         or _ORDER_INTENT_EXPLICIT.search(text)
         or _ORDER_FOR_SHARES.search(text)
+        or _ORDER_OPTION.search(text)
     )
 
 
@@ -41,6 +46,9 @@ def order_intent_prompt_block(user_text: str) -> str:
         "\n\nORDER REQUEST (this turn):\n"
         "- Call propose_order immediately with symbol, side, qty, and order_type "
         "(market or limit only).\n"
+        "- For options: propose a LIMIT order with limit_price = per-share premium; "
+        "specify option_underlying, option_expiration (YYYY-MM-DD), option_strike, "
+        "option_right (C|P). Buy-to-open only — no selling options.\n"
         "- Do NOT narrate the tool or write fake calls like "
         "[Calling propose_order...] or \"Let me propose the order now\".\n"
         "- The approval card is the UI — minimal text before the tool call.\n"

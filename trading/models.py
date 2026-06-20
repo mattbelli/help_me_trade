@@ -24,6 +24,9 @@ class OrderIntent:
     order_type: str  # "market" | "limit"
     limit_price: Decimal | None
     broker: str
+    asset_class: str = "us_equity"
+    occ_symbol: str | None = None
+    multiplier: int = 1
 
 
 @dataclass(frozen=True)

@@ -111,7 +111,7 @@ class ExecutionService:
             elif mode == "paper":
                 req = PlaceOrderRequest(
                     client_order_id=execution_id,
-                    symbol=intent.symbol,
+                    symbol=intent.occ_symbol or intent.symbol,
                     side=intent.side,
                     qty=str(intent.qty),
                     order_type=intent.order_type,

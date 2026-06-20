@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -12,6 +13,7 @@ from brokers.alpaca import AlpacaError
 from brokers.base import Account, PlaceOrderResponse, Position
 from db import order_executions as order_executions_mod
 from db import sqlite as sqlite_mod
+from imports.option_symbol import OptionSymbol, to_occ_symbol
 from trading.execution_service import ExecutionService
 from trading.models import OrderIntent, RiskRejectedError
 
@@ -26,6 +28,32 @@ def _intent(**overrides) -> OrderIntent:
         order_type="market",
         limit_price=None,
         broker="alpaca",
+    )
+    base.update(overrides)
+    return OrderIntent(**base)
+
+
+def _option_intent(**overrides) -> OrderIntent:
+    occ = to_occ_symbol(
+        OptionSymbol(
+            underlying="TSLA",
+            expiration=date.today() + timedelta(days=30),
+            strike=Decimal("410"),
+            right="C",
+        )
+    )
+    base = dict(
+        proposal_id="paper_opt123",
+        session_id=None,
+        symbol="TSLA",
+        side="buy",
+        qty=Decimal("1"),
+        order_type="limit",
+        limit_price=Decimal("3.50"),
+        broker="alpaca",
+        asset_class="us_option",
+        occ_symbol=occ,
+        multiplier=100,
     )
     base.update(overrides)
     return OrderIntent(**base)
@@ -64,6 +92,7 @@ def _patch_passing_env(monkeypatch, db_path: Path, *, execution_mode: str) -> No
 
     stub = object.__new__(AlpacaAdapter)
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
+    stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
     stub.aplace_order = AsyncMock(  # type: ignore[method-assign]
         return_value=PlaceOrderResponse(
             broker_order_id="broker-ord-99",
@@ -177,3 +206,55 @@ async def test_execution_live_raises_and_places_nothing(
     conn.close()
     assert row is not None
     assert row["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_execution_paper_option_routes_occ_symbol(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "exec.db"
+    _patch_passing_env(monkeypatch, db, execution_mode="paper")
+
+    from brokers.alpaca import AlpacaAdapter
+
+    stub = object.__new__(AlpacaAdapter)
+    stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
+    stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
+    place_mock = AsyncMock(
+        return_value=PlaceOrderResponse(
+            broker_order_id="broker-opt-1",
+            status="accepted",
+            raw={"id": "broker-opt-1", "status": "accepted"},
+        )
+    )
+    stub.aplace_order = place_mock  # type: ignore[method-assign]
+    monkeypatch.setattr("trading.risk_engine.get_broker", lambda _n: stub)
+    monkeypatch.setattr("trading.execution_service.get_broker", lambda _n: stub)
+
+    intent = _option_intent()
+    result = await ExecutionService.submit(intent, db_path=db)
+
+    assert result.status == "submitted"
+    place_mock.assert_called_once()
+    req = place_mock.call_args[0][0]
+    assert req.symbol == intent.occ_symbol
+
+
+@pytest.mark.asyncio
+async def test_execution_live_option_raises(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "exec.db"
+    _patch_passing_env(monkeypatch, db, execution_mode="live")
+
+    from brokers.alpaca import AlpacaAdapter
+
+    stub = object.__new__(AlpacaAdapter)
+    stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
+    place_mock = AsyncMock()
+    stub.aplace_order = place_mock  # type: ignore[method-assign]
+    monkeypatch.setattr("trading.risk_engine.get_broker", lambda _n: stub)
+    monkeypatch.setattr("trading.execution_service.get_broker", lambda _n: stub)
+
+    with pytest.raises(RiskRejectedError, match="live execution not enabled"):
+        await ExecutionService.submit(_option_intent(), db_path=db)
+
+    place_mock.assert_not_called()

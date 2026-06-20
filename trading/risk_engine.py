@@ -15,10 +15,12 @@ from config.settings import is_kill_switch_active, trading_config
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import count_executions_today
 from db.sqlite import get_latest_snapshot
+from imports.option_symbol import parse_occ_symbol
 from trading.models import OrderIntent, RiskCheckResult
 
 _SNAPSHOT_MAX_AGE = timedelta(minutes=5)
 _SYMBOL_RE = re.compile(r"^[A-Z]+$")
+_OCC_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
 
 
 class RiskEngine:
@@ -30,6 +32,7 @@ class RiskEngine:
     ) -> RiskCheckResult:
         checks: dict[str, str] = {}
         cfg = trading_config()
+        is_option = intent.asset_class == "us_option"
 
         # 1. Kill switch
         if is_kill_switch_active():
@@ -41,44 +44,123 @@ class RiskEngine:
             )
         checks["kill_switch"] = "pass"
 
-        symbol = intent.symbol.strip().upper()
+        concentration_symbol: str
 
-        # 2. Symbol sanity
-        if not symbol or len(symbol) > 5 or not _SYMBOL_RE.match(symbol):
-            checks["symbol_sanity"] = "fail: invalid symbol"
-            return RiskCheckResult(
-                passed=False,
-                checks=checks,
-                blocked_reason="invalid symbol",
-            )
-        checks["symbol_sanity"] = "pass"
-
-        # 3. Symbol tradable
-        try:
-            broker = get_broker(intent.broker)
-            if not isinstance(broker, AlpacaAdapter):
-                checks["symbol_tradable"] = "fail: broker does not support symbol lookup"
+        if is_option:
+            # Options: long buy-to-open, limit-only
+            if intent.side != "buy":
+                checks["option_side"] = "fail: option sells not supported"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
-                    blocked_reason="symbol lookup unavailable",
+                    blocked_reason="option sells not supported yet (long buy-to-open only)",
                 )
-            tradable = await asyncio.to_thread(broker.symbol_exists, symbol)
-            if not tradable:
-                checks["symbol_tradable"] = f"fail: {symbol} not tradable"
+            checks["option_side"] = "pass"
+
+            if intent.order_type != "limit" or intent.limit_price is None:
+                checks["option_order_type"] = "fail: limit required"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
-                    blocked_reason=f"{symbol} not tradable",
+                    blocked_reason="options require a limit order with an explicit premium",
                 )
-        except Exception as exc:
-            checks["symbol_tradable"] = f"fail: lookup error ({exc})"
-            return RiskCheckResult(
-                passed=False,
-                checks=checks,
-                blocked_reason="symbol lookup failed",
-            )
-        checks["symbol_tradable"] = "pass"
+            checks["option_order_type"] = "pass"
+
+            occ = (intent.occ_symbol or "").strip().upper()
+            if not occ or not _OCC_RE.match(occ):
+                checks["symbol_sanity"] = "fail: invalid occ symbol"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="invalid symbol",
+                )
+            checks["symbol_sanity"] = "pass"
+
+            parsed = parse_occ_symbol(occ)
+            if parsed is None:
+                checks["symbol_sanity"] = "fail: invalid occ symbol"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="invalid symbol",
+                )
+
+            today = datetime.now(UTC).date()
+            if parsed.expiration <= today:
+                checks["option_expiry"] = "fail: contract expired or expiring today"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="option contract expired or expiring today",
+                )
+            checks["option_expiry"] = "pass"
+
+            try:
+                broker = get_broker(intent.broker)
+                if not isinstance(broker, AlpacaAdapter):
+                    checks["symbol_tradable"] = "fail: broker does not support option lookup"
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason="symbol lookup unavailable",
+                    )
+                tradable = await asyncio.to_thread(broker.option_contract_exists, occ)
+                if not tradable:
+                    checks["symbol_tradable"] = f"fail: {occ} not tradable"
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason=f"{occ} not tradable",
+                    )
+            except Exception as exc:
+                checks["symbol_tradable"] = f"fail: lookup error ({exc})"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="symbol lookup failed",
+                )
+            checks["symbol_tradable"] = "pass"
+            concentration_symbol = occ
+        else:
+            symbol = intent.symbol.strip().upper()
+
+            # 2. Symbol sanity (equity)
+            if not symbol or len(symbol) > 5 or not _SYMBOL_RE.match(symbol):
+                checks["symbol_sanity"] = "fail: invalid symbol"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="invalid symbol",
+                )
+            checks["symbol_sanity"] = "pass"
+
+            # 3. Symbol tradable (equity)
+            try:
+                broker = get_broker(intent.broker)
+                if not isinstance(broker, AlpacaAdapter):
+                    checks["symbol_tradable"] = "fail: broker does not support symbol lookup"
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason="symbol lookup unavailable",
+                    )
+                tradable = await asyncio.to_thread(broker.symbol_exists, symbol)
+                if not tradable:
+                    checks["symbol_tradable"] = f"fail: {symbol} not tradable"
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason=f"{symbol} not tradable",
+                    )
+            except Exception as exc:
+                checks["symbol_tradable"] = f"fail: lookup error ({exc})"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="symbol lookup failed",
+                )
+            checks["symbol_tradable"] = "pass"
+            concentration_symbol = symbol
 
         # 4. Qty bounds
         qty = intent.qty
@@ -142,32 +224,42 @@ class RiskEngine:
         open_orders = snapshot.get("open_orders") or []
         positions = snapshot.get("positions") or []
 
-        market_price = _live_market_price(symbol)
-        if market_price is None:
-            checks["live_quote"] = "fail: no live quote"
-            return RiskCheckResult(
-                passed=False,
-                checks=checks,
-                blocked_reason="no live quote",
-            )
-        checks["live_quote"] = "pass"
-
-        if intent.order_type == "limit":
-            if intent.limit_price is None:
-                checks["live_quote"] = "fail: limit order missing limit_price"
+        if is_option:
+            checks["live_quote"] = "pass: skipped for options"
+            spend_price = intent.limit_price  # type: ignore[assignment]
+            risk_price = intent.limit_price  # type: ignore[assignment]
+            # Chokepoint self-enforces the contract multiplier — never trust the
+            # caller-provided intent.multiplier for the risk math.
+            multiplier = Decimal("100")
+            spend_notional = qty * spend_price * multiplier
+            risk_notional = qty * risk_price * multiplier
+        else:
+            market_price = _live_market_price(concentration_symbol)
+            if market_price is None:
+                checks["live_quote"] = "fail: no live quote"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
                     blocked_reason="no live quote",
                 )
-            spend_price = intent.limit_price
-            risk_price = max(intent.limit_price, market_price)
-        else:
-            spend_price = market_price
-            risk_price = market_price
+            checks["live_quote"] = "pass"
 
-        spend_notional = qty * spend_price
-        risk_notional = qty * risk_price
+            if intent.order_type == "limit":
+                if intent.limit_price is None:
+                    checks["live_quote"] = "fail: limit order missing limit_price"
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason="no live quote",
+                    )
+                spend_price = intent.limit_price
+                risk_price = max(intent.limit_price, market_price)
+            else:
+                spend_price = market_price
+                risk_price = market_price
+
+            spend_notional = qty * spend_price
+            risk_notional = qty * risk_price
 
         # 6. Buying power (buys only)
         if intent.side == "buy":
@@ -205,7 +297,7 @@ class RiskEngine:
                 )
             existing_mv = Decimal("0")
             for pos in positions:
-                if str(pos.get("symbol", "")).upper() == symbol:
+                if str(pos.get("symbol", "")).upper() == concentration_symbol:
                     existing_mv = Decimal(str(pos.get("market_value", 0)))
                     break
             max_position_pct = Decimal(str(cfg["max_position_pct"]))

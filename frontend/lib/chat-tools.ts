@@ -72,13 +72,17 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
     }),
     propose_order: tool({
       description:
-        "Propose a paper trade (symbol, side, qty, market|limit). Shows Approve/Reject card. Call immediately on buy/sell — do not narrate or fake [Calling propose_order...].",
+        "Propose a paper trade (symbol, side, qty, market|limit). Options: long-only buy-to-open, limit-only — limit_price is per-share premium. Shows Approve/Reject card. Call immediately on buy/sell — do not narrate or fake [Calling propose_order...].",
       inputSchema: z.object({
         symbol: z.string(),
         side: z.enum(["buy", "sell"]),
         qty: z.number().positive(),
         order_type: z.enum(["market", "limit"]).optional(),
         limit_price: z.number().positive().optional(),
+        option_underlying: z.string().optional(),
+        option_expiration: z.string().optional(),
+        option_strike: z.number().positive().optional(),
+        option_right: z.enum(["C", "P"]).optional(),
       }),
       needsApproval: true,
       execute: async (input) => executePythonTool("propose_order", input),

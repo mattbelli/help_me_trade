@@ -789,3 +789,13 @@ class AlpacaAdapter:
             return bool(isinstance(data, dict) and data.get("tradable"))
         except AlpacaError:
             return False
+
+    def option_contract_exists(self, occ_symbol: str) -> bool:
+        sym = occ_symbol.strip().upper()
+        if not sym:
+            return False
+        try:
+            data = self._get(f"/v1beta1/options/contracts/{sym}")
+            return bool(isinstance(data, dict) and data.get("tradable"))
+        except AlpacaError:
+            return False

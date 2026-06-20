@@ -1,11 +1,11 @@
-"""Parse Schwab-style option contract symbols."""
+"""Parse Schwab-style and OCC option contract symbols."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from imports.money import parse_dollar, parse_mmddyyyy
 
@@ -17,6 +17,9 @@ _OPTION_RE = re.compile(
     r"([CP])$",
     re.IGNORECASE,
 )
+
+# OCC: {underlying}{YYMMDD}{C|P}{strike*1000:08d}
+_OCC_RE = re.compile(r"^([A-Z]{1,6})(\d{6})([CP])(\d{8})$")
 
 
 @dataclass(frozen=True)
@@ -55,5 +58,41 @@ def parse_option_symbol(sym: str | None) -> OptionSymbol | None:
     )
 
 
+def to_occ_symbol(opt: OptionSymbol) -> str:
+    """Encode an option contract as an OCC symbol (e.g. TSLA260220C00410000)."""
+    yymmdd = opt.expiration.strftime("%y%m%d")
+    strike_int = int(
+        (opt.strike * Decimal(1000)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+    return f"{opt.underlying}{yymmdd}{opt.right}{strike_int:08d}"
+
+
+def parse_occ_symbol(occ: str | None) -> OptionSymbol | None:
+    """Parse an OCC symbol into contract fields, or None if malformed."""
+    if not occ or not occ.strip():
+        return None
+    text = occ.strip().upper()
+    match = _OCC_RE.match(text)
+    if not match:
+        return None
+    underlying, yymmdd, right, strike_raw = match.groups()
+    try:
+        yy = int(yymmdd[0:2])
+        mm = int(yymmdd[2:4])
+        dd = int(yymmdd[4:6])
+        expiration = date(2000 + yy, mm, dd)
+    except ValueError:
+        return None
+    strike = Decimal(strike_raw) / Decimal("1000")
+    if strike <= 0:
+        return None
+    return OptionSymbol(
+        underlying=underlying,
+        expiration=expiration,
+        strike=strike,
+        right=right,
+    )
+
+
 def is_option_symbol(sym: str | None) -> bool:
-    return parse_option_symbol(sym) is not None
+    return parse_option_symbol(sym) is not None or parse_occ_symbol(sym) is not None

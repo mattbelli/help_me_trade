@@ -62,28 +62,30 @@ def test_memory_extract_calls_extractor(monkeypatch) -> None:
 
 def test_extract_persists_source_message_id(tmp_path, monkeypatch) -> None:
     import ai.memories as mem_mod
-    import db.ai_tables as ai_tables
+    import db.base as db_base
     from ai.chat.memory_extract import extract_memories_from_turn
 
     db = tmp_path / "ai.db"
-    monkeypatch.setattr(ai_tables, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
     mem_mod._memory_service = None
 
     monkeypatch.setattr(
         "ai.chat.memory_extract.complete_for_extraction",
         lambda *_args, **_kwargs: (
-            '{"memories": [{"type": "preference", "content": "20% cap"}]}'
+            '{"memories": [{"type": "preference", '
+            '"content": "Prefer low-volatility ETFs for core holdings"}]}'
         ),
     )
 
     saved = extract_memories_from_turn(
-        user_text="I cap at 20%",
+        user_text="I prefer low-volatility ETFs for core holdings.",
         assistant_text="Got it.",
         session_id="sess_abc",
         source_message_id="asst_msg_1",
     )
 
     assert len(saved) == 1
+    assert saved[0]["content"] == "Prefer low-volatility ETFs for core holdings"
     assert saved[0]["metadata"]["session_id"] == "sess_abc"
     assert saved[0]["metadata"]["source_message_id"] == "asst_msg_1"
     assert saved[0]["metadata"]["source"] == "chat"

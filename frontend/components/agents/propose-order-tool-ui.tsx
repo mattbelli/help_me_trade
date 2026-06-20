@@ -12,6 +12,13 @@ type ProposalArgs = {
   qty?: number;
   order_type?: string;
   limit_price?: number;
+  asset_class?: string;
+  occ_symbol?: string;
+  option_underlying?: string;
+  option_expiration?: string;
+  option_strike?: number;
+  option_right?: string;
+  multiplier?: number;
 };
 
 type ProposalResult = {
@@ -87,6 +94,11 @@ function executionOutcomeBanner(result: ProposalResult): {
   const side = (proposal?.side ?? "buy").toUpperCase();
   const qty = proposal?.qty ?? "—";
   const symbol = proposal?.symbol ?? "—";
+  const isOption =
+    proposal?.asset_class === "us_option" || proposal?.occ_symbol != null;
+  const label = isOption
+    ? `${side} ${qty} ${proposal?.option_underlying ?? symbol} ${proposal?.option_right === "C" ? "call" : proposal?.option_right === "P" ? "put" : "option"} contract(s)`
+    : `${side} ${qty} ${symbol}`;
   const execId = result.execution_id;
   const trace = execId ? ` Execution ID: ${execId}.` : "";
 
@@ -102,7 +114,7 @@ function executionOutcomeBanner(result: ProposalResult): {
     return {
       variant: "success",
       title: "Submitted to Alpaca paper",
-      description: `${side} ${qty} ${symbol} sent to Alpaca paper account.${trace}`,
+      description: `${label} sent to Alpaca paper account.${trace}`,
     };
   }
 
@@ -112,13 +124,13 @@ function executionOutcomeBanner(result: ProposalResult): {
       title: "DRY RUN — no order placed",
       description:
         result.message ??
-        `Would ${side} ${qty} ${symbol} — logged only, not sent to broker.${trace}`,
+        `Would ${label} — logged only, not sent to broker.${trace}`,
     };
   }
 
   return {
     variant: "success",
-    title: `Proposal recorded: ${side} ${qty} ${symbol}`,
+    title: `Proposal recorded: ${label}`,
     description: (result.message ?? "Order recorded.") + trace,
   };
 }
