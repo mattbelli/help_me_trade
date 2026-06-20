@@ -2,6 +2,18 @@
 
 *Bootstrap for a fresh session. Read this + `AGENTS.md` (codebase map) + `BUILD.md` "Realignment" (the R1–R5
 plan + dated history). Everything else is in those — this is just current focus, next steps, and gotchas.*
+*Other refs: `ARCHITECTURE.md` (guided subsystem tour), `CODE_AUDIT.md` (cleanup backlog; Tier 1 done),
+`WATCHLIST_SPEC.md` (next feature), `SERVER_SETUP.md` (Linux migration).*
+
+## ACTIVE (2026-06-20): migrating to the home Linux server (Option B)
+Moving dev + runtime from the Windows desktop to an always-on **home Linux server** (`mbelli@192.168.8.50`,
+repo rsync'd to `~/dev/help_me_trade`). Follow **`SERVER_SETUP.md`** to finish the Linux-side setup (venv,
+deps, `ruff`+`pytest` green on Linux, systemd always-on services, Tailscale, tweak `.env`/`NEXT_PUBLIC_API_URL`
+off the Windows `127.0.0.1` values, backups). Server becomes the **sole writer** of `data/trading.db`; Windows
+becomes a one-way backup target (never two-way sync the live DB). After migration, the next feature is the
+**watchlist v3** (`WATCHLIST_SPEC.md`, Phase A = IEX-proxy RVOL + 52w slider + customization, no new deps).
+Note: this repo's auto-memory lives in Claude's *Windows* project dir, so a fresh Linux session won't inherit
+it — these docs are the source of truth.
 
 ## State
 Autonomous trading agent; loop = PERCEIVE→REASON→DECIDE→**ACT**→DELIVER→LEARN. **R2 (ACT) just shipped:** a
