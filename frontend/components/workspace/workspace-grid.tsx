@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type HTMLAttributes,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
 import { ChevronDown, X } from "lucide-react";
 
@@ -26,7 +35,10 @@ import {
   GRID_MARGIN_PX,
   gridPixelWidth,
 } from "@/lib/workspace/grid-metrics";
-import type { WidgetInstanceConfig } from "@/lib/workspace/layout-persistence";
+import type {
+  WidgetInstanceConfig,
+  WorkspaceLayoutItem,
+} from "@/lib/workspace/layout-persistence";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
@@ -227,6 +239,7 @@ function WidgetHeader({
   config,
   onConfigChange,
   locked,
+  static: isStatic,
 }: {
   widgetType: string;
   channelAware?: boolean;
@@ -238,13 +251,19 @@ function WidgetHeader({
   config?: WidgetInstanceConfig;
   onConfigChange?: (patch: Partial<WidgetInstanceConfig>) => void;
   locked: boolean;
+  static?: boolean;
 }) {
   const def = getWidgetDefinition(widgetType);
   const meta = useWidgetHeaderMeta(widgetType);
   const isChart = widgetType === "chart";
 
   return (
-    <div className="workspace-drag-handle relative flex cursor-grab items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 active:cursor-grabbing">
+    <div
+      className={cn(
+        "workspace-drag-handle relative flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5",
+        !locked && !isStatic && "cursor-grab active:cursor-grabbing",
+      )}
+    >
       <span className="font-mono text-[12px] leading-none tracking-[-1px] text-[var(--fg-faint)]">
         ⠿
       </span>
@@ -274,7 +293,7 @@ function WidgetHeader({
       {channelAware ? (
         <ChannelSelector channel={channel} onChange={onChannelChange} />
       ) : null}
-      {!locked ? (
+      {!locked || isStatic ? (
         <WidgetRemoveButton
           title={def?.title ?? widgetType}
           onRemove={onRemove}
@@ -283,6 +302,83 @@ function WidgetHeader({
     </div>
   );
 }
+
+// NOTE: react-grid-layout positions each child by cloning it and injecting
+// `ref` + `className` (react-grid-item + transforms) + `style`, and the
+// Resizable/DraggableCore wrappers append resize-handle `children` + drag
+// handlers. As a direct RGL child this component MUST forward all of those to
+// its root <div>, or the desktop grid loses positioning/resize/drag. On the
+// mobile path it's rendered directly (no injected props), which is fine.
+const WidgetCard = forwardRef<
+  HTMLDivElement,
+  {
+    item: WorkspaceLayoutItem;
+    locked: boolean;
+    static?: boolean;
+    onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+    onRemove: () => void;
+  } & HTMLAttributes<HTMLDivElement>
+>(function WidgetCard(
+  {
+    item,
+    locked,
+    static: isStatic,
+    onConfigChange,
+    onRemove,
+    className,
+    style,
+    children,
+    ...rest
+  },
+  ref,
+) {
+  const def = getWidgetDefinition(item.type);
+  const Widget = def?.component;
+  const config: WidgetInstanceConfig = item.config ?? {};
+  const channel: ChannelId = config.channel ?? "none";
+
+  return (
+    <div
+      ref={ref}
+      id={`widget-${item.i}`}
+      className={cn(
+        "group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)]",
+        isStatic && "h-full",
+        className,
+      )}
+      style={style}
+      {...rest}
+    >
+      <WidgetHeader
+        widgetType={item.type}
+        channelAware={def?.channelAware}
+        channel={channel}
+        onChannelChange={(next) => onConfigChange({ channel: next })}
+        onRemove={onRemove}
+        watchlistId={config.watchlistId}
+        onWatchlistChange={(next) => onConfigChange({ watchlistId: next })}
+        config={config}
+        onConfigChange={onConfigChange}
+        locked={locked}
+        static={isStatic}
+      />
+      <div className="min-h-0 flex-1 overflow-auto">
+        {Widget ? (
+          <Widget
+            instanceId={item.i}
+            config={config}
+            onConfigChange={onConfigChange}
+          />
+        ) : (
+          <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+            Unknown widget: {item.type}
+          </p>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+});
 
 export function WorkspaceGrid() {
   const {
@@ -398,54 +494,17 @@ export function WorkspaceGrid() {
               isResizable={!locked}
               useCSSTransforms={false}
             >
-              {layout.map((item) => {
-                const def = getWidgetDefinition(item.type);
-                const Widget = def?.component;
-                const config: WidgetInstanceConfig = item.config ?? {};
-                const channel: ChannelId = config.channel ?? "none";
-
-                return (
-                  <div
-                    key={item.i}
-                    id={`widget-${item.i}`}
-                    className="group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)]"
-                  >
-                    <WidgetHeader
-                      widgetType={item.type}
-                      channelAware={def?.channelAware}
-                      channel={channel}
-                      onChannelChange={(next) =>
-                        updateWidgetConfig(item.i, { channel: next })
-                      }
-                      onRemove={() => removeWidget(item.i)}
-                      watchlistId={config.watchlistId}
-                      onWatchlistChange={(next) =>
-                        updateWidgetConfig(item.i, { watchlistId: next })
-                      }
-                      config={config}
-                      onConfigChange={(patch) =>
-                        updateWidgetConfig(item.i, patch)
-                      }
-                      locked={locked}
-                    />
-                    <div className="min-h-0 flex-1 overflow-auto">
-                      {Widget ? (
-                        <Widget
-                          instanceId={item.i}
-                          config={config}
-                          onConfigChange={(patch) =>
-                            updateWidgetConfig(item.i, patch)
-                          }
-                        />
-                      ) : (
-                        <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-                          Unknown widget: {item.type}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {layout.map((item) => (
+                <WidgetCard
+                  key={item.i}
+                  item={item}
+                  locked={locked}
+                  onConfigChange={(patch) =>
+                    updateWidgetConfig(item.i, patch)
+                  }
+                  onRemove={() => removeWidget(item.i)}
+                />
+              ))}
             </ReactGridLayout>
           </div>
         ) : null}

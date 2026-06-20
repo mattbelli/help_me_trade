@@ -21,6 +21,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import { TurnLearnedMemories } from "@/components/agents/turn-learned-memories";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -237,6 +238,9 @@ const ThreadSuggestionItem: FC = () => {
 
 const Composer: FC = () => {
   const { ComposerSlashCommands } = useContext(ThreadComponentsContext);
+  // Don't steal focus on phones — autofocus pops the on-screen keyboard the
+  // moment the Agent tab opens. Desktop still autofocuses for quick typing.
+  const isMobile = useIsMobile();
   const shell = (
     <div
       data-slot="aui_composer-shell"
@@ -248,7 +252,7 @@ const Composer: FC = () => {
         placeholder="Send a message… (type / for commands)"
         className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none"
         rows={1}
-        autoFocus
+        autoFocus={!isMobile}
         aria-label="Message input"
       />
       <ComposerAction />

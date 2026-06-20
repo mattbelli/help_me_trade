@@ -18,6 +18,15 @@ Steps per device:
 - Plain **HTTP is fine** — Tailscale (WireGuard) encrypts the link. **Keep it tailnet/LAN-only; never
   port-forward** (real ledger + broker keys live here).
 
+**Troubleshooting "a server with that specified name could not be found" (phone):** the whole app is
+wired to the `serv.tail78aab8.ts.net` MagicDNS name (baked `NEXT_PUBLIC_API_URL`, backend `BIND_HOST` +
+CORS), so the device must **resolve** that name, not just have the Tailscale tunnel up. If the tunnel is
+connected (server can `tailscale ping` the phone) but the name won't resolve, a **manual/3rd-party DNS is
+overriding MagicDNS** — on iOS this is usually a content-blocker (e.g. **Adblock Plus**) or a DNS app set
+under Settings → Wi-Fi → (i) → Configure DNS. Set DNS back to **Automatic** (or enable "Use Tailscale DNS
+Settings" in the Tailscale app), then toggle Tailscale off/on. Quick isolation test: the raw IP
+`http://100.94.77.104:3001` bypasses DNS — if that loads but the name doesn't, it's a phone-DNS problem.
+
 ## Services (systemd) — run automatically
 | Service | Process | Port |
 |---|---|---|

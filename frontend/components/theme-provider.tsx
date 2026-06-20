@@ -14,6 +14,8 @@ function ThemeProvider({
       themes={["carbon", "ember", "paper", "light", "dark"]}
       storageKey="hmt-theme-carbon"
       disableTransitionOnChange
+      enableSystem={false}
+      enableColorScheme={false}
       {...props}
     >
       <ThemeHotkey />

@@ -15,6 +15,9 @@ export function deriveGridCols(containerWidth: number): number {
     (containerWidth + GRID_MARGIN_PX) /
       (GRID_COL_TARGET_PX + GRID_MARGIN_PX),
   );
+  // Floor at the default column count so a narrowed desktop window keeps the
+  // authored layout intact (no clamping widgets on top of each other). Phones
+  // get the dedicated mobile shell, so the grid never needs to go below this.
   return Math.min(GRID_MAX_COLS, Math.max(GRID_DEFAULT_COLS, raw));
 }
 
