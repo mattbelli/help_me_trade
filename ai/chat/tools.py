@@ -59,7 +59,16 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "description": (
             "SearXNG web index: news articles and public pages. Optional site scoping "
             "(reddit.com, x.com) and time_range=day|week|month|year. NOT live X/Reddit "
-            "feeds — no minute-level windows, no sentiment scores. Say so if user asks."
+            "feeds — no minute-level windows, no sentiment scores. Say so if user asks. "
+            "Do NOT use for option bid/ask or contract pricing — use get_option_quote."
+        ),
+    },
+    "get_option_quote": {
+        "title": "Option quote",
+        "description": (
+            "Live or delayed broker options bid/ask for a contract. Provide occ_symbol "
+            "or underlying + expiration (YYYY-MM-DD) + strike + right (C|P). "
+            "Read-only — use for limit-price context, never web_search for quotes."
         ),
     },
     "propose_order": {
@@ -94,6 +103,7 @@ Available tools:
 - get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number}
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
 - web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
+- get_option_quote — arguments: {"occ_symbol": string|null, "underlying": string|null, "expiration": string|null, "strike": number|null, "right": "C"|"P"|null}
 - propose_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
 
 Rules:
@@ -101,6 +111,7 @@ Rules:
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
 - Only call start_research when the user explicitly asks for a deep research report or written report.
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
+- Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
 - Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
 - When the user describes an alert/signal/rule, call propose_rule with a validated spec.
@@ -291,6 +302,72 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             ],
             "result_count": len(real),
         }
+
+    if name == "get_option_quote":
+        from datetime import date as date_type
+        from decimal import Decimal
+
+        from brokers.factory import get_broker
+        from imports.option_symbol import OptionSymbol, parse_occ_symbol, to_occ_symbol
+
+        occ_raw = args.get("occ_symbol")
+        occ_symbol = str(occ_raw).strip().upper() if occ_raw else None
+
+        if not occ_symbol:
+            underlying = args.get("underlying")
+            expiration = args.get("expiration")
+            strike_raw = args.get("strike")
+            right_raw = args.get("right")
+            if not underlying or not expiration or strike_raw is None or not right_raw:
+                return {
+                    "error": (
+                        "Provide occ_symbol or underlying, expiration (YYYY-MM-DD), "
+                        "strike, and right (C|P)"
+                    ),
+                }
+            try:
+                exp = date_type.fromisoformat(str(expiration).strip())
+            except ValueError:
+                return {"error": "expiration must be YYYY-MM-DD"}
+            try:
+                strike = Decimal(str(strike_raw))
+            except Exception:
+                return {"error": "strike must be a number"}
+            right = str(right_raw).strip().upper()
+            if right not in ("C", "P"):
+                return {"error": "right must be C or P"}
+            opt = OptionSymbol(
+                underlying=str(underlying).strip().upper(),
+                expiration=exp,
+                strike=strike,
+                right=right,
+            )
+            occ_symbol = to_occ_symbol(opt)
+        elif parse_occ_symbol(occ_symbol) is None:
+            return {"error": "occ_symbol is not a valid OCC option symbol"}
+
+        broker = get_broker()
+        fetch = getattr(broker, "aget_option_quote", None)
+        if not callable(fetch):
+            return {
+                "status": "no_quote",
+                "message": (
+                    "No live options data for this contract (set your limit from "
+                    "your broker's option chain)."
+                ),
+            }
+
+        quote = await fetch(occ_symbol)
+        if quote is None:
+            return {
+                "status": "no_quote",
+                "occ_symbol": occ_symbol,
+                "message": (
+                    "No live options data for this contract (set your limit from "
+                    "your broker's option chain)."
+                ),
+            }
+        return {"occ_symbol": occ_symbol, **quote}
 
     if name == "propose_order":
         from datetime import date as date_type

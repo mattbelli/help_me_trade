@@ -31,6 +31,11 @@ export const CHAT_TOOL_OPTIONS = [
     description: "SearXNG web index — not live X/Reddit sentiment",
   },
   {
+    id: "get_option_quote",
+    label: "Option quote",
+    description: "Broker options bid/ask for limit-price context",
+  },
+  {
     id: "propose_order",
     label: "Propose order",
     description: "Paper trade approval card (no execution)",

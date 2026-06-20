@@ -799,3 +799,104 @@ class AlpacaAdapter:
             return bool(isinstance(data, dict) and data.get("tradable"))
         except AlpacaError:
             return False
+
+    @staticmethod
+    def _parse_option_snapshot(data: dict, occ_symbol: str) -> dict | None:
+        snapshots = data.get("snapshots") or {}
+        snap = snapshots.get(occ_symbol)
+        if not isinstance(snap, dict):
+            return None
+
+        quote = (
+            snap.get("latestQuote")
+            or snap.get("latest_quote")
+            or snap.get("quote")
+            or {}
+        )
+        if not isinstance(quote, dict):
+            quote = {}
+
+        trade = (
+            snap.get("latestTrade")
+            or snap.get("latest_trade")
+            or snap.get("trade")
+            or {}
+        )
+        if not isinstance(trade, dict):
+            trade = {}
+
+        bid = quote.get("bp")
+        ask = quote.get("ap")
+        last = trade.get("p") or trade.get("price")
+
+        if bid is None and ask is None and last is None:
+            return None
+
+        bid_f = float(bid) if bid is not None else None
+        ask_f = float(ask) if ask is not None else None
+        last_f = float(last) if last is not None else None
+        mid: float | None = None
+        if bid_f is not None and ask_f is not None:
+            mid = (bid_f + ask_f) / 2.0
+
+        as_of = quote.get("t") or trade.get("t")
+
+        return {
+            "symbol": occ_symbol,
+            "bid": bid_f,
+            "ask": ask_f,
+            "mid": mid,
+            "last": last_f,
+            "as_of": as_of,
+        }
+
+    def get_option_quote(self, occ_symbol: str) -> dict | None:
+        sym = occ_symbol.strip().upper()
+        if not sym:
+            return None
+        try:
+            data = self._get_data(
+                f"/v1beta1/options/snapshots/{sym}",
+            )
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        parsed = self._parse_option_snapshot(data, sym)
+        if parsed is not None:
+            return parsed
+        try:
+            data = self._get_data(
+                "/v1beta1/options/snapshots",
+                params={"symbols": sym},
+            )
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        return self._parse_option_snapshot(data, sym)
+
+    async def aget_option_quote(self, occ_symbol: str) -> dict | None:
+        sym = occ_symbol.strip().upper()
+        if not sym:
+            return None
+        try:
+            data = await self._aget_data(
+                f"/v1beta1/options/snapshots/{sym}",
+            )
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            parsed = self._parse_option_snapshot(data, sym)
+            if parsed is not None:
+                return parsed
+        try:
+            data = await self._aget_data(
+                "/v1beta1/options/snapshots",
+                params={"symbols": sym},
+            )
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        return self._parse_option_snapshot(data, sym)

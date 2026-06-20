@@ -6,7 +6,9 @@ import json
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.messages import last_user_text, ui_messages_to_llm
@@ -29,6 +31,37 @@ class ChatRunResult:
     memories_saved: list[dict[str, Any]] = field(default_factory=list)
 
 
+try:
+    _ET: timezone | ZoneInfo = ZoneInfo("America/New_York")
+except Exception:  # noqa: BLE001 - Windows without tzdata; date is what matters here
+    _ET = timezone(timedelta(hours=-5))  # EST fallback
+
+
+def _market_session_label(now: datetime) -> str:
+    if now.weekday() >= 5:
+        return "closed"
+    t = now.time()
+    if time(9, 30) <= t < time(16, 0):
+        return "regular hours open"
+    if time(4, 0) <= t < time(9, 30):
+        return "pre-market"
+    if time(16, 0) <= t < time(20, 0):
+        return "post-market"
+    return "closed"
+
+
+def current_date_context() -> str:
+    now = datetime.now(_ET)
+    weekday = now.strftime("%A")
+    date_str = now.date().isoformat()
+    session = _market_session_label(now)
+    return (
+        f"Current date: {date_str} ({weekday}), market session: {session}. "
+        "Use THIS date for all relative dates ('30 days from now', option expirations) — "
+        "never assume a date from training. US options expire on the listed exchange date."
+    )
+
+
 def chat_system_prompt() -> str:
     return _system_prompt()
 
@@ -39,6 +72,7 @@ def _system_prompt() -> str:
         for name, meta in TOOL_DEFINITIONS.items()
     )
     return (
+        f"{current_date_context()}\n\n"
         "You are Help Me Trade, a trading copilot. "
         "Answer clearly and concisely in markdown when helpful.\n\n"
         "Behavior rules:\n"
@@ -53,6 +87,10 @@ def _system_prompt() -> str:
         "in text. Use the tool API and wait for results before answering.\n"
         "- Buy/sell requests: call propose_order (symbol, side, qty, order_type market|limit). "
         "Do not describe calling the tool — call it. The Approve/Reject card is the UI.\n"
+        "- Option pricing/bid-ask: call get_option_quote (broker options data) — NEVER web_search "
+        "for quotes. Options require a limit order; if no live options quote is available, tell "
+        "the user to set the limit from their broker's option chain. Options are buy-to-open "
+        "long-only for now.\n"
         "- Alert/signal/watch requests: call propose_rule with a validated spec "
         "(do not narrate; the approval card is the UI).\n"
         "- Portfolio, performance, trades: only discuss after calling the matching tool "

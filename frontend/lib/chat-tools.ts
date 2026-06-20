@@ -61,7 +61,7 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
     }),
     web_search: tool({
       description:
-        "SearXNG web index (news/public pages). Optional time_range=day|week|month|year and sites=[reddit.com,x.com]. NOT live X/Reddit feeds or minute-level sentiment.",
+        "SearXNG web index (news/public pages). Optional time_range=day|week|month|year and sites=[reddit.com,x.com]. NOT live X/Reddit feeds or minute-level sentiment. Do NOT use for option bid/ask — use get_option_quote.",
       inputSchema: z.object({
         query: z.string(),
         limit: z.number().int().min(1).max(10).optional(),
@@ -69,6 +69,18 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
         sites: z.array(z.string()).max(4).optional(),
       }),
       execute: async (input) => executePythonTool("web_search", input),
+    }),
+    get_option_quote: tool({
+      description:
+        "Broker options bid/ask for a contract (occ_symbol or underlying + expiration + strike + right). Read-only — use for limit-price context, never web_search.",
+      inputSchema: z.object({
+        occ_symbol: z.string().optional(),
+        underlying: z.string().optional(),
+        expiration: z.string().optional(),
+        strike: z.number().positive().optional(),
+        right: z.enum(["C", "P"]).optional(),
+      }),
+      execute: async (input) => executePythonTool("get_option_quote", input),
     }),
     propose_order: tool({
       description:

@@ -10,3 +10,4 @@ langchain-core>=0.3.0
 mem0ai>=0.1.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+tzdata>=2024.1  # Windows zoneinfo (ET market dates in chat prompt)
