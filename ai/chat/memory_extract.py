@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from ai.chat.alert_intent import looks_like_alert_intent
+from ai.chat.review_intent import looks_like_review_intent
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
@@ -89,6 +90,11 @@ def extract_memories_from_turn(
     # "preference" (redundant, and it would mislead future grounding into treating
     # a one-off alert as a standing preference).
     if looks_like_alert_intent(user_text):
+        return []
+
+    # Review/analysis turns synthesize narrative from analytics — do not seed
+    # memories from generated reviews (avoids learning fabricated preferences).
+    if looks_like_review_intent(user_text):
         return []
 
     llm = get_llm(model=model)

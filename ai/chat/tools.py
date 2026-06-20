@@ -13,6 +13,7 @@ from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
+from ai.perf_context import format_perf_insights_for_llm, sanitize_trade_history_stats
 from ai.research.jobs import submit_research_job
 from ai.utils.symbols import extract_symbol
 from db.analytics import ai_performance_context
@@ -48,8 +49,9 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_performance_insights": {
         "title": "Performance insights",
         "description": (
-            "Structured performance scorecard: win rate, P&L by symbol, day-of-week, "
-            "recent closed trades, largest wins/losses. Prefer over guessing performance."
+            "Structured performance scorecard: reliable net-cash realized P&L on closed "
+            "positions, win rate, day-of-week patterns, behavioral facts, entry style. "
+            "Prefer over guessing performance."
         ),
     },
     "web_search": {
@@ -197,9 +199,11 @@ def execute_tool(name: str, args: dict[str, Any]) -> Any:
             to_date=str(to_date) if to_date else None,
             limit=limit,
         )
-        stats = trade_summary_stats(
-            from_date=str(from_date) if from_date else None,
-            to_date=str(to_date) if to_date else None,
+        stats = sanitize_trade_history_stats(
+            trade_summary_stats(
+                from_date=str(from_date) if from_date else None,
+                to_date=str(to_date) if to_date else None,
+            )
         )
         return {
             "stats": stats,
@@ -213,10 +217,12 @@ def execute_tool(name: str, args: dict[str, Any]) -> Any:
         if period not in ("day", "week", "month", "quarter", "year", "all"):
             period = "year"
         account_id = args.get("account_id")
-        return ai_performance_context(
+        ctx = ai_performance_context(
             account_id=str(account_id) if account_id else None,
             period=period,
+            include_trade_context=True,
         )
+        return format_perf_insights_for_llm(ctx)
 
     if name == "web_search":
         from ai.research.sources import (

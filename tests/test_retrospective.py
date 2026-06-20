@@ -10,13 +10,13 @@ import pytest
 
 import db.ai_tables as ai_tables
 from ai.llm.structured import parse_with_retry
+from ai.perf_context import sanitize_perf_context
 from ai.retrospective import (
     INSUFFICIENT_OOS_NOTE,
     RETRO_MAX_TOKENS,
     RetroReport,
     _compute_train_oos_split,
     _normalize_unicode_text,
-    _sanitize_llm_context,
     generate_retrospective_report,
 )
 from signals.indicators import Bar
@@ -217,7 +217,7 @@ def retro_db(monkeypatch, tmp_path):
 
 
 def test_sanitize_llm_context_strips_unreliable_pnl() -> None:
-    sanitized = _sanitize_llm_context(MOCK_CTX)
+    sanitized = sanitize_perf_context(MOCK_CTX)
     for key in ("largest_wins", "largest_losses"):
         for trade in sanitized["approximate_fifo"][key]:
             assert "pnl" not in trade

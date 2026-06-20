@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import html
 import json
 import logging
@@ -22,6 +21,7 @@ from ai.llm.structured import (
     parse_with_retry,
 )
 from ai.memories import get_memory_service
+from ai.perf_context import sanitize_perf_context
 from brokers.factory import get_broker
 from db.analytics import ai_performance_context, resolve_period
 from signals.backtest import backtest_condition
@@ -34,9 +34,6 @@ MAX_LESSONS = 3
 OOS_FRACTION = 0.2
 WARMUP_DAYS = 252
 MIN_SPLIT_TRADING_DAYS = 30
-_HOLD_TIME_FIELDS = frozenset(
-    {"symbol", "open_date", "close_date", "is_option", "asset_class"}
-)
 INSUFFICIENT_OOS_NOTE = (
     "insufficient history for a held-out test — validate manually"
 )
@@ -154,7 +151,7 @@ def generate_retrospective_report(
             period=period,
             include_trade_context=True,
         )
-    llm_ctx = _sanitize_llm_context(train_ctx)
+    llm_ctx = sanitize_perf_context(train_ctx)
     report = _call_retrospective_llm(llm_ctx)
     processed_rules = _process_proposed_rules(report, split)
 
@@ -491,23 +488,6 @@ def _compute_train_oos_split(
         "oos": oos_window,
         "valid": valid,
     }
-
-
-def _sanitize_llm_context(ctx: dict[str, Any]) -> dict[str, Any]:
-    sanitized = copy.deepcopy(ctx)
-    fifo = sanitized.get("approximate_fifo")
-    if isinstance(fifo, dict):
-        for key in ("largest_wins", "largest_losses"):
-            trades = fifo.get(key)
-            if isinstance(trades, list):
-                fifo[key] = [_strip_unreliable_pnl_fields(t) for t in trades]
-    return sanitized
-
-
-def _strip_unreliable_pnl_fields(trade: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(trade, dict):
-        return trade
-    return {k: v for k, v in trade.items() if k in _HOLD_TIME_FIELDS}
 
 
 def _split_disclaimer(split: dict[str, Any]) -> str:
