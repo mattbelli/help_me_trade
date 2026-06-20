@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 
-const COLLAPSED_HEIGHT = 56;
+const COLLAPSED_HEIGHT = 40;
 
 export type ScrollbackEntry = {
   id: string;

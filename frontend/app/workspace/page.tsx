@@ -18,7 +18,6 @@ export default function WorkspacePage() {
   useAlertStream();
   const collapsedHeight = useConsoleStore((s) => s.collapsedHeight);
   const open = useCopilotStore((s) => s.open);
-  const pinned = useCopilotStore((s) => s.pinned);
   const width = useCopilotStore((s) => s.width);
   const hydrate = useCopilotStore((s) => s.hydrate);
 
@@ -26,7 +25,7 @@ export default function WorkspacePage() {
     hydrate();
   }, [hydrate]);
 
-  const dockedPadding = pinned && open ? width : 0;
+  const dockedPadding = open ? width : 0;
 
   return (
     <WorkspaceToastProvider>

@@ -213,7 +213,7 @@ export function CommandConsole() {
   return (
     <motion.div
       ref={consoleRef}
-      className="absolute right-0 bottom-0 left-0 z-50 h-[56px] border-t border-[var(--border)] bg-[var(--bg-raised)]/85 backdrop-blur-md"
+      className="absolute right-0 bottom-0 left-0 z-50 h-[40px] border-t border-[var(--border)] bg-[var(--bg-raised)]/85 backdrop-blur-md"
       transition={{ type: "spring", stiffness: 420, damping: 36 }}
     >
       {hasOverlayContent ? (
@@ -250,7 +250,7 @@ export function CommandConsole() {
       >
         <span className="shrink-0 font-mono text-[var(--c-command)]">›</span>
 
-        <div className="relative inline-grid min-w-[16rem] max-w-[64rem] items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1.5">
+        <div className="relative inline-grid min-w-[16rem] max-w-[50%] flex-1 items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1">
           <span
             aria-hidden
             className="invisible col-start-1 row-start-1 whitespace-pre font-mono text-[14px]"
@@ -297,8 +297,6 @@ export function CommandConsole() {
             </span>
           ) : null}
         </div>
-
-        <div className="min-w-0 flex-1" aria-hidden />
       </form>
     </motion.div>
   );
