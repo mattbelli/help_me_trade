@@ -21,7 +21,8 @@ sweep. file:line refs were accurate at audit time; re-verify before editing.*
 
 ---
 
-## Tier 1 — Safe quick wins (dead code, low-risk deletions)
+## Tier 1 — Safe quick wins (dead code, low-risk deletions) — ✅ DONE (2026-06-20)
+*Removed; 312 tests still pass, whole-repo ruff clean. `brokers/alpaca.py::from_env` was KEPT (real caller).*
 Verified zero callers by the auditors; cheap to remove, shrinks the surface. Do in one small PR with tests.
 - `api/deps.py` — **entire file dead** (`require_api_auth` unused; auth is middleware). Delete.
 - `ai/chat/stream.py` — `reasoning_chunks` (no callers).

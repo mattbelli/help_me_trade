@@ -21,10 +21,6 @@ class SchwabAdapter:
         self._account_hash = account_hash
 
     @classmethod
-    def from_env(cls) -> SchwabAdapter:
-        return cls.from_settings()
-
-    @classmethod
     def from_settings(cls) -> SchwabAdapter:
         try:
             client = create_client(interactive=False)

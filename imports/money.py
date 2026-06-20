@@ -44,13 +44,6 @@ def decimal_to_str(value: Decimal | None) -> str | None:
     return format(value, "f")
 
 
-def decimal_to_api(value: Decimal | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.normalize()
-    return format(normalized, "f")
-
-
 def parse_mmddyyyy(value: str) -> str:
     """Return ISO date YYYY-MM-DD from Schwab date strings."""
     text = str(value).strip()

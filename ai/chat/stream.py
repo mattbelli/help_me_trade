@@ -49,19 +49,6 @@ class UIMessageStream:
             )
         yield self._event({"type": "text-end", "id": text_id})
 
-    def reasoning_chunks(self, text: str, *, chunk_size: int = 16) -> Iterator[str]:
-        rid = _new_id("reasoning")
-        yield self._event({"type": "reasoning-start", "id": rid})
-        for i in range(0, len(text), chunk_size):
-            yield self._event(
-                {
-                    "type": "reasoning-delta",
-                    "id": rid,
-                    "delta": text[i : i + chunk_size],
-                }
-            )
-        yield self._event({"type": "reasoning-end", "id": rid})
-
     def tool_call(
         self,
         *,

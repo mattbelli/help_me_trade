@@ -16,9 +16,6 @@ OPENAI_COMPATIBLE_PROVIDERS = frozenset(
     {"openai", "deepseek", "openrouter", "ollama"}
 )
 
-EPHEMERAL_MODES = frozenset({"quick", "temporary"})
-PERSISTED_CHAT_MODES = frozenset({"saved", "standard", "private"})
-
 
 def normalize_chat_mode(mode: str) -> str:
     m = str(mode or "temporary").strip().lower()

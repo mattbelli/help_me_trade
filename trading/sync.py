@@ -82,10 +82,6 @@ def _schwab_transaction_to_event(
             continue
         leg_amount = parse_dollar(str(leg.get("amount", 0)))
         amount += leg_amount
-        if leg.get("positionEffect"):
-            qty_val = parse_dollar(str(leg.get("amount", 0)))
-            if qty_val:
-                pass
         qty_raw = leg.get("quantity") or instr.get("quantity")
         if qty_raw is not None:
             qty = abs(parse_dollar(str(qty_raw)))
@@ -161,7 +157,7 @@ def _schwab_fetch_transactions(
     return []
 
 
-def sync_alpaca(*, full_backfill: bool = True) -> dict[str, Any]:
+def sync_alpaca() -> dict[str, Any]:
     adapter = get_broker("alpaca")
     if not isinstance(adapter, AlpacaAdapter):
         raise BrokerError("Alpaca adapter required")

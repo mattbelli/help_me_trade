@@ -132,10 +132,6 @@ def list_price_alerts(*, symbol: str | None = None, active_only: bool = True) ->
     return [dict(row) for row in rows]
 
 
-def list_price_alerts_for_symbol(symbol: str) -> list[dict]:
-    return list_price_alerts(symbol=symbol, active_only=True)
-
-
 def create_price_alert(
     *,
     symbol: str,
