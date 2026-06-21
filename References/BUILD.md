@@ -122,6 +122,17 @@ the proposal *pipe* (one source, fixed sizing) → then iterate the decision eng
 fusion/scoring → calibrated win% → S/R-based target planning — each preceded by **dedicated deep research**
 (best sources/APIs, fusion methods, win-rate calibration, scale-out/target methodology, social-hype reliability).
 
+### Research evidence base — `References/DECISION_ENGINE_RESEARCH.md`
+Round-1 deep research (2026-06-21, adversarially verified) — **read it before building the engine.** Headlines:
+**(a)** the signals → composite **score** → **calibration layer** → win% pipeline, with the **LLM only on
+narrative/text and deterministic code on every number**, is evidence-backed (and maps onto our agent-proposes →
+human-approves → chokepoint model); **(b) start with a transparent weighted-composite scorecard, NOT an ML
+ensemble** ("ensemble beats simple" was refuted); **(c)** win% = **Platt scaling** (beats isotonic at the small
+sample sizes a solo trader has) + out-of-sample reliability/Brier + multiple-testing controls (Deflated Sharpe,
+PBO/CSCV) — until samples suffice, show a **confidence interval / "insufficient data," never a fabricated single
+win-rate.** Still open (next research): concrete fusion weights, highest-ROI **paid data sources**, min sample
+size for honest calibration, and how regime/breadth gates the score.
+
 ---
 
 ## 2. Architecture (keep this shape)
