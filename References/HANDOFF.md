@@ -84,10 +84,14 @@ table + `trade_accounts` extended (connection_id/enabled/execution_capable/is_de
 poll_runs/order_executions/paper_order_proposals + idempotent backfill (legacy alpaca → default account; schwab
 ledger accounts linked read-only). Additive + behavior-preserving; adversarially reviewed (idempotency +
 behavior-preservation hold; backfill scoped to alpaca so a future schwab poll_run isn't mislabeled). Runs in
-`api/main.py` lifespan. **NEXT sub-steps (in order, each reviewed): 2** account registry + broker factory keyed
-by connection · **3** thread `account_id` through proposal→intent→execution + approval-time validation · **4**
-RiskEngine per-account hardening (heaviest review — never weaken a cap) · **5** per-account snapshot + multi-
-account sync. Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
+`api/main.py` lifespan. **Sub-step 2 DONE — account read-model + resolver** (`db/accounts.py`: list/get
+connections+accounts, `get_default_account`, `default_execution_account`, `account_is_execution_capable`
+deny-by-default; `brokers/factory.py:get_broker_for_account` resolves account→broker adapter, behavior-identical
+for the default account; per-connection creds seam documented for Phase B). Read-only, behavior-preserving, 450
+tests. **NEXT sub-steps (in order, each reviewed): 3** thread `account_id` through proposal→intent→execution +
+approval-time validation (calls `get_broker_for_account`) · **4** RiskEngine per-account hardening (heaviest
+review — never weaken a cap; read-only accounts hard-blocked via `account_is_execution_capable`) · **5**
+per-account snapshot + multi-account sync. Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
 
 ## Then (post-multi-account)
 - **FORWARD-TEST on paper — Increment 1 (ENTRY) SHIPPED; EXITS next.** The dip-buy entry path is wired +

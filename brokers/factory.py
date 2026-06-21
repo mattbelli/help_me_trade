@@ -1,4 +1,8 @@
-"""Select broker adapter from settings or environment."""
+"""Select broker adapter from settings or environment.
+
+The adapter cache is keyed by broker name (one real connection per broker today).
+Re-keying by ``connection_id`` happens when per-connection credentials land (Phase B).
+"""
 
 from __future__ import annotations
 
@@ -66,3 +70,21 @@ def get_broker(name: str | None = None) -> BrokerAdapter:
     adapter = _create_broker(broker)
     _broker_cache[broker] = adapter
     return adapter
+
+
+def get_broker_for_account(account_id: str) -> BrokerAdapter:
+    """Resolve an account to its broker adapter (account-aware entry point).
+
+    Phase A sub-step 2: credentials still come from settings via the existing
+    per-broker path, so an account resolves to its broker's adapter (the default
+    account == today's adapter exactly). Per-CONNECTION distinct credentials
+    (needed for a 2nd Alpaca key) plug in HERE when connection-management lands
+    (Phase B) — that's the documented seam.
+    """
+    from db.accounts import get_account
+
+    account = get_account(account_id)
+    if account is None:
+        raise BrokerError(f"unknown account {account_id!r}")
+    broker = str(account["broker"]).strip().lower()
+    return get_broker(broker)
