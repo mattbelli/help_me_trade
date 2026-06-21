@@ -181,6 +181,59 @@ PBO/CSCV) — until samples suffice, show a **confidence interval / "insufficien
 win-rate.** Still open (next research): concrete fusion weights, highest-ROI **paid data sources**, min sample
 size for honest calibration, and how regime/breadth gates the score.
 
+### Engine-deepening roadmap — captured ideas (founder, 2026-06-21)
+The breadth that makes the engine *effective* (beyond the v1 technical scorecard). **Cross-cutting honesty rule
+(applies to ALL of these):** every signal is a HYPOTHESIS validated by backtest — and macro/event/crowd edges
+are *especially* prone to being already priced in, so their value is usually in **RISK (avoiding landmines,
+sizing) more than prediction.** Build order: prove the Norgate base model first → add these as tested
+hypotheses → portfolio layer on top. None require rewiring — they're features, plan-outputs, or context layers
+behind the same pipeline + `propose_trade` seam.
+
+**1. Support/Resistance + trade-PLAN outputs (completes the "fully-planned idea").**
+- *Features:* distance to nearest support/resistance, room-to-run to next level, level-test counts (from bars:
+  swing pivots, volume-by-price, prior highs/lows, round numbers).
+- *Outputs (attach to proposal like the score):* **TP scale-out ladder** at detected resistance (the 25%@$310…
+  vision); **hold length** — nearly free, the triple-barrier labels already record `holding_days`.
+- *Validate:* does scaling out at resistance actually beat the fixed barrier on EV? Backtest the exit rule; don't assume.
+
+**2. World-context layer (events · macro · cross-asset · prediction markets).**
+- *Economic-event awareness (FOMC/CPI/earnings):* a feature ("days to next event", "event inside holding
+  window") AND a **hard risk rule** — *don't hold long option premium through a known IV-crush event* (critical
+  for the founder's long-options style; "sell the day before"). Calendar data is free.
+- *Macro/sector/index/regime:* sector-ETF RS, SPY vs 200-DMA, VIX percentile, breadth (% of universe > 200-DMA),
+  FRED macro. Roles: features **and** a **regime GATE/modifier** (Round-1 open question — regime can dominate
+  edge robustness; regime change needs human review). Mostly free data.
+- *Prediction markets (Polymarket):* cleaner macro-event *odds* feed (free public API) for the event/regime
+  layer. **Skeptical:** prediction markets are efficient + already priced into stocks; indirect for equity
+  edges, coverage-limited. Treat as an experiment, not a foundation.
+- *Crypto/BTC (free data):* **(a)** BTC as a risk-on/off **regime feature for equities** — easy, cheap, do it;
+  **(b)** *trading* crypto as its own universe — a separate model + product-scope decision (pipeline
+  generalizes, but 24/7, higher vol, no fundamentals). Bonus: crypto is great free data for *dev-testing* the harness.
+
+**3. Portfolio management + per-account risk profiles.** Elevates agent from trade-picker to portfolio MANAGER
+(the founder manages aggressive trading accounts AND conservative accounts for others — concrete multi-account
+need). Two layers:
+- *Layer A — risk profiles per account (conservative/moderate/aggressive): near-term, high ROI.* A parameter set
+  the agent obeys per account — conviction threshold, sizing (¼-Kelly → fuller Kelly), max position %/heat/net
+  exposure, allowed instruments, drawdown limits. Mostly **config + per-account RiskEngine caps** (extend what
+  exists). One engine serves every account at its risk tolerance.
+- *Layer B — portfolio exposure / allocator: deeper.* Net delta (long/short), correlation-aware sizing (vs
+  existing holdings, not just per-trade Kelly), hedging — the classical risk-budget/allocator the per-trade
+  proposals fit within (Round-1: LLM signals → classical allocator w/ exposure/turnover controls). **Data gap:**
+  options Greeks/delta need an options-data source or Black-Scholes-with-IV (no free options data yet — Round 2
+  didn't crack it); equity net-exposure is easy. This is where regime-gate + event-awareness + sizing converge.
+
+**4. Agent-in-the-loop SIMULATION harness (the "value test" — arguably a prerequisite to bounded auto-execute).**
+A "wind tunnel" that drives the WHOLE loop (perceive→score→propose→auto-approve→execute→learn) over years of
+data in minutes, to observe **system behavior** (NOT P&L): did rule count explode or stabilize? proposal volume
+runaway or sane? did dedup/caps/kill-switch hold across 10k iterations? did the learn loop converge (self-improve)
+or oscillate/diverge (haywire)? **Distinct from the model backtest** (that tests the score; this tests the
+organism). Needs: a **sim clock** (point-in-time), a **sim broker** (fills+slippage, extends dry-run), an
+**auto-decision policy** (proxy for the human approver — its choice shapes results), an **observability layer**.
+Catches: human-proxy approval; "self-improve" only works as well as the learn loop is *wired* (R4, partial — sim
+reveals gaps); **cost** (run the deterministic loop at scale, mock/sample the LLM); point-in-time discipline is
+mandatory. Doubles as the best integration/regression test + safety stress-test + trust-building demo. R4/R5 work.
+
 ---
 
 ## 2. Architecture (keep this shape)
