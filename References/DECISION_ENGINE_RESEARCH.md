@@ -147,3 +147,66 @@ this app can run almost entirely on FREE data; only one paid item is even worth 
 
 **Takeaway for the build:** start 100% free (Alpaca IEX + EDGAR + yfinance + scraped social), prove the edge,
 *then* consider QuiverQuant $75/mo as the only data spend — and only if measured lift justifies it.
+
+---
+
+# Round 3 — Edges, EV-sizing & the backtest pipeline (the v1 scorecard blueprint)
+
+*Deep-research pass 2026-06-21 (cheap workflow: 111 agents; 25 claims → **6 confirmed, 19 killed**). The
+verification was brutal in the most useful way.*
+
+## ⚠️ THE headline finding: no edge survived — validate everything yourself
+**Every specific factor/edge claim was REFUTED 0-3** — mean reversion, momentum, volume-imbalance, the
+"persistent t-stat" factors, regime-dependence, the GT-Score efficacy numbers, the specific Kelly /
+risk-of-ruin formulas, and the exact survivorship-bias magnitudes **all failed adversarial verification.**
+**This is the strongest signal in the dataset.** It means: **do NOT hard-code any factor as "proven."** Even
+peer-reviewed, published edges don't survive scrutiny — so the v1 scorecard must treat **every factor as a
+HYPOTHESIS validated by our own backtest**, never a pre-trusted edge. (This is the calibrated-not-fabricated
+principle taken to its logical end, and it's *liberating*: we build the honest machine, not someone's claimed
+alpha.)
+
+## ✅ What DID survive — the methodology / pipeline (build this)
+The evidence backs the **infrastructure of an honest EV/win% pipeline**, not any edge:
+1. **Survivorship-bias-free universe is the #1 correction.** *(high)* Delisted/bankrupt/acquired stocks MUST be
+   included — free sources (Yahoo/yfinance) contain only *survivors* → systematically inflated backtests
+   (CRSP 9.0% biased vs 7.4% clean; worse for small-cap). The one affordable confirmed source: **Norgate Data**
+   (delisted DB back to 1950, split/div-adjusted). **⚠️ Practical snag for us: Norgate's client is
+   Windows-only, no intraday, delisted = Platinum tier — awkward for our Linux serv.** The API-friendly
+   alternative **Sharadar (Nasdaq Data Link)** had its survivorship/coverage claims **refuted here** (couldn't
+   verify) → **open decision: Norgate (proven, Windows-awkward) vs Sharadar (Linux/API-friendly, unverified).**
+2. **Volatility-aware (triple-barrier) labeling, not fixed-horizon.** *(high)* Fixed-time labeling ignores
+   per-setup volatility + price path → biases EV/win-rate. Use volatility-scaled barriers (Lopez de Prado).
+   *(Caveat: the "triple-barrier → better-calibrated win%" claim was refuted — adopt as default, verify it.)*
+3. **PurgedKFold + embargo cross-validation, not random splits.** *(high)* Overlapping holding-period labels
+   leak across split points; purging drops train rows whose label windows overlap the test fold, embargo
+   buffers after — yielding **honest out-of-fold predictions** (which are exactly what you feed the Platt
+   calibrator from Round 1). This is the link between "backtest" and "honest win%."
+4. **A transparent composite score template — GT-Score `μ·ln(z)·r²/σ_d`** *(medium)* — integrates performance,
+   statistical significance, consistency, downside risk. **Adopt the *structure* (a readable weighted
+   composite), NOT its refuted efficacy numbers.**
+
+## Sizing (Part B): no shortcut — derive it from your own numbers
+All specific Kelly fractions and risk-of-ruin formulas were **refuted**. → Size from the engine's **own
+backtested EV/win-rate** using **classic fractional-Kelly** (Kelly 1956 / Thorp / Lopez de Prado — not in this
+batch, but the canonical references). No magic constant; the sizing falls out of the calibrated edge.
+
+## The coherent pipeline (Rounds 1+3 combined) — our build blueprint
+`survivorship-free universe → point-in-time features (factor hypotheses) → triple-barrier labels →
+PurgedKFold+embargo backtest → out-of-fold predictions → Platt calibration (Round 1) → per-bucket EV + win%
+with confidence band → fractional-Kelly sizing`, all gated by **walk-forward + Deflated-Sharpe/PBO** (Round 1)
+multiple-testing checks. Factors enter only after passing this; nothing is pre-trusted.
+
+## Open questions (next, and mostly answered by *our own* backtest)
+- **Which factors actually work** (and weights) — only our walk-forward backtest on survivorship-free data can
+  say; start from the trader's mean-reversion-dip style as candidate *hypotheses*, then prove them.
+- **Norgate vs Sharadar** for the Linux pipeline (the one concrete practical decision to resolve).
+- Fractional-Kelly multiplier + per-trade risk cap (from classic lit + our calibrated win%).
+- Platt vs isotonic for *our* output (Round 1 favored Platt at small samples; test empirically).
+- Parsimony: how few factors given multiple-testing power; the t-stat / Deflated-Sharpe gate for v1 inclusion.
+
+## Top overfitting traps to avoid (verified)
+1. **Survivorship bias** (only testing survivors). 2. **Fixed-horizon labeling** (volatility-blind).
+3. **Train/test leakage from overlapping labels** (random splits instead of purged+embargo CV).
+
+*Sources: Lopez de Prado, Advances in Financial ML (2018) via mlfinpy/mlfinlab/mql5; Norgate Data + Concretum;
+arXiv 2602.00080 (GT-Score structure). NB: arXiv 2601.06499 & 2512.12924 factor claims all refuted here.*
