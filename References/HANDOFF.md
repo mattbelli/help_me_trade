@@ -76,10 +76,19 @@ the safety checklist (if ever revisited) → `References/SHORT_TRADING_FINDINGS.
 `data/research/strategy_short.db` (gitignored).
 
 ## NEXT (pick up here)
-- **FORWARD-TEST on paper, not real money** (the right next gate): the strategy is long-only → fits the
-  app's no-short rule → wire it as an actionable `type:"trade"` signal-rule (created DISABLED) → agent
-  proposes these dip setups → phone approve → paper execution via the existing chokepoint. Compare live
-  paper EV to the backtest's ~+0.5% net expectation over months before any real-money double-gate.
+- **FORWARD-TEST on paper — Increment 1 (ENTRY) SHIPPED; EXITS next.** The dip-buy entry path is wired +
+  reviewed + tested (`signals/strategy_scan.py`): a **disabled-by-default** scan (`dip_strategy_enabled`,
+  off) evaluates the watchlist each cycle with the **same** `research.strategy_features.is_strategy_entry`
+  predicate as the backtest (zero train/serve skew, long-only), routes passes through the existing
+  `propose_trade` chokepoint → phone/desktop proposal → approve → paper. Held-position skip (one entry per
+  signal) + notional/SPY/date-alignment guards; adversarially reviewed (safety invariants all clean). 435
+  tests. **Architecture principle (founder, 2026-06-21): strategies are isolated, independently toggleable,
+  FROZEN/versioned modules — the learning layer may observe outcomes but must NEVER silently mutate a
+  strategy** (that would destroy the calibrated win%). Generalize to a multi-strategy registry only when the
+  2nd strategy lands. **NEXT: the EXIT module** (−3% stop / +3% sell-half→breakeven / trail ~10-12% / 20d
+  cap) — completes the round-trip; prerequisite for any real EV-vs-backtest comparison. Known v1 limitation:
+  a user-rejected setup can re-propose next cycle (needs a per-symbol cooldown) — fold into the exit round.
+  To run it: flip `trading.dip_strategy_enabled` true (+ set `dip_strategy_notional_usd`) via settings.
 - **Remaining research:** short-side mirror (overbought→short, shorter TP — RESEARCH ONLY, app can't short;
   diagnostic for how much of the long edge is mean-reversion vs beta); pure-beta decomposition (drop
   oversold); **sector context v2** beyond SPY-only; per-feature IC to rank/size setups → fractional-Kelly.

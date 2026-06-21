@@ -72,6 +72,7 @@ from db.sqlite import (
 )
 from db.trades import init_trade_tables
 from signals.scan import run_signal_scan
+from signals.strategy_scan import run_strategy_scan
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.proposal_intake import propose_from_scan_fire
 from trading.sync import async_sync_all_enabled_brokers
@@ -189,6 +190,10 @@ async def _signal_scan_loop() -> None:
                             "action": item["action"],
                         }
                     )
+            try:
+                await run_strategy_scan()
+            except Exception:
+                logger.exception("Dip-strategy scan failed")
         except Exception:
             logger.exception("Signal scan loop iteration failed")
         await asyncio.sleep(SIGNAL_SCAN_INTERVAL_SECONDS)

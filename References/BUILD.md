@@ -189,6 +189,13 @@ sizing) more than prediction.** Build order: prove the Norgate base model first 
 hypotheses → portfolio layer on top. None require rewiring — they're features, plan-outputs, or context layers
 behind the same pipeline + `propose_trade` seam.
 
+**Forward-test status (2026-06-21):** the validated dip-buy strategy's **ENTRY** path is wired live as an
+isolated, **disabled-by-default** module (`signals/strategy_scan.py`, flag `dip_strategy_enabled`) that reuses
+the backtest predicate verbatim and proposes through the existing `propose_trade` chokepoint (long-only,
+held-position skip, adversarially reviewed). **Strategies are isolated, independently toggleable, FROZEN
+modules**; the learning layer observes outcomes but never mutates a strategy. The **EXIT module below (#1) is
+the next increment** — it completes the round-trip and is required before any live EV-vs-backtest comparison.
+
 **1. Support/Resistance + trade-PLAN outputs (completes the "fully-planned idea").**
 - *Features:* distance to nearest support/resistance, room-to-run to next level, level-test counts (from bars:
   swing pivots, volume-by-price, prior highs/lows, round numbers).

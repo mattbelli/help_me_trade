@@ -58,29 +58,47 @@ def _scan_symbols(broker_name: str) -> list[str]:
     return sorted(symbols)
 
 
-async def _fetch_symbol_bars(broker: Any, symbols: list[str]) -> dict[str, list[Bar]]:
+async def _fetch_stock_bars(
+    broker: Any,
+    symbols: list[str],
+    *,
+    days: int = BAR_DAYS,
+) -> dict[str, list[StockBar]]:
     fetch = getattr(broker, "aget_stock_bars_batch", None)
     if not callable(fetch):
-        logger.warning("Broker does not support batch bar fetch — skipping signal scan")
+        logger.warning("Broker does not support batch bar fetch — skipping bar fetch")
         return {}
 
-    symbol_bars: dict[str, list[Bar]] = {}
+    symbol_bars: dict[str, list[StockBar]] = {}
     for start in range(0, len(symbols), BAR_SYMBOL_BATCH):
         chunk = symbols[start : start + BAR_SYMBOL_BATCH]
         try:
             raw = await fetch(
                 chunk,
                 timeframe=BAR_TIMEFRAME,
-                days=BAR_DAYS,
+                days=days,
             )
         except Exception:
             logger.exception("Bar fetch failed for symbols %s", chunk)
             continue
         for sym, bars in (raw or {}).items():
-            try:
-                symbol_bars[sym] = [_to_bar(bar) for bar in bars]
-            except Exception:
-                logger.exception("Failed to convert bars for %s", sym)
+            symbol_bars[sym] = list(bars or [])
+    return symbol_bars
+
+
+async def _fetch_symbol_bars(
+    broker: Any,
+    symbols: list[str],
+    *,
+    days: int = BAR_DAYS,
+) -> dict[str, list[Bar]]:
+    symbol_bars: dict[str, list[Bar]] = {}
+    raw = await _fetch_stock_bars(broker, symbols, days=days)
+    for sym, bars in raw.items():
+        try:
+            symbol_bars[sym] = [_to_bar(bar) for bar in bars]
+        except Exception:
+            logger.exception("Failed to convert bars for %s", sym)
     return symbol_bars
 
 

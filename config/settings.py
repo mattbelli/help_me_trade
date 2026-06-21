@@ -74,6 +74,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
         "agent_proposals_enabled": True,
+        "dip_strategy_enabled": False,
+        "dip_strategy_notional_usd": 500,
         "max_pending_agent_proposals": 3,
         "max_order_value_usd": 50000,
         "max_position_pct": 30,
@@ -353,6 +355,10 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["max_daily_orders"] = int(value)
             elif key == "agent_proposals_enabled":
                 current["trading"]["agent_proposals_enabled"] = bool(value)
+            elif key == "dip_strategy_enabled":
+                current["trading"]["dip_strategy_enabled"] = bool(value)
+            elif key == "dip_strategy_notional_usd":
+                current["trading"]["dip_strategy_notional_usd"] = max(0.0, float(value))
             elif key == "max_pending_agent_proposals":
                 current["trading"]["max_pending_agent_proposals"] = max(
                     0, min(50, int(value))
@@ -681,6 +687,12 @@ def trading_config() -> dict[str, Any]:
         ),
         "agent_proposals_enabled": bool(
             cfg.get("agent_proposals_enabled", defaults["agent_proposals_enabled"])
+        ),
+        "dip_strategy_enabled": bool(
+            cfg.get("dip_strategy_enabled", defaults["dip_strategy_enabled"])
+        ),
+        "dip_strategy_notional_usd": float(
+            cfg.get("dip_strategy_notional_usd", defaults["dip_strategy_notional_usd"])
         ),
         "max_pending_agent_proposals": int(
             cfg.get(
