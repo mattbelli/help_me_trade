@@ -75,7 +75,21 @@ mean-reversion; the short can't beat the drift. **Decision: KEEP the no-short in
 the safety checklist (if ever revisited) → `References/SHORT_TRADING_FINDINGS.md`. Short backtest DB:
 `data/research/strategy_short.db` (gitignored).
 
-## NEXT (pick up here)
+## ACTIVE THREAD (2026-06-21 late): full multi-account — Phase A in progress
+Founder chose **full multi-account first** (multiple Alpaca paper + multiple Schwab accounts, execution-capable
+where allowed) so strategies can bind to a dedicated account. Spec: **`References/MULTI_ACCOUNT_PLAN.md`**
+(two-level model: broker connections → accounts; per-account RiskEngine hardening = the safety-critical core).
+**Sub-step 1 DONE — schema + migration** (`db/multi_account.py`, `db/schema_helpers.py`): `broker_connections`
+table + `trade_accounts` extended (connection_id/enabled/execution_capable/is_default) + `account_id` columns on
+poll_runs/order_executions/paper_order_proposals + idempotent backfill (legacy alpaca → default account; schwab
+ledger accounts linked read-only). Additive + behavior-preserving; adversarially reviewed (idempotency +
+behavior-preservation hold; backfill scoped to alpaca so a future schwab poll_run isn't mislabeled). Runs in
+`api/main.py` lifespan. **NEXT sub-steps (in order, each reviewed): 2** account registry + broker factory keyed
+by connection · **3** thread `account_id` through proposal→intent→execution + approval-time validation · **4**
+RiskEngine per-account hardening (heaviest review — never weaken a cap) · **5** per-account snapshot + multi-
+account sync. Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
+
+## Then (post-multi-account)
 - **FORWARD-TEST on paper — Increment 1 (ENTRY) SHIPPED; EXITS next.** The dip-buy entry path is wired +
   reviewed + tested (`signals/strategy_scan.py`): a **disabled-by-default** scan (`dip_strategy_enabled`,
   off) evaluates the watchlist each cycle with the **same** `research.strategy_features.is_strategy_entry`

@@ -15,6 +15,7 @@ from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
 from db.fifo_round_trips import fifo_round_trip_stats
+from db.schema_helpers import _add_column_if_missing
 from imports.base import ParsedTradeEvent
 from imports.money import decimal_to_str, parse_dollar
 
@@ -71,6 +72,15 @@ def init_trade_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON trade_events(symbol, trade_date DESC);
             CREATE INDEX IF NOT EXISTS idx_trade_events_account_date
                 ON trade_events(account_id, trade_date DESC);
+
+            CREATE TABLE IF NOT EXISTS broker_connections (
+                id TEXT PRIMARY KEY,
+                broker TEXT NOT NULL,
+                label TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                credentials_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
             """
         )
         for ddl in (
@@ -82,6 +92,13 @@ def init_trade_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute(ddl)
             except sqlite3.OperationalError:
                 pass
+        for column, decl in (
+            ("connection_id", "TEXT"),
+            ("enabled", "INTEGER NOT NULL DEFAULT 1"),
+            ("execution_capable", "INTEGER NOT NULL DEFAULT 0"),
+            ("is_default", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            _add_column_if_missing(conn, "trade_accounts", column, decl)
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_events_broker_txn

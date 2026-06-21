@@ -57,6 +57,7 @@ from db.chart_features import (
     mark_alert_triggered,
 )
 from db.chat_sessions import init_chat_tables
+from db.multi_account import migrate_multi_account
 from db.order_executions import (
     count_pending_paper_executions,
     count_submitted_executions,
@@ -244,6 +245,7 @@ async def lifespan(app: FastAPI):
     init_trade_tables()
     init_paper_order_tables()
     init_execution_tables()
+    migrate_multi_account()
     await market_hub.start()
     for name in get_enabled_broker_names():
         if broker_is_configured(name) and count_pending_paper_executions(name) > 0:

@@ -10,6 +10,7 @@ from pathlib import Path
 from brokers.base import Account, Order, Position
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
+from db.schema_helpers import _add_column_if_missing
 
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -77,6 +78,13 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_poll_runs_broker_captured
                 ON poll_runs(broker, captured_at DESC)
+            """
+        )
+        _add_column_if_missing(conn, "poll_runs", "account_id", "TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_poll_runs_account_captured
+                ON poll_runs(account_id, captured_at)
             """
         )
 

@@ -12,6 +12,7 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.schema_helpers import _add_column_if_missing
 
 
 def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -43,6 +44,13 @@ def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON order_executions(proposal_id);
             CREATE INDEX IF NOT EXISTS idx_order_executions_status_created
                 ON order_executions(status, created_at DESC);
+            """
+        )
+        _add_column_if_missing(conn, "order_executions", "account_id", "TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_order_exec_account_created
+                ON order_executions(account_id, created_at, status)
             """
         )
 
@@ -84,6 +92,7 @@ def create_execution_record(
     risk_checks_json: dict[str, Any] | str | None = None,
     broker_order_id: str | None = None,
     submitted_at: str | None = None,
+    account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_execution_tables(db_path)
@@ -99,8 +108,8 @@ def create_execution_record(
             INSERT INTO order_executions (
                 id, proposal_id, session_id, symbol, side, qty, order_type,
                 limit_price, execution_mode, status, broker_order_id, broker,
-                risk_checks_json, submitted_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                risk_checks_json, submitted_at, created_at, updated_at, account_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 execution_id,
@@ -119,6 +128,7 @@ def create_execution_record(
                 submitted_at,
                 now,
                 now,
+                account_id,
             ),
         )
         conn.commit()
