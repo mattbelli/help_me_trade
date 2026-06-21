@@ -666,6 +666,11 @@ def create_rule(
     enabled: bool = True,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
+    # A rule that can propose real trades must be explicitly enabled by a human
+    # action — never armed at creation by the agent/LLM.
+    if action.get("type") == "trade":
+        enabled = False
+
     init_ai_tables(db_path)
     now = _now()
     with _connect(db_path) as conn:

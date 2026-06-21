@@ -73,6 +73,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "trading": {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
+        "agent_proposals_enabled": True,
+        "max_pending_agent_proposals": 3,
         "max_order_value_usd": 50000,
         "max_position_pct": 30,
         "max_open_orders": 10,
@@ -349,6 +351,12 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["max_open_orders"] = int(value)
             elif key == "max_daily_orders":
                 current["trading"]["max_daily_orders"] = int(value)
+            elif key == "agent_proposals_enabled":
+                current["trading"]["agent_proposals_enabled"] = bool(value)
+            elif key == "max_pending_agent_proposals":
+                current["trading"]["max_pending_agent_proposals"] = max(
+                    0, min(50, int(value))
+                )
 
     save_settings(current)
     return load_settings()
@@ -670,6 +678,15 @@ def trading_config() -> dict[str, Any]:
         or defaults["execution_mode"],
         "kill_switch_active": bool(
             cfg.get("kill_switch_active", defaults["kill_switch_active"])
+        ),
+        "agent_proposals_enabled": bool(
+            cfg.get("agent_proposals_enabled", defaults["agent_proposals_enabled"])
+        ),
+        "max_pending_agent_proposals": int(
+            cfg.get(
+                "max_pending_agent_proposals",
+                defaults["max_pending_agent_proposals"],
+            )
         ),
         "max_order_value_usd": float(
             cfg.get("max_order_value_usd", defaults["max_order_value_usd"])

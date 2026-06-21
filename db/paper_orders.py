@@ -21,6 +21,8 @@ _NEW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("decided_at", "TEXT"),
     ("execution_id", "TEXT"),
     ("last_error", "TEXT"),
+    ("source", "TEXT"),
+    ("rule_id", "TEXT"),
 )
 
 
@@ -134,6 +136,8 @@ def create_pending_proposal(
     session_id: str | None,
     ttl_seconds: int,
     summary: str,
+    source: str | None = None,
+    rule_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_paper_order_tables(db_path)
@@ -159,8 +163,9 @@ def create_pending_proposal(
             """
             INSERT INTO paper_order_proposals (
                 id, session_id, symbol, side, qty, order_type, limit_price,
-                status, proposal_json, created_at, expires_at, payload_hash, delivery
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, proposal_json, created_at, expires_at, payload_hash, delivery,
+                source, rule_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pid,
@@ -176,6 +181,8 @@ def create_pending_proposal(
                 expires_at,
                 payload_hash,
                 "phone",
+                source,
+                rule_id,
             ),
         )
         conn.commit()

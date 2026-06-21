@@ -237,10 +237,24 @@ Group.model_rebuild()
 
 
 class Action(BaseModel):
-    type: str = "alert"
+    type: Literal["alert", "trade"] = "alert"
     trigger_on: Literal["always", "transition"] = "transition"
     cooldown_seconds: int = Field(default=0, ge=0)
     message: str | None = None
+    symbol: str | None = None
+    side: Literal["buy", "sell"] | None = None
+    notional_usd: float | None = None
+    order_type: Literal["market", "limit"] = "market"
+    limit_price: float | None = None
+
+    @model_validator(mode="after")
+    def trade_action_requires_fields(self) -> Self:
+        if self.type == "trade":
+            if not self.symbol or not self.side or self.notional_usd is None:
+                raise ValueError(
+                    "trade actions require symbol, side, and notional_usd"
+                )
+        return self
 
 
 class Universe(BaseModel):
@@ -270,6 +284,16 @@ class RuleSpec(BaseModel):
         }
         if self.action.message is not None:
             action["message"] = self.action.message
+        if self.action.symbol is not None:
+            action["symbol"] = self.action.symbol
+        if self.action.side is not None:
+            action["side"] = self.action.side
+        if self.action.notional_usd is not None:
+            action["notional_usd"] = self.action.notional_usd
+        if self.action.order_type != "market":
+            action["order_type"] = self.action.order_type
+        if self.action.limit_price is not None:
+            action["limit_price"] = self.action.limit_price
         return {
             "name": self.name,
             "enabled": self.enabled,

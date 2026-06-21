@@ -189,6 +189,8 @@ async def create_phone_proposal(
     args: dict[str, Any],
     *,
     session_id: str | None = None,
+    source: str | None = None,
+    rule_id: str | None = None,
     ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
@@ -206,6 +208,8 @@ async def create_phone_proposal(
         session_id=session_id_str,
         ttl_seconds=ttl_seconds,
         summary=summary,
+        source=source,
+        rule_id=rule_id,
         db_path=db_path,
     )
 

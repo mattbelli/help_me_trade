@@ -73,6 +73,7 @@ from db.sqlite import (
 from db.trades import init_trade_tables
 from signals.scan import run_signal_scan
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
+from trading.proposal_intake import propose_from_scan_fire
 from trading.sync import async_sync_all_enabled_brokers
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -171,14 +172,23 @@ async def _signal_scan_loop() -> None:
                     [t["rule_id"] for t in triggered],
                 )
             for item in triggered:
-                await market_hub.broadcast_alert(
-                    {
-                        "source": "signal_scan",
-                        "rule_id": item["rule_id"],
-                        "rule_name": item["rule_name"],
-                        "action": item["action"],
-                    }
-                )
+                if item["action"].get("type") == "trade":
+                    try:
+                        await propose_from_scan_fire(item)
+                    except Exception:
+                        logger.exception(
+                            "Agent trade proposal failed for rule %s",
+                            item.get("rule_id"),
+                        )
+                else:
+                    await market_hub.broadcast_alert(
+                        {
+                            "source": "signal_scan",
+                            "rule_id": item["rule_id"],
+                            "rule_name": item["rule_name"],
+                            "action": item["action"],
+                        }
+                    )
         except Exception:
             logger.exception("Signal scan loop iteration failed")
         await asyncio.sleep(SIGNAL_SCAN_INTERVAL_SECONDS)

@@ -42,10 +42,16 @@ routing through the existing chokepoint (see BUILD.md history 2026-06-20).
 **Done — R3-B (mobile Approve/Reject card):** the Activity tab fetches `GET /api/proposals/pending` and
 renders amber Approve/Reject cards (live expiry countdown, badge on the Activity pill tab, toasts) → call
 the endpoints. The in-app loop is end-to-end: `POST /api/proposals` → card → Approve → chokepoint (dry_run
-logs; flip to `paper` to place). **Next — R3-C:** the agent/proactive trigger that *chooses* phone-delivery
-(so the agent — not a manual POST — creates the pending proposal); then Modify; then the **APNs + RN** native
-client (the real lock-screen push). Deferred hardening (before paper-autonomous): stuck-`approving` reconcile
-on restart; auth-disabled warning.
+logs; flip to `paper` to place).
+**Done — R3-C (agent trigger):** an **actionable signal-rule** (`action.type="trade"` + symbol/side/notional)
+firing in the scan loop → the single **`propose_trade` intake seam** (`trading/proposal_intake.py`) → sizes
+(fixed notional) → gates (enabled/kill-switch/market-hours/max-pending/dedup/dry-RiskEngine) → `create_phone_proposal`.
+Agent NEVER executes; no new broker path. Adversarially reviewed + hardened: **trade rules are force-created
+DISABLED** (`create_rule` — a human must enable; the LLM can't self-arm), `Action.type` is a validated
+`Literal`, global pending cap. 344 tests. **The whole decision engine plugs in behind this one seam.**
+**Next:** the **Decision Engine** itself (see `References/DECISION_ENGINE_RESEARCH.md` — the headline value) +
+an authoring UI for trade-rules; then Modify; then **APNs + RN**. Deferred hardening (before paper-autonomous):
+stuck-`approving` reconcile on restart; auth-disabled warning; pass prebuilt to avoid double-build.
 → Original kickoff: `References/R3_KICKOFF.md` (mechanism section now superseded by the RN decision above).
 
 **Parallel option still open — watchlist v3** (`WATCHLIST_SPEC.md`, Phase A = IEX-proxy RVOL + 52w slider +
