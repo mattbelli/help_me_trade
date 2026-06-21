@@ -206,6 +206,14 @@ behind the same pipeline + `propose_trade` seam.
 - *Prediction markets (Polymarket):* cleaner macro-event *odds* feed (free public API) for the event/regime
   layer. **Skeptical:** prediction markets are efficient + already priced into stocks; indirect for equity
   edges, coverage-limited. Treat as an experiment, not a foundation.
+- *Social hype via X API (VERIFIED on docs.x.com 2026-06):* X is now **pay-per-use** (no subscription, no
+  minimum) — **Posts: Read = $0.005/post**, and crucially **24h deduplication** (charged once per unique tweet
+  per UTC day no matter how often you re-poll → poll-frequency barely affects cost, no clever `since_id`
+  needed). Reading a handful of curated trader accounts every minute during market hours ≈ **$30–100/mo**
+  (≈ unique-tweets/day × $0.005); set a **hard spending limit** as the safety rail; monitor via the Usage API.
+  This is the **first real social-data option** (Round 2 found none) — still a hypothesis (must prove the
+  tweet signal adds EV). NB: "Owned Reads" $0.001 apply only to your *own* data; xAI-credit kickback needs
+  $200+/mo (irrelevant at this scale).
 - *Crypto/BTC (free data):* **(a)** BTC as a risk-on/off **regime feature for equities** — easy, cheap, do it;
   **(b)** *trading* crypto as its own universe — a separate model + product-scope decision (pipeline
   generalizes, but 24/7, higher vol, no fundamentals). Bonus: crypto is great free data for *dev-testing* the harness.

@@ -18,6 +18,29 @@ backup only — **do all work on `serv`**. **Access from any tailnet device:** h
 **Deferred:** Dockerize (backend + frontend + SearXNG via compose, `data/` as a volume) at the **live-prep
 milestone** (Increment 3 era) — 12-factor groundwork already done, so a small lift. (Node ≥22 for the bridge.)
 
+## DONE (2026-06-21): R3 phone-approval + the Decision Engine spine
+Huge session — all committed + pushed to GitHub (`main`), **371 tests** green. **(1) R3 phone delivery
+SHIPPED** (A: proposal lifecycle + approve/reject through the existing chokepoint; B: mobile Approve/Reject
+card; C: agent trigger — actionable rule → `propose_trade` seam → phone proposal). **(2) Mobile bottom-tab
+shell** (native-style, the desktop-grid stays for desktop). **(3) The Decision Engine** (the app's #1 value):
+3 adversarially-verified **research rounds** (`DECISION_ENGINE_RESEARCH.md`) + the **offline backtest harness**
+(`research/`: bars→triple-barrier labels→PurgedKFold+Platt calibration→EV/win% artifacts) + the **live scorer**
+(`signals/decision_scorer.py`) putting **calibrated win%/EV/CI** on every proposal across desktop + phone.
+Verified live (honest: dev model shows ~no edge + low-confidence flag — the machine refuses to fabricate).
+**(4) Engine-deepening roadmap** captured in BUILD.md (S/R+TP+hold · world-context/events/macro/X-API/crypto ·
+portfolio + risk profiles · the agent SIMULATION "value test"). Deploy w/o sudo: `kill`+systemd (services run
+as `mbelli`, `Restart=always`). Cheap research: `Workflow({name:"deep-research-cheap"})`.
+
+## NEXT (pick up here)
+- **Real Norgate artifacts** (offline-on-Windows training → `git add -f research/artifacts/*.json`) — makes the
+  win% trustworthy (dev artifacts are Alpaca/survivor-biased, gitignored).
+- **Layer-A risk profiles** (per-account conservative/moderate/aggressive — near-term, config + RiskEngine caps).
+- **Deterministic TP-ladder + hold-length** output module (parallelizable; completes the "fully-planned idea").
+- **Trade-rule authoring UI** (arm actionable `type:"trade"` rules from the app — they're created DISABLED).
+- **RN phone app** — a PARALLEL track (decoupled: it's a native client of the done/stable backend API). Expo;
+  much of it cloud-buildable via EAS (Mac mainly needed for APNs/Live-Activities native iteration). The web
+  mobile shell is the design reference. The RN unlock = lock-screen Approve/Reject (APNs) + native feel.
+
 ## State
 Autonomous trading agent; loop = PERCEIVE→REASON→DECIDE→**ACT**→DELIVER→LEARN. **R2 (ACT) shipped:** a
 fail-closed execution **chokepoint** (RiskEngine 10 checks → ExecutionService, the sole broker path) + **real
