@@ -122,6 +122,37 @@ the proposal *pipe* (one source, fixed sizing) → then iterate the decision eng
 fusion/scoring → calibrated win% → S/R-based target planning — each preceded by **dedicated deep research**
 (best sources/APIs, fusion methods, win-rate calibration, scale-out/target methodology, social-hype reliability).
 
+### Decision engine NOW vs trading bot LATER (same brain) + the two data needs
+**Same brain, different trigger finger.** A decision-support engine (agent scores an idea → *human approves* →
+chokepoint executes) and a future **trading bot** (agent scores → *auto-executes within guardrails* → reports)
+share the SAME scored edge — they differ only in who pulls the trigger (the autonomy ladder: propose →
+bounded auto-execute). The `propose_trade` seam already supports both, so **edge/factor research feeds both** —
+nothing is wasted. Build the human-approval engine now; the bot is the same pipe with a guardrailed
+auto-approve later. NOW factors: mean-reversion + momentum (buildable as scorecard factors). LATER/bot:
+statistical arbitrage (pairs, options skew — needs continuous monitoring + paired execution).
+
+**Headline metric = Expected Value, not just win%.** `EV = win% × avg_win − loss% × avg_loss`. A 40%-win
+setup with 3:1 winners beats a 70%-win setup with fat losers — show EV per idea, with win% + confidence band.
+
+**TWO data needs — do NOT conflate (or you buy the wrong data):**
+- **Live / operational** (agent decides *now*): quotes, current sentiment/insider/fundamentals → the
+  **data-sources research** (queued).
+- **Historical / backtest** (validate edges + calibrate honest EV/win% over *thousands* of instances): years
+  of **survivorship-free, split/dividend-adjusted daily bars** + **point-in-time** fundamentals across many
+  symbols. Daily bars are cheap (yfinance/Stooq free to start; Tiingo/Norgate/Sharadar cheap + rigorous);
+  the hard/expensive part is point-in-time fundamentals + historical sentiment (Tier 2, deferred). Do NOT buy
+  a real-time feed for backtesting. Significance bar is real: **~1,000–10,000 instances** — the user's own
+  ~260 round-trips are far too few, so derive edge stats from broad **backtests**, not personal history, and
+  always show the uncertainty band.
+- **Backtest pipeline steps:** define survivorship-free universe → ingest adjusted bars → compute
+  point-in-time features → **triple-barrier label** outcomes (this generates the thousands of samples) →
+  walk-forward backtest → Platt-calibrate score→prob → EV per bucket → multiple-testing checks (DSR/PBO).
+  Groundwork exists: `signals/backtest.py` + Alpaca bar fetch. Gaps: survivorship-free universe, labeling,
+  calibration pipeline.
+
+**Research queued (cheap path, `deep-research-cheap`):** data sources (live/operational) + edges/factors +
+EV-sizing + backtest-data pipeline. Reports land in claude.ai routines → fold into this doc as Rounds 2-3.
+
 ### Research evidence base — `References/DECISION_ENGINE_RESEARCH.md`
 Round-1 deep research (2026-06-21, adversarially verified) — **read it before building the engine.** Headlines:
 **(a)** the signals → composite **score** → **calibration layer** → win% pipeline, with the **LLM only on
