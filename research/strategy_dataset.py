@@ -86,6 +86,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
         cap_day_max,
         cap_vol_min,
         cost_pct,
+        trail_pct,
         created_at,
     ) = task
 
@@ -149,6 +150,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
             runner_target_pct=runner_target_pct,
             breakeven_after_first=breakeven_after_first,
             max_holding=max_holding,
+            trail_pct=trail_pct,
         )
         if sim is None:
             continue
@@ -205,6 +207,7 @@ def _strategy_tasks(
     cap_day_max: float,
     cap_vol_min: float,
     cost_pct: float,
+    trail_pct: float | None,
     created_at: str,
 ) -> list[tuple]:
     return [
@@ -228,6 +231,7 @@ def _strategy_tasks(
             cap_day_max,
             cap_vol_min,
             cost_pct,
+            trail_pct,
             created_at,
         )
         for symbol in symbols
@@ -438,6 +442,7 @@ def build_strategy_dataset(
     cap_day_max: float = -2.0,
     cap_vol_min: float = 1.5,
     cost_pct: float = 0.0,
+    trail_pct: float | None = None,
     jobs: int = 1,
     replace: bool = True,
 ) -> dict:
@@ -484,6 +489,7 @@ def build_strategy_dataset(
             cap_day_max=cap_day_max,
             cap_vol_min=cap_vol_min,
             cost_pct=cost_pct,
+            trail_pct=trail_pct,
             created_at=created_at,
         )
 
@@ -625,6 +631,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0.0,
         help="Round-trip cost deducted from blended return (default: 0.0)",
     )
+    parser.add_argument(
+        "--trail-pct",
+        type=float,
+        default=None,
+        help="Trailing-stop %% on the runner (replaces fixed runner target if set)",
+    )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
         parser.error("provide --symbols or --symbols-from-cache")
@@ -657,6 +669,7 @@ def main(argv: list[str] | None = None) -> None:
         oversold_3d_max=args.oversold_3d_max,
         mkt_down_3d_max=args.mkt_down_3d_max,
         cost_pct=args.cost_pct,
+        trail_pct=args.trail_pct,
     )
 
 
