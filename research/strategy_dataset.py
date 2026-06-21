@@ -87,6 +87,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
         cap_vol_min,
         cost_pct,
         trail_pct,
+        side,
         created_at,
     ) = task
 
@@ -131,6 +132,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
             require_capitulation=require_capitulation,
             cap_day_max=cap_day_max,
             cap_vol_min=cap_vol_min,
+            side=side,
         ):
             continue
 
@@ -151,6 +153,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
             breakeven_after_first=breakeven_after_first,
             max_holding=max_holding,
             trail_pct=trail_pct,
+            side=side,
         )
         if sim is None:
             continue
@@ -208,6 +211,7 @@ def _strategy_tasks(
     cap_vol_min: float,
     cost_pct: float,
     trail_pct: float | None,
+    side: str,
     created_at: str,
 ) -> list[tuple]:
     return [
@@ -232,6 +236,7 @@ def _strategy_tasks(
             cap_vol_min,
             cost_pct,
             trail_pct,
+            side,
             created_at,
         )
         for symbol in symbols
@@ -311,6 +316,7 @@ def _compute_summary_from_rows(
     cap_day_max: float,
     cap_vol_min: float,
     cost_pct: float,
+    side: str,
 ) -> dict:
     n_setups = len(rows)
     if n_setups == 0:
@@ -338,6 +344,7 @@ def _compute_summary_from_rows(
             "cap_day_max": cap_day_max,
             "cap_vol_min": cap_vol_min,
             "cost_pct": cost_pct,
+            "side": side,
         }
         _log_summary(summary)
         return summary
@@ -378,6 +385,7 @@ def _compute_summary_from_rows(
         "cap_day_max": cap_day_max,
         "cap_vol_min": cap_vol_min,
         "cost_pct": cost_pct,
+        "side": side,
     }
     _log_summary(summary)
     return summary
@@ -401,11 +409,12 @@ def _log_summary(summary: dict) -> None:
     win_pct = summary["win_rate"] * 100
     amb_pct = summary["same_day_ambiguous_pct"] * 100
     logger.info(
-        "STRATEGY: %s | entry: %s\n"
+        "STRATEGY (%s): %s | entry: %s\n"
         "setups: %s across %s symbols | win%% %.1f%% | avg EV/trade %+.2f%% | "
         "median %+.1f%% | avg hold %.1fd\n"
         "%s\n"
         "same-day-ambiguous: %.1f%% of trades | cost applied: %.2f%%",
+        summary["side"],
         exit_line,
         entry_line,
         f"{summary['n_setups']:,}",
@@ -443,6 +452,7 @@ def build_strategy_dataset(
     cap_vol_min: float = 1.5,
     cost_pct: float = 0.0,
     trail_pct: float | None = None,
+    side: str = "long",
     jobs: int = 1,
     replace: bool = True,
 ) -> dict:
@@ -490,6 +500,7 @@ def build_strategy_dataset(
             cap_vol_min=cap_vol_min,
             cost_pct=cost_pct,
             trail_pct=trail_pct,
+            side=side,
             created_at=created_at,
         )
 
@@ -548,6 +559,7 @@ def build_strategy_dataset(
             cap_day_max=cap_day_max,
             cap_vol_min=cap_vol_min,
             cost_pct=cost_pct,
+            side=side,
         )
     finally:
         conn.close()
@@ -637,6 +649,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Trailing-stop %% on the runner (replaces fixed runner target if set)",
     )
+    parser.add_argument(
+        "--side",
+        choices=("long", "short"),
+        default="long",
+        help="Trade side for research backtests (default: long)",
+    )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
         parser.error("provide --symbols or --symbols-from-cache")
@@ -670,6 +688,7 @@ def main(argv: list[str] | None = None) -> None:
         mkt_down_3d_max=args.mkt_down_3d_max,
         cost_pct=args.cost_pct,
         trail_pct=args.trail_pct,
+        side=args.side,
     )
 
 

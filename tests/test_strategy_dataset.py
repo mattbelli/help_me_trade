@@ -28,6 +28,65 @@ def _apply_three_day_dip(closes: list[float], idx: int, drop_pct: float) -> None
     closes[idx] = peak * factor
 
 
+def _apply_three_day_rally(closes: list[float], idx: int, rally_pct: float) -> None:
+    """In-place 3-bar rally ending at idx with total rally_pct from idx-3."""
+    base = closes[idx - 3]
+    factor = 1.0 + rally_pct / 100.0
+    closes[idx - 2] = base
+    closes[idx - 1] = base * (factor ** (1 / 3))
+    closes[idx] = base * factor
+
+
+def _short_runner_forward_overrides(
+    entry_close: float,
+    entry_idx: int,
+    count: int,
+) -> tuple[list[float | None], list[float | None]]:
+    """High/low overrides: day+1 hits -3% target, day+2 hits -10% runner."""
+    highs: list[float | None] = [None] * count
+    lows: list[float | None] = [None] * count
+    highs[entry_idx + 1] = entry_close * 1.01
+    lows[entry_idx + 1] = entry_close * 0.97
+    highs[entry_idx + 2] = entry_close * 0.96
+    lows[entry_idx + 2] = entry_close * 0.90
+    return highs, lows
+
+
+def _symbol_bars_with_single_short_entry(
+    *,
+    bar_count: int,
+    entry_idx: int,
+    entry_date: date,
+    stock_rally_pct: float = 6.0,
+) -> list[DatedBar]:
+    start_date = entry_date - timedelta(days=entry_idx)
+    closes = [220.0 - i * 0.45 for i in range(bar_count)]
+    _apply_three_day_rally(closes, entry_idx, stock_rally_pct)
+    entry_close = closes[entry_idx]
+    highs_override, lows_override = _short_runner_forward_overrides(
+        entry_close, entry_idx, bar_count
+    )
+    return _dated_bars_from_closes(
+        closes,
+        start_date,
+        highs_override=highs_override,
+        lows_override=lows_override,
+    )
+
+
+def _spy_bars_aligned_rally(
+    *,
+    bar_count: int,
+    entry_idx: int,
+    entry_date: date,
+    spy_rally_pct: float,
+) -> list[DatedBar]:
+    start_date = entry_date - timedelta(days=entry_idx)
+    closes = [450.0] * bar_count
+    _apply_three_day_rally(closes, entry_idx, spy_rally_pct)
+    return _dated_bars_from_closes(closes, start_date)
+
+
 def _dated_bars_from_closes(
     close_series: list[float],
     start_date: date,
@@ -439,6 +498,74 @@ def test_build_strategy_dataset_cost_shifts_label(
 
     assert row["label"] == 0
     assert row["blended_return_pct"] == pytest.approx(-0.5)
+
+
+def test_build_strategy_dataset_short_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+    strategy_tmp_paths: tuple[Path, Path],
+) -> None:
+    bars_db, strategy_db = strategy_tmp_paths
+    entry_date = date(2024, 6, 15)
+    start = date(2024, 6, 1)
+    end = date(2024, 8, 1)
+    entry_idx = MIN_BARS_FOR_CONTEXT + 5
+    max_holding = 20
+    bar_count = MIN_BARS_FOR_CONTEXT + max_holding + 25
+
+    spy_bars = _spy_bars_aligned_rally(
+        bar_count=bar_count,
+        entry_idx=entry_idx,
+        entry_date=entry_date,
+        spy_rally_pct=2.0,
+    )
+    symbol_bars = {
+        "AAPL": _symbol_bars_with_single_short_entry(
+            bar_count=bar_count,
+            entry_idx=entry_idx,
+            entry_date=entry_date,
+        ),
+    }
+    _patch_get_daily_bars(monkeypatch, spy_bars=spy_bars, symbol_bars=symbol_bars)
+
+    params = {
+        "symbols": ["AAPL"],
+        "start": start,
+        "end": end,
+        "benchmark": "SPY",
+        "max_holding": max_holding,
+        "source": "test",
+        "bars_db_path": bars_db,
+        "strategy_db_path": strategy_db,
+        "side": "short",
+    }
+    summary = build_strategy_dataset(**params)
+
+    assert summary["n_setups"] == 1
+    assert summary["side"] == "short"
+    assert summary["outcome_counts"]["first_then_runner"] == 1
+    assert summary["avg_return"] == pytest.approx(6.5)
+
+    conn = connect(strategy_db)
+    try:
+        row = conn.execute("SELECT * FROM strategy_setups").fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row["entry_date"] == entry_date.isoformat()
+    assert row["outcome"] == "first_then_runner"
+    assert row["blended_return_pct"] == pytest.approx(6.5)
+
+    expected = simulate_exit(
+        symbol_bars["AAPL"],
+        entry_idx,
+        max_holding=max_holding,
+        side="short",
+    )
+    assert expected is not None
+    assert row["outcome"] == expected["outcome"]
+    assert row["blended_return_pct"] == pytest.approx(expected["blended_return_pct"])
+    assert row["holding_days"] == expected["holding_days"]
 
 
 def test_build_strategy_dataset_skips_benchmark_symbol(

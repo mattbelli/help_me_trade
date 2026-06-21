@@ -194,3 +194,52 @@ def test_default_unchanged_with_trail_none() -> None:
     assert be["outcome"] == "first_then_breakeven"
     assert be["blended_return_pct"] == pytest.approx(1.5)
     assert be["hit_trail"] is False
+
+
+def test_long_unchanged_with_explicit_side() -> None:
+    bars = _entry_bars(
+        _bar(100.0, h=103.0, low=99.0),
+        _bar(105.0, h=110.0, low=104.0),
+    )
+    result = simulate_exit(bars, 0, side="long")
+    assert result is not None
+    assert result["outcome"] == "first_then_runner"
+    assert result["blended_return_pct"] == pytest.approx(6.5)
+    assert result["side"] == "long"
+
+
+def test_short_immediate_stop() -> None:
+    bars = _entry_bars(_bar(100.0, h=103.0, low=99.0))
+    result = simulate_exit(bars, 0, side="short")
+    assert result is not None
+    assert result["outcome"] == "stopped"
+    assert result["blended_return_pct"] == pytest.approx(-3.0)
+    assert result["hit_stop"] is True
+    assert result["side"] == "short"
+
+
+def test_short_full_win_first_then_runner() -> None:
+    bars = _entry_bars(
+        _bar(100.0, h=101.0, low=97.0),
+        _bar(95.0, h=96.0, low=90.0),
+    )
+    result = simulate_exit(bars, 0, side="short")
+    assert result is not None
+    assert result["outcome"] == "first_then_runner"
+    assert result["blended_return_pct"] == pytest.approx(6.5)
+    assert result["hit_first_target"] is True
+    assert result["hit_runner"] is True
+
+
+def test_short_trail_captures_big_move() -> None:
+    bars = _entry_bars(
+        _bar(100.0, h=101.0, low=97.0),
+        _bar(82.0, h=85.0, low=80.0),
+        _bar(83.0, h=86.0, low=82.0),
+    )
+    result = simulate_exit(bars, 0, side="short", trail_pct=5.0)
+    assert result is not None
+    assert result["outcome"] == "first_then_trail"
+    assert result["hit_trail"] is True
+    # Trough 80 → trail stop 84; short remainder +16%; blended 0.5*3 + 0.5*16 = 9.5%
+    assert result["blended_return_pct"] == pytest.approx(9.5)

@@ -65,8 +65,15 @@ def is_strategy_entry(
     require_capitulation: bool = False,
     cap_day_max: float = -2.0,
     cap_vol_min: float = 1.5,
+    side: str = "long",
 ) -> bool:
-    """Return True when all active strategy entry conditions hold at idx (no look-ahead)."""
+    """Return True when all active strategy entry conditions hold at idx (no look-ahead).
+
+    Threshold params use a long-centric sign convention (negative = down / oversold).
+    For ``side="short"``, the same magnitudes are sign-flipped: overbought stock and
+    market require returns >= -oversold_3d_max and >= -mkt_down_3d_max respectively;
+    capitulation requires a big UP day (ret_1d >= -cap_day_max).
+    """
     if idx < 0 or idx >= len(bars):
         return False
 
@@ -79,23 +86,40 @@ def is_strategy_entry(
 
     if healthy_required:
         sma200 = sma(c, SMA200_PERIOD)
-        if sma200 is None or close <= sma200:
+        if sma200 is None:
+            return False
+        if side == "short":
+            # Short rips in downtrends; avoid shorting strong uptrends.
+            if close >= sma200:
+                return False
+        elif close <= sma200:
             return False
 
     ret_3d = pct_change(c, 3)
-    if ret_3d is None or ret_3d > oversold_3d_max:
+    if side == "short":
+        stock_min_3d = -oversold_3d_max
+        if ret_3d is None or ret_3d < stock_min_3d:
+            return False
+    elif ret_3d is None or ret_3d > oversold_3d_max:
         return False
 
     mkt_ctx = compute_market_context(spy_bars, spy_idx)
     if mkt_ctx is None:
         return False
     mkt_ret_3d = mkt_ctx.get("mkt_ret_3d")
-    if mkt_ret_3d is None or mkt_ret_3d > mkt_down_3d_max:
+    if side == "short":
+        mkt_min_3d = -mkt_down_3d_max
+        if mkt_ret_3d is None or mkt_ret_3d < mkt_min_3d:
+            return False
+    elif mkt_ret_3d is None or mkt_ret_3d > mkt_down_3d_max:
         return False
 
     if require_capitulation:
         ret_1d = pct_change(c, 1)
-        if ret_1d is None or ret_1d > cap_day_max:
+        if side == "short":
+            if ret_1d is None or ret_1d < -cap_day_max:
+                return False
+        elif ret_1d is None or ret_1d > cap_day_max:
             return False
         vol_ratio = volume_vs_avg(volumes(prefix), 20)
         if vol_ratio is None or vol_ratio < cap_vol_min:

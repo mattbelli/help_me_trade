@@ -89,6 +89,31 @@ def test_market_context_shape() -> None:
     assert compute_market_context(short_bars, len(short_bars) - 1) is None
 
 
+def _append_three_day_rally(closes: list[float], rally_pct: float) -> list[float]:
+    """Append a 3-bar rally ending rally_pct above the prior close."""
+    base = closes[-1]
+    factor = 1.0 + rally_pct / 100.0
+    return closes + [base, base * (factor ** (1 / 3)), base * (factor ** (2 / 3)), base * factor]
+
+
+def _weak_stock_bars(*, rally_pct: float = 6.0) -> tuple[list[DatedBar], int]:
+    """Downtrend below SMA200 with a multi-day rally on the last bar."""
+    base_len = MIN_BARS_FOR_CONTEXT + 4
+    closes = [220.0 - i * 0.45 for i in range(base_len - 4)]
+    closes = _append_three_day_rally(closes, rally_pct)
+    bars = _dated_bars_from_closes(closes, date(2024, 1, 1))
+    return bars, len(bars) - 1
+
+
+def _spy_bars_rally(*, rally_pct: float = 2.0) -> tuple[list[DatedBar], int]:
+    """SPY series with a configurable 3-day rally into the last bar."""
+    base_len = MIN_BARS_FOR_CONTEXT + 4
+    closes = [450.0] * (base_len - 4)
+    closes = _append_three_day_rally(closes, rally_pct)
+    bars = _dated_bars_from_closes(closes, date(2024, 1, 1))
+    return bars, len(bars) - 1
+
+
 def test_entry_passes_with_defaults() -> None:
     stock_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
     spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
@@ -151,6 +176,55 @@ def test_capitulation_gate() -> None:
             spy_bars=spy_bars,
             spy_idx=spy_idx,
             require_capitulation=True,
+        )
+        is True
+    )
+
+
+def test_short_entry_passes_when_overbought() -> None:
+    stock_bars, idx = _weak_stock_bars(rally_pct=6.0)
+    spy_bars, spy_idx = _spy_bars_rally(rally_pct=2.0)
+
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            side="short",
+        )
+        is True
+    )
+
+
+def test_short_entry_fails_when_market_down() -> None:
+    stock_bars, idx = _weak_stock_bars(rally_pct=6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            side="short",
+        )
+        is False
+    )
+
+
+def test_long_default_unchanged_with_side_param() -> None:
+    stock_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    assert is_strategy_entry(stock_bars, idx, spy_bars=spy_bars, spy_idx=spy_idx) is True
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            side="long",
         )
         is True
     )
