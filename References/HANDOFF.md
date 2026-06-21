@@ -58,13 +58,25 @@ floor." **Recommended tuned config: first +3% sell-half → breakeven → trail 
 forward expectation: anchor to TRAIN (~+0.7%) not the friendlier test window, **minus ~0.2-0.3% costs →
 ~+0.4-0.5%/trade net at ~57% win** — real but thin. Tuning is DONE (plateaus reached); further knob-turning
 = overfitting. Sweep logs: `data/research/_sweep_*.log`.
+**SIGNIFICANCE PASSED (`research/significance.py`, +1 commit):** block bootstrap on the per-entry-date
+return series (collapses dip-date clustering: 21,454 trades → only **468 effective dip-days**). Tuned
+config full-15y per-trade EV **+0.81%**; naive IID CI [+0.75,+0.87] (overstated) vs **honest block CI
+[+0.38%, +1.02%], P(mean≤0)=0.0% → significant at 5%**, robust to block size (20/30d identical). So the
+edge is statistically real, NOT a clustering illusion. **Triple-validated: alpha-vs-beta ✓, out-of-sample
+✓, overlap-aware significance ✓.** Honest caveats remain: numbers are GROSS (honest floor ~+0.38% → after
+~0.2-0.3% costs the net floor is thin ~+0.1%); ONE 15y history (regime risk; 2022 was negative);
+significance ≠ forward guarantee. Run: `python -m research.significance --source norgate`.
 
 ## NEXT (pick up here)
-- **Validate the strategy edge rigorously** (TOP priority): overlap-aware significance (block bootstrap on
-  dip-date clusters / purged-embargo CV); pure-beta decomposition (drop oversold too); **sector context
-  (v2)** beyond SPY-only; per-feature IC *within* the setups to rank/size the best. Only then size with
-  fractional-Kelly. Run via `python -m research.strategy_dataset --symbols-from-cache --source norgate
-  --jobs 14 [thresholds]`; per-year/cost analysis pattern is in this session's transcript.
+- **FORWARD-TEST on paper, not real money** (the right next gate): the strategy is long-only → fits the
+  app's no-short rule → wire it as an actionable `type:"trade"` signal-rule (created DISABLED) → agent
+  proposes these dip setups → phone approve → paper execution via the existing chokepoint. Compare live
+  paper EV to the backtest's ~+0.5% net expectation over months before any real-money double-gate.
+- **Remaining research:** short-side mirror (overbought→short, shorter TP — RESEARCH ONLY, app can't short;
+  diagnostic for how much of the long edge is mean-reversion vs beta); pure-beta decomposition (drop
+  oversold); **sector context v2** beyond SPY-only; per-feature IC to rank/size setups → fractional-Kelly.
+  Strategy harness: `research/strategy_*.py`; significance: `research/significance.py`. Per-year/cost
+  analysis pattern is in this session's transcript.
 - **Real Norgate artifacts for the live scorer** still open — the *generic* pull is done but edgeless; the
   shipped `git add -f research/artifacts/*.json` should come from a model trained on the *strategy* setups
   once the edge is validated. Runbook: `References/NORGATE_PULL.md`.
