@@ -130,3 +130,67 @@ def test_runner_not_booked_on_first_target_bar() -> None:
     assert result["hit_first_target"] is True
     assert result["hit_runner"] is False
     assert result["holding_days"] == 2
+
+
+def test_trail_captures_big_move() -> None:
+    bars = _entry_bars(
+        _bar(102.0, h=103.0, low=101.0),
+        _bar(115.0, h=115.0, low=112.0),
+        _bar(118.0, h=120.0, low=117.0),
+        _bar(116.0, h=118.0, low=113.0),
+    )
+    result = simulate_exit(bars, 0, trail_pct=5.0)
+    assert result is not None
+    assert result["outcome"] == "first_then_trail"
+    assert result["hit_trail"] is True
+    assert result["hit_runner"] is False
+    # Peak 120 from bars 1-3; trail stop 114; remainder +14%; blended 0.5*3 + 0.5*14 = 8.5%
+    assert result["blended_return_pct"] == pytest.approx(8.5)
+    assert result["blended_return_pct"] > 6.5
+
+
+def test_trail_protects_breakeven() -> None:
+    bars = _entry_bars(
+        _bar(102.0, h=103.0, low=101.0),
+        _bar(99.0, h=100.0, low=99.0),
+    )
+    result = simulate_exit(bars, 0, trail_pct=5.0)
+    assert result is not None
+    assert result["outcome"] == "first_then_trail"
+    assert result["hit_trail"] is True
+    assert result["blended_return_pct"] == pytest.approx(1.5)
+
+
+def test_trail_no_lookahead_on_spike_bar() -> None:
+    bars = _entry_bars(
+        _bar(102.0, h=103.0, low=101.0),
+        _bar(98.0, h=150.0, low=95.0),
+    )
+    result = simulate_exit(bars, 0, trail_pct=5.0)
+    assert result is not None
+    assert result["outcome"] == "first_then_trail"
+    assert result["hit_trail"] is True
+    # Prior peak 103 → trail 97.85; floored at breakeven 100; low 95 triggers exit at 0%
+    assert result["blended_return_pct"] == pytest.approx(1.5)
+
+
+def test_default_unchanged_with_trail_none() -> None:
+    full_win_bars = _entry_bars(
+        _bar(100.0, h=103.0, low=99.0),
+        _bar(105.0, h=110.0, low=104.0),
+    )
+    full_win = simulate_exit(full_win_bars, 0, trail_pct=None)
+    assert full_win is not None
+    assert full_win["outcome"] == "first_then_runner"
+    assert full_win["blended_return_pct"] == pytest.approx(6.5)
+    assert full_win["hit_trail"] is False
+
+    be_bars = _entry_bars(
+        _bar(102.0, h=103.0, low=101.0),
+        _bar(100.0, h=101.0, low=100.0),
+    )
+    be = simulate_exit(be_bars, 0, trail_pct=None)
+    assert be is not None
+    assert be["outcome"] == "first_then_breakeven"
+    assert be["blended_return_pct"] == pytest.approx(1.5)
+    assert be["hit_trail"] is False

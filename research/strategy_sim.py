@@ -18,6 +18,7 @@ def simulate_exit(
     runner_target_pct: float = 10.0,
     breakeven_after_first: bool = True,
     max_holding: int = 20,
+    trail_pct: float | None = None,
 ) -> dict | None:
     """Simulate the scale-out exit from a long entry at bars[entry_idx]['c'].
 
@@ -51,10 +52,13 @@ def simulate_exit(
     hit_first_target = False
     hit_runner = False
     hit_stop = False
+    hit_trail = False
     timed_out = False
     outcome: str | None = None
     remainder_return: float | None = None
     exit_j: int | None = None
+    first_target_bar_idx: int | None = None
+    peak_high: float | None = None
 
     for j in range(entry_idx + 1, last_j + 1):
         bar = bars[j]
@@ -83,30 +87,47 @@ def simulate_exit(
                 break
             if hit_first:
                 hit_first_target = True
+                first_target_bar_idx = j
                 phase = 2
                 continue
 
         else:
-            high_ret_pct = (bar["h"] / entry_price - 1) * 100
-            hit_be = bar["l"] <= phase2_stop_price
-            hit_runner_bar = high_ret_pct >= runner_target_pct
-            if hit_be and hit_runner_bar:
-                same_day_ambiguous = True
-                outcome = phase2_stop_outcome
-                remainder_return = phase2_stop_return
-                exit_j = j
-                break
-            if hit_be:
-                outcome = phase2_stop_outcome
-                remainder_return = phase2_stop_return
-                exit_j = j
-                break
-            if hit_runner_bar:
-                hit_runner = True
-                outcome = "first_then_runner"
-                remainder_return = runner_target_pct
-                exit_j = j
-                break
+            if trail_pct is not None:
+                # Trailing stop on the runner: peak uses only bars through j-1
+                # (no same-bar look-ahead between peak high and stop check).
+                if peak_high is None:
+                    assert first_target_bar_idx is not None
+                    peak_high = bars[first_target_bar_idx]["h"]
+                trail_stop = peak_high * (1 - trail_pct / 100)
+                effective_stop = max(breakeven_price, trail_stop)
+                if bar["l"] <= effective_stop:
+                    hit_trail = True
+                    outcome = "first_then_trail"
+                    remainder_return = (effective_stop / entry_price - 1) * 100
+                    exit_j = j
+                    break
+                peak_high = max(peak_high, bar["h"])
+            else:
+                high_ret_pct = (bar["h"] / entry_price - 1) * 100
+                hit_be = bar["l"] <= phase2_stop_price
+                hit_runner_bar = high_ret_pct >= runner_target_pct
+                if hit_be and hit_runner_bar:
+                    same_day_ambiguous = True
+                    outcome = phase2_stop_outcome
+                    remainder_return = phase2_stop_return
+                    exit_j = j
+                    break
+                if hit_be:
+                    outcome = phase2_stop_outcome
+                    remainder_return = phase2_stop_return
+                    exit_j = j
+                    break
+                if hit_runner_bar:
+                    hit_runner = True
+                    outcome = "first_then_runner"
+                    remainder_return = runner_target_pct
+                    exit_j = j
+                    break
 
     if outcome is None:
         timed_out = True
@@ -144,6 +165,7 @@ def simulate_exit(
         "hit_first_target": hit_first_target,
         "hit_runner": hit_runner,
         "hit_stop": hit_stop,
+        "hit_trail": hit_trail,
         "timed_out": timed_out,
         "same_day_ambiguous": same_day_ambiguous,
         "entry_price": entry_price,
