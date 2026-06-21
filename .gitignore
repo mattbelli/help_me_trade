@@ -21,6 +21,10 @@ data/
 # User brokerage exports (import via Settings — do not commit)
 imports/*_Transactions_*.json
 
+# Decision-engine model artifacts — dev (Alpaca, survivor-biased) artifacts stay
+# local; commit the REAL Norgate-trained ones deliberately via `git add -f`.
+research/artifacts/*.json
+
 # OS / editor
 .DS_Store
 Thumbs.db

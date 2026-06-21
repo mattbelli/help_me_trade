@@ -54,9 +54,15 @@ DISABLED** (`create_rule` — a human must enable; the LLM can't self-arm), `Act
 harness Increment 1 SHIPPED:** offline `research/` package — `bars.py` (source-agnostic SQLite daily-bars cache,
 Alpaca adapter now / Norgate-on-Windows later), `labeling.py` (triple-barrier, vol-scaled, ATR barriers),
 `features.py` (point-in-time feature vector reusing `signals/`), `dataset.py` (assembler → `labeled_setups`
-table). 9 tests; point-in-time correctness verified. **Next — harness Increment 2:** scoring → PurgedKFold+
-embargo CV → **Platt calibration** (add `scikit-learn`) → EV/win% tables + confidence bands → committable
-artifacts. Then the live scorer in `signals/` that loads artifacts. Other threads: trade-rule authoring UI;
+table). 9 tests; point-in-time correctness verified. **Harness Increment 2 SHIPPED:** `research/` — `dataset_io.py`
+(load+one-hot+standardize), `validation.py` (PurgedKFold+embargo, López de Prado), `calibration.py` (logistic
+score → out-of-fold preds → **Platt** sigmoid → Brier + reliability), `ev.py` (per-bucket EV/win% + **Wilson
+CIs** + insufficient-data flags), `train.py` (→ JSON artifacts in `research/artifacts/`). `scikit-learn` added.
+362 tests. **Verified on real data (447 rows, 3 symbols): Brier 0.2456 ≈ base-rate baseline → it honestly
+shows ~no edge + `low_confidence` flag (small/survivor-biased Alpaca sample) — the machine refuses to fabricate
+an edge.** Dev artifacts gitignored; REAL artifacts come from **Norgate offline-on-Windows** (`git add -f`).
+**Next — Increment 3: the live scorer in `signals/`** that loads `research/artifacts/` and turns a live
+proposal's features → calibrated win% + EV + CI (wire into `propose_trade`/the proposal card). Other threads: trade-rule authoring UI;
 Modify; **APNs + RN**. Deferred hardening (before paper-autonomous):
 stuck-`approving` reconcile on restart; auth-disabled warning; pass prebuilt to avoid double-build.
 → Original kickoff: `References/R3_KICKOFF.md` (mechanism section now superseded by the RN decision above).
