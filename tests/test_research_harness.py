@@ -167,6 +167,84 @@ def test_triple_barrier_wider_barriers_more_timeouts() -> None:
     assert wide["outcome"] == "timeout"
 
 
+def test_triple_barrier_bad_entry_price_returns_none() -> None:
+    bars = _warmup_bars(20, base=100.0)
+    entry_idx = len(bars) - 1
+    bars[entry_idx] = _bar(0.0, h=1.0, low=0.0)
+
+    assert triple_barrier_label(bars, entry_idx) is None
+
+
+def test_triple_barrier_bad_forward_bar_returns_none() -> None:
+    bars = _warmup_bars(20, base=100.0)
+    entry_idx = len(bars) - 1
+    entry_price = bars[entry_idx]["c"]
+    bars.append(_bar(entry_price, h=entry_price + 0.2, low=0.0))
+
+    assert triple_barrier_label(bars, entry_idx, max_holding=1) is None
+
+
+def test_triple_barrier_timeout_clips_absurd_upper_return() -> None:
+    bars = _warmup_bars(20, base=100.0)
+    entry_idx = len(bars) - 1
+    entry_price = bars[entry_idx]["c"]
+    prefix = bars[: entry_idx + 1]
+    atr_val = atr(highs(prefix), lows(prefix), closes(prefix), 14)
+    assert atr_val is not None
+    upper = entry_price + 2.0 * atr_val
+    lower = entry_price - 2.0 * atr_val
+
+    for _ in range(4):
+        bars.append(_bar(entry_price, h=upper - 0.5, low=lower + 0.5))
+    bars.append(_bar(50_000.0, h=upper - 0.5, low=lower + 0.5))
+
+    result = triple_barrier_label(bars, entry_idx, max_holding=5)
+    assert result is not None
+    assert result["outcome"] == "timeout"
+    assert result["return_pct"] == 100.0
+    assert result["label"] == 1
+
+
+def test_triple_barrier_timeout_clips_near_zero_lower_return() -> None:
+    bars = _warmup_bars(20, base=100.0)
+    entry_idx = len(bars) - 1
+    entry_price = bars[entry_idx]["c"]
+    prefix = bars[: entry_idx + 1]
+    atr_val = atr(highs(prefix), lows(prefix), closes(prefix), 14)
+    assert atr_val is not None
+    upper = entry_price + 2.0 * atr_val
+    lower = entry_price - 2.0 * atr_val
+
+    bars.append(_bar(0.01, h=upper - 0.5, low=lower + 0.5))
+
+    result = triple_barrier_label(bars, entry_idx, max_holding=1)
+    assert result is not None
+    assert result["outcome"] == "timeout"
+    assert result["return_pct"] >= -100.0
+    assert result["return_pct"] == pytest.approx(-99.99, abs=0.01)
+    assert result["label"] == 0
+
+
+def test_triple_barrier_normal_timeout_return_unchanged() -> None:
+    bars = _warmup_bars(20, base=100.0)
+    entry_idx = len(bars) - 1
+    entry_price = bars[entry_idx]["c"]
+    exit_price = entry_price * 1.05
+    prefix = bars[: entry_idx + 1]
+    atr_val = atr(highs(prefix), lows(prefix), closes(prefix), 14)
+    assert atr_val is not None
+    upper = entry_price + 4.0 * atr_val
+    bars.append(_bar(exit_price, h=min(exit_price + 0.2, upper - 0.5), low=exit_price - 0.2))
+
+    result = triple_barrier_label(
+        bars, entry_idx, max_holding=1, upper_atr_mult=4.0, lower_atr_mult=4.0
+    )
+    assert result is not None
+    assert result["outcome"] == "timeout"
+    assert result["return_pct"] == pytest.approx(5.0)
+    assert result["label"] == 1
+
+
 # --- compute_features point-in-time ---
 
 

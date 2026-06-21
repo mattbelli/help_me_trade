@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import math
+
 from signals.indicators import Bar, atr, closes, highs, lows
+
+# Long positions cannot lose more than 100%; upper cap bounds implausible
+# data-artifact tails on timeout exits (no real ≤10-day hold returns >100%).
+RETURN_CAP_PCT = 100.0
 
 
 def triple_barrier_label(
@@ -24,6 +30,9 @@ def triple_barrier_label(
         return None
 
     entry_price = bars[entry_idx]["c"]
+    if entry_price <= 0 or not math.isfinite(entry_price):
+        return None
+
     upper = entry_price + upper_atr_mult * atr_val
     lower = entry_price - lower_atr_mult * atr_val
 
@@ -34,6 +43,10 @@ def triple_barrier_label(
 
     for j in range(entry_idx + 1, last_j + 1):
         bar = bars[j]
+        for key in ("h", "l", "c"):
+            price = bar[key]
+            if price <= 0 or not math.isfinite(price):
+                return None
         hit_upper = bar["h"] >= upper
         hit_lower = bar["l"] <= lower
         if hit_upper and hit_lower:
@@ -58,6 +71,7 @@ def triple_barrier_label(
         exit_price = bars[exit_idx]["c"]
 
     return_pct = (exit_price / entry_price - 1) * 100
+    return_pct = max(-100.0, min(RETURN_CAP_PCT, return_pct))
     label = 1 if return_pct > 0 else 0
     holding_days = exit_idx - entry_idx
 

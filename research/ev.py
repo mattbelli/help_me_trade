@@ -26,10 +26,17 @@ def build_ev_table(
     *,
     bins: list[float] | None = None,
     min_bucket: int = 30,
+    winsorize_pct: float = 0.01,
 ) -> list[dict]:
     """Bucket calibrated probabilities into an honest EV / win-rate table."""
     if bins is None:
         bins = [i / 10 for i in range(11)]
+
+    if len(returns) > 0 and winsorize_pct > 0.0:
+        lo_clip = float(np.quantile(returns, winsorize_pct))
+        hi_clip = float(np.quantile(returns, 1.0 - winsorize_pct))
+    else:
+        lo_clip = hi_clip = None
 
     table: list[dict] = []
     for i in range(len(bins) - 1):
@@ -65,6 +72,8 @@ def build_ev_table(
         bucket_y = y[idx]
         bucket_probs = probs[idx]
         bucket_returns = returns[idx]
+        if lo_clip is not None and hi_clip is not None:
+            bucket_returns = np.clip(bucket_returns, lo_clip, hi_clip)
         wins = bucket_y == 1
         losses = bucket_y == 0
 

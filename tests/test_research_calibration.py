@@ -190,6 +190,49 @@ def test_ev_table_sufficient_flag_flips_at_min_bucket() -> None:
     assert bucket["flag"] == "insufficient_data"
 
 
+def test_build_ev_table_winsorization_tames_outlier() -> None:
+    n = 101
+    probs = np.full(n, 0.55)
+    y = np.ones(n, dtype=int)
+    returns = np.full(n, 5.0)
+    returns[-1] = 99_999.0
+
+    bucket = next(
+        row
+        for row in build_ev_table(probs, y, returns, min_bucket=2, winsorize_pct=0.0)
+        if row["bin_lo"] == 0.5
+    )
+    assert bucket["avg_win_return"] == pytest.approx((99_999.0 + (n - 1) * 5.0) / n)
+
+    winsorized = next(
+        row
+        for row in build_ev_table(probs, y, returns, min_bucket=2, winsorize_pct=0.01)
+        if row["bin_lo"] == 0.5
+    )
+    hi_clip = float(np.quantile(returns, 0.99))
+    assert winsorized["avg_win_return"] == pytest.approx(5.0)
+    assert winsorized["avg_win_return"] <= hi_clip + 1e-9
+    assert winsorized["ev"] == pytest.approx(5.0)
+    assert winsorized["avg_win_return"] < bucket["avg_win_return"]
+
+
+def test_build_ev_table_winsorization_noop_on_clean_data() -> None:
+    n = 100
+    probs = np.linspace(0.05, 0.95, n)
+    y = np.array([0, 1] * (n // 2))
+    returns = np.full(n, 4.5)
+
+    baseline = build_ev_table(probs, y, returns, min_bucket=2, winsorize_pct=0.0)
+    winsorized = build_ev_table(probs, y, returns, min_bucket=2, winsorize_pct=0.01)
+
+    for base_row, win_row in zip(baseline, winsorized, strict=True):
+        if base_row["n"] == 0:
+            continue
+        assert base_row["avg_win_return"] == win_row["avg_win_return"]
+        assert base_row["avg_loss_return"] == win_row["avg_loss_return"]
+        assert base_row["ev"] == win_row["ev"]
+
+
 # --- Artifacts round-trip ---
 
 
