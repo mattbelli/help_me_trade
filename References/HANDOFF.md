@@ -31,10 +31,33 @@ Verified live (honest: dev model shows ~no edge + low-confidence flag — the ma
 portfolio + risk profiles · the agent SIMULATION "value test"). Deploy w/o sudo: `kill`+systemd (services run
 as `mbelli`, `Restart=always`). Cheap research: `Workflow({name:"deep-research-cheap"})`.
 
+## DONE (2026-06-21 eve): real Norgate pull + the first strategy edge (Windows offline session)
+Platinum Norgate pulled survivorship-free on Windows (`.venv-win`): **909 symbols / 2.9M bars / 16y**,
+delisted names included (`XLNX-202202`, `YELLQ`, etc.). Five reviewed+committed research changes (this
+pushed round): **delisting-artifact guard** (clip return_pct, winsorize EV — killed a fake +657% EV),
+**parallel `--jobs` dataset build + replace-by-source** (fixed a silent append-double-count), **scale-out
+exit simulator** (`research/strategy_sim.py`), **entry predicate + SPY market-context features**
+(`research/strategy_features.py`), and the **strategy backtest builder** (`research/strategy_dataset.py`
+→ `strategy_setups`/`strategy_labeled.db`). 403 tests green.
+**Generic 22-feature model = NO edge** (Brier 0.2477 ≈ baseline 0.2479; collapses to base rate) — honest +
+expected; those artifacts are NOT shipped. **The founder's own swing strategy = a real (small) edge:**
+healthy(>SMA200) + oversold(−5%/3d) + market-down(SPY −1.5%/3d); exit −3% / +3% sell-half→breakeven /
++10% runner / 20d cap. **21,454 setups, 55.8% win, +0.59% EV/trade, 13/16 years positive** (only 2022 bear
+negative). **Alpha-vs-beta control PASSED:** same entries without the market-down filter = +0.31%/52.3% →
+the market-timing condition ~doubles EV (real alpha, not just drift). Hold sweep EV 0.46→0.56→0.59% for
+5/10/20d (runner needs time; 10d ≈ 95% of the edge). Survives ~0.3% cost. **Caveat before real money:
+naive per-trade significance is INFLATED — setups cluster on dip dates → need overlap-aware testing
+(block bootstrap / purged CV).**
+
 ## NEXT (pick up here)
-- **Real Norgate artifacts** (offline-on-Windows training → `git add -f research/artifacts/*.json`) — makes the
-  win% trustworthy (dev artifacts are Alpaca/survivor-biased, gitignored). **Step-by-step runbook:
-  `References/NORGATE_PULL.md`** (subscribe Platinum 6mo → ingest → dataset → train → force-add 4 JSONs → serv pull).
+- **Validate the strategy edge rigorously** (TOP priority): overlap-aware significance (block bootstrap on
+  dip-date clusters / purged-embargo CV); pure-beta decomposition (drop oversold too); **sector context
+  (v2)** beyond SPY-only; per-feature IC *within* the setups to rank/size the best. Only then size with
+  fractional-Kelly. Run via `python -m research.strategy_dataset --symbols-from-cache --source norgate
+  --jobs 14 [thresholds]`; per-year/cost analysis pattern is in this session's transcript.
+- **Real Norgate artifacts for the live scorer** still open — the *generic* pull is done but edgeless; the
+  shipped `git add -f research/artifacts/*.json` should come from a model trained on the *strategy* setups
+  once the edge is validated. Runbook: `References/NORGATE_PULL.md`.
 - **Layer-A risk profiles** (per-account conservative/moderate/aggressive — near-term, config + RiskEngine caps).
 - **Deterministic TP-ladder + hold-length** output module (parallelizable; completes the "fully-planned idea").
 - **Trade-rule authoring UI** (arm actionable `type:"trade"` rules from the app — they're created DISABLED).
