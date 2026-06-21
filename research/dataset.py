@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -37,10 +39,151 @@ CREATE TABLE IF NOT EXISTS labeled_setups (
 )
 """
 
+_INSERT_LABELED_SETUP = """
+INSERT INTO labeled_setups (
+    symbol, entry_date, features_json, label, outcome,
+    return_pct, holding_days, max_holding,
+    upper_atr_mult, lower_atr_mult, source, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_WORKER_BENCHMARK_BARS: list | None = None
+
 
 def _ensure_labeled_schema(conn) -> None:
     conn.execute(_CREATE_LABELED_SETUPS)
     conn.commit()
+
+
+def _init_label_worker(benchmark_bars: list) -> None:
+    global _WORKER_BENCHMARK_BARS
+    _WORKER_BENCHMARK_BARS = benchmark_bars
+
+
+def _label_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
+    """Label one symbol; return (symbol, rows, counts). Pure CPU + bars-db reads."""
+    (
+        symbol,
+        start,
+        end,
+        warmup_start,
+        source,
+        bars_db_path,
+        upper_atr_mult,
+        lower_atr_mult,
+        max_holding,
+        entry_stride,
+        created_at,
+    ) = task
+
+    sym = symbol.strip().upper()
+    benchmark_bars = _WORKER_BENCHMARK_BARS
+    if benchmark_bars is None:
+        raise RuntimeError("label worker not initialized with benchmark bars")
+
+    bars = get_daily_bars(
+        sym,
+        warmup_start,
+        end,
+        source=source,
+        db_path=bars_db_path,
+    )
+    counts = {"rows": 0, "wins": 0, "losses": 0, "timeouts": 0}
+    if len(bars) < MIN_BARS_FOR_CONTEXT + max_holding + 1:
+        logger.warning("Insufficient bars for %s (%d)", sym, len(bars))
+        return sym, [], counts
+
+    rows: list[tuple] = []
+    min_entry_idx = MIN_BARS_FOR_CONTEXT - 1
+    max_entry_idx = len(bars) - 1 - max_holding
+
+    for idx in range(min_entry_idx, max_entry_idx + 1, entry_stride):
+        entry_date = date.fromisoformat(bars[idx]["d"])
+        if entry_date < start or entry_date > end:
+            continue
+
+        features = compute_features(bars, idx, benchmark_bars=benchmark_bars)
+        label_result = triple_barrier_label(
+            bars,
+            idx,
+            upper_atr_mult=upper_atr_mult,
+            lower_atr_mult=lower_atr_mult,
+            max_holding=max_holding,
+        )
+        if features is None or label_result is None:
+            continue
+
+        outcome = label_result["outcome"]
+        if outcome == "win":
+            counts["wins"] += 1
+        elif outcome == "loss":
+            counts["losses"] += 1
+        else:
+            counts["timeouts"] += 1
+
+        rows.append(
+            (
+                sym,
+                bars[idx]["d"],
+                json.dumps(features),
+                label_result["label"],
+                outcome,
+                label_result["return_pct"],
+                label_result["holding_days"],
+                max_holding,
+                upper_atr_mult,
+                lower_atr_mult,
+                source,
+                created_at,
+            )
+        )
+        counts["rows"] += 1
+
+    return sym, rows, counts
+
+
+def _insert_labeled_rows(conn, rows: list[tuple]) -> None:
+    for row in rows:
+        conn.execute(_INSERT_LABELED_SETUP, row)
+
+
+def _accumulate_counts(totals: dict, counts: dict) -> None:
+    totals["rows"] += counts["rows"]
+    totals["wins"] += counts["wins"]
+    totals["losses"] += counts["losses"]
+    totals["timeouts"] += counts["timeouts"]
+
+
+def _label_tasks(
+    symbols: list[str],
+    *,
+    start: date,
+    end: date,
+    warmup_start: date,
+    source: str,
+    bars_db_path: Path,
+    upper_atr_mult: float,
+    lower_atr_mult: float,
+    max_holding: int,
+    entry_stride: int,
+    created_at: str,
+) -> list[tuple]:
+    return [
+        (
+            symbol,
+            start,
+            end,
+            warmup_start,
+            source,
+            bars_db_path,
+            upper_atr_mult,
+            lower_atr_mult,
+            max_holding,
+            entry_stride,
+            created_at,
+        )
+        for symbol in symbols
+    ]
 
 
 def build_labeled_dataset(
@@ -56,6 +199,8 @@ def build_labeled_dataset(
     source: str = "alpaca",
     bars_db_path: Path = DEFAULT_BARS_DB_PATH,
     labeled_db_path: Path = DEFAULT_LABELED_DB_PATH,
+    replace: bool = True,
+    jobs: int = 1,
 ) -> dict:
     """Build labeled rows for each symbol and persist to labeled_setups."""
     # ~252 trading bars of warmup need ~1.5x calendar days (weekends/holidays),
@@ -74,94 +219,81 @@ def build_labeled_dataset(
     conn = connect(labeled_db_path)
     try:
         _ensure_labeled_schema(conn)
-        created_at = now_iso()
-        total_rows = 0
-        wins = 0
-        losses = 0
-        timeouts = 0
-
-        for symbol in symbols:
-            sym = symbol.strip().upper()
-            logger.info("Building labeled dataset for %s", sym)
-            bars = get_daily_bars(
-                sym,
-                warmup_start,
-                end,
-                source=source,
-                db_path=bars_db_path,
-            )
-            if len(bars) < MIN_BARS_FOR_CONTEXT + max_holding + 1:
-                logger.warning("Insufficient bars for %s (%d)", sym, len(bars))
-                continue
-
-            symbol_rows = 0
-            min_entry_idx = MIN_BARS_FOR_CONTEXT - 1
-            max_entry_idx = len(bars) - 1 - max_holding
-
-            for idx in range(min_entry_idx, max_entry_idx + 1, entry_stride):
-                entry_date = date.fromisoformat(bars[idx]["d"])
-                if entry_date < start or entry_date > end:
-                    continue
-
-                features = compute_features(bars, idx, benchmark_bars=benchmark_bars)
-                label_result = triple_barrier_label(
-                    bars,
-                    idx,
-                    upper_atr_mult=upper_atr_mult,
-                    lower_atr_mult=lower_atr_mult,
-                    max_holding=max_holding,
-                )
-                if features is None or label_result is None:
-                    continue
-
-                outcome = label_result["outcome"]
-                if outcome == "win":
-                    wins += 1
-                elif outcome == "loss":
-                    losses += 1
-                else:
-                    timeouts += 1
-
-                conn.execute(
-                    """
-                    INSERT INTO labeled_setups (
-                        symbol, entry_date, features_json, label, outcome,
-                        return_pct, holding_days, max_holding,
-                        upper_atr_mult, lower_atr_mult, source, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        sym,
-                        bars[idx]["d"],
-                        json.dumps(features),
-                        label_result["label"],
-                        outcome,
-                        label_result["return_pct"],
-                        label_result["holding_days"],
-                        max_holding,
-                        upper_atr_mult,
-                        lower_atr_mult,
-                        source,
-                        created_at,
-                    ),
-                )
-                symbol_rows += 1
-                total_rows += 1
-
+        # Re-running a full-universe build should replace that source's rows, not
+        # silently append duplicates. Opt into append via replace=False / --append.
+        if replace:
+            conn.execute("DELETE FROM labeled_setups WHERE source = ?", (source,))
             conn.commit()
-            logger.info("  %s: %d rows", sym, symbol_rows)
+
+        created_at = now_iso()
+        totals = {"rows": 0, "wins": 0, "losses": 0, "timeouts": 0}
+        tasks = _label_tasks(
+            symbols,
+            start=start,
+            end=end,
+            warmup_start=warmup_start,
+            source=source,
+            bars_db_path=bars_db_path,
+            upper_atr_mult=upper_atr_mult,
+            lower_atr_mult=lower_atr_mult,
+            max_holding=max_holding,
+            entry_stride=entry_stride,
+            created_at=created_at,
+        )
+
+        global _WORKER_BENCHMARK_BARS
+        _WORKER_BENCHMARK_BARS = benchmark_bars
+
+        if jobs <= 1:
+            for task in tasks:
+                sym = task[0].strip().upper()
+                logger.info("Building labeled dataset for %s", sym)
+                _, rows, counts = _label_symbol_rows(task)
+                _insert_labeled_rows(conn, rows)
+                conn.commit()
+                _accumulate_counts(totals, counts)
+                logger.info("  %s: %d rows", sym, counts["rows"])
+        else:
+            completed = 0
+            with ProcessPoolExecutor(
+                max_workers=jobs,
+                initializer=_init_label_worker,
+                initargs=(benchmark_bars,),
+            ) as executor:
+                futures = {
+                    executor.submit(_label_symbol_rows, task): task[0].strip().upper()
+                    for task in tasks
+                }
+                for future in as_completed(futures):
+                    sym, rows, counts = future.result()
+                    _insert_labeled_rows(conn, rows)
+                    conn.commit()
+                    _accumulate_counts(totals, counts)
+                    completed += 1
+                    if completed % 100 == 0 or completed == len(futures):
+                        logger.info(
+                            "Progress: %d / %d symbols (%d rows so far)",
+                            completed,
+                            len(futures),
+                            totals["rows"],
+                        )
+                    logger.info("  %s: %d rows", sym, counts["rows"])
 
     finally:
         conn.close()
 
     return {
         "symbols": [s.strip().upper() for s in symbols],
-        "rows": total_rows,
-        "wins": wins,
-        "losses": losses,
-        "timeouts": timeouts,
+        "rows": totals["rows"],
+        "wins": totals["wins"],
+        "losses": totals["losses"],
+        "timeouts": totals["timeouts"],
         "date_range": {"start": start.isoformat(), "end": end.isoformat()},
     }
+
+
+def _default_jobs() -> int:
+    return max(1, (os.cpu_count() or 2) - 2)
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -192,6 +324,23 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=5,
         help="Entry index stride for subsampling (default: 5)",
     )
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Append rows for this source instead of replacing prior rows "
+            "(default: delete existing rows for --source before insert)"
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=_default_jobs(),
+        help=(
+            "Parallel worker count for per-symbol labeling "
+            f"(default: max(1, cpu_count-2) = {_default_jobs()})"
+        ),
+    )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
         parser.error("provide --symbols or --symbols-from-cache")
@@ -214,6 +363,8 @@ def main(argv: list[str] | None = None) -> None:
         end,
         entry_stride=args.stride,
         source=args.source,
+        replace=not args.append,
+        jobs=args.jobs,
     )
     logger.info("Dataset build complete: %s", summary)
 

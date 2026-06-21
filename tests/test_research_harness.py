@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from research.bars import cache_bars
 from research.dataset import build_labeled_dataset
 from research.features import compute_features
 from research.labeling import triple_barrier_label
@@ -350,3 +351,117 @@ def test_build_labeled_dataset_inserts_rows(
         assert row["label"] in (0, 1)
         assert row["return_pct"] is not None
         assert row["holding_days"] >= 1
+
+
+def _seed_bars_cache(
+    bars_db: Path,
+    symbols: list[str],
+    *,
+    start: date,
+    count: int,
+    source: str = "test",
+) -> None:
+    for i, symbol in enumerate(symbols):
+        bars = _synthetic_symbol_bars(count, start, spike_at=count // 2 + i * 3)
+        cache_bars(symbol, bars, source=source, db_path=bars_db)
+
+
+def _labeled_row_tuples(labeled_db: Path) -> list[tuple]:
+    from db.base import connect
+
+    conn = connect(labeled_db)
+    try:
+        rows = conn.execute(
+            """
+            SELECT symbol, entry_date, features_json, label, outcome,
+                   return_pct, holding_days, max_holding,
+                   upper_atr_mult, lower_atr_mult, source
+            FROM labeled_setups
+            ORDER BY symbol, entry_date, outcome, label, return_pct
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [tuple(row) for row in rows]
+
+
+def _multi_symbol_build_params(
+    bars_db: Path,
+    labeled_db: Path,
+    *,
+    symbols: list[str] | None = None,
+) -> dict:
+    warmup = MIN_BARS_FOR_CONTEXT + 15
+    start = date(2024, 6, 1)
+    end = date(2024, 8, 1)
+    fetch_start = start - timedelta(days=warmup + 30)
+    syms = symbols or ["AAPL", "MSFT", "NVDA"]
+    _seed_bars_cache(
+        bars_db,
+        ["SPY", *syms],
+        start=fetch_start,
+        count=warmup + 60,
+        source="test",
+    )
+    return {
+        "symbols": syms,
+        "start": start,
+        "end": end,
+        "benchmark": "SPY",
+        "max_holding": 5,
+        "entry_stride": 3,
+        "source": "test",
+        "bars_db_path": bars_db,
+        "labeled_db_path": labeled_db,
+    }
+
+
+def test_build_labeled_dataset_parallel_matches_sequential(
+    tmp_path: Path,
+) -> None:
+    bars_db = tmp_path / "bars.db"
+    seq_db = tmp_path / "labeled_seq.db"
+    par_db = tmp_path / "labeled_par.db"
+    params = _multi_symbol_build_params(bars_db, seq_db)
+
+    seq_summary = build_labeled_dataset(**params, jobs=1)
+    par_summary = build_labeled_dataset(
+        **{**params, "labeled_db_path": par_db},
+        jobs=2,
+    )
+
+    for key in ("rows", "wins", "losses", "timeouts"):
+        assert par_summary[key] == seq_summary[key]
+    assert seq_summary["rows"] > 0
+
+    assert _labeled_row_tuples(seq_db) == _labeled_row_tuples(par_db)
+
+
+def test_build_labeled_dataset_replace_avoids_duplication(
+    tmp_path: Path,
+) -> None:
+    bars_db = tmp_path / "bars.db"
+    labeled_db = tmp_path / "labeled.db"
+    params = _multi_symbol_build_params(bars_db, labeled_db, symbols=["AAPL", "MSFT"])
+
+    first = build_labeled_dataset(**params, replace=True)
+    second = build_labeled_dataset(**params, replace=True)
+
+    assert first["rows"] > 0
+    assert second["rows"] == first["rows"]
+    assert len(_labeled_row_tuples(labeled_db)) == first["rows"]
+
+
+def test_build_labeled_dataset_append_doubles_rows(
+    tmp_path: Path,
+) -> None:
+    bars_db = tmp_path / "bars.db"
+    labeled_db = tmp_path / "labeled.db"
+    params = _multi_symbol_build_params(bars_db, labeled_db, symbols=["AAPL"])
+
+    first = build_labeled_dataset(**params, replace=False)
+    second = build_labeled_dataset(**params, replace=False)
+
+    assert first["rows"] > 0
+    assert second["rows"] == first["rows"]
+    assert len(_labeled_row_tuples(labeled_db)) == first["rows"] * 2
