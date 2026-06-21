@@ -150,8 +150,25 @@ setup with 3:1 winners beats a 70%-win setup with fat losers — show EV per ide
   Groundwork exists: `signals/backtest.py` + Alpaca bar fetch. Gaps: survivorship-free universe, labeling,
   calibration pipeline.
 
-**Research queued (cheap path, `deep-research-cheap`):** data sources (live/operational) + edges/factors +
-EV-sizing + backtest-data pipeline. Reports land in claude.ai routines → fold into this doc as Rounds 2-3.
+**Research DONE (Rounds 1-3 in `References/DECISION_ENGINE_RESEARCH.md`).** Net: build the honest pipeline,
+treat every factor as a hypothesis (no published edge survived verification), run almost entirely on free
+*live* data, QuiverQuant $75/mo optional.
+
+### Train-offline / serve-online — the build architecture (locked 2026-06-21)
+Backtesting/training is **offline + periodic**; live scoring is **online + continuous**. They split cleanly,
+which also dissolves the Norgate-is-Windows-only problem:
+- **OFFLINE (founder's Windows PC, where Norgate's data app runs) — re-run monthly/quarterly:** Norgate
+  **survivorship-free** history → point-in-time features → triple-barrier labels → PurgedKFold+embargo backtest
+  → Platt calibration → produces small **ARTIFACTS**: factor weights (config), the calibration model
+  (coefficients), per-bucket EV/win% tables.
+- **Commit the ARTIFACTS to the repo — NOT the raw licensed Norgate data** (artifacts are KB-scale + license-safe).
+- **ONLINE (serv, Linux) — continuous:** the live agent **loads the artifacts** and scores today's setups using
+  **free Alpaca live data** → EV + win% + confidence band on each proposal. Norgate never touches serv.
+- **Shared feature code** (`signals/`) runs on BOTH history (offline) and live data (online) → no train/serve
+  drift. Repo grows an offline `research/`-style backtest pipeline + the live `signals/` scorer reusing it.
+- **Backtest data source = Norgate** (best survivorship-free; Windows-only is fine since backtest is offline).
+  Sharadar (Linux/API) is the fallback if offline-on-Windows becomes painful. Backtest-data is a *modest paid
+  sub* (separate from the ~free live-data answer); confirm current pricing on the vendor site.
 
 ### Research evidence base — `References/DECISION_ENGINE_RESEARCH.md`
 Round-1 deep research (2026-06-21, adversarially verified) — **read it before building the engine.** Headlines:
