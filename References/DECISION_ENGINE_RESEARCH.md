@@ -100,3 +100,50 @@ The verified sources did **not** settle these (treat as design decisions / next 
   (arXiv 2309.17322).
 - *The New Quant: LLMs in Quantitative Finance* survey (arXiv 2510.05533); Sentic LLM-FSA reasoning paper;
   PMC12421730 review (Yu 2023; Perlin 2025). Stefan Jansen ML4T (multiple-testing workflow).
+
+---
+
+# Round 2 — Data sources (paid vs free, highest-ROI)
+
+*Deep-research pass 2026-06-21 (cheap workflow: 107 agents, haiku/sonnet workers, opus synthesis). Verification
+was harsh: 25 claims → **7 confirmed, 18 killed** — most paid-data pricing claims came from SEO content-farm
+blogs and were refuted. The 4 surviving findings are solid; the rest is flagged unverified. **Bottom line:
+this app can run almost entirely on FREE data; only one paid item is even worth a look.**
+
+## TL;DR — what to actually buy (almost nothing)
+1. **Don't buy real-time market data.** Free **Alpaca IEX** (~2-5% of US volume) is explicitly *fine for
+   directional idea generation*; a swing horizon doesn't need consolidated-tape latency. Polygon (rebranded
+   **"Massive"**, Oct 2025) real-time SIP is **$199/mo per asset class** — wasted money for non-HFT. *(high)*
+2. **The one paid candidate worth considering: QuiverQuant "Trader" ($75/mo)** — the only tier that
+   meaningfully **aggregates insider (Form 4) + hedge-fund/13F + ETF holdings + top shareholders** at the API
+   level (Hobbyist $30/mo = Congress trades only). *(high — from the primary pricing page)*
+3. **…but even that is optional.** Quiver premium is **aggregation/tooling, not exclusive data** — the
+   underlying insider/congressional filings are **free on SEC EDGAR**, and there is **NO win-rate/case-study
+   evidence** Quiver (or any feed here) improves real decisions vs free. *(medium)* → If you're willing to
+   write EDGAR ingestion (free `edgartools`), you may not need it at all (open question).
+4. **Alpha Vantage free (25 calls/day) is too thin** for any systematic scan; paid ~$50/mo. *(high)* Use it
+   only as a fallback, not a backbone.
+
+## Practical stack recommendation (free-first)
+- **Bars / technicals:** Alpaca IEX (free) — already have it. Sufficient for swing idea-generation.
+- **Insider (Form 4) + 13F:** **SEC EDGAR (free)** via `edgartools` — replicates most of Quiver's insider value.
+  Pay Quiver $75/mo *only* if the build cost of EDGAR ingestion isn't worth your time.
+- **Fundamentals:** SEC EDGAR + yfinance (free) to start.
+- **Social sentiment:** no trustworthy paid provider survived verification — **start free/scraped** (Reddit/X),
+  which was the plan anyway.
+- **Net:** budget ≈ **$0/mo to start**, with **QuiverQuant $75/mo** as the single optional upgrade once the
+  rest is proven.
+
+## Honest caveats (important)
+- **No measured-ROI evidence:** not one source showed a paid feed beats free *on decision quality* — every
+  "worth it" verdict is a reasoned inference, not data. Don't pay on faith; pay after the engine shows a
+  free-data baseline and you can measure the lift.
+- **Refuted / unverified:** social-sentiment providers (Adanos, Social Market Analytics) all refuted; SEC-API.io
+  Form-4 claims refuted; **Finnhub / Financial Modeling Prep / Tiingo specific pricing was refuted or thin** —
+  treat those numbers as unverified (content-farm noise). Polygon "Massive" live pricing is a JS SPA that
+  couldn't be scraped; the $199 figure rests on one blog.
+- **Open questions (next pass if needed):** verified current Finnhub/FMP/Tiingo pricing from *primary* pages;
+  whether free EDGAR + `edgartools` fully obviates Quiver $75/mo; a real social-sentiment provider in-band.
+
+**Takeaway for the build:** start 100% free (Alpaca IEX + EDGAR + yfinance + scraped social), prove the edge,
+*then* consider QuiverQuant $75/mo as the only data spend — and only if measured lift justifies it.
