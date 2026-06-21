@@ -48,6 +48,16 @@ the market-timing condition ~doubles EV (real alpha, not just drift). Hold sweep
 5/10/20d (runner needs time; 10d ≈ 95% of the edge). Survives ~0.3% cost. **Caveat before real money:
 naive per-trade significance is INFLATED — setups cluster on dip dates → need overlap-aware testing
 (block bootstrap / purged CV).**
+**Train/test-gated tuning (train 2011-20 / test 2021-26, +2 commits — trailing-stop sim + builder
+threading):** all knobs PLATEAU (no edge-of-grid runaway = robust). TP levels: wider runner helps OOS
+(ranking held perfectly train→test, test EV even > train), but +4% first-target buys EV by selling
+win-rate (→50%). **Trailing the runner is the best lever — lifts EV while KEEPING ~57% win%:** trail
+plateaus ~15% at train +0.71 / test +0.98 (vs original fixed 3/10 = +0.51/+0.69). At a loose trail the
+runner mostly rides to the 20d cap, so the gain ≈ "sell half at +3%, ride the rest to cap w/ breakeven
+floor." **Recommended tuned config: first +3% sell-half → breakeven → trail ~10-12% → 20d cap.** Honest
+forward expectation: anchor to TRAIN (~+0.7%) not the friendlier test window, **minus ~0.2-0.3% costs →
+~+0.4-0.5%/trade net at ~57% win** — real but thin. Tuning is DONE (plateaus reached); further knob-turning
+= overfitting. Sweep logs: `data/research/_sweep_*.log`.
 
 ## NEXT (pick up here)
 - **Validate the strategy edge rigorously** (TOP priority): overlap-aware significance (block bootstrap on
