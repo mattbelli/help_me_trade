@@ -27,6 +27,7 @@ class OrderIntent:
     asset_class: str = "us_equity"
     occ_symbol: str | None = None
     multiplier: int = 1
+    account_id: str | None = None
 
 
 @dataclass(frozen=True)

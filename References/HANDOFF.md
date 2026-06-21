@@ -88,10 +88,17 @@ behavior-preservation hold; backfill scoped to alpaca so a future schwab poll_ru
 connections+accounts, `get_default_account`, `default_execution_account`, `account_is_execution_capable`
 deny-by-default; `brokers/factory.py:get_broker_for_account` resolves account→broker adapter, behavior-identical
 for the default account; per-connection creds seam documented for Phase B). Read-only, behavior-preserving, 450
-tests. **NEXT sub-steps (in order, each reviewed): 3** thread `account_id` through proposal→intent→execution +
-approval-time validation (calls `get_broker_for_account`) · **4** RiskEngine per-account hardening (heaviest
-review — never weaken a cap; read-only accounts hard-blocked via `account_is_execution_capable`) · **5**
-per-account snapshot + multi-account sync. Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
+tests. **Sub-step 3 DONE — account_id threaded through the execution path** (`OrderIntent.account_id`;
+`build_order_proposal_from_args`/`order_intent_from_fields` resolve the default execution account + keep
+`broker` in lockstep; `create_phone_proposal` persists account_id; `approve_proposal` blocks non-execution-
+capable accounts before submit; `submit` routes via `get_broker_for_account` + records account_id).
+Behavior-identical for the default account; legacy proposals resolve to default; unmigrated DBs fall back to
+primary_broker. Adversarially reviewed (items 1-4 hold; safe). 463 tests. **NEXT: 4** RiskEngine per-account
+hardening (heaviest review — never weaken a cap) — **and per the sub-step-3 review, MOVE the execution-
+capability hard-block INTO `RiskEngine.validate`/`submit`** so the chokepoint is self-defending regardless of
+caller (today the only capability gate is in `approve_proposal`, one layer up). Per-account snapshot/
+buying-power/concentration/`count_executions_today`/open-orders; read-only accounts denied at the chokepoint.
+· **5** per-account snapshot + multi-account sync. Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
 
 ## Then (post-multi-account)
 - **FORWARD-TEST on paper — Increment 1 (ENTRY) SHIPPED; EXITS next.** The dip-buy entry path is wired +

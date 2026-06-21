@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import primary_broker
+from db.accounts import default_execution_account, get_account
 from db.base import DEFAULT_DB_PATH
 from db.sqlite import get_latest_snapshot
 from imports.option_symbol import (
@@ -24,8 +25,21 @@ def order_intent_from_fields(
     *,
     proposal_id: str,
     session_id: str | None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> OrderIntent:
     limit_raw = intent_fields.get("limit_price")
+    broker = str(intent_fields["broker"])
+    account_id = intent_fields.get("account_id")
+    if not account_id:
+        default = default_execution_account(db_path=db_path)
+        if default is not None:
+            account_id = default["id"]
+            # Keep routing + audit broker in lockstep with the resolved account so
+            # ExecutionService routes by account_id and the recorded broker can
+            # never diverge from the account actually traded.
+            broker = str(default["broker"]).strip().lower()
+        else:
+            account_id = None
     return OrderIntent(
         proposal_id=proposal_id,
         session_id=session_id,
@@ -34,10 +48,11 @@ def order_intent_from_fields(
         qty=Decimal(str(intent_fields["qty"])),
         order_type=str(intent_fields["order_type"]),
         limit_price=Decimal(str(limit_raw)) if limit_raw is not None else None,
-        broker=str(intent_fields["broker"]),
+        broker=broker,
         asset_class=str(intent_fields.get("asset_class", "us_equity")),
         occ_symbol=intent_fields.get("occ_symbol"),
         multiplier=int(str(intent_fields.get("multiplier", "1"))),
+        account_id=account_id,
     )
 
 
@@ -52,6 +67,7 @@ def intent_fields_from_order(
     asset_class: str,
     occ_symbol: str | None,
     multiplier: int,
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "symbol": symbol,
@@ -63,6 +79,7 @@ def intent_fields_from_order(
         "asset_class": asset_class,
         "occ_symbol": occ_symbol,
         "multiplier": str(multiplier),
+        "account_id": account_id,
     }
 
 
@@ -164,7 +181,21 @@ def build_order_proposal_from_args(
         "limit_price": float(limit_price) if limit_price is not None else None,
         "asset_class": asset_class,
     }
-    broker = primary_broker()
+    account_id_arg = args.get("account_id")
+    if account_id_arg:
+        account = get_account(str(account_id_arg), db_path=db_path)
+        if account is None:
+            return {"error": f"unknown account {account_id_arg!r}"}
+    else:
+        account = default_execution_account(db_path=db_path)
+
+    if account is not None:
+        broker = str(account["broker"]).strip().lower()
+        resolved_account_id = account["id"]
+    else:
+        broker = primary_broker()
+        resolved_account_id = None
+
     if opt is not None:
         proposal_payload.update(
             {
@@ -207,6 +238,7 @@ def build_order_proposal_from_args(
         asset_class=asset_class,
         occ_symbol=occ_symbol,
         multiplier=multiplier,
+        account_id=resolved_account_id,
     )
 
     return {

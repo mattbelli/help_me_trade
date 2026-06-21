@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from brokers.market_stream import market_hub
+from db.accounts import account_is_execution_capable
 from db.base import DEFAULT_DB_PATH
 from db.paper_orders import (
     claim_proposal_for_approval,
@@ -106,7 +107,20 @@ async def approve_proposal(
         stored,
         proposal_id=proposal_id,
         session_id=row.get("session_id"),
+        db_path=db_path,
     )
+
+    if intent.account_id is not None and not account_is_execution_capable(
+        intent.account_id, db_path=db_path
+    ):
+        transition_proposal_status(
+            proposal_id,
+            expect="approving",
+            to="blocked",
+            last_error="account not execution-capable",
+            db_path=db_path,
+        )
+        return {"status": "blocked", "reason": "account not execution-capable"}
 
     try:
         result = await ExecutionService.submit(intent, db_path=db_path)
@@ -214,6 +228,7 @@ async def create_phone_proposal(
     except Exception:
         logger.exception("Failed to score proposal for %s", intent_fields.get("symbol"))
 
+    account_id = intent_fields.get("account_id")
     row = create_pending_proposal(
         proposal=built["proposal"],
         intent_fields=intent_fields,
@@ -223,6 +238,7 @@ async def create_phone_proposal(
         source=source,
         rule_id=rule_id,
         score=score,
+        account_id=account_id,
         db_path=db_path,
     )
 

@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from brokers.alpaca import AlpacaError
 from brokers.base import PlaceOrderRequest
-from brokers.factory import get_broker
+from brokers.factory import get_broker, get_broker_for_account
 from brokers.market_stream import market_hub
 from config.settings import is_kill_switch_active, trading_config
 from db.base import DEFAULT_DB_PATH
@@ -44,6 +44,7 @@ class ExecutionService:
                 execution_mode=mode,
                 status="rejected",
                 broker=intent.broker,
+                account_id=intent.account_id,
                 risk_checks_json={"kill_switch": "fail: kill switch active"},
                 db_path=db_path,
             )
@@ -62,6 +63,7 @@ class ExecutionService:
             execution_mode=mode,
             status="pending",
             broker=intent.broker,
+            account_id=intent.account_id,
             risk_checks_json={},
             db_path=db_path,
         )
@@ -126,7 +128,11 @@ class ExecutionService:
                     time_in_force="day",
                     position_intent=position_intent,
                 )
-                adapter = get_broker(intent.broker)
+                adapter = (
+                    get_broker_for_account(intent.account_id)
+                    if intent.account_id
+                    else get_broker(intent.broker)
+                )
                 try:
                     resp = await adapter.aplace_order(req)
                 except AlpacaError as exc:
