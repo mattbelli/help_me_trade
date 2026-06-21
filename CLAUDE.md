@@ -53,6 +53,11 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
 - Don't use a Claude subscription/OAuth for the app's LLM (Anthropic ToS); the app uses provider-agnostic keys.
 
 ## Pointers & pre-push
+- **★ The app's headline value = the Decision Engine** (PERCEIVE→REASON→DECIDE): the agent fusing the best data
+  sources into *ranked, explained, fully-planned* trade ideas (why + calibrated win% + entry/stop/scale-out
+  targets). Delivery + execution are the strong foundation; **decision quality is what makes the app worth
+  using.** See `References/BUILD.md` → "★ The Decision Engine" section. Win%/ranks must be **calibrated, never
+  fabricated.** Active founder+orchestrator deep-research effort — do not treat as a someday-footnote.
 - `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
   `References/SERVER_SETUP.md` (the home Linux server this now runs on).
 - **Before pushing:** `ruff check .` (whole repo) + `python -m pytest -q` + `cd frontend && npm run typecheck`.

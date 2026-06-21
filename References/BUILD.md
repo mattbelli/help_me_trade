@@ -64,6 +64,66 @@ The product crystallized: from "personal trading copilot" (a manual cockpit, a r
 
 ---
 
+## ★ The Decision Engine — the core value (PERCEIVE → REASON → DECIDE) — READ THIS
+
+**This is the grand slam. Delivery (phone push) and execution (the chokepoint) are the strong *foundation* that
+makes the app usable — but DECISION QUALITY is what makes it worth using. If the agent's trade ideas aren't
+genuinely good, the app has little value.** Founder's explicit direction (2026-06-21): this is the #1 priority
+once R3's proposal pipe exists, and a dedicated founder+orchestrator **deep-research effort** will design it.
+(Reinforces CLAUDE.md: *"the hard part is decision quality + risk + trust, not automation plumbing."*) **All
+future agents: treat this as the headline value-driver, not a someday-R5 footnote.**
+
+The agent must produce **ranked, explained, fully-planned trade ideas** by fusing many signals the way a sharp
+discretionary trader does — but tireless and data-complete.
+
+**The vision (founder's example), made concrete:**
+> "hype is picking up on Reddit/X · stock just crossed below its 200-day · it's oversold · overall market
+> health is good · insiders made big buys recently · the sector is beaten-up but looks like a rebound" →
+> **this idea ranks 10/10.**
+
+Every proposal the agent pushes should carry: **(a)** a clear plain-language **"why"** (the thesis + which
+signals fired); **(b)** a **conviction rank / estimated win %** — *calibrated, never fabricated* (guardrail
+below); **(c)** a **full trade plan** — entry, stop, and a **scale-out take-profit ladder** at *real* levels
+(e.g. 25% @ $310 / 25% @ $315 / 25% @ $320 / 25% @ $325), with targets from **prior support/resistance**, not
+round guesses.
+
+### Two halves to build
+**1. The best data (PERCEIVE) — feed the LLM the best inputs (garbage in → garbage out; the edge is breadth +
+quality of grounded signals):**
+- **Social / hype:** Reddit, X, StockTwits — crafted-search ingestion, LLM-read for emerging hype/sentiment
+  shifts (prototype reliability first, no paid APIs to start — IDEA_BANK §7.6).
+- **Technicals:** price vs 50/200-DMA, RSI/oversold, ATR, **support/resistance levels**, RVOL/volume, trend.
+- **Market health / regime:** breadth, index trend, VIX, risk-on/off.
+- **Fundamentals / catalysts:** insider transactions (SEC Form 4), earnings calendar + surprises, valuation,
+  analyst actions (Finnhub/FRED/SEC).
+- **Sector / relative strength:** sector beaten-up-but-turning, RS vs market.
+
+**2. Signal fusion + ranking (REASON → DECIDE) — turn signals into a scored, planned idea:**
+- Normalize every source into **features/facts** (extends `signals/features.py`).
+- **Fuse** weak signals into a conviction score — *deterministic feature scoring* + **LLM reasoning on top** for
+  narrative + edge cases. Locked split: **LLM proposes the thesis/weighting; deterministic code computes the
+  live numbers, the score, the sizing, and the targets** (function-calls/SQL for numbers; RAG only for
+  unstructured text — vector RAG over prices hallucinates).
+- **Compute the plan deterministically:** risk-based sizing, stop, and the take-profit ladder from detected S/R.
+- Emit one rich **`TradeCandidate`** (rationale, score, win%, entry/stop/targets, source signals) into the single
+  **`propose_trade` intake seam** → phone proposal. Every data source is a pluggable *producer* behind that one
+  seam (see R3-C) so **adding sources is additive, not rewiring.**
+
+### Non-negotiable guardrail — calibrated, NOT fabricated
+The founder wants a **rank / win %** on every idea — but a made-up "70% win" is the single most dangerous thing
+this app could show (false confidence on real money). Any score/win% MUST be **derived from a backtested,
+calibrated model or labeled explicitly as heuristic conviction** — never invented by the LLM. Every proposed
+rule/strategy still passes the **backtest → paper gate** before it's trusted (no curve-fit auto-arm). This is
+the CLAUDE.md honesty rule applied to the headline feature.
+
+### Sequencing
+Maps onto **R5 (deepen PERCEIVE/REASON)** but is elevated to the app's headline value-driver. Order: R3-C ships
+the proposal *pipe* (one source, fixed sizing) → then iterate the decision engine deep — data sources →
+fusion/scoring → calibrated win% → S/R-based target planning — each preceded by **dedicated deep research**
+(best sources/APIs, fusion methods, win-rate calibration, scale-out/target methodology, social-hype reliability).
+
+---
+
 ## 2. Architecture (keep this shape)
 
 ```
