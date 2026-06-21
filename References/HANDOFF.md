@@ -49,8 +49,15 @@ firing in the scan loop → the single **`propose_trade` intake seam** (`trading
 Agent NEVER executes; no new broker path. Adversarially reviewed + hardened: **trade rules are force-created
 DISABLED** (`create_rule` — a human must enable; the LLM can't self-arm), `Action.type` is a validated
 `Literal`, global pending cap. 344 tests. **The whole decision engine plugs in behind this one seam.**
-**Next:** the **Decision Engine** itself (see `References/DECISION_ENGINE_RESEARCH.md` — the headline value) +
-an authoring UI for trade-rules; then Modify; then **APNs + RN**. Deferred hardening (before paper-autonomous):
+**IN PROGRESS — the Decision Engine** (the headline value; research Rounds 1-3 in
+`References/DECISION_ENGINE_RESEARCH.md`; architecture = train-offline/serve-online in BUILD.md). **Backtest
+harness Increment 1 SHIPPED:** offline `research/` package — `bars.py` (source-agnostic SQLite daily-bars cache,
+Alpaca adapter now / Norgate-on-Windows later), `labeling.py` (triple-barrier, vol-scaled, ATR barriers),
+`features.py` (point-in-time feature vector reusing `signals/`), `dataset.py` (assembler → `labeled_setups`
+table). 9 tests; point-in-time correctness verified. **Next — harness Increment 2:** scoring → PurgedKFold+
+embargo CV → **Platt calibration** (add `scikit-learn`) → EV/win% tables + confidence bands → committable
+artifacts. Then the live scorer in `signals/` that loads artifacts. Other threads: trade-rule authoring UI;
+Modify; **APNs + RN**. Deferred hardening (before paper-autonomous):
 stuck-`approving` reconcile on restart; auth-disabled warning; pass prebuilt to avoid double-build.
 → Original kickoff: `References/R3_KICKOFF.md` (mechanism section now superseded by the RN decision above).
 
