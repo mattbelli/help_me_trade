@@ -23,6 +23,7 @@ _NEW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("last_error", "TEXT"),
     ("source", "TEXT"),
     ("rule_id", "TEXT"),
+    ("score_json", "TEXT"),
 )
 
 
@@ -81,6 +82,14 @@ def _row_to_proposal(row: sqlite3.Row) -> dict[str, Any]:
     for column, _ in _NEW_COLUMNS:
         if column in row.keys():
             out[column] = row[column]
+    raw_score = row["score_json"] if "score_json" in row.keys() else None
+    if raw_score:
+        try:
+            out["score"] = json.loads(raw_score)
+        except json.JSONDecodeError:
+            out["score"] = None
+    else:
+        out["score"] = None
     if "summary" not in out and isinstance(proposal, dict):
         out["summary"] = proposal.get("summary")
     return out
@@ -138,6 +147,7 @@ def create_pending_proposal(
     summary: str,
     source: str | None = None,
     rule_id: str | None = None,
+    score: dict[str, Any] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_paper_order_tables(db_path)
@@ -164,8 +174,8 @@ def create_pending_proposal(
             INSERT INTO paper_order_proposals (
                 id, session_id, symbol, side, qty, order_type, limit_price,
                 status, proposal_json, created_at, expires_at, payload_hash, delivery,
-                source, rule_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source, rule_id, score_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pid,
@@ -183,6 +193,7 @@ def create_pending_proposal(
                 "phone",
                 source,
                 rule_id,
+                json.dumps(score) if score is not None else None,
             ),
         )
         conn.commit()
@@ -228,6 +239,7 @@ def list_pending_proposals(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str,
                 "qty": parsed["qty"],
                 "expires_at": parsed.get("expires_at"),
                 "payload_hash": parsed.get("payload_hash"),
+                "score": parsed.get("score"),
             }
         )
     return out

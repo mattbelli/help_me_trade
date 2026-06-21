@@ -411,6 +411,18 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             }
 
         message = result.dry_run_log or f"{result.status}: {result.execution_id}"
+        score = None
+        try:
+            from signals.decision_scorer import score_symbol
+
+            score = score_symbol(
+                intent_fields["symbol"],
+                side=intent_fields["side"],
+                db_path=DEFAULT_DB_PATH,
+            )
+        except Exception:
+            pass
+
         return {
             "status": result.status,
             "execution_id": result.execution_id,
@@ -418,6 +430,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             "proposal_id": proposal_id,
             "proposal": proposal_payload,
             "message": message,
+            "score": score,
         }
 
     if name == "propose_rule":

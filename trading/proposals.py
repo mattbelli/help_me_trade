@@ -202,6 +202,18 @@ async def create_phone_proposal(
     intent_fields = built["intent_fields"]
     summary = _proposal_summary(intent_fields)
 
+    score = None
+    try:
+        from signals.decision_scorer import score_symbol
+
+        score = score_symbol(
+            intent_fields["symbol"],
+            side=intent_fields["side"],
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("Failed to score proposal for %s", intent_fields.get("symbol"))
+
     row = create_pending_proposal(
         proposal=built["proposal"],
         intent_fields=intent_fields,
@@ -210,6 +222,7 @@ async def create_phone_proposal(
         summary=summary,
         source=source,
         rule_id=rule_id,
+        score=score,
         db_path=db_path,
     )
 

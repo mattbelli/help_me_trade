@@ -61,8 +61,14 @@ CIs** + insufficient-data flags), `train.py` (→ JSON artifacts in `research/ar
 362 tests. **Verified on real data (447 rows, 3 symbols): Brier 0.2456 ≈ base-rate baseline → it honestly
 shows ~no edge + `low_confidence` flag (small/survivor-biased Alpaca sample) — the machine refuses to fabricate
 an edge.** Dev artifacts gitignored; REAL artifacts come from **Norgate offline-on-Windows** (`git add -f`).
-**Next — Increment 3: the live scorer in `signals/`** that loads `research/artifacts/` and turns a live
-proposal's features → calibrated win% + EV + CI (wire into `propose_trade`/the proposal card). Other threads: trade-rule authoring UI;
+**Increment 3a SHIPPED — the live scorer.** `signals/decision_scorer.py` loads `research/artifacts/` and turns
+a live BUY setup → **calibrated win% + EV + CI + low-confidence flag + top "why" factors** (reuses the training
+transform `dataset_io.compute_raw_score`/`featurize_dict` → no train/serve skew; best-effort try/except, never
+blocks execution; sells/options unscored). `score` is stored on the proposal (`paper_order_proposals.score_json`)
++ returned by the propose_order tool → rides the existing proposal API (UI-agnostic → serves desktop, phone,
+future RN). 370 tests. **Verified live on serv** (AAPL → win 57.1%, EV +0.45%, CI [48.5,59.1], low_confidence).
+**Next — Increment 3b: surface the score on BOTH desktop + phone cards** (desktop is a first-class surface, not
+just phone — RN phone comes later). Then trade-rule authoring UI; Modify; APNs+RN. Other threads: trade-rule authoring UI;
 Modify; **APNs + RN**. Deferred hardening (before paper-autonomous):
 stuck-`approving` reconcile on restart; auth-disabled warning; pass prebuilt to avoid double-build.
 → Original kickoff: `References/R3_KICKOFF.md` (mechanism section now superseded by the RN decision above).
