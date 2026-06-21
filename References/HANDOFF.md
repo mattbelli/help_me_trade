@@ -66,6 +66,14 @@ edge is statistically real, NOT a clustering illusion. **Triple-validated: alpha
 ✓, overlap-aware significance ✓.** Honest caveats remain: numbers are GROSS (honest floor ~+0.38% → after
 ~0.2-0.3% costs the net floor is thin ~+0.1%); ONE 15y history (regime risk; 2022 was negative);
 significance ≠ forward guarantee. Run: `python -m research.significance --source norgate`.
+**SHORT MIRROR TESTED → NO EDGE (+1 commit: `side` support in `research/strategy_*.py`; research-only).**
+Founder raised enabling short trading; backtest says don't. Overbought stock + overbought market → short:
+shorter hold IS better (confirms drift-headwind intuition) but best config (5d) is only +0.21% GROSS and
+**NOT significant** (honest CI [-0.07%, +0.37%], P(mean≤0)=9.5%) — negative after borrow, and the sim
+optimistically understates squeeze losses. Long edge (~4× the short, significant) ≈ beta tailwind + small
+mean-reversion; the short can't beat the drift. **Decision: KEEP the no-short invariant.** Full record +
+the safety checklist (if ever revisited) → `References/SHORT_TRADING_FINDINGS.md`. Short backtest DB:
+`data/research/strategy_short.db` (gitignored).
 
 ## NEXT (pick up here)
 - **FORWARD-TEST on paper, not real money** (the right next gate): the strategy is long-only → fits the
