@@ -33,7 +33,8 @@ as `mbelli`, `Restart=always`). Cheap research: `Workflow({name:"deep-research-c
 
 ## NEXT (pick up here)
 - **Real Norgate artifacts** (offline-on-Windows training → `git add -f research/artifacts/*.json`) — makes the
-  win% trustworthy (dev artifacts are Alpaca/survivor-biased, gitignored).
+  win% trustworthy (dev artifacts are Alpaca/survivor-biased, gitignored). **Step-by-step runbook:
+  `References/NORGATE_PULL.md`** (subscribe Platinum 6mo → ingest → dataset → train → force-add 4 JSONs → serv pull).
 - **Layer-A risk profiles** (per-account conservative/moderate/aggressive — near-term, config + RiskEngine caps).
 - **Deterministic TP-ladder + hold-length** output module (parallelizable; completes the "fully-planned idea").
 - **Trade-rule authoring UI** (arm actionable `type:"trade"` rules from the app — they're created DISABLED).

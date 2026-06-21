@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from db.base import connect, now_iso
-from research.bars import DEFAULT_BARS_DB_PATH, get_daily_bars
+from research.bars import DEFAULT_BARS_DB_PATH, cached_symbols, get_daily_bars
 from research.features import compute_features
 from research.labeling import triple_barrier_label
 from signals.trade_context import MIN_BARS_FOR_CONTEXT
@@ -168,8 +168,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build labeled setup dataset")
     parser.add_argument(
         "--symbols",
-        required=True,
         help="Comma-separated equity symbols (e.g. AAPL,MSFT,NVDA)",
+    )
+    parser.add_argument(
+        "--symbols-from-cache",
+        action="store_true",
+        help="Use every symbol already cached for --source (e.g. a Norgate universe)",
+    )
+    parser.add_argument(
+        "--source",
+        default="alpaca",
+        help="Bar source to label (default: alpaca; use 'norgate' for the real run)",
     )
     parser.add_argument(
         "--years",
@@ -183,13 +192,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=5,
         help="Entry index stride for subsampling (default: 5)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if not args.symbols and not args.symbols_from_cache:
+        parser.error("provide --symbols or --symbols-from-cache")
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
-    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    if args.symbols_from_cache:
+        symbols = cached_symbols(args.source)
+        logger.info("Loaded %d symbols from cache (source=%s)", len(symbols), args.source)
+    else:
+        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     end = date.today()
     start = end - timedelta(days=args.years * 365)
     summary = build_labeled_dataset(
@@ -197,6 +213,7 @@ def main(argv: list[str] | None = None) -> None:
         start,
         end,
         entry_stride=args.stride,
+        source=args.source,
     )
     logger.info("Dataset build complete: %s", summary)
 

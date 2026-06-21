@@ -136,6 +136,24 @@ def _needs_fetch(cached: list[DatedBar], start: date, end: date) -> bool:
     return first > start or last < end
 
 
+def cached_symbols(
+    source: str = "alpaca",
+    *,
+    db_path: Path = DEFAULT_BARS_DB_PATH,
+) -> list[str]:
+    """Return the distinct symbols cached for a given source, sorted."""
+    conn = connect(db_path)
+    try:
+        _ensure_schema(conn)
+        rows = conn.execute(
+            "SELECT DISTINCT symbol FROM daily_bars WHERE source = ? ORDER BY symbol ASC",
+            (source,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [row["symbol"] for row in rows]
+
+
 def get_daily_bars(
     symbol: str,
     start: date,
@@ -148,6 +166,19 @@ def get_daily_bars(
     sym = symbol.strip().upper()
     cached = _load_cached(sym, start, end, source, db_path)
     if _needs_fetch(cached, start, end):
+        if source != "alpaca":
+            # Never auto-fetch from Alpaca to fill a gap in a non-Alpaca (e.g. Norgate)
+            # source: it would tag survivor-biased data as survivorship-free and silently
+            # poison the dataset. Norgate bars are pre-loaded via research.norgate_loader.
+            logger.warning(
+                "%s: cache gap for source=%s (%s..%s); not auto-fetching. "
+                "Pre-load this source's bars first.",
+                sym,
+                source,
+                start,
+                end,
+            )
+            return cached
         logger.info("Fetching %s bars %s..%s (source=%s)", sym, start, end, source)
         fetched = _fetch_alpaca(sym, start, end)
         cache_bars(sym, fetched, source=source, db_path=db_path)
