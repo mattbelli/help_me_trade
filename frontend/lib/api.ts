@@ -542,6 +542,25 @@ export async function triggerPriceAlert(id: number): Promise<void> {
   if (!res.ok) throw new Error(`Trigger alert error ${res.status}`);
 }
 
+export type ProposalScoreFactor = {
+  name: string;
+  direction: "bullish" | "bearish" | string;
+  contribution: number;
+};
+
+export type ProposalScore = {
+  win_prob: number;
+  ev_pct: number;
+  ci_low: number;
+  ci_high: number;
+  sufficient: boolean;
+  low_confidence: boolean;
+  base_rate: number;
+  brier: number;
+  n_samples: number;
+  top_factors: ProposalScoreFactor[];
+};
+
 export type PendingProposal = {
   id: string;
   summary: string;
@@ -550,7 +569,37 @@ export type PendingProposal = {
   qty: number;
   expires_at: string | null;
   payload_hash: string;
+  score?: ProposalScore | null;
 };
+
+function isProposalScore(value: unknown): value is ProposalScore {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "win_prob" in value &&
+    typeof (value as ProposalScore).win_prob === "number"
+  );
+}
+
+export async function fetchProposalScore(
+  symbol: string,
+  side = "buy",
+): Promise<ProposalScore | null> {
+  const params = new URLSearchParams({ symbol, side });
+  const res = await apiFetch(`${API_BASE}/api/proposals/score?${params}`);
+  if (!res.ok) return null;
+  const data: unknown = await res.json();
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "score" in data &&
+    (data as { score: unknown }).score === null
+  ) {
+    return null;
+  }
+  if (isProposalScore(data)) return data;
+  return null;
+}
 
 export async function fetchPendingProposals(): Promise<PendingProposal[]> {
   const res = await apiFetch(`${API_BASE}/api/proposals/pending`);

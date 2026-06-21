@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ProposalScore } from "@/components/workspace/proposal-score";
 import { useWorkspaceToast } from "@/components/workspace/workspace-toast";
 import {
   approveProposal,
@@ -132,6 +133,8 @@ export function PendingProposalCard({ proposal, onResolved }: Props) {
           <dd className="font-medium">{proposal.qty}</dd>
         </div>
       </dl>
+
+      {proposal.score ? <ProposalScore score={proposal.score} /> : null}
 
       <div className="flex gap-2">
         <Button

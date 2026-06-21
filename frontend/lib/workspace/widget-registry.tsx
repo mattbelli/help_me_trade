@@ -3,6 +3,7 @@
 import type { ComponentType } from "react";
 
 import { AccountSummaryWidget } from "@/components/workspace/widgets/account-summary-widget";
+import { AgentProposalsWidget } from "@/components/workspace/widgets/agent-proposals-widget";
 import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
@@ -105,6 +106,13 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: "Long-term preferences and lessons the copilot has learned",
     component: MemoryWidget,
     defaultSize: { w: 10, h: 5, minW: 4, minH: 3 },
+  },
+  {
+    id: "agent-proposals",
+    title: "agent proposals",
+    description: "Pending AI order proposals with score — Approve / Reject",
+    component: AgentProposalsWidget,
+    defaultSize: { w: 12, h: 6, minW: 5, minH: 3 },
   },
 ];
 

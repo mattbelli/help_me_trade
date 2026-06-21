@@ -67,8 +67,14 @@ transform `dataset_io.compute_raw_score`/`featurize_dict` → no train/serve ske
 blocks execution; sells/options unscored). `score` is stored on the proposal (`paper_order_proposals.score_json`)
 + returned by the propose_order tool → rides the existing proposal API (UI-agnostic → serves desktop, phone,
 future RN). 370 tests. **Verified live on serv** (AAPL → win 57.1%, EV +0.45%, CI [48.5,59.1], low_confidence).
-**Next — Increment 3b: surface the score on BOTH desktop + phone cards** (desktop is a first-class surface, not
-just phone — RN phone comes later). Then trade-rule authoring UI; Modify; APNs+RN. Other threads: trade-rule authoring UI;
+**Increment 3b SHIPPED — score on BOTH desktop + phone.** One shared `ProposalScore` component (win% bar vs
+base-rate + EV + CI band + low-confidence/thin-data badges + top "why" factors) reused on: the phone Activity
+card (`PendingProposalCard`), a NEW desktop **`agent-proposals` workspace widget** (the cockpit equivalent of
+the Activity tab — list + score + Approve/Reject), and the desktop chat `OrderProposalCard` (fetches via new
+`GET /api/proposals/score?symbol=&side=`). Null score degrades cleanly. 371 tests; deployed live.
+**→ Decision Engine Increment 3 COMPLETE: agent scores a setup → calibrated win%/EV/CI shows on every surface →
+human approves → existing chokepoint.** Next: real Norgate artifacts (offline-on-Windows) to make the win%
+trustworthy; trade-rule authoring UI; Modify; APNs+RN. Other threads: trade-rule authoring UI;
 Modify; **APNs + RN**. Deferred hardening (before paper-autonomous):
 stuck-`approving` reconcile on restart; auth-disabled warning; pass prebuilt to avoid double-build.
 → Original kickoff: `References/R3_KICKOFF.md` (mechanism section now superseded by the RN decision above).

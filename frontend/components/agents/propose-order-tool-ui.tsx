@@ -157,6 +157,8 @@ export const ProposeOrderToolUI = makeAssistantToolUI<ProposalArgs, ProposalResu
         return (
           <OrderProposalCard
             input={args}
+            symbol={args.symbol}
+            side={args.side}
             approvalId={approval.id}
             onApprove={() => respondToApproval({ approved: true })}
             onReject={() =>

@@ -182,6 +182,23 @@ def api_list_pending_proposals():
     return {"proposals": list_pending_proposals()}
 
 
+@router.get("/proposals/score")
+def api_proposal_score(
+    symbol: str = Query(...),
+    side: str = Query("buy"),
+):
+    try:
+        from signals.decision_scorer import score_symbol
+
+        score = score_symbol(symbol.strip(), side=side)
+        if score is None:
+            return {"score": None}
+        return score
+    except Exception:
+        logger.exception("Proposal score lookup failed for %s", symbol)
+        return {"score": None}
+
+
 @router.get("/proposals/{proposal_id}")
 def api_get_proposal(proposal_id: str):
     from db.paper_orders import get_proposal

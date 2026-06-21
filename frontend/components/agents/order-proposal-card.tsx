@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { CheckIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ProposalScore } from "@/components/workspace/proposal-score";
+import { fetchProposalScore, type ProposalScore as ProposalScoreData } from "@/lib/api";
 
 type ProposalInput = {
   symbol?: string;
@@ -26,6 +29,8 @@ type Props = {
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   disabled?: boolean;
+  symbol?: string;
+  side?: string;
 };
 
 function isOptionProposal(input: ProposalInput): boolean {
@@ -49,7 +54,27 @@ export function OrderProposalCard({
   onApprove,
   onReject,
   disabled,
+  symbol: symbolProp,
+  side: sideProp,
 }: Props) {
+  const scoreSymbol = (symbolProp ?? input.symbol ?? "").trim();
+  const scoreSide = (sideProp ?? input.side ?? "buy").toLowerCase();
+  const shouldFetchScore = scoreSymbol.length > 0 && scoreSide === "buy";
+  const [score, setScore] = useState<ProposalScoreData | null>(null);
+
+  useEffect(() => {
+    if (!shouldFetchScore) return;
+
+    let cancelled = false;
+    void fetchProposalScore(scoreSymbol, scoreSide).then((result) => {
+      if (!cancelled) setScore(result);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scoreSymbol, scoreSide, shouldFetchScore]);
+
   const side = (input.side ?? "buy").toUpperCase();
   const isSell = (input.side ?? "buy").toLowerCase() === "sell";
   const orderType = (input.order_type ?? "market").toUpperCase();
@@ -172,6 +197,8 @@ export function OrderProposalCard({
           ) : null}
         </dl>
       )}
+
+      {shouldFetchScore && score ? <ProposalScore score={score} /> : null}
 
       <div className="flex gap-2">
         <Button
