@@ -773,3 +773,8 @@ def broker_is_configured(name: str) -> bool:
     if name == "schwab":
         return bool(cfg.get("api_key") and cfg.get("app_secret"))
     return False
+
+
+def finnhub_api_key() -> str:
+    """Finnhub API key for the earnings-calendar feed (provider-agnostic, .env)."""
+    return os.environ.get("FINNHUB_API_KEY", "").strip()
