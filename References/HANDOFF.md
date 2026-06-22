@@ -30,9 +30,15 @@ strategy *can't* go live without them (its edge IS selling ~1 day before the nex
   position with its owning strategy + an `exit_mode`/`params` snapshot. **RECORDS ONLY** — no selling; chokepoint
   untouched. `managed_positions.qty` is ADVISORY (float-derived) — the exit engine MUST take the authoritative
   sell qty from the live broker position, never that column.
-- ⬜ **D2 — per-strategy exit evaluators** (pure fns, next; low risk): dip (−3% stop / +3% sell-half→breakeven /
-  ~11% trail / 20d cap) + earnings (sell `exit_lead_td` before next earnings). Input: managed row + price basis
-  (from the live snapshot's `avg_entry_price`/`current_price`) + high-water + earnings date. Tests, no execution.
+- ✅ **D2 — per-strategy exit evaluators** (`signals/exit_evaluators.py`, pure fns + `tests/test_exit_evaluators.py`,
+  14 tests). `evaluate_dip_exit` (−3% stop / +3% sell-half→breakeven / ~11% trail / 20d cap) +
+  `evaluate_earnings_exit` (sell within `exit_lead_td` td of next earnings + stale-calendar safety cap). Both
+  return an `ExitDecision(action: hold|scale|exit, reason, exit_fraction, new_high_water_mark,
+  new_first_target_hit, detail)`. **`exit_fraction` is relative to the LIVE qty** (scale=0.5, exit=1.0) — D3
+  multiplies it by the authoritative broker position, never `managed_positions.qty`. Faithful single-cycle
+  translation of the validated `research/strategy_sim.simulate_exit` path (time-cap precedence, stop-before-
+  target, phase-2 stop-check-then-advance-HWM). Pure: floats not Decimal, no `trading/`/`db/`/broker imports
+  (only reuses `_trading_days_until`); the Decimal seam stays at D3's chokepoint. **No execution.**
 - ⬜ **D3 — exit engine + `exit_mode` dispatch (the FIRST auto-sell) + notify.** ⚠️ **MOST SAFETY-CRITICAL CODE
   IN THE APP.** Walks open managed rows each cycle, evaluates, fires per `exit_mode` (`auto` =
   `execution_service.submit()` sell-to-close — still kill-switch + RiskEngine + paper-gated, sells only reduce a
@@ -63,7 +69,12 @@ is NO single "combined" predicate — live "combining" = run dip + earnings on O
   would hold THROUGH earnings (inverts the thesis) — do not enable `earnings_drift` until D3 ships.**
 
 ## NEXT (in order)
-1. **D2** exit evaluators (pure, safe) → **D3** exit engine + auto-sell (heavy review) → **D4** schedule + deploy.
+1. **D3** exit engine + `exit_mode` dispatch + auto-sell (the FIRST auto-sell — heavy adversarial review) →
+   **D4** schedule + deploy. D3 wires the D2 evaluators to live state: walk open managed rows, read price basis
+   from the broker snapshot (`avg_entry_price`/`current_price`), fetch earnings dates from
+   `db.earnings_calendar`, call the evaluator by strategy kind, persist `new_high_water_mark`/
+   `new_first_target_hit` via `update_exit_state`, and on scale/exit dispatch the sell through
+   `execution_service.submit()` (auto) or a phone proposal (propose) using `exit_fraction × live qty`.
 2. **E3** register `earnings_drift` + scan-dispatch by strategy kind + daily earnings refresh loop.
 3. Then both dip + earnings are live round-trips governed by `exit_mode`; arm on STRAT1 (ideally add
    `APCA_*_STRAT2` so refined-dip / earnings get their own forward-test accounts for clean attribution).
