@@ -151,19 +151,16 @@ async def _poll_account(account: dict) -> bool:
             broker_name,
             account_id,
         )
-        # Analytics, execution-reconcile and rules-eval run ONLY for the default
-        # account — they are broker-keyed (reconcile uses the primary adapter;
-        # rules/alerts are watchlist-global with a rule_id-keyed transition cache),
-        # so running them per-account would double-fire alerts and mis-reconcile.
-        # Non-default accounts (e.g. STRAT1) just sync their snapshot here. These
-        # become per-account when a non-default account actually trades (Phase C).
+        # Per-account fill reconcile (each account via its own adapter).
+        if count_pending_paper_executions(broker_name, account_id=account_id) > 0:
+            await reconcile_pending_executions(broker_name, account_id=account_id)
+        if count_submitted_executions(broker_name, account_id=account_id) > 0:
+            await reconcile_open_executions(broker_name, account_id=account_id)
+        # Analytics + rules-eval stay default-account-only (broker-keyed display +
+        # watchlist-global rules) — unchanged.
         if not account.get("is_default"):
             return True
         await asyncio.to_thread(compute_and_save_snapshot_analytics, broker_name)
-        if count_pending_paper_executions(broker_name) > 0:
-            await reconcile_pending_executions(broker_name)
-        if count_submitted_executions(broker_name) > 0:
-            await reconcile_open_executions(broker_name)
         snapshot = await asyncio.to_thread(
             get_latest_snapshot,
             broker_name,
@@ -370,8 +367,25 @@ async def lifespan(app: FastAPI):
     init_execution_tables()
     migrate_multi_account()
     await market_hub.start()
+    for account in list_accounts(enabled_only=True):
+        if str(account["broker"]).strip().lower() != "alpaca":
+            continue
+        acct_id = str(account["id"])
+        connection_id = account.get("connection_id")
+        if connection_id:
+            connection = get_connection(str(connection_id))
+            if connection is None or not connection_is_configured(connection):
+                continue
+        elif not broker_is_configured("alpaca"):
+            continue
+        if count_pending_paper_executions("alpaca", account_id=acct_id) > 0:
+            await reconcile_pending_executions("alpaca", account_id=acct_id)
     for name in get_enabled_broker_names():
-        if broker_is_configured(name) and count_pending_paper_executions(name) > 0:
+        if (
+            name == "schwab"
+            and broker_is_configured(name)
+            and count_pending_paper_executions(name) > 0
+        ):
             await reconcile_pending_executions(name)
     await _poll_once()
     poll_task = asyncio.create_task(_poll_loop())

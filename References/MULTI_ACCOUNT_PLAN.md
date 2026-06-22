@@ -148,12 +148,12 @@ a per-connection adapter (`get_broker_for_connection`, cache keyed by connection
 routes orders to the right creds → poll loop iterates enabled Alpaca accounts (`_poll_account`) with a
 fail-closed id-guard (snapshot `account.id` must match the account's `broker_external_id`). Default account
 byte-identical. Adversarially reviewed. Test-isolation fixed (conftest strips ambient `.env` suffix vars +
-clears broker caches). **MUST-FIX before STRAT1 actually TRADES (Phase C):** (1) **execution-reconcile is
-broker-keyed** (`fill_tracker` / `list_submitted_executions` / counts) — a STRAT1 fill would be reconciled via
-the default adapter → wrong account; thread `account_id` + resolve via `get_broker_for_account`. (2) **rules/
-alerts per-account** — key `_prior_match` by `(account_id, rule_id)` + include account in the alert payload.
-Both currently SIDESTEPPED: `_poll_account` runs reconcile + rules-eval ONLY for the default account; non-default
-accounts sync snapshot only. Also still open: **M-2 migration-stamp hardening** (stamp the default's
+clears broker caches). **MUST-FIX before STRAT1 actually TRADES:** (1) ~~execution-reconcile per-account~~ **DONE (C.0)** —
+`fill_tracker` + the `list/count` fns take `account_id`; each account reconciles its own executions via its own
+adapter; `_poll_account` reconciles per-account; boot reconcile per-account. Byte-identical default + None
+paths; adversarially reviewed. (2) **rules/alerts per-account — RESOLVED BY DESIGN, no work needed:** rules are
+watchlist-global and run ONLY on the default account's poll (no double-fire); per-account portfolio rules are a
+future enhancement only if wanted. Still open: **M-2 migration-stamp hardening** (stamp the default's
 `broker_external_id` from a primary-key snapshot, not just latest) before any DB rebuild.
 
 ## Phase B — Frontend account-awareness (summary; full brief later)

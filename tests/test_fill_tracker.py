@@ -308,3 +308,200 @@ async def test_reconcile_pending_continues_after_lookup_error(
     assert bad is not None and bad["status"] == "pending"
     assert ok is not None and ok["status"] == "submitted"
     assert ok["broker_order_id"] == "broker-msft"
+
+
+def _seed_execution_with_account(
+    db_path: Path,
+    *,
+    execution_id: str,
+    status: str,
+    account_id: str | None = None,
+    broker_order_id: str | None = None,
+    created_at: datetime | None = None,
+) -> None:
+    order_executions_mod.create_execution_record(
+        execution_id=execution_id,
+        proposal_id="prop1",
+        session_id=None,
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("10"),
+        order_type="market",
+        limit_price=None,
+        execution_mode="paper",
+        status=status,
+        broker="alpaca",
+        broker_order_id=broker_order_id,
+        account_id=account_id,
+        db_path=db_path,
+    )
+    if created_at is not None:
+        created_iso = created_at.astimezone(UTC).isoformat()
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE order_executions SET created_at = ?, updated_at = ? WHERE id = ?",
+                (created_iso, created_iso, execution_id),
+            )
+            conn.commit()
+
+
+def test_execution_list_count_filters_by_account(tmp_path: Path) -> None:
+    db = tmp_path / "accounts.db"
+    _seed_execution_with_account(
+        db, execution_id="exec_a_sub", status="submitted", account_id="acct_a"
+    )
+    _seed_execution_with_account(
+        db,
+        execution_id="exec_b_sub",
+        status="submitted",
+        account_id="acct_b",
+        broker_order_id="ord-b",
+    )
+    _seed_execution_with_account(
+        db,
+        execution_id="exec_a_pend",
+        status="pending",
+        account_id="acct_a",
+        created_at=datetime.now(UTC) - timedelta(minutes=5),
+    )
+    _seed_execution_with_account(
+        db,
+        execution_id="exec_b_pend",
+        status="pending",
+        account_id="acct_b",
+        created_at=datetime.now(UTC) - timedelta(minutes=5),
+    )
+
+    assert order_executions_mod.count_submitted_executions("alpaca", db_path=db) == 2
+    assert (
+        order_executions_mod.count_submitted_executions(
+            "alpaca", account_id="acct_a", db_path=db
+        )
+        == 1
+    )
+    assert len(order_executions_mod.list_submitted_executions("alpaca", db_path=db)) == 2
+    listed_a = order_executions_mod.list_submitted_executions(
+        "alpaca", account_id="acct_a", db_path=db
+    )
+    assert [row["id"] for row in listed_a] == ["exec_a_sub"]
+
+    assert order_executions_mod.count_pending_paper_executions("alpaca", db_path=db) == 2
+    assert (
+        order_executions_mod.count_pending_paper_executions(
+            "alpaca", account_id="acct_b", db_path=db
+        )
+        == 1
+    )
+    stale_a = order_executions_mod.list_stale_pending_paper_executions(
+        "alpaca", account_id="acct_a", db_path=db
+    )
+    assert [row["id"] for row in stale_a] == ["exec_a_pend"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_open_uses_account_adapter_and_scope(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_execution_with_account(
+        db,
+        execution_id="exec_a",
+        status="submitted",
+        account_id="acct_a",
+        broker_order_id="ord-a",
+    )
+    _seed_execution_with_account(
+        db,
+        execution_id="exec_b",
+        status="submitted",
+        account_id="acct_b",
+        broker_order_id="ord-b",
+    )
+
+    broker_calls: list[str] = []
+    account_calls: list[str] = []
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            return Order(
+                id=broker_order_id,
+                symbol="AAPL",
+                qty=10.0,
+                side="buy",
+                order_type="market",
+                status="filled",
+                filled_qty=10.0,
+                limit_price=None,
+            )
+
+    def fake_get_broker(name: str) -> StubAdapter:
+        broker_calls.append(name)
+        return StubAdapter()
+
+    def fake_get_broker_for_account(account_id: str) -> StubAdapter:
+        account_calls.append(account_id)
+        return StubAdapter()
+
+    monkeypatch.setattr("trading.fill_tracker.get_broker", fake_get_broker)
+    monkeypatch.setattr(
+        "trading.fill_tracker.get_broker_for_account", fake_get_broker_for_account
+    )
+    monkeypatch.setattr(
+        "trading.fill_tracker.market_hub.broadcast_alert",
+        AsyncMock(),
+    )
+
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    assert account_calls == ["acct_a"]
+    assert broker_calls == []
+    a = order_executions_mod.get_execution("exec_a", db_path=db)
+    b = order_executions_mod.get_execution("exec_b", db_path=db)
+    assert a is not None and a["status"] == "filled"
+    assert b is not None and b["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_pending_orphan_reject_scoped_to_account(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    stale = datetime.now(UTC) - timedelta(minutes=3)
+    _seed_execution_with_account(
+        db,
+        execution_id="exec_a_orphan",
+        status="pending",
+        account_id="acct_a",
+        created_at=stale,
+    )
+    _seed_execution_with_account(
+        db,
+        execution_id="exec_b_orphan",
+        status="pending",
+        account_id="acct_b",
+        created_at=stale,
+    )
+
+    account_calls: list[str] = []
+
+    class StubAdapter:
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    def fake_get_broker_for_account(account_id: str) -> StubAdapter:
+        account_calls.append(account_id)
+        return StubAdapter()
+
+    monkeypatch.setattr(
+        "trading.fill_tracker.get_broker_for_account", fake_get_broker_for_account
+    )
+
+    await reconcile_pending_executions("alpaca", account_id="acct_a", db_path=db)
+
+    assert account_calls == ["acct_a"]
+    a = order_executions_mod.get_execution("exec_a_orphan", db_path=db)
+    b = order_executions_mod.get_execution("exec_b_orphan", db_path=db)
+    assert a is not None and a["status"] == "rejected"
+    assert b is not None and b["status"] == "pending"

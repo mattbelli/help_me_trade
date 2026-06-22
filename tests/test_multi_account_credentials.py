@@ -259,19 +259,38 @@ async def test_poll_per_account_reconciles_and_guards(
         kwargs["db_path"] = db
         return sqlite_mod.save_snapshot(*args, **kwargs)
 
+    reconcile_open = AsyncMock()
+    reconcile_pending = AsyncMock()
+
     with (
         patch.object(main, "get_broker_for_account", side_effect=fake_get_broker_for_account),
         patch.object(main, "connection_is_configured", return_value=True),
         patch.object(main, "save_snapshot", side_effect=save_with_test_db),
-        patch.object(main, "compute_and_save_snapshot_analytics"),
-        patch.object(main, "count_pending_paper_executions", return_value=0),
-        patch.object(main, "count_submitted_executions", return_value=0),
+        patch.object(main, "compute_and_save_snapshot_analytics") as analytics_mock,
+        patch.object(main, "count_pending_paper_executions", return_value=1),
+        patch.object(main, "count_submitted_executions", return_value=1),
+        patch.object(main, "reconcile_open_executions", reconcile_open),
+        patch.object(main, "reconcile_pending_executions", reconcile_pending),
         patch.object(main, "get_latest_snapshot", return_value=None),
         patch.object(main, "get_enabled_broker_names", return_value=["alpaca"]),
     ):
         await main._poll_once()
 
-    assert _poll_run_rows(db) == [default["id"], "acct_alpaca_strat1"]
+    assert {call.kwargs["account_id"] for call in reconcile_pending.await_args_list} == {
+        default["id"],
+        "acct_alpaca_strat1",
+    }
+    assert {call.kwargs["account_id"] for call in reconcile_open.await_args_list} == {
+        default["id"],
+        "acct_alpaca_strat1",
+    }
+    assert all(call.args == ("alpaca",) for call in reconcile_pending.await_args_list)
+    assert all(call.args == ("alpaca",) for call in reconcile_open.await_args_list)
+    analytics_mock.assert_called_once_with("alpaca")
+
+    # _poll_once polls accounts concurrently (asyncio.gather) → order is
+    # non-deterministic; compare as a multiset.
+    assert sorted(_poll_run_rows(db)) == sorted([default["id"], "acct_alpaca_strat1"])
     assert (
         get_account(default["id"], db_path=db)["broker_external_id"]
         == "default-broker-id"
@@ -306,9 +325,11 @@ async def test_poll_per_account_reconciles_and_guards(
         await main._poll_once()
 
     assert "Snapshot account id mismatch" in caplog.text
-    assert _poll_run_rows(db) == [
+    # STRAT1's id-guard mismatch skips its 2nd save → 2 default rows + 1 strat1,
+    # in non-deterministic order (concurrent poll); compare as a multiset.
+    assert sorted(_poll_run_rows(db)) == sorted([
         default["id"],
         "acct_alpaca_strat1",
         default["id"],
-    ]
+    ])
     assert save_mock.call_count == 1
