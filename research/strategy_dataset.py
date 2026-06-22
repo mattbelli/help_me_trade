@@ -18,6 +18,7 @@ from research.strategy_features import (
     compute_market_context,
     is_consec_down_entry,
     is_momentum_entry,
+    is_profile_reversion_entry,
     is_rsi2_entry,
     is_strategy_entry,
 )
@@ -104,6 +105,10 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
         rsi_period,
         rsi_max,
         down_days,
+        require_profile_support,
+        profile_window,
+        profile_n_bins,
+        profile_node_tol_pct,
         created_at,
     ) = task
 
@@ -163,7 +168,22 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
                 cap_vol_min=cap_vol_min,
                 side=side,
                 far_support_min=far_support_min,
+                require_profile_support=require_profile_support,
+                profile_window=profile_window,
+                profile_n_bins=profile_n_bins,
+                profile_node_tol_pct=profile_node_tol_pct,
             )
+        elif strategy_type == "profile_reversion":
+            entry_ok = is_profile_reversion_entry(
+                bars,
+                idx,
+                spy_bars=spy_bars,
+                spy_idx=spy_idx,
+                window=profile_window,
+                n_bins=profile_n_bins,
+                node_tol_pct=profile_node_tol_pct,
+            )
+            # TODO: POC-target exit
         elif strategy_type == "rsi2":
             entry_ok = is_rsi2_entry(
                 bars,
@@ -274,6 +294,10 @@ def _strategy_tasks(
     rsi_period: int,
     rsi_max: float,
     down_days: int,
+    require_profile_support: bool,
+    profile_window: int,
+    profile_n_bins: int,
+    profile_node_tol_pct: float,
     created_at: str,
 ) -> list[tuple]:
     return [
@@ -309,6 +333,10 @@ def _strategy_tasks(
             rsi_period,
             rsi_max,
             down_days,
+            require_profile_support,
+            profile_window,
+            profile_n_bins,
+            profile_node_tol_pct,
             created_at,
         )
         for symbol in symbols
@@ -402,6 +430,10 @@ def _compute_summary_from_rows(
     rsi_max: float,
     down_days: int,
     far_support_min: float | None = None,
+    require_profile_support: bool = False,
+    profile_window: int = 60,
+    profile_n_bins: int = 100,
+    profile_node_tol_pct: float = 0.25,
 ) -> dict:
     n_setups = len(rows)
     if n_setups == 0:
@@ -440,6 +472,10 @@ def _compute_summary_from_rows(
             "rsi_max": rsi_max,
             "down_days": down_days,
             "far_support_min": far_support_min,
+            "require_profile_support": require_profile_support,
+            "profile_window": profile_window,
+            "profile_n_bins": profile_n_bins,
+            "profile_node_tol_pct": profile_node_tol_pct,
         }
         _log_summary(summary)
         return summary
@@ -491,6 +527,10 @@ def _compute_summary_from_rows(
         "rsi_max": rsi_max,
         "down_days": down_days,
         "far_support_min": far_support_min,
+        "require_profile_support": require_profile_support,
+        "profile_window": profile_window,
+        "profile_n_bins": profile_n_bins,
+        "profile_node_tol_pct": profile_node_tol_pct,
     }
     _log_summary(summary)
     return summary
@@ -570,6 +610,10 @@ def build_strategy_dataset(
     rsi_max: float = 10.0,
     down_days: int = 3,
     far_support_min: float | None = None,
+    require_profile_support: bool = False,
+    profile_window: int = 60,
+    profile_n_bins: int = 100,
+    profile_node_tol_pct: float = 0.25,
     jobs: int = 1,
     replace: bool = True,
 ) -> dict:
@@ -628,6 +672,10 @@ def build_strategy_dataset(
             rsi_max=rsi_max,
             down_days=down_days,
             far_support_min=far_support_min,
+            require_profile_support=require_profile_support,
+            profile_window=profile_window,
+            profile_n_bins=profile_n_bins,
+            profile_node_tol_pct=profile_node_tol_pct,
             created_at=created_at,
         )
 
@@ -697,6 +745,10 @@ def build_strategy_dataset(
             rsi_max=rsi_max,
             down_days=down_days,
             far_support_min=far_support_min,
+            require_profile_support=require_profile_support,
+            profile_window=profile_window,
+            profile_n_bins=profile_n_bins,
+            profile_node_tol_pct=profile_node_tol_pct,
         )
     finally:
         conn.close()
@@ -794,7 +846,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=("dip", "momentum", "rsi2", "consec_down"),
+        choices=("dip", "momentum", "rsi2", "consec_down", "profile_reversion"),
         default="dip",
         help="Entry predicate type (default: dip)",
     )
@@ -850,6 +902,23 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Min %% above nearest support for dip entry (default: off)",
     )
+    parser.add_argument(
+        "--require-profile-support",
+        action="store_true",
+        help="Dip entry requires HVN support or below value (default: off)",
+    )
+    parser.add_argument(
+        "--profile-window",
+        type=int,
+        default=60,
+        help="Volume-profile lookback bars for profile entry/filter (default: 60)",
+    )
+    parser.add_argument(
+        "--profile-nbins",
+        type=int,
+        default=100,
+        help="Volume-profile price bins (default: 100)",
+    )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
         parser.error("provide --symbols or --symbols-from-cache")
@@ -894,6 +963,9 @@ def main(argv: list[str] | None = None) -> None:
         rsi_max=args.rsi_max,
         down_days=args.down_days,
         far_support_min=args.far_support_min,
+        require_profile_support=args.require_profile_support,
+        profile_window=args.profile_window,
+        profile_n_bins=args.profile_nbins,
     )
 
 

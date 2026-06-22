@@ -10,6 +10,7 @@ from research.strategy_features import (
     compute_market_context,
     is_consec_down_entry,
     is_momentum_entry,
+    is_profile_reversion_entry,
     is_rsi2_entry,
     is_strategy_entry,
 )
@@ -490,4 +491,232 @@ def test_far_support_gate_passes_when_far_from_support(
             far_support_min=5.0,
         )
         is True
+    )
+
+
+def _profile_bar(
+    *,
+    low: float,
+    high: float | None = None,
+    close: float | None = None,
+    volume: float = 1000.0,
+    day_offset: int = 0,
+) -> DatedBar:
+    h = high if high is not None else low
+    c = close if close is not None else (low + h) / 2.0
+    d = date(2024, 1, 1) + timedelta(days=day_offset)
+    return {
+        "d": d.isoformat(),
+        "o": c,
+        "h": h,
+        "l": low,
+        "c": c,
+        "v": volume,
+    }
+
+
+def _profile_reversion_bars(*, window: int = 10) -> tuple[list[DatedBar], int]:
+    """High-volume POC near 100; entry bar pokes a thin poor low below value."""
+    history = [
+        _profile_bar(low=100.0, high=102.0, close=101.0, volume=5_000.0, day_offset=i)
+        for i in range(window)
+    ]
+    idx = window
+    poke = _profile_bar(low=95.0, high=96.0, close=95.5, volume=50.0, day_offset=idx)
+    bars = history + [poke]
+    return bars, idx
+
+
+def _profile_at_poc_bars(*, window: int = 10) -> tuple[list[DatedBar], int]:
+    """Price sitting at the high-volume POC inside value."""
+    history = [
+        _profile_bar(low=100.0, high=102.0, close=101.0, volume=5_000.0, day_offset=i)
+        for i in range(window)
+    ]
+    idx = window
+    at_poc = _profile_bar(low=100.0, high=102.0, close=101.0, volume=1_000.0, day_offset=idx)
+    bars = history + [at_poc]
+    return bars, idx
+
+
+def test_profile_reversion_entry_true_on_poor_low_below_value() -> None:
+    bars, idx = _profile_reversion_bars(window=10)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    assert (
+        is_profile_reversion_entry(
+            bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            window=10,
+            n_bins=50,
+        )
+        is True
+    )
+
+
+def test_profile_reversion_entry_false_at_poc_inside_value() -> None:
+    bars, idx = _profile_at_poc_bars(window=10)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    assert (
+        is_profile_reversion_entry(
+            bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            window=10,
+            n_bins=50,
+        )
+        is False
+    )
+
+
+def test_profile_reversion_entry_false_when_idx_below_window() -> None:
+    bars, _ = _profile_reversion_bars(window=10)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    assert (
+        is_profile_reversion_entry(
+            bars,
+            5,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            window=10,
+            n_bins=50,
+        )
+        is False
+    )
+
+
+def test_profile_reversion_entry_no_lookahead() -> None:
+    import copy
+
+    bars, idx = _profile_reversion_bars(window=10)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+    altered = copy.deepcopy(bars)
+    for j in range(idx + 1, len(altered)):
+        altered[j] = _profile_bar(
+            low=50.0,
+            high=200.0,
+            close=150.0,
+            volume=999_999.0,
+            day_offset=j,
+        )
+
+    kwargs = {
+        "spy_bars": spy_bars,
+        "spy_idx": spy_idx,
+        "window": 10,
+        "n_bins": 50,
+    }
+    assert is_profile_reversion_entry(bars, idx, **kwargs) == is_profile_reversion_entry(
+        altered, idx, **kwargs
+    )
+
+
+def test_dip_profile_support_filter_passes_at_hvn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stock_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    monkeypatch.setattr(
+        "research.strategy_features.compute_profile_features",
+        lambda bars, i, **kw: {
+            "poc": 100.0,
+            "vah": 102.0,
+            "val": 98.0,
+            "va_width_pct": 4.0,
+            "dist_to_poc_pct": -1.0,
+            "in_value_area": True,
+            "value_position": 0.5,
+            "at_hvn_support": True,
+            "at_lvn": False,
+            "below_value": False,
+            "is_poor_low": False,
+        },
+    )
+
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            require_profile_support=True,
+        )
+        is True
+    )
+
+
+def test_dip_profile_support_filter_passes_below_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stock_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    monkeypatch.setattr(
+        "research.strategy_features.compute_profile_features",
+        lambda bars, i, **kw: {
+            "poc": 100.0,
+            "vah": 102.0,
+            "val": 98.0,
+            "va_width_pct": 4.0,
+            "dist_to_poc_pct": -3.0,
+            "in_value_area": False,
+            "value_position": None,
+            "at_hvn_support": False,
+            "at_lvn": False,
+            "below_value": True,
+            "is_poor_low": False,
+        },
+    )
+
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            require_profile_support=True,
+        )
+        is True
+    )
+
+
+def test_dip_profile_support_filter_rejects_low_volume_air(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stock_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    monkeypatch.setattr(
+        "research.strategy_features.compute_profile_features",
+        lambda bars, i, **kw: {
+            "poc": 100.0,
+            "vah": 102.0,
+            "val": 98.0,
+            "va_width_pct": 4.0,
+            "dist_to_poc_pct": 1.0,
+            "in_value_area": True,
+            "value_position": 0.8,
+            "at_hvn_support": False,
+            "at_lvn": False,
+            "below_value": False,
+            "is_poor_low": False,
+        },
+    )
+
+    assert is_strategy_entry(stock_bars, idx, spy_bars=spy_bars, spy_idx=spy_idx) is True
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            require_profile_support=True,
+        )
+        is False
     )

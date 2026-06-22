@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from research.levels import level_features
+from research.volume_profile import compute_profile_features
 from signals.indicators import (
     closes,
     distance_from_high,
@@ -68,6 +69,10 @@ def is_strategy_entry(
     cap_vol_min: float = 1.5,
     side: str = "long",
     far_support_min: float | None = None,
+    require_profile_support: bool = False,
+    profile_window: int = 60,
+    profile_n_bins: int = 100,
+    profile_node_tol_pct: float = 0.25,
 ) -> bool:
     """Return True when all active strategy entry conditions hold at idx (no look-ahead).
 
@@ -131,6 +136,63 @@ def is_strategy_entry(
         feats = level_features(bars, idx)
         dist = feats.get("dist_to_support_pct")
         if dist is None or dist < far_support_min:
+            return False
+
+    if require_profile_support:
+        prof = compute_profile_features(
+            bars,
+            idx,
+            window=profile_window,
+            n_bins=profile_n_bins,
+            node_tol_pct=profile_node_tol_pct,
+        )
+        if prof.get("poc") is None:
+            return False
+        if not (prof["at_hvn_support"] or prof["below_value"]):
+            return False
+
+    return True
+
+
+def is_profile_reversion_entry(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    spy_bars: list[DatedBar],
+    spy_idx: int,
+    window: int = 60,
+    n_bins: int = 100,
+    node_tol_pct: float = 0.25,
+    require_market_down: bool = False,
+) -> bool:
+    """Return True when profile-reversion long entry conditions hold at idx (no look-ahead).
+
+    Entry when price is below value AND at a low-volume node or poor low (structural
+    low expected to revert toward POC). Optionally requires SPY market-down context.
+    """
+    if idx < 0 or idx >= len(bars):
+        return False
+
+    feats = compute_profile_features(
+        bars,
+        idx,
+        window=window,
+        n_bins=n_bins,
+        node_tol_pct=node_tol_pct,
+    )
+    if feats.get("poc") is None:
+        return False
+
+    entry = feats["below_value"] and (feats["at_lvn"] or feats["is_poor_low"])
+    if not entry:
+        return False
+
+    if require_market_down:
+        mkt_ctx = compute_market_context(spy_bars, spy_idx)
+        if mkt_ctx is None:
+            return False
+        mkt_ret_3d = mkt_ctx.get("mkt_ret_3d")
+        if mkt_ret_3d is None or mkt_ret_3d >= 0:
             return False
 
     return True
