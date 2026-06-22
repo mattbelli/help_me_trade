@@ -71,10 +71,80 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
 
     seed_default_strategies(db_path=db)
     first = list_strategies(db_path=db)
-    assert {s["id"] for s in first} == {"dip_buy", "dip_refined"}
+    assert {s["id"] for s in first} == {"dip_buy", "dip_refined", "earnings_drift"}
 
     seed_default_strategies(db_path=db)
-    assert {s["id"] for s in list_strategies(db_path=db)} == {"dip_buy", "dip_refined"}
+    assert {s["id"] for s in list_strategies(db_path=db)} == {
+        "dip_buy",
+        "dip_refined",
+        "earnings_drift",
+    }
+
+
+def test_seed_earnings_drift_defaults(tmp_path: Path, monkeypatch) -> None:
+    db = _migrated_db(tmp_path)
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    seed_default_strategies(db_path=db)
+    row = get_strategy("earnings_drift", db_path=db)
+    assert row is not None
+    assert row["enabled"] is False
+    assert row["account_id"] is None
+    assert row["exit_mode"] == "propose"
+    assert row["params"]["exit_lead_td"] == 1
+
+
+def test_seed_backfills_earnings_when_dips_exist(tmp_path: Path, monkeypatch) -> None:
+    """Regression: pre-existing dip rows must not block earnings_drift back-fill."""
+    db = _migrated_db(tmp_path)
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    init_strategy_tables(db)
+    now = datetime.now(UTC).isoformat()
+    with connect(db) as conn:
+        for sid, name in (("dip_buy", "Dip-Buy"), ("dip_refined", "Dip-Buy + S/R filter")):
+            conn.execute(
+                """
+                INSERT INTO strategies (
+                    id, name, enabled, account_id, notional_usd, exit_mode,
+                    params_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (sid, name, 0, None, 500, "auto", "{}", now, now),
+            )
+        conn.commit()
+
+    assert get_strategy("earnings_drift", db_path=db) is None
+    seed_default_strategies(db_path=db)
+    row = get_strategy("earnings_drift", db_path=db)
+    assert row is not None
+    assert row["enabled"] is False
+    assert row["exit_mode"] == "propose"
+
+
+def test_seed_backfills_earnings_after_dips_only_seed(tmp_path: Path, monkeypatch) -> None:
+    """Regression: dip rows pre-existing must not block earnings_drift back-fill."""
+    db = _migrated_db(tmp_path)
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    seed_default_strategies(db_path=db)
+    assert get_strategy("earnings_drift", db_path=db) is not None
+
+    with connect(db) as conn:
+        conn.execute("DELETE FROM strategies WHERE id = 'earnings_drift'")
+        conn.commit()
+
+    assert get_strategy("earnings_drift", db_path=db) is None
+    seed_default_strategies(db_path=db)
+    row = get_strategy("earnings_drift", db_path=db)
+    assert row is not None
+    assert row["exit_mode"] == "propose"
 
 
 def test_seed_carries_legacy_settings(tmp_path: Path, monkeypatch) -> None:

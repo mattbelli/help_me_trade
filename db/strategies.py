@@ -35,6 +35,18 @@ _DIP_REFINED_DEFAULT_PARAMS: dict[str, Any] = {
     "far_support_min": 5.0,
 }
 
+_EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
+    # entry (mirrors is_earnings_drift_entry defaults — the validated values)
+    "blowout_pct": 5.0,
+    "entry_lead_td": 10,
+    "exit_lead_td": 1,
+    "min_gap_td": 40,
+    "max_gap_td": 90,
+    # exit (evaluate_earnings_exit): sell ~exit_lead_td before next earnings; max_holding_days is a
+    # stale-calendar SAFETY cap (holding is ~9 td: enter ~10 td before, exit ~1 td before).
+    "max_holding_days": 15,
+}
+
 _VALID_EXIT_MODES = frozenset({"auto", "propose"})
 
 
@@ -271,6 +283,7 @@ def _insert_strategy(
     params: dict[str, Any],
     now: str,
     universe: str = "sp500",
+    exit_mode: str = "auto",
 ) -> None:
     conn.execute(
         """
@@ -285,7 +298,7 @@ def _insert_strategy(
             1 if enabled else 0,
             account_id,
             notional,
-            "auto",
+            exit_mode,
             json.dumps(params),
             universe,
             now,
@@ -307,7 +320,8 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
 
     need_dip_buy = get_strategy("dip_buy", db_path=db_path) is None
     need_dip_refined = get_strategy("dip_refined", db_path=db_path) is None
-    if not need_dip_buy and not need_dip_refined:
+    need_earnings = get_strategy("earnings_drift", db_path=db_path) is None
+    if not need_dip_buy and not need_dip_refined and not need_earnings:
         return
 
     seed_account_id = _resolve_seed_account_id(db_path=db_path) if need_dip_buy else None
@@ -338,6 +352,21 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 notional=500.0,
                 params=_DIP_REFINED_DEFAULT_PARAMS,
                 now=now,
+            )
+
+        if need_earnings:
+            # Disabled + UNBOUND by default — the user binds a dedicated STRAT2 forward-test account in the
+            # UI and enables it. exit_mode 'propose' so the first exits are phone-approved (safe default).
+            _insert_strategy(
+                conn,
+                strategy_id="earnings_drift",
+                name="Earnings Drift",
+                enabled=False,
+                account_id=None,
+                notional=500.0,
+                params=_EARNINGS_DRIFT_DEFAULT_PARAMS,
+                now=now,
+                exit_mode="propose",
             )
 
         conn.commit()

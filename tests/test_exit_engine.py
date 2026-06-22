@@ -243,6 +243,7 @@ async def test_earnings_within_lead_auto_exits(
     today = "2026-06-22T12:00:00+00:00"
     monkeypatch.setattr("trading.exit_engine.now_iso", lambda: today)
     upsert_earnings([{"symbol": "AAPL", "date": "2026-06-23"}], db_path=db)
+    update_strategy("earnings_drift", exit_mode="auto", db_path=db)
     _save_snapshot(
         db,
         positions=[_position(avg_entry_price=100.0, current_price=101.0, qty=8.0)],

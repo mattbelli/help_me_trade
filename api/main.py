@@ -81,10 +81,13 @@ from db.sqlite import (
     init_db,
     save_snapshot,
 )
-from db.strategies import init_strategy_tables, seed_default_strategies
+from db.strategies import init_strategy_tables, list_strategies, seed_default_strategies
 from db.trades import init_trade_tables
+from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.scan import run_signal_scan
+from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
+from signals.strategy_universe import resolve_universe_spec
 from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.proposal_intake import propose_from_scan_fire
@@ -97,6 +100,7 @@ POLL_INTERVAL_SECONDS = max(
 SIGNAL_SCAN_INTERVAL_SECONDS = max(
     30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300"))
 )
+EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -341,6 +345,32 @@ async def _signal_scan_loop() -> None:
         await asyncio.sleep(SIGNAL_SCAN_INTERVAL_SECONDS)
 
 
+async def _earnings_refresh_once() -> int:
+    """Refresh the earnings calendar for the universes of ENABLED earnings-kind strategies.
+
+    One Finnhub call covers all companies; it filters to the union of those universes. Returns
+    rows upserted (0 if nothing enabled / Finnhub unconfigured).
+    """
+    symbols: set[str] = set()
+    for s in list_strategies(enabled_only=True):
+        if strategy_kind(s["id"]) == "earnings":
+            symbols |= set(resolve_universe_spec(s.get("universe")))
+    if not symbols:
+        return 0
+    return await arefresh_earnings_calendar(sorted(symbols))
+
+
+async def _earnings_refresh_loop() -> None:
+    while True:
+        try:
+            n = await _earnings_refresh_once()
+            if n:
+                logger.info("Earnings calendar refresh upserted %d rows", n)
+        except Exception:
+            logger.exception("Earnings refresh loop iteration failed")
+        await asyncio.sleep(EARNINGS_REFRESH_INTERVAL_SECONDS)
+
+
 async def _trade_sync_loop() -> None:
     """Sync trade ledger from enabled brokers on startup, then periodically."""
     try:
@@ -416,13 +446,15 @@ async def lifespan(app: FastAPI):
     alert_task = asyncio.create_task(_alert_symbol_loop())
     reflection_task = asyncio.create_task(reflection_loop())
     sync_task = asyncio.create_task(_trade_sync_loop())
+    earnings_task = asyncio.create_task(_earnings_refresh_loop())
     yield
+    earnings_task.cancel()
     sync_task.cancel()
     poll_task.cancel()
     scan_task.cancel()
     alert_task.cancel()
     reflection_task.cancel()
-    for task in (poll_task, scan_task, alert_task, reflection_task, sync_task):
+    for task in (poll_task, scan_task, alert_task, reflection_task, sync_task, earnings_task):
         try:
             await task
         except asyncio.CancelledError:

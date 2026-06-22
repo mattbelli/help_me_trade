@@ -59,10 +59,15 @@ strategy *can't* go live without them (its edge IS selling ~1 day before the nex
   an exit hiccup can't break polling). Deployed onto D1→D4. **`dip_refined` exit_mode set to `propose`** (every
   exit pings the phone to Approve/Reject — the safe default; flip to `auto` when trusted). 0 open managed
   positions at deploy, so the engine is inert until approved `dip_refined` entries fill.
-- ⬜ **E3 — register `earnings_drift`** strategy (seed disabled, honest framing) + **scan dispatch** (the scan
-  currently only calls `is_strategy_entry`; needs a per-strategy "kind" → call `is_earnings_drift_entry` with
-  per-symbol dates from `db.earnings_calendar`) + **daily refresh loop** (mirror `_trade_sync_loop` in main.py,
-  call `arefresh_earnings_calendar(universe)`).
+- ✅ **E3 — earnings_drift registered + strategy-kind registry + daily refresh.** New `signals/strategy_kinds.py`
+  is a **kind registry** (`STRATEGY_KINDS`: `kind → {entry_param_keys, check_entry, build_rationale}`); the scan
+  (`signals/strategy_scan.py::_run_strategy`) now dispatches entry through it instead of hardcoding the dip
+  predicate — adding a future kind = write a point-in-time predicate + one registry line (dip behavior
+  unchanged). `earnings_drift` seeded **disabled, unbound, exit_mode `propose`** (`db/strategies.py`;
+  also fixed a latent seed early-return that skipped any new built-in once the dip rows existed, and added an
+  `exit_mode` arg to `_insert_strategy`). Daily earnings-refresh loop in `api/main.py` (`_earnings_refresh_loop`,
+  boot + 24h, scoped to ENABLED earnings strategies' universes via `arefresh_earnings_calendar`). Earnings EXIT
+  was already live (D2/D3) — untouched. 13 new tests; full suite 623 green.
 
 **Combiner (pulled into `main`, commit 3b82e84) — research only, NOT live.** `research/combined.py` +
 `overfit.py` (Deflated Sharpe / PBO) + `earnings.py`/`earnings_strategy.py` + deps. Founder's validated run
@@ -83,11 +88,14 @@ is NO single "combined" predicate — live "combining" = run dip + earnings on O
   phone-approved. `earnings_drift` not registered yet (E3) — safe to enable only after E3 + with exits live.
 
 ## NEXT (in order)
-1. **E3 — register `earnings_drift`** + scan-dispatch by kind + daily earnings refresh (see the ⬜ E3 bullet
-   above). After E3, both dip + earnings are live round-trips governed by `exit_mode`.
-2. **Watch the first real exit round-trip.** Once a `dip_refined` entry fills, confirm the engine: (a) records
-   the managed row (D1), (b) on a trigger sends a phone exit proposal (propose mode), (c) closes the managed row
-   after the approved sell fills / the position goes flat. Then consider flipping `dip_refined` to `auto`.
+1. **Arm `earnings_drift` when ready (founder).** It's seeded disabled + unbound. Founder will create a STRAT2
+   paper account (add `APCA_*_STRAT2` creds + register the account), then in Settings → Strategies bind
+   earnings_drift to STRAT2 and enable it (exit_mode stays `propose`). On enable, the daily refresh loop starts
+   populating the Finnhub calendar for its universe (restart forces an immediate refresh). Expect FEWER setups
+   than backtest (free-tier coverage + dates only confirmed ~2-4 wks out).
+2. **Watch the first real exit round-trip** (dip or earnings): managed row recorded (D1) → on a trigger a phone
+   exit proposal fires (propose) → row closes after the approved sell fills / position goes flat. Then consider
+   flipping a strategy to `auto`.
 3. **Caps on `dip_refined`** (founder call): broad `sp500` + uncapped can flood proposals on a cluster day —
    set `max_concurrent_positions` / `max_deployed_usd` before/alongside heavier use.
 2. **E3** register `earnings_drift` + scan-dispatch by strategy kind + daily earnings refresh loop.

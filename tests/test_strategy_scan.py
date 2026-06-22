@@ -514,3 +514,95 @@ def test_dip_strategy_settings_round_trip(tmp_path: Path, monkeypatch) -> None:
     settings_mod.apply_settings_patch({"trading": {"dip_strategy_notional_usd": -50}})
     cfg = settings_mod.trading_config()
     assert cfg["dip_strategy_notional_usd"] == 0.0
+
+
+def _weekday_bars(n: int, start: date, base: float = 100.0) -> list[DatedBar]:
+    bars: list[DatedBar] = []
+    d = start
+    while len(bars) < n:
+        if d.weekday() < 5:
+            bars.append(
+                {"d": d.isoformat(), "o": base, "h": base, "l": base, "c": base, "v": 1000.0}
+            )
+        d += timedelta(days=1)
+    return bars
+
+
+def _date_n_trading_days_after(d: date, n: int) -> str:
+    cur = d
+    count = 0
+    while count < n:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            count += 1
+    return cur.isoformat()
+
+
+def _earnings_passing_bars() -> tuple[list[DatedBar], list[str]]:
+    bars = _weekday_bars(MIN_BARS_FOR_CONTEXT + 20, date(2026, 1, 5))
+    prior_idx = len(bars) - 45
+    bars[prior_idx - 1]["c"] = 100.0
+    bars[prior_idx + 1]["c"] = 106.0
+    idx = len(bars) - 1
+    last_e = bars[prior_idx]["d"]
+    today = date.fromisoformat(bars[idx]["d"])
+    next_e = _date_n_trading_days_after(today, 10)
+    return bars, [last_e, next_e]
+
+
+@pytest.mark.asyncio
+async def test_earnings_strategy_proposes_when_predicate_passes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=False,
+        watchlist=[PASS_SYMBOL],
+    )
+    from db.accounts import default_execution_account
+
+    bound_account = default_execution_account(db_path=db)["id"]
+    update_strategy(
+        "dip_buy",
+        enabled=False,
+        db_path=db,
+    )
+    update_strategy(
+        "earnings_drift",
+        enabled=True,
+        account_id=bound_account,
+        notional_usd=600,
+        universe=PASS_SYMBOL,
+        db_path=db,
+    )
+
+    sym_bars, earnings_dates = _earnings_passing_bars()
+    last_date = date.fromisoformat(sym_bars[-1]["d"])
+    spy_closes = [450.0] * (MIN_BARS_FOR_CONTEXT + 4)
+    spy_bars = _dated_bars_from_closes(spy_closes, last_date - timedelta(days=len(spy_closes) - 1))
+    monkeypatch.setattr(
+        "signals.strategy_kinds.earnings_dates_for",
+        lambda _sym, db_path=None: earnings_dates,
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(
+            return_value={
+                PASS_SYMBOL: _dated_bars_to_stockbars(sym_bars),
+                SPY_SYMBOL: _dated_bars_to_stockbars(spy_bars),
+            }
+        ),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert len(result) == 1
+    propose_mock.assert_awaited_once()
+    candidate = propose_mock.await_args.args[0]
+    assert candidate.symbol == PASS_SYMBOL
+    assert candidate.source == "strategy:earnings_drift"
+    assert candidate.notional_usd == Decimal("600")
+    assert "Earnings Drift:" in (candidate.rationale or "")
+    assert "pre-earnings drift" in (candidate.rationale or "")
+

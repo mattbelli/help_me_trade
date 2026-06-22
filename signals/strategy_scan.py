@@ -23,9 +23,12 @@ from db.base import DEFAULT_DB_PATH
 from db.paper_orders import list_pending_proposals
 from db.sqlite import get_latest_snapshot
 from db.strategies import list_strategies
-from research.strategy_features import compute_market_context, is_strategy_entry
-from signals.indicators import closes, pct_change
 from signals.scan import _fetch_stock_bars
+from signals.strategy_kinds import (
+    EntryContext,
+    filter_entry_params,
+    kind_spec,
+)
 from signals.strategy_universe import resolve_universe_spec
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
 from trading.proposal_intake import TradeCandidate, propose_trade
@@ -34,15 +37,6 @@ logger = logging.getLogger(__name__)
 
 STRATEGY_BAR_DAYS = 420
 SPY_SYMBOL = "SPY"
-
-_ENTRY_PARAM_KEYS = (
-    "healthy_required",
-    "oversold_3d_max",
-    "mkt_down_3d_max",
-    "side",
-    "far_support_min",
-)
-
 
 def _parse_bar_date(time_str: str) -> date:
     text = time_str.strip()
@@ -157,26 +151,6 @@ def _pending_exposure(
     return len(pending), value
 
 
-def _entry_params_from(params: dict[str, Any]) -> dict[str, Any]:
-    return {key: params[key] for key in _ENTRY_PARAM_KEYS if key in params}
-
-
-def _build_rationale(
-    sym_bars: list[DatedBar],
-    idx: int,
-    spy_bars: list[DatedBar],
-    spy_idx: int,
-    sym: str,
-    strategy_name: str,
-) -> str:
-    ret_3d = pct_change(closes(sym_bars[: idx + 1]), 3)
-    mkt_ctx = compute_market_context(spy_bars, spy_idx)
-    mkt_ret_3d = mkt_ctx.get("mkt_ret_3d") if mkt_ctx else None
-    ret_str = f"{ret_3d:.1f}" if ret_3d is not None else "?"
-    mkt_str = f"{mkt_ret_3d:.1f}" if mkt_ret_3d is not None else "?"
-    return f"{strategy_name}: {sym} {ret_str}%/3d, SPY {mkt_str}%/3d, >SMA200"
-
-
 def _account_is_ready(
     account: dict[str, Any],
     *,
@@ -200,6 +174,14 @@ async def _run_strategy(
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
+    spec = kind_spec(strategy["id"])
+    if spec is None:
+        logger.warning(
+            "Strategy %s skipped — unknown strategy kind",
+            strategy["id"],
+        )
+        return []
+
     notional = float(strategy.get("notional_usd") or 0)
     if notional <= 0:
         logger.debug(
@@ -267,7 +249,7 @@ async def _run_strategy(
         broker_name, account_id=str(account_id), db_path=db_path
     )
     held = _held_symbols(snapshot)
-    entry_params = _entry_params_from(strategy.get("params") or {})
+    entry_params = filter_entry_params(spec, strategy.get("params") or {})
 
     # Per-strategy risk caps (None = uncapped). Committed exposure = already-open
     # positions + still-pending proposals in the bound account; we stop proposing
@@ -333,13 +315,16 @@ async def _run_strategy(
                 )
                 continue
 
-            if not is_strategy_entry(
-                sym_bars,
-                idx,
+            ctx = EntryContext(
+                sym=sym,
+                sym_bars=sym_bars,
+                idx=idx,
                 spy_bars=spy_bars,
                 spy_idx=spy_idx,
-                **entry_params,
-            ):
+                params=entry_params,
+                db_path=db_path,
+            )
+            if not spec.check_entry(ctx):
                 continue
 
             # Per-strategy risk caps: stop once the next order would breach the
@@ -373,14 +358,7 @@ async def _run_strategy(
                 order_type="market",
                 source=f"strategy:{strategy['id']}",
                 rule_id=None,
-                rationale=_build_rationale(
-                    sym_bars,
-                    idx,
-                    spy_bars,
-                    spy_idx,
-                    sym,
-                    strategy["name"],
-                ),
+                rationale=spec.build_rationale(ctx, strategy["name"]),
                 account_id=str(account_id),
             )
             result = await propose_trade(candidate, db_path=db_path)
