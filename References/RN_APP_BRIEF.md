@@ -16,9 +16,15 @@ the phone, and the user **taps Approve from the lock screen / Dynamic Island whi
 then executes through a hardened server chokepoint. Success = *how little he has to watch it and still
 trust it.*
 
-So this app is a **supervision + approval cockpit**, NOT a manual trading terminal. It shows what the
-agent is doing and lets the user approve/reject + review — it does **not** let the user place arbitrary
-trades. Internalize that framing; it drives every UX and safety decision below.
+So this app is **first a supervision + approval cockpit** — it shows what the agent is doing and lets
+the user approve/reject + review. It **also** supports **simple manual order entry by the user**
+(chokepoint-routed; see Safety), but it is **not** a pro trading terminal, and the **AI agent never
+places trades on its own** — it proposes, the human decides. Internalize that framing; it drives every
+UX and safety decision below.
+
+**Companion:** read `References/RN_UI_PLAYBOOK.md` (a research dossier on elite mobile UI craft + the
+RN/Expo techniques to achieve it) alongside this brief — it's the "how to make it feel premium" evidence
+base for your plan.
 
 ## 2. What already exists (the integration surface)
 The backend is built and running on a home Linux server ("serv"), reachable over **Tailscale only** at
@@ -92,17 +98,29 @@ The founder's words, to be taken as direction:
 
 Take inspiration from the existing app's information architecture and theme, but elevate it.
 
-## 5. Proposed surfaces (plan mode should finalize)
-A starting set of full-bleed, swipeable surfaces — refine in planning:
-1. **Approvals** — the hero. Pending proposals as rich, swipeable cards: the agent's thesis/summary,
-   calibrated win%/EV, entry/stop/targets, sizing, account, countdown to expiry. Big Approve / Reject
-   with confirmation + haptics. This is also what the Live Activity deep-links into.
-2. **Portfolio** — account value, equity curve (`/api/portfolio/history`), positions with live P&L,
-   account switcher (default / STRAT1 / STRAT2 / aggregate).
-3. **Watchlist** — reorderable live-quote list (the drag-to-reorder surface).
-4. **Activity** — the live feed (from the WS): proposals, approvals, fills, agent exits — the "what did
-   it do while I was away" log.
-5. (Maybe) **Agent** — a read/glanceable view of the agent's current state/reasoning. Optional; plan it.
+## 5. Surfaces (swipeable, full-bleed; plan mode finalizes)
+Horizontal paging with the **Home dashboard in the CENTER as the default landing surface** — swipe
+left/right to the others.
+- **Home (center, default)** — the "how's my agent doing / am I winning" glance: portfolio value +
+  today's P&L, recent trades, and **insights** — both **AI insights** AND a clear **"are you beating the
+  S&P 500?" alpha** readout, **broken out per strategy** (dip / earnings / …). Calm, glanceable, premium.
+- **Approvals** — the hero interaction: pending proposals as rich swipeable cards (thesis/summary,
+  calibrated win%/EV, entry/stop/targets, sizing, account, expiry countdown), big Approve/Reject +
+  haptics. Also the Live Activity deep-link target.
+- **Portfolio** — account value, equity curve (`/api/portfolio/history`), positions w/ live P&L, account
+  switcher (default / STRAT1 / STRAT2 / aggregate).
+- **Watchlist** — reorderable (hold-drag up/down) live-quote list; **tapping a ticker opens the
+  Chart/Info detail page**. Persist order to the backend.
+- **Chart / Info detail** — price chart + key info for a symbol; also the home for **lightweight manual
+  order entry** (simple symbol/side/qty/limit — see Safety; chokepoint-routed, not a pro DOM).
+- **Activity** — the live WS feed: proposals, approvals, fills, agent exits ("what it did while I was
+  away").
+- **Settings** — **activate/configure strategies** (mirror the web Strategies panel: enable, bind
+  account, notional, exit_mode, universe, caps), account/connection status, app prefs, token/onboarding.
+
+**Capability benchmark: thinkorswim** — that's the bar for *what it can do* (powerful), but with the
+polish TOS lacks. **Feel/visual anchors: Apple Stocks, Apple Health, Apple Fitness**, plus the craft
+leaders in the UI playbook dossier.
 
 ## 6. The killer feature: approve from the Dynamic Island / Live Activity
 This is what makes the product. Design it deliberately:
@@ -117,9 +135,13 @@ This is what makes the product. Design it deliberately:
   action handling, and keeping the `payload_hash` fresh so an approval can't act on a stale proposal.
 
 ## 7. Safety — non-negotiable (this becomes real money)
-- **The app cannot place an arbitrary trade.** The only path to a trade is **Approve on an
-  agent-generated proposal**, which re-validates server-side through the chokepoint. No order-entry UI, no
-  Alpaca trading tools exposed, no "sell now" buttons that bypass a proposal.
+- **Every order — manual OR an approved proposal — routes through the SAME server chokepoint.** Whether
+  the user taps Approve on an agent proposal or places a manual order on the chart page, it goes through
+  `trading/execution_service.submit` → `RiskEngine.validate` (kill-switch, paper-gated, **sells only
+  reduce a held long — NO shorting**, caps). There must be **no path that bypasses the chokepoint**.
+  Manual entry stays simple (symbol/side/qty/limit) — not a pro DOM.
+- **The AI agent never gets raw trading tools** — unchanged boundary. The agent *proposes*; the *human*
+  approves or places. Do not wire any agent-callable order tool into the app.
 - **Schwab = read-only, always.** Never render any trading affordance for a Schwab (live-funded) account.
 - **Sells only reduce a held long** (server enforces; the app must never imply shorting).
 - **Approval integrity:** always send the current `payload_hash`; respect `expires_at` (show countdown,
@@ -154,8 +176,9 @@ research, `research/`, `brokers/schwab_auth.py`). To stay collision-free:
   account.
 
 ## 10. Non-goals (for now)
-Android polish, charting/TA tooling, manual order entry, DOM/Level-2, multi-user/auth accounts, and any
-Schwab trading. Keep scope on the cockpit + approval unlock done *excellently*.
+Android polish, heavy TA/charting tooling, a pro DOM/Level-2 ladder, multi-user auth, and any Schwab
+trading. (Manual order entry **is** in scope, but kept simple on the chart page and chokepoint-routed.)
+Keep the focus on the glanceable home + approval unlock + cockpit, done *excellently*.
 
 ## 11. What plan mode should produce
 - A **phased plan** (suggested: ① project scaffold + auth + tailnet connectivity + read-only Portfolio/
