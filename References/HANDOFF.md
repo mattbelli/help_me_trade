@@ -6,6 +6,25 @@ plan + dated history). Everything else is in those — this is just current focu
 `WATCHLIST_SPEC.md` (parallel feature), `SERVER_SETUP.md` (migration, done), `STARTUP.md` (run + device access),
 `CLAUDE.md` (mission + working agreements, auto-loaded).*
 
+## DONE (2026-06-22): Schwab /ES data layer + profile-MR research — NO ROBUST EDGE (rejected 3 ways)
+Branch `research/decision-engine-data-layer` (PC/Windows; pushed to origin, NOT merged). Tested @adaamset's
+volume-profile mean-reversion method on `/ES` futures end-to-end. **Verdict: no robust alpha at daily
+resolution — it's beta (long /ES in an uptrend).** Rejected three ways: (1) naive intraday MR (buy prior-day
+VAL → prior-day POC, 10pt stop) = **−EV** (−3.4pt/trade, knife-catching); (2) faithful daily SWING (prior-week
+POC anchor, structural prior-week-low stop, prior-week-high targets, multi-day hold) = +EV (+4.0pt, +534/16y)
+BUT an **alpha-vs-beta control** (same machinery, profile entry stripped → "long first up-regime day of week")
+makes ~2× the points (+766–1056) with better avg_R → the anchor adds nothing; (3) **VAL-entry variant** (buy
+the dip *into* value — fixes the inverted R:R, stop ~15pt, T1 R:R 2.23) looked like alpha in aggregate
+(+6.5pt, avg_R 0.365, beats control +289) but **per-year robustness REJECTS it**: beats control only 7/17
+years, the entire edge is 2025 (+1168; strip it and it loses the other 16y), −484 blowup in 2022.
+**Live-wiring stays PARKED behind edge-validation** (serv honors this gate; profile-MR never validated).
+**Durable wins (reusable, committed):** Schwab data layer — `research/intraday_bars.py` (1-min cache + Schwab
+source, 40k-cap chunking), `research/bars.py` (Schwab DAILY source: 16y `/ES`), `research/intraday_profile.py`
+(RTH session profiles + prior-session reference), `research/intraday_reversion.py` + `research/profile_mr_swing.py`
+(backtests + alpha-beta control), `scripts/schwab_probe_minute.py`. Schwab re-auth bug fixed
+(`brokers/schwab_auth.py`). **Schwab data limits:** 1-min only ~40 days deep (40k-candle/response cap), daily
+16y+. See the `es-data-archive-strategy` + `windows-gitbash-mangles-slash-futures-symbols` memories.
+
 ## DONE (2026-06-20): the home Linux server is the dev + runtime home
 Migration to the always-on server **`serv`** (`serv.tail78aab8.ts.net` / `100.94.77.104`, user `mbelli`, repo
 `~/dev/help_me_trade`) is **complete**: uv-managed CPython 3.12 venv, deps installed, `ruff` clean + **312
@@ -76,6 +95,15 @@ the safety checklist (if ever revisited) → `References/SHORT_TRADING_FINDINGS.
 `data/research/strategy_short.db` (gitignored).
 
 ## NEXT (pick up here)
+- **profile-MR — PARKED, data-gated (don't redo the daily version).** Daily-resolution is exhausted (no robust
+  edge, see DONE 2026-06-22). The ONLY genuinely-open thread is the **intraday true-anchor** version (his
+  *actual* resolution: true 1-min POC, intraday acceptance timing, the morning-rebid setup) — untestable until
+  the **1-min `/ES` archive matures** (have ~6 weeks; need 6+ months). That archive grows via a **weekly pull
+  on `serv`** (re-pull within every ~40 days or bars age out of Schwab forever; pairs with weekly OAuth).
+  **Setup not done:** move token + `intraday_bars.db` to serv, cron the pull, wire into serv backups. The
+  `validate_weekly_anchor` already flagged the daily POC is ~29pt off the true 1-min POC — another reason the
+  real test needs intraday. A no-stop scale-in variant was discussed and DECLINED (martingale ruin risk on
+  leveraged futures; 2022 −484 is the warning).
 - **FORWARD-TEST on paper, not real money** (the right next gate): the strategy is long-only → fits the
   app's no-short rule → wire it as an actionable `type:"trade"` signal-rule (created DISABLED) → agent
   proposes these dip setups → phone approve → paper execution via the existing chokepoint. Compare live
