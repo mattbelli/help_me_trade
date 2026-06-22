@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -107,6 +107,12 @@ function StrategyCard({
   const original = strategyToDraft(strategy);
   const hasFarSupportMin = "far_support_min" in strategy.params;
 
+  const [expanded, setExpanded] = useState(false);
+  const [notionalText, setNotionalText] = useState(String(strategy.notional_usd));
+  const [farSupportText, setFarSupportText] = useState(
+    hasFarSupportMin ? String(strategy.params.far_support_min) : "",
+  );
+
   const [state, setState] = useState<StrategyCardState>(() => ({
     draft: original,
     dirty: false,
@@ -144,12 +150,32 @@ function StrategyCard({
 
   const { draft, dirty, saving, error } = state;
   const unboundEnabled = draft.enabled && !draft.account_id;
+  const boundAccountLabel = draft.account_id
+    ? (accounts.find((a) => a.id === draft.account_id)?.label ?? "Unbound")
+    : "Unbound";
 
   return (
     <Card className="border-border/60 bg-card/40">
       <CardHeader className="pb-3 pt-4">
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-sm font-semibold">{strategy.name}</CardTitle>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              onClick={() => setExpanded((prev) => !prev)}
+            >
+              <ChevronDown
+                className={`size-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+              />
+              <span className="truncate text-sm font-semibold">{strategy.name}</span>
+              {!expanded && dirty && (
+                <span className="shrink-0 text-[11px] text-amber-500">• unsaved</span>
+              )}
+              <span className="truncate text-xs text-muted-foreground">
+                {boundAccountLabel} · {draft.universe}
+              </span>
+            </button>
+          </div>
           <Switch
             checked={draft.enabled}
             onCheckedChange={(checked) =>
@@ -158,209 +184,221 @@ function StrategyCard({
           />
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 pb-4">
-        {unboundEnabled && (
-          <p className="text-xs text-amber-500">
-            Enable has no effect until an account is bound — the scan skips
-            unbound strategies.
-          </p>
-        )}
+      {expanded && (
+        <CardContent className="space-y-4 pb-4">
+          {unboundEnabled && (
+            <p className="text-xs text-amber-500">
+              Enable has no effect until an account is bound — the scan skips
+              unbound strategies.
+            </p>
+          )}
 
-        <div className="space-y-1.5">
-          <Label className="text-xs">Account</Label>
-          <Select
-            value={draft.account_id || UNBOUND}
-            onValueChange={(v) =>
-              updateDraft((d) => ({
-                ...d,
-                account_id: v === UNBOUND ? "" : (v ?? ""),
-              }))
-            }
-          >
-            <SelectTrigger className="h-8">
-              <SelectValue placeholder="Select account" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={UNBOUND}>— Unbound —</SelectItem>
-              {accounts.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.label} · {a.broker}
-                  {a.is_default ? " (default)" : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Account</Label>
+              <Select
+                value={draft.account_id || UNBOUND}
+                onValueChange={(v) =>
+                  updateDraft((d) => ({
+                    ...d,
+                    account_id: v === UNBOUND ? "" : (v ?? ""),
+                  }))
+                }
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="Select account" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UNBOUND}>— Unbound —</SelectItem>
+                  {accounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.label} · {a.broker}
+                      {a.is_default ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-xs">Universe</Label>
-          <Select
-            value={draft.universe}
-            onValueChange={(v) =>
-              updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
-            }
-          >
-            <SelectTrigger className="h-8">
-              <SelectValue placeholder="Select universe" />
-            </SelectTrigger>
-            <SelectContent>
-              {/* Surface the stored value even if it's a legacy/active spec not
-                  in the option list, so it never renders blank. */}
-              {!universes.some((u) => u.id === draft.universe) && (
-                <SelectItem value={draft.universe}>
-                  {draft.universe === "active_watchlist"
-                    ? "Active watchlist (legacy)"
-                    : draft.universe}
-                </SelectItem>
-              )}
-              {universes.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Universe</Label>
+              <Select
+                value={draft.universe}
+                onValueChange={(v) =>
+                  updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
+                }
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="Select universe" />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* Surface the stored value even if it's a legacy/active spec not
+                      in the option list, so it never renders blank. */}
+                  {!universes.some((u) => u.id === draft.universe) && (
+                    <SelectItem value={draft.universe}>
+                      {draft.universe === "active_watchlist"
+                        ? "Active watchlist (legacy)"
+                        : draft.universe}
+                    </SelectItem>
+                  )}
+                  {universes.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notional ($)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={50}
+                className="h-8"
+                value={notionalText}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setNotionalText(raw);
+                  updateDraft((d) => ({
+                    ...d,
+                    notional_usd: raw === "" ? 0 : Number(raw),
+                  }));
+                }}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Exit mode</Label>
+              <Select
+                value={draft.exit_mode}
+                onValueChange={(v) =>
+                  updateDraft((d) => ({
+                    ...d,
+                    exit_mode: (v ?? "propose") as "auto" | "propose",
+                  }))
+                }
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">auto</SelectItem>
+                  <SelectItem value="propose">propose</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Max positions</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                className="h-8"
+                placeholder="No cap"
+                value={draft.max_concurrent_positions ?? ""}
+                onChange={(e) =>
+                  updateDraft((d) => ({
+                    ...d,
+                    max_concurrent_positions:
+                      e.target.value === ""
+                        ? null
+                        : Math.trunc(Number(e.target.value)),
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Max deployed ($)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1000}
+                className="h-8"
+                placeholder="No cap"
+                value={draft.max_deployed_usd ?? ""}
+                onChange={(e) =>
+                  updateDraft((d) => ({
+                    ...d,
+                    max_deployed_usd:
+                      e.target.value === "" ? null : Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+
+            {hasFarSupportMin && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Far support min (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  className="h-8"
+                  value={farSupportText}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setFarSupportText(raw);
+                    updateDraft((d) => ({
+                      ...d,
+                      params: {
+                        ...d.params,
+                        far_support_min: raw === "" ? 0 : Number(raw),
+                      },
+                    }));
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           <p className="text-[11px] text-muted-foreground">
             What the strategy scans — independent of the watchlist you&apos;re
             viewing. Broad market keeps it faithful to the backtest; pin a
             specific watchlist to constrain it.
           </p>
-        </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-xs">Notional ($)</Label>
-          <Input
-            type="number"
-            min={0}
-            step={50}
-            className="h-8"
-            value={draft.notional_usd}
-            onChange={(e) =>
-              updateDraft((d) => ({
-                ...d,
-                notional_usd: Number(e.target.value),
-              }))
-            }
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs">Exit mode</Label>
-          <Select
-            value={draft.exit_mode}
-            onValueChange={(v) =>
-              updateDraft((d) => ({
-                ...d,
-                exit_mode: (v ?? "propose") as "auto" | "propose",
-              }))
-            }
-          >
-            <SelectTrigger className="h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">auto</SelectItem>
-              <SelectItem value="propose">propose</SelectItem>
-            </SelectContent>
-          </Select>
           <p className="text-[11px] text-muted-foreground">
-            Exits are phone-approved entries only for now; automated exits arrive
-            with the exit module.
+            auto = the agent sells through the execution chokepoint when an exit
+            rule triggers; propose = it pings your phone to approve each sell.
+            You&apos;re notified either way.
           </p>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Max positions</Label>
-            <Input
-              type="number"
-              min={0}
-              step={1}
-              className="h-8"
-              placeholder="No cap"
-              value={draft.max_concurrent_positions ?? ""}
-              onChange={(e) =>
-                updateDraft((d) => ({
-                  ...d,
-                  max_concurrent_positions:
-                    e.target.value === ""
-                      ? null
-                      : Math.trunc(Number(e.target.value)),
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Max deployed ($)</Label>
-            <Input
-              type="number"
-              min={0}
-              step={1000}
-              className="h-8"
-              placeholder="No cap"
-              value={draft.max_deployed_usd ?? ""}
-              onChange={(e) =>
-                updateDraft((d) => ({
-                  ...d,
-                  max_deployed_usd:
-                    e.target.value === "" ? null : Number(e.target.value),
-                }))
-              }
-            />
-          </div>
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          Caps total open + pending exposure in the bound account (blank = no
-          cap). The strategy stops proposing once a cap is hit — your safety net
-          on cluster days. For clean per-strategy budgets, give each strategy its
-          own account.
-        </p>
-
-        {hasFarSupportMin && (
-          <div className="space-y-1.5">
-            <Label className="text-xs">Far support min (%)</Label>
-            <Input
-              type="number"
-              min={0}
-              step={0.5}
-              className="h-8"
-              value={Number(draft.params.far_support_min)}
-              onChange={(e) =>
-                updateDraft((d) => ({
-                  ...d,
-                  params: {
-                    ...d.params,
-                    far_support_min: Number(e.target.value),
-                  },
-                }))
-              }
-            />
-          </div>
-        )}
-
-        {strategy.id === "dip_refined" && (
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Refined dip adds a &apos;far from support&apos; filter (must be ≥
-            X% above nearest support). In backtest this ~doubled recent excess
-            over SPY (+1.6% → +3%/trade) but is NOT block-bootstrap-validated
-            like the base dip — treat as a live forward-test, not a guarantee.
+          <p className="text-[11px] text-muted-foreground">
+            Caps total open + pending exposure in the bound account (blank = no
+            cap). The strategy stops proposing once a cap is hit — your safety net
+            on cluster days. For clean per-strategy budgets, give each strategy
+            its own account.
           </p>
-        )}
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+          {strategy.id === "dip_refined" && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Refined dip adds a &apos;far from support&apos; filter (must be ≥
+              X% above nearest support). In backtest this ~doubled recent
+              excess over SPY (+1.6% → +3%/trade) but is NOT
+              block-bootstrap-validated like the base dip — treat as a live
+              forward-test, not a guarantee.
+            </p>
+          )}
 
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            disabled={!dirty || saving}
-            onClick={() => void handleSave()}
-          >
-            {saving && <Loader2 className="mr-2 size-3.5 animate-spin" />}
-            Save
-          </Button>
-        </div>
-      </CardContent>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              disabled={!dirty || saving}
+              onClick={() => void handleSave()}
+            >
+              {saving && <Loader2 className="mr-2 size-3.5 animate-spin" />}
+              Save
+            </Button>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }
