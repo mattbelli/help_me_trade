@@ -475,14 +475,21 @@ def get_latest_snapshot(
 
 
 def get_all_latest_snapshots(db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """Latest snapshot per ACCOUNT (not per broker).
+
+    Multiple accounts can share a broker (e.g. two Alpaca paper accounts), so
+    grouping by broker alone returns whichever account polled last — making the
+    dashboard summary flicker between accounts. Grouping by (broker, account_id)
+    returns one stable snapshot per account, each carrying its `account_id`.
+    """
     init_db(db_path)
     with _connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT broker, MAX(captured_at) AS latest
+            SELECT broker, account_id, MAX(captured_at) AS latest
             FROM poll_runs
-            GROUP BY broker
-            ORDER BY broker
+            GROUP BY broker, account_id
+            ORDER BY broker, account_id
             """
         ).fetchall()
 
@@ -492,12 +499,14 @@ def get_all_latest_snapshots(db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
                 """
                 SELECT id FROM poll_runs
                 WHERE broker = ? AND captured_at = ?
+                  AND COALESCE(account_id, '') = COALESCE(?, '')
+                ORDER BY id DESC
                 LIMIT 1
                 """,
-                (row["broker"], row["latest"]),
+                (row["broker"], row["latest"], row["account_id"]),
             ).fetchone()
             if run:
-                snapshots.append(
-                    _snapshot_with_analytics(conn, int(run["id"]), row["broker"])
-                )
+                snap = _snapshot_with_analytics(conn, int(run["id"]), row["broker"])
+                snap["account_id"] = row["account_id"]
+                snapshots.append(snap)
         return snapshots

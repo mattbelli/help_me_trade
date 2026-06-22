@@ -52,6 +52,7 @@ from config.settings import (
     update_watchlist,
 )
 from db.accounts import (
+    get_account,
     get_connection,
     get_default_account,
     list_accounts,
@@ -476,19 +477,57 @@ def api_broker():
     }
 
 
+def _aggregate_account_snapshots(snaps: list[dict]) -> dict:
+    """Sum cash / buying power / portfolio value / unrealized P&L across accounts."""
+    cash = bp = pv = upl = 0.0
+    for s in snaps:
+        acct = s.get("account") or {}
+        cash += float(acct.get("cash") or 0)
+        bp += float(acct.get("buying_power") or 0)
+        pv += float(acct.get("portfolio_value") or 0)
+        for pos in s.get("positions") or []:
+            upl += float(pos.get("unrealized_pl") or 0)
+    return {
+        "cash": cash,
+        "buying_power": bp,
+        "portfolio_value": pv,
+        "unrealized_pl": upl,
+        "account_count": len(snaps),
+    }
+
+
 def _combined_snapshot_response() -> dict | None:
     all_snaps = get_all_latest_snapshots()
     if not all_snaps:
         return None
 
+    # Drop legacy NULL-account snapshots when real per-account ones exist.
+    labeled = [s for s in all_snaps if s.get("account_id")]
+    if labeled:
+        all_snaps = labeled
+
+    # Attach a stable trade-account label + default flag to each account snapshot.
+    for s in all_snaps:
+        acct = get_account(str(s["account_id"])) if s.get("account_id") else None
+        s["account_label"] = acct["label"] if acct else None
+        s["is_default"] = bool(acct["is_default"]) if acct else False
+
     primary = primary_broker()
-    primary_snap = next((s for s in all_snaps if s["broker"] == primary), all_snaps[0])
+    # Top-level summary is pinned to the DEFAULT account (deterministic) rather
+    # than whichever account polled last — that last-one-wins behavior was the
+    # source of the dashboard flicker between accounts.
+    primary_snap = (
+        next((s for s in all_snaps if s.get("is_default")), None)
+        or next((s for s in all_snaps if s["broker"] == primary), None)
+        or all_snaps[0]
+    )
 
     return {
         **primary_snap,
         "primary_broker": primary,
         "broker": primary_snap["broker"],
         "snapshots": all_snaps,
+        "all_accounts_summary": _aggregate_account_snapshots(all_snaps),
     }
 
 

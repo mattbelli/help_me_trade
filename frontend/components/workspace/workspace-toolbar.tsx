@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, LockOpen, Plus } from "lucide-react";
+import { Eye, EyeOff, Lock, LockOpen, Plus } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
@@ -11,13 +11,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   fetchBroker,
   fetchSettings,
   formatMoney,
   type BrokerInfo,
+  type BrokerSnapshot,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useDayPnl } from "@/lib/workspace/use-day-pnl";
+import {
+  maskMoney,
+  resolveAccountView,
+  useDashboardPrefs,
+} from "@/lib/workspace/use-dashboard-prefs";
 import { useEtClock } from "@/lib/workspace/use-et-clock";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 
@@ -34,6 +47,11 @@ function formatCompactMoney(value: number): string {
 function formatSignedPnl(value: number): string {
   const prefix = value >= 0 ? "+" : "";
   return `${prefix}${formatMoney(value)}`;
+}
+
+function accountSelectLabel(entry: BrokerSnapshot): string {
+  const base = entry.account_label ?? entry.broker;
+  return entry.is_default ? `${base} (default)` : base;
 }
 
 function formatCapturedAt(iso: string): string {
@@ -76,6 +94,16 @@ export function WorkspaceToolbar() {
   const { dayPnl, loading: dayLoading } = useDayPnl();
   const clock = useEtClock();
   const { locked, toggleLock, openPicker } = useWorkspaceStore();
+  const {
+    selectedAccountId,
+    privacyMode,
+    setSelectedAccountId,
+    togglePrivacy,
+  } = useDashboardPrefs();
+
+  const view = resolveAccountView(snapshot, selectedAccountId);
+  const accountSnapshots = snapshot?.snapshots ?? [];
+  const showAccountSelect = accountSnapshots.length > 1;
 
   const [brokerOpen, setBrokerOpen] = useState(false);
   const [brokerDetails, setBrokerDetails] = useState<BrokerInfo | null>(null);
@@ -284,19 +312,62 @@ export function WorkspaceToolbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 md:gap-5">
-        <div className="hidden items-center gap-5 text-[var(--fg-dim)] md:flex">
-          {loading && !snapshot ? null : snapshot ? (
+        <div className="hidden items-center gap-3 text-[var(--fg-dim)] md:flex">
+          {loading && !snapshot ? null : snapshot && view ? (
             <>
+              {showAccountSelect ? (
+                <Select
+                  value={selectedAccountId}
+                  onValueChange={(v) => setSelectedAccountId(v ?? "all")}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-7 min-w-[7rem] border-[var(--border)] bg-[var(--bg-inset)] px-2 font-mono text-[10.5px] text-foreground"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="font-mono text-[11px]">
+                    <SelectItem value="all">All accounts</SelectItem>
+                    {accountSnapshots.map((s) =>
+                      s.account_id ? (
+                        <SelectItem key={s.account_id} value={s.account_id}>
+                          {accountSelectLabel(s)}
+                        </SelectItem>
+                      ) : null,
+                    )}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <button
+                type="button"
+                onClick={togglePrivacy}
+                title={privacyMode ? "Show balances" : "Hide balances"}
+                className="rounded p-1 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+              >
+                {privacyMode ? (
+                  <EyeOff className="size-3.5" />
+                ) : (
+                  <Eye className="size-3.5" />
+                )}
+              </button>
               <span>
                 <span className="text-[var(--fg-faint)]">PORT </span>
                 <b className="font-semibold text-foreground">
-                  {formatMoney(snapshot.account.portfolio_value)}
+                  {maskMoney(
+                    view.portfolio_value,
+                    privacyMode,
+                    formatCompactMoney,
+                  )}
                 </b>
               </span>
               <span>
                 <span className="text-[var(--fg-faint)]">BP </span>
                 <b className="font-semibold text-foreground">
-                  {formatCompactMoney(snapshot.account.buying_power)}
+                  {maskMoney(
+                    view.buying_power,
+                    privacyMode,
+                    formatCompactMoney,
+                  )}
                 </b>
               </span>
               <span>
@@ -307,12 +378,14 @@ export function WorkspaceToolbar() {
                   <b
                     className={cn(
                       "font-semibold",
-                      dayPnl >= 0
-                        ? "text-[var(--c-green)]"
-                        : "text-[var(--c-red)]",
+                      privacyMode
+                        ? "text-foreground"
+                        : dayPnl >= 0
+                          ? "text-[var(--c-green)]"
+                          : "text-[var(--c-red)]",
                     )}
                   >
-                    {formatSignedPnl(dayPnl)}
+                    {maskMoney(dayPnl, privacyMode, formatSignedPnl)}
                   </b>
                 ) : (
                   <b className="font-semibold text-foreground">—</b>

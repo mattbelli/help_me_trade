@@ -81,6 +81,14 @@ export type Order = {
   limit_price: number | null;
 };
 
+export type AllAccountsSummary = {
+  cash: number;
+  buying_power: number;
+  portfolio_value: number;
+  unrealized_pl: number;
+  account_count: number;
+};
+
 export type Snapshot = {
   captured_at: string;
   broker?: string;
@@ -91,6 +99,7 @@ export type Snapshot = {
   open_order_count: number;
   open_orders: Order[];
   snapshots?: BrokerSnapshot[];
+  all_accounts_summary?: AllAccountsSummary;
 };
 
 export type BrokerSnapshot = {
@@ -101,6 +110,9 @@ export type BrokerSnapshot = {
   positions: Position[];
   open_order_count: number;
   open_orders: Order[];
+  account_id?: string | null;
+  account_label?: string | null;
+  is_default?: boolean;
 };
 
 export type BrokerInfo = {
