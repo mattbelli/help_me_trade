@@ -9,6 +9,7 @@ export type Strategy = {
   notional_usd: number;
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
+  universe: string;
   max_concurrent_positions: number | null;
   max_deployed_usd: number | null;
   created_at: string;
@@ -22,12 +23,19 @@ export type StrategyAccount = {
   is_default: boolean;
 };
 
+export type StrategyUniverse = {
+  id: string;
+  label: string;
+  kind: "builtin" | "watchlist";
+};
+
 export type StrategyPatch = Partial<{
   enabled: boolean;
   account_id: string;
   notional_usd: number;
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
+  universe: string;
   max_concurrent_positions: number | null;
   max_deployed_usd: number | null;
 }>;
@@ -44,6 +52,13 @@ export async function fetchStrategyAccounts(): Promise<StrategyAccount[]> {
   if (!res.ok) throw new Error(`API error ${res.status}`);
   const data = await res.json();
   return data.accounts ?? [];
+}
+
+export async function fetchStrategyUniverses(): Promise<StrategyUniverse[]> {
+  const res = await apiFetch(`${API_BASE}/api/strategies/universes`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  const data = await res.json();
+  return data.universes ?? [];
 }
 
 export async function updateStrategy(

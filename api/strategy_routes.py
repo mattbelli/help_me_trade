@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from db.accounts import account_is_execution_capable, get_account, list_accounts
 from db.strategies import get_strategy, list_strategies, update_strategy
+from signals.strategy_universe import available_universes
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
@@ -45,6 +46,12 @@ def api_list_strategy_accounts() -> dict[str, Any]:
     return {"accounts": accounts}
 
 
+@router.get("/universes")
+def api_list_strategy_universes() -> dict[str, Any]:
+    """Universe options a strategy can scan (built-ins + pinnable named watchlists)."""
+    return {"universes": available_universes()}
+
+
 @router.put("/{strategy_id}")
 def api_update_strategy(
     strategy_id: str,
@@ -71,6 +78,7 @@ def api_update_strategy(
             else None,
             exit_mode=body.get("exit_mode") if "exit_mode" in body else None,
             params=body.get("params") if "params" in body else None,
+            universe=body.get("universe") if "universe" in body else None,
             max_concurrent_positions=body.get("max_concurrent_positions")
             if "max_concurrent_positions" in body
             else ...,

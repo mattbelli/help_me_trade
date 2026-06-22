@@ -141,6 +141,24 @@ def test_put_round_trips_risk_caps(strategy_api_client: TestClient) -> None:
     assert resp.status_code == 400
 
 
+def test_universes_endpoint_lists_builtin(strategy_api_client: TestClient) -> None:
+    resp = strategy_api_client.get("/api/strategies/universes")
+    assert resp.status_code == 200
+    universes = resp.json()["universes"]
+    ids = {u["id"] for u in universes}
+    assert "sp500" in ids
+    assert all({"id", "label", "kind"} <= set(u) for u in universes)
+
+
+def test_put_round_trips_universe(strategy_api_client: TestClient) -> None:
+    resp = strategy_api_client.put(
+        "/api/strategies/dip_refined",
+        json={"universe": "sp500"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["strategy"]["universe"] == "sp500"
+
+
 def test_put_rejects_invalid_account(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, auth_token: str
 ) -> None:

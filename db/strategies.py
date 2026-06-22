@@ -61,6 +61,15 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute("ALTER TABLE strategies ADD COLUMN max_concurrent_positions INTEGER")
         if "max_deployed_usd" not in existing:
             conn.execute("ALTER TABLE strategies ADD COLUMN max_deployed_usd REAL")
+        if "universe" not in existing:
+            conn.execute("ALTER TABLE strategies ADD COLUMN universe TEXT")
+            # Backfill EXISTING rows to their current behavior (the active
+            # watchlist) — never silently repoint a live strategy to a broad
+            # universe. New strategies seed to 'sp500'; users opt in via the UI.
+            conn.execute(
+                "UPDATE strategies SET universe = 'active_watchlist' "
+                "WHERE universe IS NULL"
+            )
         conn.commit()
 
 
@@ -81,6 +90,9 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         "notional_usd": float(row["notional_usd"]),
         "exit_mode": row["exit_mode"],
         "params": params,
+        # NULL is only reachable via a half-applied migration or a hand-inserted
+        # row; fall back to the NARROW active watchlist, never silently broaden.
+        "universe": row["universe"] or "active_watchlist",
         "max_concurrent_positions": (
             int(max_concurrent) if max_concurrent is not None else None
         ),
@@ -104,8 +116,8 @@ def list_strategies(
             rows = conn.execute(
                 f"""
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       params_json, max_concurrent_positions, max_deployed_usd,
-                       created_at, updated_at
+                       params_json, universe, max_concurrent_positions,
+                       max_deployed_usd, created_at, updated_at
                 FROM strategies
                 {where}
                 ORDER BY created_at
@@ -127,8 +139,8 @@ def get_strategy(
             row = conn.execute(
                 """
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       params_json, max_concurrent_positions, max_deployed_usd,
-                       created_at, updated_at
+                       params_json, universe, max_concurrent_positions,
+                       max_deployed_usd, created_at, updated_at
                 FROM strategies
                 WHERE id = ?
                 """,
@@ -147,6 +159,7 @@ def update_strategy(
     notional_usd: float | None = None,
     exit_mode: str | None = None,
     params: dict[str, Any] | None = None,
+    universe: str | None = None,
     max_concurrent_positions: int | None = ...,  # type: ignore[assignment]
     max_deployed_usd: float | None = ...,  # type: ignore[assignment]
     db_path: Path = DEFAULT_DB_PATH,
@@ -194,6 +207,12 @@ def update_strategy(
     if params is not None:
         fields.append("params_json = ?")
         values.append(json.dumps(params))
+    if universe is not None:
+        cleaned_universe = universe.strip()
+        if not cleaned_universe:
+            raise ValueError("universe must be a non-empty string")
+        fields.append("universe = ?")
+        values.append(cleaned_universe)
     if max_concurrent_positions is not ...:
         fields.append("max_concurrent_positions = ?")
         values.append(
@@ -251,13 +270,14 @@ def _insert_strategy(
     notional: float,
     params: dict[str, Any],
     now: str,
+    universe: str = "sp500",
 ) -> None:
     conn.execute(
         """
         INSERT INTO strategies (
             id, name, enabled, account_id, notional_usd, exit_mode,
-            params_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            params_json, universe, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             strategy_id,
@@ -267,6 +287,7 @@ def _insert_strategy(
             notional,
             "auto",
             json.dumps(params),
+            universe,
             now,
             now,
         ),

@@ -18,9 +18,11 @@ import { Switch } from "@/components/ui/switch";
 import {
   fetchStrategies,
   fetchStrategyAccounts,
+  fetchStrategyUniverses,
   updateStrategy,
   type Strategy,
   type StrategyAccount,
+  type StrategyUniverse,
 } from "@/lib/strategies-api";
 
 // Base UI Select reserves no special meaning for values, but the codebase
@@ -34,6 +36,7 @@ type StrategyDraft = {
   notional_usd: number;
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
+  universe: string;
   max_concurrent_positions: number | null;
   max_deployed_usd: number | null;
 };
@@ -52,6 +55,7 @@ function strategyToDraft(strategy: Strategy): StrategyDraft {
     notional_usd: strategy.notional_usd,
     exit_mode: strategy.exit_mode,
     params: { ...strategy.params },
+    universe: strategy.universe,
     max_concurrent_positions: strategy.max_concurrent_positions,
     max_deployed_usd: strategy.max_deployed_usd,
   };
@@ -70,6 +74,7 @@ function buildPatch(
     patch.notional_usd = draft.notional_usd;
   }
   if (draft.exit_mode !== original.exit_mode) patch.exit_mode = draft.exit_mode;
+  if (draft.universe !== original.universe) patch.universe = draft.universe;
   if (draft.max_concurrent_positions !== original.max_concurrent_positions) {
     patch.max_concurrent_positions = draft.max_concurrent_positions;
   }
@@ -91,10 +96,12 @@ function buildPatch(
 function StrategyCard({
   strategy,
   accounts,
+  universes,
   onSaved,
 }: {
   strategy: Strategy;
   accounts: StrategyAccount[];
+  universes: StrategyUniverse[];
   onSaved: (updated: Strategy) => void;
 }) {
   const original = strategyToDraft(strategy);
@@ -183,6 +190,41 @@ function StrategyCard({
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs">Universe</Label>
+          <Select
+            value={draft.universe}
+            onValueChange={(v) =>
+              updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
+            }
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="Select universe" />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Surface the stored value even if it's a legacy/active spec not
+                  in the option list, so it never renders blank. */}
+              {!universes.some((u) => u.id === draft.universe) && (
+                <SelectItem value={draft.universe}>
+                  {draft.universe === "active_watchlist"
+                    ? "Active watchlist (legacy)"
+                    : draft.universe}
+                </SelectItem>
+              )}
+              {universes.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            What the strategy scans — independent of the watchlist you&apos;re
+            viewing. Broad market keeps it faithful to the backtest; pin a
+            specific watchlist to constrain it.
+          </p>
         </div>
 
         <div className="space-y-1.5">
@@ -326,16 +368,22 @@ function StrategyCard({
 export function SettingsStrategiesPanel() {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [accounts, setAccounts] = useState<StrategyAccount[]>([]);
+  const [universes, setUniverses] = useState<StrategyUniverse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([fetchStrategies(), fetchStrategyAccounts()])
-      .then(([strats, accts]) => {
+    Promise.all([
+      fetchStrategies(),
+      fetchStrategyAccounts(),
+      fetchStrategyUniverses(),
+    ])
+      .then(([strats, accts, unis]) => {
         if (!cancelled) {
           setStrategies(strats);
           setAccounts(accts);
+          setUniverses(unis);
           setError(null);
         }
       })
@@ -386,6 +434,7 @@ export function SettingsStrategiesPanel() {
             key={`${strategy.id}-${strategy.updated_at}`}
             strategy={strategy}
             accounts={accounts}
+            universes={universes}
             onSaved={handleSaved}
           />
         ))}

@@ -25,7 +25,8 @@ from db.sqlite import get_latest_snapshot
 from db.strategies import list_strategies
 from research.strategy_features import compute_market_context, is_strategy_entry
 from signals.indicators import closes, pct_change
-from signals.scan import _fetch_stock_bars, _scan_symbols
+from signals.scan import _fetch_stock_bars
+from signals.strategy_universe import resolve_universe_spec
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
 from trading.proposal_intake import TradeCandidate, propose_trade
 
@@ -223,9 +224,15 @@ async def _run_strategy(
         return []
 
     broker_name = str(account["broker"]).strip().lower()
-    symbols = _scan_symbols(broker_name)
+    # The strategy's OWN universe (decoupled from the cockpit's active watchlist).
+    symbols = resolve_universe_spec(strategy.get("universe"))
     fetch_symbols = sorted(set(symbols) | {SPY_SYMBOL})
-    if not fetch_symbols:
+    if not symbols:
+        logger.debug(
+            "Strategy %s skipped — empty universe %r",
+            strategy["id"],
+            strategy.get("universe"),
+        )
         return []
 
     try:

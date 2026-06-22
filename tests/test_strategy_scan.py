@@ -130,8 +130,8 @@ def _patch_scan_env(
 
     if watchlist is not None:
         monkeypatch.setattr(
-            "signals.strategy_scan._scan_symbols",
-            lambda _broker_name: sorted(watchlist),
+            "signals.strategy_scan.resolve_universe_spec",
+            lambda _spec: sorted(watchlist),
         )
 
     monkeypatch.setattr("signals.strategy_scan.broker_is_configured", lambda _name: True)

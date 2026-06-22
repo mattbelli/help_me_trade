@@ -43,6 +43,15 @@ a non-secret `env_suffix` per connection.
   Settings is now reachable on **mobile** — `<SettingsDialog collapsed />` lives in the phone header
   (gear icon) and the dialog nav stacks responsively (`flex-col sm:flex-row`). Reuses the desktop dialog (no
   duplicate mobile UI — RN is the eventual target). **Pending: in-browser/on-phone visual check.**
+- **Per-strategy universe — decoupled from the active watchlist** (2026-06-22): a strategy now scans its OWN
+  `universe` (col on `strategies`), not whatever named watchlist is active (that footgun silently repointed live
+  strategies). Specs: `sp500` (built-in broad market, `signals/universes/sp500.json` = 503 Alpaca-validated
+  constituents), `watchlist:<id>` (pin a SPECIFIC named list), `active_watchlist` (legacy). Resolver
+  `signals/strategy_universe.py`; `GET /api/strategies/universes` feeds the UI picker. **Backfill is
+  conservative:** existing rows → `active_watchlist` at migration (the live enabled $10k `dip_refined` is NOT
+  silently broadened); NEW strategies default to `sp500`; user opts in via the UI Universe dropdown. Alpaca
+  verified for breadth: 12k tradable equities available, 500-name × 420d fetch = ~2.5s, well under rate limits.
+  Adversarially reviewed: migration atomic, resolver can't raise, no silent broadening.
 - **Per-strategy risk caps** (2026-06-22): `strategies.max_concurrent_positions` + `max_deployed_usd`
   (nullable cols, NULL=uncapped; idempotent ADD COLUMN migration). Enforced in `_run_strategy` — the scan
   stops proposing once (open positions + pending proposals) in the bound account hit the cap. This is the fix
