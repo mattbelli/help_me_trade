@@ -14,6 +14,7 @@ from db.order_executions import (
     list_submitted_executions,
     update_execution_status,
 )
+from trading.position_ledger import record_strategy_fill
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,16 @@ async def reconcile_open_executions(
             continue
 
         update_execution_status(execution_id, new_status, db_path=db_path)
+
+        # Record strategy attribution into the managed-position ledger so the exit
+        # engine knows whose rules apply. Bookkeeping only — fail-closed inside.
+        record_strategy_fill(
+            dict(row),
+            filled_qty=order.filled_qty,
+            status=new_status,
+            db_path=db_path,
+        )
+
         try:
             payload: dict[str, object] = {
                 "type": "fill",

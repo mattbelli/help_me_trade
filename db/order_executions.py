@@ -73,6 +73,7 @@ def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
         "submitted_at": row["submitted_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "account_id": row["account_id"],
     }
 
 
