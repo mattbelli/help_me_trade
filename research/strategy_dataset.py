@@ -919,6 +919,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=100,
         help="Volume-profile price bins (default: 100)",
     )
+    parser.add_argument(
+        "--db",
+        type=str,
+        default=None,
+        help="Output strategy DB path (default: strategy_labeled.db). Use a distinct path to avoid "
+        "clobbering another strategy's dataset.",
+    )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
         parser.error("provide --symbols or --symbols-from-cache")
@@ -940,6 +947,7 @@ def main(argv: list[str] | None = None) -> None:
         start,
         end,
         source=args.source,
+        strategy_db_path=(Path(args.db) if args.db else DEFAULT_STRATEGY_DB_PATH),
         replace=not args.append,
         jobs=args.jobs,
         max_holding=args.max_holding,
