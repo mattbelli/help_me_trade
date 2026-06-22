@@ -105,10 +105,17 @@ def auth_status() -> dict:
     }
 
 
-def run_interactive_login() -> None:
+def run_interactive_login(interactive: bool = True) -> None:
     api_key, app_secret, callback_url = _credentials()
     path = token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    # easy_client() short-circuits and returns the EXISTING token whenever the
+    # file is present and younger than its max_token_age — so a weekly re-auth
+    # would silently no-op (no browser, ignoring `interactive`). Force a fresh
+    # login flow by removing any prior token first.
+    if path.exists():
+        print(f"Removing existing token to force re-auth: {path}")
+        path.unlink()
     print("Opening browser for Schwab login...")
     print(f"Callback URL must match your Schwab app: {callback_url}")
     print(f"Token will be saved to: {path}")
@@ -117,7 +124,7 @@ def run_interactive_login() -> None:
         app_secret,
         callback_url,
         str(path),
-        interactive=True,
+        interactive=interactive,
     )
     print("Login complete. Set BROKER=schwab in .env and restart the API.")
 

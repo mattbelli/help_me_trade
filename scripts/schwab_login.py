@@ -7,6 +7,7 @@ Run: python -m scripts.schwab_login
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -19,8 +20,16 @@ from brokers.schwab_auth import run_interactive_login  # noqa: E402
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="One-time Schwab OAuth login")
+    parser.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="Skip the 'Press ENTER' gate (opens browser directly; "
+        "needed when stdin is non-interactive, e.g. the '!' shell)",
+    )
+    args = parser.parse_args()
     try:
-        run_interactive_login()
+        run_interactive_login(interactive=not args.no_prompt)
     except BrokerError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
