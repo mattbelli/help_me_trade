@@ -106,6 +106,7 @@ def _anchor_for_current_week(bars: list[DatedBar]) -> dict:
     anchor = anchors[prior_key]
     return {
         "anchor_poc": anchor.anchor_poc,
+        "val": anchor.val,
         "pwh": anchor.pwh,
         "pwl": anchor.pwl,
     }
@@ -290,6 +291,7 @@ def test_no_look_ahead_anchor() -> None:
     anchor_mutated = anchors_mutated[prior_key]
 
     assert anchor_base.anchor_poc == pytest.approx(anchor_mutated.anchor_poc)
+    assert anchor_base.val == pytest.approx(anchor_mutated.val)
     assert anchor_base.pwh == pytest.approx(anchor_mutated.pwh)
     assert anchor_base.pwl == pytest.approx(anchor_mutated.pwl)
 
@@ -453,3 +455,175 @@ def test_regime_buy_hold_points() -> None:
         if _regime_uptrend(closes_fn(bars[:i]))
     )
     assert total == pytest.approx(expected)
+
+
+def _val_dip_entry_bar(
+    day: date = ENTRY_MON,
+    *,
+    val: float,
+    close: float | None = None,
+) -> DatedBar:
+    """Dip through VAL but close below it (fails POC close-acceptance)."""
+    fill_close = close if close is not None else val - 1.0
+    return _d(
+        day,
+        o=val + 2.0,
+        h=val + 3.0,
+        low=val - 0.5,
+        c=fill_close,
+        v=1000.0,
+    )
+
+
+def _descending_val_week(start_monday: date) -> list[DatedBar]:
+    """Prior week with high POC and VAL near the low for favorable val-entry R:R."""
+    mon = start_monday
+    return [
+        _d(mon, o=113.0, h=115.0, low=112.0, c=114.0, v=200_000.0),
+        _d(mon + timedelta(days=1), o=110.0, h=115.0, low=101.0, c=110.0, v=200_000.0),
+        _d(mon + timedelta(days=2), o=105.0, h=110.0, low=101.0, c=99.0, v=200_000.0),
+        _d(mon + timedelta(days=3), o=100.0, h=102.0, low=PWL, c=100.0, v=200_000.0),
+        _d(mon + timedelta(days=4), o=96.0, h=98.0, low=PWL + 1.0, c=96.0, v=200_000.0),
+    ]
+
+
+def _val_rr_base() -> list[DatedBar]:
+    """Warmup without a complete prior ISO week so only ENTRY_MON can val-enter."""
+    warmup_days = [
+        date(2024, 5, 13),
+        date(2024, 5, 14),
+        date(2024, 5, 15),
+        date(2024, 5, 16),
+        date(2024, 5, 17),
+        date(2024, 5, 22),
+        date(2024, 5, 23),
+        date(2024, 5, 28),
+        date(2024, 5, 29),
+        date(2024, 5, 30),
+        date(2024, 5, 31),
+    ]
+    warmup: list[DatedBar] = []
+    for idx, day in enumerate(warmup_days):
+        px = 90.0 + idx * 1.5
+        warmup.append(_d(day, o=px, h=px + 1.0, low=px - 1.0, c=px, v=1000.0))
+    return warmup + _descending_val_week(PRIOR_MON)
+
+
+def test_val_entry_fills_without_close_acceptance() -> None:
+    base = _base_bars()
+    levels = _anchor_for_current_week(base)
+    val = levels["val"]
+    bars = base + [_val_dip_entry_bar(val=val, close=val - 1.0)]
+
+    val_result = run_profile_mr_swing(
+        bars, n_bins=50, entry_mode="profile", entry_level="val"
+    )
+    poc_result = run_profile_mr_swing(
+        bars, n_bins=50, entry_mode="profile", entry_level="poc"
+    )
+
+    assert val_result.n_trades == 1
+    assert val_result.trades[0].entry_px == pytest.approx(val)
+    assert poc_result.n_trades == 0
+
+
+def test_val_entry_requires_prior_above_dip_and_regime() -> None:
+    base = _base_bars()
+    levels = _anchor_for_current_week(base)
+    val = levels["val"]
+
+    no_prior_above = run_profile_mr_swing(
+        _base_bars(friday_close=val - 1.0)
+        + [_val_dip_entry_bar(val=val, close=val - 1.0)],
+        n_bins=50,
+        entry_mode="profile",
+        entry_level="val",
+    )
+    assert no_prior_above.n_trades == 0
+
+    no_dip = run_profile_mr_swing(
+        base
+        + [
+            _d(
+                ENTRY_MON,
+                o=val + 5.0,
+                h=val + 6.0,
+                low=val + 1.0,
+                c=val + 4.0,
+                v=1000.0,
+            )
+        ],
+        n_bins=50,
+        entry_mode="profile",
+        entry_level="val",
+    )
+    assert no_dip.n_trades == 0
+
+    history = _uptrend_history(ANCHOR_WEEK_MON)
+    for idx in range(max(0, len(history) - 6), len(history)):
+        day = date.fromisoformat(history[idx]["d"])
+        px = 130.0 - (len(history) - idx) * 3.0
+        history[idx] = _d(day, o=px, h=px + 1.0, low=px - 1.0, c=px, v=1000.0)
+    downtrend_bars = (
+        history
+        + _establishment_week_bars()
+        + _anchor_week_bars()
+        + _prior_week_bars()
+        + [_val_dip_entry_bar(val=val, close=val - 1.0)]
+    )
+    downtrend = run_profile_mr_swing(
+        downtrend_bars, n_bins=50, entry_mode="profile", entry_level="val"
+    )
+    assert downtrend.n_trades == 0
+
+
+def test_val_entry_favorable_rr_geometry() -> None:
+    base = _val_rr_base()
+    levels = _anchor_for_current_week(base)
+    val = levels["val"]
+    assert (levels["pwh"] - val) > (val - levels["pwl"])
+
+    bars = base + [_val_dip_entry_bar(val=val, close=val - 1.0)]
+    result = run_profile_mr_swing(
+        bars, n_bins=50, entry_mode="profile", entry_level="val"
+    )
+
+    assert result.n_trades == 1
+    trade = result.trades[0]
+    assert trade.entry_date == ENTRY_MON
+    assert trade.entry_px == pytest.approx(val)
+    assert (trade.pwh - trade.entry_px) > (trade.entry_px - trade.pwl)
+
+
+def test_poc_entry_level_default_unchanged() -> None:
+    base = _base_bars()
+    levels = _anchor_for_current_week(base)
+    entry_close = levels["anchor_poc"] + 1.0
+    bars = base + [_entry_bar(levels=levels, entry_close=entry_close)]
+
+    result = run_profile_mr_swing(bars, n_bins=50, entry_mode="profile")
+    assert result.n_trades == 1
+    assert result.trades[0].entry_px == pytest.approx(entry_close)
+
+    no_acceptance = run_profile_mr_swing(
+        base
+        + [
+            _d(
+                ENTRY_MON,
+                o=105.0,
+                h=106.0,
+                low=levels["anchor_poc"] - 1.0,
+                c=levels["anchor_poc"] - 0.5,
+                v=1000.0,
+            )
+        ],
+        n_bins=50,
+        entry_mode="profile",
+        entry_level="poc",
+    )
+    assert no_acceptance.n_trades == 0
+
+
+def test_invalid_entry_level_raises() -> None:
+    with pytest.raises(ValueError, match="unknown entry_level"):
+        run_profile_mr_swing([], entry_level="bad")

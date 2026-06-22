@@ -49,6 +49,7 @@ class SwingResult:
 @dataclass(frozen=True)
 class _WeeklyAnchor:
     anchor_poc: float
+    val: float
     pwh: float
     pwl: float
 
@@ -121,8 +122,11 @@ def _weekly_anchor(
     )
     pwh = max(float(bar["h"]) for bar in week_bars)
     pwl = min(float(bar["l"]) for bar in week_bars)
+    raw_val = profile["val"]
+    val = float(raw_val) if raw_val is not None else pwl
     return _WeeklyAnchor(
         anchor_poc=float(profile["poc_price"]),
+        val=val,
         pwh=pwh,
         pwl=pwl,
     )
@@ -176,16 +180,41 @@ def _entry_trigger(
     return close >= anchor_poc
 
 
+def _entry_trigger_val(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    anchor_val: float,
+) -> bool:
+    if idx < 1:
+        return False
+    prior_close = float(bars[idx - 1]["c"])
+    low = float(bars[idx]["l"])
+    closes_to_date = closes(bars[:idx])
+    if not _regime_uptrend(closes_to_date):
+        return False
+    if prior_close <= anchor_val:
+        return False
+    if low > anchor_val:
+        return False
+    return True
+
+
 def _should_enter(
     bars: list[DatedBar],
     idx: int,
     *,
     entry_mode: str,
-    anchor_poc: float,
+    anchor: _WeeklyAnchor,
+    entry_level: str,
     is_first_bar_of_week: bool,
 ) -> bool:
     if entry_mode == "profile":
-        return _entry_trigger(bars, idx, anchor_poc=anchor_poc)
+        if entry_level == "poc":
+            return _entry_trigger(bars, idx, anchor_poc=anchor.anchor_poc)
+        if entry_level == "val":
+            return _entry_trigger_val(bars, idx, anchor_val=anchor.val)
+        raise ValueError(f"unknown entry_level: {entry_level!r}")
     if entry_mode == "regime_only":
         if not is_first_bar_of_week:
             return False
@@ -315,10 +344,13 @@ def run_profile_mr_swing(
     n_bins: int = 100,
     value_area_pct: float = 0.70,
     entry_mode: str = "profile",
+    entry_level: str = "poc",
 ) -> SwingResult:
     """Long-only pivot-acceptance swing backtest using prior-week profile anchor."""
     if entry_mode not in ("profile", "regime_only"):
         raise ValueError(f"unknown entry_mode: {entry_mode!r}")
+    if entry_level not in ("poc", "val"):
+        raise ValueError(f"unknown entry_level: {entry_level!r}")
     if not bars:
         return SwingResult(
             trades=[],
@@ -347,10 +379,17 @@ def run_profile_mr_swing(
             bars,
             i,
             entry_mode=entry_mode,
-            anchor_poc=anchor.anchor_poc,
+            anchor=anchor,
+            entry_level=entry_level,
             is_first_bar_of_week=is_first_bar_of_week,
         ):
-            entry_px = float(bars[i]["c"])
+            if entry_mode == "profile" and entry_level == "val":
+                entry_px = anchor.val
+            else:
+                entry_px = float(bars[i]["c"])
+            if entry_px <= anchor.pwl:
+                i += 1
+                continue
             pos = _OpenPosition(
                 entry_idx=i,
                 entry_date=_bar_date(bars[i]),
@@ -628,6 +667,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run profile vs regime-only ablation and regime buy-and-hold baseline",
     )
+    parser.add_argument(
+        "--entry-level",
+        choices=("poc", "val"),
+        default="poc",
+        help="Profile entry level: poc (close acceptance) or val (limit at prior-week VAL)",
+    )
     return parser.parse_args(argv)
 
 
@@ -641,13 +686,23 @@ def main(argv: list[str] | None = None) -> int:
         "cost_points": args.cost_points,
     }
     if args.control:
-        profile = run_profile_mr_swing(bars, entry_mode="profile", **common)
+        profile = run_profile_mr_swing(
+            bars,
+            entry_mode="profile",
+            entry_level=args.entry_level,
+            **common,
+        )
         regime_only = run_profile_mr_swing(bars, entry_mode="regime_only", **common)
         regime_bh = regime_buy_hold_points(bars, n_bins=100)
         _print_control_report(profile, regime_only, regime_bh)
         return 0
 
-    result = run_profile_mr_swing(bars, entry_mode="profile", **common)
+    result = run_profile_mr_swing(
+        bars,
+        entry_mode="profile",
+        entry_level=args.entry_level,
+        **common,
+    )
     _print_report(result)
     csv_path = _trade_csv_path(args.symbol)
     _write_trades_csv(result.trades, csv_path)
