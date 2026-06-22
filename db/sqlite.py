@@ -95,6 +95,7 @@ def save_snapshot(
     orders: list[Order],
     *,
     broker: str = "alpaca",
+    account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> str:
     captured_at = datetime.now(UTC).isoformat()
@@ -102,8 +103,8 @@ def save_snapshot(
 
     with _connect(db_path) as conn:
         cursor = conn.execute(
-            "INSERT INTO poll_runs (captured_at, broker) VALUES (?, ?)",
-            (captured_at, broker),
+            "INSERT INTO poll_runs (captured_at, broker, account_id) VALUES (?, ?, ?)",
+            (captured_at, broker, account_id),
         )
         run_id = cursor.lastrowid
 
@@ -203,6 +204,20 @@ def _latest_run_id(conn: sqlite3.Connection, broker: str | None = None) -> int |
         row = conn.execute(
             "SELECT id FROM poll_runs ORDER BY captured_at DESC LIMIT 1"
         ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _latest_run_id_for_account(
+    conn: sqlite3.Connection, account_id: str
+) -> int | None:
+    row = conn.execute(
+        """
+        SELECT id FROM poll_runs
+        WHERE account_id = ?
+        ORDER BY captured_at DESC LIMIT 1
+        """,
+        (account_id,),
+    ).fetchone()
     return int(row["id"]) if row else None
 
 
@@ -439,11 +454,18 @@ def get_prior_snapshot(
 
 
 def get_latest_snapshot(
-    broker: str | None = None, db_path: Path = DEFAULT_DB_PATH
+    broker: str | None = None,
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> dict | None:
     init_db(db_path)
     with _connect(db_path) as conn:
-        run_id = _latest_run_id(conn, broker)
+        run_id: int | None = None
+        if account_id is not None:
+            run_id = _latest_run_id_for_account(conn, account_id)
+        if run_id is None:
+            run_id = _latest_run_id(conn, broker)
         if run_id is None:
             return None
         broker_name = broker or conn.execute(

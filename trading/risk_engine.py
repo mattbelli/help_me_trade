@@ -195,7 +195,9 @@ class RiskEngine:
         checks["qty_bounds"] = "pass"
 
         # 5. Snapshot freshness
-        snapshot = get_latest_snapshot(intent.broker, db_path=db_path)
+        snapshot = get_latest_snapshot(
+            intent.broker, account_id=intent.account_id, db_path=db_path
+        )
         if snapshot is None:
             checks["snapshot_freshness"] = "fail: no portfolio snapshot"
             return RiskCheckResult(

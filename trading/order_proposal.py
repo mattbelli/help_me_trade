@@ -210,7 +210,9 @@ def build_order_proposal_from_args(
 
     if side == "sell":
         position_symbol = (occ_symbol or symbol).upper()
-        snapshot = get_latest_snapshot(broker, db_path=db_path)
+        snapshot = get_latest_snapshot(
+            broker, account_id=resolved_account_id, db_path=db_path
+        )
         held_qty: float | None = None
         if snapshot:
             for pos in snapshot.get("positions") or []:

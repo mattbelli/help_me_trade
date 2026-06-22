@@ -126,6 +126,20 @@ review.
 - New API routes: list/create/update/delete connections + accounts; trigger per-account sync; set default
   account. Mask secrets on read; validate creds on save (test connection).
 
+## Phase A — COMPLETE (2026-06-22) + carry-forward findings
+All 5 sub-steps shipped, each adversarially reviewed, behavior-identical for the single default Alpaca account
+(commits a65a370 · b876264 · fb9fd4b · bf75577 · + sub-step 5). **Carry-forward to Phase B** (latent, inert
+today with one account/broker; must be handled when a 2nd Alpaca connection exists):
+- **Per-connection credentials + broker-factory cache keyed by connection id** (not broker name) — the actual
+  enabler for a 2nd Alpaca paper key. The `get_broker_for_account` seam is in place; wire creds here.
+- **id-equality guard at per-account sync**: assert the registered account's `broker_external_id` == the fetched
+  snapshot's `account.id` before stamping `poll_runs.account_id` (fail-closed on mismatch) so a connection's
+  snapshot can't be routed to the wrong ledger account. Inert at single-account; required once connections fan out.
+- **Schwab snapshot iteration**: `SchwabAdapter` hardwires one `account_hash`; add an optional per-call
+  `account_hash` (or per-connection adapter instances) to iterate hashes. Also: don't mark a Schwab account
+  `is_default` until this lands (would mis-stamp the many-hash connection with one ledger id).
+- The poll loop currently iterates brokers; switch to iterating **enabled accounts** once connections exist.
+
 ## Phase B — Frontend account-awareness (summary; full brief later)
 - Account selector (global context, like the current snapshot provider) → drives portfolio/positions/proposals
   views per account; an "all accounts" rollup.

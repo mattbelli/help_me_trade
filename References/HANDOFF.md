@@ -100,10 +100,22 @@ daily-order ceiling ADDED beside the unchanged global ceiling (`count_executions
 account_id filter; the no-arg/global path is byte-identical → never weakened). Snapshot/buying-power/
 concentration left broker-keyed (already per-account-correct: one account per broker today; becomes account-keyed
 in sub-step 5). Adversarially reviewed — all invariants hold, no CRITICAL/HIGH/MEDIUM, safe. 473 tests.
-**NEXT: 5** per-account snapshot + multi-account sync — the poll/sync loop iterates enabled accounts and writes
-`poll_runs.account_id`; `get_latest_snapshot` becomes account-keyed (then RiskEngine reads the account's
-snapshot); Schwab snapshot iteration. **NOTE:** until sub-step 5, new poll_runs still write account_id=NULL, so
-do NOT switch `get_latest_snapshot` to account-keyed before sync populates it (would fail-closed every order). Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
+**Sub-step 5 DONE — per-account snapshot + account-keyed reads.** `save_snapshot` stamps `poll_runs.account_id`;
+the poll loop resolves `get_default_account(broker)` and stamps every new run; `get_latest_snapshot(broker, *,
+account_id=)` is account-keyed with a broker fallback (account_id None = byte-identical legacy path);
+RiskEngine + the sell-side held-position check read by `intent.account_id`. Behavior-identical for the default
+account; no fail-close (boot migration backfills NULL alpaca runs before the poll loop starts + the 5-min
+freshness gate fail-closes on stale). Schwab multi-account snapshot iteration DEFERRED (adapter hardwires one
+account_hash; read-only; → Phase B). Adversarially reviewed — safe; 2 latent multi-connection findings tracked
+in MULTI_ACCOUNT_PLAN.md. 479 tests.
+
+**★ PHASE A COMPLETE** — accounts are first-class across schema, registry, execution, risk, and snapshot/sync;
+the chokepoint self-defends per-account; everything behavior-identical for the single default Alpaca account
+(when you restart the backend the migration runs + the default account is created/used, but trading is
+unchanged). **NEXT: Phase B** (frontend account selector + connection-management UI to ADD a 2nd Alpaca paper
+key — the dedicated forward-test account) → **Phase C** (Strategies settings section + strategy→account
+binding) → **Phase D** (the exit module that completes the dip forward-test). The forward-test "lights up" once
+Phase B gives you the dedicated account to bind in Phase C. Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
 
 ## Then (post-multi-account)
 - **FORWARD-TEST on paper — Increment 1 (ENTRY) SHIPPED; EXITS next.** The dip-buy entry path is wired +

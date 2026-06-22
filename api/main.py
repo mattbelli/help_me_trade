@@ -48,6 +48,7 @@ from config.settings import (
     set_active_watchlist,
     update_watchlist,
 )
+from db.accounts import get_default_account
 from db.ai_tables import init_ai_tables
 from db.chart_features import (
     create_price_alert,
@@ -99,12 +100,14 @@ async def _poll_broker(broker_name: str) -> bool:
     try:
         broker = get_broker(broker_name)
         account, positions, orders = await broker.afetch_snapshot()
+        trade_account = get_default_account(broker_name)
         captured_at = await asyncio.to_thread(
             save_snapshot,
-            account=account,
-            positions=positions,
-            orders=orders,
+            account,
+            positions,
+            orders,
             broker=broker_name,
+            account_id=trade_account["id"] if trade_account else None,
         )
         logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
         await asyncio.to_thread(compute_and_save_snapshot_analytics, broker_name)
@@ -112,7 +115,11 @@ async def _poll_broker(broker_name: str) -> bool:
             await reconcile_pending_executions(broker_name)
         if count_submitted_executions(broker_name) > 0:
             await reconcile_open_executions(broker_name)
-        snapshot = await asyncio.to_thread(get_latest_snapshot, broker_name)
+        snapshot = await asyncio.to_thread(
+            get_latest_snapshot,
+            broker_name,
+            account_id=trade_account["id"] if trade_account else None,
+        )
         if snapshot:
             symbols = {
                 str(p.get("symbol", "")).upper()
