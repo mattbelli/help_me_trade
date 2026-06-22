@@ -34,6 +34,8 @@ type StrategyDraft = {
   notional_usd: number;
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
+  max_concurrent_positions: number | null;
+  max_deployed_usd: number | null;
 };
 
 type StrategyCardState = {
@@ -50,6 +52,8 @@ function strategyToDraft(strategy: Strategy): StrategyDraft {
     notional_usd: strategy.notional_usd,
     exit_mode: strategy.exit_mode,
     params: { ...strategy.params },
+    max_concurrent_positions: strategy.max_concurrent_positions,
+    max_deployed_usd: strategy.max_deployed_usd,
   };
 }
 
@@ -66,6 +70,12 @@ function buildPatch(
     patch.notional_usd = draft.notional_usd;
   }
   if (draft.exit_mode !== original.exit_mode) patch.exit_mode = draft.exit_mode;
+  if (draft.max_concurrent_positions !== original.max_concurrent_positions) {
+    patch.max_concurrent_positions = draft.max_concurrent_positions;
+  }
+  if (draft.max_deployed_usd !== original.max_deployed_usd) {
+    patch.max_deployed_usd = draft.max_deployed_usd;
+  }
 
   if (hasFarSupportMin) {
     const origVal = Number(original.params.far_support_min);
@@ -216,6 +226,53 @@ function StrategyCard({
             with the exit module.
           </p>
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Max positions</Label>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              className="h-8"
+              placeholder="No cap"
+              value={draft.max_concurrent_positions ?? ""}
+              onChange={(e) =>
+                updateDraft((d) => ({
+                  ...d,
+                  max_concurrent_positions:
+                    e.target.value === ""
+                      ? null
+                      : Math.trunc(Number(e.target.value)),
+                }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Max deployed ($)</Label>
+            <Input
+              type="number"
+              min={0}
+              step={1000}
+              className="h-8"
+              placeholder="No cap"
+              value={draft.max_deployed_usd ?? ""}
+              onChange={(e) =>
+                updateDraft((d) => ({
+                  ...d,
+                  max_deployed_usd:
+                    e.target.value === "" ? null : Number(e.target.value),
+                }))
+              }
+            />
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Caps total open + pending exposure in the bound account (blank = no
+          cap). The strategy stops proposing once a cap is hit — your safety net
+          on cluster days. For clean per-strategy budgets, give each strategy its
+          own account.
+        </p>
 
         {hasFarSupportMin && (
           <div className="space-y-1.5">

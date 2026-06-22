@@ -388,6 +388,100 @@ async def test_non_exec_account_skipped(monkeypatch, tmp_path: Path) -> None:
     propose_mock.assert_not_called()
 
 
+def _multi_passing_payload(symbols: list[str]) -> dict[str, list[StockBar]]:
+    spy_bars, _ = _spy_bars(drop_pct=-2.0)
+    payload: dict[str, list[StockBar]] = {
+        SPY_SYMBOL: _dated_bars_to_stockbars(spy_bars)
+    }
+    for sym in symbols:
+        stock_bars, _ = _healthy_stock_bars(drop_pct=-6.0)
+        payload[sym] = _dated_bars_to_stockbars(stock_bars)
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_max_concurrent_caps_proposals(monkeypatch, tmp_path: Path) -> None:
+    syms = ["AAA", "BBB", "CCC", "DDD"]
+    propose_mock, db = _patch_scan_env(
+        monkeypatch, tmp_path, strategy_enabled=True, watchlist=syms
+    )
+    update_strategy("dip_buy", max_concurrent_positions=2, db_path=db)
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_multi_passing_payload(syms)),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    # 4 symbols pass the predicate, but the cap stops proposing after 2.
+    assert len(result) == 2
+    assert propose_mock.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_max_deployed_caps_proposals(monkeypatch, tmp_path: Path) -> None:
+    syms = ["AAA", "BBB", "CCC", "DDD"]
+    propose_mock, db = _patch_scan_env(
+        monkeypatch, tmp_path, strategy_enabled=True, notional=500, watchlist=syms
+    )
+    # Budget fits two $500 orders (1000) but not a third (1500 > 1200).
+    update_strategy("dip_buy", max_deployed_usd=1200, db_path=db)
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_multi_passing_payload(syms)),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert len(result) == 2
+    assert propose_mock.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_open_positions_count_toward_concurrency_cap(
+    monkeypatch, tmp_path: Path
+) -> None:
+    syms = ["AAA", "BBB", "CCC"]
+    # Two already-open positions in OTHER symbols (not in the watchlist, so they
+    # don't get skipped as held candidates) — they still consume the cap.
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        watchlist=syms,
+        held=["ZZZ", "YYY"],
+    )
+    update_strategy("dip_buy", max_concurrent_positions=3, db_path=db)
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_multi_passing_payload(syms)),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    # 2 open + cap 3 ⇒ only 1 more may be proposed.
+    assert len(result) == 1
+    assert propose_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_no_caps_proposes_all(monkeypatch, tmp_path: Path) -> None:
+    syms = ["AAA", "BBB", "CCC", "DDD"]
+    propose_mock, db = _patch_scan_env(
+        monkeypatch, tmp_path, strategy_enabled=True, watchlist=syms
+    )
+    # caps left at NULL ⇒ no limit, every passing symbol proposes.
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_multi_passing_payload(syms)),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert len(result) == len(syms)
+    assert propose_mock.await_count == len(syms)
+
+
 def test_dip_strategy_settings_defaults(tmp_path: Path, monkeypatch) -> None:
     settings_path = tmp_path / "settings.json"
     monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)

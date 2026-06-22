@@ -9,6 +9,8 @@ export type Strategy = {
   notional_usd: number;
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
+  max_concurrent_positions: number | null;
+  max_deployed_usd: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -26,6 +28,8 @@ export type StrategyPatch = Partial<{
   notional_usd: number;
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
+  max_concurrent_positions: number | null;
+  max_deployed_usd: number | null;
 }>;
 
 export async function fetchStrategies(): Promise<Strategy[]> {

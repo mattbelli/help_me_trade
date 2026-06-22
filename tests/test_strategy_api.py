@@ -113,6 +113,34 @@ def test_put_updates_strategy(strategy_api_client: TestClient) -> None:
     assert updated["params"]["oversold_3d_max"] == -4.0
 
 
+def test_put_round_trips_risk_caps(strategy_api_client: TestClient) -> None:
+    resp = strategy_api_client.put(
+        "/api/strategies/dip_refined",
+        json={"max_concurrent_positions": 8, "max_deployed_usd": 60000},
+    )
+    assert resp.status_code == 200
+    s = resp.json()["strategy"]
+    assert s["max_concurrent_positions"] == 8
+    assert s["max_deployed_usd"] == 60000
+
+    # uncap concurrency with null; budget stays
+    resp = strategy_api_client.put(
+        "/api/strategies/dip_refined",
+        json={"max_concurrent_positions": None},
+    )
+    assert resp.status_code == 200
+    s = resp.json()["strategy"]
+    assert s["max_concurrent_positions"] is None
+    assert s["max_deployed_usd"] == 60000
+
+    # negative is rejected
+    resp = strategy_api_client.put(
+        "/api/strategies/dip_refined",
+        json={"max_deployed_usd": -1},
+    )
+    assert resp.status_code == 400
+
+
 def test_put_rejects_invalid_account(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, auth_token: str
 ) -> None:

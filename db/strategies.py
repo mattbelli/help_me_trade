@@ -55,6 +55,12 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             );
             """
         )
+        # Idempotent column adds (per-strategy risk caps; NULL = uncapped).
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(strategies)")}
+        if "max_concurrent_positions" not in existing:
+            conn.execute("ALTER TABLE strategies ADD COLUMN max_concurrent_positions INTEGER")
+        if "max_deployed_usd" not in existing:
+            conn.execute("ALTER TABLE strategies ADD COLUMN max_deployed_usd REAL")
         conn.commit()
 
 
@@ -65,6 +71,8 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         params = {}
     if not isinstance(params, dict):
         params = {}
+    max_concurrent = row["max_concurrent_positions"]
+    max_deployed = row["max_deployed_usd"]
     return {
         "id": row["id"],
         "name": row["name"],
@@ -73,6 +81,12 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         "notional_usd": float(row["notional_usd"]),
         "exit_mode": row["exit_mode"],
         "params": params,
+        "max_concurrent_positions": (
+            int(max_concurrent) if max_concurrent is not None else None
+        ),
+        "max_deployed_usd": (
+            float(max_deployed) if max_deployed is not None else None
+        ),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -90,7 +104,8 @@ def list_strategies(
             rows = conn.execute(
                 f"""
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       params_json, created_at, updated_at
+                       params_json, max_concurrent_positions, max_deployed_usd,
+                       created_at, updated_at
                 FROM strategies
                 {where}
                 ORDER BY created_at
@@ -112,7 +127,8 @@ def get_strategy(
             row = conn.execute(
                 """
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       params_json, created_at, updated_at
+                       params_json, max_concurrent_positions, max_deployed_usd,
+                       created_at, updated_at
                 FROM strategies
                 WHERE id = ?
                 """,
@@ -131,6 +147,8 @@ def update_strategy(
     notional_usd: float | None = None,
     exit_mode: str | None = None,
     params: dict[str, Any] | None = None,
+    max_concurrent_positions: int | None = ...,  # type: ignore[assignment]
+    max_deployed_usd: float | None = ...,  # type: ignore[assignment]
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_strategy_tables(db_path)
@@ -143,6 +161,20 @@ def update_strategy(
 
     if notional_usd is not None and notional_usd < 0:
         raise ValueError("notional_usd must be >= 0")
+
+    if (
+        max_concurrent_positions is not ...
+        and max_concurrent_positions is not None
+        and max_concurrent_positions < 0
+    ):
+        raise ValueError("max_concurrent_positions must be >= 0")
+
+    if (
+        max_deployed_usd is not ...
+        and max_deployed_usd is not None
+        and max_deployed_usd < 0
+    ):
+        raise ValueError("max_deployed_usd must be >= 0")
 
     fields: list[str] = []
     values: list[Any] = []
@@ -162,6 +194,18 @@ def update_strategy(
     if params is not None:
         fields.append("params_json = ?")
         values.append(json.dumps(params))
+    if max_concurrent_positions is not ...:
+        fields.append("max_concurrent_positions = ?")
+        values.append(
+            int(max_concurrent_positions)
+            if max_concurrent_positions is not None
+            else None
+        )
+    if max_deployed_usd is not ...:
+        fields.append("max_deployed_usd = ?")
+        values.append(
+            float(max_deployed_usd) if max_deployed_usd is not None else None
+        )
 
     if not fields:
         return existing

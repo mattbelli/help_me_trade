@@ -20,6 +20,7 @@ from brokers.factory import connection_is_configured, get_broker_for_account
 from config.settings import broker_is_configured
 from db.accounts import get_account, get_connection
 from db.base import DEFAULT_DB_PATH
+from db.paper_orders import list_pending_proposals
 from db.sqlite import get_latest_snapshot
 from db.strategies import list_strategies
 from research.strategy_features import compute_market_context, is_strategy_entry
@@ -69,14 +70,8 @@ def _stock_bars_to_dated(bars: list[StockBar]) -> list[DatedBar]:
     return dated
 
 
-def _held_symbols_for_account(
-    account_id: str,
-    broker_name: str,
-    *,
-    db_path: Path = DEFAULT_DB_PATH,
-) -> set[str]:
-    """Symbols with an open position in the account snapshot — one-entry-per-signal guard."""
-    snapshot = get_latest_snapshot(broker_name, account_id=account_id, db_path=db_path)
+def _held_symbols(snapshot: dict[str, Any] | None) -> set[str]:
+    """Symbols with an open position in the snapshot — one-entry-per-signal guard."""
     if not snapshot:
         return set()
     held: set[str] = set()
@@ -85,6 +80,80 @@ def _held_symbols_for_account(
         if sym:
             held.add(sym)
     return held
+
+
+def _held_symbols_for_account(
+    account_id: str,
+    broker_name: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> set[str]:
+    snapshot = get_latest_snapshot(broker_name, account_id=account_id, db_path=db_path)
+    return _held_symbols(snapshot)
+
+
+def _open_exposure(snapshot: dict[str, Any] | None) -> tuple[int, float]:
+    """(open-position count, total |market_value|) from an account snapshot."""
+    if not snapshot:
+        return 0, 0.0
+    positions = snapshot.get("positions") or []
+    value = 0.0
+    for pos in positions:
+        try:
+            value += abs(float(pos.get("market_value") or 0.0))
+        except (TypeError, ValueError):
+            continue
+    return len(positions), value
+
+
+def _latest_close_map(raw_bars: dict[str, list[StockBar]]) -> dict[str, float]:
+    """Symbol -> most-recent close, for valuing pending proposals at scan time.
+
+    Best-effort and per-symbol resilient: a malformed bar set is skipped (its
+    pending proposals fall back to the strategy notional) so one bad symbol can't
+    break the budget computation for the whole scan.
+    """
+    prices: dict[str, float] = {}
+    for sym, bars in raw_bars.items():
+        if not bars:
+            continue
+        try:
+            dated = _stock_bars_to_dated(bars)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            continue
+        if dated:
+            prices[sym.upper()] = float(dated[-1]["c"])
+    return prices
+
+
+def _pending_exposure(
+    account_id: str,
+    *,
+    prices: dict[str, float],
+    fallback_notional: float,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> tuple[int, float]:
+    """(pending-proposal count, est. $ committed) for an account's un-approved proposals.
+
+    Pending orders aren't filled yet but WILL consume capital once approved, so they
+    must count against a strategy's budget — otherwise one scan could propose past the
+    cap and a batch-approve would blow through it. Valued at qty x latest close; when
+    the symbol's price isn't on hand, falls back to the strategy's per-trade notional.
+    """
+    pending = list_pending_proposals(account_id=account_id, db_path=db_path)
+    value = 0.0
+    for prop in pending:
+        symbol = str(prop.get("symbol", "")).upper()
+        try:
+            qty = abs(float(prop.get("qty") or 0.0))
+        except (TypeError, ValueError):
+            qty = 0.0
+        price = prices.get(symbol)
+        if price is not None and qty > 0:
+            value += qty * price
+        else:
+            value += fallback_notional
+    return len(pending), value
 
 
 def _entry_params_from(params: dict[str, Any]) -> dict[str, Any]:
@@ -186,8 +255,36 @@ async def _run_strategy(
 
     spy_bars = _stock_bars_to_dated(spy_raw)
     spy_idx = len(spy_bars) - 1
-    held = _held_symbols_for_account(str(account_id), broker_name, db_path=db_path)
+
+    snapshot = get_latest_snapshot(
+        broker_name, account_id=str(account_id), db_path=db_path
+    )
+    held = _held_symbols(snapshot)
     entry_params = _entry_params_from(strategy.get("params") or {})
+
+    # Per-strategy risk caps (None = uncapped). Committed exposure = already-open
+    # positions + still-pending proposals in the bound account; we stop proposing
+    # once a cap would be exceeded. Counting is account-scoped against this
+    # strategy's own limit — exact for the recommended one-strategy-per-account
+    # setup, conservative when an account is shared. This is a best-effort,
+    # propose-time advisory cap that assumes serialized scans (the scheduler runs
+    # one at a time); the HARD guarantee remains RiskEngine.validate() + buying
+    # power at the chokepoint. Only compute exposure when a cap is actually set,
+    # so the uncapped path stays read-for-read identical to before.
+    max_concurrent = strategy.get("max_concurrent_positions")
+    max_deployed = strategy.get("max_deployed_usd")
+    committed_count = 0
+    committed_usd = 0.0
+    if max_concurrent is not None or max_deployed is not None:
+        open_count, open_value = _open_exposure(snapshot)
+        pending_count, pending_value = _pending_exposure(
+            str(account_id),
+            prices=_latest_close_map(raw_bars),
+            fallback_notional=notional,
+            db_path=db_path,
+        )
+        committed_count = open_count + pending_count
+        committed_usd = open_value + pending_value
 
     results: list[dict[str, Any]] = []
     evaluated = 0
@@ -238,6 +335,29 @@ async def _run_strategy(
             ):
                 continue
 
+            # Per-strategy risk caps: stop once the next order would breach the
+            # concurrent-position or deployed-capital budget. Same notional every
+            # time, so once a cap is hit no later candidate can fit → break.
+            if max_concurrent is not None and committed_count >= max_concurrent:
+                logger.info(
+                    "Strategy %s cap hit — %d/%d concurrent (open+pending); "
+                    "stop proposing",
+                    strategy["id"],
+                    committed_count,
+                    max_concurrent,
+                )
+                break
+            if max_deployed is not None and committed_usd + notional > max_deployed:
+                logger.info(
+                    "Strategy %s budget hit — $%.0f committed + $%.0f next > $%.0f; "
+                    "stop proposing",
+                    strategy["id"],
+                    committed_usd,
+                    notional,
+                    max_deployed,
+                )
+                break
+
             passed += 1
             candidate = TradeCandidate(
                 symbol=sym,
@@ -258,6 +378,11 @@ async def _run_strategy(
             )
             result = await propose_trade(candidate, db_path=db_path)
             results.append(result)
+            # Only a freshly-created proposal adds to committed exposure (duplicates
+            # were already in pending_count; blocks/errors commit nothing).
+            if result.get("status") == "proposed":
+                committed_count += 1
+                committed_usd += notional
         except Exception:
             logger.exception(
                 "Strategy %s failed for %s",

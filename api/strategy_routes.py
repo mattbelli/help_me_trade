@@ -71,6 +71,12 @@ def api_update_strategy(
             else None,
             exit_mode=body.get("exit_mode") if "exit_mode" in body else None,
             params=body.get("params") if "params" in body else None,
+            max_concurrent_positions=body.get("max_concurrent_positions")
+            if "max_concurrent_positions" in body
+            else ...,
+            max_deployed_usd=body.get("max_deployed_usd")
+            if "max_deployed_usd" in body
+            else ...,
         )
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"detail": str(exc)})

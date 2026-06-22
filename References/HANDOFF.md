@@ -43,6 +43,13 @@ a non-secret `env_suffix` per connection.
   Settings is now reachable on **mobile** — `<SettingsDialog collapsed />` lives in the phone header
   (gear icon) and the dialog nav stacks responsively (`flex-col sm:flex-row`). Reuses the desktop dialog (no
   duplicate mobile UI — RN is the eventual target). **Pending: in-browser/on-phone visual check.**
+- **Per-strategy risk caps** (2026-06-22): `strategies.max_concurrent_positions` + `max_deployed_usd`
+  (nullable cols, NULL=uncapped; idempotent ADD COLUMN migration). Enforced in `_run_strategy` — the scan
+  stops proposing once (open positions + pending proposals) in the bound account hit the cap. This is the fix
+  for the **dip-cluster problem** (many names fire on the same down day). Best-effort/advisory at propose-time
+  (assumes serialized scans, which the scheduler guarantees); the HARD guarantee stays `RiskEngine.validate()`
+  + buying-power at the chokepoint. Adversarially reviewed: no cap-breach path in a serialized scan. Surfaced
+  in the Strategies UI as "Max positions" / "Max deployed ($)" (blank = no cap).
 - **Refined-dip strategy wired live** (2026-06-22, from `origin/research/decision-engine-data-layer`).
   Ported `research/levels.py` (swing-pivot S/R + `level_features`) + the `far_support_min` arg on
   `is_strategy_entry` (both pure/point-in-time; adversarially reviewed clean). New seeded strategy
