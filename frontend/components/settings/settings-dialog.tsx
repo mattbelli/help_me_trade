@@ -489,26 +489,32 @@ export function SettingsDialog({ collapsed = false }: Props) {
         )}
 
         <DialogFooter className="sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setOpen(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={
-              saving ||
-              loading ||
-              section === "import" ||
-              section === "strategies"
-            }
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
+          {section === "import" || section === "strategies" ? (
+            // These sections save their own changes inline (per-card / per-action),
+            // so the global Save doesn't apply — offer a plain Done to close instead
+            // of a disabled Save + a misleading "Cancel".
+            <Button type="button" onClick={() => setOpen(false)} disabled={saving}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || loading}
+              >
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            </>
+          )}
         </DialogFooter>
         </div>
       </DialogContent>
