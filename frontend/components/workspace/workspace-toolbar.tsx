@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Lock, LockOpen, Plus } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
@@ -32,8 +32,6 @@ import {
   useDashboardPrefs,
 } from "@/lib/workspace/use-dashboard-prefs";
 import { useEtClock } from "@/lib/workspace/use-et-clock";
-import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
-
 import { ThemeSwitcher } from "./theme-switcher";
 import { NotificationBell } from "./notification-bell";
 
@@ -93,7 +91,6 @@ export function WorkspaceToolbar() {
   const { snapshot, brokerInfo, loading } = useSnapshot();
   const { dayPnl, loading: dayLoading } = useDayPnl();
   const clock = useEtClock();
-  const { locked, toggleLock, openPicker } = useWorkspaceStore();
   const {
     selectedAccountId,
     privacyMode,
@@ -277,42 +274,8 @@ export function WorkspaceToolbar() {
         ) : null}
       </div>
 
-      <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
-        <span className="hidden font-sans text-[13px] font-semibold tracking-tight text-foreground md:inline">
-          Workspace
-        </span>
-        <span className="hidden rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[11px] text-[var(--fg-dim)] md:inline">
-          default layout
-        </span>
-        <button
-          type="button"
-          onClick={toggleLock}
-          className={cn(
-            "rounded p-1 transition-colors hover:bg-[var(--bg-hover)]",
-            locked
-              ? "text-[var(--c-accent)]"
-              : "text-[var(--fg-faint)] hover:text-foreground",
-          )}
-          aria-label={locked ? "Unlock workspace layout" : "Lock workspace layout"}
-        >
-          {locked ? (
-            <Lock className="size-3.5" />
-          ) : (
-            <LockOpen className="size-3.5" />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={openPicker}
-          className="rounded border border-dashed border-[var(--border-strong)] p-1 text-[var(--fg-dim)] transition-colors hover:border-[var(--c-accent)] hover:bg-[var(--c-accent-soft)] hover:text-foreground"
-          aria-label="Add widget"
-        >
-          <Plus className="size-3.5" />
-        </button>
-      </div>
-
-      <div className="ml-auto flex items-center gap-1.5 md:gap-5">
-        <div className="hidden items-center gap-3 text-[var(--fg-dim)] md:flex">
+      <div className="absolute left-1/2 hidden -translate-x-1/2 items-center lg:flex">
+        <div className="flex items-center gap-2.5 text-[11px] text-[var(--fg-dim)]">
           {loading && !snapshot ? null : snapshot && view ? (
             <>
               {showAccountSelect ? (
@@ -391,10 +354,31 @@ export function WorkspaceToolbar() {
                   <b className="font-semibold text-foreground">—</b>
                 )}
               </span>
+              <span>
+                <span className="text-[var(--fg-faint)]">UPL </span>
+                <b
+                  className={cn(
+                    "font-semibold",
+                    privacyMode
+                      ? "text-foreground"
+                      : view.unrealized_pl >= 0
+                        ? "text-[var(--c-green)]"
+                        : "text-[var(--c-red)]",
+                  )}
+                >
+                  {maskMoney(
+                    view.unrealized_pl,
+                    privacyMode,
+                    formatSignedPnl,
+                  )}
+                </b>
+              </span>
             </>
           ) : null}
         </div>
+      </div>
 
+      <div className="ml-auto flex items-center gap-1.5 md:gap-5">
         <NotificationBell />
         <SettingsDialog collapsed />
         <ThemeSwitcher />

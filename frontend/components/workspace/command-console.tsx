@@ -8,8 +8,10 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { Lock, LockOpen, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
+import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   useConsoleStore,
   type ScrollbackEntry,
@@ -92,6 +94,7 @@ export function CommandConsole() {
     useConsoleStore();
 
   const { runCommand } = useWorkspaceCommands();
+  const { locked, toggleLock, openPicker } = useWorkspaceStore();
 
   const consoleRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -296,6 +299,39 @@ export function CommandConsole() {
               </span>
             </span>
           ) : null}
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="hidden rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] md:inline">
+            default layout
+          </span>
+          <button
+            type="button"
+            onClick={toggleLock}
+            className={cn(
+              "rounded p-1 transition-colors hover:bg-[var(--bg-hover)]",
+              locked
+                ? "text-[var(--c-accent)]"
+                : "text-[var(--fg-faint)] hover:text-foreground",
+            )}
+            aria-label={
+              locked ? "Unlock workspace layout" : "Lock workspace layout"
+            }
+          >
+            {locked ? (
+              <Lock className="size-3.5" />
+            ) : (
+              <LockOpen className="size-3.5" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={openPicker}
+            className="rounded border border-dashed border-[var(--border-strong)] p-1 text-[var(--fg-dim)] transition-colors hover:border-[var(--c-accent)] hover:bg-[var(--c-accent-soft)] hover:text-foreground"
+            aria-label="Add widget"
+          >
+            <Plus className="size-3.5" />
+          </button>
         </div>
       </form>
     </motion.div>

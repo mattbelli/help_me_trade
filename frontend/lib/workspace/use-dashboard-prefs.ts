@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 
-import type { Snapshot } from "@/lib/api";
+import type { Order, Position, Snapshot } from "@/lib/api";
 
 const STORAGE_KEY = "hmt:dashboard-prefs:v1";
 
@@ -101,6 +101,49 @@ export function resolveAccountView(
     portfolio_value: snapshot.account.portfolio_value,
     unrealized_pl,
   };
+}
+
+export type TaggedPosition = Position & { accountLabel?: string };
+export type TaggedOrder = Order & { accountLabel?: string };
+
+export function resolvePositions(
+  snapshot: Snapshot | null,
+  selectedAccountId: string,
+): TaggedPosition[] {
+  if (!snapshot) return [];
+  const accts = snapshot.snapshots ?? [];
+  if (selectedAccountId === "all") {
+    const multi = accts.length > 1;
+    return accts.flatMap((s) =>
+      (s.positions ?? []).map((p) => ({
+        ...p,
+        accountLabel: multi ? (s.account_label ?? s.broker) : undefined,
+      })),
+    );
+  }
+  const entry = accts.find((s) => s.account_id === selectedAccountId);
+  return (entry?.positions ?? snapshot.positions ?? []).map((p) => ({ ...p }));
+}
+
+export function resolveOpenOrders(
+  snapshot: Snapshot | null,
+  selectedAccountId: string,
+): TaggedOrder[] {
+  if (!snapshot) return [];
+  const accts = snapshot.snapshots ?? [];
+  if (selectedAccountId === "all") {
+    const multi = accts.length > 1;
+    return accts.flatMap((s) =>
+      (s.open_orders ?? []).map((o) => ({
+        ...o,
+        accountLabel: multi ? (s.account_label ?? s.broker) : undefined,
+      })),
+    );
+  }
+  const entry = accts.find((s) => s.account_id === selectedAccountId);
+  return (entry?.open_orders ?? snapshot.open_orders ?? []).map((o) => ({
+    ...o,
+  }));
 }
 
 export function maskMoney(
