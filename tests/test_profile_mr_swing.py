@@ -8,6 +8,7 @@ import pytest
 
 from research.profile_mr_swing import (
     _build_weekly_anchors,
+    regime_buy_hold_points,
     run_profile_mr_swing,
 )
 from research.volume_profile import build_volume_profile
@@ -117,6 +118,16 @@ def _base_bars(*, friday_close: float = 112.0) -> list[DatedBar]:
         + _anchor_week_bars()
         + _prior_week_bars(friday_close=friday_close)
     )
+
+
+def _regime_only_base(*, friday_close: float = 112.0) -> list[DatedBar]:
+    """Minimal uptrend history + anchor/prior weeks; first regime_only slot is ENTRY_MON."""
+    short_warmup = _weekdays_before(PROFILE_WEEK_MON, 4)
+    warmup: list[DatedBar] = []
+    for idx, day in enumerate(short_warmup):
+        px = 90.0 + idx * 2.0
+        warmup.append(_d(day, o=px, h=px + 1.0, low=px - 1.0, c=px, v=1000.0))
+    return warmup + _anchor_week_bars() + _prior_week_bars(friday_close=friday_close)
 
 
 def _entry_bar(
@@ -330,3 +341,115 @@ def test_prior_week_profile_levels() -> None:
     assert levels["pwl"] == pytest.approx(PWL)
     profile = build_volume_profile(_prior_week_bars(), n_bins=50)
     assert profile["poc_price"] == pytest.approx(levels["anchor_poc"], abs=1.0)
+
+
+def _no_pullback_entry_bar(day: date = ENTRY_MON, *, close: float = 112.0) -> DatedBar:
+    """First bar of entry week: uptrend regime, no touch of anchor POC."""
+    return _d(day, o=close, h=close + 1.0, low=ANCHOR + 2.0, c=close, v=1000.0)
+
+
+def test_regime_only_enters_without_profile_gates() -> None:
+    base = _base_bars()
+    bars = base + [_no_pullback_entry_bar()]
+    profile = run_profile_mr_swing(bars, n_bins=50, entry_mode="profile")
+    regime_only = run_profile_mr_swing(bars, n_bins=50, entry_mode="regime_only")
+    assert profile.n_trades == 0
+    assert regime_only.n_trades >= 1
+
+
+def test_regime_only_respects_regime_and_one_position() -> None:
+    """Downtrend blocks regime_only; open position skips a later weekly entry slot."""
+    short_warmup = _weekdays_before(ANCHOR_WEEK_MON, 4)
+    declining: list[DatedBar] = []
+    for idx, day in enumerate(short_warmup):
+        px = 120.0 - idx * 3.0
+        declining.append(_d(day, o=px, h=px + 1.0, low=px - 1.0, c=px, v=1000.0))
+
+    def _declining_week(start_monday: date) -> list[DatedBar]:
+        bars: list[DatedBar] = []
+        for offset in range(5):
+            day = start_monday + timedelta(days=offset)
+            px = 105.0 - offset * 2.0
+            bars.append(_d(day, o=px, h=px + 1.0, low=px - 1.0, c=px, v=1000.0))
+        return bars
+
+    downtrend_bars = (
+        declining
+        + _declining_week(ANCHOR_WEEK_MON)
+        + _declining_week(PROFILE_WEEK_MON)
+        + _declining_week(PRIOR_MON)
+        + [_no_pullback_entry_bar(close=100.0)]
+    )
+    downtrend = run_profile_mr_swing(
+        downtrend_bars, n_bins=50, entry_mode="regime_only", max_hold_days=20
+    )
+    assert downtrend.n_trades == 0
+
+    base = _regime_only_base()
+    entry_close = 112.0
+    long_hold = [
+        _d(ENTRY_MON + timedelta(days=offset), o=102.0, h=110.0, low=100.0, c=105.0)
+        for offset in range(0, 15)
+        if (ENTRY_MON + timedelta(days=offset)).weekday() < 5
+    ]
+    bars = base + [_no_pullback_entry_bar(close=entry_close)] + long_hold
+    result = run_profile_mr_swing(
+        bars, n_bins=50, entry_mode="regime_only", max_hold_days=20
+    )
+    assert result.n_trades == 1
+
+
+def test_regime_only_shared_exit_path_t1_then_t2() -> None:
+    base = _regime_only_base()
+    levels = _anchor_for_current_week(
+        _uptrend_history(ANCHOR_WEEK_MON)
+        + _establishment_week_bars()
+        + _anchor_week_bars()
+        + _prior_week_bars()
+    )
+    entry_close = 112.0
+    t1 = levels["pwh"]
+    t2 = levels["pwh"] + (levels["pwh"] - levels["pwl"])
+    bars = base + [
+        _no_pullback_entry_bar(close=entry_close),
+        _d(date(2024, 6, 11), o=102.0, h=t1 + 1.0, low=100.0, c=entry_close),
+        _d(date(2024, 6, 12), o=110.0, h=t2 + 1.0, low=entry_close + 1.0, c=140.0),
+    ]
+    result = run_profile_mr_swing(bars, cost_points=1.0, n_bins=50, entry_mode="regime_only")
+
+    assert result.n_trades == 1
+    trade = result.trades[0]
+    assert trade.exit_reason == "t2"
+    assert trade.t1_px == pytest.approx(t1)
+    assert trade.final_px == pytest.approx(t2)
+    expected_gross = 0.5 * (t1 - entry_close) + 0.5 * (t2 - entry_close)
+    assert trade.points_gross == pytest.approx(expected_gross)
+
+
+def test_regime_buy_hold_points() -> None:
+    from research.profile_mr_swing import _regime_uptrend
+    from signals.indicators import closes as closes_fn
+
+    days = _weekdays_before(date(2024, 7, 1), 12)
+    bars: list[DatedBar] = []
+    for idx, day in enumerate(days):
+        px = 90.0 + idx * 2.0
+        bars.append(_d(day, o=px, h=px + 1.0, low=px - 1.0, c=px, v=1000.0))
+
+    flat_day = days[-1] + timedelta(days=1)
+    while flat_day.weekday() >= 5:
+        flat_day += timedelta(days=1)
+    bars.append(_d(flat_day, o=112.0, h=113.0, low=111.0, c=112.0, v=1000.0))
+
+    down_day = flat_day + timedelta(days=1)
+    while down_day.weekday() >= 5:
+        down_day += timedelta(days=1)
+    bars.append(_d(down_day, o=108.0, h=109.0, low=107.0, c=108.0, v=1000.0))
+
+    total = regime_buy_hold_points(bars, n_bins=50)
+    expected = sum(
+        float(bars[i]["c"]) - float(bars[i - 1]["c"])
+        for i in range(1, len(bars))
+        if _regime_uptrend(closes_fn(bars[:i]))
+    )
+    assert total == pytest.approx(expected)

@@ -176,6 +176,35 @@ def _entry_trigger(
     return close >= anchor_poc
 
 
+def _should_enter(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    entry_mode: str,
+    anchor_poc: float,
+    is_first_bar_of_week: bool,
+) -> bool:
+    if entry_mode == "profile":
+        return _entry_trigger(bars, idx, anchor_poc=anchor_poc)
+    if entry_mode == "regime_only":
+        if not is_first_bar_of_week:
+            return False
+        if idx < 1:
+            return False
+        return _regime_uptrend(closes(bars[:idx]))
+    raise ValueError(f"unknown entry_mode: {entry_mode!r}")
+
+
+def regime_buy_hold_points(bars: list[DatedBar], *, n_bins: int) -> float:
+    """Sum close-to-close points on days where prior-close regime is uptrend."""
+    _ = n_bins
+    total = 0.0
+    for i in range(1, len(bars)):
+        if _regime_uptrend(closes(bars[:i])):
+            total += float(bars[i]["c"]) - float(bars[i - 1]["c"])
+    return total
+
+
 def _trade_points_gross(
     *,
     entry_px: float,
@@ -285,8 +314,11 @@ def run_profile_mr_swing(
     cost_points: float = 1.0,
     n_bins: int = 100,
     value_area_pct: float = 0.70,
+    entry_mode: str = "profile",
 ) -> SwingResult:
     """Long-only pivot-acceptance swing backtest using prior-week profile anchor."""
+    if entry_mode not in ("profile", "regime_only"):
+        raise ValueError(f"unknown entry_mode: {entry_mode!r}")
     if not bars:
         return SwingResult(
             trades=[],
@@ -308,8 +340,15 @@ def run_profile_mr_swing(
         week_key = _iso_week_key(_bar_date(bars[i]))
         prior_key = _prior_iso_week(week_key)
         anchor = anchors.get(prior_key)
-        if anchor is not None and i >= 10 and _entry_trigger(
-            bars, i, anchor_poc=anchor.anchor_poc
+        is_first_bar_of_week = (
+            i == 0 or _iso_week_key(_bar_date(bars[i - 1])) != week_key
+        )
+        if anchor is not None and i >= 10 and _should_enter(
+            bars,
+            i,
+            entry_mode=entry_mode,
+            anchor_poc=anchor.anchor_poc,
+            is_first_bar_of_week=is_first_bar_of_week,
         ):
             entry_px = float(bars[i]["c"])
             pos = _OpenPosition(
@@ -491,6 +530,29 @@ def _write_trades_csv(trades: list[SwingTrade], path: Path) -> None:
             )
 
 
+def _print_control_report(
+    profile: SwingResult,
+    regime_only: SwingResult,
+    regime_bh_points: float,
+) -> None:
+    def _mode_line(label: str, result: SwingResult) -> None:
+        print(
+            f"{label}: n_trades={result.n_trades}  win_rate={result.win_rate:.1%}  "
+            f"avg_points_net={result.avg_points_net:.2f}  "
+            f"total_points_net={result.total_points_net:.2f}  avg_R={result.avg_R:.2f}"
+        )
+
+    print("alpha-vs-beta control (profile vs regime-only ablation):")
+    _mode_line("profile", profile)
+    _mode_line("regime_only", regime_only)
+    print(f"regime_buy_hold_points: {regime_bh_points:.2f}")
+    if profile.total_points_net <= regime_only.total_points_net:
+        print("ANCHOR ADDS NO ALPHA vs regime-only ablation")
+    else:
+        edge = profile.total_points_net - regime_only.total_points_net
+        print(f"profile edge vs regime_only: {edge:.2f} points")
+
+
 def _print_report(result: SwingResult) -> None:
     print(f"n_trades={result.n_trades}")
     print(f"win_rate: {result.win_rate:.1%}")
@@ -561,6 +623,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--source", default="schwab", help="Daily bar source (default: schwab)"
     )
+    parser.add_argument(
+        "--control",
+        action="store_true",
+        help="Run profile vs regime-only ablation and regime buy-and-hold baseline",
+    )
     return parser.parse_args(argv)
 
 
@@ -569,11 +636,18 @@ def main(argv: list[str] | None = None) -> int:
     start = _parse_cli_date(args.start)
     end = _parse_cli_date(args.end)
     bars = get_daily_bars(args.symbol, start, end, source=args.source)
-    result = run_profile_mr_swing(
-        bars,
-        max_hold_days=args.max_hold_days,
-        cost_points=args.cost_points,
-    )
+    common = {
+        "max_hold_days": args.max_hold_days,
+        "cost_points": args.cost_points,
+    }
+    if args.control:
+        profile = run_profile_mr_swing(bars, entry_mode="profile", **common)
+        regime_only = run_profile_mr_swing(bars, entry_mode="regime_only", **common)
+        regime_bh = regime_buy_hold_points(bars, n_bins=100)
+        _print_control_report(profile, regime_only, regime_bh)
+        return 0
+
+    result = run_profile_mr_swing(bars, entry_mode="profile", **common)
     _print_report(result)
     csv_path = _trade_csv_path(args.symbol)
     _write_trades_csv(result.trades, csv_path)
