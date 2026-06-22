@@ -85,6 +85,7 @@ from db.strategies import init_strategy_tables, seed_default_strategies
 from db.trades import init_trade_tables
 from signals.scan import run_signal_scan
 from signals.strategy_scan import run_strategy_scan
+from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.proposal_intake import propose_from_scan_fire
 from trading.sync import async_sync_all_enabled_brokers
@@ -276,6 +277,23 @@ async def _poll_once() -> None:
     results = await asyncio.gather(*tasks, return_exceptions=False)
     if any(results):
         poll_health.record_success()
+
+    # Exit engine — ONE pass after all snapshots are saved + fills reconciled this
+    # cycle, so it reads fresh per-account snapshots and a current managed ledger. It
+    # walks open managed positions and dispatches sells per each strategy's exit_mode
+    # (auto -> ExecutionService chokepoint; propose -> phone proposal). Fail-closed
+    # inside; isolated here so an exit hiccup can never break the poll loop.
+    try:
+        outcomes = await run_exit_engine()
+        acted = [o for o in outcomes if o.get("action") in {"exit", "scale", "closed"}]
+        if acted:
+            logger.info(
+                "Exit engine acted on %d position(s): %s",
+                len(acted),
+                [(o.get("symbol"), o.get("action"), o.get("reason")) for o in acted],
+            )
+    except Exception:
+        logger.exception("Exit engine pass failed")
 
 
 async def _poll_loop() -> None:

@@ -54,7 +54,11 @@ strategy *can't* go live without them (its edge IS selling ~1 day before the nex
   freshly-filled BUY → orphaned position), 2 MAJOR (no marker on non-risk submit error → retry-storm; throttle/
   snapshot-staleness double-sell window), and a wrong-account-snapshot mass-close guard. Re-review: all FIXED,
   no regressions. **NOT yet armed** — see LIVE STATE.
-- ⬜ **D4 — schedule the exit engine** each poll/scan cycle in `api/main.py`; deploy.
+- ✅ **D4 — schedule the exit engine + deploy.** `run_exit_engine()` runs once per `_poll_loop` cycle in
+  `api/main.py::_poll_once`, AFTER all per-account snapshots are saved + fills reconciled (try/except-isolated so
+  an exit hiccup can't break polling). Deployed onto D1→D4. **`dip_refined` exit_mode set to `propose`** (every
+  exit pings the phone to Approve/Reject — the safe default; flip to `auto` when trusted). 0 open managed
+  positions at deploy, so the engine is inert until approved `dip_refined` entries fill.
 - ⬜ **E3 — register `earnings_drift`** strategy (seed disabled, honest framing) + **scan dispatch** (the scan
   currently only calls `is_strategy_entry`; needs a per-strategy "kind" → call `is_earnings_drift_entry` with
   per-symbol dates from `db.earnings_calendar`) + **daily refresh loop** (mirror `_trade_sync_loop` in main.py,
@@ -68,24 +72,24 @@ is NO single "combined" predicate — live "combining" = run dip + earnings on O
 `python -m research.combined --source dip:data/research/strategy_labeled.db:0.20 --source earn:data/research/earnings_labeled.db:0.0`
 
 ## LIVE STATE right now (serv; deploy = `kill <MainPID>` → systemd reloads working tree)
-- **Backend deployed through the account-display fix + universe + caps** (commit ~9950203). Phase D / E code is
-  committed to `main` but the backend has NOT been restarted onto D1 yet — restart when D3/D4 land. D1 only
-  records, so deploying it early is harmless if you do.
+- **Backend deployed onto D1→D4** (exit module live). The exit engine runs every poll cycle; with 0 open managed
+  positions it's inert until approved `dip_refined` entries fill, then it manages them in `propose` mode.
 - Two Alpaca PAPER accounts polling per-account: default `acct_fc78907f4bda` (label "Alpaca", ~$104k) + STRAT1
   `acct_alpaca_strat1` (~$100k). No errors.
-- **⚠️ `dip_refined` is ENABLED, $10k notional, bound to STRAT1, universe `active_watchlist` (14 names),
-  UNCAPPED.** `dip_buy` is disabled. The user intends to: set caps (recommended ~10 pos / ~$60–70k), and decide
-  whether to switch `dip_refined` to the `sp500` universe (broad = faithful; needs caps first to avoid a
-  cluster-day proposal flood). Entries are phone-approved; **with no exit module yet, an approved earnings entry
-  would hold THROUGH earnings (inverts the thesis) — do not enable `earnings_drift` until D3 ships.**
+- **⚠️ `dip_refined` is ENABLED, $10k notional, bound to STRAT1, universe `sp500`, UNCAPPED, exit_mode
+  `propose`.** `dip_buy` is disabled (exit_mode auto, but disabled + no positions). **Still no caps** on
+  `dip_refined` — broad `sp500` + uncapped risks a cluster-day proposal flood; founder may still want
+  ~10 pos / ~$60–70k caps (`max_concurrent_positions` / `max_deployed_usd`). Entries + (now) exits are both
+  phone-approved. `earnings_drift` not registered yet (E3) — safe to enable only after E3 + with exits live.
 
 ## NEXT (in order)
-1. **D4 — schedule the exit engine + deploy.** Call `run_exit_engine(db_path=...)` once per `_poll_loop` cycle
-   in `api/main.py`, AFTER fill reconciliation (so the managed ledger + snapshot are fresh). Wrap in try/except
-   (a bad cycle must never kill the poll loop). Then deploy: `kill <MainPID>` → systemd reloads the working
-   tree onto D1→D4. **Before arming any `auto` strategy:** confirm execution_mode is `paper` (not dry_run, or
-   exits just dry-run-log each cycle), and that `dip_refined`/STRAT1 `exit_mode` is what the founder wants
-   (`propose` = phone-approve each sell; `auto` = agent sells). Default-safe = leave `propose` until trusted.
+1. **E3 — register `earnings_drift`** + scan-dispatch by kind + daily earnings refresh (see the ⬜ E3 bullet
+   above). After E3, both dip + earnings are live round-trips governed by `exit_mode`.
+2. **Watch the first real exit round-trip.** Once a `dip_refined` entry fills, confirm the engine: (a) records
+   the managed row (D1), (b) on a trigger sends a phone exit proposal (propose mode), (c) closes the managed row
+   after the approved sell fills / the position goes flat. Then consider flipping `dip_refined` to `auto`.
+3. **Caps on `dip_refined`** (founder call): broad `sp500` + uncapped can flood proposals on a cluster day —
+   set `max_concurrent_positions` / `max_deployed_usd` before/alongside heavier use.
 2. **E3** register `earnings_drift` + scan-dispatch by strategy kind + daily earnings refresh loop.
 3. Then both dip + earnings are live round-trips governed by `exit_mode`; arm on STRAT1 (ideally add
    `APCA_*_STRAT2` so refined-dip / earnings get their own forward-test accounts for clean attribution).
