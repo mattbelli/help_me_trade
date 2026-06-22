@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
+import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from brokers.alpaca import StockBar
+from brokers.errors import BrokerError
 from db.base import ROOT, connect
 from signals.trade_context import DatedBar, _stockbar_to_dated
 
@@ -38,6 +41,58 @@ def _ensure_schema(conn) -> None:
     conn.execute(_CREATE_DAILY_BARS)
     conn.execute(_CREATE_DAILY_BARS_INDEX)
     conn.commit()
+
+
+def _daily_candles_to_bars(payload: dict) -> list[DatedBar]:
+    """Convert a Schwab daily price-history JSON payload to DatedBars."""
+    candles = payload.get("candles") or []
+    by_date: dict[str, DatedBar] = {}
+    for candle in candles:
+        d = (
+            datetime.fromtimestamp(candle["datetime"] / 1000, tz=timezone.utc)
+            .date()
+            .isoformat()
+        )
+        by_date[d] = {
+            "d": d,
+            "o": float(candle["open"]),
+            "h": float(candle["high"]),
+            "l": float(candle["low"]),
+            "c": float(candle["close"]),
+            "v": float(candle["volume"]),
+        }
+    return sorted(by_date.values(), key=lambda bar: bar["d"])
+
+
+def _fetch_schwab_daily(symbol: str, start: date, end: date) -> list[DatedBar]:
+    """Fetch daily bars from Schwab (e.g. deep /ES futures history)."""
+    from brokers.schwab_auth import create_client
+
+    client = create_client(interactive=False)
+    start_dt = datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59, tzinfo=timezone.utc)
+    resp = client.get_price_history_every_day(
+        symbol, start_datetime=start_dt, end_datetime=end_dt
+    )
+    if resp.status_code != 200:
+        logger.warning(
+            "%s: Schwab daily fetch HTTP %s for %s..%s",
+            symbol,
+            resp.status_code,
+            start.isoformat(),
+            end.isoformat(),
+        )
+        return []
+    data = resp.json()
+    if data.get("empty") or not data.get("candles"):
+        logger.warning(
+            "%s: Schwab daily fetch empty for %s..%s",
+            symbol,
+            start.isoformat(),
+            end.isoformat(),
+        )
+        return []
+    return _daily_candles_to_bars(data)
 
 
 def _fetch_alpaca(symbol: str, start: date, end: date) -> list[DatedBar]:
@@ -166,9 +221,19 @@ def get_daily_bars(
     sym = symbol.strip().upper()
     cached = _load_cached(sym, start, end, source, db_path)
     if _needs_fetch(cached, start, end):
-        if source != "alpaca":
-            # Never auto-fetch from Alpaca to fill a gap in a non-Alpaca (e.g. Norgate)
-            # source: it would tag survivor-biased data as survivorship-free and silently
+        if source == "alpaca":
+            logger.info("Fetching %s bars %s..%s (source=%s)", sym, start, end, source)
+            fetched = _fetch_alpaca(sym, start, end)
+            cache_bars(sym, fetched, source=source, db_path=db_path)
+            cached = _load_cached(sym, start, end, source, db_path)
+        elif source == "schwab":
+            logger.info("Fetching %s bars %s..%s (source=%s)", sym, start, end, source)
+            fetched = _fetch_schwab_daily(sym, start, end)
+            cache_bars(sym, fetched, source=source, db_path=db_path)
+            cached = _load_cached(sym, start, end, source, db_path)
+        else:
+            # Never auto-fetch from another source to fill a gap (e.g. Norgate):
+            # it would tag survivor-biased data as survivorship-free and silently
             # poison the dataset. Norgate bars are pre-loaded via research.norgate_loader.
             logger.warning(
                 "%s: cache gap for source=%s (%s..%s); not auto-fetching. "
@@ -178,10 +243,46 @@ def get_daily_bars(
                 start,
                 end,
             )
-            return cached
-        logger.info("Fetching %s bars %s..%s (source=%s)", sym, start, end, source)
-        fetched = _fetch_alpaca(sym, start, end)
-        cache_bars(sym, fetched, source=source, db_path=db_path)
-        cached = _load_cached(sym, start, end, source, db_path)
     return cached
+
+
+def _parse_cli_date(text: str) -> date:
+    return datetime.strptime(text, "%Y-%m-%d").date()
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Pre-pull and cache daily bars for offline research."
+    )
+    parser.add_argument("--symbol", required=True, help="Symbol (e.g. /ES)")
+    parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
+    parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
+    parser.add_argument(
+        "--source", default="alpaca", help="Bar source (default: alpaca)"
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    args = _parse_args(argv)
+    start = _parse_cli_date(args.start)
+    end = _parse_cli_date(args.end)
+    try:
+        bars = get_daily_bars(args.symbol, start, end, source=args.source)
+    except BrokerError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print("Run `python -m scripts.schwab_login` first.", file=sys.stderr)
+        return 1
+    first_d = bars[0]["d"] if bars else None
+    last_d = bars[-1]["d"] if bars else None
+    print(
+        f"symbol={args.symbol} source={args.source} count={len(bars)} "
+        f"first={first_d} last={last_d}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 
