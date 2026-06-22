@@ -98,6 +98,26 @@ is NO single "combined" predicate — live "combining" = run dip + earnings on O
    flipping a strategy to `auto`.
 3. **Caps on `dip_refined`** (founder call): broad `sp500` + uncapped can flood proposals on a cluster day —
    set `max_concurrent_positions` / `max_deployed_usd` before/alongside heavier use.
+
+## Planned — execution enhancements (NOT implemented; design captured)
+Current execution is **market orders, regular-hours only** (entries `strategy_scan.py`, exits `exit_engine.py` both
+`order_type="market"`; RiskEngine requires a live quote and the free IEX feed is RTH-only → off-hours rejected,
+gap-down stops fill at the gapped market price on the first post-open poll cycle). Two related, deferred builds:
+- **Slippage-capped limit orders ("stop with slippage cap").** Our stops are synthetic (engine evaluates →
+  submits an order), so this = on trigger submit a **marketable limit** at `current_price ∓ cap` instead of
+  market. Per-strategy `slippage_cap_pct`. **Exits:** capped-limit then **widen-to-market fallback after N poll
+  cycles** if unfilled (guarantee the exit; the real scope is the cancel/escalate order-lifecycle handling +
+  the in-flight guard interaction). **Entries:** capped-limit, no fallback (a miss just skips the trade).
+  RiskEngine already supports limit sells during RTH (no change). Caps *extra* slippage beyond a gap, NOT the
+  gap itself. `trading/`-lane → mandatory adversarial review. Likely *improves* backtest fidelity (fills near
+  the quote).
+- **Extended-hours (pre/post-market) execution.** Builds on the above: needs `extended_hours=true` on a limit
+  order (new field on `PlaceOrderRequest` + Alpaca payload) **and** an extended-hours quote source (IEX free is
+  RTH-only → Alpaca SIP paid, or Schwab data read-only) to satisfy the live-quote gate. ⚠️ dip/earnings are
+  daily-bar/close-validated, so trading them in extended hours **deviates from the validated edge → needs
+  re-validation**, not a free toggle. Most relevant for the intraday profile-MR strat + gap stop-protection.
+- (Heavier future option: rest a **native stop-limit at the broker** so it triggers in real-time/at the open
+  without waiting for the ~20s poll — bigger order-lifecycle change.)
 2. **E3** register `earnings_drift` + scan-dispatch by strategy kind + daily earnings refresh loop.
 3. Then both dip + earnings are live round-trips governed by `exit_mode`; arm on STRAT1 (ideally add
    `APCA_*_STRAT2` so refined-dip / earnings get their own forward-test accounts for clean attribution).
