@@ -118,8 +118,16 @@ clears broker caches) and an active rules-double-eval regression (non-default ac
 reconcile + rules-eval stay on the default account). **Phase C.0 DONE — execution-reconcile per-account** (`fill_tracker` + `list/count`
 fns take `account_id`; each account reconciles its own fills via its own adapter; per-account poll + boot
 reconcile). Byte-identical default + None paths; adversarially reviewed (no cross-account reconcile, orphan-reject
-scoped). Rules-per-account = resolved-by-design (rules stay default-only). **NEXT: C.1** strategy registry +
-strategy→account binding (bind Dip-Buy → STRAT1) → **C.2** Strategies settings UI → **D** exit module. NOTE: the build's Composer/test runs
+scoped). Rules-per-account = resolved-by-design (rules stay default-only). **Phase C.1 DONE — strategy registry + account binding.**
+`db/strategies.py` (registry table + accessors + idempotent seed: Dip-Buy seeded DISABLED, bound to STRAT1,
+exit_mode=auto, dip params); `propose_trade` routes to a bound account (per-account dedup + sizing;
+`invalid_account` deny-by-default for an explicit non-exec-capable account; legacy `account_id=None`→default
+byte-identical); `signals/strategy_scan.py` rewritten registry-driven (`_run_strategy` per strategy, skips
+disabled/unbound/not-ready, held-skip per bound account); `GET/PUT /api/strategies` (PUT validates exec-capable
+binding). Adversarially reviewed — deny-by-default at 3 layers, legacy byte-identical, per-account isolation;
+dip_buy requires explicit human PUT to arm. 503 tests. **To arm the forward-test:**
+`PUT /api/strategies/dip_buy {"enabled":true,"account_id":"acct_alpaca_strat1"}` (entry-only until Phase D).
+**NEXT: C.2** Strategies settings UI → **D** exit module (then exits actually fire per exit_mode). NOTE: the build's Composer/test runs
 hit the real `data/trading.db` (DEFAULT_DB_PATH) — STRAT1 got pre-registered + ~88 snapshots there; benign
 (additive, zero trades placed, confirmed by review).
 

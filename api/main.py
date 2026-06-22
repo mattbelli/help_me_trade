@@ -20,6 +20,7 @@ from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
 from api.middleware import SecurityMiddleware
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
+from api.strategy_routes import router as strategy_router
 from api.trade_routes import router as trade_router
 from brokers.alpaca import AlpacaAdapter
 from brokers.errors import BrokerError
@@ -79,6 +80,7 @@ from db.sqlite import (
     init_db,
     save_snapshot,
 )
+from db.strategies import init_strategy_tables, seed_default_strategies
 from db.trades import init_trade_tables
 from signals.scan import run_signal_scan
 from signals.strategy_scan import run_strategy_scan
@@ -366,6 +368,8 @@ async def lifespan(app: FastAPI):
     init_paper_order_tables()
     init_execution_tables()
     migrate_multi_account()
+    init_strategy_tables()
+    seed_default_strategies()
     await market_hub.start()
     for account in list_accounts(enabled_only=True):
         if str(account["broker"]).strip().lower() != "alpaca":
@@ -412,6 +416,7 @@ app = FastAPI(title="Help Me Trade", lifespan=lifespan)
 app.include_router(ai_router)
 app.include_router(trade_router)
 app.include_router(performance_router)
+app.include_router(strategy_router)
 
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(

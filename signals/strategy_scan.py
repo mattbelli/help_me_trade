@@ -1,4 +1,4 @@
-"""Live dip-buy strategy scan — forward-test entry proposals via propose_trade.
+"""Live strategy scan — registry-driven entry proposals via propose_trade.
 
 Entry-only increment: validates live entry signal → proposal → paper fill.
 Exit/position management (stop, sell-half, breakeven, trail, cap) is a follow-on.
@@ -12,12 +12,16 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from brokers.alpaca import StockBar
-from brokers.factory import get_broker
-from config.settings import broker_is_configured, primary_broker, trading_config
+from brokers.factory import connection_is_configured, get_broker_for_account
+from config.settings import broker_is_configured
+from db.accounts import get_account, get_connection
+from db.base import DEFAULT_DB_PATH
 from db.sqlite import get_latest_snapshot
+from db.strategies import list_strategies
 from research.strategy_features import compute_market_context, is_strategy_entry
 from signals.indicators import closes, pct_change
 from signals.scan import _fetch_stock_bars, _scan_symbols
@@ -28,6 +32,13 @@ logger = logging.getLogger(__name__)
 
 STRATEGY_BAR_DAYS = 420
 SPY_SYMBOL = "SPY"
+
+_ENTRY_PARAM_KEYS = (
+    "healthy_required",
+    "oversold_3d_max",
+    "mkt_down_3d_max",
+    "side",
+)
 
 
 def _parse_bar_date(time_str: str) -> date:
@@ -57,13 +68,14 @@ def _stock_bars_to_dated(bars: list[StockBar]) -> list[DatedBar]:
     return dated
 
 
-def _held_symbols(broker_name: str) -> set[str]:
-    """Symbols with an open position in the latest snapshot — one-entry-per-signal guard.
-
-    The dip predicate stays true for several consecutive days, so without this the scan
-    would re-propose a name already held each cycle and stack size.
-    """
-    snapshot = get_latest_snapshot(broker_name)
+def _held_symbols_for_account(
+    account_id: str,
+    broker_name: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> set[str]:
+    """Symbols with an open position in the account snapshot — one-entry-per-signal guard."""
+    snapshot = get_latest_snapshot(broker_name, account_id=account_id, db_path=db_path)
     if not snapshot:
         return set()
     held: set[str] = set()
@@ -74,48 +86,82 @@ def _held_symbols(broker_name: str) -> set[str]:
     return held
 
 
+def _entry_params_from(params: dict[str, Any]) -> dict[str, Any]:
+    return {key: params[key] for key in _ENTRY_PARAM_KEYS if key in params}
+
+
 def _build_rationale(
     sym_bars: list[DatedBar],
     idx: int,
     spy_bars: list[DatedBar],
     spy_idx: int,
     sym: str,
+    strategy_name: str,
 ) -> str:
     ret_3d = pct_change(closes(sym_bars[: idx + 1]), 3)
     mkt_ctx = compute_market_context(spy_bars, spy_idx)
     mkt_ret_3d = mkt_ctx.get("mkt_ret_3d") if mkt_ctx else None
     ret_str = f"{ret_3d:.1f}" if ret_3d is not None else "?"
     mkt_str = f"{mkt_ret_3d:.1f}" if mkt_ret_3d is not None else "?"
-    return f"Dip-buy: {sym} {ret_str}%/3d, SPY {mkt_str}%/3d, >SMA200"
+    return f"{strategy_name}: {sym} {ret_str}%/3d, SPY {mkt_str}%/3d, >SMA200"
 
 
-async def run_strategy_scan() -> list[dict[str, Any]]:
-    cfg = trading_config()
-    if not cfg.get("dip_strategy_enabled", False):
-        return []
+def _account_is_ready(account: dict[str, Any]) -> bool:
+    if not account.get("enabled") or not account.get("execution_capable"):
+        return False
+    broker_name = str(account["broker"]).strip().lower()
+    connection_id = account.get("connection_id")
+    if connection_id:
+        connection = get_connection(str(connection_id))
+        if connection is None or not connection_is_configured(connection):
+            return False
+    elif not broker_is_configured(broker_name):
+        return False
+    return True
 
-    notional = float(cfg.get("dip_strategy_notional_usd", 0) or 0)
+
+async def _run_strategy(
+    strategy: dict[str, Any],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    notional = float(strategy.get("notional_usd") or 0)
     if notional <= 0:
-        logger.warning(
-            "Dip-strategy scan skipped — notional is %.2f (set dip_strategy_notional_usd > 0)",
+        logger.debug(
+            "Strategy %s skipped — notional is %.2f",
+            strategy["id"],
             notional,
         )
         return []
 
-    broker_name = primary_broker()
+    account_id = strategy.get("account_id")
+    if not account_id:
+        logger.debug("Strategy %s skipped — no bound account", strategy["id"])
+        return []
+
+    account = get_account(str(account_id), db_path=db_path)
+    if account is None or not _account_is_ready(account):
+        logger.debug(
+            "Strategy %s skipped — account %s missing or not execution-ready",
+            strategy["id"],
+            account_id,
+        )
+        return []
+
+    broker_name = str(account["broker"]).strip().lower()
     symbols = _scan_symbols(broker_name)
     fetch_symbols = sorted(set(symbols) | {SPY_SYMBOL})
     if not fetch_symbols:
         return []
 
-    if not broker_is_configured(broker_name):
-        logger.debug("Strategy scan skipped — %s not configured", broker_name)
-        return []
-
     try:
-        broker = get_broker(broker_name)
+        broker = get_broker_for_account(str(account_id))
     except Exception:
-        logger.exception("Strategy scan failed to get broker %s", broker_name)
+        logger.exception(
+            "Strategy %s failed to get broker for account %s",
+            strategy["id"],
+            account_id,
+        )
         return []
 
     raw_bars = await _fetch_stock_bars(
@@ -126,13 +172,17 @@ async def run_strategy_scan() -> list[dict[str, Any]]:
 
     spy_raw = raw_bars.get(SPY_SYMBOL, [])
     if len(spy_raw) < MIN_BARS_FOR_CONTEXT:
-        logger.debug("Strategy scan skipped — insufficient SPY bars (%d)", len(spy_raw))
+        logger.debug(
+            "Strategy %s skipped — insufficient SPY bars (%d)",
+            strategy["id"],
+            len(spy_raw),
+        )
         return []
 
     spy_bars = _stock_bars_to_dated(spy_raw)
     spy_idx = len(spy_bars) - 1
-
-    held = _held_symbols(broker_name)
+    held = _held_symbols_for_account(str(account_id), broker_name, db_path=db_path)
+    entry_params = _entry_params_from(strategy.get("params") or {})
 
     results: list[dict[str, Any]] = []
     evaluated = 0
@@ -142,14 +192,19 @@ async def run_strategy_scan() -> list[dict[str, Any]]:
         if sym == SPY_SYMBOL:
             continue
         if sym in held:
-            logger.debug("Strategy scan skip %s — already held (one entry per signal)", sym)
+            logger.debug(
+                "Strategy %s skip %s — already held (one entry per signal)",
+                strategy["id"],
+                sym,
+            )
             continue
         evaluated += 1
         try:
             sym_raw = raw_bars.get(sym, [])
             if len(sym_raw) < MIN_BARS_FOR_CONTEXT:
                 logger.debug(
-                    "Strategy scan skip %s — insufficient bars (%d < %d)",
+                    "Strategy %s skip %s — insufficient bars (%d < %d)",
+                    strategy["id"],
                     sym,
                     len(sym_raw),
                     MIN_BARS_FOR_CONTEXT,
@@ -161,7 +216,8 @@ async def run_strategy_scan() -> list[dict[str, Any]]:
 
             if sym_bars[idx]["d"] != spy_bars[spy_idx]["d"]:
                 logger.debug(
-                    "Strategy scan skip %s — bar date %s != SPY %s",
+                    "Strategy %s skip %s — bar date %s != SPY %s",
+                    strategy["id"],
                     sym,
                     sym_bars[idx]["d"],
                     spy_bars[spy_idx]["d"],
@@ -173,7 +229,7 @@ async def run_strategy_scan() -> list[dict[str, Any]]:
                 idx,
                 spy_bars=spy_bars,
                 spy_idx=spy_idx,
-                side="long",
+                **entry_params,
             ):
                 continue
 
@@ -183,20 +239,48 @@ async def run_strategy_scan() -> list[dict[str, Any]]:
                 side="buy",
                 notional_usd=Decimal(str(notional)),
                 order_type="market",
-                source="dip_strategy",
+                source=f"strategy:{strategy['id']}",
                 rule_id=None,
-                rationale=_build_rationale(sym_bars, idx, spy_bars, spy_idx, sym),
+                rationale=_build_rationale(
+                    sym_bars,
+                    idx,
+                    spy_bars,
+                    spy_idx,
+                    sym,
+                    strategy["name"],
+                ),
+                account_id=str(account_id),
             )
-            result = await propose_trade(candidate)
+            result = await propose_trade(candidate, db_path=db_path)
             results.append(result)
         except Exception:
-            logger.exception("Strategy scan failed for %s", sym)
+            logger.exception(
+                "Strategy %s failed for %s",
+                strategy["id"],
+                sym,
+            )
             continue
 
     logger.info(
-        "Dip-strategy scan: evaluated=%d passed=%d statuses=%s",
+        "Strategy %s scan: evaluated=%d passed=%d statuses=%s",
+        strategy["id"],
         evaluated,
         passed,
         [r.get("status") for r in results],
     )
+    return results
+
+
+async def run_strategy_scan(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for strategy in list_strategies(enabled_only=True, db_path=db_path):
+        try:
+            strategy_results = await _run_strategy(strategy, db_path=db_path)
+            results.extend(strategy_results)
+        except Exception:
+            logger.exception("Strategy scan failed for %s", strategy.get("id"))
+            continue
     return results

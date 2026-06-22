@@ -74,7 +74,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
         "agent_proposals_enabled": True,
+        # deprecated: see strategies registry (db/strategies.py)
         "dip_strategy_enabled": False,
+        # deprecated: see strategies registry (db/strategies.py)
         "dip_strategy_notional_usd": 500,
         "max_pending_agent_proposals": 3,
         "max_order_value_usd": 50000,

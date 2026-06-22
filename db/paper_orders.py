@@ -224,19 +224,35 @@ def get_proposal(
     return _row_to_proposal(row) if row else None
 
 
-def list_pending_proposals(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+def list_pending_proposals(
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
     init_paper_order_tables(db_path)
     now = datetime.now(UTC).isoformat()
     with _connect(db_path) as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM paper_order_proposals
-            WHERE status = 'pending_phone'
-              AND (expires_at IS NULL OR expires_at > ?)
-            ORDER BY created_at DESC
-            """,
-            (now,),
-        ).fetchall()
+        if account_id is not None:
+            rows = conn.execute(
+                """
+                SELECT * FROM paper_order_proposals
+                WHERE status = 'pending_phone'
+                  AND (expires_at IS NULL OR expires_at > ?)
+                  AND account_id = ?
+                ORDER BY created_at DESC
+                """,
+                (now, account_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM paper_order_proposals
+                WHERE status = 'pending_phone'
+                  AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY created_at DESC
+                """,
+                (now,),
+            ).fetchall()
     out: list[dict[str, Any]] = []
     for row in rows:
         parsed = _row_to_proposal(row)

@@ -1,4 +1,4 @@
-"""Live dip-buy strategy scan — disabled gate, predicate, and propose_trade routing."""
+"""Live dip-buy strategy scan — registry-driven predicate and propose_trade routing."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import pytest
 
 from brokers.alpaca import StockBar
 from config import settings as settings_mod
+from db.multi_account import migrate_multi_account
+from db.strategies import init_strategy_tables, seed_default_strategies, update_strategy
 from signals.strategy_scan import run_strategy_scan
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
 
@@ -83,43 +85,75 @@ def _dated_bars_to_stockbars(bars: list[DatedBar]) -> list[StockBar]:
     ]
 
 
+def _init_registry_db(tmp_path: Path) -> Path:
+    from db.order_executions import init_execution_tables
+    from db.paper_orders import init_paper_order_tables
+    from db.sqlite import init_db
+    from db.trades import init_trade_tables
+
+    db = tmp_path / "strategy_scan.db"
+    init_db(db)
+    init_trade_tables(db)
+    init_execution_tables(db)
+    init_paper_order_tables(db)
+    migrate_multi_account(db)
+    init_strategy_tables(db)
+    seed_default_strategies(db_path=db)
+    return db
+
+
 def _patch_scan_env(
     monkeypatch,
     tmp_path: Path,
     *,
-    dip_enabled: bool = False,
+    strategy_enabled: bool = False,
     notional: float = 500,
     watchlist: list[str] | None = None,
     held: list[str] | None = None,
-) -> AsyncMock:
+    account_id: str | None = None,
+) -> tuple[AsyncMock, Path]:
+    db = _init_registry_db(tmp_path)
     settings_path = tmp_path / "settings.json"
     monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
     settings_mod.clear_settings_cache()
 
-    settings = settings_mod.load_settings()
-    settings["trading"]["dip_strategy_enabled"] = dip_enabled
-    settings["trading"]["dip_strategy_notional_usd"] = notional
+    from db.accounts import default_execution_account
+
+    bound_account = account_id or default_execution_account(db_path=db)["id"]
+    update_strategy(
+        "dip_buy",
+        enabled=strategy_enabled,
+        notional_usd=notional,
+        account_id=bound_account,
+        db_path=db,
+    )
+
     if watchlist is not None:
         monkeypatch.setattr(
             "signals.strategy_scan._scan_symbols",
             lambda _broker_name: sorted(watchlist),
         )
-    settings_mod.save_settings(settings)
-    settings_mod.clear_settings_cache()
 
     monkeypatch.setattr("signals.strategy_scan.broker_is_configured", lambda _name: True)
-    monkeypatch.setattr("signals.strategy_scan.get_broker", lambda _name: MagicMock())
+    monkeypatch.setattr(
+        "signals.strategy_scan.connection_is_configured", lambda _conn: True
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan.get_broker_for_account", lambda _acct: MagicMock()
+    )
 
     snapshot = (
         {"positions": [{"symbol": s} for s in held]} if held is not None else None
     )
-    monkeypatch.setattr(
-        "signals.strategy_scan.get_latest_snapshot", lambda _name: snapshot
-    )
+
+    def _snapshot(_broker, *, account_id=None, db_path=None):
+        return snapshot
+
+    monkeypatch.setattr("signals.strategy_scan.get_latest_snapshot", _snapshot)
 
     propose_mock = AsyncMock(return_value={"status": "proposed"})
     monkeypatch.setattr("signals.strategy_scan.propose_trade", propose_mock)
-    return propose_mock
+    return propose_mock, db
 
 
 def _passing_bar_payload() -> dict[str, list[StockBar]]:
@@ -133,11 +167,11 @@ def _passing_bar_payload() -> dict[str, list[StockBar]]:
 
 @pytest.mark.asyncio
 async def test_disabled_returns_empty_without_fetch(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(monkeypatch, tmp_path, dip_enabled=False)
+    propose_mock, db = _patch_scan_env(monkeypatch, tmp_path, strategy_enabled=False)
     fetch_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.strategy_scan._fetch_stock_bars", fetch_mock)
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
 
     assert result == []
     fetch_mock.assert_not_called()
@@ -146,10 +180,10 @@ async def test_disabled_returns_empty_without_fetch(monkeypatch, tmp_path: Path)
 
 @pytest.mark.asyncio
 async def test_predicate_pass_proposes_trade(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         notional=750,
         watchlist=[PASS_SYMBOL],
     )
@@ -158,25 +192,26 @@ async def test_predicate_pass_proposes_trade(monkeypatch, tmp_path: Path) -> Non
         AsyncMock(return_value=_passing_bar_payload()),
     )
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
 
     assert len(result) == 1
     propose_mock.assert_awaited_once()
     candidate = propose_mock.await_args.args[0]
     assert candidate.symbol == PASS_SYMBOL
     assert candidate.side == "buy"
-    assert candidate.source == "dip_strategy"
+    assert candidate.source == "strategy:dip_buy"
     assert candidate.notional_usd == Decimal("750")
+    assert candidate.account_id is not None
     assert candidate.rule_id is None
-    assert "Dip-buy:" in (candidate.rationale or "")
+    assert "Dip-Buy:" in (candidate.rationale or "")
 
 
 @pytest.mark.asyncio
 async def test_predicate_fail_no_propose(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         watchlist=[PASS_SYMBOL],
     )
     stock_bars, _ = _healthy_stock_bars(drop_pct=-6.0)
@@ -191,7 +226,7 @@ async def test_predicate_fail_no_propose(monkeypatch, tmp_path: Path) -> None:
         ),
     )
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
 
     assert result == []
     propose_mock.assert_not_called()
@@ -199,10 +234,10 @@ async def test_predicate_fail_no_propose(monkeypatch, tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_insufficient_spy_bars_no_crash(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         watchlist=[PASS_SYMBOL],
     )
     stock_bars, _ = _healthy_stock_bars(drop_pct=-6.0)
@@ -220,7 +255,7 @@ async def test_insufficient_spy_bars_no_crash(monkeypatch, tmp_path: Path) -> No
         ),
     )
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
 
     assert result == []
     propose_mock.assert_not_called()
@@ -228,10 +263,10 @@ async def test_insufficient_spy_bars_no_crash(monkeypatch, tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_date_misalignment_skipped(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         watchlist=[PASS_SYMBOL],
     )
     stock_bars, _ = _healthy_stock_bars(drop_pct=-6.0)
@@ -248,7 +283,7 @@ async def test_date_misalignment_skipped(monkeypatch, tmp_path: Path) -> None:
         ),
     )
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
 
     assert result == []
     propose_mock.assert_not_called()
@@ -256,10 +291,10 @@ async def test_date_misalignment_skipped(monkeypatch, tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_one_bad_symbol_does_not_kill_scan(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         watchlist=[PASS_SYMBOL, FAIL_SYMBOL],
     )
     payload = _passing_bar_payload()
@@ -269,7 +304,7 @@ async def test_one_bad_symbol_does_not_kill_scan(monkeypatch, tmp_path: Path) ->
         AsyncMock(return_value=payload),
     )
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
 
     assert len(result) == 1
     propose_mock.assert_awaited_once()
@@ -278,10 +313,10 @@ async def test_one_bad_symbol_does_not_kill_scan(monkeypatch, tmp_path: Path) ->
 
 @pytest.mark.asyncio
 async def test_spy_never_proposed_even_in_watchlist(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         watchlist=[SPY_SYMBOL, PASS_SYMBOL],
     )
     monkeypatch.setattr(
@@ -289,7 +324,7 @@ async def test_spy_never_proposed_even_in_watchlist(monkeypatch, tmp_path: Path)
         AsyncMock(return_value=_passing_bar_payload()),
     )
 
-    await run_strategy_scan()
+    await run_strategy_scan(db_path=db)
 
     assert propose_mock.await_count == 1
     assert propose_mock.await_args.args[0].symbol == PASS_SYMBOL
@@ -297,11 +332,10 @@ async def test_spy_never_proposed_even_in_watchlist(monkeypatch, tmp_path: Path)
 
 @pytest.mark.asyncio
 async def test_held_symbol_not_reproposed(monkeypatch, tmp_path: Path) -> None:
-    # One-entry-per-signal: a name already held is skipped even though the predicate fires.
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         watchlist=[PASS_SYMBOL],
         held=[PASS_SYMBOL],
     )
@@ -310,7 +344,7 @@ async def test_held_symbol_not_reproposed(monkeypatch, tmp_path: Path) -> None:
         AsyncMock(return_value=_passing_bar_payload()),
     )
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
 
     assert result == []
     propose_mock.assert_not_called()
@@ -318,17 +352,36 @@ async def test_held_symbol_not_reproposed(monkeypatch, tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_zero_notional_skips_without_fetch(monkeypatch, tmp_path: Path) -> None:
-    propose_mock = _patch_scan_env(
+    propose_mock, db = _patch_scan_env(
         monkeypatch,
         tmp_path,
-        dip_enabled=True,
+        strategy_enabled=True,
         notional=0,
         watchlist=[PASS_SYMBOL],
     )
     fetch_mock = AsyncMock(return_value=_passing_bar_payload())
     monkeypatch.setattr("signals.strategy_scan._fetch_stock_bars", fetch_mock)
 
-    result = await run_strategy_scan()
+    result = await run_strategy_scan(db_path=db)
+
+    assert result == []
+    fetch_mock.assert_not_called()
+    propose_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_non_exec_account_skipped(monkeypatch, tmp_path: Path) -> None:
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        watchlist=[PASS_SYMBOL],
+        account_id="acct_missing",
+    )
+    fetch_mock = AsyncMock(return_value=_passing_bar_payload())
+    monkeypatch.setattr("signals.strategy_scan._fetch_stock_bars", fetch_mock)
+
+    result = await run_strategy_scan(db_path=db)
 
     assert result == []
     fetch_mock.assert_not_called()
