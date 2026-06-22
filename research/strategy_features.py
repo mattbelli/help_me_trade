@@ -128,6 +128,74 @@ def is_strategy_entry(
     return True
 
 
+def is_rsi2_entry(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    spy_bars: list[DatedBar],
+    spy_idx: int,
+    rsi_period: int = 2,
+    rsi_max: float = 10.0,
+    trend_required: bool = True,
+) -> bool:
+    """Return True when Connors RSI-2 mean-reversion entry conditions hold at idx (no look-ahead)."""
+    if idx < 0 or idx >= len(bars):
+        return False
+
+    prefix = bars[: idx + 1]
+    if len(prefix) < MIN_BARS_FOR_CONTEXT:
+        return False
+
+    c = closes(prefix)
+    close = c[-1]
+
+    if trend_required:
+        sma200 = sma(c, SMA200_PERIOD)
+        if sma200 is None or close <= sma200:
+            return False
+
+    rsi_val = rsi(c, rsi_period)
+    if rsi_val is None or rsi_val > rsi_max:
+        return False
+
+    return True
+
+
+def is_consec_down_entry(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    spy_bars: list[DatedBar],
+    spy_idx: int,
+    down_days: int = 3,
+    trend_required: bool = True,
+) -> bool:
+    """Return True when consecutive-down-closes mean-reversion entry conditions hold at idx."""
+    if idx < 0 or idx >= len(bars):
+        return False
+
+    prefix = bars[: idx + 1]
+    if len(prefix) < MIN_BARS_FOR_CONTEXT:
+        return False
+
+    if down_days < 1 or idx < down_days - 1:
+        return False
+
+    c = closes(prefix)
+    close = c[-1]
+
+    if trend_required:
+        sma200 = sma(c, SMA200_PERIOD)
+        if sma200 is None or close <= sma200:
+            return False
+
+    for step in range(1, down_days):
+        if c[idx - step + 1] >= c[idx - step]:
+            return False
+
+    return True
+
+
 def is_momentum_entry(
     bars: list[DatedBar],
     idx: int,

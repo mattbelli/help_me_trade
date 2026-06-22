@@ -6,7 +6,13 @@ from datetime import date, timedelta
 
 import pytest
 
-from research.strategy_features import compute_market_context, is_momentum_entry, is_strategy_entry
+from research.strategy_features import (
+    compute_market_context,
+    is_consec_down_entry,
+    is_momentum_entry,
+    is_rsi2_entry,
+    is_strategy_entry,
+)
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
 
 
@@ -308,6 +314,133 @@ def test_momentum_entry_fails_when_market_down() -> None:
             spy_bars=spy_bars,
             spy_idx=spy_idx,
             require_market_uptrend=True,
+        )
+        is False
+    )
+
+
+def _rsi2_stock_bars(*, uptrend: bool = True) -> tuple[list[DatedBar], int]:
+    """Uptrend (or downtrend) with a sharp 3-day drop pushing RSI(2) below 10."""
+    base_len = MIN_BARS_FOR_CONTEXT + 3
+    if uptrend:
+        closes = _uptrend_closes(base_len - 3)
+    else:
+        closes = [220.0 - i * 0.45 for i in range(base_len - 3)]
+    peak = closes[-1]
+    closes = closes + [peak * 0.97, peak * 0.94, peak * 0.90]
+    bars = _dated_bars_from_closes(closes, date(2024, 1, 1))
+    return bars, len(bars) - 1
+
+
+def test_rsi2_entry_passes_when_oversold_in_uptrend() -> None:
+    stock_bars, idx = _rsi2_stock_bars(uptrend=True)
+    spy_bars, spy_idx = _spy_bars()
+
+    assert (
+        is_rsi2_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+        )
+        is True
+    )
+
+
+def test_rsi2_entry_fails_below_sma200() -> None:
+    stock_bars, idx = _rsi2_stock_bars(uptrend=False)
+    spy_bars, spy_idx = _spy_bars()
+
+    assert (
+        is_rsi2_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+        )
+        is False
+    )
+
+
+def test_rsi2_entry_fails_when_rsi_high() -> None:
+    base_len = MIN_BARS_FOR_CONTEXT + 1
+    closes = _uptrend_closes(base_len)
+    stock_bars = _dated_bars_from_closes(closes, date(2024, 1, 1))
+    idx = len(stock_bars) - 1
+    spy_bars, spy_idx = _spy_bars()
+
+    assert (
+        is_rsi2_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+        )
+        is False
+    )
+
+
+def _consec_down_stock_bars(
+    *,
+    down_days: int = 3,
+    uptrend: bool = True,
+) -> tuple[list[DatedBar], int]:
+    """Series ending with down_days strictly-down closes."""
+    base_len = MIN_BARS_FOR_CONTEXT + down_days - 1
+    if uptrend:
+        closes = _uptrend_closes(base_len)
+    else:
+        closes = [220.0 - i * 0.45 for i in range(base_len)]
+    peak = closes[-1]
+    for step in range(1, down_days):
+        closes.append(peak * (1.0 - 0.02 * step))
+    bars = _dated_bars_from_closes(closes, date(2024, 1, 1))
+    return bars, len(bars) - 1
+
+
+def test_consec_down_entry_passes_three_down_in_uptrend() -> None:
+    stock_bars, idx = _consec_down_stock_bars(down_days=3, uptrend=True)
+    spy_bars, spy_idx = _spy_bars()
+
+    assert (
+        is_consec_down_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            down_days=3,
+        )
+        is True
+    )
+
+
+def test_consec_down_entry_fails_with_only_two_down() -> None:
+    stock_bars, idx = _consec_down_stock_bars(down_days=2, uptrend=True)
+    spy_bars, spy_idx = _spy_bars()
+
+    assert (
+        is_consec_down_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            down_days=3,
+        )
+        is False
+    )
+
+
+def test_consec_down_entry_fails_below_sma200() -> None:
+    stock_bars, idx = _consec_down_stock_bars(down_days=3, uptrend=False)
+    spy_bars, spy_idx = _spy_bars()
+
+    assert (
+        is_consec_down_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            down_days=3,
         )
         is False
     )

@@ -16,7 +16,9 @@ from research.bars import DEFAULT_BARS_DB_PATH, cached_symbols, get_daily_bars
 from research.features import compute_features
 from research.strategy_features import (
     compute_market_context,
+    is_consec_down_entry,
     is_momentum_entry,
+    is_rsi2_entry,
     is_strategy_entry,
 )
 from research.strategy_sim import simulate_exit
@@ -98,6 +100,9 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
         require_market_uptrend,
         vol_min,
         trend_required,
+        rsi_period,
+        rsi_max,
+        down_days,
         created_at,
     ) = task
 
@@ -143,7 +148,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
                 require_market_uptrend=require_market_uptrend,
                 vol_min=vol_min,
             )
-        else:
+        elif strategy_type == "dip":
             entry_ok = is_strategy_entry(
                 bars,
                 idx,
@@ -157,6 +162,27 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
                 cap_vol_min=cap_vol_min,
                 side=side,
             )
+        elif strategy_type == "rsi2":
+            entry_ok = is_rsi2_entry(
+                bars,
+                idx,
+                spy_bars=spy_bars,
+                spy_idx=spy_idx,
+                trend_required=trend_required,
+                rsi_period=rsi_period,
+                rsi_max=rsi_max,
+            )
+        elif strategy_type == "consec_down":
+            entry_ok = is_consec_down_entry(
+                bars,
+                idx,
+                spy_bars=spy_bars,
+                spy_idx=spy_idx,
+                trend_required=trend_required,
+                down_days=down_days,
+            )
+        else:
+            raise ValueError(f"Unknown strategy_type: {strategy_type!r}")
         if not entry_ok:
             continue
 
@@ -242,6 +268,9 @@ def _strategy_tasks(
     require_market_uptrend: bool,
     vol_min: float,
     trend_required: bool,
+    rsi_period: int,
+    rsi_max: float,
+    down_days: int,
     created_at: str,
 ) -> list[tuple]:
     return [
@@ -273,6 +302,9 @@ def _strategy_tasks(
             require_market_uptrend,
             vol_min,
             trend_required,
+            rsi_period,
+            rsi_max,
+            down_days,
             created_at,
         )
         for symbol in symbols
@@ -359,6 +391,9 @@ def _compute_summary_from_rows(
     require_market_uptrend: bool,
     vol_min: float,
     trend_required: bool,
+    rsi_period: int,
+    rsi_max: float,
+    down_days: int,
 ) -> dict:
     n_setups = len(rows)
     if n_setups == 0:
@@ -393,6 +428,9 @@ def _compute_summary_from_rows(
             "require_market_uptrend": require_market_uptrend,
             "vol_min": vol_min,
             "trend_required": trend_required,
+            "rsi_period": rsi_period,
+            "rsi_max": rsi_max,
+            "down_days": down_days,
         }
         _log_summary(summary)
         return summary
@@ -440,6 +478,9 @@ def _compute_summary_from_rows(
         "require_market_uptrend": require_market_uptrend,
         "vol_min": vol_min,
         "trend_required": trend_required,
+        "rsi_period": rsi_period,
+        "rsi_max": rsi_max,
+        "down_days": down_days,
     }
     _log_summary(summary)
     return summary
@@ -514,6 +555,9 @@ def build_strategy_dataset(
     require_market_uptrend: bool = True,
     vol_min: float = 1.2,
     trend_required: bool = True,
+    rsi_period: int = 2,
+    rsi_max: float = 10.0,
+    down_days: int = 3,
     jobs: int = 1,
     replace: bool = True,
 ) -> dict:
@@ -568,6 +612,9 @@ def build_strategy_dataset(
             require_market_uptrend=require_market_uptrend,
             vol_min=vol_min,
             trend_required=trend_required,
+            rsi_period=rsi_period,
+            rsi_max=rsi_max,
+            down_days=down_days,
             created_at=created_at,
         )
 
@@ -633,6 +680,9 @@ def build_strategy_dataset(
             require_market_uptrend=require_market_uptrend,
             vol_min=vol_min,
             trend_required=trend_required,
+            rsi_period=rsi_period,
+            rsi_max=rsi_max,
+            down_days=down_days,
         )
     finally:
         conn.close()
@@ -730,7 +780,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        choices=("dip", "momentum"),
+        choices=("dip", "momentum", "rsi2", "consec_down"),
         default="dip",
         help="Entry predicate type (default: dip)",
     )
@@ -760,7 +810,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-trend-required",
         action="store_true",
-        help="Disable close-above-SMA50/200 gate for momentum entry",
+        help="Disable close-above-SMA200 gate for momentum/rsi2/consec_down entry",
+    )
+    parser.add_argument(
+        "--rsi-period",
+        type=int,
+        default=2,
+        help="RSI lookback for rsi2 entry (default: 2)",
+    )
+    parser.add_argument(
+        "--rsi-max",
+        type=float,
+        default=10.0,
+        help="Max RSI for rsi2 oversold entry (default: 10.0)",
+    )
+    parser.add_argument(
+        "--down-days",
+        type=int,
+        default=3,
+        help="Consecutive down closes required for consec_down entry (default: 3)",
     )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
@@ -802,6 +870,9 @@ def main(argv: list[str] | None = None) -> None:
         require_market_uptrend=not args.no_require_market_uptrend,
         vol_min=args.vol_min,
         trend_required=not args.no_trend_required,
+        rsi_period=args.rsi_period,
+        rsi_max=args.rsi_max,
+        down_days=args.down_days,
     )
 
 
