@@ -5,6 +5,8 @@
 history), `BUILD.md` (roadmap + dated history), `DECISION_ENGINE_RESEARCH.md`, `SHORT_TRADING_FINDINGS.md`,
 `NORGATE_PULL.md`, `ARCHITECTURE.md`, `STARTUP.md` (run + device access), `SERVER_SETUP.md`. Deep server
 specifics: the `serv-runtime` memory.*
+*Past handoff snapshots (the lineage this file consolidated) live in `HANDOFF_ARCHIVE.md` — when you do a
+superseding rewrite of this file, append the old full version there as a new dated section.*
 
 ---
 
