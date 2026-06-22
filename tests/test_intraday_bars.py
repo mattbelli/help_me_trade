@@ -15,6 +15,7 @@ from research.intraday_bars import (
     cache_minute_bars,
     cached_minute_symbols,
     get_minute_bars,
+    load_cached_minute_bars,
 )
 
 
@@ -155,3 +156,30 @@ def test_symbol_preserved_verbatim(tmp_path: Path) -> None:
     end = datetime(2026, 5, 18, 13, 30, tzinfo=UTC)
     loaded = get_minute_bars("/ES", start, end, source="schwab", db_path=db_path)
     assert len(loaded) == 1
+
+
+def test_load_cached_minute_bars_no_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "intraday.db"
+    bars = [
+        _bar("2026-05-18T13:30:00+00:00", 100.0),
+        _bar("2026-05-18T13:31:00+00:00", 101.0),
+        _bar("2026-05-18T13:32:00+00:00", 102.0),
+    ]
+    cache_minute_bars("/ES", bars, source="schwab", db_path=db_path)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("fetch must not be called")
+
+    monkeypatch.setattr("research.intraday_bars._fetch_schwab", boom)
+
+    start = datetime(2026, 5, 18, 13, 31, tzinfo=UTC)
+    end = datetime(2026, 5, 18, 13, 32, tzinfo=UTC)
+    loaded = load_cached_minute_bars(
+        "/ES", start, end, source="schwab", db_path=db_path
+    )
+
+    assert len(loaded) == 2
+    assert loaded[0]["t"] == "2026-05-18T13:31:00+00:00"
+    assert loaded[1]["t"] == "2026-05-18T13:32:00+00:00"

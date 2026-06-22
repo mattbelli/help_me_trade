@@ -255,6 +255,20 @@ def cached_minute_symbols(
     return [row["symbol"] for row in rows]
 
 
+def load_cached_minute_bars(
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    *,
+    source: str = "schwab",
+    timeframe: str = "1min",
+    db_path: Path = DEFAULT_INTRADAY_DB_PATH,
+) -> list[IntradayBar]:
+    """Return cached minute bars in [start, end] without fetching from the source."""
+    sym = _normalize_symbol(symbol)
+    return _load_cached(sym, start, end, source, timeframe, db_path)
+
+
 def get_minute_bars(
     symbol: str,
     start: datetime,
