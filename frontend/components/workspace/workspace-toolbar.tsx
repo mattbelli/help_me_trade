@@ -52,6 +52,32 @@ function accountSelectLabel(entry: BrokerSnapshot): string {
   return entry.is_default ? `${base} (default)` : base;
 }
 
+function ToolbarTile({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-0.5 text-center leading-tight">
+      <div className="font-mono text-[8px] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
+        {label}
+      </div>
+      <div
+        className={cn(
+          "font-mono text-[14px] font-semibold tabular-nums text-foreground",
+          valueClassName,
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function formatCapturedAt(iso: string): string {
   try {
     return new Date(iso).toLocaleString();
@@ -162,7 +188,7 @@ export function WorkspaceToolbar() {
   const auth = brokerAuth(details, primary);
 
   return (
-    <header className="relative flex h-11 shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[11.5px]">
+    <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[11.5px]">
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2">
           <span
@@ -275,7 +301,7 @@ export function WorkspaceToolbar() {
       </div>
 
       <div className="absolute left-1/2 hidden -translate-x-1/2 items-center lg:flex">
-        <div className="flex items-center gap-2.5 text-[11px] text-[var(--fg-dim)]">
+        <div className="flex items-center gap-1.5 text-[var(--fg-dim)]">
           {loading && !snapshot ? null : snapshot && view ? (
             <>
               {showAccountSelect ? (
@@ -313,66 +339,50 @@ export function WorkspaceToolbar() {
                   <Eye className="size-3.5" />
                 )}
               </button>
-              <span>
-                <span className="text-[var(--fg-faint)]">PORT </span>
-                <b className="font-semibold text-foreground">
-                  {maskMoney(
-                    view.portfolio_value,
-                    privacyMode,
-                    formatCompactMoney,
-                  )}
-                </b>
-              </span>
-              <span>
-                <span className="text-[var(--fg-faint)]">BP </span>
-                <b className="font-semibold text-foreground">
-                  {maskMoney(
-                    view.buying_power,
-                    privacyMode,
-                    formatCompactMoney,
-                  )}
-                </b>
-              </span>
-              <span>
-                <span className="text-[var(--fg-faint)]">DAY </span>
-                {dayLoading && dayPnl == null ? (
-                  <b className="font-semibold text-foreground">—</b>
-                ) : dayPnl != null ? (
-                  <b
-                    className={cn(
-                      "font-semibold",
-                      privacyMode
-                        ? "text-foreground"
-                        : dayPnl >= 0
-                          ? "text-[var(--c-green)]"
-                          : "text-[var(--c-red)]",
-                    )}
-                  >
-                    {maskMoney(dayPnl, privacyMode, formatSignedPnl)}
-                  </b>
-                ) : (
-                  <b className="font-semibold text-foreground">—</b>
+              <ToolbarTile
+                label="PORT"
+                value={maskMoney(
+                  view.portfolio_value,
+                  privacyMode,
+                  formatCompactMoney,
                 )}
-              </span>
-              <span>
-                <span className="text-[var(--fg-faint)]">UPL </span>
-                <b
-                  className={cn(
-                    "font-semibold",
-                    privacyMode
-                      ? "text-foreground"
-                      : view.unrealized_pl >= 0
-                        ? "text-[var(--c-green)]"
-                        : "text-[var(--c-red)]",
-                  )}
-                >
-                  {maskMoney(
-                    view.unrealized_pl,
-                    privacyMode,
-                    formatSignedPnl,
-                  )}
-                </b>
-              </span>
+              />
+              <ToolbarTile
+                label="BP"
+                value={maskMoney(
+                  view.buying_power,
+                  privacyMode,
+                  formatCompactMoney,
+                )}
+              />
+              <ToolbarTile
+                label="DAY"
+                value={
+                  dayLoading && dayPnl == null
+                    ? "—"
+                    : dayPnl != null
+                      ? maskMoney(dayPnl, privacyMode, formatSignedPnl)
+                      : "—"
+                }
+                valueClassName={
+                  !privacyMode && dayPnl != null
+                    ? dayPnl >= 0
+                      ? "text-[var(--c-green)]"
+                      : "text-[var(--c-red)]"
+                    : undefined
+                }
+              />
+              <ToolbarTile
+                label="UPL"
+                value={maskMoney(view.unrealized_pl, privacyMode, formatSignedPnl)}
+                valueClassName={
+                  !privacyMode
+                    ? view.unrealized_pl >= 0
+                      ? "text-[var(--c-green)]"
+                      : "text-[var(--c-red)]"
+                    : undefined
+                }
+              />
             </>
           ) : null}
         </div>
