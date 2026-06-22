@@ -138,11 +138,6 @@ async def test_poll_stamps_default_account(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
     monkeypatch.setattr(accounts_mod, "DEFAULT_DB_PATH", db)
     monkeypatch.setattr(sqlite_mod, "DEFAULT_DB_PATH", db)
-    monkeypatch.setattr(
-        main,
-        "get_default_account",
-        lambda broker="alpaca": get_default_account(broker, db_path=db),
-    )
 
     mock_broker = MagicMock()
     mock_broker.afetch_snapshot = AsyncMock(
@@ -154,15 +149,16 @@ async def test_poll_stamps_default_account(monkeypatch, tmp_path: Path) -> None:
         return sqlite_mod.save_snapshot(*args, **kwargs)
 
     with (
-        patch.object(main, "broker_is_configured", return_value=True),
-        patch.object(main, "get_broker", return_value=mock_broker),
+        patch.object(main, "connection_is_configured", return_value=True),
+        patch.object(main, "get_broker_for_account", return_value=mock_broker),
         patch.object(main, "save_snapshot", side_effect=save_with_test_db),
         patch.object(main, "compute_and_save_snapshot_analytics"),
         patch.object(main, "count_pending_paper_executions", return_value=0),
         patch.object(main, "count_submitted_executions", return_value=0),
         patch.object(main, "get_latest_snapshot", return_value=None),
+        patch.object(main, "get_enabled_broker_names", return_value=["alpaca"]),
     ):
-        await main._poll_broker("alpaca")
+        await main._poll_account(default)
 
     assert _poll_run_account_id(db) == default["id"]
 

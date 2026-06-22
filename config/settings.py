@@ -647,6 +647,42 @@ def alpaca_config() -> dict[str, str]:
     }
 
 
+_ALPACA_KEY_SUFFIX_RE = re.compile(r"^APCA_API_KEY_ID_(.+)$")
+
+
+def alpaca_config_for_suffix(suffix: str | None) -> dict[str, str]:
+    """Resolve Alpaca credentials from env, optionally via a connection suffix."""
+    if not suffix:
+        return alpaca_config()
+    primary = alpaca_config()
+    tag = str(suffix).strip()
+    data_feed_env = os.environ.get(f"APCA_DATA_FEED_{tag}", "").strip()
+    data_base_env = os.environ.get(f"APCA_DATA_BASE_URL_{tag}", "").strip()
+    return {
+        "api_key_id": os.environ.get(f"APCA_API_KEY_ID_{tag}", "").strip(),
+        "api_secret_key": os.environ.get(f"APCA_API_SECRET_KEY_{tag}", "").strip(),
+        "api_base_url": os.environ.get(f"APCA_API_BASE_URL_{tag}", "").strip(),
+        "data_base_url": data_base_env or primary["data_base_url"],
+        "data_feed": normalize_alpaca_data_feed(
+            data_feed_env or primary["data_feed"]
+        ),
+    }
+
+
+def discover_alpaca_credential_suffixes() -> list[str]:
+    """Return env suffixes with a complete Alpaca key pair + base URL."""
+    found: set[str] = set()
+    for key in os.environ:
+        match = _ALPACA_KEY_SUFFIX_RE.match(key)
+        if not match:
+            continue
+        suffix = match.group(1)
+        cfg = alpaca_config_for_suffix(suffix)
+        if cfg["api_key_id"] and cfg["api_secret_key"] and cfg["api_base_url"]:
+            found.add(suffix)
+    return sorted(found)
+
+
 def schwab_config() -> dict[str, str]:
     cfg = load_settings()["brokers"]["schwab"]
     return {

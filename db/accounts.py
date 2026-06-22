@@ -236,3 +236,23 @@ def resolve_account_broker(
     if account is None:
         return None
     return str(account["broker"]).strip().lower()
+
+
+def reconcile_account_external_id(
+    account_id: str,
+    broker_external_id: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """Stamp broker_external_id on first poll when still NULL."""
+    init_trade_tables(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE trade_accounts
+            SET broker_external_id = ?
+            WHERE id = ? AND broker_external_id IS NULL
+            """,
+            (broker_external_id, account_id),
+        )
+        conn.commit()

@@ -49,9 +49,17 @@ async def test_poll_once_continues_after_broker_failure() -> None:
 
     main.poll_health.record_success()
 
+    default_account = {
+        "id": "acct_default",
+        "broker": "alpaca",
+        "connection_id": "conn_alpaca",
+        "broker_external_id": None,
+        "enabled": True,
+    }
+
     good_broker = MagicMock()
     good_broker.afetch_snapshot = AsyncMock(
-        return_value=(MagicMock(), [], [])
+        return_value=(MagicMock(id="schwab-acct"), [], [])
     )
 
     def mock_get_broker(name: str | None = None) -> MagicMock:
@@ -60,6 +68,9 @@ async def test_poll_once_continues_after_broker_failure() -> None:
         return good_broker
 
     with (
+        patch.object(main, "list_accounts", return_value=[default_account]),
+        patch.object(main, "connection_is_configured", return_value=True),
+        patch.object(main, "get_broker_for_account", side_effect=RuntimeError("broker down")),
         patch.object(main, "get_enabled_broker_names", return_value=["alpaca", "schwab"]),
         patch.object(main, "broker_is_configured", return_value=True),
         patch.object(main, "get_broker", side_effect=mock_get_broker),

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
+from config.settings import discover_alpaca_credential_suffixes
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
@@ -228,6 +230,42 @@ def _backfill_account_id(
         )
 
 
+def _register_suffixed_alpaca_connections(conn) -> None:
+    for suffix in discover_alpaca_credential_suffixes():
+        connection_id = f"conn_alpaca_{suffix.lower()}"
+        account_id = f"acct_alpaca_{suffix.lower()}"
+        credentials_json = json.dumps({"env_suffix": suffix})
+
+        existing_conn = conn.execute(
+            "SELECT id FROM broker_connections WHERE id = ?",
+            (connection_id,),
+        ).fetchone()
+        if not existing_conn:
+            conn.execute(
+                """
+                INSERT INTO broker_connections (
+                    id, broker, label, enabled, credentials_json, created_at
+                ) VALUES (?, 'alpaca', ?, 1, ?, ?)
+                """,
+                (connection_id, suffix, credentials_json, _now()),
+            )
+
+        existing_acct = conn.execute(
+            "SELECT id FROM trade_accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+        if not existing_acct:
+            conn.execute(
+                """
+                INSERT INTO trade_accounts (
+                    id, label, broker, created_at, connection_id,
+                    enabled, execution_capable, is_default, broker_external_id
+                ) VALUES (?, ?, 'alpaca', ?, ?, 1, 1, 0, NULL)
+                """,
+                (account_id, suffix, _now(), connection_id),
+            )
+
+
 def migrate_multi_account(db_path: Path = DEFAULT_DB_PATH) -> None:
     """Idempotent migration: connections, default account, account_id backfill."""
     init_db(db_path)
@@ -259,5 +297,7 @@ def migrate_multi_account(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn, "order_executions", default_account_id, broker="alpaca"
         )
         _backfill_account_id(conn, "paper_order_proposals", default_account_id)
+
+        _register_suffixed_alpaca_connections(conn)
 
         conn.commit()

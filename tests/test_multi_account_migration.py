@@ -7,6 +7,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from db.base import connect
 from db.multi_account import migrate_multi_account
 from db.order_executions import init_execution_tables
@@ -80,7 +82,13 @@ def test_fresh_db_migration_creates_schema_and_default_alpaca_account(
         assert alpaca_conn["label"] == "Alpaca"
 
 
-def test_migration_is_idempotent(tmp_path: Path) -> None:
+def test_migration_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "db.multi_account.discover_alpaca_credential_suffixes",
+        lambda: [],
+    )
     db = tmp_path / "idempotent.db"
     migrate_multi_account(db)
     migrate_multi_account(db)

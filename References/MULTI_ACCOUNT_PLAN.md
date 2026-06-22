@@ -140,6 +140,22 @@ today with one account/broker; must be handled when a 2nd Alpaca connection exis
   `is_default` until this lands (would mis-stamp the many-hash connection with one ledger id).
 - The poll loop currently iterates brokers; switch to iterating **enabled accounts** once connections exist.
 
+## Phase B sub-step 1 — DONE (2026-06-22): per-connection Alpaca credentials + 2nd account live
+A 2nd Alpaca paper account ("STRAT1") is wired end-to-end: `APCA_*_STRAT1` env → `discover_alpaca_credential_
+suffixes` → `_register_suffixed_alpaca_connections` registers `conn_alpaca_strat1` + `acct_alpaca_strat1`
+(execution-capable, non-default; secrets stay in env, only `{"env_suffix":"STRAT1"}` in the DB) → factory builds
+a per-connection adapter (`get_broker_for_connection`, cache keyed by connection id) → `get_broker_for_account`
+routes orders to the right creds → poll loop iterates enabled Alpaca accounts (`_poll_account`) with a
+fail-closed id-guard (snapshot `account.id` must match the account's `broker_external_id`). Default account
+byte-identical. Adversarially reviewed. Test-isolation fixed (conftest strips ambient `.env` suffix vars +
+clears broker caches). **MUST-FIX before STRAT1 actually TRADES (Phase C):** (1) **execution-reconcile is
+broker-keyed** (`fill_tracker` / `list_submitted_executions` / counts) — a STRAT1 fill would be reconciled via
+the default adapter → wrong account; thread `account_id` + resolve via `get_broker_for_account`. (2) **rules/
+alerts per-account** — key `_prior_match` by `(account_id, rule_id)` + include account in the alert payload.
+Both currently SIDESTEPPED: `_poll_account` runs reconcile + rules-eval ONLY for the default account; non-default
+accounts sync snapshot only. Also still open: **M-2 migration-stamp hardening** (stamp the default's
+`broker_external_id` from a primary-key snapshot, not just latest) before any DB rebuild.
+
 ## Phase B — Frontend account-awareness (summary; full brief later)
 - Account selector (global context, like the current snapshot provider) → drives portfolio/positions/proposals
   views per account; an "all accounts" rollup.

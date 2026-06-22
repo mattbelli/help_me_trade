@@ -109,6 +109,17 @@ freshness gate fail-closes on stale). Schwab multi-account snapshot iteration DE
 account_hash; read-only; → Phase B). Adversarially reviewed — safe; 2 latent multi-connection findings tracked
 in MULTI_ACCOUNT_PLAN.md. 479 tests.
 
+**Phase B sub-step 1 DONE (2026-06-22): 2nd Alpaca paper account ("STRAT1") live.** Per-connection credentials
+(`APCA_*_STRAT1` env → discovered → `conn_alpaca_strat1`/`acct_alpaca_strat1` registered, execution-capable;
+secrets stay in env), factory builds a per-connection adapter, poll loop iterates accounts with a fail-closed
+id-guard. Default account byte-identical. Reviewed; gate green (485). Caught+fixed: a test-isolation flake
+(real `.env` STRAT1 leaks into tests via `load_dotenv` at import → conftest now strips ambient suffix vars +
+clears broker caches) and an active rules-double-eval regression (non-default accounts now sync snapshot ONLY;
+reconcile + rules-eval stay on the default account). **Before STRAT1 TRADES (Phase C): make execution-reconcile
++ rules-eval per-account** (details in `MULTI_ACCOUNT_PLAN.md` Phase B.1). NOTE: the build's Composer/test runs
+hit the real `data/trading.db` (DEFAULT_DB_PATH) — STRAT1 got pre-registered + ~88 snapshots there; benign
+(additive, zero trades placed, confirmed by review).
+
 **★ PHASE A COMPLETE** — accounts are first-class across schema, registry, execution, risk, and snapshot/sync;
 the chokepoint self-defends per-account; everything behavior-identical for the single default Alpaca account
 (when you restart the backend the migration runs + the default account is created/used, but trading is

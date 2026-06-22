@@ -175,7 +175,7 @@ def test_resolve_account_broker(tmp_path: Path) -> None:
     assert resolve_account_broker("acct_missing", db_path=db) is None
 
 
-def test_get_broker_for_account_resolves_via_broker(
+def test_get_broker_for_account_resolves_via_connection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = _migrated_db(tmp_path)
@@ -183,21 +183,34 @@ def test_get_broker_for_account_resolves_via_broker(
     assert default is not None
 
     sentinel = object()
-    calls: list[str] = []
+    connection_calls: list[str] = []
+    broker_calls: list[str] = []
 
-    def fake_get_broker(name: str | None = None):
-        calls.append(name or "")
+    def fake_get_broker_for_connection(connection: dict):
+        connection_calls.append(connection["id"])
         return sentinel
 
+    def fake_get_broker(name: str | None = None):
+        broker_calls.append(name or "")
+        return sentinel
+
+    monkeypatch.setattr(
+        broker_factory, "get_broker_for_connection", fake_get_broker_for_connection
+    )
     monkeypatch.setattr(broker_factory, "get_broker", fake_get_broker)
     monkeypatch.setattr(
         "db.accounts.get_account",
         lambda account_id, db_path=None: get_account(account_id, db_path=db),
     )
+    monkeypatch.setattr(
+        "db.accounts.get_connection",
+        lambda connection_id, db_path=None: get_connection(connection_id, db_path=db),
+    )
 
     result = broker_factory.get_broker_for_account(default["id"])
     assert result is sentinel
-    assert calls == ["alpaca"]
+    assert connection_calls == [default["connection_id"]]
+    assert broker_calls == []
 
     with pytest.raises(BrokerError, match="unknown account"):
         broker_factory.get_broker_for_account("acct_nonexistent")
