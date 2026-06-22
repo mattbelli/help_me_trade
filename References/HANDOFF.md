@@ -39,10 +39,21 @@ strategy *can't* go live without them (its edge IS selling ~1 day before the nex
   translation of the validated `research/strategy_sim.simulate_exit` path (time-cap precedence, stop-before-
   target, phase-2 stop-check-then-advance-HWM). Pure: floats not Decimal, no `trading/`/`db/`/broker imports
   (only reuses `_trading_days_until`); the Decimal seam stays at D3's chokepoint. **No execution.**
-- ⬜ **D3 — exit engine + `exit_mode` dispatch (the FIRST auto-sell) + notify.** ⚠️ **MOST SAFETY-CRITICAL CODE
-  IN THE APP.** Walks open managed rows each cycle, evaluates, fires per `exit_mode` (`auto` =
-  `execution_service.submit()` sell-to-close — still kill-switch + RiskEngine + paper-gated, sells only reduce a
-  held long, NO shorting; `propose` = phone proposal). Heavy adversarial review required.
+- ✅ **D3 — exit engine + `exit_mode` dispatch (the FIRST auto-sell) + notify** (`trading/exit_engine.py` +
+  `tests/test_exit_engine.py`, 13 tests). `run_exit_engine()` walks open managed rows per account, reads the
+  LIVE snapshot basis (never `managed_positions.qty`), evaluates via the D2 fns by strategy kind, persists
+  HWM/first-target, **closes rows whose live position is gone** (sells aren't reconciled into the ledger by
+  `fill_tracker`, so the engine owns closure), and on scale/exit dispatches whole-share sell-to-close per LIVE
+  `exit_mode`: `auto` → `ExecutionService.submit()` (sole broker path; kill-switch + RiskEngine + paper-gated;
+  reduces a held long only, NO shorting), `propose` → `create_phone_proposal()`. User always notified
+  (`exit_engine` alert). **Double-sell defense:** a per-row `pending_exit` marker resolved against live
+  `get_execution`/`get_proposal` status, a snapshot-lag guard (never re-fire until a snapshot captured AFTER the
+  last attempt exists), and a 300s throttle; fail-closed everywhere (no snapshot / no position / unknown kind /
+  qty<1 / risk-reject ⇒ do nothing). **Heavy adversarial Sonnet review done** (2 rounds): caught + fixed 2
+  CRITICAL (propose status string never matched → proposal-flood/double-approve; closure wrongly closing a
+  freshly-filled BUY → orphaned position), 2 MAJOR (no marker on non-risk submit error → retry-storm; throttle/
+  snapshot-staleness double-sell window), and a wrong-account-snapshot mass-close guard. Re-review: all FIXED,
+  no regressions. **NOT yet armed** — see LIVE STATE.
 - ⬜ **D4 — schedule the exit engine** each poll/scan cycle in `api/main.py`; deploy.
 - ⬜ **E3 — register `earnings_drift`** strategy (seed disabled, honest framing) + **scan dispatch** (the scan
   currently only calls `is_strategy_entry`; needs a per-strategy "kind" → call `is_earnings_drift_entry` with
@@ -69,12 +80,12 @@ is NO single "combined" predicate — live "combining" = run dip + earnings on O
   would hold THROUGH earnings (inverts the thesis) — do not enable `earnings_drift` until D3 ships.**
 
 ## NEXT (in order)
-1. **D3** exit engine + `exit_mode` dispatch + auto-sell (the FIRST auto-sell — heavy adversarial review) →
-   **D4** schedule + deploy. D3 wires the D2 evaluators to live state: walk open managed rows, read price basis
-   from the broker snapshot (`avg_entry_price`/`current_price`), fetch earnings dates from
-   `db.earnings_calendar`, call the evaluator by strategy kind, persist `new_high_water_mark`/
-   `new_first_target_hit` via `update_exit_state`, and on scale/exit dispatch the sell through
-   `execution_service.submit()` (auto) or a phone proposal (propose) using `exit_fraction × live qty`.
+1. **D4 — schedule the exit engine + deploy.** Call `run_exit_engine(db_path=...)` once per `_poll_loop` cycle
+   in `api/main.py`, AFTER fill reconciliation (so the managed ledger + snapshot are fresh). Wrap in try/except
+   (a bad cycle must never kill the poll loop). Then deploy: `kill <MainPID>` → systemd reloads the working
+   tree onto D1→D4. **Before arming any `auto` strategy:** confirm execution_mode is `paper` (not dry_run, or
+   exits just dry-run-log each cycle), and that `dip_refined`/STRAT1 `exit_mode` is what the founder wants
+   (`propose` = phone-approve each sell; `auto` = agent sells). Default-safe = leave `propose` until trusted.
 2. **E3** register `earnings_drift` + scan-dispatch by strategy kind + daily earnings refresh loop.
 3. Then both dip + earnings are live round-trips governed by `exit_mode`; arm on STRAT1 (ideally add
    `APCA_*_STRAT2` so refined-dip / earnings get their own forward-test accounts for clean attribution).
