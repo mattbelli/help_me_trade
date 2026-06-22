@@ -180,29 +180,37 @@ def update_execution_status(
 
 def count_executions_today(
     *,
+    account_id: str | None = None,
     exclude_statuses: frozenset[str] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     init_execution_tables(db_path)
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     excluded = exclude_statuses or frozenset({"dry_run", "rejected", "error"})
+    account_clause = " AND account_id = ?" if account_id is not None else ""
     with _connect(db_path) as conn:
         if excluded:
             placeholders = ", ".join("?" for _ in excluded)
+            params: tuple[Any, ...] = (f"{today}T00:00:00", *excluded)
+            if account_id is not None:
+                params = (*params, account_id)
             row = conn.execute(
                 f"""
                 SELECT COUNT(*) AS cnt FROM order_executions
-                WHERE created_at >= ? AND status NOT IN ({placeholders})
+                WHERE created_at >= ? AND status NOT IN ({placeholders}){account_clause}
                 """,
-                (f"{today}T00:00:00", *excluded),
+                params,
             ).fetchone()
         else:
+            params = (f"{today}T00:00:00",)
+            if account_id is not None:
+                params = (*params, account_id)
             row = conn.execute(
-                """
+                f"""
                 SELECT COUNT(*) AS cnt FROM order_executions
-                WHERE created_at >= ?
+                WHERE created_at >= ?{account_clause}
                 """,
-                (f"{today}T00:00:00",),
+                params,
             ).fetchone()
     return int(row["cnt"]) if row else 0
 

@@ -12,6 +12,7 @@ from brokers.alpaca import AlpacaAdapter
 from brokers.factory import get_broker
 from brokers.market_stream import market_hub
 from config.settings import is_kill_switch_active, trading_config
+from db.accounts import account_is_execution_capable
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import count_executions_today
 from db.sqlite import get_latest_snapshot
@@ -43,6 +44,21 @@ class RiskEngine:
                 blocked_reason="kill switch active",
             )
         checks["kill_switch"] = "pass"
+
+        # Account must be execution-capable — deny-by-default AT THE CHOKEPOINT.
+        # approve_proposal also guards this, but enforcing it here makes submit
+        # self-defending regardless of caller. account_id None = legacy/primary path.
+        if intent.account_id is not None and not account_is_execution_capable(
+            intent.account_id, db_path=db_path
+        ):
+            checks["account_execution_capable"] = "fail: account not execution-capable"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="account not execution-capable",
+            )
+        if intent.account_id is not None:
+            checks["account_execution_capable"] = "pass"
 
         concentration_symbol: str
 
@@ -386,6 +402,20 @@ class RiskEngine:
                 checks=checks,
                 blocked_reason="daily order limit reached",
             )
+        # Per-account ceiling (same threshold): an account can't exceed the daily cap
+        # on its own even when the global aggregate still has room.
+        if intent.account_id is not None:
+            account_today = count_executions_today(
+                account_id=intent.account_id, db_path=db_path
+            )
+            if account_today >= max_daily_orders:
+                checks["daily_orders_account"] = "fail: account daily order limit reached"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="account daily order limit reached",
+                )
+            checks["daily_orders_account"] = "pass"
         checks["daily_orders"] = "pass"
 
         return RiskCheckResult(passed=True, checks=checks, blocked_reason=None)

@@ -398,6 +398,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             intent_fields,
             proposal_id=proposal_id,
             session_id=session_id_str,
+            db_path=DEFAULT_DB_PATH,
         )
 
         try:

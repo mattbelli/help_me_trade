@@ -92,6 +92,7 @@ async def propose_trade(
             built["intent_fields"],
             proposal_id="precheck",
             session_id=None,
+            db_path=db_path,
         )
         risk = await RiskEngine.validate(intent, db_path=db_path)
         if not risk.passed:

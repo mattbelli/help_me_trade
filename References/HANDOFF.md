@@ -93,12 +93,17 @@ tests. **Sub-step 3 DONE — account_id threaded through the execution path** (`
 `broker` in lockstep; `create_phone_proposal` persists account_id; `approve_proposal` blocks non-execution-
 capable accounts before submit; `submit` routes via `get_broker_for_account` + records account_id).
 Behavior-identical for the default account; legacy proposals resolve to default; unmigrated DBs fall back to
-primary_broker. Adversarially reviewed (items 1-4 hold; safe). 463 tests. **NEXT: 4** RiskEngine per-account
-hardening (heaviest review — never weaken a cap) — **and per the sub-step-3 review, MOVE the execution-
-capability hard-block INTO `RiskEngine.validate`/`submit`** so the chokepoint is self-defending regardless of
-caller (today the only capability gate is in `approve_proposal`, one layer up). Per-account snapshot/
-buying-power/concentration/`count_executions_today`/open-orders; read-only accounts denied at the chokepoint.
-· **5** per-account snapshot + multi-account sync. Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
+primary_broker. Adversarially reviewed (items 1-4 hold; safe). 463 tests. **Sub-step 4 DONE — RiskEngine per-account hardening** (`trading/risk_engine.py`,
+`db/order_executions.py`): execution-capability hard-block now INSIDE `RiskEngine.validate` (deny-by-default,
+runs on every validate incl. dry_run + precheck → the chokepoint self-defends regardless of caller); per-account
+daily-order ceiling ADDED beside the unchanged global ceiling (`count_executions_today` gained an optional
+account_id filter; the no-arg/global path is byte-identical → never weakened). Snapshot/buying-power/
+concentration left broker-keyed (already per-account-correct: one account per broker today; becomes account-keyed
+in sub-step 5). Adversarially reviewed — all invariants hold, no CRITICAL/HIGH/MEDIUM, safe. 473 tests.
+**NEXT: 5** per-account snapshot + multi-account sync — the poll/sync loop iterates enabled accounts and writes
+`poll_runs.account_id`; `get_latest_snapshot` becomes account-keyed (then RiskEngine reads the account's
+snapshot); Schwab snapshot iteration. **NOTE:** until sub-step 5, new poll_runs still write account_id=NULL, so
+do NOT switch `get_latest_snapshot` to account-keyed before sync populates it (would fail-closed every order). Then Phases B (frontend) · C (strategy registry + account binding) · D (exit module).
 
 ## Then (post-multi-account)
 - **FORWARD-TEST on paper — Increment 1 (ENTRY) SHIPPED; EXITS next.** The dip-buy entry path is wired +
