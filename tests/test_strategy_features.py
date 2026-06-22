@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from research.strategy_features import compute_market_context, is_strategy_entry
+from research.strategy_features import compute_market_context, is_momentum_entry, is_strategy_entry
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
 
 
@@ -227,4 +227,87 @@ def test_long_default_unchanged_with_side_param() -> None:
             side="long",
         )
         is True
+    )
+
+
+def _momentum_stock_bars(
+    *,
+    mom_21d_pct: float = 8.0,
+    volume_spike: float = 2.4,
+    at_high: bool = True,
+) -> tuple[list[DatedBar], int]:
+    """Uptrend at/near 52w high with configurable 21d momentum and volume."""
+    n = MIN_BARS_FOR_CONTEXT + 25
+    closes = _uptrend_closes(n - 22, start=70.0, step=0.12)
+    base_21d = closes[-1]
+    target = base_21d * (1.0 + mom_21d_pct / 100.0)
+    closes.append(base_21d)
+    for i in range(1, 22):
+        closes.append(base_21d + (target - base_21d) * i / 21)
+    if not at_high:
+        closes[-1] = base_21d * 0.85
+
+    volumes = [1000.0] * n
+    volumes[-1] = 1000.0 * volume_spike
+    bars = _dated_bars_from_closes(closes, date(2024, 1, 1), volume=volumes)
+    return bars, len(bars) - 1
+
+
+def _spy_bars_uptrend() -> tuple[list[DatedBar], int]:
+    n = MIN_BARS_FOR_CONTEXT + 25
+    closes = _uptrend_closes(n, start=400.0, step=0.4)
+    bars = _dated_bars_from_closes(closes, date(2024, 1, 1))
+    return bars, len(bars) - 1
+
+
+def _spy_bars_downtrend() -> tuple[list[DatedBar], int]:
+    n = MIN_BARS_FOR_CONTEXT + 25
+    closes = [500.0 - i * 0.5 for i in range(n)]
+    bars = _dated_bars_from_closes(closes, date(2024, 1, 1))
+    return bars, len(bars) - 1
+
+
+def test_momentum_entry_passes_with_defaults() -> None:
+    stock_bars, idx = _momentum_stock_bars()
+    spy_bars, spy_idx = _spy_bars_uptrend()
+
+    assert (
+        is_momentum_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+        )
+        is True
+    )
+
+
+def test_momentum_entry_fails_far_from_high() -> None:
+    stock_bars, idx = _momentum_stock_bars(at_high=False)
+    spy_bars, spy_idx = _spy_bars_uptrend()
+
+    assert (
+        is_momentum_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+        )
+        is False
+    )
+
+
+def test_momentum_entry_fails_when_market_down() -> None:
+    stock_bars, idx = _momentum_stock_bars()
+    spy_bars, spy_idx = _spy_bars_downtrend()
+
+    assert (
+        is_momentum_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            require_market_uptrend=True,
+        )
+        is False
     )

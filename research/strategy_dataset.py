@@ -14,7 +14,11 @@ from pathlib import Path
 from db.base import connect, now_iso
 from research.bars import DEFAULT_BARS_DB_PATH, cached_symbols, get_daily_bars
 from research.features import compute_features
-from research.strategy_features import compute_market_context, is_strategy_entry
+from research.strategy_features import (
+    compute_market_context,
+    is_momentum_entry,
+    is_strategy_entry,
+)
 from research.strategy_sim import simulate_exit
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, _find_bar_index
 
@@ -88,6 +92,12 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
         cost_pct,
         trail_pct,
         side,
+        strategy_type,
+        near_high_max,
+        mom_21d_min,
+        require_market_uptrend,
+        vol_min,
+        trend_required,
         created_at,
     ) = task
 
@@ -121,19 +131,33 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
         if spy_idx is None:
             continue
 
-        if not is_strategy_entry(
-            bars,
-            idx,
-            spy_bars=spy_bars,
-            spy_idx=spy_idx,
-            healthy_required=healthy_required,
-            oversold_3d_max=oversold_3d_max,
-            mkt_down_3d_max=mkt_down_3d_max,
-            require_capitulation=require_capitulation,
-            cap_day_max=cap_day_max,
-            cap_vol_min=cap_vol_min,
-            side=side,
-        ):
+        if strategy_type == "momentum":
+            entry_ok = is_momentum_entry(
+                bars,
+                idx,
+                spy_bars=spy_bars,
+                spy_idx=spy_idx,
+                trend_required=trend_required,
+                near_high_max=near_high_max,
+                mom_21d_min=mom_21d_min,
+                require_market_uptrend=require_market_uptrend,
+                vol_min=vol_min,
+            )
+        else:
+            entry_ok = is_strategy_entry(
+                bars,
+                idx,
+                spy_bars=spy_bars,
+                spy_idx=spy_idx,
+                healthy_required=healthy_required,
+                oversold_3d_max=oversold_3d_max,
+                mkt_down_3d_max=mkt_down_3d_max,
+                require_capitulation=require_capitulation,
+                cap_day_max=cap_day_max,
+                cap_vol_min=cap_vol_min,
+                side=side,
+            )
+        if not entry_ok:
             continue
 
         feats = compute_features(bars, idx, benchmark_bars=spy_bars)
@@ -212,6 +236,12 @@ def _strategy_tasks(
     cost_pct: float,
     trail_pct: float | None,
     side: str,
+    strategy_type: str,
+    near_high_max: float,
+    mom_21d_min: float,
+    require_market_uptrend: bool,
+    vol_min: float,
+    trend_required: bool,
     created_at: str,
 ) -> list[tuple]:
     return [
@@ -237,6 +267,12 @@ def _strategy_tasks(
             cost_pct,
             trail_pct,
             side,
+            strategy_type,
+            near_high_max,
+            mom_21d_min,
+            require_market_uptrend,
+            vol_min,
+            trend_required,
             created_at,
         )
         for symbol in symbols
@@ -317,6 +353,12 @@ def _compute_summary_from_rows(
     cap_vol_min: float,
     cost_pct: float,
     side: str,
+    strategy_type: str,
+    near_high_max: float,
+    mom_21d_min: float,
+    require_market_uptrend: bool,
+    vol_min: float,
+    trend_required: bool,
 ) -> dict:
     n_setups = len(rows)
     if n_setups == 0:
@@ -345,6 +387,12 @@ def _compute_summary_from_rows(
             "cap_vol_min": cap_vol_min,
             "cost_pct": cost_pct,
             "side": side,
+            "strategy_type": strategy_type,
+            "near_high_max": near_high_max,
+            "mom_21d_min": mom_21d_min,
+            "require_market_uptrend": require_market_uptrend,
+            "vol_min": vol_min,
+            "trend_required": trend_required,
         }
         _log_summary(summary)
         return summary
@@ -386,6 +434,12 @@ def _compute_summary_from_rows(
         "cap_vol_min": cap_vol_min,
         "cost_pct": cost_pct,
         "side": side,
+        "strategy_type": strategy_type,
+        "near_high_max": near_high_max,
+        "mom_21d_min": mom_21d_min,
+        "require_market_uptrend": require_market_uptrend,
+        "vol_min": vol_min,
+        "trend_required": trend_required,
     }
     _log_summary(summary)
     return summary
@@ -409,11 +463,12 @@ def _log_summary(summary: dict) -> None:
     win_pct = summary["win_rate"] * 100
     amb_pct = summary["same_day_ambiguous_pct"] * 100
     logger.info(
-        "STRATEGY (%s): %s | entry: %s\n"
+        "STRATEGY (%s/%s): %s | entry: %s\n"
         "setups: %s across %s symbols | win%% %.1f%% | avg EV/trade %+.2f%% | "
         "median %+.1f%% | avg hold %.1fd\n"
         "%s\n"
         "same-day-ambiguous: %.1f%% of trades | cost applied: %.2f%%",
+        summary["strategy_type"],
         summary["side"],
         exit_line,
         entry_line,
@@ -453,6 +508,12 @@ def build_strategy_dataset(
     cost_pct: float = 0.0,
     trail_pct: float | None = None,
     side: str = "long",
+    strategy_type: str = "dip",
+    near_high_max: float = -2.0,
+    mom_21d_min: float = 5.0,
+    require_market_uptrend: bool = True,
+    vol_min: float = 1.2,
+    trend_required: bool = True,
     jobs: int = 1,
     replace: bool = True,
 ) -> dict:
@@ -501,6 +562,12 @@ def build_strategy_dataset(
             cost_pct=cost_pct,
             trail_pct=trail_pct,
             side=side,
+            strategy_type=strategy_type,
+            near_high_max=near_high_max,
+            mom_21d_min=mom_21d_min,
+            require_market_uptrend=require_market_uptrend,
+            vol_min=vol_min,
+            trend_required=trend_required,
             created_at=created_at,
         )
 
@@ -560,6 +627,12 @@ def build_strategy_dataset(
             cap_vol_min=cap_vol_min,
             cost_pct=cost_pct,
             side=side,
+            strategy_type=strategy_type,
+            near_high_max=near_high_max,
+            mom_21d_min=mom_21d_min,
+            require_market_uptrend=require_market_uptrend,
+            vol_min=vol_min,
+            trend_required=trend_required,
         )
     finally:
         conn.close()
@@ -655,6 +728,40 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="long",
         help="Trade side for research backtests (default: long)",
     )
+    parser.add_argument(
+        "--strategy",
+        choices=("dip", "momentum"),
+        default="dip",
+        help="Entry predicate type (default: dip)",
+    )
+    parser.add_argument(
+        "--near-high-max",
+        type=float,
+        default=-2.0,
+        help="Min distance from 52w high for momentum entry (default: -2.0)",
+    )
+    parser.add_argument(
+        "--mom-21d-min",
+        type=float,
+        default=5.0,
+        help="Min 21-day return for momentum entry (default: 5.0)",
+    )
+    parser.add_argument(
+        "--no-require-market-uptrend",
+        action="store_true",
+        help="Disable SPY-above-SMA200 gate for momentum entry",
+    )
+    parser.add_argument(
+        "--vol-min",
+        type=float,
+        default=1.2,
+        help="Min volume vs 20d avg for momentum entry (default: 1.2)",
+    )
+    parser.add_argument(
+        "--no-trend-required",
+        action="store_true",
+        help="Disable close-above-SMA50/200 gate for momentum entry",
+    )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
         parser.error("provide --symbols or --symbols-from-cache")
@@ -689,6 +796,12 @@ def main(argv: list[str] | None = None) -> None:
         cost_pct=args.cost_pct,
         trail_pct=args.trail_pct,
         side=args.side,
+        strategy_type=args.strategy,
+        near_high_max=args.near_high_max,
+        mom_21d_min=args.mom_21d_min,
+        require_market_uptrend=not args.no_require_market_uptrend,
+        vol_min=args.vol_min,
+        trend_required=not args.no_trend_required,
     )
 
 

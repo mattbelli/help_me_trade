@@ -93,7 +93,7 @@ def _dated_bars_from_closes(
     *,
     highs_override: list[float] | None = None,
     lows_override: list[float] | None = None,
-    volume: float = 1000.0,
+    volume: float | list[float] = 1000.0,
 ) -> list[DatedBar]:
     bars: list[DatedBar] = []
     d = start_date
@@ -109,6 +109,10 @@ def _dated_bars_from_closes(
             if lows_override is not None and lows_override[i] is not None
             else c - 1.0
         )
+        if isinstance(volume, list):
+            v = volume[i]
+        else:
+            v = volume
         bars.append(
             {
                 "d": d.isoformat(),
@@ -116,7 +120,7 @@ def _dated_bars_from_closes(
                 "h": h,
                 "l": lo,
                 "c": c,
-                "v": volume,
+                "v": v,
             }
         )
         d += timedelta(days=1)
@@ -172,6 +176,90 @@ def _symbol_bars_with_single_entry(
         highs_override=highs_override,
         lows_override=lows_override,
     )
+
+
+def _spy_bars_aligned_uptrend(
+    *,
+    bar_count: int,
+    entry_idx: int,
+    entry_date: date,
+) -> list[DatedBar]:
+    start_date = entry_date - timedelta(days=entry_idx)
+    closes = _uptrend_closes(bar_count, start=400.0, step=0.35)
+    return _dated_bars_from_closes(closes, start_date)
+
+
+def _symbol_bars_with_single_momentum_entry(
+    *,
+    bar_count: int,
+    entry_idx: int,
+    entry_date: date,
+    mom_21d_pct: float = 8.0,
+) -> list[DatedBar]:
+    start_date = entry_date - timedelta(days=entry_idx)
+    prefix_len = entry_idx + 1
+    closes = _uptrend_closes(prefix_len - 22, start=70.0, step=0.12)
+    base_21d = closes[-1]
+    target = base_21d * (1.0 + mom_21d_pct / 100.0)
+    closes.append(base_21d)
+    for i in range(1, 22):
+        closes.append(base_21d + (target - base_21d) * i / 21)
+    while len(closes) < bar_count:
+        closes.append(closes[-1])
+
+    entry_close = closes[entry_idx]
+    highs_override, lows_override = _runner_forward_overrides(
+        entry_close, entry_idx, bar_count
+    )
+    volumes = [1000.0] * bar_count
+    volumes[entry_idx] = 2400.0
+    return _dated_bars_from_closes(
+        closes,
+        start_date,
+        highs_override=highs_override,
+        lows_override=lows_override,
+        volume=volumes,
+    )
+
+
+def _build_momentum_params(
+    bars_db: Path,
+    strategy_db: Path,
+    *,
+    symbols: list[str],
+    max_holding: int = 20,
+) -> tuple[dict, date, int, list[DatedBar], dict[str, list[DatedBar]]]:
+    entry_date = date(2024, 6, 15)
+    start = date(2024, 6, 1)
+    end = date(2024, 8, 1)
+    entry_idx = MIN_BARS_FOR_CONTEXT + 5
+    bar_count = MIN_BARS_FOR_CONTEXT + max_holding + 25
+
+    spy_bars = _spy_bars_aligned_uptrend(
+        bar_count=bar_count,
+        entry_idx=entry_idx,
+        entry_date=entry_date,
+    )
+    symbol_bars: dict[str, list[DatedBar]] = {}
+    for sym in symbols:
+        symbol_bars[sym] = _symbol_bars_with_single_momentum_entry(
+            bar_count=bar_count,
+            entry_idx=entry_idx,
+            entry_date=entry_date,
+        )
+
+    params = {
+        "symbols": symbols,
+        "start": start,
+        "end": end,
+        "benchmark": "SPY",
+        "max_holding": max_holding,
+        "source": "test",
+        "bars_db_path": bars_db,
+        "strategy_db_path": strategy_db,
+        "strategy_type": "momentum",
+    }
+    return params, entry_date, entry_idx, spy_bars, symbol_bars
 
 
 def _spy_bars_aligned(
@@ -321,6 +409,47 @@ def test_build_strategy_dataset_end_to_end(
         assert row["outcome"] == expected["outcome"]
         assert row["blended_return_pct"] == pytest.approx(expected["blended_return_pct"])
         assert row["holding_days"] == expected["holding_days"]
+
+
+def test_build_strategy_dataset_momentum_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+    strategy_tmp_paths: tuple[Path, Path],
+) -> None:
+    bars_db, strategy_db = strategy_tmp_paths
+    params, entry_date, entry_idx, spy_bars, symbol_bars = _build_momentum_params(
+        bars_db,
+        strategy_db,
+        symbols=["AAPL"],
+    )
+    _patch_get_daily_bars(monkeypatch, spy_bars=spy_bars, symbol_bars=symbol_bars)
+
+    summary = build_strategy_dataset(**params)
+
+    assert summary["n_setups"] == 1
+    assert summary["strategy_type"] == "momentum"
+    assert summary["outcome_counts"]["first_then_runner"] == 1
+    assert summary["avg_return"] == pytest.approx(6.5)
+
+    conn = connect(strategy_db)
+    try:
+        row = conn.execute("SELECT * FROM strategy_setups").fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row["entry_date"] == entry_date.isoformat()
+    assert row["outcome"] == "first_then_runner"
+    assert row["blended_return_pct"] == pytest.approx(6.5)
+
+    expected = simulate_exit(
+        symbol_bars["AAPL"],
+        entry_idx,
+        max_holding=params["max_holding"],
+    )
+    assert expected is not None
+    assert row["outcome"] == expected["outcome"]
+    assert row["blended_return_pct"] == pytest.approx(expected["blended_return_pct"])
+    assert row["holding_days"] == expected["holding_days"]
 
 
 def test_build_strategy_dataset_market_up_rejects(
