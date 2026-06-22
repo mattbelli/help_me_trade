@@ -2,7 +2,24 @@
 
 from __future__ import annotations
 
-import pytest
+# SAFETY NET (must run before any `db.base` import): never let a test touch the
+# real production DB. Routes/TestClient and any code using DEFAULT_DB_PATH get a
+# throwaway DB instead of data/trading.db. Forced (not setdefault) so a stray env
+# var can't point tests at production. Tests that pass an explicit tmp db_path are
+# unaffected. (The build's tests twice wrote to the real DB via DEFAULT_DB_PATH —
+# this closes that hole.)
+import os  # noqa: E402
+import tempfile  # noqa: E402
+
+_TEST_DEFAULT_DB = os.path.join(tempfile.gettempdir(), "hmt_pytest_default.db")
+os.environ["TRADING_DB_PATH"] = _TEST_DEFAULT_DB
+for _suffix in ("", "-wal", "-shm"):
+    try:
+        os.remove(_TEST_DEFAULT_DB + _suffix)
+    except OSError:
+        pass
+
+import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -150,6 +150,11 @@ async def test_poll_stamps_default_account(monkeypatch, tmp_path: Path) -> None:
 
     with (
         patch.object(main, "connection_is_configured", return_value=True),
+        patch.object(
+            main,
+            "get_connection",
+            side_effect=lambda cid: accounts_mod.get_connection(cid, db_path=db),
+        ),
         patch.object(main, "get_broker_for_account", return_value=mock_broker),
         patch.object(main, "save_snapshot", side_effect=save_with_test_db),
         patch.object(main, "compute_and_save_snapshot_analytics"),
