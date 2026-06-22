@@ -74,14 +74,26 @@ def test_get_lists_strategies(strategy_api_client: TestClient) -> None:
     response = strategy_api_client.get("/api/strategies")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["strategies"]) == 1
-    assert data["strategies"][0]["id"] == "dip_buy"
-    assert "account_label" in data["strategies"][0]
+    by_id = {s["id"]: s for s in data["strategies"]}
+    assert {"dip_buy", "dip_refined"} <= set(by_id)
+    assert "account_label" in by_id["dip_buy"]
+
+
+def test_accounts_endpoint_lists_execution_capable_only(
+    strategy_api_client: TestClient,
+) -> None:
+    response = strategy_api_client.get("/api/strategies/accounts")
+    assert response.status_code == 200
+    accounts = response.json()["accounts"]
+    assert accounts, "expected at least the default execution-capable account"
+    assert all({"id", "label", "broker", "is_default"} <= set(a) for a in accounts)
+    assert any(a["is_default"] for a in accounts)
 
 
 def test_put_updates_strategy(strategy_api_client: TestClient) -> None:
     list_resp = strategy_api_client.get("/api/strategies")
-    default_account_id = list_resp.json()["strategies"][0]["account_id"]
+    by_id = {s["id"]: s for s in list_resp.json()["strategies"]}
+    default_account_id = by_id["dip_buy"]["account_id"]
 
     response = strategy_api_client.put(
         "/api/strategies/dip_buy",

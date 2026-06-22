@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, FileUp, Search, Settings, Shield, Wallet } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  FileUp,
+  Search,
+  Settings,
+  Shield,
+  Wallet,
+} from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Button } from "@/components/ui/button";
@@ -25,6 +33,7 @@ import {
 } from "@/lib/api";
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
+import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
 import {
   DEFAULT_TRADING,
@@ -37,7 +46,13 @@ type Props = {
   collapsed?: boolean;
 };
 
-type SettingsSection = "brokers" | "execution" | "ai" | "research" | "import";
+type SettingsSection =
+  | "brokers"
+  | "execution"
+  | "strategies"
+  | "ai"
+  | "research"
+  | "import";
 
 const SECTIONS: {
   id: SettingsSection;
@@ -46,6 +61,7 @@ const SECTIONS: {
 }[] = [
   { id: "brokers", label: "Brokers", icon: Wallet },
   { id: "execution", label: "Execution / Risk", icon: Shield },
+  { id: "strategies", label: "Strategies", icon: Activity },
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
   { id: "import", label: "Import", icon: FileUp },
@@ -167,8 +183,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1">
-          <nav className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-border bg-muted/20 p-4">
+        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border bg-muted/20 p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -421,6 +437,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
             value={draft.trading}
             onChange={(trading) => setDraft((d) => ({ ...d, trading }))}
           />
+        ) : section === "strategies" ? (
+          <SettingsStrategiesPanel />
         ) : section === "ai" ? (
           <div className="space-y-4">
               <AiProviderSettings
@@ -479,7 +497,16 @@ export function SettingsDialog({ collapsed = false }: Props) {
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving || loading || section === "import"}>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={
+              saving ||
+              loading ||
+              section === "import" ||
+              section === "strategies"
+            }
+          >
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>

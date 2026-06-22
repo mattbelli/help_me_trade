@@ -71,11 +71,10 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
 
     seed_default_strategies(db_path=db)
     first = list_strategies(db_path=db)
-    assert len(first) == 1
-    assert first[0]["id"] == "dip_buy"
+    assert {s["id"] for s in first} == {"dip_buy", "dip_refined"}
 
     seed_default_strategies(db_path=db)
-    assert len(list_strategies(db_path=db)) == 1
+    assert {s["id"] for s in list_strategies(db_path=db)} == {"dip_buy", "dip_refined"}
 
 
 def test_seed_carries_legacy_settings(tmp_path: Path, monkeypatch) -> None:

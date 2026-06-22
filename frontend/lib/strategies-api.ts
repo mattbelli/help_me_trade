@@ -1,0 +1,62 @@
+import { apiFetch, API_BASE } from "@/lib/api";
+
+export type Strategy = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  account_id: string | null;
+  account_label: string | null;
+  notional_usd: number;
+  exit_mode: "auto" | "propose";
+  params: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StrategyAccount = {
+  id: string;
+  label: string;
+  broker: string;
+  is_default: boolean;
+};
+
+export type StrategyPatch = Partial<{
+  enabled: boolean;
+  account_id: string;
+  notional_usd: number;
+  exit_mode: "auto" | "propose";
+  params: Record<string, unknown>;
+}>;
+
+export async function fetchStrategies(): Promise<Strategy[]> {
+  const res = await apiFetch(`${API_BASE}/api/strategies`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  const data = await res.json();
+  return data.strategies ?? [];
+}
+
+export async function fetchStrategyAccounts(): Promise<StrategyAccount[]> {
+  const res = await apiFetch(`${API_BASE}/api/strategies/accounts`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  const data = await res.json();
+  return data.accounts ?? [];
+}
+
+export async function updateStrategy(
+  id: string,
+  patch: StrategyPatch,
+): Promise<Strategy> {
+  const res = await apiFetch(`${API_BASE}/api/strategies/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { detail?: string }).detail ?? `API error ${res.status}`,
+    );
+  }
+  const data = await res.json();
+  return data.strategy;
+}

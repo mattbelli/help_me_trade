@@ -10,7 +10,7 @@ superseding rewrite of this file, append the old full version there as a new dat
 
 ---
 
-## CURRENT FOCUS — multi-account + the dip-buy forward-test (DONE through C.1, DEPLOYED)
+## CURRENT FOCUS — multi-account + the dip-buy forward-test (DONE through C.2 + refined-dip, DEPLOYED)
 Founder chose **full multi-account** so a strategy can bind to a dedicated account. The whole arc is built,
 adversarially reviewed, committed/pushed (`main`), and **deployed live on serv** — **503 tests** green.
 Full spec + per-sub-step detail + carry-forward findings: **`References/MULTI_ACCOUNT_PLAN.md`**.
@@ -36,6 +36,19 @@ a non-secret `env_suffix` per connection.
   `propose_trade` routes to a bound account (per-account dedup + sizing; `invalid_account` deny-by-default;
   legacy `account_id=None`→default byte-identical); `signals/strategy_scan.py` is registry-driven; `GET/PUT
   /api/strategies`.
+- **Phase C.2 — Strategies settings UI + mobile Settings access** (2026-06-22). Cockpit panel
+  `frontend/components/settings/settings-strategies-panel.tsx` (per-strategy enable / account-bind /
+  notional / exit-mode / `far_support_min`, save-per-card, honesty caption on refined-dip, unbound-while-
+  enabled warning). New `GET /api/strategies/accounts` feeds the account picker (`frontend/lib/strategies-api.ts`).
+  Settings is now reachable on **mobile** — `<SettingsDialog collapsed />` lives in the phone header
+  (gear icon) and the dialog nav stacks responsively (`flex-col sm:flex-row`). Reuses the desktop dialog (no
+  duplicate mobile UI — RN is the eventual target). **Pending: in-browser/on-phone visual check.**
+- **Refined-dip strategy wired live** (2026-06-22, from `origin/research/decision-engine-data-layer`).
+  Ported `research/levels.py` (swing-pivot S/R + `level_features`) + the `far_support_min` arg on
+  `is_strategy_entry` (both pure/point-in-time; adversarially reviewed clean). New seeded strategy
+  `dip_refined` ("Dip-Buy + S/R filter") = the dip edge PLUS "must be ≥5% above nearest support";
+  **seeded DISABLED + UNBOUND**, `far_support_min=5.0`. Also fixed a latent test-only bug:
+  `_account_is_ready` now threads `db_path` (was reading the default DB).
 
 **Live state right now:** backend running C.1 code (deploy = `kill <MainPID>` → systemd `Restart=always`
 reloads the working tree; migration runs idempotently at boot). Default Alpaca (`acct_fc78907f4bda`) + STRAT1
@@ -48,15 +61,17 @@ to STRAT1, $500, `exit_mode=auto`.
 approved dip entries accumulate as positions you'd manage by hand until the exit module exists.
 
 ## NEXT
-1. **Phase C.2 — the Strategies settings UI** (cockpit panel: per-strategy enable toggle, account dropdown,
-   notional, exit-mode, status [last fired / open / pending]). Frontend — needs in-browser verification, not
-   just pytest.
+1. **In-browser/on-phone check of the Strategies UI** (C.2 shipped but UI-only — verify the panel renders,
+   account dropdown lists STRAT1/default, save persists, and the phone gear opens Settings legibly). Then
+   decide bindings: refined-dip wants its OWN forward-test account (add `APCA_*_STRAT2` for a clean A/B vs
+   dip_buy) — it's seeded unbound on purpose.
 2. **Phase D — the exit module** (−3% stop / +3% sell-half→breakeven / trail ~10–12% / 20d cap), auto-executing
    per `exit_mode` through the now-account-aware chokepoint. Completes the round-trip → the forward-test
    measures real EV. Known v1 limitation to fold in: a user-rejected entry can re-propose next cycle (needs a
    per-symbol cooldown).
 3. Carry-forward (in `MULTI_ACCOUNT_PLAN.md`): **M-2 migration-stamp hardening** before any DB rebuild; Schwab
-   multi-account snapshot iteration (adapter change) if/when Schwab goes beyond read-only.
+   multi-account snapshot iteration (adapter change) if/when Schwab goes beyond read-only. Two low-pri review
+   nits: guard `cluster_mean==0` in `research/levels.py`; thread `db_path` into `get_broker_for_account`.
 
 ## ⚠️ GOTCHAS — read these
 - **Tests must NEVER touch the real `data/trading.db`.** It bit twice this session: the build's Composer/API
@@ -91,6 +106,13 @@ guarantee — hence the live paper forward-test. **Short mirror tested → NO ed
 Real Norgate harness: `research/strategy_*.py`, `research/significance.py`; runbook `NORGATE_PULL.md`. Still
 open: ship real `research/artifacts/*.json` trained on the *strategy* setups (the generic 22-feature model was
 edgeless — not shipped).
+**Refined-dip (`dip_refined`, far_support_min=5.0):** the dip edge + a "≥5% above nearest support" filter
+(`research/levels.py` swing-pivot S/R). Backtest on `origin/research/decision-engine-data-layer` showed the
+filter ~**doubled the RECENT excess over SPY (+1.6%→+3%/trade)** — but ⚠️ this refinement is **NOT
+block-bootstrap-validated** to the base dip's standard (no significance pass on the variant). Treat as a live
+forward-test candidate, not a calibrated edge; the UI says so. The unvalidated branch siblings
+(rsi2 / consec_down / momentum entry predicates) are ported into `research/strategy_features.py` but **left out
+of the live registry** (no cited edge yet).
 
 ## Stable foundation (context)
 - **The chokepoint is sacred.** `trading/execution_service.submit()` is the only broker path; `RiskEngine.validate()`

@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
-from db.accounts import account_is_execution_capable, get_account
+from db.accounts import account_is_execution_capable, get_account, list_accounts
 from db.strategies import get_strategy, list_strategies, update_strategy
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
@@ -27,6 +27,22 @@ def _strategy_to_api(strategy: dict[str, Any]) -> dict[str, Any]:
 @router.get("")
 def api_list_strategies() -> dict[str, Any]:
     return {"strategies": [_strategy_to_api(s) for s in list_strategies()]}
+
+
+@router.get("/accounts")
+def api_list_strategy_accounts() -> dict[str, Any]:
+    """Execution-capable accounts a strategy can be bound to (for the UI picker)."""
+    accounts = [
+        {
+            "id": a["id"],
+            "label": a["label"],
+            "broker": a["broker"],
+            "is_default": bool(a.get("is_default")),
+        }
+        for a in list_accounts(enabled_only=True)
+        if a.get("execution_capable")
+    ]
+    return {"accounts": accounts}
 
 
 @router.put("/{strategy_id}")

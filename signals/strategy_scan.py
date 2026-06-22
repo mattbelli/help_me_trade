@@ -38,6 +38,7 @@ _ENTRY_PARAM_KEYS = (
     "oversold_3d_max",
     "mkt_down_3d_max",
     "side",
+    "far_support_min",
 )
 
 
@@ -106,13 +107,17 @@ def _build_rationale(
     return f"{strategy_name}: {sym} {ret_str}%/3d, SPY {mkt_str}%/3d, >SMA200"
 
 
-def _account_is_ready(account: dict[str, Any]) -> bool:
+def _account_is_ready(
+    account: dict[str, Any],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
     if not account.get("enabled") or not account.get("execution_capable"):
         return False
     broker_name = str(account["broker"]).strip().lower()
     connection_id = account.get("connection_id")
     if connection_id:
-        connection = get_connection(str(connection_id))
+        connection = get_connection(str(connection_id), db_path=db_path)
         if connection is None or not connection_is_configured(connection):
             return False
     elif not broker_is_configured(broker_name):
@@ -140,7 +145,7 @@ async def _run_strategy(
         return []
 
     account = get_account(str(account_id), db_path=db_path)
-    if account is None or not _account_is_ready(account):
+    if account is None or not _account_is_ready(account, db_path=db_path):
         logger.debug(
             "Strategy %s skipped — account %s missing or not execution-ready",
             strategy["id"],

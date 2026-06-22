@@ -24,6 +24,17 @@ _DIP_BUY_DEFAULT_PARAMS: dict[str, Any] = {
     "max_holding_days": 20,
 }
 
+# Refined dip = the validated dip edge PLUS a "far-from-support" filter
+# (far_support_min: stock must be >5% above its nearest swing-support level).
+# Backtest (research/decision-engine-data-layer): the filter roughly doubled the
+# RECENT excess over SPY (+1.6% -> +3%/trade). NOTE: this refinement is NOT
+# block-bootstrap-validated to the same standard as the base dip — it is a live
+# forward-test candidate, not a calibrated promise. Seeded DISABLED + UNBOUND.
+_DIP_REFINED_DEFAULT_PARAMS: dict[str, Any] = {
+    **_DIP_BUY_DEFAULT_PARAMS,
+    "far_support_min": 5.0,
+}
+
 _VALID_EXIT_MODES = frozenset({"auto", "propose"})
 
 
@@ -186,36 +197,82 @@ def _resolve_seed_account_id(*, db_path: Path) -> str | None:
     return str(default["id"]) if default else None
 
 
-def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
-    """Idempotent seed — creates dip_buy from legacy settings when missing."""
-    init_strategy_tables(db_path)
-    if get_strategy("dip_buy", db_path=db_path) is not None:
-        return
+def _insert_strategy(
+    conn: sqlite3.Connection,
+    *,
+    strategy_id: str,
+    name: str,
+    enabled: bool,
+    account_id: str | None,
+    notional: float,
+    params: dict[str, Any],
+    now: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO strategies (
+            id, name, enabled, account_id, notional_usd, exit_mode,
+            params_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            strategy_id,
+            name,
+            1 if enabled else 0,
+            account_id,
+            notional,
+            "auto",
+            json.dumps(params),
+            now,
+            now,
+        ),
+    )
 
+
+def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Idempotent seed — registers each built-in strategy when missing.
+
+    Each strategy is seeded independently (checked by id), so adding a new
+    built-in here back-fills it on the next boot without disturbing existing
+    rows or their user-edited enable/account/notional settings.
+    """
+    init_strategy_tables(db_path)
     cfg = trading_config()
-    enabled = bool(cfg.get("dip_strategy_enabled", False))
-    notional = float(cfg.get("dip_strategy_notional_usd", 500) or 500)
-    account_id = _resolve_seed_account_id(db_path=db_path)
     now = _now()
 
+    need_dip_buy = get_strategy("dip_buy", db_path=db_path) is None
+    need_dip_refined = get_strategy("dip_refined", db_path=db_path) is None
+    if not need_dip_buy and not need_dip_refined:
+        return
+
+    seed_account_id = _resolve_seed_account_id(db_path=db_path) if need_dip_buy else None
+
     with _connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO strategies (
-                id, name, enabled, account_id, notional_usd, exit_mode,
-                params_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "dip_buy",
-                "Dip-Buy",
-                1 if enabled else 0,
-                account_id,
-                notional,
-                "auto",
-                json.dumps(_DIP_BUY_DEFAULT_PARAMS),
-                now,
-                now,
-            ),
-        )
+        if need_dip_buy:
+            _insert_strategy(
+                conn,
+                strategy_id="dip_buy",
+                name="Dip-Buy",
+                enabled=bool(cfg.get("dip_strategy_enabled", False)),
+                account_id=seed_account_id,
+                notional=float(cfg.get("dip_strategy_notional_usd", 500) or 500),
+                params=_DIP_BUY_DEFAULT_PARAMS,
+                now=now,
+            )
+
+        if need_dip_refined:
+            # Disabled + UNBOUND by default — the user binds it to a dedicated
+            # forward-test account in the UI (ideally separate from dip_buy's so
+            # the two edges don't commingle). Never auto-arms.
+            _insert_strategy(
+                conn,
+                strategy_id="dip_refined",
+                name="Dip-Buy + S/R filter",
+                enabled=False,
+                account_id=None,
+                notional=500.0,
+                params=_DIP_REFINED_DEFAULT_PARAMS,
+                now=now,
+            )
+
         conn.commit()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from research.levels import level_features
 from signals.indicators import (
     closes,
     distance_from_high,
@@ -66,6 +67,7 @@ def is_strategy_entry(
     cap_day_max: float = -2.0,
     cap_vol_min: float = 1.5,
     side: str = "long",
+    far_support_min: float | None = None,
 ) -> bool:
     """Return True when all active strategy entry conditions hold at idx (no look-ahead).
 
@@ -123,6 +125,133 @@ def is_strategy_entry(
             return False
         vol_ratio = volume_vs_avg(volumes(prefix), 20)
         if vol_ratio is None or vol_ratio < cap_vol_min:
+            return False
+
+    if far_support_min is not None:
+        feats = level_features(bars, idx)
+        dist = feats.get("dist_to_support_pct")
+        if dist is None or dist < far_support_min:
+            return False
+
+    return True
+
+
+def is_rsi2_entry(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    spy_bars: list[DatedBar],
+    spy_idx: int,
+    rsi_period: int = 2,
+    rsi_max: float = 10.0,
+    trend_required: bool = True,
+) -> bool:
+    """Return True when Connors RSI-2 mean-reversion entry conditions hold at idx (no look-ahead)."""
+    if idx < 0 or idx >= len(bars):
+        return False
+
+    prefix = bars[: idx + 1]
+    if len(prefix) < MIN_BARS_FOR_CONTEXT:
+        return False
+
+    c = closes(prefix)
+    close = c[-1]
+
+    if trend_required:
+        sma200 = sma(c, SMA200_PERIOD)
+        if sma200 is None or close <= sma200:
+            return False
+
+    rsi_val = rsi(c, rsi_period)
+    if rsi_val is None or rsi_val > rsi_max:
+        return False
+
+    return True
+
+
+def is_consec_down_entry(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    spy_bars: list[DatedBar],
+    spy_idx: int,
+    down_days: int = 3,
+    trend_required: bool = True,
+) -> bool:
+    """Return True when consecutive-down-closes mean-reversion entry conditions hold at idx."""
+    if idx < 0 or idx >= len(bars):
+        return False
+
+    prefix = bars[: idx + 1]
+    if len(prefix) < MIN_BARS_FOR_CONTEXT:
+        return False
+
+    if down_days < 1 or idx < down_days - 1:
+        return False
+
+    c = closes(prefix)
+    close = c[-1]
+
+    if trend_required:
+        sma200 = sma(c, SMA200_PERIOD)
+        if sma200 is None or close <= sma200:
+            return False
+
+    for step in range(1, down_days):
+        if c[idx - step + 1] >= c[idx - step]:
+            return False
+
+    return True
+
+
+def is_momentum_entry(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    spy_bars: list[DatedBar],
+    spy_idx: int,
+    trend_required: bool = True,
+    near_high_max: float = -2.0,
+    mom_21d_min: float = 5.0,
+    require_market_uptrend: bool = True,
+    vol_min: float = 1.2,
+) -> bool:
+    """Return True when all active momentum/breakout entry conditions hold at idx (no look-ahead)."""
+    if idx < 0 or idx >= len(bars):
+        return False
+
+    prefix = bars[: idx + 1]
+    if len(prefix) < MIN_BARS_FOR_CONTEXT:
+        return False
+
+    c = closes(prefix)
+    close = c[-1]
+
+    if trend_required:
+        sma50 = sma(c, SMA50_PERIOD)
+        sma200 = sma(c, SMA200_PERIOD)
+        if sma50 is None or sma200 is None:
+            return False
+        if close <= sma50 or close <= sma200:
+            return False
+
+    dist_high = distance_from_high(c, HIGH_LOOKBACK)
+    if dist_high is None or dist_high < near_high_max:
+        return False
+
+    mom_21d = pct_change(c, 21)
+    if mom_21d is None or mom_21d < mom_21d_min:
+        return False
+
+    vol_ratio = volume_vs_avg(volumes(prefix), 20)
+    if vol_ratio is None or vol_ratio < vol_min:
+        return False
+
+    if require_market_uptrend:
+        mkt_ctx = compute_market_context(spy_bars, spy_idx)
+        if mkt_ctx is None:
+            return False
+        if mkt_ctx.get("mkt_vs_sma200") != "above":
             return False
 
     return True

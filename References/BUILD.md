@@ -196,6 +196,15 @@ held-position skip, adversarially reviewed). **Strategies are isolated, independ
 modules**; the learning layer observes outcomes but never mutates a strategy. The **EXIT module below (#1) is
 the next increment** — it completes the round-trip and is required before any live EV-vs-backtest comparison.
 
+**Update (2026-06-22) — Strategies UI + refined-dip + mobile Settings.** The registry now has a **cockpit
+panel** (Settings → Strategies): per-strategy enable / account-bind / notional / exit-mode / `far_support_min`,
+save-per-card, with a no-fabrication honesty caption on the refined variant. Settings is now reachable on
+**mobile** (phone-header gear opens the reused dialog; nav stacks responsively). A second strategy
+**`dip_refined`** ("Dip-Buy + S/R filter") is seeded **disabled + unbound**: the dip edge + a swing-pivot
+"≥5% above nearest support" filter (`research/levels.py` ported from `research/decision-engine-data-layer`).
+⚠️ Its "+1.6%→+3%/trade" backtest gain is **recent-excess, NOT block-bootstrap-validated** like the base dip —
+a forward-test candidate only. 510 tests green; UI typecheck/lint clean; **UI pending on-phone visual check.**
+
 **1. Support/Resistance + trade-PLAN outputs (completes the "fully-planned idea").**
 - *Features:* distance to nearest support/resistance, room-to-run to next level, level-test counts (from bars:
   swing pivots, volume-by-price, prior highs/lows, round numbers).
