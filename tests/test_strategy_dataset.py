@@ -544,6 +544,27 @@ def test_build_strategy_dataset_end_to_end(
         assert row["holding_days"] == expected["holding_days"]
 
 
+def test_build_strategy_dataset_far_support_min_reduces_setups(
+    monkeypatch: pytest.MonkeyPatch,
+    strategy_tmp_paths: tuple[Path, Path],
+) -> None:
+    bars_db, strategy_db = strategy_tmp_paths
+    params, _, _, spy_bars, symbol_bars = _build_params(
+        bars_db,
+        strategy_db,
+        symbols=["AAPL", "MSFT"],
+    )
+    _patch_get_daily_bars(monkeypatch, spy_bars=spy_bars, symbol_bars=symbol_bars)
+
+    unfiltered = build_strategy_dataset(**params)
+    filtered = build_strategy_dataset(**params, far_support_min=5.0, replace=True)
+
+    assert unfiltered["n_setups"] == 2
+    assert filtered["n_setups"] < unfiltered["n_setups"]
+    assert filtered["n_setups"] == 0
+    assert len(_strategy_row_tuples(strategy_db)) == 0
+
+
 def test_build_strategy_dataset_momentum_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
     strategy_tmp_paths: tuple[Path, Path],

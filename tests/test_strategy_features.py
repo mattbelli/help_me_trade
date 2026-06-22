@@ -444,3 +444,50 @@ def test_consec_down_entry_fails_below_sma200() -> None:
         )
         is False
     )
+
+
+def test_far_support_gate_rejects_near_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stock_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    monkeypatch.setattr(
+        "research.strategy_features.level_features",
+        lambda bars, i: {"dist_to_support_pct": 3.0},
+    )
+
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            far_support_min=5.0,
+        )
+        is False
+    )
+    assert is_strategy_entry(stock_bars, idx, spy_bars=spy_bars, spy_idx=spy_idx) is True
+
+
+def test_far_support_gate_passes_when_far_from_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stock_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+
+    monkeypatch.setattr(
+        "research.strategy_features.level_features",
+        lambda bars, i: {"dist_to_support_pct": 8.0},
+    )
+
+    assert (
+        is_strategy_entry(
+            stock_bars,
+            idx,
+            spy_bars=spy_bars,
+            spy_idx=spy_idx,
+            far_support_min=5.0,
+        )
+        is True
+    )

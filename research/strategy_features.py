@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from research.levels import level_features
 from signals.indicators import (
     closes,
     distance_from_high,
@@ -66,6 +67,7 @@ def is_strategy_entry(
     cap_day_max: float = -2.0,
     cap_vol_min: float = 1.5,
     side: str = "long",
+    far_support_min: float | None = None,
 ) -> bool:
     """Return True when all active strategy entry conditions hold at idx (no look-ahead).
 
@@ -123,6 +125,12 @@ def is_strategy_entry(
             return False
         vol_ratio = volume_vs_avg(volumes(prefix), 20)
         if vol_ratio is None or vol_ratio < cap_vol_min:
+            return False
+
+    if far_support_min is not None:
+        feats = level_features(bars, idx)
+        dist = feats.get("dist_to_support_pct")
+        if dist is None or dist < far_support_min:
             return False
 
     return True

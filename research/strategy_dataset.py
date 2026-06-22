@@ -94,6 +94,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
         cost_pct,
         trail_pct,
         side,
+        far_support_min,
         strategy_type,
         near_high_max,
         mom_21d_min,
@@ -161,6 +162,7 @@ def _strategy_symbol_rows(task: tuple) -> tuple[str, list[tuple], dict]:
                 cap_day_max=cap_day_max,
                 cap_vol_min=cap_vol_min,
                 side=side,
+                far_support_min=far_support_min,
             )
         elif strategy_type == "rsi2":
             entry_ok = is_rsi2_entry(
@@ -262,6 +264,7 @@ def _strategy_tasks(
     cost_pct: float,
     trail_pct: float | None,
     side: str,
+    far_support_min: float | None,
     strategy_type: str,
     near_high_max: float,
     mom_21d_min: float,
@@ -296,6 +299,7 @@ def _strategy_tasks(
             cost_pct,
             trail_pct,
             side,
+            far_support_min,
             strategy_type,
             near_high_max,
             mom_21d_min,
@@ -334,6 +338,7 @@ def _entry_desc(
     oversold_3d_max: float,
     mkt_down_3d_max: float,
     require_capitulation: bool,
+    far_support_min: float | None = None,
 ) -> str:
     parts: list[str] = []
     if healthy_required:
@@ -342,6 +347,8 @@ def _entry_desc(
     parts.append(f"mkt({mkt_down_3d_max:g}%/3d)")
     if require_capitulation:
         parts.append("capitulation")
+    if far_support_min is not None:
+        parts.append(f"far-support(>={far_support_min:g}%)")
     return "+".join(parts)
 
 
@@ -394,6 +401,7 @@ def _compute_summary_from_rows(
     rsi_period: int,
     rsi_max: float,
     down_days: int,
+    far_support_min: float | None = None,
 ) -> dict:
     n_setups = len(rows)
     if n_setups == 0:
@@ -431,6 +439,7 @@ def _compute_summary_from_rows(
             "rsi_period": rsi_period,
             "rsi_max": rsi_max,
             "down_days": down_days,
+            "far_support_min": far_support_min,
         }
         _log_summary(summary)
         return summary
@@ -481,6 +490,7 @@ def _compute_summary_from_rows(
         "rsi_period": rsi_period,
         "rsi_max": rsi_max,
         "down_days": down_days,
+        "far_support_min": far_support_min,
     }
     _log_summary(summary)
     return summary
@@ -500,6 +510,7 @@ def _log_summary(summary: dict) -> None:
         oversold_3d_max=summary["oversold_3d_max"],
         mkt_down_3d_max=summary["mkt_down_3d_max"],
         require_capitulation=summary["require_capitulation"],
+        far_support_min=summary.get("far_support_min"),
     )
     win_pct = summary["win_rate"] * 100
     amb_pct = summary["same_day_ambiguous_pct"] * 100
@@ -558,6 +569,7 @@ def build_strategy_dataset(
     rsi_period: int = 2,
     rsi_max: float = 10.0,
     down_days: int = 3,
+    far_support_min: float | None = None,
     jobs: int = 1,
     replace: bool = True,
 ) -> dict:
@@ -615,6 +627,7 @@ def build_strategy_dataset(
             rsi_period=rsi_period,
             rsi_max=rsi_max,
             down_days=down_days,
+            far_support_min=far_support_min,
             created_at=created_at,
         )
 
@@ -683,6 +696,7 @@ def build_strategy_dataset(
             rsi_period=rsi_period,
             rsi_max=rsi_max,
             down_days=down_days,
+            far_support_min=far_support_min,
         )
     finally:
         conn.close()
@@ -830,6 +844,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=3,
         help="Consecutive down closes required for consec_down entry (default: 3)",
     )
+    parser.add_argument(
+        "--far-support-min",
+        type=float,
+        default=None,
+        help="Min %% above nearest support for dip entry (default: off)",
+    )
     args = parser.parse_args(argv)
     if not args.symbols and not args.symbols_from_cache:
         parser.error("provide --symbols or --symbols-from-cache")
@@ -873,6 +893,7 @@ def main(argv: list[str] | None = None) -> None:
         rsi_period=args.rsi_period,
         rsi_max=args.rsi_max,
         down_days=args.down_days,
+        far_support_min=args.far_support_min,
     )
 
 
