@@ -36,10 +36,10 @@ import { colors, fonts, hairline, pnlColor, spacing } from '@/theme';
 import { MiniDayChart } from './mini-day-chart';
 
 const SCREEN_W = Dimensions.get('window').width;
-const SYM_W = 52; // fits 4–5 char tickers (NVDA, GOOGL) without truncating
-const PRICE_W = 94; // fits a 4-digit LAST at the prominent "md" size ($1,072.45)
-const CHG_W = 56;
-const VOL_W = 48;
+const SYM_W = 50; // fits 4–5 char tickers (NVDA, GOOGL)
+const PRICE_W = 92; // fits a 4-digit LAST at the prominent "md" size ($1,072.45)
+const CHG_W = 66; // fits a double-digit signed percent (−12.55%)
+const VOL_W = 46;
 const GAP = spacing.sm;
 const CHART_W = Math.max(80, SCREEN_W - 2 * spacing.xl - SYM_W - PRICE_W - CHG_W - VOL_W - 3 * GAP);
 
@@ -65,24 +65,46 @@ function dolStr(v: number): string {
 
 const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };
 
-// ─── A stacked metric: prominent top value, small sub-value (like LAST over H/L)
-function StackCell({
+// Shared 3-row rhythm so every column lines up across the row:
+//   top   = high (price only; blank elsewhere)
+//   mid   = the PROMINENT value (LAST / CHG% / VOL) — all aligned on one line
+//   bottom= the small value (low / CHG$ / vol)      — all aligned on the line below
+const ROW_TOP = 15;
+const ROW_MID = 22;
+const ROW_BOT = 15;
+
+function usd(v: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+}
+
+function TriColumn({
   width,
+  marginLeft = 0,
   top,
-  topColor,
+  topColor = colors.textFaint,
+  mid,
+  midColor,
+  midSize = 15,
   bottom,
   bottomColor,
 }: {
   width: number;
-  top: string;
-  topColor: string;
+  marginLeft?: number;
+  top?: string;
+  topColor?: string;
+  mid: string;
+  midColor: string;
+  midSize?: number;
   bottom: string;
   bottomColor: string;
 }) {
   return (
-    <View style={{ width, alignItems: 'flex-end', justifyContent: 'center', marginLeft: GAP }}>
-      <Text style={{ ...mono, fontSize: 15, color: topColor }} numberOfLines={1}>{top}</Text>
-      <Text style={{ ...mono, fontSize: 11, color: bottomColor, marginTop: 2 }} numberOfLines={1}>{bottom}</Text>
+    <View style={{ width, alignItems: 'flex-end', marginLeft }}>
+      <Text style={{ ...mono, fontSize: 11, lineHeight: ROW_TOP, color: top ? topColor : 'transparent' }} numberOfLines={1}>
+        {top ?? ' '}
+      </Text>
+      <Text style={{ ...mono, fontSize: midSize, lineHeight: ROW_MID, color: midColor }} numberOfLines={1}>{mid}</Text>
+      <Text style={{ ...mono, fontSize: 11, lineHeight: ROW_BOT, color: bottomColor }} numberOfLines={1}>{bottom}</Text>
     </View>
   );
 }
@@ -139,32 +161,31 @@ function WatchlistRow({
         </View>
 
         {/* H / LAST / L */}
-        <View style={{ width: PRICE_W, alignItems: 'flex-end' }}>
-          {loading ? (
-            <Skeleton height={36} width={64} />
-          ) : quote ? (
-            <>
-              <Text style={{ ...mono, fontSize: 11, color: colors.textFaint }} numberOfLines={1}>
-                {quote.day_high != null ? quote.day_high.toFixed(2) : '—'}
-              </Text>
-              <Money value={quote.price} size="md" numberOfLines={1} />
-              <Text style={{ ...mono, fontSize: 11, color: colors.textFaint }} numberOfLines={1}>
-                {quote.day_low != null ? quote.day_low.toFixed(2) : '—'}
-              </Text>
-            </>
-          ) : (
-            <Text variant="figureSm" color="textFaint">—</Text>
-          )}
-        </View>
-
-        {/* CHG% (big) / CHG$ (small) */}
         {loading ? (
-          <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={32} width={50} /></View>
+          <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={50} width={72} /></View>
         ) : quote ? (
-          <StackCell
+          <TriColumn
+            width={PRICE_W}
+            top={quote.day_high != null ? quote.day_high.toFixed(2) : undefined}
+            mid={usd(quote.price)}
+            midColor={colors.text}
+            midSize={16}
+            bottom={quote.day_low != null ? quote.day_low.toFixed(2) : '—'}
+            bottomColor={colors.textFaint}
+          />
+        ) : (
+          <View style={{ width: PRICE_W }} />
+        )}
+
+        {/* CHG% (mid, aligned with LAST) / CHG$ (bottom, aligned with low) */}
+        {loading ? (
+          <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={50} /></View>
+        ) : quote ? (
+          <TriColumn
             width={CHG_W}
-            top={pctStr(quote.change_pct)}
-            topColor={pnlColor(quote.change_pct)}
+            marginLeft={GAP}
+            mid={pctStr(quote.change_pct)}
+            midColor={pnlColor(quote.change_pct)}
             bottom={changeDol != null ? dolStr(changeDol) : '—'}
             bottomColor={changeDol != null ? pnlColor(changeDol) : colors.textFaint}
           />
@@ -172,14 +193,15 @@ function WatchlistRow({
           <View style={{ width: CHG_W, marginLeft: GAP }} />
         )}
 
-        {/* VOL% (big, pending serv) / VOL (small) */}
+        {/* VOL (mid) / vol (bottom) — flips to vol% prominent once serv provides it */}
         {loading ? (
-          <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={32} width={44} /></View>
+          <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={44} /></View>
         ) : quote ? (
-          <StackCell
+          <TriColumn
             width={VOL_W}
-            top={fmtVol(quote.volume)}
-            topColor={colors.text}
+            marginLeft={GAP}
+            mid={fmtVol(quote.volume)}
+            midColor={colors.text}
             bottom="vol"
             bottomColor={colors.textFaint}
           />
