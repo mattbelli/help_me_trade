@@ -88,6 +88,8 @@ export interface WatchlistQuote {
   price: number;
   change_pct: number;
   sparkline: number[];
+  /** Today's RTH 5-min closes, chronological from the 09:30 open (78 bars = full day). */
+  intraday?: number[];
   prev_close?: number;
   volume?: number;
   day_high?: number;

@@ -46,13 +46,19 @@ function sessionFraction(): number {
   }
 }
 
+// Full regular session = 390 min / 5-min bars = 78 points across the chart width.
+const BARS_PER_DAY = 78;
+
 export function MiniDayChart({
   data,
+  intraday = false,
   change,
   width,
   height = 44,
 }: {
   data: number[];
+  /** When true, `data` is real intraday 5-min closes → position by index (i/78). */
+  intraday?: boolean;
   change: number;
   width: number;
   height?: number;
@@ -64,25 +70,32 @@ export function MiniDayChart({
 
   const stroke = pnlColor(change);
   const { path, dotX, dotY } = useMemo(() => {
-    const frac = sessionFraction();
-    const lineW = Math.max(2, width * frac);
     if (!data || data.length < 2) {
+      const lineW = Math.max(2, width * sessionFraction());
       const y = height / 2;
       return { path: `M0,${y} L${lineW},${y}`, dotX: lineW, dotY: y };
     }
     const min = Math.min(...data);
     const max = Math.max(...data);
     const span = max - min || 1;
-    const dx = lineW / (data.length - 1);
-    const pts = data.map((v, i) => {
-      const x = i * dx;
-      const y = height - 3 - ((v - min) / span) * (height - 6);
-      return [x, y] as const;
-    });
+    const yOf = (v: number) => height - 3 - ((v - min) / span) * (height - 6);
+
+    // x positions: intraday → i/78 of width (extent encodes time of day, ending
+    // at the live bar); sparkline fallback → spread across the elapsed session.
+    let xs: number[];
+    if (intraday) {
+      xs = data.map((_, i) => Math.min(width, (i / BARS_PER_DAY) * width));
+    } else {
+      const lineW = Math.max(2, width * sessionFraction());
+      const dx = lineW / (data.length - 1);
+      xs = data.map((_, i) => i * dx);
+    }
+
+    const pts = data.map((v, i) => [xs[i], yOf(v)] as const);
     const d = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
     const last = pts[pts.length - 1];
     return { path: d, dotX: last[0], dotY: last[1] };
-  }, [data, width, height, change]);
+  }, [data, intraday, width, height, change]);
 
   const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 

@@ -37,6 +37,14 @@ import { colors, hairline, pnlColor, spacing } from '@/theme';
 
 import { MiniDayChart } from './mini-day-chart';
 
+/** Prefer the real intraday series; fall back to the daily sparkline when empty. */
+function preferIntraday(q: WatchlistQuote): boolean {
+  return !!q.intraday && q.intraday.length >= 2;
+}
+function hasChartData(q: WatchlistQuote): boolean {
+  return preferIntraday(q) || q.sparkline.length > 1;
+}
+
 const SCREEN_W = Dimensions.get('window').width;
 const SYM_W = 50;
 const PRICE_W = 96; // fits a 4-digit price at the prominent "md" size ($1,085.33)
@@ -138,8 +146,14 @@ function WatchlistRow({
         <View style={{ width: CHART_W, alignItems: 'flex-end', paddingLeft: spacing.md }}>
           {loading ? (
             <Skeleton height={46} width={CHART_W - spacing.md} />
-          ) : quote && quote.sparkline.length > 1 ? (
-            <MiniDayChart data={quote.sparkline} change={quote.change_pct} width={CHART_W - spacing.md} height={46} />
+          ) : quote && hasChartData(quote) ? (
+            <MiniDayChart
+              data={preferIntraday(quote) ? quote.intraday! : quote.sparkline}
+              intraday={preferIntraday(quote)}
+              change={quote.change_pct}
+              width={CHART_W - spacing.md}
+              height={46}
+            />
           ) : (
             <View style={{ width: CHART_W - spacing.md, height: 46 }} />
           )}
