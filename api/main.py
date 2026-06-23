@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import Body, FastAPI, WebSocket
@@ -23,7 +24,7 @@ from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
 from api.strategy_routes import router as strategy_router
 from api.trade_routes import router as trade_router
-from brokers.alpaca import AlpacaAdapter
+from brokers.alpaca import AlpacaAdapter, StockBar
 from brokers.errors import BrokerError
 from brokers.factory import (
     aclose_broker_cache,
@@ -92,6 +93,7 @@ from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
 from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
+from trading.market_hours import _ET, _SESSION_CLOSE, _SESSION_OPEN
 from trading.proposal_intake import propose_from_scan_fire
 from trading.sync import async_sync_all_enabled_brokers
 
@@ -695,6 +697,14 @@ async def api_watchlist_market(symbols: str = ""):
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
+    intraday_by_symbol: dict[str, list[StockBar]] = {}
+    try:
+        intraday_by_symbol = await broker.aget_stock_bars_batch(
+            symbol_list, timeframe="5Min", days=2
+        )
+    except BrokerError as exc:
+        logger.warning("Watchlist intraday bars failed: %s", exc)
+
     quotes: dict[str, dict] = {}
     for sym in symbol_list:
         bars = bars_by_symbol.get(sym, [])
@@ -705,6 +715,7 @@ async def api_watchlist_market(symbols: str = ""):
         price = closes[-1]
         prev = closes[-2] if len(closes) >= 2 else price
         change_pct = ((price - prev) / prev * 100) if prev else 0.0
+        intraday = _session_intraday_closes(intraday_by_symbol.get(sym, []))
         quotes[sym] = {
             "price": price,
             "change_pct": round(change_pct, 2),
@@ -713,9 +724,33 @@ async def api_watchlist_market(symbols: str = ""):
             "volume": float(latest.volume),
             "day_high": float(latest.high),
             "day_low": float(latest.low),
+            "intraday": intraday,
         }
 
     return {"quotes": quotes}
+
+
+def _session_intraday_closes(bars: list[StockBar]) -> list[float]:
+    if not bars:
+        return []
+
+    def _bar_et(bar: StockBar) -> datetime:
+        return datetime.fromisoformat(bar.time.replace("Z", "+00:00")).astimezone(_ET)
+
+    session_date = _bar_et(bars[-1]).date()
+    open_minutes = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+    close_minutes = _SESSION_CLOSE[0] * 60 + _SESSION_CLOSE[1]
+
+    kept: list[StockBar] = []
+    for bar in bars:
+        et = _bar_et(bar)
+        if et.date() != session_date:
+            continue
+        bar_minutes = et.hour * 60 + et.minute
+        if open_minutes <= bar_minutes < close_minutes:
+            kept.append(bar)
+
+    return [round(b.close, 4) for b in kept]
 
 
 @app.put("/api/watchlist")
