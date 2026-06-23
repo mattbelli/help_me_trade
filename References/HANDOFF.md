@@ -79,20 +79,21 @@ is NO single "combined" predicate — live "combining" = run dip + earnings on O
 ## LIVE STATE right now (serv; deploy = `kill <MainPID>` → systemd reloads working tree)
 - **Backend deployed onto D1→D4** (exit module live). The exit engine runs every poll cycle; with 0 open managed
   positions it's inert until approved `dip_refined` entries fill, then it manages them in `propose` mode.
-- Two Alpaca PAPER accounts polling per-account: default `acct_fc78907f4bda` (label "Alpaca", ~$104k) + STRAT1
-  `acct_alpaca_strat1` (~$100k). No errors.
-- **⚠️ `dip_refined` is ENABLED, $10k notional, bound to STRAT1, universe `sp500`, UNCAPPED, exit_mode
-  `propose`.** `dip_buy` is disabled (exit_mode auto, but disabled + no positions). **Still no caps** on
-  `dip_refined` — broad `sp500` + uncapped risks a cluster-day proposal flood; founder may still want
-  ~10 pos / ~$60–70k caps (`max_concurrent_positions` / `max_deployed_usd`). Entries + (now) exits are both
-  phone-approved. `earnings_drift` not registered yet (E3) — safe to enable only after E3 + with exits live.
+- THREE Alpaca PAPER accounts polling per-account: default `acct_fc78907f4bda` ("Alpaca", ~$104k), STRAT1
+  `acct_alpaca_strat1` (~$100k), STRAT2 `acct_alpaca_strat2` (~$100k, ext `dfd08049…`). No errors.
+- **⚠️ BOTH sleeves are LIVE (paper forward-test), both `exit_mode=propose` (phone-approved entries + exits;
+  nothing auto-sells):**
+  - `dip_refined` — ENABLED, $10k notional, **STRAT1**, sp500, **UNCAPPED**. `dip_buy` disabled.
+  - `earnings_drift` — ENABLED, **$500 notional**, **STRAT2**, sp500 (founder bound + enabled it). Expect
+    FEW setups (Finnhub free-tier coverage + dates only confirmed ~2-4 wks out). Note the small $500
+    notional vs dip's $10k — founder may want to size it up to match the combined-backtest intent.
+  - **Still no caps** on either — broad `sp500` + uncapped risks a cluster-day proposal flood; founder may
+    want ~10 pos / ~$60–70k caps (`max_concurrent_positions` / `max_deployed_usd`).
 
 ## NEXT (in order)
-1. **Arm `earnings_drift` when ready (founder).** It's seeded disabled + unbound. Founder will create a STRAT2
-   paper account (add `APCA_*_STRAT2` creds + register the account), then in Settings → Strategies bind
-   earnings_drift to STRAT2 and enable it (exit_mode stays `propose`). On enable, the daily refresh loop starts
-   populating the Finnhub calendar for its universe (restart forces an immediate refresh). Expect FEWER setups
-   than backtest (free-tier coverage + dates only confirmed ~2-4 wks out).
+1. **Both sleeves are armed (paper/propose) — watch the first real round-trips.** dip_refined (STRAT1) +
+   earnings_drift (STRAT2) are live; the daily earnings-refresh loop populates the Finnhub calendar for the
+   enabled earnings universe. Founder may want to size earnings up from $500 + set caps on both.
 2. **Watch the first real exit round-trip** (dip or earnings): managed row recorded (D1) → on a trigger a phone
    exit proposal fires (propose) → row closes after the approved sell fills / position goes flat. Then consider
    flipping a strategy to `auto`.
