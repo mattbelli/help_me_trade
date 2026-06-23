@@ -204,9 +204,11 @@ factor with zero native complexity. Net mapping:
 Two other agents are active: **serv** (live strategy layer, registry, web frontend, `signals/`,
 `db/strategies`, `trading/exit_engine`, `api/main` strategy bits) and **PC** (Schwab data + offline
 research, `research/`, `brokers/schwab_auth.py`). To stay collision-free:
-- **You own:** the new RN app (a new top-level dir, e.g. `mobile/`, or its own repo — propose which) +
-  the **push-delivery server slice** (`device_tokens` table, registration endpoint, the APNs/ActivityKit
-  send hooked into `trading/proposals.py::create_phone_proposal`).
+- **You own:** the new RN app in a **`mobile/` directory in THIS monorepo (decided)** — built on a
+  **MacBook (macOS required for Xcode/Simulator/Swift extension); serv is Linux and cannot build iOS** — +
+  optionally the **push-delivery server slice** (`device_tokens` table, registration endpoint, the
+  APNs/ActivityKit send hooked into `trading/proposals.py::create_phone_proposal`). NOTE: the serv agent
+  may build that Python push slice first so you have a real endpoint to integrate against — coordinate.
 - **Stay out of:** `signals/`, `db/strategies.py`, `trading/exit_engine.py`, `research/`, `brokers/`, and
   the web `frontend/`.
 - The one genuinely shared file is `trading/proposals.py` (adding the push hook) — flag that change so
@@ -230,7 +232,9 @@ Keep the focus on the glanceable home + approval unlock + cockpit, done *excelle
 - A crisp **quality bar / definition of done** per phase.
 
 ## 12. Open questions to resolve in plan mode (ask the founder first)
-1. App location: a new `mobile/` dir in this repo, or a separate repo? (affects CI/secrets/EAS setup.)
+1. App location — **DECIDED: a `mobile/` directory in this monorepo** (app + Python push slice live
+   together; simplest for a solo founder). Built on a **MacBook** (iOS dev needs macOS). EAS/secrets
+   scoped to `mobile/`.
 2. Delivery is **decided**: actionable push first (Face-ID-gated Approve), Live Activity optional/later.
    Remaining call: for **LIVE** money, is Face ID (`authenticationRequired`) on Approve sufficient, or
    also require an in-app **slide-to-confirm**? (Paper can be lighter.)
