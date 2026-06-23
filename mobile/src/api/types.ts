@@ -75,6 +75,15 @@ export interface PortfolioHistory {
 
 export type PortfolioRange = '1D' | '3D' | '1W' | '1M' | '1Y' | 'ALL';
 
+export interface Bar {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export interface WatchlistQuote {
   price: number;
   change_pct: number;
@@ -143,6 +152,16 @@ export interface MarketAlert {
   action?: AlertAction | null;
   symbol?: string | null;
   price?: number | null;
+}
+
+export interface PriceAlert {
+  id: number;
+  symbol: string;
+  price: number;
+  direction: string; // "above" | "below"
+  note?: string;
+  triggered?: number; // 0/1
+  created_at?: string;
 }
 
 export interface HealthStatus {

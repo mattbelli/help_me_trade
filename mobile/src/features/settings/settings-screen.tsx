@@ -1,12 +1,15 @@
 import { Alert, View } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import { useHealth } from '@/api/queries';
 import { useAuth } from '@/auth/auth-context';
-import { Button, Card, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
+import { Icon } from '@/components/ui/icon';
+import { Button, Card, PressableScale, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
 import { colors, spacing } from '@/theme';
 
 export function SettingsScreen() {
+  const router = useRouter();
   const health = useHealth();
   const { signOut } = useAuth();
 
@@ -77,6 +80,15 @@ export function SettingsScreen() {
               <Text variant="body">Version {APP_VERSION}</Text>
             </Stack>
           </Card>
+
+          <PressableScale onPress={() => router.push('/alerts')}>
+            <Card>
+              <Row justify="space-between" align="center">
+                <Text variant="bodyStrong">Price alerts</Text>
+                <Icon name="chevron-right" size={20} color={colors.textMuted} />
+              </Row>
+            </Card>
+          </PressableScale>
 
           <Card>
             <Stack gap={spacing.md}>

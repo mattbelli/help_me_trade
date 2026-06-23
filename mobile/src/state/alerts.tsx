@@ -1,7 +1,7 @@
 /**
- * In-memory live-alert store. The cockpit holds ONE market WebSocket connection
- * and pushes every alert here; the Activity feed reads it (seeded from
- * /api/alerts/recent on mount). Kept tiny and dependency-free on purpose.
+ * In-memory event store for the Inbox. The cockpit's single market WebSocket
+ * pushes every event here; the Inbox reads it (seeded from /api/alerts/recent).
+ * Also tracks per-event read state so the Inbox can mark unread + float them up.
  */
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -12,14 +12,18 @@ const MAX_ALERTS = 200;
 interface AlertsValue {
   alerts: MarketAlert[];
   pushAlert: (alert: MarketAlert) => void;
-  /** Replace the feed (used to seed from the REST recent-alerts endpoint). */
   seed: (alerts: MarketAlert[]) => void;
+  readIds: Set<string>;
+  isRead: (id: string) => boolean;
+  markRead: (id: string) => void;
+  markAllRead: () => void;
 }
 
 const AlertsContext = createContext<AlertsValue | null>(null);
 
 export function AlertsProvider({ children }: { children: ReactNode }) {
   const [alerts, setAlerts] = useState<MarketAlert[]>([]);
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const seenIds = useRef<Set<string>>(new Set());
 
   const pushAlert = useCallback((alert: MarketAlert) => {
@@ -33,7 +37,17 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
     setAlerts(next.slice(0, MAX_ALERTS));
   }, []);
 
-  const value = useMemo<AlertsValue>(() => ({ alerts, pushAlert, seed }), [alerts, pushAlert, seed]);
+  const isRead = useCallback((id: string) => readIds.has(id), [readIds]);
+  const markRead = useCallback((id: string) => setReadIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id))), []);
+  const markAllRead = useCallback(
+    () => setAlerts((cur) => { setReadIds(new Set(cur.map((a) => a.id).filter(Boolean) as string[])); return cur; }),
+    [],
+  );
+
+  const value = useMemo<AlertsValue>(
+    () => ({ alerts, pushAlert, seed, readIds, isRead, markRead, markAllRead }),
+    [alerts, pushAlert, seed, readIds, isRead, markRead, markAllRead],
+  );
   return <AlertsContext.Provider value={value}>{children}</AlertsContext.Provider>;
 }
 

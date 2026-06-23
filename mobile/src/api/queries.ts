@@ -3,9 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   approveProposal,
+  createPriceAlert,
+  deletePriceAlert,
+  getBars,
   getHealth,
   getPendingProposals,
   getPortfolioHistory,
+  getPriceAlerts,
+  getRecentAlerts,
   getSnapshot,
   getWatchlist,
   getWatchlistMarket,
@@ -48,6 +53,7 @@ export function useWatchlist() {
     queryKey: ['watchlist'],
     queryFn: getWatchlist,
     enabled,
+    staleTime: 60_000,
   });
 }
 
@@ -60,6 +66,18 @@ export function useWatchlistMarket(symbols: string[] | undefined) {
     queryFn: () => getWatchlistMarket(symbols),
     enabled: enabled && Boolean(symbolsKey),
     refetchInterval: 15_000,
+    staleTime: 12_000,
+  });
+}
+
+export function useBars(symbol: string, timeframe = '1Day', days = 180) {
+  const { enabled } = useAuthenticated();
+
+  return useQuery({
+    queryKey: ['bars', symbol, timeframe, days],
+    queryFn: () => getBars(symbol, timeframe, days),
+    enabled: enabled && Boolean(symbol),
+    staleTime: 60_000,
   });
 }
 
@@ -71,6 +89,7 @@ export function usePendingProposals() {
     queryFn: getPendingProposals,
     enabled,
     refetchInterval: 10_000,
+    staleTime: 8_000,
   });
 }
 
@@ -79,6 +98,43 @@ export function useHealth() {
     queryKey: ['health'],
     queryFn: getHealth,
     refetchInterval: 30_000,
+  });
+}
+
+export function useRecentAlerts() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['alerts', 'recent'],
+    queryFn: getRecentAlerts,
+    enabled,
+    refetchInterval: 15_000,
+    staleTime: 12_000,
+  });
+}
+
+export function usePriceAlerts(symbol?: string) {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['price-alerts', symbol ?? 'all'],
+    queryFn: () => getPriceAlerts(symbol),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useCreatePriceAlert() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createPriceAlert,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['price-alerts'] }),
+  });
+}
+
+export function useDeletePriceAlert() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deletePriceAlert,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['price-alerts'] }),
   });
 }
 

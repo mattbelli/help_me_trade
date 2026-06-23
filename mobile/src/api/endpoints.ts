@@ -2,11 +2,13 @@ import { APP_VERSION } from '@/config';
 
 import { apiFetch } from './client';
 import type {
+  Bar,
   HealthStatus,
   MarketAlert,
   PendingProposal,
   PortfolioHistory,
   PortfolioRange,
+  PriceAlert,
   Snapshot,
   WatchlistMarket,
 } from './types';
@@ -39,6 +41,21 @@ export function getWatchlistMarket(
       ? `?symbols=${encodeURIComponent(symbols.join(','))}`
       : '';
   return apiFetch<WatchlistMarket>(`/api/watchlist/market${query}`);
+}
+
+export function getBars(
+  symbol: string,
+  timeframe = '1Day',
+  days = 180,
+): Promise<{ symbol: string; timeframe: string; bars: Bar[] }> {
+  const params = new URLSearchParams({
+    symbol,
+    timeframe,
+    days: String(days),
+  });
+  return apiFetch<{ symbol: string; timeframe: string; bars: Bar[] }>(
+    `/api/bars?${params.toString()}`,
+  );
 }
 
 export function getPendingProposals(): Promise<{ proposals: PendingProposal[] }> {
@@ -80,6 +97,25 @@ export function rejectProposal(id: string, signal?: AbortSignal): Promise<{ stat
 
 export function getRecentAlerts(): Promise<{ alerts: MarketAlert[] }> {
   return apiFetch<{ alerts: MarketAlert[] }>('/api/alerts/recent');
+}
+
+// --- Price alerts (user-set on stock prices) ---
+export function getPriceAlerts(symbol?: string): Promise<{ alerts: PriceAlert[] }> {
+  const q = symbol ? `?symbol=${encodeURIComponent(symbol)}` : '';
+  return apiFetch<{ alerts: PriceAlert[] }>(`/api/price-alerts${q}`);
+}
+
+export function createPriceAlert(input: {
+  symbol: string;
+  price: number;
+  direction: 'above' | 'below';
+  note?: string;
+}): Promise<PriceAlert> {
+  return apiFetch<PriceAlert>('/api/price-alerts', { method: 'POST', body: input });
+}
+
+export function deletePriceAlert(id: number): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/api/price-alerts/${id}`, { method: 'DELETE' });
 }
 
 export interface RegisterDeviceInput {
