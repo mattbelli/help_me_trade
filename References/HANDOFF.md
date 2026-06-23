@@ -1,4 +1,4 @@
-# Handoff — "you are here" (2026-06-22, late)
+# Handoff — "you are here" (2026-06-23, late)
 
 *Bootstrap for a fresh session. Read this first, then `CLAUDE.md` (mission + working agreements, auto-loaded),
 `AGENTS.md` (codebase map), and per-topic refs: `MULTI_ACCOUNT_PLAN.md`, `BUILD.md` (roadmap + dated history),
@@ -9,7 +9,53 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — make dip + earnings live ROUND-TRIPS: the per-strategy EXIT MODULE (Phase D) + EARNINGS sleeve (Phase E)
+## CURRENT FOCUS — Schwab real-volume market data → watchlist RVOL ("vol % above expected")
+**Goal (founder's next feature):** a watchlist column that flags, in real time intraday, when a symbol's
+volume *so far today* is unusually high *for this time of day* — comparing today's cumulative volume to the
+historically expected cumulative volume by that time (time-of-day **volume profile**, NOT a flat daily
+average). Needs **real consolidated volume**: Alpaca's free IEX feed is only ~2.4% of volume. Research +
+specs are saved: `References/RVOL_VOLUME_PROFILE_RESEARCH.md` (algorithm: 5-min buckets, fraction-of-day
+normalize, ~20-day median/trimmed-mean window, exclude half-days/earnings, `RVOL(t)=today_cum/expected_cum`;
+display FINALIZED = "2.3×" multiplier + color band, suppress first ~15 min, carry yesterday greyed overnight)
++ `References/SCHWAB_MARKETDATA_RESEARCH.md` (integration plan). Memory: `watchlist-rvol-feature`.
+
+**Shipped this session (commits on `main`):**
+- ✅ **Watchlist intraday series** (`0345350`) — `/api/watchlist/market` returns a per-symbol `intraday`
+  array (today's RTH 5-min closes) for the phone card's real 1-day chart; fails soft to `[]`.
+- ✅ **Chart pagination fix** (`83ffcbf`) — Alpaca `/v2/stocks/bars` is paginated; our fetchers never followed
+  `next_page_token`, so long windows truncated to page 1 (the web 1H/180d chart's last candle was stuck at
+  Feb 2). All four `brokers/alpaca.py` fetchers now paginate (50-page cap). Verified: 1H/180d 216→1069 bars.
+- ✅ **Schwab market-data provider — step 1** (`0c9ac3e`) — new `MarketDataProvider` protocol (`brokers/base.py`)
+  + READ-ONLY `SchwabMarketData` (`brokers/schwab_market_data.py`, **no order methods**) mapping Schwab
+  `pricehistory` → `StockBar`; `get_market_data_provider()` factory resolver on `MARKET_DATA_PROVIDER`
+  (**default `alpaca`** → inert until flipped). **Verified live end-to-end: SPY 66.6M / AAPL 51.9M daily vol
+  vs Alpaca IEX ~1.9M = ~30-35× (real consolidated).** 5Min intraday works; `1Hour` raises (deferred). 664 tests.
+
+**NEXT (in order):**
+1. **Retest the headless Schwab login on serv.** `python -m scripts.schwab_login` (now uses
+   `client_from_manual_flow` — prints a URL, paste the redirect back; no local browser). It threw
+   "unauthorized" earlier almost certainly due to the placeholder-creds shadow bug (now fixed) — retest.
+   **⚠️ 7-DAY TOKEN CLIFF:** serv's current Schwab token was COPIED from the founder's PC (minted 2026-06-22),
+   so it **expires ~2026-06-29**. serv must mint its OWN token before then or Schwab data goes dark.
+2. **Step 1b — rewire consumers** to `get_market_data_provider()` instead of `_require_alpaca()`:
+   `/api/bars`, `/api/watchlist/market` (api/main.py), the duck-typed signal scans. Add **`1Hour` aggregation**
+   (Schwab minute API tops out at 30Min → aggregate two 30-min bars) since the chart uses 1H. Keep default
+   `alpaca` until validated, then flip `MARKET_DATA_PROVIDER=schwab`.
+3. **Quotes/`totalVolume`** for live intraday volume; **nightly volume-profile precompute** job; then the
+   **RVOL compute + watchlist column** per the spec.
+4. **APNs day-6 token-expiry alert** + a headless weekly re-auth path (the dad-with-a-job mitigation for the cliff).
+
+> ⚠️ **SCHWAB AUTH BUG — recorded, fixed, but know it (could resurface on dep updates):** schwab-py builds its
+> authlib OAuth2 session **without** setting `token_endpoint_auth_method`, so authlib defaults to
+> `client_secret_post` (creds in the body) — which Schwab's token endpoint **rejects with `invalid_client`**.
+> Schwab requires **HTTP Basic** (`client_secret_basic`), and authlib binds the auth method at construction
+> (setting the attribute post-hoc does NOT work). Fix lives in `brokers/schwab_auth.py::_client_from_token_basic`
+> (builds the session with `client_secret_basic` + a token-persistence writer). **This fixed Schwab auth
+> APP-WIDE — the existing account-sync `SchwabAdapter` was broken by the same bug.** Second, separate gotcha:
+> `config.settings.schwab_config()` reads creds **only from `data/settings.json`, never `.env`** — that file
+> had `.env.example` placeholder Schwab creds shadowing the real `.env` values (corrected on serv; gitignored).
+
+## SHIPPED & MONITORING — make dip + earnings live ROUND-TRIPS: the per-strategy EXIT MODULE (Phase D) + EARNINGS sleeve (Phase E)
 Entries already work (phone-approved through the chokepoint). What's missing is **exits** — and the earnings
 strategy *can't* go live without them (its edge IS selling ~1 day before the next earnings). Settled design
 (founder): **exits are per-strategy**, governed by each strategy's existing **`exit_mode`** field
@@ -163,6 +209,12 @@ gap-down stops fill at the gapped market price on the first post-open poll cycle
 - **Access:** backend `0.0.0.0:8000` + frontend `:3001` on serv, tailnet only (`serv.tail78aab8.ts.net`). The app
   is pinned to that exact hostname (CORS + Host allowlist + baked `NEXT_PUBLIC_API_URL`) — accessing by raw
   tailnet IP fails CORS; use the `.ts.net` name. Never port-forward to the public internet.
+
+- **Schwab auth needs `client_secret_basic`** (schwab-py defaults to `client_secret_post` → `invalid_client`)
+  and **creds come from `data/settings.json`, NOT `.env`** (`schwab_config()`). Both fixed — see the boxed
+  note under CURRENT FOCUS. Schwab is **READ-ONLY** (data + ledger sync; NEVER execute against it). The
+  market-data path uses `get_market_data_provider()` (`MARKET_DATA_PROVIDER` flag, default `alpaca`), separate
+  from the execution broker. **serv's Schwab token expires ~2026-06-29** (copied from PC) — re-auth before then.
 
 ## The validated edges
 - **Dip-Buy (triple-validated, Norgate survivorship-free):** healthy(>SMA200) + oversold(−5%/3d) +
