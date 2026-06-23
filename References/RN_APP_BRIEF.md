@@ -77,8 +77,15 @@ app is **backgrounded or the phone is locked**, you must build push delivery:
   proposal, send an **actionable APNs notification** AND start/update an **iOS Live Activity** so it
   surfaces in the **Dynamic Island** + lock screen with Approve/Reject. On approve/reject/expire/fill,
   **update/end** the Live Activity.
-- Decide Expo Push Service vs direct APNs (ActivityKit Live Activities require their own push-to-start /
-  per-activity update tokens — plan this carefully; it's the most novel part).
+- **Transport: DECIDED → direct token-based APNs (.p8), not Expo Push.** Why: (1) Live Activities /
+  Dynamic Island require **raw APNs** (Expo's push service can't do ActivityKit push-to-start / update
+  tokens), so we'd need APNs anyway — going Expo-first means building push twice; (2) iOS-only, so Expo's
+  cross-platform relay buys nothing; (3) sensitive single-user trading app → Apple-direct beats a
+  third-party relay for "approve this trade." **The serv push core already exists, transport-pluggable
+  and inert** (`signals/push.py` has a `provider` seam + an APNs stub; `device_tokens.token_type` supports
+  `'apns'`); only `_send_apns` (token-based JWT/HTTP-2; a lib like `aioapns`) + credentials remain.
+  **RN client:** register the **native device push token** (`getDevicePushTokenAsync`) + the ActivityKit
+  tokens, `token_type='apns'` — NOT an Expo push token. (The Expo path stays as a zero-cost inert fallback.)
 This server slice is in the **`api/` + `db/` + `trading/proposals.py`** lanes — coordinate with the serv
 agent (see §9) since those are shared files.
 
@@ -197,7 +204,7 @@ factor with zero native complexity. Net mapping:
 - Data layer: React Query (or equivalent) over the REST API + a resilient WS client for `/ws/market`.
 - Gestures/motion: react-native-reanimated + react-native-gesture-handler; reorderable list via a
   draggable-flatlist approach. Paged navigation via Expo Router / react-navigation — your call, justify it.
-- Push: APNs (via Expo Push or direct) + ActivityKit for Live Activities. This is the riskiest area —
+- Push: **direct token-based APNs** (decided — see §3) + ActivityKit for Live Activities. This is the riskiest area —
   spike it early in the plan.
 
 ## 9. Coordination (three agents, three lanes)
@@ -239,7 +246,8 @@ Keep the focus on the glanceable home + approval unlock + cockpit, done *excelle
    Remaining call: for **LIVE** money, is Face ID (`authenticationRequired`) on Approve sufficient, or
    also require an in-app **slide-to-confirm**? (Paper can be lighter.)
 3. iOS-only v1 acceptable (Android deferred)?
-4. Push transport preference: Expo Push Service vs direct APNs?
+4. Push transport — **DECIDED: direct token-based APNs** (.p8), not Expo (Live Activities need raw APNs;
+   iOS-only; trust). RN client registers the native device token + ActivityKit tokens. (See §3.)
 5. Visual direction: match the existing web app's dark theme exactly, or take a fresh premium pass that
    shares only the brand feel?
 6. Auth/onboarding: how does the phone get the API token (manual paste once / QR from the web app / other)?
