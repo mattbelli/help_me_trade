@@ -23,17 +23,26 @@ export const TRADE_PROPOSAL_CATEGORY = 'TRADE_PROPOSAL';
 export const APPROVE_ACTION = 'APPROVE';
 export const REJECT_ACTION = 'REJECT';
 
-/** Show banners + play sound for foreground pushes; never silently swallow them. */
-export function configureNotificationHandler(): void {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
+/**
+ * Foreground handler. CRITICAL safety choice: a trade-proposal push is NOT shown
+ * as an actionable in-app banner — iOS does NOT enforce `isAuthenticationRequired`
+ * for banner taps while the app is foregrounded, so an in-app Approve button would
+ * bypass Face ID. In the foreground the user approves via the in-app Approvals card
+ * (which IS Face-ID gated); the lock-screen/background path keeps the iOS auth gate.
+ * Other (non-trade) pushes display normally. Registered once at module load.
+ */
+Notifications.setNotificationHandler({
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as { type?: string } | undefined;
+    const isTradeProposal = data?.type === 'trade_proposal';
+    return {
+      shouldShowBanner: !isTradeProposal,
+      shouldShowList: !isTradeProposal,
+      shouldPlaySound: !isTradeProposal,
       shouldSetBadge: false,
-    }),
-  });
-}
+    };
+  },
+});
 
 /**
  * Register the actionable category. Approve requires device auth (Face ID /
@@ -79,9 +88,14 @@ export async function registerForPush(): Promise<string | null> {
     }
     if (status !== 'granted') return null;
 
-    // Direct APNs: the NATIVE device token (not an Expo push token).
+    // Direct APNs: the NATIVE device token (not an Expo push token). iOS returns a
+    // hex string, but defensively hex-encode if a raw byte array ever surfaces.
     const deviceToken = await Notifications.getDevicePushTokenAsync();
-    const token = String(deviceToken.data);
+    const raw: unknown = deviceToken.data;
+    const token =
+      raw instanceof Uint8Array
+        ? Array.from(raw).map((b) => b.toString(16).padStart(2, '0')).join('')
+        : String(raw);
     if (!token) return null;
 
     await registerDevice({ token, platform: Platform.OS, token_type: 'apns' });

@@ -2,14 +2,15 @@
  * usePush — wires the lock-screen approval actions to the backend.
  *
  * SAFETY: the Approve notification action is declared `isAuthenticationRequired`
- * (notifications.ts), so iOS performs Face ID / passcode BEFORE this handler ever
- * runs — a pocket-press or glance cannot reach here. When it does run we send the
+ * (notifications.ts), so iOS performs Face ID / passcode before delivering it from
+ * the lock screen / background. Foreground trade pushes are NOT shown as actionable
+ * banners (that path wouldn't enforce auth) — in-app approval goes through the
+ * Face-ID-gated Approvals card instead. When an action does run we send the
  * proposal's payload_hash (carried in the push data); the server re-validates and
- * the chokepoint executes. We surface the outcome as a local notification and
- * refresh cached state. Reject is auth-free (worst case: a forgone trade).
+ * the chokepoint executes. Outcome is surfaced via a local notification.
  *
  * Handles warm taps (listener) and cold start (getLastNotificationResponseAsync),
- * deduped so an action never fires twice.
+ * deduped via a MODULE-LEVEL set so a component remount can't replay an action.
  */
 import * as Notifications from 'expo-notifications';
 import { useEffect, useRef } from 'react';
@@ -22,10 +23,15 @@ import { useAuth } from '@/auth/auth-context';
 import {
   APPROVE_ACTION,
   REJECT_ACTION,
-  configureNotificationHandler,
   registerForPush,
   registerTradeProposalCategory,
 } from './notifications';
+
+// Survives component remounts within a session — prevents a cold-start action
+// from firing twice if the host component re-mounts.
+const handledResponses = new Set<string>();
+// Background actions get a hard deadline; iOS suspends the process quickly.
+const ACTION_TIMEOUT_MS = 20_000;
 
 interface ProposalPushData {
   type?: string;
@@ -41,41 +47,55 @@ function refreshProposals(): void {
 
 async function notifyOutcome(title: string, body: string): Promise<void> {
   try {
-    await Notifications.scheduleNotificationAsync({ content: { title, body }, trigger: null });
+    await Notifications.scheduleNotificationAsync({
+      content: { title, body: body.slice(0, 80) },
+      trigger: null,
+    });
   } catch {
     // best-effort feedback only
   }
 }
 
+function withTimeout(): { signal: AbortSignal; done: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ACTION_TIMEOUT_MS);
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
+}
+
 /** Execute an Approve action. iOS has already authenticated the user. */
 async function handleApprove(data: ProposalPushData): Promise<void> {
-  const id = data.proposal_id;
-  const hash = data.payload_hash;
+  const id = data.proposal_id?.trim();
+  const hash = data.payload_hash?.trim();
   if (!id || !hash) return; // never act on a malformed payload
+  const { signal, done } = withTimeout();
   try {
-    const res = await approveProposal(id, hash);
+    const res = await approveProposal(id, hash, signal);
     await notifyOutcome(
       res.status === 'executed' ? 'Approved' : 'Not executed',
       res.status === 'executed' ? 'Order sent to the broker.' : `Server: ${res.status}`,
     );
   } catch (err) {
-    const status = err instanceof ApiError && err.body && typeof err.body === 'object' && 'status' in err.body
-      ? String((err.body as { status: unknown }).status)
-      : 'failed';
+    const status =
+      err instanceof ApiError && err.body && typeof err.body === 'object' && 'status' in err.body
+        ? String((err.body as { status: unknown }).status)
+        : 'failed';
     await notifyOutcome('Not executed', status === 'failed' ? 'Network error — trade not sent.' : `Blocked: ${status}`);
   } finally {
+    done();
     refreshProposals();
   }
 }
 
 async function handleReject(data: ProposalPushData): Promise<void> {
-  const id = data.proposal_id;
+  const id = data.proposal_id?.trim();
   if (!id) return;
+  const { signal, done } = withTimeout();
   try {
-    await rejectProposal(id);
+    await rejectProposal(id, signal);
   } catch {
     // swallow — rejection failure just leaves it pending
   } finally {
+    done();
     refreshProposals();
   }
 }
@@ -87,29 +107,28 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
     onOpenRef.current = onOpenApprovals;
   }, [onOpenApprovals]);
 
-  // One-time handler config (foreground display behavior).
-  useEffect(() => {
-    configureNotificationHandler();
-  }, []);
-
   // Register category + device token whenever we have an authenticated session.
   useEffect(() => {
     if (!token) return;
     void (async () => {
-      await registerTradeProposalCategory();
+      try {
+        await registerTradeProposalCategory();
+      } catch {
+        // If the category fails to register, action buttons won't appear — log-only.
+      }
       await registerForPush();
     })();
   }, [token]);
 
-  // Respond to taps / action buttons (warm + cold start), deduped by response id.
+  // Respond to taps / action buttons (warm + cold start), deduped across remounts.
   useEffect(() => {
-    const handled = new Set<string>();
-
     function dispatch(response: Notifications.NotificationResponse | null): void {
       if (!response) return;
       const key = response.notification.request.identifier;
-      if (key && handled.has(key)) return;
-      if (key) handled.add(key);
+      if (key) {
+        if (handledResponses.has(key)) return;
+        handledResponses.add(key);
+      }
 
       const data = (response.notification.request.content.data ?? {}) as ProposalPushData;
       switch (response.actionIdentifier) {
@@ -120,8 +139,8 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
           void handleReject(data);
           break;
         default:
-          // Body tap → deep-link into the Approvals surface.
-          onOpenRef.current?.();
+          // Body tap → deep-link into Approvals, but only for our trade pushes.
+          if (data.type === 'trade_proposal') onOpenRef.current?.();
       }
     }
 

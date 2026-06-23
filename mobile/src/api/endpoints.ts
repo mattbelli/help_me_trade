@@ -59,20 +59,22 @@ export interface ApproveProposalResult {
 export function approveProposal(
   id: string,
   payloadHash: string,
+  signal?: AbortSignal,
 ): Promise<ApproveProposalResult> {
   return apiFetch<ApproveProposalResult>(
     `/api/proposals/${encodeURIComponent(id)}/approve`,
     {
       method: 'POST',
       body: { payload_hash: payloadHash },
+      signal,
     },
   );
 }
 
-export function rejectProposal(id: string): Promise<{ status: string }> {
+export function rejectProposal(id: string, signal?: AbortSignal): Promise<{ status: string }> {
   return apiFetch<{ status: string }>(
     `/api/proposals/${encodeURIComponent(id)}/reject`,
-    { method: 'POST' },
+    { method: 'POST', signal },
   );
 }
 
