@@ -28,7 +28,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       try {
-        const stored = await getToken();
+        let stored = await getToken();
+        // Dev-only convenience: auto-auth from EXPO_PUBLIC_API_TOKEN when nothing
+        // is stored, so device/simulator dev doesn't require typing the token.
+        // Gated to __DEV__ — never active in a release build. Persist it so apiFetch
+        // (which reads the token from secure storage) sends it on every request.
+        const devToken = __DEV__ ? (process.env.EXPO_PUBLIC_API_TOKEN ?? '').trim() : '';
+        if (!stored && devToken) {
+          await setToken(devToken);
+          stored = devToken;
+        }
         if (!cancelled) {
           setTokenState(stored);
         }
