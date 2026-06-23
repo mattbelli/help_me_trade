@@ -789,4 +789,7 @@ def push_config() -> dict[str, Any]:
         "apns_key_id": os.environ.get("APNS_KEY_ID", "").strip(),
         "apns_team_id": os.environ.get("APNS_TEAM_ID", "").strip(),
         "apns_bundle_id": os.environ.get("APNS_BUNDLE_ID", "").strip(),
+        "apns_key_path": os.environ.get("APNS_KEY_PATH", "").strip(),
+        "apns_use_sandbox": os.environ.get("APNS_USE_SANDBOX", "1").strip().lower()
+        in ("1", "true", "yes"),
     }
