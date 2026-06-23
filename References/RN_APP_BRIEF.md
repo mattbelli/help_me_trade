@@ -122,17 +122,35 @@ left/right to the others.
 polish TOS lacks. **Feel/visual anchors: Apple Stocks, Apple Health, Apple Fitness**, plus the craft
 leaders in the UI playbook dossier.
 
-## 6. The killer feature: approve from the Dynamic Island / Live Activity
-This is what makes the product. Design it deliberately:
-- New proposal → APNs push → an **actionable notification** (Approve / Reject buttons) AND a **Live
-  Activity** showing the trade + a live expiry countdown in the **Dynamic Island** and lock screen.
-- Approve/Reject from the notification/Live Activity hits `/approve` (with `payload_hash`) or `/reject`
-  directly — ideally without forcing a full app open (notification action / app intent).
-- The Live Activity updates as state changes (approved → executing → filled, or rejected/expired) and
-  ends cleanly.
-- Hard parts to plan for: ActivityKit + RN (Expo doesn't support Live Activities out of the box — needs
-  a custom native module / config plugin + an EAS dev client), per-activity push tokens, background
-  action handling, and keeping the `payload_hash` fresh so an approval can't act on a stale proposal.
+## 6. The killer feature: get pinged, approve safely from the lock screen
+**Delivery decision (founder, refined): lead with a standard ACTIONABLE PUSH NOTIFICATION — NOT a
+persistent Live Activity.** A Live Activity sits on screen for up to 12h and isn't wanted all market day
+(clutter / battery). Demote it to **optional, short-lived, opt-in** (auto-ends on decision/expiry) — not
+the primary channel. Primary flow: a proposal arrives → an **actionable push** (expandable on the lock
+screen) with **Approve / Reject** → the user acts without opening the app if they choose.
+- This is also **lower-risk to build**: actionable notifications via `expo-notifications`
+  (`setNotificationCategoryAsync` with action buttons) are standard and stable, versus the churning Live
+  Activity native-extension path. So ActivityKit/Live Activity is now *off the critical path* — a later,
+  optional nicety, not the foundation.
+
+**Anti-fat-finger / pocket-press is a HARD requirement (this becomes real money):**
+- **Asymmetric actions.** **Reject** = low-friction (one tap; worst case you forgo a trade — never moves
+  money the wrong way). **Approve** must be *deliberate*.
+- **Approve uses `authenticationRequired`** (iOS `UNNotificationActionOptions` / expo-notifications
+  `isAuthenticationRequired`) → **Face ID / passcode required before it runs.** You can approve from the
+  lock screen, but only after Face ID — proves intent + defeats pocket presses. For **LIVE** money,
+  additionally require an in-app **slide-to-confirm** (deliberate gesture, not a tap) or a second Face ID.
+- Notification action buttons only surface on **expand/long-press**, not a glance — keep it that way.
+- Approve always sends the current **`payload_hash`** and respects **`expires_at`** (server rejects
+  stale/expired); surface server rejections honestly.
+
+**Post-action state** (approved→executing→filled, or rejected/expired): reflect via a follow-up push or
+in-app. If a short-lived opt-in Live Activity is used for a genuinely-pending proposal, end it cleanly on
+decision/expiry (mind the 12h cap — see `RN_UI_PLAYBOOK.md`). With push-first, that cap rarely matters.
+
+Must-haves to plan for: the actionable-push category/actions + the `authenticationRequired` gate +
+keeping `payload_hash` fresh. (Live Activity / Dynamic Island is optional — see the playbook for its
+current, churned tooling reality if you choose to add it later.)
 
 ## 7. Safety — non-negotiable (this becomes real money)
 - **Every order — manual OR an approved proposal — routes through the SAME server chokepoint.** Whether
@@ -146,6 +164,9 @@ This is what makes the product. Design it deliberately:
 - **Sells only reduce a held long** (server enforces; the app must never imply shorting).
 - **Approval integrity:** always send the current `payload_hash`; respect `expires_at` (show countdown,
   disable expired); surface server rejections honestly (kill-switch, risk, expiry).
+- **No accidental approvals.** Approve is the only action that can move money → it must require deliberate
+  confirmation (Face ID / `authenticationRequired`, + slide-to-confirm for live). Reject and all read
+  surfaces stay low-friction. A pocket press / glance must NEVER execute a trade. (See §6.)
 - **Honest numbers only:** render the calibrated win%/EV the server provides — never invent or round-trip
   fabricated confidence. If a field is missing, show it as unknown.
 - Secure the API token (Keychain); the app is tailnet-only — never weaken Host/CORS pinning.
@@ -192,8 +213,9 @@ Keep the focus on the glanceable home + approval unlock + cockpit, done *excelle
 
 ## 12. Open questions to resolve in plan mode (ask the founder first)
 1. App location: a new `mobile/` dir in this repo, or a separate repo? (affects CI/secrets/EAS setup.)
-2. Notification depth: approve **directly from the Live Activity/notification** (no app open) as the
-   target, accepting the extra native complexity — confirm that's the bar.
+2. Delivery is **decided**: actionable push first (Face-ID-gated Approve), Live Activity optional/later.
+   Remaining call: for **LIVE** money, is Face ID (`authenticationRequired`) on Approve sufficient, or
+   also require an in-app **slide-to-confirm**? (Paper can be lighter.)
 3. iOS-only v1 acceptable (Android deferred)?
 4. Push transport preference: Expo Push Service vs direct APNs?
 5. Visual direction: match the existing web app's dark theme exactly, or take a fresh premium pass that
