@@ -28,6 +28,7 @@ import {
   Stack,
   Text,
 } from '@/components/ui';
+import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useNav } from '@/state/nav';
 import { colors, pnlColor, radius, spacing } from '@/theme';
 
@@ -49,6 +50,10 @@ export function PortfolioScreen() {
   const curve = usePortfolioHistory(range);
   const pending = usePendingProposals();
   const pendingCount = pending.data?.proposals.length ?? 0;
+
+  const { refreshing, onRefresh } = usePullRefresh(() =>
+    Promise.all([snapshot.refetch(), today.refetch(), curve.refetch()]),
+  );
 
   const summary = snapshot.data?.all_accounts_summary;
   const account = snapshot.data?.account;
@@ -83,15 +88,7 @@ export function PortfolioScreen() {
         keyExtractor={(item) => item.key}
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'] }}
         refreshControl={
-          <RefreshControl
-            refreshing={snapshot.isRefetching}
-            onRefresh={() => {
-              void snapshot.refetch();
-              void today.refetch();
-              void curve.refetch();
-            }}
-            tintColor={colors.accent}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         ListHeaderComponent={
           <Stack gap={spacing.xl} style={{ paddingTop: spacing['3xl'], paddingBottom: spacing.lg }}>

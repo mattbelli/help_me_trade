@@ -15,6 +15,7 @@ import {
   Stack,
   Text,
 } from '@/components/ui';
+import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { colors, spacing } from '@/theme';
 
 export default function AlertsScreen() {
@@ -22,6 +23,7 @@ export default function AlertsScreen() {
   const alerts = usePriceAlerts();
   const deleteAlert = useDeletePriceAlert();
   const items = alerts.data?.alerts ?? [];
+  const { refreshing, onRefresh } = usePullRefresh(() => alerts.refetch());
 
   if (alerts.isError) {
     return (
@@ -40,11 +42,7 @@ export default function AlertsScreen() {
         data={items}
         keyExtractor={(item) => String(item.id)}
         refreshControl={
-          <RefreshControl
-            refreshing={alerts.isRefetching}
-            onRefresh={() => void alerts.refetch()}
-            tintColor={colors.accent}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'] }}
         ListHeaderComponent={

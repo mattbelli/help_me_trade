@@ -77,6 +77,7 @@ export function CockpitPager() {
           ref={pagerRef}
           style={{ flex: 1 }}
           initialPage={0}
+          offscreenPageLimit={4}
           onPageSelected={(e) => {
             setPage(e.nativeEvent.position);
             haptics.selection();

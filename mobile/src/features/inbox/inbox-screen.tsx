@@ -16,6 +16,7 @@ import { usePendingProposals } from '@/api/queries';
 import type { MarketAlert, PendingProposal } from '@/api/types';
 import { Badge, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
 import { ProposalCard } from '@/features/approvals/proposal-card';
+import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useAlerts } from '@/state/alerts';
 import { colors, hairline, spacing } from '@/theme';
 
@@ -65,6 +66,10 @@ export function InboxScreen() {
   const [loadingSeed, setLoadingSeed] = useState(true);
   const seeded = useRef(false);
 
+  const { refreshing, onRefresh } = usePullRefresh(() =>
+    Promise.all([pending.refetch(), getRecentAlerts().then((r) => seed(r.alerts ?? [])).catch(() => undefined)]),
+  );
+
   // Seed once from the REST recent-alerts; live updates arrive via the store (WS).
   useEffect(() => {
     if (seeded.current) return;
@@ -100,11 +105,7 @@ export function InboxScreen() {
         keyExtractor={(r) => r.id}
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'] }}
         refreshControl={
-          <RefreshControl
-            refreshing={pending.isRefetching}
-            onRefresh={() => { void pending.refetch(); void getRecentAlerts().then((r) => seed(r.alerts ?? [])).catch(() => {}); }}
-            tintColor={colors.accent}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         ListHeaderComponent={
           <Stack gap={spacing.md} style={{ paddingTop: spacing['3xl'], paddingBottom: spacing.sm }}>

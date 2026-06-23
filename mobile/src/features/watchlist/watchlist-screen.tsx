@@ -20,6 +20,7 @@ import {
   Stack,
   Text,
 } from '@/components/ui';
+import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { colors, spacing } from '@/theme';
 
 export function WatchlistScreen() {
@@ -30,6 +31,10 @@ export function WatchlistScreen() {
   const symbols = watchlist.data?.symbols ?? [];
   const market = useWatchlistMarket(symbols);
   const quotes = market.data?.quotes ?? {};
+
+  const { refreshing, onRefresh } = usePullRefresh(() =>
+    Promise.all([watchlist.refetch(), market.refetch()]),
+  );
 
   const loading = watchlist.isLoading;
   const marketLoading = market.isLoading && symbols.length > 0;
@@ -72,14 +77,7 @@ export function WatchlistScreen() {
         numColumns={columns}
         keyExtractor={(symbol) => symbol}
         refreshControl={
-          <RefreshControl
-            refreshing={watchlist.isRefetching || market.isRefetching}
-            onRefresh={() => {
-              void watchlist.refetch();
-              void market.refetch();
-            }}
-            tintColor={colors.accent}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'] }}
         ListHeaderComponent={
