@@ -105,10 +105,15 @@ Native iOS app (the "phone-approval unlock") is being built on a **MacBook** in 
 (monorepo)** by a dedicated agent. Specs: `References/RN_APP_BRIEF.md` (what/why + integration contract;
 push-first delivery, Face-ID-gated approve, tasteful ephemeral Dynamic Island, manual orders
 chokepoint-routed) + `References/RN_UI_PLAYBOOK.md` (adversarially-verified UI/RN dossier). **Server
-push-delivery core shipped + INERT** (`db/device_tokens.py`, `api/device_routes.py` →
-`POST /api/devices`, `signals/push.py`, `push_config()`, fail-safe hook in `create_phone_proposal`):
-no-op until `PUSH_ENABLED=1` + Expo/APNs creds. Lanes: RN agent owns `mobile/` + may extend the push
-slice; serv stays out of `mobile/`. The Live-Activity (real Dynamic Island) push path is Phase 3+.
+push-delivery is LIVE** (`db/device_tokens.py`, `api/device_routes.py` → `POST /api/devices`,
+`signals/push.py`, `push_config()`, fail-safe hook in `create_phone_proposal`). **Direct token-based APNs
+sender (`_send_apns`, ES256 JWT via `cryptography` + HTTP/2 via `httpx`/`h2`) merged to main** (the RN
+agent built it in its lane; serv reviewed line-by-line + verified: deps present, real `.p8` signs a valid
+JWT, fail-safe, no key/token logged). `.env`: `PUSH_ENABLED=1`, `PUSH_PROVIDER=apns`, APNs creds,
+`.p8` at gitignored `secrets/apns.p8`, `APNS_USE_SANDBOX=1` (flip to 0 for a prod/TestFlight build). **1
+APNs device registered** → new proposals now fire a real push. Lanes: RN agent owns `mobile/` + the push
+slice; serv stays out of `mobile/`. Live-Activity (real Dynamic Island) push is Phase 3+. **Follow-up:** a
+`_send_apns` unit test (mock httpx; assert request shape + fail-safe) — path verified live but untested.
 
 ## Planned — execution enhancements (NOT implemented; design captured)
 Current execution is **market orders, regular-hours only** (entries `strategy_scan.py`, exits `exit_engine.py` both
