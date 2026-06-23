@@ -78,13 +78,35 @@ async function authenticateForApprove(summary: string): Promise<boolean> {
   return res.success;
 }
 
-export function ProposalCard({ proposal }: { proposal: PendingProposal }) {
+export interface ProposalResolution {
+  ok: boolean;
+  message: string;
+  status: string;
+}
+
+export function ProposalCard({
+  proposal,
+  onResolved,
+}: {
+  proposal: PendingProposal;
+  /**
+   * Fired once the proposal reaches a terminal verdict. The parent persists this
+   * so the honest result (e.g. "Blocked by the risk engine") survives the
+   * pending-list refetch that would otherwise unmount the card instantly.
+   */
+  onResolved?: (id: string, res: ProposalResolution) => void;
+}) {
   const approve = useApproveProposal();
   const reject = useRejectProposal();
   const countdown = useCountdown(proposal.expires_at);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   // Synchronous guard against double-fire before React re-renders the disabled state.
   const inFlight = useRef(false);
+
+  function resolve(res: ProposalResolution) {
+    setPhase({ kind: 'done', status: res.status, ok: res.ok, message: res.message });
+    onResolved?.(proposal.id, res);
+  }
 
   const isSell = proposal.side?.toLowerCase() === 'sell';
   const busy = phase.kind === 'authing' || phase.kind === 'submitting' || phase.kind === 'rejecting';
@@ -107,17 +129,16 @@ export function ProposalCard({ proposal }: { proposal: PendingProposal }) {
         const res = await approve.mutateAsync({ id: proposal.id, payloadHash: proposal.payload_hash });
         const copy = resultCopy(res.status, res.reason);
         copy.ok ? haptics.success() : haptics.error();
-        setPhase({ kind: 'done', status: res.status, ok: copy.ok, message: copy.message });
+        resolve({ status: res.status, ...copy });
       } catch (err) {
         // 409s (hash_mismatch/expired/already_decided/blocked) arrive as ApiError —
         // surface the real reason, never a fake success or a misleading "network error".
         haptics.error();
         const fromServer = statusFromError(err);
         if (fromServer) {
-          const copy = resultCopy(fromServer.status, fromServer.reason);
-          setPhase({ kind: 'done', status: fromServer.status, ok: copy.ok, message: copy.message });
+          resolve({ status: fromServer.status, ...resultCopy(fromServer.status, fromServer.reason) });
         } else {
-          setPhase({ kind: 'done', status: 'failed', ok: false, message: 'Network error — the trade was not sent.' });
+          resolve({ status: 'failed', ok: false, message: 'Network error — the trade was not sent.' });
         }
       }
     } finally {
@@ -132,7 +153,7 @@ export function ProposalCard({ proposal }: { proposal: PendingProposal }) {
     setPhase({ kind: 'rejecting' });
     try {
       await reject.mutateAsync(proposal.id);
-      setPhase({ kind: 'done', status: 'rejected', ok: true, message: 'Rejected.' });
+      resolve({ status: 'rejected', ok: true, message: 'Rejected.' });
     } catch {
       haptics.error();
       // Recoverable — drop back to idle so the user can retry without a full refresh.
