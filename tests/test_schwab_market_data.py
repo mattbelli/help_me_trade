@@ -1,0 +1,270 @@
+"""Schwab read-only market data provider tests."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from schwab.client import Client
+
+from brokers.alpaca import AlpacaAdapter
+from brokers.base import MarketDataProvider
+from brokers.errors import BrokerError
+from brokers.factory import get_market_data_provider
+from brokers.schwab_market_data import SchwabMarketData
+
+_EPOCH_MS_EARLY = 1_782_221_700_000  # 2026-06-23T13:35:00Z
+_EPOCH_MS_LATE = 1_782_225_300_000  # 2026-06-23T14:35:00Z
+
+
+def _candles_payload(*, empty: bool = False) -> dict:
+    if empty:
+        return {"candles": [], "symbol": "AAPL", "empty": True}
+    return {
+        "candles": [
+            {
+                "open": 200.0,
+                "high": 201.0,
+                "low": 199.0,
+                "close": 200.5,
+                "volume": 12_345,
+                "datetime": _EPOCH_MS_LATE,
+            },
+            {
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 9_876,
+                "datetime": _EPOCH_MS_EARLY,
+            },
+        ],
+        "symbol": "AAPL",
+        "empty": False,
+    }
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def _provider(client: MagicMock | None = None) -> SchwabMarketData:
+    return SchwabMarketData(client or MagicMock())
+
+
+def test_parse_candles_maps_fields_and_sorts_ascending() -> None:
+    bars = SchwabMarketData._parse_candles(_candles_payload())
+
+    assert len(bars) == 2
+    assert bars[0].time == "2026-06-23T13:35:00Z"
+    assert bars[1].time == "2026-06-23T14:35:00Z"
+    assert bars[0].open == 100.0
+    assert bars[0].high == 101.0
+    assert bars[0].low == 99.0
+    assert bars[0].close == 100.5
+    assert bars[0].volume == 9876.0
+    assert isinstance(bars[0].volume, float)
+
+
+def test_parse_candles_empty_payload() -> None:
+    assert SchwabMarketData._parse_candles(_candles_payload(empty=True)) == []
+    assert SchwabMarketData._parse_candles({"candles": [], "empty": False}) == []
+
+
+def test_resolve_timeframe_daily_and_minute() -> None:
+    daily = SchwabMarketData._resolve_timeframe("1Day")
+    assert daily == {
+        "period_type": Client.PriceHistory.PeriodType.YEAR,
+        "frequency_type": Client.PriceHistory.FrequencyType.DAILY,
+        "frequency": Client.PriceHistory.Frequency.DAILY,
+    }
+
+    minute = SchwabMarketData._resolve_timeframe("5Min")
+    assert minute == {
+        "period_type": Client.PriceHistory.PeriodType.DAY,
+        "frequency_type": Client.PriceHistory.FrequencyType.MINUTE,
+        "frequency": Client.PriceHistory.Frequency.EVERY_FIVE_MINUTES,
+    }
+
+
+def test_resolve_timeframe_one_hour_raises() -> None:
+    with pytest.raises(BrokerError, match="1Hour"):
+        SchwabMarketData._resolve_timeframe("1Hour")
+
+
+@pytest.mark.asyncio
+async def test_aget_stock_bars_range_daily_call() -> None:
+    client = MagicMock()
+    client.get_price_history.return_value = _FakeResponse(_candles_payload())
+    provider = _provider(client)
+
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    end = datetime(2026, 6, 23, tzinfo=UTC)
+    bars = await provider.aget_stock_bars_range(
+        "aapl", timeframe="1Day", start=start, end=end
+    )
+
+    assert len(bars) == 2
+    client.get_price_history.assert_called_once()
+    kwargs = client.get_price_history.call_args.kwargs
+    assert client.get_price_history.call_args.args[0] == "AAPL"
+    assert kwargs["frequency_type"] == Client.PriceHistory.FrequencyType.DAILY
+    assert kwargs["need_extended_hours_data"] is False
+    assert kwargs["start_datetime"] == start
+    assert kwargs["end_datetime"] == end
+
+
+@pytest.mark.asyncio
+async def test_aget_stock_bars_range_minute_call() -> None:
+    client = MagicMock()
+    client.get_price_history.return_value = _FakeResponse(_candles_payload())
+    provider = _provider(client)
+
+    start = datetime(2026, 6, 23, tzinfo=UTC)
+    end = datetime(2026, 6, 24, tzinfo=UTC)
+    await provider.aget_stock_bars_range(
+        "MSFT", timeframe="5Min", start=start, end=end
+    )
+
+    kwargs = client.get_price_history.call_args.kwargs
+    assert kwargs["period_type"] == Client.PriceHistory.PeriodType.DAY
+    assert kwargs["frequency_type"] == Client.PriceHistory.FrequencyType.MINUTE
+    assert kwargs["frequency"] == Client.PriceHistory.Frequency.EVERY_FIVE_MINUTES
+
+
+@pytest.mark.asyncio
+async def test_aget_stock_bars_range_one_hour_raises() -> None:
+    provider = _provider()
+
+    with pytest.raises(BrokerError, match="1Hour"):
+        await provider.aget_stock_bars_range(
+            "AAPL",
+            timeframe="1Hour",
+            start=datetime(2026, 6, 1, tzinfo=UTC),
+            end=datetime(2026, 6, 2, tzinfo=UTC),
+        )
+
+
+@pytest.mark.asyncio
+async def test_aget_stock_bars_batch_returns_dict_and_omits_failed_symbol() -> None:
+    client = MagicMock()
+
+    def fake_get_price_history(symbol: str, **kwargs: object) -> _FakeResponse:
+        if symbol == "BAD":
+            raise RuntimeError("boom")
+        return _FakeResponse(_candles_payload())
+
+    client.get_price_history.side_effect = fake_get_price_history
+    provider = _provider(client)
+
+    result = await provider.aget_stock_bars_batch(
+        ["AAPL", "BAD", "MSFT"], timeframe="1Day", days=5
+    )
+
+    assert set(result.keys()) == {"AAPL", "MSFT"}
+    assert len(result["AAPL"]) == 2
+    assert len(result["MSFT"]) == 2
+    assert "BAD" not in result
+
+
+def test_schwab_market_data_satisfies_market_data_provider() -> None:
+    assert isinstance(_provider(), MarketDataProvider)
+
+
+def test_schwab_market_data_has_no_order_methods() -> None:
+    forbidden = {
+        "place_order",
+        "aplace_order",
+        "submit",
+        "submit_order",
+        "cancel_order",
+        "acancel_order",
+        "get_open_orders",
+        "aget_open_orders",
+    }
+    public_callables = {
+        name
+        for name in dir(SchwabMarketData)
+        if callable(getattr(SchwabMarketData, name, None))
+        and not name.startswith("_")
+    }
+    assert forbidden.isdisjoint(public_callables)
+    assert not any("order" in name.lower() for name in public_callables)
+
+
+def test_get_market_data_provider_defaults_to_alpaca(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MARKET_DATA_PROVIDER", raising=False)
+    alpaca = SimpleNamespace(name="alpaca")
+
+    monkeypatch.setattr(
+        "brokers.factory.broker_is_configured", lambda name: name == "alpaca"
+    )
+    monkeypatch.setattr(
+        "brokers.factory.AlpacaAdapter.from_settings", lambda: alpaca
+    )
+
+    provider = get_market_data_provider()
+    assert provider is alpaca
+
+
+def test_alpaca_adapter_satisfies_market_data_provider() -> None:
+    adapter = AlpacaAdapter(
+        base_url="https://paper-api.alpaca.markets",
+        key_id="test-key",
+        secret="test-secret",
+    )
+    assert isinstance(adapter, MarketDataProvider)
+
+
+def test_get_market_data_provider_schwab(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schwab = SchwabMarketData(MagicMock())
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "schwab")
+    monkeypatch.setattr(
+        "brokers.factory.broker_is_configured", lambda name: name == "schwab"
+    )
+    monkeypatch.setattr(
+        "brokers.factory.SchwabMarketData.from_settings", lambda: schwab
+    )
+
+    provider = get_market_data_provider()
+    assert provider is schwab
+
+
+@pytest.mark.asyncio
+async def test_aget_stock_bars_uses_days_window() -> None:
+    provider = _provider()
+    captured: dict[str, object] = {}
+
+    async def fake_range(
+        symbol: str,
+        *,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> list:
+        captured["symbol"] = symbol
+        captured["timeframe"] = timeframe
+        captured["start"] = start
+        captured["end"] = end
+        return []
+
+    provider.aget_stock_bars_range = fake_range  # type: ignore[method-assign]
+
+    await provider.aget_stock_bars("spy", timeframe="1Day", days=10)
+
+    assert captured["symbol"] == "spy"
+    assert captured["timeframe"] == "1Day"
+    assert (captured["end"] - captured["start"]) == timedelta(days=10)
