@@ -68,6 +68,12 @@ export async function registerTradeProposalCategory(): Promise<void> {
       },
     },
   ]);
+  try {
+    const cats = await Notifications.getNotificationCategoriesAsync();
+    console.log('[push] categories:', JSON.stringify(cats.map((c) => ({ id: c.identifier, actions: c.actions.map((a) => a.identifier) }))));
+  } catch (e) {
+    console.log('[push] getNotificationCategories error', String(e));
+  }
 }
 
 /**

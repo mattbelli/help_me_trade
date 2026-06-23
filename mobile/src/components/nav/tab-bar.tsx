@@ -99,9 +99,6 @@ function TabItem({ def, active, badge, onPress }: { def: TabDef; active: boolean
 }
 
 const shadow = {
-  shadowColor: '#000000',
-  shadowOpacity: 0.4,
-  shadowRadius: 20,
-  shadowOffset: { width: 0, height: 8 },
+  boxShadow: '0px 8px 20px rgba(0,0,0,0.40)',
   elevation: 10,
 } as const;

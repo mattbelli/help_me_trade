@@ -40,6 +40,7 @@ const HOME_INDEX = 2;
 export function CockpitPager() {
   const pagerRef = useRef<PagerView>(null);
   const [page, setPage] = useState(HOME_INDEX);
+  const lastPage = useRef(HOME_INDEX);
 
   const { token } = useAuth();
   const qc = useQueryClient();
@@ -83,8 +84,14 @@ export function CockpitPager() {
           initialPage={HOME_INDEX}
           offscreenPageLimit={4}
           onPageSelected={(e) => {
-            setPage(e.nativeEvent.position);
-            haptics.selection();
+            const next = e.nativeEvent.position;
+            setPage(next);
+            // Dedupe: the pager can emit onPageSelected more than once per settle;
+            // only buzz on an actual page change.
+            if (next !== lastPage.current) {
+              lastPage.current = next;
+              haptics.selection();
+            }
           }}
         >
           {pages}

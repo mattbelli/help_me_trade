@@ -34,31 +34,14 @@ import { StyleSheet } from 'react-native';
 export const hairline = StyleSheet.hairlineWidth;
 
 /**
- * Elevation as layered shadow presets (iOS shadow* props).
- * Dark UI reads depth from soft, large, low-opacity shadows — not hard edges.
+ * Elevation presets. Uses the modern cross-platform `boxShadow` (RN deprecated the
+ * individual shadow* style props), plus Android `elevation`. Dark UI reads depth
+ * from soft, large, low-opacity shadows — not hard edges.
  */
 export const elevation = {
-  none: {
-    shadowColor: 'transparent',
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  card: {
-    shadowColor: '#000000',
-    shadowOpacity: 0.35,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  hero: {
-    shadowColor: '#000000',
-    shadowOpacity: 0.5,
-    shadowRadius: 44,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 12,
-  },
+  none: { boxShadow: 'none', elevation: 0 },
+  card: { boxShadow: '0px 8px 30px rgba(0,0,0,0.35)', elevation: 6 },
+  hero: { boxShadow: '0px 16px 44px rgba(0,0,0,0.50)', elevation: 12 },
 } as const;
 
 /** Standard touch target floor (HIG: 44pt). */
