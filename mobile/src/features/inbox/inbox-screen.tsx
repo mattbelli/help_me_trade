@@ -108,7 +108,7 @@ export function InboxScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         ListHeaderComponent={
-          <Stack gap={spacing.md} style={{ paddingTop: spacing['3xl'], paddingBottom: spacing.sm }}>
+          <Stack gap={spacing.md} style={{ paddingTop: spacing.sm, paddingBottom: spacing.sm }}>
             <Row justify="space-between" align="flex-end">
               <Stack gap={2}>
                 <Eyebrow color="accent">inbox</Eyebrow>

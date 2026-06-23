@@ -30,7 +30,7 @@ export default function AlertsScreen() {
   if (alerts.isError) {
     return (
       <Screen>
-        <View style={{ flex: 1, paddingTop: spacing['4xl'], paddingHorizontal: spacing.xl }}>
+        <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
           <BackRow onBack={() => router.back()} />
           <ErrorState onRetry={alerts.refetch} />
         </View>
@@ -48,7 +48,7 @@ export default function AlertsScreen() {
         }
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 110 }}
         ListHeaderComponent={
-          <View style={{ paddingTop: spacing['4xl'], paddingBottom: spacing.lg }}>
+          <View style={{ paddingTop: spacing.sm, paddingBottom: spacing.lg }}>
             <Stack gap={spacing.lg}>
               <BackRow onBack={() => router.back()} />
               <Stack gap={2}>

@@ -92,7 +92,7 @@ export function PortfolioScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         ListHeaderComponent={
-          <Stack gap={spacing.xl} style={{ paddingTop: spacing['3xl'], paddingBottom: spacing.lg }}>
+          <Stack gap={spacing.xl} style={{ paddingTop: spacing.sm, paddingBottom: spacing.lg }}>
             {/* Terminal status line */}
             <Row justify="space-between" align="center">
               <Eyebrow style={{ letterSpacing: 0.5 }}>help_me_trade</Eyebrow>

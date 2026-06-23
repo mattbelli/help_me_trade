@@ -38,10 +38,10 @@ export function TabBar({
           flexDirection: 'row',
           alignItems: 'center',
           gap: spacing.xs,
-          backgroundColor: colors.bgInset,
+          backgroundColor: 'rgba(14,16,19,0.72)',
           borderRadius: 999,
           borderWidth: hairline,
-          borderColor: colors.borderStrong,
+          borderColor: 'rgba(255,255,255,0.10)',
           paddingHorizontal: spacing.sm,
           paddingVertical: spacing.sm - 2,
           ...shadow,
@@ -61,19 +61,22 @@ function TabItem({ def, active, badge, onPress }: { def: TabDef; active: boolean
     a.value = withSpring(active ? 1 : 0, spring.snappy);
   }, [active, a]);
 
+  // Animate ONLY the capsule background layer — the icon stays untransformed so
+  // its SVG never gets rasterized (which was making it briefly pixelate).
   const capsule = useAnimatedStyle(() => ({
-    transform: [{ scale: 0.85 + a.value * 0.15 }],
-    backgroundColor: a.value > 0.5 ? colors.accentWash : 'transparent',
+    opacity: a.value,
+    transform: [{ scale: 0.7 + a.value * 0.3 }],
   }));
 
   return (
-    <PressableScale onPress={onPress} scaleTo={0.88} haptic style={{ borderRadius: 999 }}>
-      <Animated.View
-        style={[
-          { width: 46, height: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
-          capsule,
-        ]}
-      >
+    <PressableScale onPress={onPress} scaleTo={0.88} haptic={false} style={{ borderRadius: 999 }}>
+      <View style={{ width: 46, height: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View
+          style={[
+            { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 999, backgroundColor: colors.accentWash },
+            capsule,
+          ]}
+        />
         <Icon name={def.icon} size={22} color={active ? colors.accent : colors.textFaint} strokeWidth={active ? 2.2 : 1.8} />
         {badge ? (
           <View
@@ -90,7 +93,7 @@ function TabItem({ def, active, badge, onPress }: { def: TabDef; active: boolean
             }}
           />
         ) : null}
-      </Animated.View>
+      </View>
     </PressableScale>
   );
 }

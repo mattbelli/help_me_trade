@@ -52,7 +52,7 @@ export default function SymbolDetailScreen() {
   if (market.isError) {
     return (
       <Screen>
-        <View style={{ flex: 1, paddingTop: spacing['4xl'], paddingHorizontal: spacing.xl }}>
+        <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
           <BackRow onBack={() => router.back()} />
           <ErrorState onRetry={market.refetch} />
         </View>
@@ -64,7 +64,7 @@ export default function SymbolDetailScreen() {
     <Screen>
       <ScrollView
         contentContainerStyle={{
-          paddingTop: spacing['4xl'],
+          paddingTop: spacing.sm,
           paddingHorizontal: spacing.xl,
           paddingBottom: 110,
         }}

@@ -7,7 +7,6 @@ import { useWatchlist, useWatchlistMarket } from '@/api/queries';
 import type { WatchlistQuote } from '@/api/types';
 import { Icon } from '@/components/ui/icon';
 import {
-  Card,
   EmptyState,
   ErrorState,
   Eyebrow,
@@ -22,7 +21,7 @@ import {
   Text,
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
-import { colors, spacing } from '@/theme';
+import { colors, hairline, spacing } from '@/theme';
 
 export function WatchlistScreen() {
   const router = useRouter();
@@ -43,7 +42,7 @@ export function WatchlistScreen() {
   if (watchlist.isError) {
     return (
       <Screen>
-        <View style={{ flex: 1, paddingTop: spacing['4xl'], paddingHorizontal: spacing.xl }}>
+        <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
           <Header
             columns={columns}
             onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
@@ -58,7 +57,7 @@ export function WatchlistScreen() {
   if (market.isError) {
     return (
       <Screen>
-        <View style={{ flex: 1, paddingTop: spacing['4xl'], paddingHorizontal: spacing.xl }}>
+        <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
           <Header
             columns={columns}
             onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
@@ -82,7 +81,7 @@ export function WatchlistScreen() {
         }
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 110 }}
         ListHeaderComponent={
-          <View style={{ paddingTop: spacing['4xl'], paddingBottom: spacing.lg }}>
+          <View style={{ paddingTop: spacing.sm, paddingBottom: spacing.lg }}>
             <Header
               columns={columns}
               onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
@@ -142,9 +141,9 @@ function Header({
         <PressableScale onPress={onToggleColumns} haptic>
           <View style={{ padding: spacing.sm }}>
             {columns === 1 ? (
-              <Icon name="watchlist" size={22} color={colors.textMuted} />
+              <Icon name="columns" size={22} color={colors.textMuted} />
             ) : (
-              <ColumnToggleIcon />
+              <Icon name="list" size={22} color={colors.textMuted} />
             )}
           </View>
         </PressableScale>
@@ -154,15 +153,6 @@ function Header({
           </View>
         </PressableScale>
       </Row>
-    </Row>
-  );
-}
-
-function ColumnToggleIcon() {
-  return (
-    <Row gap={3}>
-      <View style={{ width: 8, height: 14, borderRadius: 2, backgroundColor: colors.textMuted }} />
-      <View style={{ width: 8, height: 14, borderRadius: 2, backgroundColor: colors.textMuted }} />
     </Row>
   );
 }
@@ -225,25 +215,27 @@ function WatchlistCard({
   onPress: () => void;
 }) {
   return (
-    <PressableScale onPress={onPress} style={{ flex: 1, padding: spacing.xs }}>
-      <Card style={{ padding: spacing.md }}>
-        <Stack gap={spacing.sm}>
-          <Text variant="bodyStrong">{symbol}</Text>
-          {loading ? (
-            <Skeleton height={32} />
-          ) : quote ? (
-            <>
-              <Money value={quote.price} size="sm" />
-              <Pct value={quote.change_pct} size="sm" signed pnl />
-              {quote.sparkline.length > 1 ? (
-                <Sparkline data={quote.sparkline} width={72} height={20} />
-              ) : null}
-            </>
-          ) : (
-            <Skeleton height={32} />
-          )}
-        </Stack>
-      </Card>
+    <PressableScale onPress={onPress} style={{ flex: 1 }}>
+      <Stack
+        gap={2}
+        style={{
+          paddingVertical: spacing.sm,
+          borderBottomWidth: hairline,
+          borderBottomColor: colors.border,
+        }}
+      >
+        <Text variant="bodyStrong">{symbol}</Text>
+        {loading ? (
+          <Skeleton height={18} />
+        ) : quote ? (
+          <Row gap={spacing.xs} align="center">
+            <Money value={quote.price} size="sm" />
+            <Pct value={quote.change_pct} size="sm" signed pnl />
+          </Row>
+        ) : (
+          <Skeleton height={18} />
+        )}
+      </Stack>
     </PressableScale>
   );
 }

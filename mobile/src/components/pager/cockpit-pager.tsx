@@ -28,17 +28,18 @@ import { SettingsScreen } from '@/features/settings/settings-screen';
 import { WatchlistScreen } from '@/features/watchlist/watchlist-screen';
 
 const TABS: TabDef[] = [
-  { key: 'home', label: 'Home', icon: 'portfolio' },
-  { key: 'watchlist', label: 'Watchlist', icon: 'watchlist' },
   { key: 'inbox', label: 'Inbox', icon: 'inbox' },
+  { key: 'watchlist', label: 'Watchlist', icon: 'watchlist' },
+  { key: 'home', label: 'Home', icon: 'portfolio' },
   { key: 'chat', label: 'Chat', icon: 'chat' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
-const INBOX_INDEX = 2;
+const INBOX_INDEX = 0;
+const HOME_INDEX = 2;
 
 export function CockpitPager() {
   const pagerRef = useRef<PagerView>(null);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(HOME_INDEX);
 
   const { token } = useAuth();
   const qc = useQueryClient();
@@ -64,9 +65,9 @@ export function CockpitPager() {
   // Build pages ONCE so cockpit re-renders never remount/refetch a surface.
   const pages = useMemo(
     () => [
-      <View key="portfolio" style={{ flex: 1 }} collapsable={false}><PortfolioScreen /></View>,
-      <View key="watchlist" style={{ flex: 1 }} collapsable={false}><WatchlistScreen /></View>,
       <View key="inbox" style={{ flex: 1 }} collapsable={false}><InboxScreen /></View>,
+      <View key="watchlist" style={{ flex: 1 }} collapsable={false}><WatchlistScreen /></View>,
+      <View key="home" style={{ flex: 1 }} collapsable={false}><PortfolioScreen /></View>,
       <View key="chat" style={{ flex: 1 }} collapsable={false}><ChatScreen /></View>,
       <View key="settings" style={{ flex: 1 }} collapsable={false}><SettingsScreen /></View>,
     ],
@@ -79,7 +80,7 @@ export function CockpitPager() {
         <PagerView
           ref={pagerRef}
           style={{ flex: 1 }}
-          initialPage={0}
+          initialPage={HOME_INDEX}
           offscreenPageLimit={4}
           onPageSelected={(e) => {
             setPage(e.nativeEvent.position);

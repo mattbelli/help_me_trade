@@ -30,8 +30,8 @@ export function useSnapshot() {
     queryKey: ['snapshot'],
     queryFn: getSnapshot,
     enabled,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
+    refetchInterval: 6_000,
+    staleTime: 4_000,
   });
 }
 
@@ -65,8 +65,8 @@ export function useWatchlistMarket(symbols: string[] | undefined) {
     queryKey: ['watchlist-market', symbolsKey],
     queryFn: () => getWatchlistMarket(symbols),
     enabled: enabled && Boolean(symbolsKey),
-    refetchInterval: 15_000,
-    staleTime: 12_000,
+    refetchInterval: 6_000,
+    staleTime: 4_000,
   });
 }
 

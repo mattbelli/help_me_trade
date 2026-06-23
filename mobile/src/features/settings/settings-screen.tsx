@@ -33,7 +33,7 @@ export function SettingsScreen() {
     <Screen>
       <ScrollView
         contentContainerStyle={{
-          paddingTop: spacing['4xl'],
+          paddingTop: spacing.sm,
           paddingHorizontal: spacing.xl,
           paddingBottom: 110,
         }}

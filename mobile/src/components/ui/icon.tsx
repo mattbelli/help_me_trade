@@ -13,6 +13,8 @@ export type IconName =
   | 'chat'
   | 'settings'
   | 'bell'
+  | 'columns'
+  | 'list'
   | 'plus'
   | 'chevron-left'
   | 'chevron-right'
@@ -70,6 +72,19 @@ export function Icon({
         <>
           <Path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" {...common} />
           <Path d="M10.5 19a1.8 1.8 0 0 0 3 0" {...common} />
+        </>
+      )}
+      {name === 'columns' && (
+        <>
+          <Rect x="4" y="4" width="7" height="16" rx="1.5" {...common} />
+          <Rect x="13" y="4" width="7" height="16" rx="1.5" {...common} />
+        </>
+      )}
+      {name === 'list' && (
+        <>
+          <Line x1="4" y1="7" x2="20" y2="7" {...common} />
+          <Line x1="4" y1="12" x2="20" y2="12" {...common} />
+          <Line x1="4" y1="17" x2="20" y2="17" {...common} />
         </>
       )}
       {name === 'plus' && (
