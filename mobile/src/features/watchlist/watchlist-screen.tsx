@@ -44,12 +44,19 @@ function preferIntraday(q: WatchlistQuote): boolean {
 function hasChartData(q: WatchlistQuote): boolean {
   return preferIntraday(q) || q.sparkline.length > 1;
 }
+function fmtVol(v: number | undefined): string {
+  if (v == null) return '';
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
+  return `${v.toFixed(0)}`;
+}
 
 const SCREEN_W = Dimensions.get('window').width;
 const SYM_W = 50;
 const PRICE_W = 96; // fits a 4-digit price at the prominent "md" size ($1,085.33)
 const CHG_W = 64;
-const CHART_W = Math.max(96, SCREEN_W - 2 * spacing.xl - SYM_W - PRICE_W - CHG_W - spacing.md);
+// extra spacing.sm = breathing gap to the left of the CHG column.
+const CHART_W = Math.max(90, SCREEN_W - 2 * spacing.xl - SYM_W - PRICE_W - CHG_W - spacing.md - spacing.sm);
 
 // ─── Header (title + toggle + alerts) ─────────────────────────────────────────
 function WatchlistHeader({
@@ -63,10 +70,7 @@ function WatchlistHeader({
 }) {
   return (
     <Row justify="space-between" align="flex-start" style={{ paddingTop: spacing.sm, paddingBottom: spacing.sm }}>
-      <Stack gap={2}>
-        <Eyebrow color="accent">watchlist</Eyebrow>
-        <Text variant="title">Symbols</Text>
-      </Stack>
+      <Eyebrow color="accent">watchlist</Eyebrow>
       <Row gap={spacing.xs}>
         <PressableScale onPress={onToggleColumns} haptic>
           <View style={{ padding: spacing.sm }}>
@@ -102,9 +106,14 @@ function WatchlistRow({
   return (
     <PressableScale onPress={onPress}>
       <Row align="center" style={{ paddingVertical: spacing.md, borderBottomWidth: hairline, borderBottomColor: colors.border }} gap={0}>
-        {/* SYM */}
+        {/* SYM + volume */}
         <View style={{ width: SYM_W }}>
           <Text variant="bodyStrong" numberOfLines={1}>{symbol}</Text>
+          {!loading && quote ? (
+            <Text variant="caption" style={{ color: colors.textFaint }} numberOfLines={1}>
+              {fmtVol(quote.volume)}
+            </Text>
+          ) : null}
         </View>
 
         {/* H / LAST / L */}
@@ -126,15 +135,15 @@ function WatchlistRow({
           )}
         </View>
 
-        {/* CHG% / CHG$ */}
-        <View style={{ width: CHG_W, alignItems: 'flex-end', justifyContent: 'center' }}>
+        {/* CHG% / CHG$  (room for a future "% above expected" column alongside) */}
+        <View style={{ width: CHG_W, alignItems: 'flex-end', justifyContent: 'center', marginLeft: spacing.sm }}>
           {loading ? (
             <Skeleton height={32} width={56} />
           ) : quote ? (
             <>
               <Pct value={quote.change_pct} size="sm" signed pnl numberOfLines={1} />
               {changeDol != null ? (
-                <Delta value={changeDol} size="sm" compact numberOfLines={1} />
+                <Delta value={changeDol} size="sm" compact numberOfLines={1} style={{ marginTop: 4 }} />
               ) : null}
             </>
           ) : (
