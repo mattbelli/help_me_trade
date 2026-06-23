@@ -16,6 +16,7 @@ from ai.chat.stream import UIMessageStream
 from ai.chat.tools import TOOL_DEFINITIONS
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm, get_llm_provider_name
+from db.accounts import list_accounts
 from db.chat_sessions import (
     PERSISTED_MODES,
     get_chat_session,
@@ -66,6 +67,21 @@ def chat_system_prompt() -> str:
     return _system_prompt()
 
 
+def _accounts_context_block() -> str:
+    accounts = list_accounts()
+    if not accounts:
+        return "Accounts: none configured."
+    parts: list[str] = []
+    for account in accounts:
+        label = account.get("label") or account["id"]
+        broker = account.get("broker", "?")
+        if account.get("execution_capable"):
+            parts.append(f"'{label}' ({broker}) = PAPER (tradeable)")
+        else:
+            parts.append(f"'{label}' ({broker}) = REAL money, READ-ONLY")
+    return "Accounts: " + "; ".join(parts) + "."
+
+
 def _system_prompt() -> str:
     tools = "\n".join(
         f"- {name}: {meta['description']}"
@@ -73,11 +89,16 @@ def _system_prompt() -> str:
     )
     return (
         f"{current_date_context()}\n\n"
-        "You are Help Me Trade, a trading copilot. "
+        f"{_accounts_context_block()}\n\n"
+        "Help Me Trade runs autonomous strategies (e.g. dip, earnings) that scan, "
+        "propose trades to the user's phone, and execute through a guarded chokepoint "
+        "on approval. You are the cockpit: use get_agent_status to report what's running.\n\n"
         "Answer clearly and concisely in markdown when helpful.\n\n"
         "Behavior rules:\n"
         "- Greetings (hi, hello, hey): reply in 1–2 short friendly sentences. "
         "Do not call tools and do not mention portfolio, positions, or P&L.\n"
+        "- NEVER call propose_order for a read-only/Schwab account. They are real money. "
+        "If asked, explain they're read-only and offer a paper account.\n"
         "- News and public web pages: call web_search (SearXNG). Only cite returned "
         "snippets/URLs. web_search is NOT live X or Reddit — no tweet streams, no "
         "subreddit feeds, no clock-time filters (6–8am). time_range is day/week/month "
@@ -87,6 +108,8 @@ def _system_prompt() -> str:
         "in text. Use the tool API and wait for results before answering.\n"
         "- Buy/sell requests: call propose_order (symbol, side, qty, order_type market|limit). "
         "Do not describe calling the tool — call it. The Approve/Reject card is the UI.\n"
+        "- When a propose_order result includes a `score`, surface the calibrated win%, "
+        "EV, and top factors to the user (honestly — never invent a score).\n"
         "- Option pricing/bid-ask: call get_option_quote (broker options data) — NEVER web_search "
         "for quotes. Options require a limit order; if no live options quote is available, tell "
         "the user to set the limit from their broker's option chain. Options are buy-to-open "

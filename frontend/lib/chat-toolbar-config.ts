@@ -3,7 +3,17 @@ export const CHAT_TOOL_OPTIONS = [
   {
     id: "get_portfolio_snapshot",
     label: "Portfolio",
-    description: "Live positions and account snapshot",
+    description: "All accounts — equity, positions, aggregate",
+  },
+  {
+    id: "get_agent_status",
+    label: "Agent status",
+    description: "Strategies, managed positions, pending approvals",
+  },
+  {
+    id: "get_earnings_dates",
+    label: "Earnings dates",
+    description: "Upcoming and recent earnings for a symbol",
   },
   {
     id: "search_memories",

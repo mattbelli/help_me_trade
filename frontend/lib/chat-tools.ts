@@ -12,10 +12,22 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
   const all = {
     get_portfolio_snapshot: tool({
       description:
-        "Latest account, positions, and open orders from the broker poll.",
+        "All accounts (Alpaca paper + read-only Schwab): equity, cash, positions, open orders — per account plus an aggregate.",
       inputSchema: z.object({}),
       execute: async () =>
         executePythonTool("get_portfolio_snapshot", {}),
+    }),
+    get_agent_status: tool({
+      description:
+        "What the trading agent is running: enabled strategies, managed positions with exit state, and proposals pending phone approval.",
+      inputSchema: z.object({}),
+      execute: async () => executePythonTool("get_agent_status", {}),
+    }),
+    get_earnings_dates: tool({
+      description:
+        "Upcoming + recent earnings dates for a symbol (Finnhub calendar). Use for 'when does X report?' instead of web_search.",
+      inputSchema: z.object({ symbol: z.string() }),
+      execute: async (input) => executePythonTool("get_earnings_dates", input),
     }),
     search_memories: tool({
       description:
@@ -44,6 +56,7 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
         from_date: z.string().nullable().optional(),
         to_date: z.string().nullable().optional(),
         limit: z.number().int().min(1).max(200).optional(),
+        account_id: z.string().nullable().optional(),
       }),
       execute: async (input) => executePythonTool("get_trade_history", input),
     }),
@@ -84,13 +97,14 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
     }),
     propose_order: tool({
       description:
-        "Propose a paper trade (symbol, side, qty, market|limit). Options: long-only buy-to-open, limit-only — limit_price is per-share premium. Shows Approve/Reject card. Call immediately on buy/sell — do not narrate or fake [Calling propose_order...].",
+        "Propose a paper trade (symbol, side, qty, market|limit). Optionally account_id for STRAT1/STRAT2. Options: long-only buy-to-open, limit-only — limit_price is per-share premium. Shows Approve/Reject card. Call immediately on buy/sell — do not narrate or fake [Calling propose_order...].",
       inputSchema: z.object({
         symbol: z.string(),
         side: z.enum(["buy", "sell"]),
         qty: z.number().positive(),
         order_type: z.enum(["market", "limit"]).optional(),
         limit_price: z.number().positive().optional(),
+        account_id: z.string().optional(),
         option_underlying: z.string().optional(),
         option_expiration: z.string().optional(),
         option_strike: z.number().positive().optional(),
