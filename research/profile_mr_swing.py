@@ -12,7 +12,12 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from research.bars import RESEARCH_DATA_DIR, get_daily_bars
-from research.intraday_bars import load_cached_minute_bars
+from research.intraday_bars import (
+    DEFAULT_INTRADAY_DB_PATH,
+    IntradayBar,
+    load_cached_minute_bars,
+)
+from research.intraday_profile import is_rth, to_ny
 from research.volume_profile import build_volume_profile
 from signals.indicators import closes, sma
 from signals.trade_context import DatedBar
@@ -129,6 +134,70 @@ def _weekly_anchor(
         val=val,
         pwh=pwh,
         pwl=pwl,
+    )
+
+
+def _minute_bar_iso_week_key(bar: IntradayBar) -> tuple[int, int]:
+    iso = to_ny(bar["t"]).date().isocalendar()
+    return (iso.year, iso.week)
+
+
+def weekly_anchors_from_minute_bars(
+    minute_bars: list[IntradayBar],
+    *,
+    n_bins: int = 100,
+    value_area_pct: float = 0.70,
+    rth_only: bool = True,
+) -> dict[tuple[int, int], _WeeklyAnchor]:
+    """Build weekly profile anchors from 1-min bars keyed by ISO week (NY date)."""
+    filtered = (
+        [bar for bar in minute_bars if is_rth(bar["t"])]
+        if rth_only
+        else list(minute_bars)
+    )
+    grouped: dict[tuple[int, int], list[IntradayBar]] = {}
+    for bar in filtered:
+        key = _minute_bar_iso_week_key(bar)
+        grouped.setdefault(key, []).append(bar)
+
+    anchors: dict[tuple[int, int], _WeeklyAnchor] = {}
+    for week_key, week_bars in grouped.items():
+        if len(week_bars) < 2:
+            continue
+        week_bars.sort(key=lambda item: item["t"])
+        profile = build_volume_profile(
+            week_bars, n_bins=n_bins, value_area_pct=value_area_pct
+        )
+        pwh = max(float(bar["h"]) for bar in week_bars)
+        pwl = min(float(bar["l"]) for bar in week_bars)
+        raw_val = profile["val"]
+        val = float(raw_val) if raw_val is not None else pwl
+        anchors[week_key] = _WeeklyAnchor(
+            anchor_poc=float(profile["poc_price"]),
+            val=val,
+            pwh=pwh,
+            pwl=pwl,
+        )
+    return anchors
+
+
+def build_intraday_weekly_anchors(
+    symbol: str = "/ES",
+    *,
+    source: str = "databento",
+    n_bins: int = 100,
+    value_area_pct: float = 0.70,
+    db_path: Path = DEFAULT_INTRADAY_DB_PATH,
+) -> dict[tuple[int, int], _WeeklyAnchor]:
+    """Load all cached 1-min bars for symbol/source and build weekly anchors."""
+    sym = symbol.strip()
+    start = datetime(1900, 1, 1, tzinfo=UTC)
+    end = datetime(2100, 1, 1, tzinfo=UTC)
+    minute_bars = load_cached_minute_bars(
+        sym, start, end, source=source, db_path=db_path
+    )
+    return weekly_anchors_from_minute_bars(
+        minute_bars, n_bins=n_bins, value_area_pct=value_area_pct
     )
 
 
@@ -345,6 +414,7 @@ def run_profile_mr_swing(
     value_area_pct: float = 0.70,
     entry_mode: str = "profile",
     entry_level: str = "poc",
+    weekly_anchors: dict[tuple[int, int], _WeeklyAnchor] | None = None,
 ) -> SwingResult:
     """Long-only pivot-acceptance swing backtest using prior-week profile anchor."""
     if entry_mode not in ("profile", "regime_only"):
@@ -363,9 +433,12 @@ def run_profile_mr_swing(
             by_exit_reason={},
         )
 
-    anchors = _build_weekly_anchors(
-        bars, n_bins=n_bins, value_area_pct=value_area_pct
-    )
+    if weekly_anchors is not None:
+        anchors = weekly_anchors
+    else:
+        anchors = _build_weekly_anchors(
+            bars, n_bins=n_bins, value_area_pct=value_area_pct
+        )
     trades: list[SwingTrade] = []
     i = 0
     while i < len(bars):
@@ -673,6 +746,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="poc",
         help="Profile entry level: poc (close acceptance) or val (limit at prior-week VAL)",
     )
+    parser.add_argument(
+        "--anchor-source",
+        choices=("daily", "intraday"),
+        default="daily",
+        help="Weekly anchor source: daily-bar approximation (default) or true 1-min profile",
+    )
     return parser.parse_args(argv)
 
 
@@ -685,6 +764,14 @@ def main(argv: list[str] | None = None) -> int:
         "max_hold_days": args.max_hold_days,
         "cost_points": args.cost_points,
     }
+    weekly_anchors = None
+    if args.anchor_source == "intraday":
+        weekly_anchors = build_intraday_weekly_anchors(args.symbol)
+        print(f"anchor_source=intraday (1-min volume-at-price, n_weeks={len(weekly_anchors)})")
+    else:
+        print("anchor_source=daily (daily-bar approximation)")
+    if weekly_anchors is not None:
+        common["weekly_anchors"] = weekly_anchors
     if args.control:
         profile = run_profile_mr_swing(
             bars,
@@ -692,7 +779,9 @@ def main(argv: list[str] | None = None) -> int:
             entry_level=args.entry_level,
             **common,
         )
-        regime_only = run_profile_mr_swing(bars, entry_mode="regime_only", **common)
+        regime_only = run_profile_mr_swing(
+            bars, entry_mode="regime_only", **common
+        )
         regime_bh = regime_buy_hold_points(bars, n_bins=100)
         _print_control_report(profile, regime_only, regime_bh)
         return 0

@@ -6,10 +6,13 @@ from datetime import date, timedelta
 
 import pytest
 
+from research.intraday_bars import IntradayBar
 from research.profile_mr_swing import (
     _build_weekly_anchors,
+    _WeeklyAnchor,
     regime_buy_hold_points,
     run_profile_mr_swing,
+    weekly_anchors_from_minute_bars,
 )
 from research.volume_profile import build_volume_profile
 from signals.trade_context import DatedBar
@@ -627,3 +630,194 @@ def test_poc_entry_level_default_unchanged() -> None:
 def test_invalid_entry_level_raises() -> None:
     with pytest.raises(ValueError, match="unknown entry_level"):
         run_profile_mr_swing([], entry_level="bad")
+
+
+def _minute_bar(
+    ts: str,
+    *,
+    o: float | None = None,
+    h: float | None = None,
+    low: float | None = None,
+    c: float | None = None,
+    v: float = 1000.0,
+) -> IntradayBar:
+    close = c if c is not None else 100.0
+    return {
+        "t": ts,
+        "o": o if o is not None else close,
+        "h": h if h is not None else close,
+        "l": low if low is not None else close,
+        "c": close,
+        "v": v,
+    }
+
+
+def _rth_minute(
+    ny_date: date,
+    ny_hour: int,
+    ny_minute: int,
+    *,
+    price: float = 100.0,
+    h: float | None = None,
+    low: float | None = None,
+    v: float = 1000.0,
+) -> IntradayBar:
+    """Build a 1-min bar at NY local RTH time in June (EDT, UTC-4)."""
+    utc_hour = ny_hour + 4
+    ts = f"{ny_date.isoformat()}T{utc_hour:02d}:{ny_minute:02d}:00+00:00"
+    return _minute_bar(
+        ts,
+        o=price,
+        h=h if h is not None else price,
+        low=low if low is not None else price,
+        c=price,
+        v=v,
+    )
+
+
+def test_weekly_anchors_from_minute_bars_poc_and_week_keys() -> None:
+    week1_mon = date(2024, 6, 3)
+    week2_mon = date(2024, 6, 10)
+    poc_price = 100.0
+    week1_bars = [
+        _rth_minute(week1_mon, 9, 30, price=98.0, h=99.0, low=97.0, v=100.0),
+        _rth_minute(week1_mon, 9, 31, price=poc_price, h=101.0, low=99.0, v=50_000.0),
+        _rth_minute(week1_mon, 9, 32, price=102.0, h=115.0, low=85.0, v=100.0),
+        _rth_minute(week1_mon + timedelta(days=1), 10, 0, price=105.0, v=200.0),
+    ]
+    week2_bars = [
+        _rth_minute(week2_mon, 9, 30, price=200.0, h=210.0, low=190.0, v=500.0),
+        _rth_minute(week2_mon, 9, 31, price=205.0, h=215.0, low=195.0, v=500.0),
+    ]
+    anchors = weekly_anchors_from_minute_bars(
+        week1_bars + week2_bars, n_bins=50, value_area_pct=0.70
+    )
+
+    week1_key = week1_mon.isocalendar()
+    week2_key = week2_mon.isocalendar()
+    assert (week1_key.year, week1_key.week) in anchors
+    assert (week2_key.year, week2_key.week) in anchors
+    w1 = anchors[(week1_key.year, week1_key.week)]
+    w2 = anchors[(week2_key.year, week2_key.week)]
+    assert 99.0 <= w1.anchor_poc <= 101.0
+    assert w1.pwh == pytest.approx(115.0)
+    assert w1.pwl == pytest.approx(85.0)
+    assert w2.pwh == pytest.approx(215.0)
+    assert w2.pwl == pytest.approx(190.0)
+
+
+def test_weekly_anchors_from_minute_bars_rth_filter() -> None:
+    mon = date(2024, 6, 3)
+    rth_only_bars = [
+        _rth_minute(mon, 9, 30, price=100.0, h=101.0, low=99.0, v=50_000.0),
+        _rth_minute(mon, 9, 31, price=100.0, h=101.0, low=99.0, v=100.0),
+    ]
+    overnight = _minute_bar(
+        "2024-06-03T08:00:00+00:00",
+        o=500.0,
+        h=900.0,
+        low=400.0,
+        c=800.0,
+        v=999_999.0,
+    )
+    with_overnight = rth_only_bars + [overnight]
+
+    rth_anchors = weekly_anchors_from_minute_bars(rth_only_bars, n_bins=50)
+    filtered_anchors = weekly_anchors_from_minute_bars(
+        with_overnight, n_bins=50, rth_only=True
+    )
+    unfiltered_anchors = weekly_anchors_from_minute_bars(
+        with_overnight, n_bins=50, rth_only=False
+    )
+
+    week_key = (mon.isocalendar().year, mon.isocalendar().week)
+    assert filtered_anchors[week_key].anchor_poc == pytest.approx(
+        rth_anchors[week_key].anchor_poc
+    )
+    assert filtered_anchors[week_key].pwh == pytest.approx(
+        rth_anchors[week_key].pwh
+    )
+    assert unfiltered_anchors[week_key].anchor_poc != pytest.approx(
+        rth_anchors[week_key].anchor_poc
+    )
+
+
+def test_injected_weekly_anchors_used_in_trades() -> None:
+    base = _base_bars()
+    daily_levels = _anchor_for_current_week(base)
+    prior_key = (PRIOR_MON.isocalendar().year, PRIOR_MON.isocalendar().week)
+
+    injected_poc = 42.0
+    injected_pwh = 55.0
+    injected_pwl = 30.0
+    injected = {
+        prior_key: _WeeklyAnchor(
+            anchor_poc=injected_poc,
+            val=35.0,
+            pwh=injected_pwh,
+            pwl=injected_pwl,
+        )
+    }
+    bars = base + [
+        _d(
+            ENTRY_MON,
+            o=105.0,
+            h=106.0,
+            low=injected_poc - 1.0,
+            c=injected_poc + 1.0,
+            v=1000.0,
+        ),
+        _d(date(2024, 6, 11), o=102.0, h=injected_pwh + 1.0, low=100.0, c=110.0),
+    ]
+    result = run_profile_mr_swing(
+        bars, n_bins=50, weekly_anchors=injected, cost_points=1.0
+    )
+
+    assert result.n_trades == 1
+    trade = result.trades[0]
+    assert trade.anchor_poc == pytest.approx(injected_poc)
+    assert trade.pwh == pytest.approx(injected_pwh)
+    assert trade.pwl == pytest.approx(injected_pwl)
+    assert trade.anchor_poc != pytest.approx(daily_levels["anchor_poc"])
+
+
+def test_injected_anchors_no_look_ahead() -> None:
+    base = _base_bars()
+    prior_key = (PRIOR_MON.isocalendar().year, PRIOR_MON.isocalendar().week)
+    injected = {
+        prior_key: _WeeklyAnchor(
+            anchor_poc=42.0,
+            val=35.0,
+            pwh=55.0,
+            pwl=30.0,
+        )
+    }
+    entry = _d(
+        ENTRY_MON,
+        o=105.0,
+        h=106.0,
+        low=41.0,
+        c=43.0,
+        v=1000.0,
+    )
+    bars = base + [entry]
+
+    result_base = run_profile_mr_swing(
+        bars, n_bins=50, weekly_anchors=injected, max_hold_days=10
+    )
+    mutated = bars + [
+        _d(date(2024, 6, 11), o=500.0, h=900.0, low=400.0, c=800.0, v=999_999.0),
+    ]
+    result_mutated = run_profile_mr_swing(
+        mutated, n_bins=50, weekly_anchors=injected, max_hold_days=10
+    )
+
+    assert result_base.n_trades == 1
+    assert result_mutated.n_trades == 1
+    t0 = result_base.trades[0]
+    t1 = result_mutated.trades[0]
+    assert t0.anchor_poc == pytest.approx(t1.anchor_poc)
+    assert t0.pwh == pytest.approx(t1.pwh)
+    assert t0.pwl == pytest.approx(t1.pwl)
+    assert t0.entry_date == t1.entry_date
+    assert t0.entry_px == pytest.approx(t1.entry_px)
