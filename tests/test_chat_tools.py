@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from ai.chat.tools import execute_tool
+from brokers.alpaca import PortfolioHistoryPoint
 from brokers.base import Account, Position
 from db import base as db_base
 from db import paper_orders as paper_orders_mod
@@ -84,6 +86,45 @@ def _patch_db(monkeypatch: pytest.MonkeyPatch, db: Path) -> None:
     monkeypatch.setattr(paper_orders_mod, "DEFAULT_DB_PATH", db)
 
 
+def _history_point(
+    *,
+    profit_loss: float = 150.0,
+    profit_loss_pct: float = 1.5,
+) -> PortfolioHistoryPoint:
+    return PortfolioHistoryPoint(
+        timestamp=1_700_000_000,
+        equity=10_000.0,
+        profit_loss=profit_loss,
+        profit_loss_pct=profit_loss_pct,
+    )
+
+
+def _patch_day_pl_broker(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    day_pl: float = 150.0,
+    day_pl_pct: float = 1.5,
+    fail_account_ids: frozenset[str] = frozenset(),
+) -> None:
+    async def fake_history(_range: str) -> list[PortfolioHistoryPoint]:
+        return [_history_point(profit_loss=day_pl, profit_loss_pct=day_pl_pct)]
+
+    def fake_get_broker_for_account(account_id: str) -> MagicMock:
+        broker = MagicMock()
+        if account_id in fail_account_ids:
+            broker.aget_portfolio_history = AsyncMock(
+                side_effect=RuntimeError("history unavailable")
+            )
+        else:
+            broker.aget_portfolio_history = AsyncMock(side_effect=fake_history)
+        return broker
+
+    monkeypatch.setattr(
+        "brokers.factory.get_broker_for_account",
+        fake_get_broker_for_account,
+    )
+
+
 @pytest.mark.asyncio
 async def test_get_portfolio_snapshot_all_accounts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -112,6 +153,8 @@ async def test_get_portfolio_snapshot_all_accounts(
         db_path=db,
     )
 
+    _patch_day_pl_broker(monkeypatch, day_pl=150.0, day_pl_pct=1.5)
+
     result = await execute_tool("get_portfolio_snapshot", {})
 
     assert "accounts" in result
@@ -121,9 +164,48 @@ async def test_get_portfolio_snapshot_all_accounts(
     by_id = {a["account_id"]: a for a in result["accounts"]}
     assert by_id[alpaca["id"]]["tradeable"] is True
     assert by_id[alpaca["id"]]["read_only"] is False
+    assert by_id[alpaca["id"]]["day_pl"] == 150.0
+    assert by_id[alpaca["id"]]["day_pl_pct"] == 1.5
     assert by_id[schwab["id"]]["read_only"] is True
     assert by_id[schwab["id"]]["tradeable"] is False
+    assert by_id[schwab["id"]]["day_pl"] is None
+    assert by_id[schwab["id"]]["day_pl_pct"] is None
+    assert result["aggregate"]["total_day_pl"] == 150.0
     assert "note" in result
+    assert "CUMULATIVE" in result["note"]
+
+
+@pytest.mark.asyncio
+async def test_get_portfolio_snapshot_day_pl_fail_safe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    db = _migrated_db(tmp_path, schwab_count=0)
+    _patch_db(monkeypatch, db)
+
+    alpaca = get_default_account("alpaca", db_path=db)
+    assert alpaca is not None
+
+    sqlite_mod.save_snapshot(
+        _account(cash=5_000.0, account_id=alpaca["id"]),
+        [_position()],
+        [],
+        broker="alpaca",
+        account_id=alpaca["id"],
+        db_path=db,
+    )
+
+    _patch_day_pl_broker(
+        monkeypatch,
+        fail_account_ids=frozenset({alpaca["id"]}),
+    )
+
+    result = await execute_tool("get_portfolio_snapshot", {})
+
+    assert "accounts" in result
+    by_id = {a["account_id"]: a for a in result["accounts"]}
+    assert by_id[alpaca["id"]]["day_pl"] is None
+    assert by_id[alpaca["id"]]["day_pl_pct"] is None
+    assert result["aggregate"]["total_day_pl"] == 0.0
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,7 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
   const all = {
     get_portfolio_snapshot: tool({
       description:
-        "All accounts (Alpaca paper + read-only Schwab): equity, cash, positions, open orders — per account plus an aggregate.",
+        "All accounts (Alpaca paper + read-only Schwab): equity, cash, positions, open orders — per account plus an aggregate. Includes today's day P&L per account + aggregate, plus cumulative unrealized P&L on positions.",
       inputSchema: z.object({}),
       execute: async () =>
         executePythonTool("get_portfolio_snapshot", {}),

@@ -38,7 +38,8 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "title": "Portfolio snapshot",
         "description": (
             "All accounts (Alpaca paper + read-only Schwab): equity, cash, positions, "
-            "open orders — per account plus an aggregate."
+            "open orders — per account plus an aggregate. Includes today's day P&L per "
+            "account + aggregate, plus cumulative unrealized P&L on positions."
         ),
     },
     "get_agent_status": {
@@ -162,19 +163,24 @@ class ToolPlan(BaseModel):
 _ALLOWED_TOOLS = frozenset(TOOL_DEFINITIONS.keys())
 
 _MULTI_ACCOUNT_NOTE = (
-    "Alpaca accounts are PAPER (tradeable). Schwab accounts are REAL money and "
-    "READ-ONLY — never place orders there."
+    "Per-position `unrealized_pl` is CUMULATIVE since entry — NOT today. "
+    "`day_pl` / `day_pl_pct` (per account) and `total_day_pl` (aggregate) are "
+    "TODAY's change. Alpaca = paper (tradeable); Schwab = real money, read-only "
+    "(no day P&L shown)."
 )
 
 
 def _multi_account_context(
     snaps: list[dict[str, Any]],
     meta: dict[str, dict[str, Any]],
+    day_pl_by_account: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    day_pl_map = day_pl_by_account or {}
     accounts_out: list[dict[str, Any]] = []
     total_equity = 0.0
     total_cash = 0.0
     tradeable_equity = 0.0
+    total_day_pl = 0.0
 
     for snap in snaps:
         account_id = snap.get("account_id") or snap.get("account", {}).get("id")
@@ -192,6 +198,12 @@ def _multi_account_context(
         if execution_capable:
             tradeable_equity += equity
 
+        day_pl_entry = day_pl_map.get(str(account_id)) if account_id else None
+        day_pl = day_pl_entry.get("day_pl") if day_pl_entry else None
+        day_pl_pct = day_pl_entry.get("day_pl_pct") if day_pl_entry else None
+        if day_pl is not None:
+            total_day_pl += float(day_pl)
+
         accounts_out.append(
             {
                 "account_id": account_id,
@@ -202,6 +214,8 @@ def _multi_account_context(
                 "equity": equity,
                 "cash": cash,
                 "buying_power": buying_power,
+                "day_pl": day_pl,
+                "day_pl_pct": day_pl_pct,
                 "position_count": len(positions),
                 "positions": positions[:20],
                 "captured_at": snap.get("captured_at"),
@@ -214,6 +228,7 @@ def _multi_account_context(
             "total_equity": total_equity,
             "total_cash": total_cash,
             "tradeable_equity": tradeable_equity,
+            "total_day_pl": total_day_pl,
             "account_count": len(accounts_out),
         },
         "note": _MULTI_ACCOUNT_NOTE,
@@ -271,11 +286,32 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
     from db.base import DEFAULT_DB_PATH
 
     if name == "get_portfolio_snapshot":
+        from brokers.factory import get_broker_for_account
+
         snaps = get_all_latest_snapshots(db_path=DEFAULT_DB_PATH)
         if not snaps:
             return {"error": "No snapshot yet — broker poll has not run."}
         meta = {a["id"]: a for a in list_accounts(db_path=DEFAULT_DB_PATH)}
-        return _multi_account_context(snaps, meta)
+
+        day_pl_by_account: dict[str, dict[str, Any]] = {}
+        for a in list_accounts(db_path=DEFAULT_DB_PATH):
+            if str(a.get("broker", "")).lower() != "alpaca" or not a.get(
+                "execution_capable"
+            ):
+                continue
+            try:
+                broker = get_broker_for_account(a["id"])
+                points = await broker.aget_portfolio_history("1D")
+                if points:
+                    last = points[-1]
+                    day_pl_by_account[a["id"]] = {
+                        "day_pl": last.profit_loss,
+                        "day_pl_pct": last.profit_loss_pct,
+                    }
+            except Exception:
+                logger.exception("day P&L fetch failed for account %s", a.get("id"))
+
+        return _multi_account_context(snaps, meta, day_pl_by_account)
 
     if name == "get_agent_status":
         labels = _account_label_map(db_path=DEFAULT_DB_PATH)
