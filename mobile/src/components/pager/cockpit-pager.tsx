@@ -84,8 +84,7 @@ export function CockpitPager() {
 
       {/* Top locator overlay — page dots + live connection dot. Surfaces render their own titles. */}
       <View
-        pointerEvents="box-none"
-        style={{ position: 'absolute', top: insets.top + spacing.sm, left: 0, right: 0, alignItems: 'center' }}
+        style={{ position: 'absolute', top: insets.top + spacing.sm, left: 0, right: 0, alignItems: 'center', pointerEvents: 'box-none' }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
           {SURFACES.map((s, i) => (
@@ -115,8 +114,7 @@ export function CockpitPager() {
       {pendingCount > 0 && page !== APPROVALS_INDEX ? (
         <Animated.View
           entering={FadeIn}
-          pointerEvents="box-none"
-          style={{ position: 'absolute', top: insets.top + spacing['2xl'], left: 0, right: 0, alignItems: 'center' }}
+          style={{ position: 'absolute', top: insets.top + spacing['2xl'], left: 0, right: 0, alignItems: 'center', pointerEvents: 'box-none' }}
         >
           <Pressable
             onPress={() => goTo(APPROVALS_INDEX)}
