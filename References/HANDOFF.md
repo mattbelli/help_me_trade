@@ -6,6 +6,26 @@ plan + dated history). Everything else is in those — this is just current focu
 `WATCHLIST_SPEC.md` (parallel feature), `SERVER_SETUP.md` (migration, done), `STARTUP.md` (run + device access),
 `CLAUDE.md` (mission + working agreements, auto-loaded).*
 
+## DONE (2026-06-23): Databento deep data + Adam-as-trigger study — both threads close at BETA; setstudy stood up
+Same branch (pushed, not merged). **(1) Databento `/ES` data layer** (`research/databento_loader.py`, CME
+GLBX.MDP3): pulled **10y of true 1-min** (2016-06-23..2026-06-22, ~3.49M bars, `source="databento"`, $12.72,
+tick-verified vs Schwab; ~$112 credits left). Estimate-before-pull is free; on-demand depth removes the
+Schwab 40-day race. **(2) True-anchor recompute** (`profile_mr_swing.py weekly_anchors=` + `--anchor-source
+intraday`): feeding the TRUE 1-min weekly POC into the swing test did NOT change the verdict — still
+2025-dominated/6-of-11-years, avg_R degenerate (true VAL ≈ week low). The ~29pt daily-approx error wasn't
+hiding alpha → **daily-swing profile-MR rejected a 4th way.** **(3) Adam-as-trigger event study**
+(`research/adam_trigger_study.py`, 30 tests): extracted **135 directional $ES calls** from his full Twitter
+history; entry modes post_price (realistic follower, ~96% fill) vs his_level (idealized); fixed + scaleout
+(half day-1 + trailed runner) exits; slippage + always-long beta benchmark. **Finding: following him
+mechanically lands at/below long-beta across all faithful variants** (entry/target 40-100/exit). Realistic
+post-price entry carries a **+22pt median slippage tax** (he posts at/after entry → follower chases); his
+scale-out UNDERperformed a flat 100pt target (caps runners; short runners die in the bull). **META-CONCLUSION:
+his edge (if real) is discretionary read + ORDERFLOW, not price levels → use him as a discretionary guide, not
+a mechanizable signal.** **(4) Setstudy** (`research/setstudy.py`): a daily review tool — his calls vs what
+/ES did + a growing `setstudy_log.csv` corpus — the forward way to learn his read. **Backtest research is
+WRAPPED.** Untouched lever = orderflow (TBBO, available 2010+, ~$112 credits) — deliberately deferred, not
+momentum. Memories: [[es-data-archive-strategy]].
+
 ## DONE (2026-06-22): Schwab /ES data layer + profile-MR research — NO ROBUST EDGE (rejected 3 ways)
 Branch `research/decision-engine-data-layer` (PC/Windows; pushed to origin, NOT merged). Tested @adaamset's
 volume-profile mean-reversion method on `/ES` futures end-to-end. **Verdict: no robust alpha at daily
@@ -95,15 +115,19 @@ the safety checklist (if ever revisited) → `References/SHORT_TRADING_FINDINGS.
 `data/research/strategy_short.db` (gitignored).
 
 ## NEXT (pick up here)
-- **profile-MR — PARKED, data-gated (don't redo the daily version).** Daily-resolution is exhausted (no robust
-  edge, see DONE 2026-06-22). The ONLY genuinely-open thread is the **intraday true-anchor** version (his
-  *actual* resolution: true 1-min POC, intraday acceptance timing, the morning-rebid setup) — untestable until
-  the **1-min `/ES` archive matures** (have ~6 weeks; need 6+ months). That archive grows via a **weekly pull
-  on `serv`** (re-pull within every ~40 days or bars age out of Schwab forever; pairs with weekly OAuth).
-  **Setup not done:** move token + `intraday_bars.db` to serv, cron the pull, wire into serv backups. The
-  `validate_weekly_anchor` already flagged the daily POC is ~29pt off the true 1-min POC — another reason the
-  real test needs intraday. A no-stop scale-in variant was discussed and DECLINED (martingale ruin risk on
-  leveraged futures; 2022 −484 is the warning).
+- **@adaamset research is WRAPPED — both threads = beta.** profile-MR (rejected 4 ways incl. true 1-min anchor)
+  AND Adam-as-trigger (≈/below long-beta across all faithful entry/target/exit variants) show no robust alpha.
+  His edge (if real) is discretionary + orderflow, NOT price levels. **Do not re-run the mechanical level
+  tests.** Forward path = **the setstudy** (`research/setstudy.py` → `data/research/setstudy_log.csv`): run it
+  daily to log his calls vs `/ES` outcomes and learn his read qualitatively.
+  - **Setstudy input pipeline (OPEN):** his tweets come from a static `tweets.json` export (through
+    2026-06-22). To keep the setstudy current, NEW posts must be added + re-extracted into `es_triggers_full.json`
+    (the broad-extraction subagent prompt is the pattern). How the user gets his daily tweets (scraper vs
+    manual paste) is unresolved — clarify before automating.
+  - **Orderflow (TBBO) — deliberately DEFERRED, not momentum.** The one untouched dimension (where his real
+    edge supposedly lives); Databento has it 2010+, ~$112 credits left. Big, noisy, overfitting-prone build —
+    only pursue as a scoped decision, not a default.
+  - **serv archive cron** for live 1-min Schwab is now LOW priority (Databento gives on-demand depth).
 - **FORWARD-TEST on paper, not real money** (the right next gate): the strategy is long-only → fits the
   app's no-short rule → wire it as an actionable `type:"trade"` signal-rule (created DISABLED) → agent
   proposes these dip setups → phone approve → paper execution via the existing chokepoint. Compare live
