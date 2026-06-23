@@ -1,10 +1,10 @@
-import { Alert, View } from 'react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useHealth } from '@/api/queries';
 import { useAuth } from '@/auth/auth-context';
 import { Icon } from '@/components/ui/icon';
-import { Button, Card, PressableScale, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
+import { Button, Card, Eyebrow, PressableScale, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
 import { colors, spacing } from '@/theme';
 
@@ -31,15 +31,19 @@ export function SettingsScreen() {
 
   return (
     <Screen>
-      <View style={{ flex: 1, paddingTop: spacing['4xl'], paddingHorizontal: spacing.xl }}>
+      <ScrollView
+        contentContainerStyle={{
+          paddingTop: spacing['4xl'],
+          paddingHorizontal: spacing.xl,
+          paddingBottom: 110,
+        }}
+      >
         <Stack gap={spacing.lg}>
           <Header />
 
           <Card>
             <Stack gap={spacing.md}>
-              <Text variant="label" upper color="textFaint">
-                connection
-              </Text>
+              <Eyebrow>connection</Eyebrow>
               {health.isLoading ? (
                 <Skeleton height={20} width="80%" />
               ) : (
@@ -73,37 +77,47 @@ export function SettingsScreen() {
           </Card>
 
           <Card>
-            <Stack gap={spacing.sm}>
-              <Text variant="label" upper color="textFaint">
-                app
-              </Text>
-              <Text variant="body">Version {APP_VERSION}</Text>
-            </Stack>
-          </Card>
-
-          <PressableScale onPress={() => router.push('/alerts')}>
-            <Card>
-              <Row justify="space-between" align="center">
-                <Text variant="bodyStrong">Price alerts</Text>
-                <Icon name="chevron-right" size={20} color={colors.textMuted} />
-              </Row>
-            </Card>
-          </PressableScale>
-
-          <Card>
             <Stack gap={spacing.md}>
-              <Text variant="label" upper color="textFaint">
-                account
-              </Text>
+              <Eyebrow>account</Eyebrow>
               <Button tone="danger" label="Disconnect" onPress={handleDisconnect} />
             </Stack>
           </Card>
 
-          <Text variant="callout" color="textMuted">
-            Strategy configuration is coming in a later update.
-          </Text>
+          <Card>
+            <Stack gap={spacing.sm}>
+              <Eyebrow>price alerts</Eyebrow>
+              <PressableScale onPress={() => router.push('/alerts')}>
+                <Row justify="space-between" align="center">
+                  <Text variant="bodyStrong">Price alerts</Text>
+                  <Icon name="chevron-right" size={20} color={colors.textMuted} />
+                </Row>
+              </PressableScale>
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={spacing.sm}>
+              <Eyebrow>strategies</Eyebrow>
+              <Row justify="space-between" align="center">
+                <Stack gap={2} style={{ flex: 1 }}>
+                  <Text variant="bodyStrong">Strategies</Text>
+                  <Text variant="caption" color="textMuted">
+                    configure the agent's strategies — coming soon
+                  </Text>
+                </Stack>
+                <Icon name="chevron-right" size={20} color={colors.textMuted} />
+              </Row>
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={spacing.sm}>
+              <Eyebrow>app</Eyebrow>
+              <Text variant="body">Version {APP_VERSION}</Text>
+            </Stack>
+          </Card>
         </Stack>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -111,9 +125,7 @@ export function SettingsScreen() {
 function Header() {
   return (
     <Stack gap={2}>
-      <Text variant="label" upper color="accent">
-        settings
-      </Text>
+      <Eyebrow color="accent">settings</Eyebrow>
       <Text variant="title">Preferences</Text>
     </Stack>
   );

@@ -15,6 +15,7 @@ import {
   Button,
   Card,
   ErrorState,
+  Eyebrow,
   Money,
   Pct,
   PressableScale,
@@ -65,7 +66,7 @@ export default function SymbolDetailScreen() {
         contentContainerStyle={{
           paddingTop: spacing['4xl'],
           paddingHorizontal: spacing.xl,
-          paddingBottom: spacing['3xl'],
+          paddingBottom: 110,
         }}
       >
         <Stack gap={spacing.xl}>
@@ -110,9 +111,7 @@ export default function SymbolDetailScreen() {
           {quote ? <KeyInfoGrid quote={quote} /> : null}
 
           <Stack gap={spacing.md}>
-            <Text variant="label" upper color="textFaint">
-              price alerts
-            </Text>
+            <Eyebrow>price alerts</Eyebrow>
 
             <Card>
               <Stack gap={spacing.md}>
@@ -218,15 +217,13 @@ function InfoCell({
   return (
     <Card style={{ flex: 1, minWidth: '45%', padding: spacing.md }}>
       <Stack gap={spacing.xs}>
-        <Text variant="label" upper color="textFaint">
-          {label}
-        </Text>
+        <Eyebrow>{label}</Eyebrow>
         {value == null ? (
           <Text variant="bodyStrong">—</Text>
         ) : money ? (
           <Money value={value} size="sm" />
         ) : volume ? (
-          <Text variant="bodyStrong">{formatVolume(value)}</Text>
+          <Text variant="figureSm">{formatVolume(value)}</Text>
         ) : (
           <Text variant="bodyStrong">{value}</Text>
         )}
@@ -280,9 +277,10 @@ function AlertRow({
 }) {
   return (
     <Row justify="space-between" align="center">
-      <Text variant="body">
-        {alert.direction} ${alert.price.toFixed(2)}
-      </Text>
+      <Row gap={spacing.xs} align="center">
+        <Text variant="body">{alert.direction}</Text>
+        <Money value={alert.price} size="sm" />
+      </Row>
       <PressableScale onPress={onDelete} disabled={deleting} haptic>
         <View style={{ padding: spacing.sm }}>
           <Icon name="close" size={18} color={colors.textMuted} />

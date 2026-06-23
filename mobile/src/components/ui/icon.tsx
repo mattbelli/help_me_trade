@@ -10,6 +10,7 @@ export type IconName =
   | 'portfolio'
   | 'watchlist'
   | 'inbox'
+  | 'chat'
   | 'settings'
   | 'bell'
   | 'plus'
@@ -51,6 +52,9 @@ export function Icon({
           <Path d="M3 13l2.5-7.5A2 2 0 0 1 7.4 4h9.2a2 2 0 0 1 1.9 1.5L21 13v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Z" {...common} />
           <Path d="M3 13h5l1.5 2.2h5L16 13h5" {...common} />
         </>
+      )}
+      {name === 'chat' && (
+        <Path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" {...common} />
       )}
       {name === 'settings' && (
         <>

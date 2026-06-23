@@ -18,6 +18,7 @@ import {
   Delta,
   EmptyState,
   ErrorState,
+  Eyebrow,
   Money,
   Pct,
   PressableScale,
@@ -86,17 +87,26 @@ export function PortfolioScreen() {
       <FlashList
         data={positions}
         keyExtractor={(item) => item.key}
-        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 110 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
         ListHeaderComponent={
           <Stack gap={spacing.xl} style={{ paddingTop: spacing['3xl'], paddingBottom: spacing.lg }}>
+            {/* Terminal status line */}
+            <Row justify="space-between" align="center">
+              <Eyebrow style={{ letterSpacing: 0.5 }}>help_me_trade</Eyebrow>
+              <Row gap={spacing.xs} align="center">
+                <Text variant="caption" style={{ color: colors.positive }}>
+                  ●
+                </Text>
+                <Eyebrow>alpaca · paper</Eyebrow>
+              </Row>
+            </Row>
+
             {/* Value + today */}
             <Stack gap={spacing.xs}>
-              <Text variant="label" upper color="textFaint">
-                portfolio value
-              </Text>
+              <Eyebrow>portfolio value</Eyebrow>
               {snapshot.isLoading ? (
                 <Skeleton height={44} width="65%" />
               ) : (
@@ -172,7 +182,7 @@ export function PortfolioScreen() {
               </Row>
             ) : null}
 
-            <Text variant="label" upper color="textFaint">holdings</Text>
+            <Eyebrow>holdings</Eyebrow>
           </Stack>
         }
         renderItem={({ item }) => <PositionRowItem position={item.position} />}
@@ -188,7 +198,7 @@ function Tile({ label, value, loading }: { label: string; value?: number; loadin
   return (
     <Card style={{ flex: 1 }}>
       <Stack gap={spacing.xs}>
-        <Text variant="label" upper color="textFaint">{label}</Text>
+        <Eyebrow>{label}</Eyebrow>
         {loading ? <Skeleton height={20} width="80%" /> : <Money value={value ?? 0} size="md" compact />}
       </Stack>
     </Card>

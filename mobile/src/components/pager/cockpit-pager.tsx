@@ -21,15 +21,17 @@ import { useAlerts } from '@/state/alerts';
 import { NavProvider } from '@/state/nav';
 import { colors, haptics } from '@/theme';
 
+import { ChatScreen } from '@/features/chat/chat-screen';
 import { InboxScreen } from '@/features/inbox/inbox-screen';
 import { PortfolioScreen } from '@/features/portfolio/portfolio-screen';
 import { SettingsScreen } from '@/features/settings/settings-screen';
 import { WatchlistScreen } from '@/features/watchlist/watchlist-screen';
 
 const TABS: TabDef[] = [
-  { key: 'portfolio', label: 'Portfolio', icon: 'portfolio' },
+  { key: 'home', label: 'Home', icon: 'portfolio' },
   { key: 'watchlist', label: 'Watchlist', icon: 'watchlist' },
   { key: 'inbox', label: 'Inbox', icon: 'inbox' },
+  { key: 'chat', label: 'Chat', icon: 'chat' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
 const INBOX_INDEX = 2;
@@ -65,6 +67,7 @@ export function CockpitPager() {
       <View key="portfolio" style={{ flex: 1 }} collapsable={false}><PortfolioScreen /></View>,
       <View key="watchlist" style={{ flex: 1 }} collapsable={false}><WatchlistScreen /></View>,
       <View key="inbox" style={{ flex: 1 }} collapsable={false}><InboxScreen /></View>,
+      <View key="chat" style={{ flex: 1 }} collapsable={false}><ChatScreen /></View>,
       <View key="settings" style={{ flex: 1 }} collapsable={false}><SettingsScreen /></View>,
     ],
     [],

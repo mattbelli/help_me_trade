@@ -5,7 +5,7 @@
  */
 import { Text as RNText, type TextProps as RNTextProps } from 'react-native';
 
-import { colors, type, type TypeVariant } from '@/theme';
+import { colors, fonts, type, type TypeVariant } from '@/theme';
 
 type ColorToken = 'text' | 'textMuted' | 'textFaint' | 'accent' | 'positive' | 'negative' | 'warning' | 'onAccent';
 
@@ -53,5 +53,31 @@ export function Text({
       maxFontSizeMultiplier={1.3}
       {...rest}
     />
+  );
+}
+
+/**
+ * Eyebrow — the lowercase, letter-spaced monospace section label that gives the
+ * app its terminal cue (e.g. "portfolio value", "holdings"). Faint by default.
+ */
+export function Eyebrow({
+  children,
+  color = 'textFaint',
+  style,
+}: {
+  children: RNTextProps['children'];
+  color?: ColorToken | string;
+  style?: RNTextProps['style'];
+}) {
+  return (
+    <RNText
+      maxFontSizeMultiplier={1.2}
+      style={[
+        { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 1.6, color: resolveColor(color), textTransform: 'lowercase' },
+        style,
+      ]}
+    >
+      {children}
+    </RNText>
   );
 }

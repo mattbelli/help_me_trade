@@ -8,6 +8,8 @@ import { Icon } from '@/components/ui/icon';
 import {
   EmptyState,
   ErrorState,
+  Eyebrow,
+  Money,
   PressableScale,
   Row,
   Screen,
@@ -44,15 +46,13 @@ export default function AlertsScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
-        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 110 }}
         ListHeaderComponent={
           <View style={{ paddingTop: spacing['4xl'], paddingBottom: spacing.lg }}>
             <Stack gap={spacing.lg}>
               <BackRow onBack={() => router.back()} />
               <Stack gap={2}>
-                <Text variant="label" upper color="accent">
-                  alerts
-                </Text>
+                <Eyebrow color="accent">alerts</Eyebrow>
                 <Text variant="title">Active alerts</Text>
               </Stack>
             </Stack>
@@ -114,9 +114,10 @@ function AlertListRow({
       <PressableScale onPress={onOpenSymbol} style={{ flex: 1 }}>
         <Stack gap={2}>
           <Text variant="bodyStrong">{alert.symbol}</Text>
-          <Text variant="body">
-            {alert.direction} ${alert.price.toFixed(2)}
-          </Text>
+          <Row gap={spacing.xs} align="center">
+            <Text variant="body">{alert.direction}</Text>
+            <Money value={alert.price} size="sm" />
+          </Row>
           {alert.note ? (
             <Text variant="caption" color="textMuted">
               {alert.note}

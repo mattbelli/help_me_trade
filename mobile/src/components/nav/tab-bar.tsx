@@ -1,14 +1,15 @@
 /**
- * TabBar — the bottom navigation. Taps jump straight to a surface; the active
- * tab is teal. Inbox shows an unread/pending dot. Sits above the home indicator.
- * Pairs with the pager (swipe still works); this just adds direct access.
+ * TabBar — a floating oval pill. Tap to jump; the active tab's icon springs into
+ * a teal capsule and scales up. Pairs with swipe (this just adds direct access).
  */
+import { useEffect } from 'react';
 import { View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PressableScale, Text } from '@/components/ui';
+import { PressableScale } from '@/components/ui';
 import { Icon, type IconName } from '@/components/ui/icon';
-import { colors, hairline, spacing } from '@/theme';
+import { colors, hairline, spacing, spring } from '@/theme';
 
 export interface TabDef {
   key: string;
@@ -25,55 +26,79 @@ export function TabBar({
   tabs: TabDef[];
   index: number;
   onSelect: (i: number) => void;
-  /** key → show a dot (e.g. unread inbox / pending approvals). */
   badges?: Record<string, boolean>;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View
-      style={{
-        flexDirection: 'row',
-        paddingTop: spacing.sm,
-        paddingBottom: Math.max(insets.bottom, spacing.sm),
-        backgroundColor: colors.bgInset,
-        borderTopWidth: hairline,
-        borderTopColor: colors.border,
-      }}
+      style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, spacing.md), alignItems: 'center', pointerEvents: 'box-none' }}
     >
-      {tabs.map((t, i) => {
-        const active = i === index;
-        const tint = active ? colors.accent : colors.textFaint;
-        return (
-          <PressableScale
-            key={t.key}
-            onPress={() => onSelect(i)}
-            scaleTo={0.9}
-            style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: spacing.xs }}
-          >
-            <View>
-              <Icon name={t.icon} size={24} color={tint} strokeWidth={active ? 2.1 : 1.8} />
-              {badges?.[t.key] ? (
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: -2,
-                    right: -5,
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: colors.accent,
-                    borderWidth: 1.5,
-                    borderColor: colors.bgInset,
-                  }}
-                />
-              ) : null}
-            </View>
-            <Text variant="label" style={{ color: tint, fontSize: 10, letterSpacing: 0.3 }}>
-              {t.label}
-            </Text>
-          </PressableScale>
-        );
-      })}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.xs,
+          backgroundColor: colors.bgInset,
+          borderRadius: 999,
+          borderWidth: hairline,
+          borderColor: colors.borderStrong,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.sm - 2,
+          ...shadow,
+        }}
+      >
+        {tabs.map((t, i) => (
+          <TabItem key={t.key} def={t} active={i === index} badge={badges?.[t.key]} onPress={() => onSelect(i)} />
+        ))}
+      </View>
     </View>
   );
 }
+
+function TabItem({ def, active, badge, onPress }: { def: TabDef; active: boolean; badge?: boolean; onPress: () => void }) {
+  const a = useSharedValue(active ? 1 : 0);
+  useEffect(() => {
+    a.value = withSpring(active ? 1 : 0, spring.snappy);
+  }, [active, a]);
+
+  const capsule = useAnimatedStyle(() => ({
+    transform: [{ scale: 0.85 + a.value * 0.15 }],
+    backgroundColor: a.value > 0.5 ? colors.accentWash : 'transparent',
+  }));
+
+  return (
+    <PressableScale onPress={onPress} scaleTo={0.88} haptic style={{ borderRadius: 999 }}>
+      <Animated.View
+        style={[
+          { width: 46, height: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
+          capsule,
+        ]}
+      >
+        <Icon name={def.icon} size={22} color={active ? colors.accent : colors.textFaint} strokeWidth={active ? 2.2 : 1.8} />
+        {badge ? (
+          <View
+            style={{
+              position: 'absolute',
+              top: 4,
+              right: 8,
+              width: 7,
+              height: 7,
+              borderRadius: 4,
+              backgroundColor: colors.accent,
+              borderWidth: 1.5,
+              borderColor: colors.bgInset,
+            }}
+          />
+        ) : null}
+      </Animated.View>
+    </PressableScale>
+  );
+}
+
+const shadow = {
+  shadowColor: '#000000',
+  shadowOpacity: 0.4,
+  shadowRadius: 20,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 10,
+} as const;

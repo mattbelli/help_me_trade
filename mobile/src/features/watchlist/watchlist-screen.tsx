@@ -10,6 +10,7 @@ import {
   Card,
   EmptyState,
   ErrorState,
+  Eyebrow,
   Money,
   Pct,
   PressableScale,
@@ -79,7 +80,7 @@ export function WatchlistScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
-        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'] }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 110 }}
         ListHeaderComponent={
           <View style={{ paddingTop: spacing['4xl'], paddingBottom: spacing.lg }}>
             <Header
@@ -134,9 +135,7 @@ function Header({
   return (
     <Row justify="space-between" align="flex-start">
       <Stack gap={2}>
-        <Text variant="label" upper color="accent">
-          watchlist
-        </Text>
+        <Eyebrow color="accent">watchlist</Eyebrow>
         <Text variant="title">Symbols</Text>
       </Stack>
       <Row gap={spacing.sm}>
