@@ -16,6 +16,7 @@ import { usePendingProposals } from '@/api/queries';
 import { useMarketWs } from '@/api/use-market-ws';
 import { Text } from '@/components/ui';
 import { useAuth } from '@/auth/auth-context';
+import { usePush } from '@/push/use-push';
 import { useAlerts } from '@/state/alerts';
 import { colors, haptics, radius, spacing } from '@/theme';
 
@@ -52,6 +53,9 @@ export function CockpitPager() {
   const goTo = useCallback((index: number) => {
     pagerRef.current?.setPage(index);
   }, []);
+
+  // Register for APNs push + handle lock-screen Approve/Reject + deep-link to Approvals.
+  usePush({ onOpenApprovals: () => goTo(APPROVALS_INDEX) });
 
   const { connected } = useMarketWs({
     token,
