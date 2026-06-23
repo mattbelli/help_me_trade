@@ -109,6 +109,22 @@ function TriColumn({
   );
 }
 
+// ─── Column header — mirrors the row's flex geometry exactly ──────────────────
+function ColLabel({ children }: { children: string }) {
+  return <Text style={{ ...mono, fontSize: 10, letterSpacing: 0.6, color: colors.textFaint }}>{children}</Text>;
+}
+function ColumnHeader() {
+  return (
+    <Row align="center" gap={0} style={{ paddingBottom: spacing.sm, marginBottom: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
+      <View style={{ width: SYM_W }} />
+      <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><ColLabel>last</ColLabel></View>
+      <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><ColLabel>chg</ColLabel></View>
+      <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><ColLabel>vol</ColLabel></View>
+      <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}><ColLabel>1d</ColLabel></View>
+    </Row>
+  );
+}
+
 // ─── Header: aligned eyebrow + icons, sits high ───────────────────────────────
 function WatchlistHeader({
   columns,
@@ -300,11 +316,14 @@ export function WatchlistScreen() {
   const marketLoading = market.isLoading && symbols.length > 0;
 
   const header = (
-    <WatchlistHeader
-      columns={columns}
-      onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
-      onOpenAlerts={() => router.push('/alerts')}
-    />
+    <View>
+      <WatchlistHeader
+        columns={columns}
+        onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
+        onOpenAlerts={() => router.push('/alerts')}
+      />
+      {columns === 1 ? <ColumnHeader /> : null}
+    </View>
   );
 
   if (watchlist.isError || market.isError) {
