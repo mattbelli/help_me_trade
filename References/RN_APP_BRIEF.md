@@ -152,6 +152,24 @@ Must-haves to plan for: the actionable-push category/actions + the `authenticati
 keeping `payload_hash` fresh. (Live Activity / Dynamic Island is optional — see the playbook for its
 current, churned tooling reality if you choose to add it later.)
 
+**Dynamic Island — yes, used tastefully (founder: "would be dope for prompts/insights").** The DI is
+*driven by Live Activities* (no separate DI API), so reconcile it with "not all day" by making activities
+**short-lived & event-driven**: start one for a prompt / fill / "pending-approval" pill and **auto-end it
+in seconds** — the 12h-persistence/battery concern is moot when you never let it linger. Use the DI as a
+**glanceable indicator + deep-link** (e.g. "1 approval pending — tap"), with the actual Approve still
+Face-ID-gated (a DI/AppIntent button wakes the app → Face ID → `/approve`). This brings back the native
+widget-extension work (expo-widgets/Voltra + some Swift) but scoped to *ephemeral* activities and as a
+**Phase 3+ nicety, not the foundation** — actionable push stays the primary, reliable approval channel.
+
+**"Notification while in app" is a SEPARATE surface — build a custom in-app system.** Foreground system
+banners feel clunky; elite apps render their own **in-app toast / HUD / banner** (some a faux "island
+pill" near the notch for the DI aesthetic) — fully controllable, animated, tappable. Use it for in-app
+prompts / insights / fills. It's **pure RN (no ActivityKit), cheap, Phase 1-2** — ~80% of the "dope"
+factor with zero native complexity. Net mapping:
+- **Locked / backgrounded, decision needed** → actionable **push** (Face-ID Approve). *[primary]*
+- **Backgrounded, transient status** → short-lived **Live Activity / Dynamic Island** pill. *[optional, Phase 3+]*
+- **In foreground, prompt/insight/fill** → **custom in-app toast/HUD** (optional faux-island pill). *[Phase 1-2]*
+
 ## 7. Safety — non-negotiable (this becomes real money)
 - **Every order — manual OR an approved proposal — routes through the SAME server chokepoint.** Whether
   the user taps Approve on an agent proposal or places a manual order on the chart page, it goes through
