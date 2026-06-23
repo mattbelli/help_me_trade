@@ -84,3 +84,170 @@ def test_market_stream_url_uses_resolved_feed(
         alpaca_market_ws_url("sip")
         == "wss://stream.data.alpaca.markets/v2/sip"
     )
+
+
+def _raw_bar(time: str, close: float) -> dict[str, float | str]:
+    return {
+        "t": time,
+        "o": close - 0.5,
+        "h": close + 0.5,
+        "l": close - 1.0,
+        "c": close,
+        "v": 100,
+    }
+
+
+def test_get_stock_bars_range_follows_next_page_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter()
+    calls: list[dict[str, object]] = []
+
+    def fake_get_data(_path: str, *, params: dict[str, object] | None = None) -> dict:
+        calls.append(dict(params or {}))
+        if len(calls) == 1:
+            return {
+                "bars": [_raw_bar("2025-01-01T10:00:00Z", 100.0)],
+                "next_page_token": "tok",
+            }
+        return {
+            "bars": [_raw_bar("2025-01-01T11:00:00Z", 101.0)],
+            "next_page_token": None,
+        }
+
+    monkeypatch.setattr(adapter, "_get_data", fake_get_data)
+
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    end = datetime(2025, 1, 2, tzinfo=UTC)
+    bars = adapter.get_stock_bars_range(
+        "SPY", timeframe="1Hour", start=start, end=end
+    )
+
+    assert [bar.time for bar in bars] == [
+        "2025-01-01T10:00:00Z",
+        "2025-01-01T11:00:00Z",
+    ]
+    assert len(calls) == 2
+    assert "page_token" not in calls[0]
+    assert calls[1].get("page_token") == "tok"
+
+
+@pytest.mark.asyncio
+async def test_aget_stock_bars_range_follows_next_page_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter()
+    calls: list[dict[str, object]] = []
+
+    async def fake_aget_data(
+        _path: str, *, params: dict[str, object] | None = None
+    ) -> dict:
+        calls.append(dict(params or {}))
+        if len(calls) == 1:
+            return {
+                "bars": [_raw_bar("2025-01-01T10:00:00Z", 100.0)],
+                "next_page_token": "tok",
+            }
+        return {
+            "bars": [_raw_bar("2025-01-01T11:00:00Z", 101.0)],
+            "next_page_token": None,
+        }
+
+    monkeypatch.setattr(adapter, "_aget_data", fake_aget_data)
+
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    end = datetime(2025, 1, 2, tzinfo=UTC)
+    bars = await adapter.aget_stock_bars_range(
+        "SPY", timeframe="1Hour", start=start, end=end
+    )
+
+    assert [bar.time for bar in bars] == [
+        "2025-01-01T10:00:00Z",
+        "2025-01-01T11:00:00Z",
+    ]
+    assert len(calls) == 2
+    assert "page_token" not in calls[0]
+    assert calls[1].get("page_token") == "tok"
+
+
+def test_get_stock_bars_batch_merges_pages_per_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter()
+    calls: list[dict[str, object]] = []
+
+    def fake_get_data(_path: str, *, params: dict[str, object] | None = None) -> dict:
+        calls.append(dict(params or {}))
+        if len(calls) == 1:
+            return {
+                "bars": {
+                    "AAPL": [_raw_bar("2025-01-01T10:00:00Z", 200.0)],
+                    "MSFT": [_raw_bar("2025-01-01T10:00:00Z", 400.0)],
+                },
+                "next_page_token": "tok",
+            }
+        return {
+            "bars": {
+                "AAPL": [_raw_bar("2025-01-01T11:00:00Z", 201.0)],
+                "MSFT": [],
+            },
+            "next_page_token": None,
+        }
+
+    monkeypatch.setattr(adapter, "_get_data", fake_get_data)
+
+    result = adapter.get_stock_bars_batch(
+        ["AAPL", "MSFT"], timeframe="1Hour", days=30
+    )
+
+    assert [bar.time for bar in result["AAPL"]] == [
+        "2025-01-01T10:00:00Z",
+        "2025-01-01T11:00:00Z",
+    ]
+    assert [bar.time for bar in result["MSFT"]] == ["2025-01-01T10:00:00Z"]
+    assert len(calls) == 2
+    assert "page_token" not in calls[0]
+    assert calls[1].get("page_token") == "tok"
+
+
+@pytest.mark.asyncio
+async def test_aget_stock_bars_batch_merges_pages_per_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter()
+    calls: list[dict[str, object]] = []
+
+    async def fake_aget_data(
+        _path: str, *, params: dict[str, object] | None = None
+    ) -> dict:
+        calls.append(dict(params or {}))
+        if len(calls) == 1:
+            return {
+                "bars": {
+                    "AAPL": [_raw_bar("2025-01-01T10:00:00Z", 200.0)],
+                    "MSFT": [_raw_bar("2025-01-01T10:00:00Z", 400.0)],
+                },
+                "next_page_token": "tok",
+            }
+        return {
+            "bars": {
+                "AAPL": [_raw_bar("2025-01-01T11:00:00Z", 201.0)],
+                "MSFT": [],
+            },
+            "next_page_token": None,
+        }
+
+    monkeypatch.setattr(adapter, "_aget_data", fake_aget_data)
+
+    result = await adapter.aget_stock_bars_batch(
+        ["AAPL", "MSFT"], timeframe="1Hour", days=30
+    )
+
+    assert [bar.time for bar in result["AAPL"]] == [
+        "2025-01-01T10:00:00Z",
+        "2025-01-01T11:00:00Z",
+    ]
+    assert [bar.time for bar in result["MSFT"]] == ["2025-01-01T10:00:00Z"]
+    assert len(calls) == 2
+    assert "page_token" not in calls[0]
+    assert calls[1].get("page_token") == "tok"
