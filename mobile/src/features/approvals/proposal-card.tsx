@@ -188,11 +188,14 @@ export function ProposalCard({
           {proposal.summary}
         </Text>
 
-        {/* Sizing strip */}
+        {/* Sizing strip — derive the order line from limit_price so it's never blank */}
         <Row justify="space-between">
           <Detail label="Qty" value={String(proposal.qty)} />
-          <Detail label="Type" value={proposal.order_type} />
-          <Detail label="Limit" value={proposal.limit_price != null ? `$${proposal.limit_price}` : 'Market'} />
+          <Detail
+            label="Order"
+            value={proposal.limit_price != null ? `Limit · $${proposal.limit_price}` : 'Market'}
+            align="flex-end"
+          />
         </Row>
 
         <Divider />
@@ -242,9 +245,17 @@ export function ProposalCard({
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({
+  label,
+  value,
+  align = 'flex-start',
+}: {
+  label: string;
+  value: string;
+  align?: 'flex-start' | 'flex-end';
+}) {
   return (
-    <Stack gap={2}>
+    <Stack gap={2} style={{ alignItems: align }}>
       <Text variant="label" upper color="textFaint">
         {label}
       </Text>
