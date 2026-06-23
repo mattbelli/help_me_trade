@@ -17,6 +17,7 @@ from ai.reflection.scheduler import reflection_loop
 from ai.rules.engine import evaluate_on_snapshot
 from api.ai_routes import router as ai_router
 from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
+from api.device_routes import router as device_router
 from api.middleware import SecurityMiddleware
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
@@ -67,6 +68,7 @@ from db.chart_features import (
     mark_alert_triggered,
 )
 from db.chat_sessions import init_chat_tables
+from db.device_tokens import init_device_token_tables
 from db.multi_account import migrate_multi_account
 from db.order_executions import (
     count_pending_paper_executions,
@@ -415,6 +417,7 @@ async def lifespan(app: FastAPI):
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
+    init_device_token_tables()
     init_execution_tables()
     migrate_multi_account()
     init_strategy_tables()
@@ -465,6 +468,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Help Me Trade", lifespan=lifespan)
 app.include_router(ai_router)
+app.include_router(device_router)
 app.include_router(trade_router)
 app.include_router(performance_router)
 app.include_router(strategy_router)

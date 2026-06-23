@@ -778,3 +778,15 @@ def broker_is_configured(name: str) -> bool:
 def finnhub_api_key() -> str:
     """Finnhub API key for the earnings-calendar feed (provider-agnostic, .env)."""
     return os.environ.get("FINNHUB_API_KEY", "").strip()
+
+
+def push_config() -> dict[str, Any]:
+    return {
+        "enabled": os.environ.get("PUSH_ENABLED", "").strip().lower()
+        in ("1", "true", "yes"),
+        "provider": os.environ.get("PUSH_PROVIDER", "expo").strip().lower(),
+        "expo_access_token": os.environ.get("EXPO_ACCESS_TOKEN", "").strip(),
+        "apns_key_id": os.environ.get("APNS_KEY_ID", "").strip(),
+        "apns_team_id": os.environ.get("APNS_TEAM_ID", "").strip(),
+        "apns_bundle_id": os.environ.get("APNS_BUNDLE_ID", "").strip(),
+    }

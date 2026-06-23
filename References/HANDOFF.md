@@ -99,6 +99,16 @@ is NO single "combined" predicate — live "combining" = run dip + earnings on O
 3. **Caps on `dip_refined`** (founder call): broad `sp500` + uncapped can flood proposals on a cluster day —
    set `max_concurrent_positions` / `max_deployed_usd` before/alongside heavier use.
 
+## Phone app (RN) — active parallel thread
+Native iOS app (the "phone-approval unlock") is being built on a **MacBook** in a **`mobile/` dir
+(monorepo)** by a dedicated agent. Specs: `References/RN_APP_BRIEF.md` (what/why + integration contract;
+push-first delivery, Face-ID-gated approve, tasteful ephemeral Dynamic Island, manual orders
+chokepoint-routed) + `References/RN_UI_PLAYBOOK.md` (adversarially-verified UI/RN dossier). **Server
+push-delivery core shipped + INERT** (`db/device_tokens.py`, `api/device_routes.py` →
+`POST /api/devices`, `signals/push.py`, `push_config()`, fail-safe hook in `create_phone_proposal`):
+no-op until `PUSH_ENABLED=1` + Expo/APNs creds. Lanes: RN agent owns `mobile/` + may extend the push
+slice; serv stays out of `mobile/`. The Live-Activity (real Dynamic Island) push path is Phase 3+.
+
 ## Planned — execution enhancements (NOT implemented; design captured)
 Current execution is **market orders, regular-hours only** (entries `strategy_scan.py`, exits `exit_engine.py` both
 `order_type="market"`; RiskEngine requires a live quote and the free IEX feed is RTH-only → off-hours rejected,

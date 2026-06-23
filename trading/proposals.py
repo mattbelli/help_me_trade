@@ -260,4 +260,11 @@ async def create_phone_proposal(
     except Exception:
         logger.exception("Failed to broadcast phone proposal alert")
 
+    try:
+        from signals.push import send_proposal_push
+
+        await send_proposal_push(row, db_path=db_path)
+    except Exception:
+        logger.exception("Failed to send proposal push")
+
     return row
