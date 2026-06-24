@@ -96,6 +96,17 @@ function pnlColorScaled(pct: number): string {
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
+// RVOL → display per serv's contract: "2.3×" with color bands; warming/null → "—";
+// overnight (yesterday's final) dimmed. Bands: <1.5 dim · 1.5–2 yellow · 2–3 amber · >3 red.
+function rvolDisplay(rvol: WatchlistQuote['rvol']): { text: string; color: string; opacity: number } {
+  if (!rvol || rvol.value == null || rvol.state === 'warming') {
+    return { text: '—', color: colors.textFaint, opacity: 1 };
+  }
+  const v = rvol.value;
+  const color = v >= 3 ? colors.danger : v >= 2 ? colors.chart[4] : v >= 1.5 ? colors.warning : colors.textMuted;
+  return { text: `${v.toFixed(1)}×`, color, opacity: rvol.state === 'overnight' ? 0.5 : 1 };
+}
+
 const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };
 
 function TriColumn({
@@ -106,6 +117,7 @@ function TriColumn({
   mid,
   midColor,
   midSize = 15,
+  midOpacity = 1,
   bottom,
   bottomColor,
 }: {
@@ -116,6 +128,7 @@ function TriColumn({
   mid: string;
   midColor: string;
   midSize?: number;
+  midOpacity?: number;
   bottom: string;
   bottomColor: string;
 }) {
@@ -124,7 +137,7 @@ function TriColumn({
       <Text style={{ ...mono, fontSize: 11, lineHeight: ROW_TOP, color: top ? topColor : 'transparent' }} numberOfLines={1}>
         {top ?? ' '}
       </Text>
-      <Text style={{ ...mono, fontSize: midSize, lineHeight: ROW_MID, color: midColor }} numberOfLines={1}>{mid}</Text>
+      <Text style={{ ...mono, fontSize: midSize, lineHeight: ROW_MID, color: midColor, opacity: midOpacity }} numberOfLines={1}>{mid}</Text>
       <Text style={{ ...mono, fontSize: 11, lineHeight: ROW_BOT, color: bottomColor }} numberOfLines={1}>{bottom}</Text>
     </View>
   );
@@ -174,9 +187,7 @@ function RowBody({
   active?: boolean;
 }) {
   const changeDol = quote?.prev_close != null ? quote.price - quote.prev_close : undefined;
-  const rvolRaw = quote?.rvol as unknown;
-  const rvolNum = typeof rvolRaw === 'number' ? rvolRaw : typeof rvolRaw === 'string' ? Number(rvolRaw) : NaN;
-  const hasRvol = Number.isFinite(rvolNum);
+  const rv = rvolDisplay(quote?.rvol);
 
   return (
     <View style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, boxShadow: ROW_SHADOW, backgroundColor: active ? colors.surface : undefined }}>
@@ -229,9 +240,10 @@ function RowBody({
             <TriColumn
               width={VOL_W}
               marginLeft={GAP}
-              mid={hasRvol ? `${rvolNum.toFixed(1)}×` : fmtVol(quote.volume)}
-              midColor={hasRvol && rvolNum >= 1.5 ? colors.accent : colors.text}
-              bottom={hasRvol ? fmtVol(quote.volume) : 'vol'}
+              mid={rv.text}
+              midColor={rv.color}
+              midOpacity={rv.opacity}
+              bottom={fmtVol(quote.volume)}
               bottomColor={colors.textFaint}
             />
           ) : (
@@ -311,7 +323,7 @@ function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) 
         <HeadCell label="sym" width={SYM_W} left sortKey="sym" sort={sort} onSort={onSort} />
         <HeadCell label="last" width={PRICE_W} sortKey="last" sort={sort} onSort={onSort} />
         <HeadCell label="chg" width={CHG_W} marginLeft={GAP} sortKey="chg" sort={sort} onSort={onSort} />
-        <HeadCell label="vol" width={VOL_W} marginLeft={GAP} sortKey="vol" sort={sort} onSort={onSort} />
+        <HeadCell label="rvol" width={VOL_W} marginLeft={GAP} sortKey="vol" sort={sort} onSort={onSort} />
         <View style={{ width: CHART_W, marginLeft: GAP, alignItems: 'flex-end' }}>
           <Text style={{ ...mono, fontSize: 12, letterSpacing: 0.4, color: colors.textMuted }}>1d</Text>
         </View>
@@ -469,8 +481,8 @@ export function WatchlistScreen() {
       if (!q) return Number.NEGATIVE_INFINITY;
       if (k === 'last') return q.price;
       if (k === 'chg') return q.change_pct;
-      const r = Number(q.rvol);
-      return Number.isFinite(r) ? r : (q.volume ?? 0);
+      const r = q.rvol?.value;
+      return r != null ? r : (q.volume ?? 0);
     };
     const arr = [...userOrder].sort((a, b) => (k === 'sym' ? a.localeCompare(b) : num(a) - num(b)));
     return sort.dir === 'desc' ? arr.reverse() : arr;

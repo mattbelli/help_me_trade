@@ -84,6 +84,12 @@ export interface Bar {
   volume: number;
 }
 
+/** Relative volume vs the 20-day time-of-day profile. value is null while "warming". */
+export interface RvolInfo {
+  value: number | null;
+  state: 'warming' | 'live' | 'settled' | 'overnight';
+}
+
 export interface WatchlistQuote {
   price: number;
   change_pct: number;
@@ -92,8 +98,11 @@ export interface WatchlistQuote {
   intraday?: number[];
   prev_close?: number;
   volume?: number;
-  /** Relative volume = today's volume ÷ average daily volume. Pending serv handoff. */
-  rvol?: number;
+  rvol?: RvolInfo | null;
+  // Extended-hours (serv build in progress — treat as absent until deployed):
+  market_session?: 'pre' | 'regular' | 'post' | 'closed';
+  ext_price?: number | null;
+  ext_change_pct?: number | null;
   day_high?: number;
   day_low?: number;
 }
