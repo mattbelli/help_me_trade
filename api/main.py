@@ -1502,6 +1502,44 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
     }
 
 
+@app.get("/api/fundamentals/earnings-history")
+async def api_earnings_history(symbol: str = "", n: int = 6):
+    """Past earnings events with 1-day price reaction %.
+
+    Query params:
+      symbol — required ticker (case-insensitive)
+      n      — number of most-recent events to return (default 6, max 20)
+
+    Returns:
+      {"symbol": str, "events": [{"date": "YYYY-MM-DD", "reaction_pct": float}, ...]}
+      Events are ordered most-recent first. Empty events list on any data error.
+    """
+    from research.earnings import earnings_history_reactions
+
+    sym = symbol.strip().upper()
+    if not sym:
+        return JSONResponse({"error": "symbol is required"}, status_code=400)
+    if n < 1 or n > 20:
+        n = min(max(n, 1), 20)
+
+    try:
+        provider = get_market_data_provider()
+    except BrokerError:
+        return {"symbol": sym, "events": []}
+
+    try:
+        bars = await provider.aget_stock_bars(sym, timeframe="1Day", days=800)
+    except Exception:  # noqa: BLE001
+        return {"symbol": sym, "events": []}
+
+    try:
+        events = earnings_history_reactions(sym, bars, n=n)
+    except Exception:  # noqa: BLE001
+        return {"symbol": sym, "events": []}
+
+    return {"symbol": sym, "events": events}
+
+
 @app.get("/api/price-alerts")
 def api_list_alerts(symbol: str | None = None):
     return {"alerts": list_price_alerts(symbol=symbol, active_only=True)}

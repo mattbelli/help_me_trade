@@ -5,10 +5,12 @@ import { Reorder, useDragControls } from "motion/react";
 import { Sparkline } from "@/components/trading/sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  fetchEarningsHistory,
   fetchOvernightTradable,
   fetchWatchlists,
   searchSymbols,
   updateWatchlist,
+  type EarningsEvent,
   type WatchlistsState,
 } from "@/lib/api";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
@@ -209,7 +211,82 @@ const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
 const FUNDAMENTALS_GRID =
   "grid grid-cols-3 gap-x-3 gap-y-1.5 px-2 py-2";
 
-function FundamentalsPanel({ quote }: { quote: Quote | undefined }) {
+function EarningsReactionsRow({ symbol }: { symbol: string }) {
+  const [events, setEvents] = useState<EarningsEvent[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchEarningsHistory(symbol, 6)
+      .then((res) => {
+        if (!cancelled) setEvents(res.events);
+      })
+      .catch(() => {
+        if (!cancelled) setEvents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--border)",
+        padding: "4px 8px 5px",
+        background: "var(--bg-inset)",
+      }}
+    >
+      <span
+        className="text-[9px] font-medium tracking-[0.04em] uppercase"
+        style={{ color: "var(--fg-faint)", display: "block", marginBottom: 3 }}
+      >
+        Earnings reactions
+      </span>
+      {events === null ? (
+        <span
+          className="text-[10px] tabular-nums"
+          style={{ color: "var(--fg-faint)" }}
+        >
+          …
+        </span>
+      ) : events.length === 0 ? (
+        <span
+          className="text-[10px] tabular-nums"
+          style={{ color: "var(--fg-faint)" }}
+        >
+          no data
+        </span>
+      ) : (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+          {events.map((ev) => {
+            const mmdd = ev.date.slice(5).replace("-", "/");
+            const sign = ev.reaction_pct >= 0 ? "+" : "";
+            const color =
+              ev.reaction_pct >= 0 ? "var(--c-green)" : "var(--c-red)";
+            return (
+              <span
+                key={ev.date}
+                className="text-[10px] tabular-nums"
+                style={{ color: "var(--fg-faint)" }}
+              >
+                {mmdd}{" "}
+                <span style={{ color }}>{sign}{ev.reaction_pct.toFixed(2)}%</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FundamentalsPanel({
+  symbol,
+  quote,
+}: {
+  symbol: string;
+  quote: Quote | undefined;
+}) {
   const dash = "—";
 
   const peStr =
@@ -233,30 +310,33 @@ function FundamentalsPanel({ quote }: { quote: Quote | undefined }) {
   ];
 
   return (
-    <div
-      className={FUNDAMENTALS_GRID}
-      style={{
-        borderTop: "1px solid var(--border)",
-        background: "var(--bg-inset)",
-      }}
-    >
-      {items.map(({ label, value }) => (
-        <div key={label} className="flex flex-col gap-px">
-          <span
-            className="text-[9px] font-medium tracking-[0.04em] uppercase"
-            style={{ color: "var(--fg-faint)" }}
-          >
-            {label}
-          </span>
-          <span
-            className="tabular-nums text-[11px]"
-            style={{ color: "var(--fg-dim)" }}
-          >
-            {value}
-          </span>
-        </div>
-      ))}
-    </div>
+    <>
+      <div
+        className={FUNDAMENTALS_GRID}
+        style={{
+          borderTop: "1px solid var(--border)",
+          background: "var(--bg-inset)",
+        }}
+      >
+        {items.map(({ label, value }) => (
+          <div key={label} className="flex flex-col gap-px">
+            <span
+              className="text-[9px] font-medium tracking-[0.04em] uppercase"
+              style={{ color: "var(--fg-faint)" }}
+            >
+              {label}
+            </span>
+            <span
+              className="tabular-nums text-[11px]"
+              style={{ color: "var(--fg-dim)" }}
+            >
+              {value}
+            </span>
+          </div>
+        ))}
+      </div>
+      <EarningsReactionsRow symbol={symbol} />
+    </>
   );
 }
 
@@ -415,7 +495,7 @@ function WatchlistSymbolRow({
           {expanded ? "▲" : "▼"}
         </button>
       </div>
-      {expanded ? <FundamentalsPanel quote={quote} /> : null}
+      {expanded ? <FundamentalsPanel symbol={symbol} quote={quote} /> : null}
     </Reorder.Item>
   );
 }

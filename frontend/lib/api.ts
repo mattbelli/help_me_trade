@@ -692,3 +692,32 @@ export async function rejectProposal(
   });
   return res.json();
 }
+
+export type EarningsEvent = {
+  date: string; // "YYYY-MM-DD"
+  reaction_pct: number;
+};
+
+export type EarningsHistoryResult = {
+  symbol: string;
+  events: EarningsEvent[];
+};
+
+export async function fetchEarningsHistory(
+  symbol: string,
+  n = 6,
+): Promise<EarningsHistoryResult> {
+  const params = new URLSearchParams({ symbol, n: String(n) });
+  const res = await apiFetch(
+    `${API_BASE}/api/fundamentals/earnings-history?${params}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Earnings history error ${res.status}`,
+    );
+  }
+  return res.json();
+}
