@@ -4,6 +4,24 @@
 Dynamic Island feature is the **serv-side ActivityKit→APNs push** that starts / updates / ends the
 activity. This brief is that slice. Mobile owns the widget UI + AppIntent + token registration.*
 
+## ⚑ UPDATE 2026-06-24 — verified end-to-end on the iOS simulator (read this first)
+The mobile widget is built (`expo-widgets`) and the Live Activity **renders on the Lock Screen** with the
+proposal + Approve/Reject. Both APNs tokens are emitted (push-to-start `com.helpmetrade.app::pushToStart`
++ per-activity, 128 bytes each). Corrections to the guesses below, now CONFIRMED:
+- **`attributes-type` is `LiveActivityAttributes`** (a single GENERIC type expo-widgets uses for every
+  activity) — NOT `TradeProposalAttributes`. Use `"attributes-type": "LiveActivityAttributes"` in the push.
+- **All proposal fields go in `content-state`**, not split into static attributes. expo-widgets' attributes
+  are minimal/empty; the data the widget renders is the content-state object (see the confirmed shape in §2).
+- **Push environment is per-token**: a dev build emits a token tagged `environment: "development"` → send via
+  the **APNs sandbox** host (`api.sandbox.push.apple.com`). Matches our current `APNS_USE_SANDBOX=1`. A
+  TestFlight/App-Store build emits a production-env token → prod host. serv should track which environment a
+  stored token is for (or just follow APNS_USE_SANDBOX for now).
+- Only **one** Live Activity type is registered (`TradeProposalActivity`), so the push doesn't need to name a
+  layout — the generic renderer dispatches to it. (Revisit only if we add a 2nd Live Activity.)
+- The exact push ENVELOPE (what, if anything, goes in `attributes` vs `content-state` for expo-widgets'
+  generic type) is the one thing we should confirm jointly on the **first test push** — send one, we'll read
+  what the widget receives and lock it.
+
 ## Goal
 When serv creates a trade proposal, in addition to the existing actionable push, **start a Live Activity**
 on the user's Lock Screen / Dynamic Island showing the proposal with Approve / Reject. User taps Approve →
@@ -26,20 +44,22 @@ Live Activities need two APNs token types beyond the normal device token:
   Also rotates; keep the latest.
 
 ## 2. The content-state contract (agree with mobile FIRST — mobile decodes it)
-The Live Activity has a fixed `ActivityAttributes` (static) + `ContentState` (dynamic). The JSON serv pushes
-under `content-state` must match the widget's decoder field-for-field. Proposed (mobile will confirm exact
-names/casing):
+CONFIRMED field names the widget reads (put ALL of these in `content-state`; expo-widgets attributes stay
+minimal):
 ```jsonc
-// attributes (static, set once at start)
-{ "proposalId": "abc123", "symbol": "AAPL", "side": "buy" }
-// content-state (dynamic; sent at start + every update)
-{ "qty": 10, "orderType": "market",
-  "winProb": 0.62, "entry": 201.5, "stop": 198.0,        // optional decision context
-  "ttlExpiresAt": "2026-06-24T21:30:00Z",
-  "status": "pending" }                                   // pending | approved | rejected | expired | executed
+// content-state — exactly these keys/casing (verified against the rendering widget)
+{ "proposalId": "abc123",
+  "symbol": "AAPL",
+  "side": "buy",            // "buy" | "sell"
+  "qty": 10,
+  "orderType": "market",
+  "winProb": 0.62,          // FRACTION 0..1 (the widget renders Math.round(winProb*100)%); omit if unknown
+  "status": "pending" }     // "pending" | "approved" | "rejected" | "expired" | "executed"
 ```
-Keep it small (ActivityKit payload budget ~4KB). Money as numbers is fine here (display-only; the real
-order still goes through the chokepoint with Decimal).
+Keep it small (ActivityKit payload budget ~4KB). Money/qty as numbers is fine here (display-only; the real
+order still goes through the chokepoint with Decimal). `winProb` is a 0–1 fraction, not a percent. (Earlier
+draft had entry/stop/ttlExpiresAt — the current widget doesn't render those; add them to the widget + this
+contract together if we want them shown.)
 
 ## 3. START push (on proposal create, iOS 17.2+ devices)
 Send to the device's **push-to-start token**:
@@ -49,9 +69,9 @@ Send to the device's **push-to-start token**:
   ```jsonc
   { "timestamp": 1750800000,
     "event": "start",
-    "attributes-type": "TradeProposalAttributes",   // mobile confirms the Swift struct name
-    "attributes": { ...static... },
-    "content-state": { ...dynamic..., "status": "pending" },
+    "attributes-type": "LiveActivityAttributes",     // CONFIRMED — expo-widgets' generic type
+    "attributes": {},                                // minimal; data lives in content-state
+    "content-state": { ...all proposal fields from §2..., "status": "pending" },
     "stale-date": <ttl unix>,            // when iOS dims it as stale
     "dismissal-date": <ttl unix>,        // auto-remove at/after TTL
     "alert": { "title": "Trade proposal", "body": "AAPL buy 10 — approve?" } }
