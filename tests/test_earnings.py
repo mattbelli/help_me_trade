@@ -1,4 +1,4 @@
-"""Tests for research.earnings — network-free."""
+"""Tests for research.earnings and the /api/fundamentals/earnings-history endpoint."""
 
 from __future__ import annotations
 
@@ -272,49 +272,52 @@ async def test_afetch_past_earnings_dates_returns_empty_on_http_error(
 
 
 # ---------------------------------------------------------------------------
-# /api/fundamentals/earnings-history endpoint — Finnhub-backed
+# /api/fundamentals/earnings-history endpoint — EPS surprise (Finnhub /stock/earnings)
 # ---------------------------------------------------------------------------
+
+_FAKE_EPS_SURPRISES = [
+    {
+        "period": "2025-01-30",
+        "year": 2025,
+        "quarter": 1,
+        "eps_estimate": 2.35,
+        "eps_actual": 2.40,
+        "surprise_pct": 2.13,
+    },
+    {
+        "period": "2024-10-31",
+        "year": 2024,
+        "quarter": 4,
+        "eps_estimate": 1.60,
+        "eps_actual": 1.46,
+        "surprise_pct": -8.75,
+    },
+    {
+        "period": "2024-07-30",
+        "year": 2024,
+        "quarter": 3,
+        "eps_estimate": 1.35,
+        "eps_actual": 1.40,
+        "surprise_pct": 3.70,
+    },
+]
 
 
 @pytest.mark.asyncio
-async def test_earnings_history_endpoint_returns_reactions(
+async def test_earnings_history_endpoint_returns_eps_surprises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Endpoint wires Finnhub dates + bars → reaction list, most-recent-first."""
+    """Endpoint returns EPS surprise events, most-recent-first with Q-label."""
     from fastapi.testclient import TestClient
 
     import signals.finnhub as finnhub_mod
     from api.main import app
 
-    # Fake bars: three earnings events
-    bars = _make_bars(
-        ("2024-07-29", 190.0),
-        ("2024-07-30", 200.0),  # reaction on 2024-07-30: +5.26%
-        ("2024-10-30", 200.0),
-        ("2024-10-31", 180.0),  # reaction on 2024-10-31: -10%
-        ("2025-01-29", 180.0),
-        ("2025-01-30", 189.0),  # reaction on 2025-01-30: +5%
-    )
-
-    fake_dates = ["2025-01-30", "2024-10-31", "2024-07-30"]
-
     monkeypatch.setattr(
         finnhub_mod,
-        "afetch_past_earnings_dates",
-        AsyncMock(return_value=fake_dates),
+        "afetch_eps_surprises",
+        AsyncMock(return_value=_FAKE_EPS_SURPRISES),
     )
-
-    class _FakeProvider:
-        async def aget_stock_bars(self, symbol, *, timeframe, days):
-            return bars
-
-    import brokers.factory as factory_mod
-
-    monkeypatch.setattr(factory_mod, "get_market_data_provider", lambda: _FakeProvider())
-    # Also patch the reference in api.main
-    import api.main as api_main_mod
-
-    monkeypatch.setattr(api_main_mod, "get_market_data_provider", lambda: _FakeProvider())
 
     with TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=True) as client:
         resp = client.get("/api/fundamentals/earnings-history?symbol=AAPL&n=6")
@@ -325,12 +328,18 @@ async def test_earnings_history_endpoint_returns_reactions(
     events = data["events"]
     assert len(events) == 3
     # most-recent first
-    assert events[0]["date"] == "2025-01-30"
-    assert events[1]["date"] == "2024-10-31"
-    assert events[2]["date"] == "2024-07-30"
-    assert events[0]["reaction_pct"] == round((189.0 - 180.0) / 180.0 * 100, 2)
-    assert events[1]["reaction_pct"] == round((180.0 - 200.0) / 200.0 * 100, 2)
-    assert events[2]["reaction_pct"] == round((200.0 - 190.0) / 190.0 * 100, 2)
+    assert events[0]["period"] == "2025-01-30"
+    assert events[0]["label"] == "Q1'25"
+    assert events[0]["eps_actual"] == 2.40
+    assert events[0]["eps_estimate"] == 2.35
+    assert events[0]["surprise_pct"] == 2.13
+
+    assert events[1]["period"] == "2024-10-31"
+    assert events[1]["label"] == "Q4'24"
+    assert events[1]["surprise_pct"] == -8.75
+
+    assert events[2]["label"] == "Q3'24"
+    assert events[2]["surprise_pct"] == 3.70
 
 
 @pytest.mark.asyncio
@@ -350,30 +359,138 @@ async def test_earnings_history_endpoint_missing_symbol() -> None:
 async def test_earnings_history_endpoint_empty_on_finnhub_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Returns empty events list (not 500) when Finnhub fetch fails."""
+    """Returns empty events list (not 500) when afetch_eps_surprises returns []."""
     from fastapi.testclient import TestClient
 
     import signals.finnhub as finnhub_mod
     from api.main import app
 
-    bars = _make_bars(("2025-01-29", 100.0), ("2025-01-30", 110.0))
-
     monkeypatch.setattr(
         finnhub_mod,
-        "afetch_past_earnings_dates",
-        AsyncMock(return_value=[]),  # fail-soft returns []
+        "afetch_eps_surprises",
+        AsyncMock(return_value=[]),
     )
-
-    class _FakeProvider:
-        async def aget_stock_bars(self, symbol, *, timeframe, days):
-            return bars
-
-    import api.main as api_main_mod
-
-    monkeypatch.setattr(api_main_mod, "get_market_data_provider", lambda: _FakeProvider())
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
         resp = client.get("/api/fundamentals/earnings-history?symbol=TSLA")
 
     assert resp.status_code == 200
     assert resp.json() == {"symbol": "TSLA", "events": []}
+
+
+# ---------------------------------------------------------------------------
+# afetch_eps_surprises — Finnhub /stock/earnings, network-free via mock
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_afetch_eps_surprises_parses_and_truncates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Parses Finnhub payload, reverses to most-recent-first, truncates to limit."""
+    from unittest.mock import MagicMock
+
+    from signals import finnhub
+
+    # Finnhub returns oldest-first
+    fake_payload = [
+        {"period": "2024-07-30", "year": 2024, "quarter": 3,
+         "estimate": 1.35, "actual": 1.40, "surprisePercent": 3.70},
+        {"period": "2024-10-31", "year": 2024, "quarter": 4,
+         "estimate": 1.60, "actual": 1.46, "surprisePercent": -8.75},
+        {"period": "2025-01-30", "year": 2025, "quarter": 1,
+         "estimate": 2.35, "actual": 2.40, "surprisePercent": 2.13},
+    ]
+
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "fake-key")
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock(return_value=None)
+        mock_resp.json = MagicMock(return_value=fake_payload)
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client_cls.return_value = mock_client
+
+        result = await finnhub.afetch_eps_surprises("AAPL", limit=2)
+
+    # Should be most-recent-first, truncated to 2
+    assert len(result) == 2
+    assert result[0]["period"] == "2025-01-30"
+    assert result[0]["year"] == 2025
+    assert result[0]["quarter"] == 1
+    assert result[0]["eps_actual"] == 2.40
+    assert result[0]["eps_estimate"] == 2.35
+    assert result[0]["surprise_pct"] == 2.13
+    assert result[1]["period"] == "2024-10-31"
+
+
+@pytest.mark.asyncio
+async def test_afetch_eps_surprises_returns_empty_on_missing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-soft: returns [] when API key is absent."""
+    from signals import finnhub
+
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "")
+    result = await finnhub.afetch_eps_surprises("AAPL")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_afetch_eps_surprises_returns_empty_on_http_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-soft: returns [] on network error."""
+    import httpx
+
+    from signals import finnhub
+
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "fake-key")
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("timeout"))
+        mock_client_cls.return_value = mock_client
+
+        result = await finnhub.afetch_eps_surprises("AAPL")
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_afetch_eps_surprises_handles_none_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entries with null estimate/actual/surprisePercent are included with None values."""
+    from unittest.mock import MagicMock
+
+    from signals import finnhub
+
+    fake_payload = [
+        {"period": "2025-01-30", "year": 2025, "quarter": 1,
+         "estimate": None, "actual": 2.40, "surprisePercent": None},
+    ]
+
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "fake-key")
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock(return_value=None)
+        mock_resp.json = MagicMock(return_value=fake_payload)
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client_cls.return_value = mock_client
+
+        result = await finnhub.afetch_eps_surprises("AAPL")
+
+    assert len(result) == 1
+    assert result[0]["eps_estimate"] is None
+    assert result[0]["eps_actual"] == 2.40
+    assert result[0]["surprise_pct"] is None

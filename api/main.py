@@ -1504,21 +1504,30 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
 
 @app.get("/api/fundamentals/earnings-history")
 async def api_earnings_history(symbol: str = "", n: int = 6):
-    """Past earnings events with 1-day price reaction %.
+    """Past earnings EPS surprise by quarter.
 
     Query params:
       symbol — required ticker (case-insensitive)
-      n      — number of most-recent events to return (default 6, max 20)
+      n      — number of most-recent quarters to return (default 6, max 20)
 
     Returns:
-      {"symbol": str, "events": [{"date": "YYYY-MM-DD", "reaction_pct": float}, ...]}
+      {
+        "symbol": str,
+        "events": [
+          {
+            "period": "YYYY-MM-DD",
+            "label": "Q2'26",
+            "eps_actual": float | null,
+            "eps_estimate": float | null,
+            "surprise_pct": float | null,
+          },
+          ...
+        ]
+      }
       Events are ordered most-recent first. Empty events list on any data error.
-
-    Dates are sourced from Finnhub (per-symbol calendar query, no local cache
-    required). Falls back to [] on any error — never returns 500.
+      Never returns 500; returns 400 if symbol is missing.
     """
-    from research.earnings import compute_reaction_pct
-    from signals.finnhub import afetch_past_earnings_dates
+    from signals.finnhub import afetch_eps_surprises
 
     sym = symbol.strip().upper()
     if not sym:
@@ -1527,26 +1536,27 @@ async def api_earnings_history(symbol: str = "", n: int = 6):
         n = min(max(n, 1), 20)
 
     try:
-        provider = get_market_data_provider()
-    except BrokerError:
-        return {"symbol": sym, "events": []}
-
-    try:
-        bars = await provider.aget_stock_bars(sym, timeframe="1Day", days=800)
+        raw = await afetch_eps_surprises(sym, limit=n)
     except Exception:  # noqa: BLE001
         return {"symbol": sym, "events": []}
 
-    try:
-        past_dates = await afetch_past_earnings_dates(sym)
-    except Exception:  # noqa: BLE001
-        return {"symbol": sym, "events": []}
-
-    # past_dates is already most-recent-first; take up to n then compute reactions
     events: list[dict] = []
-    for d in past_dates[:n]:
-        pct = compute_reaction_pct(d, bars)
-        if pct is not None:
-            events.append({"date": d, "reaction_pct": pct})
+    for item in raw:
+        try:
+            year: int = item["year"]
+            quarter: int = item["quarter"]
+            label = f"Q{quarter}'{year % 100:02d}"
+            events.append(
+                {
+                    "period": item["period"],
+                    "label": label,
+                    "eps_actual": item.get("eps_actual"),
+                    "eps_estimate": item.get("eps_estimate"),
+                    "surprise_pct": item.get("surprise_pct"),
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
 
     return {"symbol": sym, "events": events}
 

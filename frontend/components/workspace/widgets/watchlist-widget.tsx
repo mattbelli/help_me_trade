@@ -240,7 +240,7 @@ function EarningsReactionsRow({ symbol }: { symbol: string }) {
         className="text-[9px] font-medium tracking-[0.04em] uppercase"
         style={{ color: "var(--fg-faint)", display: "block", marginBottom: 3 }}
       >
-        Earnings reactions
+        Earnings (EPS surprise)
       </span>
       {events === null ? (
         <span
@@ -259,18 +259,32 @@ function EarningsReactionsRow({ symbol }: { symbol: string }) {
       ) : (
         <div className="flex flex-wrap gap-x-3 gap-y-0.5">
           {events.map((ev) => {
-            const mmdd = ev.date.slice(5).replace("-", "/");
-            const sign = ev.reaction_pct >= 0 ? "+" : "";
-            const color =
-              ev.reaction_pct >= 0 ? "var(--c-green)" : "var(--c-red)";
+            const surprise = ev.surprise_pct;
+            const beat = surprise != null && surprise >= 0;
+            const color = surprise == null
+              ? "var(--fg-faint)"
+              : beat
+              ? "var(--c-green)"
+              : "var(--c-red)";
+            const surpriseStr =
+              surprise == null
+                ? "—"
+                : `${surprise >= 0 ? "+" : ""}${surprise.toFixed(1)}%`;
+            const tooltipParts: string[] = [];
+            if (ev.eps_actual != null)
+              tooltipParts.push(`actual $${ev.eps_actual.toFixed(2)}`);
+            if (ev.eps_estimate != null)
+              tooltipParts.push(`est $${ev.eps_estimate.toFixed(2)}`);
+            const tooltip = tooltipParts.length > 0 ? tooltipParts.join(" vs ") : undefined;
             return (
               <span
-                key={ev.date}
+                key={ev.period}
                 className="text-[10px] tabular-nums"
                 style={{ color: "var(--fg-faint)" }}
+                title={tooltip}
               >
-                {mmdd}{" "}
-                <span style={{ color }}>{sign}{ev.reaction_pct.toFixed(2)}%</span>
+                {ev.label}{" "}
+                <span style={{ color }}>{surpriseStr}</span>
               </span>
             );
           })}

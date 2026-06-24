@@ -694,8 +694,11 @@ export async function rejectProposal(
 }
 
 export type EarningsEvent = {
-  date: string; // "YYYY-MM-DD"
-  reaction_pct: number;
+  period: string; // "YYYY-MM-DD"
+  label: string; // e.g. "Q2'26"
+  eps_actual: number | null;
+  eps_estimate: number | null;
+  surprise_pct: number | null;
 };
 
 export type EarningsHistoryResult = {
