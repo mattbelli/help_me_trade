@@ -33,6 +33,7 @@ from brokers.factory import (
     get_broker,
     get_broker_for_account,
     get_enabled_broker_names,
+    get_market_data_provider,
 )
 from brokers.market_stream import market_hub
 from config.settings import (
@@ -91,6 +92,7 @@ from signals.scan import run_signal_scan
 from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
+from signals.volume_profile import build_profile, load_profile, rvol_now
 from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.market_hours import _ET, _SESSION_CLOSE, _SESSION_OPEN
@@ -105,6 +107,7 @@ SIGNAL_SCAN_INTERVAL_SECONDS = max(
     30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300"))
 )
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
+VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -375,6 +378,44 @@ async def _earnings_refresh_loop() -> None:
         await asyncio.sleep(EARNINGS_REFRESH_INTERVAL_SECONDS)
 
 
+def _all_watchlist_symbols() -> list[str]:
+    state = get_watchlists_state()
+    syms: set[str] = set()
+    for lst in state.get("lists", []):
+        for s in lst.get("symbols", []):
+            if isinstance(s, str) and s.strip():
+                syms.add(s.strip().upper())
+    return sorted(syms)
+
+
+async def _volume_profile_refresh_once() -> int:
+    symbols = _all_watchlist_symbols()
+    if not symbols:
+        return 0
+    try:
+        provider = get_market_data_provider()
+    except BrokerError as exc:
+        logger.warning("Volume profile refresh: provider unavailable: %s", exc)
+        return 0
+    built = 0
+    for sym in symbols:
+        prof = await build_profile(provider, sym)
+        if prof is not None:
+            built += 1
+    return built
+
+
+async def _volume_profile_refresh_loop() -> None:
+    while True:
+        try:
+            n = await _volume_profile_refresh_once()
+            if n:
+                logger.info("Volume profiles refreshed for %d symbols", n)
+        except Exception:
+            logger.exception("Volume profile refresh loop iteration failed")
+        await asyncio.sleep(VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS)
+
+
 async def _trade_sync_loop() -> None:
     """Sync trade ledger from enabled brokers on startup, then periodically."""
     try:
@@ -452,14 +493,24 @@ async def lifespan(app: FastAPI):
     reflection_task = asyncio.create_task(reflection_loop())
     sync_task = asyncio.create_task(_trade_sync_loop())
     earnings_task = asyncio.create_task(_earnings_refresh_loop())
+    volume_profile_task = asyncio.create_task(_volume_profile_refresh_loop())
     yield
     earnings_task.cancel()
+    volume_profile_task.cancel()
     sync_task.cancel()
     poll_task.cancel()
     scan_task.cancel()
     alert_task.cancel()
     reflection_task.cancel()
-    for task in (poll_task, scan_task, alert_task, reflection_task, sync_task, earnings_task):
+    for task in (
+        poll_task,
+        scan_task,
+        alert_task,
+        reflection_task,
+        sync_task,
+        earnings_task,
+        volume_profile_task,
+    ):
         try:
             await task
         except asyncio.CancelledError:
@@ -678,9 +729,10 @@ def api_delete_watchlist(list_id: str):
 
 @app.get("/api/watchlist/market")
 async def api_watchlist_market(symbols: str = ""):
-    broker = _require_alpaca()
-    if isinstance(broker, JSONResponse):
-        return broker
+    try:
+        provider = get_market_data_provider()
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
 
     symbol_list = [
         s.strip().upper()
@@ -693,14 +745,14 @@ async def api_watchlist_market(symbols: str = ""):
         return {"quotes": {}}
 
     try:
-        bars_by_symbol = await broker.aget_stock_bars_batch(symbol_list, days=12)
+        bars_by_symbol = await provider.aget_stock_bars_batch(symbol_list, days=12)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
     intraday_by_symbol: dict[str, list[StockBar]] = {}
     try:
-        intraday_by_symbol = await broker.aget_stock_bars_batch(
-            symbol_list, timeframe="5Min", days=2
+        intraday_by_symbol = await provider.aget_stock_bars_batch(
+            symbol_list, timeframe="5Min", days=4
         )
     except BrokerError as exc:
         logger.warning("Watchlist intraday bars failed: %s", exc)
@@ -726,8 +778,29 @@ async def api_watchlist_market(symbols: str = ""):
             "day_low": float(latest.low),
             "intraday": intraday,
         }
+        quotes[sym]["rvol"] = _compute_rvol_field(sym, intraday_by_symbol.get(sym, []))
 
     return {"quotes": quotes}
+
+
+def _compute_rvol_field(symbol: str, intraday_bars: list[StockBar]) -> dict | None:
+    profile = load_profile(symbol)
+    if profile is None or not intraday_bars:
+        return None
+    result = rvol_now(profile, intraday_bars)
+    if result is None or result.value is None:
+        if result is not None:
+            return {"value": None, "state": result.state}
+        return None
+    state = result.state
+    if state == "settled":
+        latest_date = max(
+            datetime.fromisoformat(b.time.replace("Z", "+00:00")).astimezone(_ET).date()
+            for b in intraday_bars
+        )
+        if latest_date < datetime.now(_ET).date():
+            state = "overnight"
+    return {"value": result.value, "state": state}
 
 
 def _session_intraday_closes(bars: list[StockBar]) -> list[float]:

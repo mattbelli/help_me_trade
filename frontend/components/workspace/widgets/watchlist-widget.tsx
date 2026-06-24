@@ -20,7 +20,14 @@ import { cn } from "@/lib/utils";
 const EMPTY_SYMBOLS: string[] = [];
 
 const ROW_GRID =
-  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3.25rem] items-center gap-x-1";
+  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
+
+function rvolColor(value: number): string {
+  if (value >= 3) return "var(--c-red)";
+  if (value >= 2) return "var(--c-amber)";
+  if (value >= 1.5) return "var(--c-yellow)";
+  return "var(--fg-dim)";
+}
 
 function formatPct(value: number): string {
   const sign = value > 0 ? "+" : "";
@@ -271,6 +278,24 @@ function WatchlistSymbolRow({
       >
         {quote ? formatPct(changePct) : "—"}
       </span>
+      {quote?.rvol?.value != null ? (
+        <span
+          className={cn(
+            "text-right tabular-nums",
+            quote.rvol.state === "overnight" && "opacity-50",
+          )}
+          style={{ color: rvolColor(quote.rvol.value) }}
+          title={
+            quote.rvol.state === "overnight"
+              ? "Yesterday's volume (pre-market)"
+              : `${quote.rvol.value.toFixed(2)}× normal volume for this time of day`
+          }
+        >
+          {quote.rvol.value.toFixed(1)}×
+        </span>
+      ) : (
+        <span className="text-right tabular-nums text-[var(--fg-faint)]">—</span>
+      )}
       <div className="flex justify-end">
         <Sparkline
           values={quote?.sparkline ?? []}
@@ -480,7 +505,7 @@ export function WatchlistWidget({ config }: WidgetProps) {
           )}
         >
           <span />
-          {(["Sym", "Last", "Δ%", "7d"] as const).map((h, idx) => (
+          {(["Sym", "Last", "Δ%", "RVOL", "7d"] as const).map((h, idx) => (
             <span
               key={h}
               className={cn(

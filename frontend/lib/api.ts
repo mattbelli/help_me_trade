@@ -312,6 +312,11 @@ export type WatchlistsState = {
   lists: Watchlist[];
 };
 
+export type RvolInfo = {
+  value: number | null;
+  state: "warming" | "live" | "settled" | "overnight";
+};
+
 export type WatchlistQuote = {
   price: number;
   change_pct: number;
@@ -320,6 +325,7 @@ export type WatchlistQuote = {
   volume?: number;
   day_high?: number;
   day_low?: number;
+  rvol?: RvolInfo | null;
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {

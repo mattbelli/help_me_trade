@@ -48,6 +48,7 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
       setQuotes((prev) => ({
         ...prev,
         [symbol]: {
+          ...prev[symbol],
           price: patch.price ?? prev[symbol]?.price ?? 0,
           change_pct: patch.change_pct ?? prev[symbol]?.change_pct ?? 0,
           sparkline: patch.sparkline ?? prev[symbol]?.sparkline ?? [],
