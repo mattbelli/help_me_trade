@@ -180,7 +180,15 @@ def _client_from_token_basic(api_key: str, app_secret: str, path: Path):
         update_token=_write,
         leeway=300,
     )
-    return Client(api_key, session)
+    # Populate token_metadata (schwab-py leaves it None when we build the session
+    # ourselves) so StreamClient.login() can read token_metadata.token['access_token'].
+    creation_ts = (
+        int(raw.get("creation_timestamp", time.time()))
+        if isinstance(raw, dict)
+        else int(time.time())
+    )
+    token_metadata = auth.TokenMetadata(token, creation_ts, _write)
+    return Client(api_key, session, token_metadata=token_metadata)
 
 
 def resolve_account_hash(client, *, account_hash: str | None = None) -> str:
