@@ -66,7 +66,7 @@ function timeAgo(iso: string): string {
 }
 
 export function InboxScreen() {
-  const { alerts, seed, readIds, markRead, markAllRead } = useAlerts();
+  const { alerts, seed, readIds, markRead, markAllRead, clearRead } = useAlerts();
   const router = useRouter();
   const pending = usePendingProposals();
   const [filter, setFilter] = useState<Filter>('all');
@@ -92,7 +92,7 @@ export function InboxScreen() {
   // Build rows with a STABLE identity — FlashList v2 re-anchors scroll on every
   // data-array change, so rebuilding this each render made the list jump/hide on
   // load and after marking read. Memoize so it only changes when inputs do.
-  const { filtered, unreadCount } = useMemo(() => {
+  const { filtered, unreadCount, readCount } = useMemo(() => {
     const rows: Row_[] = [];
     for (const p of pending.data?.proposals ?? []) {
       rows.push({ kind: 'approval', id: `p-${p.id}`, ts: tsOf(p.created_at), unread: true, proposal: p });
@@ -106,7 +106,12 @@ export function InboxScreen() {
     });
     // Unread first, then newest.
     next.sort((x, y) => Number(y.unread) - Number(x.unread) || y.ts - x.ts);
-    return { filtered: next, unreadCount: rows.filter((r) => r.unread).length };
+    return {
+      filtered: next,
+      unreadCount: rows.filter((r) => r.unread).length,
+      // Read event alerts are the ones Clear-read will remove (approvals stay).
+      readCount: rows.filter((r) => r.kind === 'event' && !r.unread).length,
+    };
   }, [pending.data?.proposals, alerts, readIds, filter]);
 
   return (
@@ -128,11 +133,18 @@ export function InboxScreen() {
                 <Eyebrow color="accent">inbox</Eyebrow>
                 <Text variant="title">{unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}</Text>
               </Stack>
-              {unreadCount > 0 ? (
-                <PressableScale onPress={markAllRead} haptic={false}>
-                  <Text variant="caption" color="textMuted">Mark all read</Text>
-                </PressableScale>
-              ) : null}
+              <Row gap={spacing.lg} align="center">
+                {unreadCount > 0 ? (
+                  <PressableScale onPress={markAllRead} haptic={false}>
+                    <Text variant="caption" color="textMuted">Mark all read</Text>
+                  </PressableScale>
+                ) : null}
+                {readCount > 0 ? (
+                  <PressableScale onPress={clearRead} haptic>
+                    <Text variant="caption" color="textMuted">Clear read</Text>
+                  </PressableScale>
+                ) : null}
+              </Row>
             </Row>
             <Row gap={spacing.xs}>
               {FILTERS.map((f) => {
