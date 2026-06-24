@@ -329,6 +329,12 @@ export type WatchlistQuote = {
   market_session?: "pre" | "regular" | "post" | "overnight" | "closed";
   ext_price?: number | null;
   ext_change_pct?: number | null;
+  pe?: number | null;
+  eps?: number | null;
+  div_yield?: number | null;
+  market_cap?: number | null;
+  last_earnings?: string | null;
+  next_earnings?: string | null;
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {
