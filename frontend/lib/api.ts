@@ -326,6 +326,9 @@ export type WatchlistQuote = {
   day_high?: number;
   day_low?: number;
   rvol?: RvolInfo | null;
+  market_session?: "pre" | "regular" | "post" | "overnight" | "closed";
+  ext_price?: number | null;
+  ext_change_pct?: number | null;
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {

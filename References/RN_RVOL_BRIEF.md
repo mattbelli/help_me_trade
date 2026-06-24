@@ -25,9 +25,9 @@ type Quote = {
   intraday?: number[];                   // RTH 5-min closes (already used for the 1-day chart)
   rvol?: RvolInfo | null;                // ✅ LIVE NOW
   // ⏳ landing shortly (extended-hours feature, backend in progress):
-  market_session?: "pre" | "regular" | "post" | "closed";
-  ext_price?: number | null;            // pre/post last print (only meaningful when session is pre/post)
-  ext_change_pct?: number | null;
+  market_session?: "pre" | "regular" | "post" | "overnight" | "closed";  // ✅ LIVE NOW
+  ext_price?: number | null;            // pre/post/overnight last print; null in regular/closed
+  ext_change_pct?: number | null;       // signed % move (correct — use directly for color)
 };
 ```
 The live WS at `{WS_BASE}/ws/market` (same subscribe protocol you already use) now streams **Schwab

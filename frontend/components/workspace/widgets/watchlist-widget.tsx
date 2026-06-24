@@ -187,6 +187,12 @@ function WatchlistAddRow({
 
 type Quote = ReturnType<typeof useWatchlistMarket>["quotes"][string];
 
+const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
+  pre: { label: "PRE", title: "Pre-market" },
+  post: { label: "AFT", title: "After-hours" },
+  overnight: { label: "24h", title: "Overnight (24/5)" },
+};
+
 function WatchlistSymbolRow({
   symbol,
   quote,
@@ -207,8 +213,17 @@ function WatchlistSymbolRow({
   onDragEnd: () => void;
 }) {
   const controls = useDragControls();
-  const changePct = quote?.change_pct ?? 0;
-  const positive = changePct >= 0;
+
+  const session = quote?.market_session;
+  const extBadge =
+    session && session in EXT_SESSION_BADGE && quote?.ext_price != null
+      ? EXT_SESSION_BADGE[session]
+      : null;
+  const displayPrice = extBadge ? (quote?.ext_price ?? 0) : (quote?.price ?? 0);
+  const displayChangePct = extBadge
+    ? (quote?.ext_change_pct ?? 0)
+    : (quote?.change_pct ?? 0);
+  const positive = displayChangePct >= 0;
 
   return (
     <Reorder.Item
@@ -263,8 +278,16 @@ function WatchlistSymbolRow({
           ×
         </button>
       </span>
-      <span className="text-right tabular-nums text-foreground">
-        {quote ? formatPrice(quote.price) : "—"}
+      <span
+        className="inline-flex items-center justify-end gap-0.5 tabular-nums text-foreground"
+        title={extBadge?.title}
+      >
+        {quote ? formatPrice(displayPrice) : "—"}
+        {extBadge ? (
+          <span className="rounded px-0.5 font-mono text-[8px] leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)]">
+            {extBadge.label}
+          </span>
+        ) : null}
       </span>
       <span
         className={cn(
@@ -276,7 +299,7 @@ function WatchlistSymbolRow({
             : "text-[var(--fg-dim)]",
         )}
       >
-        {quote ? formatPct(changePct) : "—"}
+        {quote ? formatPct(displayChangePct) : "—"}
       </span>
       {quote?.rvol?.value != null ? (
         <span
