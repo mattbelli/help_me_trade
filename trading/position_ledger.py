@@ -106,3 +106,25 @@ def record_strategy_fill(
     except Exception:
         logger.exception("Failed to record managed position from fill")
         return None
+
+
+def record_session_node_managed_fill(
+    execution_row: dict[str, Any],
+    *,
+    filled_qty: float | None,
+    status: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> str | None:
+    """Tag session-node SPY fills for exit-prompt tracking. Never executes."""
+    try:
+        from signals.session_node_strategy import record_session_node_fill
+
+        return record_session_node_fill(
+            execution_row,
+            filled_qty=filled_qty,
+            status=status,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("Failed to record session-node managed position from fill")
+        return None

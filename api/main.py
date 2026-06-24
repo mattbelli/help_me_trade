@@ -65,7 +65,7 @@ from db.accounts import (
     list_accounts,
     reconcile_account_external_id,
 )
-from db.ai_tables import init_ai_tables
+from db.ai_tables import create_rule, get_rule, init_ai_tables
 from db.chart_features import (
     create_price_alert,
     delete_price_alert,
@@ -83,6 +83,7 @@ from db.order_executions import (
     init_execution_tables,
 )
 from db.paper_orders import init_paper_order_tables
+from db.session_node import init_session_node_tables
 from db.sqlite import (
     compute_and_save_snapshot_analytics,
     get_all_latest_snapshots,
@@ -95,6 +96,7 @@ from db.trades import init_trade_tables
 from db.workspace import init_workspace_tables, load_workspace_layout, save_workspace_layout
 from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.scan import run_signal_scan
+from signals.session_node_strategy import run_session_node_scan
 from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
@@ -377,6 +379,10 @@ async def _signal_scan_loop() -> None:
                 await run_strategy_scan()
             except Exception:
                 logger.exception("Dip-strategy scan failed")
+            try:
+                await run_session_node_scan()
+            except Exception:
+                logger.exception("Session-node scan failed")
         except Exception:
             logger.exception("Signal scan loop iteration failed")
         await asyncio.sleep(SIGNAL_SCAN_INTERVAL_SECONDS)
@@ -663,6 +669,20 @@ async def lifespan(app: FastAPI):
     init_chart_features()
     init_workspace_tables()
     init_ai_tables()
+    init_session_node_tables()
+    if get_rule("session_node_spy") is None:
+        create_rule(
+            rule_id="session_node_spy",
+            name="Session-Node Reversion (SPY)",
+            conditions={"type": "session_node", "symbol": "SPY"},
+            action={
+                "type": "trade",
+                "symbol": "SPY",
+                "side": "buy",
+                "notional_usd": 500,
+                "order_type": "market",
+            },
+        )
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()

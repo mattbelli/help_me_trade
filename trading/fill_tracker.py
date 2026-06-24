@@ -14,7 +14,7 @@ from db.order_executions import (
     list_submitted_executions,
     update_execution_status,
 )
-from trading.position_ledger import record_strategy_fill
+from trading.position_ledger import record_session_node_managed_fill, record_strategy_fill
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +137,15 @@ async def reconcile_open_executions(
 
         # Record strategy attribution into the managed-position ledger so the exit
         # engine knows whose rules apply. Bookkeeping only — fail-closed inside.
+        row_dict = dict(row)
         record_strategy_fill(
-            dict(row),
+            row_dict,
+            filled_qty=order.filled_qty,
+            status=new_status,
+            db_path=db_path,
+        )
+        record_session_node_managed_fill(
+            row_dict,
             filled_qty=order.filled_qty,
             status=new_status,
             db_path=db_path,

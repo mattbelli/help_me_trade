@@ -205,6 +205,7 @@ async def create_phone_proposal(
     session_id: str | None = None,
     source: str | None = None,
     rule_id: str | None = None,
+    score: bool = True,
     ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
@@ -216,17 +217,20 @@ async def create_phone_proposal(
     intent_fields = built["intent_fields"]
     summary = _proposal_summary(intent_fields)
 
-    score = None
-    try:
-        from signals.decision_scorer import score_symbol
+    score_result = None
+    if score:
+        try:
+            from signals.decision_scorer import score_symbol
 
-        score = score_symbol(
-            intent_fields["symbol"],
-            side=intent_fields["side"],
-            db_path=db_path,
-        )
-    except Exception:
-        logger.exception("Failed to score proposal for %s", intent_fields.get("symbol"))
+            score_result = score_symbol(
+                intent_fields["symbol"],
+                side=intent_fields["side"],
+                db_path=db_path,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to score proposal for %s", intent_fields.get("symbol")
+            )
 
     account_id = intent_fields.get("account_id")
     row = create_pending_proposal(
@@ -237,7 +241,7 @@ async def create_phone_proposal(
         summary=summary,
         source=source,
         rule_id=rule_id,
-        score=score,
+        score=score_result,
         account_id=account_id,
         db_path=db_path,
     )
