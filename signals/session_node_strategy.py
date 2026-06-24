@@ -12,7 +12,11 @@ from typing import Any
 
 from brokers.alpaca import StockBar
 from brokers.factory import get_market_data_provider
-from config.settings import is_kill_switch_active, trading_config
+from config.settings import (
+    is_kill_switch_active,
+    short_selling_allowed,
+    trading_config,
+)
 from db.accounts import default_execution_account
 from db.ai_tables import get_rule
 from db.base import DEFAULT_DB_PATH
@@ -139,6 +143,7 @@ def _open_position_from_managed(row: dict[str, Any]) -> OpenPosition | None:
 
 async def _size_proposal_args(
     *,
+    side: str = "buy",
     notional_usd: float,
     account_id: str,
     broker: str,
@@ -152,6 +157,7 @@ async def _size_proposal_args(
     qty = floor(Decimal(str(notional_usd)) / price_dec)
     snapshot = get_latest_snapshot(broker, account_id=account_id, db_path=db_path)
     if snapshot is not None:
+        # Both longs and shorts consume buying power — cap the size either way.
         buying_power = Decimal(str(snapshot["account"]["buying_power"]))
         cap_qty = floor(buying_power * _BUYING_POWER_BUFFER / price_dec)
         qty = min(qty, cap_qty)
@@ -160,7 +166,7 @@ async def _size_proposal_args(
 
     args: dict[str, Any] = {
         "symbol": SYMBOL,
-        "side": "buy",
+        "side": side,
         "qty": int(qty),
         "order_type": "market",
         "account_id": account_id,
@@ -181,7 +187,7 @@ async def _size_proposal_args(
     return args
 
 
-async def _propose_long_trigger(
+async def _propose_trigger(
     trigger,
     *,
     nodes: ReferenceNodes,
@@ -190,6 +196,9 @@ async def _propose_long_trigger(
     broker: str,
     db_path: Path,
 ) -> dict[str, Any] | None:
+    # Support-node reversion → buy (long); resistance-node reversion → sell
+    # (short). Shorts only reach here when shorting is enabled (gated upstream).
+    side = "sell" if trigger.direction == "short" else "buy"
     dedup_key = _prop_dedup_key(nodes.session_date, trigger.node_name, trigger.ts)
     # Claim the key ATOMICALLY before the await, so this deterministic trigger
     # can never be double-proposed. Release it (forget) on any path that does NOT
@@ -198,6 +207,7 @@ async def _propose_long_trigger(
         return None
 
     args = await _size_proposal_args(
+        side=side,
         notional_usd=notional_usd,
         account_id=account_id,
         broker=broker,
@@ -400,11 +410,16 @@ async def run_session_node_scan(
         if nodes is None or not today_bars:
             return []
 
+        # Short triggers are only proposed when shorting is explicitly enabled
+        # (paper/dry_run); otherwise they're skipped + logged (the no-short
+        # default). Longs always propose.
+        shorts_on = short_selling_allowed()
+
         triggers = detect_node_triggers(today_bars, nodes)
         for trigger in triggers:
-            if trigger.direction == "short":
+            if trigger.direction == "short" and not shorts_on:
                 logger.info(
-                    "Session-node skip short at %s (%s) — v1 long-only",
+                    "Session-node skip short at %s (%s) — shorting disabled",
                     trigger.node_name,
                     trigger.ts,
                 )
@@ -429,11 +444,11 @@ async def run_session_node_scan(
                 )
                 continue
 
-            if trigger.direction != "long":
+            if trigger.direction not in ("long", "short"):
                 continue
 
             try:
-                result = await _propose_long_trigger(
+                result = await _propose_trigger(
                     trigger,
                     nodes=nodes,
                     notional_usd=notional_usd,
@@ -473,7 +488,9 @@ def record_session_node_fill(
     try:
         if status not in {"filled", "partially_filled"}:
             return None
-        if str(execution_row.get("side", "")).strip().lower() != "buy":
+        # Accept buy (long entry) and sell (short entry). The strict rule_id
+        # gate below is what keeps this no-op'ing on every non-session-node fill.
+        if str(execution_row.get("side", "")).strip().lower() not in ("buy", "sell"):
             return None
         proposal_id = execution_row.get("proposal_id")
         if not proposal_id:

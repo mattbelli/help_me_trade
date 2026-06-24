@@ -245,6 +245,7 @@ export type TradingSettings = {
   max_position_pct: number;
   max_open_orders: number;
   max_daily_orders: number;
+  allow_short_selling: boolean;
 };
 
 export type AppSettings = {

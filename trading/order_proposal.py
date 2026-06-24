@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from config.settings import primary_broker
+from config.settings import primary_broker, short_selling_allowed
 from db.accounts import default_execution_account, get_account
 from db.base import DEFAULT_DB_PATH
 from db.sqlite import get_latest_snapshot
@@ -222,6 +222,12 @@ def build_order_proposal_from_args(
                     break
         if held_qty is not None:
             proposal_payload["held_qty"] = held_qty
+        elif short_selling_allowed() and not occ_symbol:
+            # No held long, but shorting is enabled (paper/dry_run) — this is a
+            # sell-to-open. EQUITY ONLY — options stay long-only (no naked
+            # writing). The RiskEngine re-checks at submit and applies the
+            # buy-style exposure caps to the short.
+            proposal_payload["short_open"] = True
         else:
             return {
                 "error": (

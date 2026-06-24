@@ -83,6 +83,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_position_pct": 30,
         "max_open_orders": 10,
         "max_daily_orders": 20,
+        # Short selling (sell-to-open). OFF by default. Only ever honored in
+        # dry_run/paper — LIVE short selling stays hard-blocked regardless.
+        "allow_short_selling": False,
     },
 }
 
@@ -355,6 +358,8 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["max_open_orders"] = int(value)
             elif key == "max_daily_orders":
                 current["trading"]["max_daily_orders"] = int(value)
+            elif key == "allow_short_selling":
+                current["trading"]["allow_short_selling"] = bool(value)
             elif key == "agent_proposals_enabled":
                 current["trading"]["agent_proposals_enabled"] = bool(value)
             elif key == "dip_strategy_enabled":
@@ -746,7 +751,23 @@ def trading_config() -> dict[str, Any]:
         ),
         "max_open_orders": int(cfg.get("max_open_orders", defaults["max_open_orders"])),
         "max_daily_orders": int(cfg.get("max_daily_orders", defaults["max_daily_orders"])),
+        "allow_short_selling": bool(
+            cfg.get("allow_short_selling", defaults["allow_short_selling"])
+        ),
     }
+
+
+def short_selling_allowed() -> bool:
+    """True only when shorting is explicitly enabled AND we're not in live mode.
+
+    Single source of truth for the short-sell gate. LIVE short selling is
+    hard-blocked regardless of the toggle (live needs the typed double-gate,
+    not built) — only ``dry_run``/``paper`` ever honor the toggle.
+    """
+    cfg = trading_config()
+    return bool(cfg.get("allow_short_selling", False)) and cfg.get(
+        "execution_mode"
+    ) in ("dry_run", "paper")
 
 
 def is_paper_trading() -> bool:

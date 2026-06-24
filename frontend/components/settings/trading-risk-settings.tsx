@@ -24,6 +24,7 @@ const DEFAULT_TRADING: TradingSettings = {
   max_position_pct: 30,
   max_open_orders: 10,
   max_daily_orders: 20,
+  allow_short_selling: false,
 };
 
 type Props = {
@@ -121,6 +122,41 @@ export function TradingRiskSettings({ value, onChange }: Props) {
             checked={trading.kill_switch_active}
             onCheckedChange={requestKillSwitchToggle}
             aria-label="Kill switch"
+          />
+        </div>
+      </div>
+
+      <div
+        className={`rounded-lg border p-3 ${
+          trading.allow_short_selling
+            ? "border-amber-500/50 bg-amber-500/5"
+            : "border-border"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <ShieldAlertIcon
+              className={`mt-0.5 size-4 shrink-0 ${
+                trading.allow_short_selling
+                  ? "text-amber-500"
+                  : "text-muted-foreground"
+              }`}
+            />
+            <div>
+              <p className="text-sm font-medium">Allow short selling</p>
+              <p className="text-xs text-muted-foreground">
+                Lets strategies sell-to-open (short) when flat. Paper only — live
+                short selling stays blocked. Shorts get the same value/position
+                caps as buys.
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={trading.allow_short_selling}
+            onCheckedChange={(checked) =>
+              patch({ allow_short_selling: checked })
+            }
+            aria-label="Allow short selling"
           />
         </div>
       </div>
