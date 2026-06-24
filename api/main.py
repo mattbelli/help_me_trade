@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -92,7 +94,7 @@ from signals.scan import run_signal_scan
 from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
-from signals.volume_profile import build_profile, load_profile, rvol_now
+from signals.volume_profile import build_profile, load_profile, profile_dir, rvol_now
 from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.market_hours import _ET, _SESSION_CLOSE, _SESSION_OPEN
@@ -108,6 +110,10 @@ SIGNAL_SCAN_INTERVAL_SECONDS = max(
 )
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
+_PROFILE_FRESH_S = 20 * 3600
+_PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
+_UNIVERSE_DIR = Path(__file__).resolve().parent.parent / "signals" / "universes"
+_LIQUID_CORE_FILES = ("sp500.json", "russell1000.json", "nasdaq100.json")
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -388,8 +394,33 @@ def _all_watchlist_symbols() -> list[str]:
     return sorted(syms)
 
 
+def _liquid_core_symbols() -> list[str]:
+    syms: set[str] = set()
+    for fname in _LIQUID_CORE_FILES:
+        try:
+            data = json.loads((_UNIVERSE_DIR / fname).read_text())
+            for s in data.get("symbols", []):
+                if isinstance(s, str) and s.strip():
+                    syms.add(s.strip().upper())
+        except Exception:
+            logger.exception("Failed to load universe file %s", fname)
+    return sorted(syms)
+
+
+def _profile_universe() -> list[str]:
+    return sorted(set(_liquid_core_symbols()) | set(_all_watchlist_symbols()))
+
+
+def _profile_is_fresh(symbol: str) -> bool:
+    fp = profile_dir() / f"{symbol}.json"
+    try:
+        return fp.is_file() and (time.time() - fp.stat().st_mtime) < _PROFILE_FRESH_S
+    except OSError:
+        return False
+
+
 async def _volume_profile_refresh_once() -> int:
-    symbols = _all_watchlist_symbols()
+    symbols = [s for s in _profile_universe() if not _profile_is_fresh(s)]
     if not symbols:
         return 0
     try:
@@ -398,10 +429,15 @@ async def _volume_profile_refresh_once() -> int:
         logger.warning("Volume profile refresh: provider unavailable: %s", exc)
         return 0
     built = 0
-    for sym in symbols:
+    logger.info("Volume profile precompute: %d symbols to build", len(symbols))
+    for i, sym in enumerate(symbols):
         prof = await build_profile(provider, sym)
         if prof is not None:
             built += 1
+        if i % 100 == 0 and i:
+            logger.info("Volume profile precompute progress: %d/%d", i, len(symbols))
+        await asyncio.sleep(_PROFILE_BUILD_MIN_INTERVAL_S)
+    logger.info("Volume profile precompute done: built %d/%d", built, len(symbols))
     return built
 
 
@@ -744,6 +780,13 @@ async def api_watchlist_market(symbols: str = ""):
     if not symbol_list:
         return {"quotes": {}}
 
+    # Any requested symbol with no fresh volume profile gets one built in the
+    # background (deduped/cooldowned) so RVOL works for ANY stock, not just the
+    # nightly-precomputed watchlist. It populates within a poll cycle.
+    for sym in symbol_list:
+        if load_profile(sym) is None:
+            _schedule_profile_build(provider, sym)
+
     try:
         bars_by_symbol = await provider.aget_stock_bars_batch(symbol_list, days=12)
     except BrokerError as exc:
@@ -781,6 +824,29 @@ async def api_watchlist_market(symbols: str = ""):
         quotes[sym]["rvol"] = _compute_rvol_field(sym, intraday_by_symbol.get(sym, []))
 
     return {"quotes": quotes}
+
+
+_profile_build_attempts: dict[str, float] = {}
+_PROFILE_BUILD_COOLDOWN_S = 600  # don't re-attempt a symbol's profile more than once / 10 min
+
+
+def _schedule_profile_build(provider, symbol: str) -> None:
+    """Fire-and-forget a volume-profile build for one symbol, deduped by cooldown.
+
+    Guards against hammering Schwab when a symbol can't form a profile (illiquid →
+    compute returns None → no file saved → would otherwise retry every poll)."""
+    now = time.time()
+    if now - _profile_build_attempts.get(symbol, 0.0) < _PROFILE_BUILD_COOLDOWN_S:
+        return
+    _profile_build_attempts[symbol] = now
+
+    async def _run() -> None:
+        try:
+            await build_profile(provider, symbol)
+        except Exception:
+            logger.exception("On-demand volume-profile build failed for %s", symbol)
+
+    asyncio.create_task(_run())
 
 
 def _compute_rvol_field(symbol: str, intraday_bars: list[StockBar]) -> dict | None:
