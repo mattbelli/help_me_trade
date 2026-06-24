@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import Body, FastAPI, WebSocket
@@ -112,6 +112,17 @@ SIGNAL_SCAN_INTERVAL_SECONDS = max(
 )
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
+RVOL_ALERT_INTERVAL_SECONDS = max(
+    60, int(os.environ.get("RVOL_ALERT_INTERVAL_SECONDS", "300"))
+)
+RVOL_ALERT_THRESHOLD = float(os.environ.get("RVOL_ALERT_THRESHOLD", "3.0"))
+_RVOL_ALERTS_ENABLED = os.environ.get("RVOL_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+SCHWAB_HEALTH_INTERVAL_SECONDS = max(
+    300, int(os.environ.get("SCHWAB_HEALTH_INTERVAL_SECONDS", str(6 * 3600)))
+)
+_SCHWAB_HEALTH_ALERTS_ENABLED = (
+    os.environ.get("SCHWAB_HEALTH_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+)
 _PROFILE_FRESH_S = 20 * 3600
 _PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
 _UNIVERSE_DIR = Path(__file__).resolve().parent.parent / "signals" / "universes"
@@ -494,6 +505,148 @@ async def _alert_symbol_loop() -> None:
         await asyncio.sleep(30)
 
 
+# ---------------------------------------------------------------------------
+# RVOL-spike alert state: last-alert date per symbol (ET day, resets each day)
+# ---------------------------------------------------------------------------
+_rvol_alert_last_date: dict[str, date] = {}
+
+
+def _should_rvol_alert(symbol: str, today_et: date) -> bool:
+    """Return True if we have NOT already sent an RVOL alert for this symbol today."""
+    return _rvol_alert_last_date.get(symbol) != today_et
+
+
+def _mark_rvol_alerted(symbol: str, today_et: date) -> None:
+    _rvol_alert_last_date[symbol] = today_et
+
+
+async def _rvol_alert_loop() -> None:
+    """Every ~5 min during RTH, push a phone alert for any watchlist symbol with RVOL ≥ threshold.
+
+    Env gates:
+      RVOL_ALERTS_ENABLED        default "1"  (set to "0" to disable)
+      RVOL_ALERT_THRESHOLD       default 3.0
+      RVOL_ALERT_INTERVAL_SECONDS default 300
+    """
+    while True:
+        await asyncio.sleep(RVOL_ALERT_INTERVAL_SECONDS)
+        if not _RVOL_ALERTS_ENABLED:
+            continue
+        try:
+            if _market_session() != "regular":
+                continue
+
+            bucket = _rvol_bucket_now()
+            if bucket is None:
+                continue
+
+            symbols = _all_watchlist_symbols()
+            if not symbols:
+                continue
+
+            try:
+                provider = get_market_data_provider()
+            except BrokerError as exc:
+                logger.warning("RVOL alert: provider unavailable: %s", exc)
+                continue
+
+            if not hasattr(provider, "aget_quotes"):
+                continue
+
+            from brokers.schwab_market_data import SchwabMarketData
+
+            if not isinstance(provider, SchwabMarketData):
+                continue
+
+            try:
+                quotes = await provider.aget_quotes(symbols)
+            except Exception:
+                logger.exception("RVOL alert: quote fetch failed")
+                continue
+
+            today_et = datetime.now(_ET).date()
+
+            from signals.push import send_alert_push
+
+            for sym in symbols:
+                try:
+                    q = quotes.get(sym)
+                    if q is None:
+                        continue
+                    total_volume = q.get("total_volume")
+                    if total_volume is None or total_volume <= 0:
+                        continue
+                    profile = load_profile(sym)
+                    if profile is None:
+                        continue
+                    rvol_val = _compute_rvol_from_total_volume(profile, float(total_volume), bucket)
+                    if rvol_val is None or rvol_val < RVOL_ALERT_THRESHOLD:
+                        continue
+                    if not _should_rvol_alert(sym, today_et):
+                        continue
+                    price = q.get("regular_last") or q.get("ext_last")
+                    price_str = f"${price:.2f}" if price else "n/a"
+                    await send_alert_push(
+                        title="Unusual volume",
+                        body=f"{sym} {rvol_val:.1f}× normal volume ({price_str})",
+                    )
+                    _mark_rvol_alerted(sym, today_et)
+                    logger.info("RVOL alert sent: %s rvol=%.2f", sym, rvol_val)
+                except Exception:
+                    logger.exception("RVOL alert: error processing symbol %s", sym)
+        except Exception:
+            logger.exception("RVOL alert loop iteration failed")
+
+
+# Schwab health alert state: last-alert date (resets each ET day)
+_schwab_health_last_date: dict[str, date] = {}  # key: alert type ("expiring"/"offline")
+
+
+async def _schwab_health_loop() -> None:
+    """Every ~6h, check Schwab token health and push if auth is expiring or offline.
+
+    Env gates:
+      SCHWAB_HEALTH_ALERTS_ENABLED   default "1"  (set to "0" to disable)
+      SCHWAB_HEALTH_INTERVAL_SECONDS default 21600
+    """
+    while True:
+        await asyncio.sleep(SCHWAB_HEALTH_INTERVAL_SECONDS)
+        if not _SCHWAB_HEALTH_ALERTS_ENABLED:
+            continue
+        try:
+            from brokers.schwab_auth import auth_status
+            from signals.push import send_alert_push
+
+            status = auth_status()
+            today_et = datetime.now(_ET).date()
+
+            if not status.get("authenticated"):
+                if _schwab_health_last_date.get("offline") != today_et:
+                    await send_alert_push(
+                        title="Schwab data offline",
+                        body="Token invalid; re-auth needed. Run scripts.schwab_reauth or re-login.",
+                    )
+                    _schwab_health_last_date["offline"] = today_et
+                    logger.warning("Schwab health alert: token offline")
+            else:
+                days_left = status.get("estimated_days_until_reauth")
+                if days_left is not None and days_left <= 1.0:
+                    if _schwab_health_last_date.get("expiring") != today_et:
+                        await send_alert_push(
+                            title="Schwab re-auth needed",
+                            body=(
+                                f"Token expires within ~{days_left:.1f} day(s). "
+                                "Run scripts.schwab_reauth or re-login."
+                            ),
+                        )
+                        _schwab_health_last_date["expiring"] = today_et
+                        logger.warning(
+                            "Schwab health alert: token expiring in %.2f days", days_left
+                        )
+        except Exception:
+            logger.exception("Schwab health loop iteration failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not auth_enabled():
@@ -541,9 +694,13 @@ async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(_trade_sync_loop())
     earnings_task = asyncio.create_task(_earnings_refresh_loop())
     volume_profile_task = asyncio.create_task(_volume_profile_refresh_loop())
+    rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
+    schwab_health_task = asyncio.create_task(_schwab_health_loop())
     yield
     earnings_task.cancel()
     volume_profile_task.cancel()
+    rvol_alert_task.cancel()
+    schwab_health_task.cancel()
     sync_task.cancel()
     poll_task.cancel()
     scan_task.cancel()
@@ -557,6 +714,8 @@ async def lifespan(app: FastAPI):
         sync_task,
         earnings_task,
         volume_profile_task,
+        rvol_alert_task,
+        schwab_health_task,
     ):
         try:
             await task

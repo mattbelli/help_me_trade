@@ -178,6 +178,103 @@ async def _send_apns(proposal: dict[str, Any], cfg: dict[str, Any], db_path: Pat
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+async def send_alert_push(
+    title: str,
+    body: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Send a simple alert (title + body) push to active devices.
+
+    Used for background-monitor notifications (RVOL spikes, Schwab auth expiry).
+    Returns count sent. NO-OP when push is disabled / no tokens / unconfigured.
+    NEVER raises.
+    """
+    try:
+        cfg = push_config()
+        if not cfg["enabled"]:
+            logger.debug("push disabled — skipping alert push")
+            return 0
+
+        provider = str(cfg.get("provider") or "expo").strip().lower()
+
+        if provider == "apns":
+            key_id = str(cfg.get("apns_key_id") or "").strip()
+            team_id = str(cfg.get("apns_team_id") or "").strip()
+            bundle = str(cfg.get("apns_bundle_id") or "").strip()
+            key_path = str(cfg.get("apns_key_path") or "").strip()
+            if not (key_id and team_id and bundle and key_path):
+                logger.warning("apns config incomplete — skipping alert push")
+                return 0
+            try:
+                key_pem = Path(key_path).read_bytes()
+            except OSError:
+                logger.exception("apns key not readable at %s", key_path)
+                return 0
+            tokens = list_active_device_tokens(token_type="apns", db_path=db_path)
+            if not tokens:
+                return 0
+            jwt = _apns_jwt(key_pem, key_id, team_id)
+            host = _APNS_HOST_SANDBOX if cfg.get("apns_use_sandbox") else _APNS_HOST_PROD
+            payload = {
+                "aps": {
+                    "alert": {"title": title, "body": body},
+                    "sound": "default",
+                },
+                "type": "alert",
+            }
+            headers = {
+                "authorization": f"bearer {jwt}",
+                "apns-topic": bundle,
+                "apns-push-type": "alert",
+                "apns-priority": "10",
+            }
+            sent = 0
+            async with httpx.AsyncClient(http2=True, timeout=15.0) as client:
+                for row in tokens:
+                    token = str(row["token"])
+                    try:
+                        resp = await client.post(
+                            f"https://{host}/3/device/{token}", headers=headers, json=payload
+                        )
+                    except httpx.HTTPError:
+                        logger.exception("apns alert request failed for %s…", token[:8])
+                        continue
+                    if resp.status_code == 200:
+                        sent += 1
+                    else:
+                        logger.warning(
+                            "apns %s for %s…: %s", resp.status_code, token[:8], resp.text[:200]
+                        )
+
+        elif provider == "expo":
+            tokens = list_active_device_tokens(token_type="expo", db_path=db_path)
+            if not tokens:
+                return 0
+            messages = [
+                {
+                    "to": str(row["token"]),
+                    "title": title,
+                    "body": body,
+                    "sound": "default",
+                    "priority": "high",
+                }
+                for row in tokens
+            ]
+            sent = await _send_expo(messages, cfg)
+
+        else:
+            logger.warning("Unknown push provider %r — skipping alert push", provider)
+            return 0
+
+        if sent:
+            logger.info("Sent alert push %r to %d device(s)", title, sent)
+        return sent
+    except Exception:
+        logger.exception("Failed to send alert push %r", title)
+        return 0
+
+
 async def send_proposal_push(
     proposal: dict[str, Any],
     *,
