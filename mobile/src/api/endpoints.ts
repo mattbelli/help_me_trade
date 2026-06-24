@@ -177,3 +177,15 @@ export function registerDevice(
     },
   });
 }
+
+/** Register a Live Activity's per-activity APNs update token so serv can UPDATE/END
+ *  that specific activity (keyed by proposal_id). Contract: SERV_BRIEF_live_activity. */
+export function registerLiveActivityToken(
+  proposalId: string,
+  activityUpdateToken: string,
+): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>('/api/live-activities', {
+    method: 'POST',
+    body: { proposal_id: proposalId, activity_update_token: activityUpdateToken },
+  });
+}

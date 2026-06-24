@@ -18,6 +18,7 @@ import type { WatchlistMarket } from '@/api/types';
 import { TabBar, type TabDef } from '@/components/nav/tab-bar';
 import { useAuth } from '@/auth/auth-context';
 import { usePush } from '@/push/use-push';
+import { useLiveActivity } from '@/push/use-live-activity';
 import { useAlerts } from '@/state/alerts';
 import { NavProvider } from '@/state/nav';
 import { colors, haptics } from '@/theme';
@@ -53,6 +54,7 @@ export function CockpitPager() {
   const goTo = useCallback((index: number) => pagerRef.current?.setPage(index), []);
 
   usePush({ onOpenApprovals: () => goTo(INBOX_INDEX) });
+  useLiveActivity({ onOpenApprovals: () => goTo(INBOX_INDEX) });
 
   // Live prices: subscribe the active watchlist's symbols and merge each tick
   // into every watchlist-market cache entry, so rows update in real time
