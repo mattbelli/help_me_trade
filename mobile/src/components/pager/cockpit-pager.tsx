@@ -7,13 +7,14 @@
  * (tab highlight, badges, WS events every ~10-15s) never remount the surfaces —
  * that was causing the "reload on swipe" + "scroll flicks down/up every 15s".
  */
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { usePendingProposals } from '@/api/queries';
-import { useMarketWs } from '@/api/use-market-ws';
+import { usePendingProposals, useWatchlists } from '@/api/queries';
+import { useMarketWs, type QuoteUpdate } from '@/api/use-market-ws';
+import type { WatchlistMarket } from '@/api/types';
 import { TabBar, type TabDef } from '@/components/nav/tab-bar';
 import { useAuth } from '@/auth/auth-context';
 import { usePush } from '@/push/use-push';
@@ -53,9 +54,38 @@ export function CockpitPager() {
 
   usePush({ onOpenApprovals: () => goTo(INBOX_INDEX) });
 
-  useMarketWs({
+  // Live prices: subscribe the active watchlist's symbols and merge each tick
+  // into every watchlist-market cache entry, so rows update in real time
+  // instead of waiting on the 6s REST poll. Spread the prior quote and touch
+  // ONLY the price-bearing fields — never clobber rvol or the company-info
+  // fields the poll fills in. ext_* / market_session let pre/post-market rows
+  // headline the live extended-hours price straight off the stream.
+  const { data: watchlists } = useWatchlists();
+  const activeSymbols = useMemo(() => {
+    const list = watchlists?.lists.find((l) => l.id === watchlists.active_id);
+    return list?.symbols ?? [];
+  }, [watchlists]);
+
+  const onQuote = useCallback(
+    (q: QuoteUpdate) => {
+      qc.setQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] }, (old) => {
+        const prev = old?.quotes[q.symbol];
+        if (!prev) return old;
+        const next = { ...prev, price: q.price, change_pct: q.change_pct };
+        if (q.sparkline) next.sparkline = q.sparkline;
+        if (q.market_session !== undefined) next.market_session = q.market_session;
+        if (q.ext_price !== undefined) next.ext_price = q.ext_price;
+        if (q.ext_change_pct !== undefined) next.ext_change_pct = q.ext_change_pct;
+        return { ...old, quotes: { ...old.quotes, [q.symbol]: next } };
+      });
+    },
+    [qc],
+  );
+
+  const { connected, subscribe } = useMarketWs({
     token,
     onAlert: pushAlert,
+    onQuote,
     onProposal: () => {
       haptics.warning();
       void qc.invalidateQueries({ queryKey: ['proposals', 'pending'] });
@@ -63,6 +93,13 @@ export function CockpitPager() {
       void qc.invalidateQueries({ queryKey: ['alerts', 'recent'] });
     },
   });
+
+  // (Re)subscribe whenever the socket reconnects or the active list changes.
+  useEffect(() => {
+    if (connected && activeSymbols.length > 0) {
+      subscribe(activeSymbols);
+    }
+  }, [connected, activeSymbols, subscribe]);
 
   // Build pages ONCE so cockpit re-renders never remount/refetch a surface.
   const pages = useMemo(

@@ -14,7 +14,7 @@ import { FlashList } from '@shopify/flash-list';
 import { getRecentAlerts } from '@/api/endpoints';
 import { usePendingProposals } from '@/api/queries';
 import type { MarketAlert, PendingProposal } from '@/api/types';
-import { Badge, Eyebrow, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
+import { Badge, Eyebrow, formatUsd, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
 import { ProposalCard } from '@/features/approvals/proposal-card';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useAlerts } from '@/state/alerts';
@@ -41,6 +41,11 @@ function categorize(a: MarketAlert): Filter {
 }
 
 function alertTitle(a: MarketAlert): string {
+  if (a.source === 'price_alert' && a.symbol && a.direction && a.target_price != null) {
+    const now = a.trigger_price != null ? ` — now ${formatUsd(a.trigger_price)}` : '';
+    const note = a.note ? ` (${a.note})` : '';
+    return `${a.symbol} ${a.direction} ${formatUsd(a.target_price)}${now}${note}`;
+  }
   return a.action?.summary ?? a.action?.message ?? a.rule_name ?? a.symbol ?? 'Activity';
 }
 

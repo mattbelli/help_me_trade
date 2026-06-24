@@ -6,11 +6,17 @@ import type { MarketAlert } from './types';
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 10_000;
 
+type MarketSession = 'pre' | 'regular' | 'post' | 'overnight' | 'closed';
+
 export interface QuoteUpdate {
   symbol: string;
   price: number;
   change_pct: number;
   sparkline?: number[];
+  // Extended-hours (serv now folds these into the stream — present pre/post, null in regular):
+  ext_price?: number | null;
+  ext_change_pct?: number | null;
+  market_session?: MarketSession;
 }
 
 export interface UseMarketWsOptions {
@@ -26,6 +32,9 @@ interface WsQuoteMessage {
   price?: number;
   change_pct?: number;
   sparkline?: number[];
+  ext_price?: number | null;
+  ext_change_pct?: number | null;
+  market_session?: MarketSession;
 }
 
 interface WsAlertMessage {
@@ -38,6 +47,15 @@ interface WsAlertMessage {
   action?: MarketAlert['action'];
   symbol?: string | null;
   price?: number | null;
+  // Price-alert fields (source === 'price_alert'):
+  alert_id?: number | null;
+  target_price?: number | null;
+  trigger_price?: number | null;
+  direction?: string | null;
+  note?: string | null;
+  // Defensive: older serv builds nested the payload under `alert`. serv now sends
+  // it flat, but flatten a nested object if one ever shows up so it can't render blank.
+  alert?: Partial<WsAlertMessage>;
 }
 
 type WsMessage = WsQuoteMessage | WsAlertMessage | Record<string, unknown>;
@@ -46,7 +64,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function parseAlert(msg: WsAlertMessage): MarketAlert {
+function parseAlert(raw: WsAlertMessage): MarketAlert {
+  // Flatten a legacy nested `alert` payload (top-level wins where both exist).
+  const msg: WsAlertMessage = raw.alert ? { ...raw.alert, ...raw, alert: undefined } : raw;
   return {
     id: msg.id ?? `alert-${Date.now()}`,
     ts: msg.ts ?? new Date().toISOString(),
@@ -55,7 +75,13 @@ function parseAlert(msg: WsAlertMessage): MarketAlert {
     rule_name: msg.rule_name,
     action: msg.action,
     symbol: msg.symbol,
-    price: msg.price,
+    // Price alerts carry trigger/target, not a single `price`; fall back to trigger.
+    price: msg.price ?? msg.trigger_price ?? null,
+    alert_id: msg.alert_id,
+    target_price: msg.target_price,
+    trigger_price: msg.trigger_price,
+    direction: msg.direction,
+    note: msg.note,
   };
 }
 
@@ -152,6 +178,9 @@ export function useMarketWs({
             price: quoteMsg.price ?? 0,
             change_pct: quoteMsg.change_pct ?? 0,
             sparkline: quoteMsg.sparkline,
+            ext_price: quoteMsg.ext_price,
+            ext_change_pct: quoteMsg.ext_change_pct,
+            market_session: quoteMsg.market_session,
           });
         }
       } catch {

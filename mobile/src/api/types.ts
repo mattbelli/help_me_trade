@@ -105,10 +105,31 @@ export interface WatchlistQuote {
   ext_change_pct?: number | null;
   day_high?: number;
   day_low?: number;
+  // Company info (finnhub, folded into the quote by serv):
+  pe?: number | null;
+  eps?: number | null;
+  div_yield?: number | null;
+  market_cap?: number | null;
+  last_earnings?: string | null;
+  next_earnings?: string | null;
 }
 
 export interface WatchlistMarket {
   quotes: Record<string, WatchlistQuote>;
+}
+
+/** One past quarter's EPS surprise. surprise_pct > 0 = beat, < 0 = miss. */
+export interface EarningsEvent {
+  period: string; // "YYYY-MM-DD"
+  label: string; // "Q2'26"
+  eps_actual: number | null;
+  eps_estimate: number | null;
+  surprise_pct: number | null;
+}
+
+export interface EarningsHistory {
+  symbol: string;
+  events: EarningsEvent[]; // most-recent first
 }
 
 export interface WatchlistList {
@@ -176,6 +197,12 @@ export interface MarketAlert {
   action?: AlertAction | null;
   symbol?: string | null;
   price?: number | null;
+  // Price-alert fields (source === 'price_alert'):
+  alert_id?: number | null;
+  target_price?: number | null;
+  trigger_price?: number | null;
+  direction?: string | null; // "above" | "below" | "cross"
+  note?: string | null;
 }
 
 export interface PriceAlert {

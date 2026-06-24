@@ -1,19 +1,22 @@
 import { useState } from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
+import { LayoutAnimation, ScrollView, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import {
   useBars,
   useCreatePriceAlert,
   useDeletePriceAlert,
+  useEarningsHistory,
   usePriceAlerts,
   useWatchlistMarket,
 } from '@/api/queries';
-import type { PriceAlert, WatchlistQuote } from '@/api/types';
+import type { EarningsEvent, PriceAlert, WatchlistQuote } from '@/api/types';
+import { sessionView } from '@/features/watchlist/session';
 import { Icon } from '@/components/ui/icon';
 import {
   Button,
   Card,
+  Divider,
   ErrorState,
   Eyebrow,
   Money,
@@ -36,11 +39,18 @@ export default function SymbolDetailScreen() {
   const [chartWidth, setChartWidth] = useState(0);
   const [alertPrice, setAlertPrice] = useState('');
   const [direction, setDirection] = useState<'above' | 'below'>('above');
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const market = useWatchlistMarket(symbol ? [symbol] : undefined);
   const quote = symbol ? market.data?.quotes[symbol] : undefined;
   const bars = useBars(symbol, '1Day', 120);
+  const earnings = useEarningsHistory(symbol, 6, infoOpen);
   const alerts = usePriceAlerts(symbol);
+
+  const toggleInfo = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setInfoOpen((v) => !v);
+  };
   const createAlert = useCreatePriceAlert();
   const deleteAlert = useDeletePriceAlert();
 
@@ -73,20 +83,50 @@ export default function SymbolDetailScreen() {
           <BackRow onBack={() => router.back()} />
 
           <Stack gap={spacing.sm}>
-            <Text variant="display">{symbol || '—'}</Text>
+            <PressableScale onPress={toggleInfo} haptic>
+              <Row gap={spacing.xs} align="center">
+                <Text variant="display">{symbol || '—'}</Text>
+                <Icon
+                  name={infoOpen ? 'chevron-up' : 'chevron-down'}
+                  size={22}
+                  color={infoOpen ? colors.accent : colors.textMuted}
+                />
+              </Row>
+            </PressableScale>
             {market.isLoading ? (
               <Skeleton height={36} width="50%" />
             ) : quote ? (
-              <Row gap={spacing.md} align="baseline">
-                <Money value={quote.price} size="lg" />
-                <Pct value={quote.change_pct} signed pnl />
-              </Row>
+              (() => {
+                const sv = sessionView(quote);
+                return (
+                  <Row gap={spacing.md} align="baseline">
+                    <Money value={sv.last} size="lg" />
+                    <Pct value={sv.changePct} signed pnl />
+                    {sv.badge ? (
+                      <Text
+                        variant="caption"
+                        style={{ color: colors.warm, letterSpacing: 0.6 }}
+                      >
+                        {sv.badge}
+                      </Text>
+                    ) : null}
+                  </Row>
+                );
+              })()
             ) : (
               <Text variant="body" color="textMuted">
                 No quote available
               </Text>
             )}
           </Stack>
+
+          {infoOpen ? (
+            <CompanyPanel
+              quote={quote}
+              events={earnings.data?.events ?? []}
+              loading={earnings.isLoading}
+            />
+          ) : null}
 
           <View onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}>
             {bars.isLoading || chartWidth === 0 ? (
@@ -230,6 +270,155 @@ function InfoCell({
       </Stack>
     </Card>
   );
+}
+
+function CompanyPanel({
+  quote,
+  events,
+  loading,
+}: {
+  quote?: WatchlistQuote;
+  events: EarningsEvent[];
+  loading: boolean;
+}) {
+  const hasNext = Boolean(quote?.next_earnings);
+  const earningsLabel = hasNext ? 'Next earnings' : 'Last earnings';
+  const earningsValue =
+    fmtDate(hasNext ? quote?.next_earnings : quote?.last_earnings) ?? '—';
+
+  return (
+    <Card>
+      <Stack gap={spacing.lg}>
+        <Stack gap={spacing.md}>
+          <Eyebrow>company</Eyebrow>
+          <Row gap={spacing.md} style={{ flexWrap: 'wrap' }}>
+            <StatCell label="Mkt cap" value={fmtMarketCap(quote?.market_cap)} />
+            <StatCell label="P/E" value={fmtNum(quote?.pe)} />
+            <StatCell label="EPS (ttm)" value={fmtUsd2(quote?.eps)} />
+            <StatCell label="Div yield" value={fmtPctStr(quote?.div_yield)} />
+            <StatCell label={earningsLabel} value={earningsValue} />
+          </Row>
+        </Stack>
+
+        <Divider />
+
+        <Stack gap={spacing.md}>
+          <Eyebrow>EPS surprise · beat / miss</Eyebrow>
+          {loading ? (
+            <Stack gap={spacing.sm}>
+              <Skeleton height={34} />
+              <Skeleton height={34} />
+              <Skeleton height={34} />
+            </Stack>
+          ) : events.length === 0 ? (
+            <Text variant="body" color="textMuted">
+              No earnings history
+            </Text>
+          ) : (
+            <Stack gap={spacing.md}>
+              {events.map((event) => (
+                <EpsBeatRow key={event.period} event={event} />
+              ))}
+            </Stack>
+          )}
+        </Stack>
+      </Stack>
+    </Card>
+  );
+}
+
+function StatCell({ label, value }: { label: string; value: string }) {
+  return (
+    <Stack gap={spacing.xs} style={{ minWidth: '28%', flexGrow: 1 }}>
+      <Eyebrow>{label}</Eyebrow>
+      <Text variant="figureSm">{value}</Text>
+    </Stack>
+  );
+}
+
+function EpsBeatRow({ event }: { event: EarningsEvent }) {
+  const surprise = event.surprise_pct;
+  const beat = (surprise ?? 0) >= 0;
+  // Cap the bar at ±10% surprise so a single blowout doesn't dwarf the rest.
+  const frac = surprise == null ? 0 : Math.min(Math.abs(surprise) / 10, 1);
+
+  return (
+    <Stack gap={spacing.xs}>
+      <Row justify="space-between" align="baseline">
+        <Row gap={spacing.sm} align="baseline">
+          <Text variant="bodyStrong">{event.label}</Text>
+          <Text variant="caption" color="textMuted">
+            {fmtUsd2(event.eps_actual)} vs {fmtUsd2(event.eps_estimate)} est
+          </Text>
+        </Row>
+        {surprise == null ? (
+          <Text variant="figureSm" color="textFaint">
+            —
+          </Text>
+        ) : (
+          <Pct value={surprise} signed pnl size="sm" />
+        )}
+      </Row>
+      <View
+        style={{
+          height: 4,
+          borderRadius: radius.pill,
+          backgroundColor: colors.bgInset,
+          overflow: 'hidden',
+        }}
+      >
+        <View
+          style={{
+            width: `${frac * 100}%`,
+            height: 4,
+            borderRadius: radius.pill,
+            backgroundColor: beat ? colors.positive : colors.negative,
+          }}
+        />
+      </View>
+    </Stack>
+  );
+}
+
+function fmtMarketCap(value?: number | null): string {
+  // Manual T/B/M — RN's Hermes Intl lacks compact-currency notation.
+  if (value == null) return '—';
+  const abs = Math.abs(value);
+  const tiers: [number, string][] = [
+    [1e12, 'T'],
+    [1e9, 'B'],
+    [1e6, 'M'],
+  ];
+  for (const [div, suffix] of tiers) {
+    if (abs >= div) return `$${(value / div).toFixed(2)}${suffix}`;
+  }
+  return `$${value.toFixed(0)}`;
+}
+
+function fmtNum(value?: number | null): string {
+  return value == null ? '—' : value.toFixed(1);
+}
+
+function fmtUsd2(value?: number | null): string {
+  return value == null ? '—' : `$${value.toFixed(2)}`;
+}
+
+function fmtPctStr(value?: number | null): string {
+  return value == null ? '—' : `${value.toFixed(2)}%`;
+}
+
+const MONTHS_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const;
+
+function fmtDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  const [year, month, day] = iso.split('-');
+  const mi = Number(month) - 1;
+  const name = MONTHS_SHORT[mi];
+  if (!name || !day) return iso;
+  return `${name} ${Number(day)}, ${year}`;
 }
 
 function DirectionToggle({

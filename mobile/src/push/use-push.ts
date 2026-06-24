@@ -13,6 +13,7 @@
  * deduped via a MODULE-LEVEL set so a component remount can't replay an action.
  */
 import * as Notifications from 'expo-notifications';
+import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
 
 import { ApiError } from '@/api/client';
@@ -38,6 +39,9 @@ interface ProposalPushData {
   proposal_id?: string;
   payload_hash?: string;
   expires_at?: string;
+  // Price-alert push (type === 'price_alert') — flat custom keys for tap-routing.
+  symbol?: string;
+  alert_id?: number;
 }
 
 function refreshProposals(): void {
@@ -139,8 +143,12 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
           void handleReject(data);
           break;
         default:
-          // Body tap → deep-link into Approvals, but only for our trade pushes.
+          // Body tap → deep-link. Trade pushes open Approvals; price alerts jump
+          // straight to that symbol's detail screen.
           if (data.type === 'trade_proposal') onOpenRef.current?.();
+          else if (data.type === 'price_alert' && data.symbol) {
+            router.push(`/symbol/${data.symbol}`);
+          }
       }
     }
 

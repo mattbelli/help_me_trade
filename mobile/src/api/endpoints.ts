@@ -3,6 +3,7 @@ import { APP_VERSION } from '@/config';
 import { apiFetch } from './client';
 import type {
   Bar,
+  EarningsHistory,
   HealthStatus,
   MarketAlert,
   PendingProposal,
@@ -88,6 +89,11 @@ export function getBars(
   return apiFetch<{ symbol: string; timeframe: string; bars: Bar[] }>(
     `/api/bars?${params.toString()}`,
   );
+}
+
+export function getEarningsHistory(symbol: string, n = 6): Promise<EarningsHistory> {
+  const params = new URLSearchParams({ symbol, n: String(n) });
+  return apiFetch<EarningsHistory>(`/api/fundamentals/earnings-history?${params.toString()}`);
 }
 
 export function getPendingProposals(): Promise<{ proposals: PendingProposal[] }> {

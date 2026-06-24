@@ -59,6 +59,7 @@ import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { colors, fonts, haptics, hairline, pnlColor, spacing } from '@/theme';
 
 import { MiniDayChart } from './mini-day-chart';
+import { sessionView } from './session';
 
 const SCREEN_W = Dimensions.get('window').width;
 const PAD_L = 28; // left gutter holds the grip / + in line with the content
@@ -121,28 +122,6 @@ function rvolDisplay(rvol: WatchlistQuote['rvol']): { text: string; color: strin
   const v = rvol.value;
   const color = v >= 3 ? colors.danger : v >= 2 ? colors.chart[4] : v >= 1.5 ? colors.warning : colors.textMuted;
   return { text: `${v.toFixed(1)}×`, color, opacity: rvol.state === 'overnight' ? 0.5 : 1 };
-}
-
-// Extended hours: in pre/post/overnight, headline the ext_price with a PRE/AFT/OVN
-// badge and color by ext_change_pct; otherwise the regular price/change.
-function sessionView(quote: WatchlistQuote): { last: number; changePct: number; changeDol?: number; badge: string | null } {
-  const s = quote.market_session;
-  if ((s === 'pre' || s === 'post' || s === 'overnight') && quote.ext_price != null) {
-    // ext_change_pct is the move vs the regular-session close, so the $ change must
-    // be ext_price − price (NOT − prev_close) to keep the sign/value consistent.
-    return {
-      last: quote.ext_price,
-      changePct: quote.ext_change_pct ?? quote.change_pct,
-      changeDol: quote.ext_price - quote.price,
-      badge: s === 'pre' ? 'PRE' : s === 'post' ? 'AFT' : '24h',
-    };
-  }
-  return {
-    last: quote.price,
-    changePct: quote.change_pct,
-    changeDol: quote.prev_close != null ? quote.price - quote.prev_close : undefined,
-    badge: null,
-  };
 }
 
 const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };

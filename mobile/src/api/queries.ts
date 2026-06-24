@@ -7,6 +7,7 @@ import {
   createPriceAlert,
   deletePriceAlert,
   getBars,
+  getEarningsHistory,
   getHealth,
   getPendingProposals,
   getPortfolioHistory,
@@ -139,6 +140,17 @@ export function useBars(symbol: string, timeframe = '1Day', days = 180) {
     queryFn: () => getBars(symbol, timeframe, days),
     enabled: enabled && Boolean(symbol),
     staleTime: 60_000,
+  });
+}
+
+export function useEarningsHistory(symbol: string, n = 6, enabledOverride = true) {
+  const { enabled } = useAuthenticated();
+
+  return useQuery({
+    queryKey: ['earnings-history', symbol, n],
+    queryFn: () => getEarningsHistory(symbol, n),
+    enabled: enabled && enabledOverride && Boolean(symbol),
+    staleTime: 60 * 60_000, // EPS history is quarterly — cache an hour
   });
 }
 
