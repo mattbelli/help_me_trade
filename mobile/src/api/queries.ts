@@ -22,8 +22,7 @@ import {
   searchSymbols,
   updateWatchlistSymbols,
 } from './endpoints';
-import type { WatchlistsState } from './types';
-import type { PortfolioRange } from './types';
+import type { PortfolioRange, WatchlistMarket, WatchlistQuote, WatchlistsState } from './types';
 
 function useAuthenticated(enabled = true) {
   const { token, isLoading } = useAuth();
@@ -121,6 +120,7 @@ export function useSymbolSearch(query: string) {
 
 export function useWatchlistMarket(symbols: string[] | undefined) {
   const { enabled } = useAuthenticated();
+  const qc = useQueryClient();
   const symbolsKey = symbols?.slice().sort().join(',') ?? '';
 
   return useQuery({
@@ -129,6 +129,24 @@ export function useWatchlistMarket(symbols: string[] | undefined) {
     enabled: enabled && Boolean(symbolsKey),
     refetchInterval: 6_000,
     staleTime: 4_000,
+    // Show instantly from any already-cached watchlist-market entry (e.g. the
+    // full watchlist) while the fresh single-symbol fetch lands — so tapping a
+    // ticker doesn't blank the price.
+    placeholderData: () => {
+      if (!symbols?.length) return undefined;
+      const caches = qc.getQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] });
+      const quotes: Record<string, WatchlistQuote> = {};
+      for (const sym of symbols) {
+        for (const [, data] of caches) {
+          const q = data?.quotes?.[sym];
+          if (q) {
+            quotes[sym] = q;
+            break;
+          }
+        }
+      }
+      return Object.keys(quotes).length ? { quotes } : undefined;
+    },
   });
 }
 

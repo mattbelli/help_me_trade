@@ -20,6 +20,7 @@ export type IconName =
   | 'chevron-right'
   | 'chevron-down'
   | 'chevron-up'
+  | 'expand'
   | 'check'
   | 'close';
 
@@ -99,6 +100,14 @@ export function Icon({
       {name === 'chevron-right' && <Polyline points="9,5 16,12 9,19" {...common} />}
       {name === 'chevron-down' && <Polyline points="5,9 12,16 19,9" {...common} />}
       {name === 'chevron-up' && <Polyline points="5,15 12,8 19,15" {...common} />}
+      {name === 'expand' && (
+        <>
+          <Polyline points="9,4 4,4 4,9" {...common} />
+          <Polyline points="15,4 20,4 20,9" {...common} />
+          <Polyline points="20,15 20,20 15,20" {...common} />
+          <Polyline points="4,15 4,20 9,20" {...common} />
+        </>
+      )}
       {name === 'check' && <Polyline points="4,12 10,18 20,6" {...common} />}
       {name === 'close' && (
         <>

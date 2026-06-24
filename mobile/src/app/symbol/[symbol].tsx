@@ -25,25 +25,37 @@ import {
   Row,
   Screen,
   Skeleton,
-  Sparkline,
   Stack,
   Text,
 } from '@/components/ui';
+import { CandleChart, type ChartMode } from '@/features/chart/candle-chart';
+import { ChartPill } from '@/features/chart/chart-pill';
+import {
+  CHART_RANGES,
+  INLINE_RANGE_KEYS,
+  RANGE_TO_INTERVAL,
+  rangeFor,
+  type RangeKey,
+} from '@/features/chart/ranges';
 import { colors, hairline, radius, spacing } from '@/theme';
+
+const INLINE_RANGES = CHART_RANGES.filter((r) => INLINE_RANGE_KEYS.includes(r.key));
 
 export default function SymbolDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ symbol: string }>();
   const symbol = typeof params.symbol === 'string' ? params.symbol : (params.symbol?.[0] ?? '');
 
-  const [chartWidth, setChartWidth] = useState(0);
   const [alertPrice, setAlertPrice] = useState('');
   const [direction, setDirection] = useState<'above' | 'below'>('above');
   const [infoOpen, setInfoOpen] = useState(false);
+  const [range, setRange] = useState<RangeKey>('1M');
+  const [chartMode, setChartMode] = useState<ChartMode>('candle');
 
+  const activeRange = rangeFor(range);
   const market = useWatchlistMarket(symbol ? [symbol] : undefined);
   const quote = symbol ? market.data?.quotes[symbol] : undefined;
-  const bars = useBars(symbol, '1Day', 120);
+  const bars = useBars(symbol, activeRange.timeframe, activeRange.days);
   const earnings = useEarningsHistory(symbol, 6, infoOpen);
   const alerts = usePriceAlerts(symbol);
 
@@ -56,8 +68,6 @@ export default function SymbolDetailScreen() {
 
   const parsedPrice = Number(alertPrice);
   const canAddAlert = Number.isFinite(parsedPrice) && parsedPrice > 0 && !createAlert.isPending;
-
-  const barCloses = bars.data?.bars.map((b) => b.close) ?? [];
 
   if (market.isError) {
     return (
@@ -85,7 +95,9 @@ export default function SymbolDetailScreen() {
           <Stack gap={spacing.sm}>
             <PressableScale onPress={toggleInfo} haptic>
               <Row gap={spacing.xs} align="center">
-                <Text variant="display">{symbol || '—'}</Text>
+                <Text variant="display" style={{ fontSize: 30, lineHeight: 34 }}>
+                  {symbol || '—'}
+                </Text>
                 <Icon
                   name={infoOpen ? 'chevron-up' : 'chevron-down'}
                   size={22}
@@ -94,7 +106,7 @@ export default function SymbolDetailScreen() {
               </Row>
             </PressableScale>
             {market.isLoading ? (
-              <Skeleton height={36} width="50%" />
+              <Skeleton height={36} width={160} />
             ) : quote ? (
               (() => {
                 const sv = sessionView(quote);
@@ -103,10 +115,7 @@ export default function SymbolDetailScreen() {
                     <Money value={sv.last} size="lg" />
                     <Pct value={sv.changePct} signed pnl />
                     {sv.badge ? (
-                      <Text
-                        variant="caption"
-                        style={{ color: colors.warm, letterSpacing: 0.6 }}
-                      >
+                      <Text variant="caption" style={{ color: colors.warm, letterSpacing: 0.6 }}>
                         {sv.badge}
                       </Text>
                     ) : null}
@@ -128,25 +137,57 @@ export default function SymbolDetailScreen() {
             />
           ) : null}
 
-          <View onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}>
-            {bars.isLoading || chartWidth === 0 ? (
-              <Skeleton height={160} />
-            ) : barCloses.length > 1 ? (
-              <Sparkline
-                data={barCloses}
-                width={chartWidth}
-                height={160}
-                fill
-                strokeWidth={2}
-              />
-            ) : (
-              <View style={{ height: 160, alignItems: 'center', justifyContent: 'center' }}>
-                <Text variant="caption" color="textFaint">
-                  No chart data
-                </Text>
-              </View>
-            )}
-          </View>
+          <Stack gap={spacing.md}>
+            <Row justify="flex-end">
+              <PressableScale
+                onPress={() =>
+                  router.push(`/chart/${symbol}?interval=${RANGE_TO_INTERVAL[range]}&mode=${chartMode}`)
+                }
+                haptic
+              >
+                <Row
+                  gap={spacing.xs}
+                  align="center"
+                  style={{
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.xs,
+                    borderRadius: radius.pill,
+                    borderWidth: hairline,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                  }}
+                >
+                  <Icon name="expand" size={14} color={colors.textMuted} />
+                  <Text variant="caption" color="textMuted">
+                    Expand
+                  </Text>
+                </Row>
+              </PressableScale>
+            </Row>
+            <CandleChart
+              bars={bars.data?.bars ?? []}
+              mode={chartMode}
+              livePrice={quote ? sessionView(quote).last : undefined}
+              height={240}
+              loading={bars.isLoading}
+            />
+            <Row justify="space-between" align="center">
+              <Row gap={spacing.xs}>
+                {INLINE_RANGES.map((r) => (
+                  <ChartPill
+                    key={r.key}
+                    label={r.key}
+                    active={r.key === range}
+                    onPress={() => setRange(r.key)}
+                  />
+                ))}
+              </Row>
+              <Row gap={spacing.xs}>
+                <ChartPill label="Line" active={chartMode === 'line'} onPress={() => setChartMode('line')} />
+                <ChartPill label="Candle" active={chartMode === 'candle'} onPress={() => setChartMode('candle')} />
+              </Row>
+            </Row>
+          </Stack>
 
           {quote ? <KeyInfoGrid quote={quote} /> : null}
 
