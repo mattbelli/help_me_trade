@@ -9,61 +9,53 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Schwab real-volume market data → watchlist RVOL ("vol % above expected")
-**Goal (founder's next feature):** a watchlist column that flags, in real time intraday, when a symbol's
-volume *so far today* is unusually high *for this time of day* — comparing today's cumulative volume to the
-historically expected cumulative volume by that time (time-of-day **volume profile**, NOT a flat daily
-average). Needs **real consolidated volume**: Alpaca's free IEX feed is only ~2.4% of volume. Research +
-specs are saved: `References/RVOL_VOLUME_PROFILE_RESEARCH.md` (algorithm: 5-min buckets, fraction-of-day
-normalize, ~20-day median/trimmed-mean window, exclude half-days/earnings, `RVOL(t)=today_cum/expected_cum`;
-display FINALIZED = "2.3×" multiplier + color band, suppress first ~15 min, carry yesterday greyed overnight)
-+ `References/SCHWAB_MARKETDATA_RESEARCH.md` (integration plan). Memory: `watchlist-rvol-feature`.
+## CURRENT FOCUS — Schwab data hub: RVOL + real-time streaming + extended-hours + auto re-auth
+**Architecture locked (2026-06-24, see `data-vs-execution-architecture` memory):** consolidate **DATA on
+Schwab** (volume, fundamentals, extended-hours, streaming) + **Finnhub** for the forward earnings date; keep
+**EXECUTION decoupled on Alpaca paper** (Schwab read-only, never execute). Futures = its own later track.
+The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution broker.
 
-**Shipped this session (commits on `main`):**
-- ✅ **Watchlist intraday series** (`0345350`) — `/api/watchlist/market` returns a per-symbol `intraday`
-  array (today's RTH 5-min closes) for the phone card's real 1-day chart; fails soft to `[]`.
-- ✅ **Chart pagination fix** (`83ffcbf`) — Alpaca `/v2/stocks/bars` is paginated; our fetchers never followed
-  `next_page_token`, so long windows truncated to page 1 (the web 1H/180d chart's last candle was stuck at
-  Feb 2). All four `brokers/alpaca.py` fetchers now paginate (50-page cap). Verified: 1H/180d 216→1069 bars.
-- ✅ **Schwab market-data provider — step 1** (`0c9ac3e`) — new `MarketDataProvider` protocol (`brokers/base.py`)
-  + READ-ONLY `SchwabMarketData` (`brokers/schwab_market_data.py`, **no order methods**) mapping Schwab
-  `pricehistory` → `StockBar`; `get_market_data_provider()` factory resolver on `MARKET_DATA_PROVIDER`
-  (**default `alpaca`** → inert until flipped). **Verified live end-to-end: SPY 66.6M / AAPL 51.9M daily vol
-  vs Alpaca IEX ~1.9M = ~30-35× (real consolidated).** 5Min intraday works; `1Hour` raises (deferred). 664 tests.
+**SHIPPED + DEPLOYED + LIVE on serv (2026-06-24, commits on `main`):**
+- ✅ **Watchlist RVOL column** — `signals/volume_profile.py` (median 20-day, 78-bucket cumfrac S-curve;
+  `rvol_now` warming/live/settled). `/api/watchlist/market` returns `rvol:{value,state}`. Web + **phone (RN
+  `13ee660`)** render `2.3×` + color band (dim/yellow/amber/red), overnight dimmed. Validated live (CAT 1.78×,
+  SPY 1.23×, NVDA 0.83×…).
+- ✅ **RVOL for ANY stock** — lazy on-demand profile build on cache-miss (`_schedule_profile_build`, 10-min
+  cooldown) + **nightly 986-symbol precompute** (S&P500 ∪ Russell1000 ∪ Nasdaq100, rate-limited ~100/min,
+  skip <20h-fresh). Universe lists in `signals/universes/{russell1000,nasdaq100}.json`.
+- ✅ **Schwab real-time streaming** (`brokers/schwab_market_stream.py` `SchwabMarketStreamHub`; refactored
+  `market_stream.py` → `BaseMarketHub`). Level-one equities + futures (/ES routed to futures handler), dynamic
+  subscribe/unsubscribe, 30s heartbeat + reconnect. Hub selected by `market_data_provider_name()`. **Fixed a
+  bug:** `_client_from_token_basic` built Client with `token_metadata=None` → StreamClient.login crashed;
+  now populates TokenMetadata (`f71f599`). Verified: `Schwab market stream connected`. Live ticks at market open.
+- ✅ **Extended-hours + 24/5 OVERNIGHT pricing** — `SchwabMarketData.aget_quotes` (regular/extended/quote
+  blocks); `/api/watchlist/market` stamps `market_session` (pre/regular/post/**overnight**/closed, weekday-aware)
+  + `ext_price`/`ext_change_pct`. Overnight (Sun 20:00→Fri 20:00 ET) IS covered — Schwab's `extended` block is
+  live overnight (verified: TSLA 382.74 +0.22%, etc.). ext change% uses Schwab's `postMarketPercentChange`
+  (matches ToS). Web shows PRE/AFT/24h badges; RN brief updated for the same.
+- ✅ **Schwab 2FA auto-codes** — Symantec VIP (Security token, Always-at-login) set up. Fresh VIP credential
+  provisioned on the founder's Mac via `python-vipaccess`; **secret in `.env` `SCHWAB_VIP_SECRET`** (+
+  `SCHWAB_VIP_CREDENTIAL_ID=SYMC38763863`, registered in Schwab). serv generates codes via `pyotp` — verified
+  serv↔phone match. `SCHWAB_LOGIN_USERNAME`/`PASSWORD` also in `.env`.
+- ✅ **Deploy unblocked:** `tools/serv-deploy.sh [backend|frontend|both]` + the founder added
+  `Bash(bash tools/serv-deploy.sh:*)` to `.claude/settings.local.json`, so the agent CAN deploy now.
 
-**RVOL feature — BUILT + validated, NOT yet deployed (in the working tree, uncommitted) [2026-06-23 later session]:**
-- ✅ **`signals/volume_profile.py`** (+ `tests/test_volume_profile.py`, 7 tests) — pure `compute_profile`
-  (78 RTH 5-min buckets, fraction-of-day normalize, **median** across a 20-day window, renormalized cumfrac
-  S-curve, median daily total, half-day exclusion via a "last bucket ≥76" short-session filter) +
-  `rvol_now` (`today_cum / (median_daily_total × cumfrac[t])`, states warming/live/settled) + JSON profile
-  store (`data/volume_profiles/*.json`, 7-day mtime staleness, `build_profile`).
-- ✅ **`api/main.py`** — `/api/watchlist/market` rewired to `get_market_data_provider()` (was `_require_alpaca`);
-  per-quote `rvol: {value, state}` field computed from the already-fetched 5-min batch (bumped days=2→4 for the
-  overnight fallback) + cached profile; **overnight relabel** in the endpoint (clock-aware). Nightly
-  `_volume_profile_refresh_loop` (boot + 24h) builds profiles for all watchlist symbols. Full suite **671 green**, ruff clean.
-- ✅ **frontend** (`api.ts` `RvolInfo`+`WatchlistQuote.rvol`; `use-watchlist-market.ts` — fixed a WS-tick bug
-  that dropped `rvol`; `watchlist-widget.tsx` — new **RVOL column** `2.3×` + color band yellow/amber/red,
-  muted overnight, `—` while warming). `npm run typecheck` clean; `.next` production build done.
-- ✅ **`.env`** `MARKET_DATA_PROVIDER=schwab` set (data path only; `BROKER` untouched). Schwab token is **fresh**
-  (`auth_status` → age ~0, ~7d runway) — the token-cliff is no longer urgent.
-- ✅ **Validated in-process against LIVE Schwab** for all 15 watchlist symbols: e.g. CAT 1.78×, COLA 1.61×,
-  SPY 1.23×, AAPL 1.16×, NVDA 0.83×, XLF 0.70× — calibrated, self-consistent (today's RTH 5-min vs the RTH
-  5-min profile). SPY profile cumfrac is the textbook S-curve (3.7% by +5min, ~47% midday, 100% close).
+**OPEN / IN-FLIGHT:**
+- 🔧 **Headless re-auth NOT yet tested.** `scripts/schwab_reauth.py` written (Playwright drives **system
+  chromium `/snap/bin/chromium`** — Playwright's bundled chromium has no ubuntu-26.04 build; `--no-sandbox`;
+  enters the `pyotp` VIP code). Selectors are best-guess constants at the top → **first run will need tuning**
+  (founder runs it; failures save a screenshot to `/tmp`; early field-not-found = no login attempt = no lockout).
+  Cron line (every 6 days) + day-6 APNs fallback documented in the agent report. The 7-day cliff is the reason.
+- 🔧 **Scanner / fundamentals IN PROGRESS** — `GET /api/scanner/rvol` (market-wide unusual-volume, ranks the
+  precomputed universe via batched `aget_quotes` totalVolume / expected-cum) being built; then RVOL-spike APNs
+  alerts + data-health/token-expiry monitoring; then fundamentals (Schwab P/E·mktcap·last-earnings + Finnhub
+  next-date). RN extended-hours wiring is the Mac agent's lane (brief `References/RN_RVOL_BRIEF.md`).
+- Watchlist reorder syncs cross-platform automatically (single server-side list; web persists via
+  `PUT /api/watchlists/{id}`; phone will once the Mac agent wires the same PUT).
 
-**⛔ ONLY remaining step = DEPLOY (restart both services).** The agent's auto-mode classifier hard-blocks the
-agent from killing the prod backend AND from editing `.claude/settings.local.json` to self-grant it, so a human
-must trigger it. A deploy helper exists: **`tools/serv-deploy.sh [backend|frontend|both]`** (kill MainPID →
-systemd relaunch). To let the agent deploy directly, add to `.claude/settings.local.json` `permissions.allow`:
-`"Bash(bash tools/serv-deploy.sh:*)"`. After restart: `curl :8000/api/watchlist/market?symbols=SPY` should show
-`rvol`; check the column renders in-browser.
-
-**NEXT after deploy (in order):**
-1. **In-browser check** the RVOL column; confirm `/api/watchlist/market` serves `rvol` live. Then commit the round
-   (exclude `.env`/`data/`) + update BUILD.md.
-2. **Deferred from step 1b (NOT needed for RVOL):** rewire `/api/bars` + `/api/portfolio/history` to the provider
-   and add **`1Hour` aggregation** (Schwab minute API tops out at 30Min → aggregate two 30-min bars) for the chart.
-3. **`trading-panel.tsx` + mobile card** RVOL column (only the workspace widget got it).
-4. **APNs day-6 token-expiry alert** + a headless weekly re-auth path (dad-with-a-job mitigation for the 7-day cliff).
+**NEXT:** finish scanner → alerts + monitoring → fundamentals; founder tests `schwab_reauth.py` (tune selectors);
+deferred: `/api/bars`+`1Hour` aggregation to the provider; extended *intraday bars* (currently RTH-only, so no
+pre/post chart segments yet).
 
 > ⚠️ **SCHWAB AUTH BUG — recorded, fixed, but know it (could resurface on dep updates):** schwab-py builds its
 > authlib OAuth2 session **without** setting `token_endpoint_auth_method`, so authlib defaults to

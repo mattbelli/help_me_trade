@@ -216,18 +216,24 @@ class SchwabMarketData:
             elif ext_last is not None and prev_close and prev_close != 0:
                 ext_change_pct = round((ext_last - prev_close) / prev_close * 100, 2)
 
+            total_volume = _f(quote.get("totalVolume"))
+
             out[sym.upper()] = {
                 "regular_last": reg_last,
                 "regular_change_pct": _f(reg_change_pct),
                 "ext_last": ext_last,
                 "ext_change_pct": ext_change_pct,
                 "prev_close": prev_close,
+                "total_volume": total_volume,
             }
         return out
 
     async def aget_quotes(self, symbols: list[str]) -> dict[str, dict]:
         """Batch quote fetch: returns {SYMBOL: {regular_last, regular_change_pct,
-        ext_last, ext_change_pct, prev_close}} with None for absent fields.
+        ext_last, ext_change_pct, prev_close, total_volume}} with None for absent fields.
+
+        total_volume is the cumulative day volume from Schwab's quote.totalVolume field.
+        Useful for efficient market-wide RVOL screening without per-symbol bar calls.
 
         Raises BrokerError on hard failure (non-200 or unexpected response shape).
         """

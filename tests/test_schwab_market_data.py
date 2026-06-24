@@ -276,7 +276,12 @@ async def test_aget_stock_bars_uses_days_window() -> None:
 
 _QUOTES_PAYLOAD = {
     "SPY": {
-        "quote": {"lastPrice": 592.5, "closePrice": 589.0, "netPercentChangeInDouble": 0.59},
+        "quote": {
+            "lastPrice": 592.5,
+            "closePrice": 589.0,
+            "netPercentChangeInDouble": 0.59,
+            "totalVolume": 85_432_100,
+        },
         "regular": {
             "regularMarketLastPrice": 592.5,
             "regularMarketPercentChange": 0.59,
@@ -314,12 +319,17 @@ async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
     expected_ext_pct = round((593.1 - 592.5) / 592.5 * 100, 2)
     assert spy["ext_change_pct"] == pytest.approx(expected_ext_pct, abs=0.01)
 
+    # total_volume is parsed from quote.totalVolume
+    assert spy["total_volume"] == 85_432_100.0
+
     aapl = result["AAPL"]
     # empty regular/extended blocks → falls back to quote block where possible
     assert aapl["regular_last"] == 211.0
     assert aapl["ext_last"] is None
     assert aapl["ext_change_pct"] is None
     assert aapl["prev_close"] == 210.0
+    # AAPL fixture has no totalVolume → None
+    assert aapl["total_volume"] is None
 
 
 @pytest.mark.asyncio
