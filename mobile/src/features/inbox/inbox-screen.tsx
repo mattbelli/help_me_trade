@@ -7,9 +7,10 @@
  * Replaces the old Approvals + Activity pages. Away-from-app approvals still
  * arrive via the lock-screen push.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
+import { useRouter } from 'expo-router';
 
 import { getRecentAlerts } from '@/api/endpoints';
 import { usePendingProposals } from '@/api/queries';
@@ -65,7 +66,8 @@ function timeAgo(iso: string): string {
 }
 
 export function InboxScreen() {
-  const { alerts, seed, isRead, markRead, markAllRead } = useAlerts();
+  const { alerts, seed, readIds, markRead, markAllRead } = useAlerts();
+  const router = useRouter();
   const pending = usePendingProposals();
   const [filter, setFilter] = useState<Filter>('all');
   const [loadingSeed, setLoadingSeed] = useState(true);
@@ -87,27 +89,34 @@ export function InboxScreen() {
     return () => { cancelled = true; };
   }, [seed]);
 
-  const rows: Row_[] = [];
-  for (const p of pending.data?.proposals ?? []) {
-    rows.push({ kind: 'approval', id: `p-${p.id}`, ts: tsOf(p.created_at), unread: true, proposal: p });
-  }
-  for (const a of alerts) {
-    rows.push({ kind: 'event', id: `a-${a.id}`, ts: tsOf(a.ts), unread: !isRead(a.id), alert: a, category: categorize(a) });
-  }
-  const filtered = rows.filter((r) => {
-    if (filter === 'all') return true;
-    return r.kind === 'approval' ? filter === 'approvals' : r.category === filter;
-  });
-  // Unread first, then newest.
-  filtered.sort((x, y) => Number(y.unread) - Number(x.unread) || y.ts - x.ts);
-
-  const unreadCount = rows.filter((r) => r.unread).length;
+  // Build rows with a STABLE identity — FlashList v2 re-anchors scroll on every
+  // data-array change, so rebuilding this each render made the list jump/hide on
+  // load and after marking read. Memoize so it only changes when inputs do.
+  const { filtered, unreadCount } = useMemo(() => {
+    const rows: Row_[] = [];
+    for (const p of pending.data?.proposals ?? []) {
+      rows.push({ kind: 'approval', id: `p-${p.id}`, ts: tsOf(p.created_at), unread: true, proposal: p });
+    }
+    for (const a of alerts) {
+      rows.push({ kind: 'event', id: `a-${a.id}`, ts: tsOf(a.ts), unread: !readIds.has(a.id), alert: a, category: categorize(a) });
+    }
+    const next = rows.filter((r) => {
+      if (filter === 'all') return true;
+      return r.kind === 'approval' ? filter === 'approvals' : r.category === filter;
+    });
+    // Unread first, then newest.
+    next.sort((x, y) => Number(y.unread) - Number(x.unread) || y.ts - x.ts);
+    return { filtered: next, unreadCount: rows.filter((r) => r.unread).length };
+  }, [pending.data?.proposals, alerts, readIds, filter]);
 
   return (
     <Screen>
       <FlashList
         data={filtered}
         keyExtractor={(r) => r.id}
+        // v2 re-anchors scroll when data changes; this inbox is top-anchored, so
+        // keep it put instead of jumping on seed / mark-read.
+        maintainVisibleContentPosition={{ disabled: true }}
         contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 110 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
@@ -145,14 +154,21 @@ export function InboxScreen() {
               <ProposalCard proposal={item.proposal} />
             </View>
           ) : (
-            <EventRow item={item} onPress={() => markRead(item.alert.id)} />
+            <EventRow
+              item={item}
+              onPress={() => {
+                markRead(item.alert.id);
+                // Bring the user to the relevant context — the symbol's chart.
+                if (item.alert.symbol) router.push(`/symbol/${item.alert.symbol}`);
+              }}
+            />
           )
         }
         ListEmptyComponent={
-          loadingSeed && rows.length === 0 ? null : (
+          loadingSeed && filtered.length === 0 ? null : (
             <View style={{ alignItems: 'center', paddingVertical: spacing['6xl'], gap: spacing.sm }}>
               <Text variant="heading" center>Quiet for now</Text>
-              <Text variant="callout" color="textMuted" center>The agent's actions and approvals will stream here.</Text>
+              <Text variant="callout" color="textMuted" center>The agent&apos;s actions and approvals will stream here.</Text>
             </View>
           )
         }
