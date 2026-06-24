@@ -31,3 +31,20 @@ will `POST /api/devices {token_type:"la_pushtostart", token}` (and per-activity 
    generic `LiveActivityAttributes`) and we lock it.
 
 **You're unblocked — GO.** Ping when token storage + the START path are in and a test device token would help.
+
+## UPDATE 2 — serv built it; mobile ready, joint test needs a device
+serv shipped the push slice (token storage, `_send_live_activity`, START/UPDATE/END, the in-flight
+`approving→"approved"` UPDATE). Mobile side:
+- ✅ Widget now shows **"Approving…"** for the in-flight `approved` status (distinct from terminal
+  "Executed" / "Couldn't execute"). pending→buttons; approved→"Approving…"; executed→"Executed";
+  failed→"Couldn't execute · {reason}".
+- ✅ `useLiveActivity` registers the **push-to-start token** via the existing `POST /api/devices`
+  (`token_type:"la_pushtostart"`) on app launch.
+- 🟡 Per-activity token registration (now `{proposal_id, activity_update_token, device_token}`) + the
+  proposalId↔activity mapping for serv-STARTED activities = the joint-test item (the LiveActivity instance
+  API doesn't expose proposalId; we'll solve it reading the first real START envelope).
+- ⚑ **Joint test needs the physical device, not the sim** — the sim can't receive a real APNs push-to-start
+  (no remote-push connectivity). I'll do the device rebuild (widget extension) when the phone's awake +
+  connected, which registers a REAL `la_pushtostart` token; then you fire one START and we read/lock the
+  envelope. Will ping with a registered test-device token.
+

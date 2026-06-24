@@ -42,7 +42,7 @@ function TradeProposalActivity(props: TradeProposalState, _env: LiveActivityEnvi
     props.status === 'executed'
       ? 'Executed'
       : props.status === 'approved'
-        ? 'Approved'
+        ? 'Approving…' // serv's in-flight UPDATE (approving→approved) before submit
         : props.status === 'rejected'
           ? 'Rejected'
           : props.status === 'expired'
