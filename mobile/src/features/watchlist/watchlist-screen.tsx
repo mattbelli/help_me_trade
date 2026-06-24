@@ -107,6 +107,28 @@ function rvolDisplay(rvol: WatchlistQuote['rvol']): { text: string; color: strin
   return { text: `${v.toFixed(1)}×`, color, opacity: rvol.state === 'overnight' ? 0.5 : 1 };
 }
 
+// Extended hours: in pre/post/overnight, headline the ext_price with a PRE/AFT/OVN
+// badge and color by ext_change_pct; otherwise the regular price/change.
+function sessionView(quote: WatchlistQuote): { last: number; changePct: number; changeDol?: number; badge: string | null } {
+  const s = quote.market_session;
+  if ((s === 'pre' || s === 'post' || s === 'overnight') && quote.ext_price != null) {
+    // ext_change_pct is the move vs the regular-session close, so the $ change must
+    // be ext_price − price (NOT − prev_close) to keep the sign/value consistent.
+    return {
+      last: quote.ext_price,
+      changePct: quote.ext_change_pct ?? quote.change_pct,
+      changeDol: quote.ext_price - quote.price,
+      badge: s === 'pre' ? 'PRE' : s === 'post' ? 'AFT' : '24h',
+    };
+  }
+  return {
+    last: quote.price,
+    changePct: quote.change_pct,
+    changeDol: quote.prev_close != null ? quote.price - quote.prev_close : undefined,
+    badge: null,
+  };
+}
+
 const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };
 
 function TriColumn({
@@ -186,7 +208,7 @@ function RowBody({
   grip?: boolean;
   active?: boolean;
 }) {
-  const changeDol = quote?.prev_close != null ? quote.price - quote.prev_close : undefined;
+  const sv = quote ? sessionView(quote) : null;
   const rv = rvolDisplay(quote?.rvol);
 
   return (
@@ -208,8 +230,9 @@ function RowBody({
           ) : quote ? (
             <TriColumn
               width={PRICE_W}
-              top={quote.day_high != null ? quote.day_high.toFixed(2) : undefined}
-              mid={usd(quote.price)}
+              top={sv!.badge ?? (quote.day_high != null ? quote.day_high.toFixed(2) : undefined)}
+              topColor={sv!.badge ? colors.accent : colors.textFaint}
+              mid={usd(sv!.last)}
               midColor={colors.text}
               midSize={16}
               bottom={quote.day_low != null ? quote.day_low.toFixed(2) : '—'}
@@ -225,10 +248,10 @@ function RowBody({
             <TriColumn
               width={CHG_W}
               marginLeft={GAP}
-              mid={pctStr(quote.change_pct)}
-              midColor={pnlColorScaled(quote.change_pct)}
-              bottom={changeDol != null ? dolStr(changeDol) : '—'}
-              bottomColor={changeDol != null ? pnlColorScaled(quote.change_pct) : colors.textFaint}
+              mid={pctStr(sv!.changePct)}
+              midColor={pnlColorScaled(sv!.changePct)}
+              bottom={sv!.changeDol != null ? dolStr(sv!.changeDol) : '—'}
+              bottomColor={sv!.changeDol != null ? pnlColorScaled(sv!.changePct) : colors.textFaint}
             />
           ) : (
             <View style={{ width: CHG_W, marginLeft: GAP }} />

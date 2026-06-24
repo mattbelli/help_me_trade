@@ -100,7 +100,7 @@ export interface WatchlistQuote {
   volume?: number;
   rvol?: RvolInfo | null;
   // Extended-hours (serv build in progress — treat as absent until deployed):
-  market_session?: 'pre' | 'regular' | 'post' | 'closed';
+  market_session?: 'pre' | 'regular' | 'post' | 'overnight' | 'closed';
   ext_price?: number | null;
   ext_change_pct?: number | null;
   day_high?: number;
