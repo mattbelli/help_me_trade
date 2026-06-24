@@ -4,6 +4,7 @@
  */
 import { useEffect } from 'react';
 import { View } from 'react-native';
+import { BlurView } from 'expo-blur';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,23 +34,27 @@ export function TabBar({
     <View
       style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, spacing.md), alignItems: 'center', pointerEvents: 'box-none' }}
     >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: spacing.xs,
-          backgroundColor: 'rgba(40,45,54,0.94)',
-          borderRadius: 999,
-          borderWidth: hairline,
-          borderColor: 'rgba(255,255,255,0.16)',
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
-          ...shadow,
-        }}
-      >
-        {tabs.map((t, i) => (
-          <TabItem key={t.key} def={t} active={i === index} badge={badges?.[t.key]} onPress={() => onSelect(i)} />
-        ))}
+      <View style={{ borderRadius: 999, ...shadow }}>
+        <BlurView
+          intensity={64}
+          tint="dark"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.xs,
+            borderRadius: 999,
+            overflow: 'hidden',
+            borderWidth: hairline,
+            borderColor: 'rgba(255,255,255,0.16)',
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+            backgroundColor: 'rgba(44,49,58,0.45)',
+          }}
+        >
+          {tabs.map((t, i) => (
+            <TabItem key={t.key} def={t} active={i === index} badge={badges?.[t.key]} onPress={() => onSelect(i)} />
+          ))}
+        </BlurView>
       </View>
     </View>
   );
