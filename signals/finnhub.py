@@ -211,8 +211,8 @@ async def afetch_eps_surprises(
         except (TypeError, ValueError, KeyError):
             continue
 
-    # Finnhub returns oldest-first; reverse to get most-recent-first.
-    results.reverse()
+    # Most-recent-first by period end (don't rely on Finnhub's ordering).
+    results.sort(key=lambda e: e["period"], reverse=True)
     return results[:limit]
 
 
