@@ -17,6 +17,7 @@ import {
   getWatchlistMarket,
   rejectProposal,
   removeWatchlistSymbol,
+  searchSymbols,
 } from './endpoints';
 import type { PortfolioRange } from './types';
 
@@ -78,6 +79,17 @@ export function useRemoveWatchlistSymbol() {
       qc.setQueryData(['watchlist'], data);
       void qc.invalidateQueries({ queryKey: ['watchlist'] });
     },
+  });
+}
+
+export function useSymbolSearch(query: string) {
+  const { enabled } = useAuthenticated();
+  const q = query.trim();
+  return useQuery({
+    queryKey: ['symbol-search', q],
+    queryFn: () => searchSymbols(q),
+    enabled: enabled && q.length >= 1,
+    staleTime: 60_000,
   });
 }
 

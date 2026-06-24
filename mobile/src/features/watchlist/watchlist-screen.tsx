@@ -11,8 +11,9 @@
  * prev_close, volume, day_high, day_low. change$ = price − prev_close.
  * rvol shows "1.8×" once serv sends it. Reorder is local (no serv persist endpoint yet).
  */
-import { ActivityIndicator, Dimensions, Modal, Pressable, RefreshControl, TextInput, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Pressable, RefreshControl, TextInput, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import ReorderableList, {
   type ReorderableListReorderEvent,
   reorderItems,
@@ -22,7 +23,7 @@ import ReorderableList, {
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useAddWatchlistSymbol, useWatchlist, useWatchlistMarket } from '@/api/queries';
+import { useAddWatchlistSymbol, useSymbolSearch, useWatchlist, useWatchlistMarket } from '@/api/queries';
 import type { WatchlistQuote } from '@/api/types';
 import { Icon } from '@/components/ui/icon';
 import {
@@ -38,7 +39,7 @@ import {
   Text,
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
-import { colors, fonts, hairline, pnlColor, spacing } from '@/theme';
+import { colors, fonts, haptics, hairline, pnlColor, spacing } from '@/theme';
 
 import { MiniDayChart } from './mini-day-chart';
 
@@ -130,11 +131,11 @@ function TriColumn({
 
 function GripDots() {
   return (
-    <View style={{ flexDirection: 'row', gap: 3 }}>
+    <View style={{ flexDirection: 'row', gap: 2.5 }}>
       {[0, 1].map((c) => (
-        <View key={c} style={{ gap: 3 }}>
+        <View key={c} style={{ gap: 2.5 }}>
           {[0, 1, 2].map((r) => (
-            <View key={r} style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: colors.textMuted }} />
+            <View key={r} style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: colors.textFaint }} />
           ))}
         </View>
       ))}
@@ -326,51 +327,72 @@ function WatchlistHeader({ onAdd, onOpenAlerts }: { onAdd: () => void; onOpenAle
   );
 }
 
-// ─── Add-ticker modal ─────────────────────────────────────────────────────────
-function AddTickerModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const [text, setText] = useState('');
-  const add = useAddWatchlistSymbol();
+// ─── Inline add-ticker row — slides in at the top; type → autocomplete ─────────
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return v;
+}
 
-  const submit = () => {
-    const sym = text.trim().toUpperCase();
-    if (!sym) return;
-    add.mutate(sym, {
+function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose: () => void }) {
+  const [text, setText] = useState('');
+  const debounced = useDebounced(text, 220);
+  const search = useSymbolSearch(debounced);
+  const add = useAddWatchlistSymbol();
+  const suggestions = (search.data ?? []).slice(0, 6);
+
+  const submit = (sym: string) => {
+    const s = sym.trim().toUpperCase();
+    if (!s || add.isPending) return;
+    add.mutate(s, {
       onSuccess: () => {
         setText('');
+        onAdded(s);
         onClose();
       },
     });
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', paddingHorizontal: spacing.xl }}>
-        <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: spacing.xl, borderWidth: hairline, borderColor: colors.border }}>
-          <Text variant="bodyStrong" style={{ marginBottom: spacing.md }}>Add ticker</Text>
-          <TextInput
-            value={text}
-            onChangeText={(t) => setText(t.toUpperCase())}
-            placeholder="e.g. NVDA"
-            placeholderTextColor={colors.textFaint}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={submit}
-            style={{ ...mono, fontSize: 18, color: colors.text, borderWidth: hairline, borderColor: colors.border, borderRadius: 10, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.bg }}
-          />
-          {add.isError ? <Text variant="caption" style={{ color: colors.danger, marginTop: spacing.sm }}>Couldn't add — check the symbol.</Text> : null}
-          <Row gap={spacing.sm} justify="flex-end" style={{ marginTop: spacing.lg }}>
-            <PressableScale onPress={onClose} haptic style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.lg }}>
-              <Text style={{ color: colors.textMuted }}>Cancel</Text>
+    <Animated.View entering={FadeInDown.duration(160)} style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
+      <Row align="center" gap={spacing.sm} style={{ paddingVertical: spacing.sm, paddingLeft: PAD_L, paddingRight: PAD_R }}>
+        <Icon name="plus" size={18} color={colors.accent} />
+        <TextInput
+          value={text}
+          onChangeText={(t) => setText(t.toUpperCase())}
+          placeholder="add ticker…"
+          placeholderTextColor={colors.textFaint}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          autoFocus
+          returnKeyType="done"
+          onSubmitEditing={() => submit(text)}
+          style={{ ...mono, flex: 1, fontSize: 17, color: colors.text, paddingVertical: 2 }}
+        />
+        {add.isPending ? <ActivityIndicator size="small" color={colors.accent} /> : null}
+        <PressableScale onPress={onClose} haptic>
+          <Icon name="close" size={20} color={colors.textMuted} />
+        </PressableScale>
+      </Row>
+      {suggestions.length > 0 ? (
+        <View style={{ paddingBottom: spacing.xs }}>
+          {suggestions.map((s) => (
+            <PressableScale key={s} onPress={() => submit(s)} haptic>
+              <Row justify="space-between" align="center" style={{ paddingVertical: spacing.sm, paddingLeft: PAD_L + 26, paddingRight: PAD_R }}>
+                <Text variant="bodyStrong">{s}</Text>
+                <Icon name="plus" size={15} color={colors.textMuted} />
+              </Row>
             </PressableScale>
-            <PressableScale onPress={submit} haptic style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: 10, backgroundColor: colors.accent }}>
-              {add.isPending ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={{ color: colors.bg, fontWeight: '700' }}>Add</Text>}
-            </PressableScale>
-          </Row>
-        </Pressable>
-      </Pressable>
-    </Modal>
+          ))}
+        </View>
+      ) : null}
+      {add.isError ? (
+        <Text variant="caption" style={{ color: colors.danger, paddingLeft: PAD_L, paddingBottom: spacing.sm }}>Couldn't add — check the symbol.</Text>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -398,7 +420,7 @@ export function WatchlistScreen() {
   const listRef = useRef<FlashListRef<string>>(null);
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });
   const [order, setOrder] = useState<string[] | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const watchlist = useWatchlist();
   const symbols: string[] = watchlist.data?.symbols ?? [];
@@ -442,14 +464,25 @@ export function WatchlistScreen() {
 
   const onReorder = ({ from, to }: ReorderableListReorderEvent) => {
     setOrder(reorderItems(data, from, to));
+    haptics.tap();
+  };
+
+  // Newly-added ticker jumps to the top of the user's order.
+  const onAdded = (sym: string) => {
+    setOrder((prev) => {
+      const base = prev ?? symbols;
+      return [sym, ...base.filter((s) => s !== sym)];
+    });
+    haptics.success();
   };
 
   const reorderable = sort.key === null;
 
   const header = (
     <View>
-      <WatchlistHeader onAdd={() => setAddOpen(true)} onOpenAlerts={() => router.push('/alerts')} />
+      <WatchlistHeader onAdd={() => setAdding((a) => !a)} onOpenAlerts={() => router.push('/alerts')} />
       <ColumnHeader sort={sort} onSort={onSort} />
+      {adding ? <AddRow onAdded={onAdded} onClose={() => setAdding(false)} /> : null}
     </View>
   );
 
@@ -476,6 +509,8 @@ export function WatchlistScreen() {
         <ReorderableList
           data={data}
           onReorder={onReorder}
+          onDragStart={() => haptics.impact()}
+          onIndexChange={() => haptics.selection()}
           keyExtractor={(symbol) => symbol}
           refreshControl={refreshControl}
           contentContainerStyle={{ paddingBottom: 110, paddingTop: spacing.xs }}
@@ -500,8 +535,6 @@ export function WatchlistScreen() {
           ListEmptyComponent={empty}
         />
       )}
-
-      <AddTickerModal visible={addOpen} onClose={() => setAddOpen(false)} />
     </Screen>
   );
 }

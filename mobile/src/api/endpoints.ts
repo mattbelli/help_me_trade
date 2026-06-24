@@ -46,6 +46,13 @@ export function removeWatchlistSymbol(symbol: string): Promise<{ symbols: string
   });
 }
 
+export function searchSymbols(q: string, limit = 8): Promise<string[]> {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  return apiFetch<{ symbols: string[] }>(`/api/symbols/search?${params.toString()}`).then(
+    (d) => d.symbols ?? [],
+  );
+}
+
 export function getWatchlistMarket(
   symbols?: string[],
 ): Promise<WatchlistMarket> {
