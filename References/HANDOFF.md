@@ -57,12 +57,12 @@ The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution b
   `/snap/bin/chromium`, `--no-sandbox`, `pyotp` VIP code). Selector constants at top → **first run needs
   tuning** (founder runs it; failures screenshot to `/tmp`; early field-not-found = no login attempt = no
   lockout). Cron (6d) + day-6 APNs fallback in the agent report.
-- 🔧 **Past-earnings performance — wired but returns EMPTY on serv.** `GET /api/fundamentals/earnings-history`
-  + web panel row are built (`94582e2`); reaction = close-after vs close-before from Schwab bars. BUT it sources
-  past earnings DATES from EDGAR (`research/earnings.py`), which needs the fundamentals **`companies`/CIK
-  cache** that ISN'T built on serv (`build_earnings` → `no such table: companies`). **Decision needed:** either
-  build the EDGAR/CIK research cache on serv, OR (recommended/simpler) switch the date source to **Finnhub
-  historical** (`signals/finnhub.py` — we already have the client+key; `/calendar/earnings?symbol=&from=&to=`).
+- ✅ **Past-earnings performance — DONE as EPS beat/miss + surprise %** (`611ef2f`). Finnhub free
+  `/calendar/earnings` has no history AND the EDGAR path needs an unbuilt CIK cache, so the 1-day *price
+  reaction* was dropped (needs paid announce dates; `research/earnings.py::compute_reaction_pct` kept for
+  later). Instead `signals/finnhub.afetch_eps_surprises` (free `/stock/earnings`) feeds
+  `GET /api/fundamentals/earnings-history` → `{period,label "Q2'26",eps_actual,eps_estimate,surprise_pct}`
+  most-recent-first; the web panel shows last-N quarters' beat/miss. Verified live (AAPL all beats).
 - 🔧 **Mac/RN agent** to wire extended-hours (brief `References/RN_RVOL_BRIEF.md` updated with `overnight`);
   RVOL column already live on phone (`13ee660`). Relay sent re: ext-hours + reorder-persist via `PUT
   /api/watchlists/{id}` + intraday is RTH-only (no pre/post chart bars yet).
