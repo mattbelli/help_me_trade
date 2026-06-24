@@ -289,13 +289,10 @@ function HeadCell({ label, width, marginLeft = 0, left = false, sortKey, sort, o
     </PressableScale>
   );
 }
-function ColumnHeader({ sort, onSort, onAdd }: { sort: SortState; onSort: (k: SortKey) => void; onAdd: () => void }) {
+function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) => void }) {
   return (
     <View style={{ borderTopWidth: hairline, borderTopColor: colors.border, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
       <Row align="center" gap={0} style={{ paddingVertical: spacing.xs + 1, paddingLeft: PAD_L, paddingRight: PAD_R }}>
-        <Pressable onPress={onAdd} hitSlop={12} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: PAD_L, alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
-          <Icon name="plus" size={16} color={colors.accent} />
-        </Pressable>
         <HeadCell label="sym" width={SYM_W} left sortKey="sym" sort={sort} onSort={onSort} />
         <HeadCell label="last" width={PRICE_W} sortKey="last" sort={sort} onSort={onSort} />
         <HeadCell label="chg" width={CHG_W} marginLeft={GAP} sortKey="chg" sort={sort} onSort={onSort} />
@@ -309,14 +306,14 @@ function ColumnHeader({ sort, onSort, onAdd }: { sort: SortState; onSort: (k: So
 }
 
 // ─── Page header ──────────────────────────────────────────────────────────────
-function WatchlistHeader({ columns, onToggleColumns, onOpenAlerts }: { columns: 1 | 2; onToggleColumns: () => void; onOpenAlerts: () => void }) {
+function WatchlistHeader({ onAdd, onOpenAlerts }: { onAdd: () => void; onOpenAlerts: () => void }) {
   return (
     <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
       <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.accent }}>watchlist</Text>
-      <Row gap={spacing.sm}>
-        <PressableScale onPress={onToggleColumns} haptic>
+      <Row gap={spacing.xs}>
+        <PressableScale onPress={onAdd} haptic>
           <View style={{ padding: spacing.xs }}>
-            <Icon name={columns === 1 ? 'columns' : 'list'} size={22} color={colors.textMuted} />
+            <Icon name="plus" size={24} color={colors.accent} />
           </View>
         </PressableScale>
         <PressableScale onPress={onOpenAlerts} haptic>
@@ -399,7 +396,6 @@ function SkeletonRows() {
 export function WatchlistScreen() {
   const router = useRouter();
   const listRef = useRef<FlashListRef<string>>(null);
-  const [columns, setColumns] = useState<1 | 2>(1);
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });
   const [order, setOrder] = useState<string[] | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -448,16 +444,12 @@ export function WatchlistScreen() {
     setOrder(reorderItems(data, from, to));
   };
 
-  const reorderable = columns === 1 && sort.key === null;
+  const reorderable = sort.key === null;
 
   const header = (
     <View>
-      <WatchlistHeader
-        columns={columns}
-        onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
-        onOpenAlerts={() => router.push('/alerts')}
-      />
-      {columns === 1 ? <ColumnHeader sort={sort} onSort={onSort} onAdd={() => setAddOpen(true)} /> : null}
+      <WatchlistHeader onAdd={() => setAddOpen(true)} onOpenAlerts={() => router.push('/alerts')} />
+      <ColumnHeader sort={sort} onSort={onSort} />
     </View>
   );
 
@@ -496,20 +488,15 @@ export function WatchlistScreen() {
       ) : (
         <FlashList
           ref={listRef}
-          key={`watchlist-${columns}`}
+          key="watchlist-sorted"
           data={data}
-          numColumns={columns}
           keyExtractor={(symbol) => symbol}
           refreshControl={refreshControl}
-          contentContainerStyle={{ paddingBottom: 110, paddingTop: spacing.xs, paddingHorizontal: columns === 2 ? spacing.lg : 0 }}
+          contentContainerStyle={{ paddingBottom: 110, paddingTop: spacing.xs }}
           ListHeaderComponent={header}
-          renderItem={({ item: symbol }) =>
-            columns === 1 ? (
-              <RowBody symbol={symbol} quote={quotes[symbol]} loading={marketLoading && !quotes[symbol]} onPress={() => openSymbol(symbol)} />
-            ) : (
-              <WatchlistCard symbol={symbol} quote={quotes[symbol]} loading={marketLoading && !quotes[symbol]} onPress={() => openSymbol(symbol)} />
-            )
-          }
+          renderItem={({ item: symbol }) => (
+            <RowBody symbol={symbol} quote={quotes[symbol]} loading={marketLoading && !quotes[symbol]} onPress={() => openSymbol(symbol)} />
+          )}
           ListEmptyComponent={empty}
         />
       )}
