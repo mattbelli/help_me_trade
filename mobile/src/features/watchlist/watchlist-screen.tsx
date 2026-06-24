@@ -19,6 +19,7 @@ import ReorderableList, {
   type ReorderableListReorderEvent,
   reorderItems,
   useIsActive,
+  useReorderableDrag,
 } from 'react-native-reorderable-list';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -160,6 +161,7 @@ function RowBody({
   quote,
   loading,
   onPress,
+  onLongPress,
   grip,
   active,
 }: {
@@ -167,6 +169,7 @@ function RowBody({
   quote?: WatchlistQuote;
   loading?: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   grip?: boolean;
   active?: boolean;
 }) {
@@ -177,7 +180,7 @@ function RowBody({
 
   return (
     <View style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, boxShadow: ROW_SHADOW, backgroundColor: active ? colors.surface : undefined }}>
-      <PressableScale onPress={onPress}>
+      <PressableScale onPress={onPress} onLongPress={onLongPress} delayLongPress={250}>
         <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
           {grip ? (
             <View pointerEvents="none" style={{ position: 'absolute', left: 2, top: 0, bottom: 0, width: PAD_L - 2, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
@@ -258,8 +261,9 @@ function RowBody({
 
 // Reorderable wrapper — must call the drag hooks inside ReorderableList's renderItem.
 function ReorderableRow({ symbol, quote, loading, onPress }: { symbol: string; quote?: WatchlistQuote; loading?: boolean; onPress: () => void }) {
+  const drag = useReorderableDrag(); // call on long-press to INITIATE the drag
   const active = useIsActive();
-  return <RowBody symbol={symbol} quote={quote} loading={loading} onPress={onPress} grip active={active} />;
+  return <RowBody symbol={symbol} quote={quote} loading={loading} onPress={onPress} onLongPress={drag} grip active={active} />;
 }
 
 // ─── 2-col dense cell ─────────────────────────────────────────────────────────
@@ -486,9 +490,10 @@ export function WatchlistScreen() {
     haptics.success();
   };
 
-  // Per the lib's swipe-coexistence guidance: the drag pan only activates after a
-  // long-press, so a quick horizontal swipe passes through to the pager.
-  const dragPan = useMemo(() => Gesture.Pan().activateAfterLongPress(400), []);
+  // Drag is initiated by onLongPress={drag} on the row (delayLongPress 250ms). The pan
+  // tracks movement and activates just after, so quick swipes still reach the pager and
+  // normal vertical scroll / pull-to-refresh keep working.
+  const dragPan = useMemo(() => Gesture.Pan().activateAfterLongPress(280), []);
 
   const reorderable = sort.key === null;
 
