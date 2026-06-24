@@ -21,6 +21,14 @@ ES_LEVEL_RE = re.compile(
     re.IGNORECASE,
 )
 
+ES_BARE_MIN = 4500
+ES_BARE_MAX = 8200
+BARE_NUMBER_RE = re.compile(r"\b(\d{4})\b")
+OTHER_INSTRUMENT_RE = re.compile(
+    r"(?:\$?(?:SPX|NQ|QQQ|SPY|DXY|VIX)|(?:SPX|NQ|QQQ|SPY|DXY|VIX)\s*:)",
+    re.IGNORECASE,
+)
+
 
 def parse_ts(ts_str: str) -> datetime:
     ts_str = ts_str.replace(".000Z", "+00:00").replace("Z", "+00:00")
@@ -256,7 +264,7 @@ def classify_forward(text: str, dt: datetime) -> bool:
 def compute_confidence(text: str) -> str:
     tl = text.lower()
     if re.search(
-        r"\b(long from|short from|filled|bot|limit to sell|i'm biting|now reloading|"
+        r"\b(long from|short from|filled|bot|sold|selling|limit to sell|i'm biting|now reloading|"
         r"i'm going to be long|setstack pivot)\b",
         tl,
     ):
@@ -323,6 +331,97 @@ def classify_entry_type(text: str, direction: str, dt: datetime) -> str:
     return "realtime_entry"
 
 
+def _bare_number_excluded(text: str, match: re.Match[str]) -> bool:
+    level = int(match.group(1))
+    if not (ES_BARE_MIN <= level <= ES_BARE_MAX):
+        return True
+
+    start, end = match.start(), match.end()
+    window_before = text[max(0, start - 15) : start]
+    if OTHER_INSTRUMENT_RE.search(window_before):
+        return True
+
+    if start > 0 and text[start - 1] == "$":
+        return True
+
+    prefix = text[max(0, start - 2) : start]
+    if prefix.endswith("+") or prefix.endswith("(+"):
+        return True
+
+    suffix = text[end : end + 3]
+    if suffix.startswith("%"):
+        return True
+    if re.match(r"\s*p\b", suffix, re.IGNORECASE):
+        return True
+
+    return False
+
+
+def _bare_number_direction(text: str, level: int) -> str | None:
+    """Return long/short for a bare level when a directional cue ties to it, else None."""
+    tl = text.lower()
+    lvl = str(level)
+
+    for match in BARE_NUMBER_RE.finditer(text):
+        if int(match.group(1)) != level:
+            continue
+
+        start, end = match.start(), match.end()
+        ctx_start = max(0, start - 60)
+        ctx_end = min(len(text), end + 60)
+        ctx = tl[ctx_start:ctx_end]
+
+        if re.search(rf"\blong\b[^.;]{{0,50}}?\bon\s+{lvl}\b", ctx):
+            return "long"
+        if re.search(rf"\blong\b[^.;]{{0,50}}?\bat\s+{lvl}\b", ctx):
+            return "long"
+        if re.search(rf"\bon\s+{lvl}\b", ctx) and re.search(r"\b(long|bot|buying|bid)\b", ctx):
+            return "long"
+        if re.search(rf"\bfrom\s+{lvl}\b", ctx) and re.search(r"\b(long|bot|buying|bid)\b", tl):
+            return "long"
+        if re.search(rf"\babove\s+{lvl}\b", ctx) and re.search(
+            r"\b(reclaim|long|bot|buying|bid)\b", ctx
+        ):
+            return "long"
+        if re.search(rf"\b{lvl}\b[^.;]{{0,30}}?\breclaim\b", ctx):
+            return "long"
+        if re.search(rf"\breclaim\b[^.;]{{0,30}}?\b{lvl}\b", ctx):
+            return "long"
+        if re.search(rf"\b(bot|buying|bid)\b[^.;]{{0,40}}?\b{lvl}\b", ctx):
+            return "long"
+        if re.search(rf"\b{lvl}\b[^.;]{{0,40}}?\b(bot|buying|bid)\b", ctx):
+            return "long"
+
+        if re.search(rf"\bunwind\b[^.;]{{0,40}}?\bbelow\s+{lvl}\b", tl):
+            return "short"
+        if re.search(rf"\bbelow\s+{lvl}\b", ctx) and re.search(
+            r"\b(unwind|short|sold|sell|selling|offer|seller|bear)\b", ctx
+        ):
+            return "short"
+        if re.search(rf"\b(?:lose|lost)\s+{lvl}\b", ctx):
+            return "short"
+        if re.search(rf"\b(short|sold|selling|offer)\b[^.;]{{0,50}}?\b{lvl}\b", ctx):
+            return "short"
+        if re.search(rf"\b{lvl}\b[^.;]{{0,50}}?\b(short|sold|selling|offer)\b", ctx):
+            return "short"
+
+    return None
+
+
+def extract_bare_levels(text: str) -> list[int]:
+    """Return plausible bare ES levels (4-digit, in range) passing exclusion gates."""
+    found: list[int] = []
+    seen: set[int] = set()
+    for match in BARE_NUMBER_RE.finditer(text):
+        if _bare_number_excluded(text, match):
+            continue
+        level = int(match.group(1))
+        if level not in seen:
+            seen.add(level)
+            found.append(level)
+    return found
+
+
 def is_shorthand_mention(text: str) -> bool:
     tl = text.lower()
     if re.search(r"\$es\b", tl) and not ES_QUICK_RE.search(text):
@@ -342,68 +441,93 @@ def extract_es_triggers(tweets: list[dict]) -> list[dict]:
             continue
         if text.startswith("RT @"):
             continue
-        if not has_es_level(text):
-            continue
 
         post_id = str(tweet["id"])
         dt = parse_ts(str(tweet["created_at"]))
         post_ts_iso = dt.isoformat()
-        levels = extract_levels(text, dt)
-        if not levels:
-            continue
-
-        direction = classify_direction(text)
-        forward = classify_forward(text, dt)
-        confidence = compute_confidence(text)
-        entry_type = classify_entry_type(text, direction, dt)
         raw_text = text[:240]
 
-        for lo, hi in levels:
-            if hi is not None:
-                level = round((lo + hi) / 2, 1)
-                conf = "med"
-            else:
-                level = lo
-                conf = confidence
+        if has_es_level(text):
+            levels = extract_levels(text, dt)
+            if levels:
+                direction = classify_direction(text)
+                forward = classify_forward(text, dt)
+                confidence = compute_confidence(text)
+                entry_type = classify_entry_type(text, direction, dt)
 
-            dedup_key = (post_id, level)
+                for lo, hi in levels:
+                    if hi is not None:
+                        level = round((lo + hi) / 2, 1)
+                        conf = "med"
+                    else:
+                        level = lo
+                        conf = confidence
+
+                    dedup_key = (post_id, level)
+                    if dedup_key in seen_post_levels:
+                        continue
+                    seen_post_levels.add(dedup_key)
+
+                    target = None
+                    if not forward:
+                        match = re.search(
+                            r"\$?es\s*:?\s*(\d{4,5}(?:\.\d+)?)\s*:?\s*now\s*[:\s+]*(\d{4,5}(?:\.\d+)?)",
+                            text,
+                            re.IGNORECASE,
+                        )
+                        if match:
+                            entry_val = float(match.group(1))
+                            now_val = float(match.group(2))
+                            if sanity_check(now_val, dt) and entry_val == level and now_val != level:
+                                target = now_val
+                        if target is None:
+                            match2 = re.search(
+                                r"now\s+trading\s+\$?es\s*:?\s*(\d{4,5})",
+                                text,
+                                re.IGNORECASE,
+                            )
+                            if match2:
+                                now_val2 = float(match2.group(1))
+                                if sanity_check(now_val2, dt) and now_val2 != level:
+                                    target = now_val2
+
+                    results.append(
+                        {
+                            "post_id": post_id,
+                            "post_ts": post_ts_iso,
+                            "level": level,
+                            "target": target,
+                            "direction": direction,
+                            "forward": forward,
+                            "entry_type": entry_type,
+                            "confidence": conf,
+                            "raw_text": raw_text,
+                        }
+                    )
+
+        for bare_level in extract_bare_levels(text):
+            dedup_key = (post_id, float(bare_level))
             if dedup_key in seen_post_levels:
                 continue
-            seen_post_levels.add(dedup_key)
 
-            target = None
-            if not forward:
-                match = re.search(
-                    r"\$?es\s*:?\s*(\d{4,5}(?:\.\d+)?)\s*:?\s*now\s*[:\s+]*(\d{4,5}(?:\.\d+)?)",
-                    text,
-                    re.IGNORECASE,
-                )
-                if match:
-                    entry_val = float(match.group(1))
-                    now_val = float(match.group(2))
-                    if sanity_check(now_val, dt) and entry_val == level and now_val != level:
-                        target = now_val
-                if target is None:
-                    match2 = re.search(
-                        r"now\s+trading\s+\$?es\s*:?\s*(\d{4,5})",
-                        text,
-                        re.IGNORECASE,
-                    )
-                    if match2:
-                        now_val2 = float(match2.group(1))
-                        if sanity_check(now_val2, dt) and now_val2 != level:
-                            target = now_val2
+            direction = _bare_number_direction(text, bare_level)
+            if direction is None:
+                continue
+
+            seen_post_levels.add(dedup_key)
+            forward = classify_forward(text, dt)
+            entry_type = classify_entry_type(text, direction, dt)
 
             results.append(
                 {
                     "post_id": post_id,
                     "post_ts": post_ts_iso,
-                    "level": level,
-                    "target": target,
+                    "level": float(bare_level),
+                    "target": None,
                     "direction": direction,
                     "forward": forward,
                     "entry_type": entry_type,
-                    "confidence": conf,
+                    "confidence": "med",
                     "raw_text": raw_text,
                 }
             )

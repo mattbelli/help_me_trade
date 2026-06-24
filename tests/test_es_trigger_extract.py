@@ -110,3 +110,63 @@ def test_extract_es_triggers_sorted_by_post_ts():
     records = extract_es_triggers(SYNTHETIC)
     timestamps = [row["post_ts"] for row in records]
     assert timestamps == sorted(timestamps)
+
+
+BARE_SYNTHETIC = [
+    _tweet(
+        "b1",
+        "2026-06-15T14:00:00+00:00",
+        "Long Again on 7420, to Long even more above 7460 Reclaim",
+    ),
+    _tweet(
+        "b2",
+        "2026-06-16T14:00:00+00:00",
+        "Long Thrice : from 7440~ : Need a Close over 7500 to Keep",
+    ),
+    _tweet("b3", "2026-06-17T14:00:00+00:00", "Seller can unwind this below 7470"),
+    _tweet(
+        "b4",
+        "2026-06-18T14:00:00+00:00",
+        "$SPX : 7360 : Smashed into Close : +800% Realized",
+    ),
+    _tweet("b5", "2026-06-19T14:00:00+00:00", "Out of the Park with +1000%"),
+    _tweet("b6", "2025-06-02T14:00:00+00:00", "$ES : 6535 : Sold"),
+    _tweet("b7", "2026-06-20T14:00:00+00:00", "Pivot is 6940"),
+    _tweet("b8", "2026-06-21T14:00:00+00:00", "NQ 24900"),
+    _tweet("b9", "2026-06-22T14:00:00+00:00", "3200"),
+]
+
+
+def test_extract_es_triggers_bare_number_directional():
+    records = extract_es_triggers(BARE_SYNTHETIC)
+    by_id_level = {(row["post_id"], row["level"]): row for row in records}
+
+    long_7420 = by_id_level[("b1", 7420.0)]
+    assert long_7420["direction"] == "long"
+    assert long_7420["confidence"] == "med"
+
+    long_7460 = by_id_level[("b1", 7460.0)]
+    assert long_7460["direction"] == "long"
+    assert long_7460["confidence"] == "med"
+
+    long_7440 = by_id_level[("b2", 7440.0)]
+    assert long_7440["direction"] == "long"
+    assert long_7440["confidence"] == "med"
+    assert ("b2", 7500.0) not in by_id_level
+
+    short_7470 = by_id_level[("b3", 7470.0)]
+    assert short_7470["direction"] == "short"
+    assert short_7470["confidence"] == "med"
+
+    assert not any(row["post_id"] == "b4" for row in records)
+    assert not any(row["post_id"] == "b5" for row in records)
+
+    tagged = [row for row in records if row["post_id"] == "b6"]
+    assert len(tagged) == 1
+    assert tagged[0]["level"] == 6535.0
+    assert tagged[0]["confidence"] == "high"
+    assert tagged[0]["direction"] == "short"
+
+    assert not any(row["post_id"] == "b7" for row in records)
+    assert not any(row["post_id"] == "b8" for row in records)
+    assert not any(row["post_id"] == "b9" for row in records)
