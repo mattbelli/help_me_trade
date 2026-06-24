@@ -53,10 +53,12 @@ The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution b
   watchlist so next_earnings populates (best-effort; Finnhub free-tier gaps). (`ddb7575`/`d871e83`/`7b7d265`)
 
 **OPEN / IN-FLIGHT:**
-- 🔧 **Headless re-auth NOT yet tested.** `scripts/schwab_reauth.py` (Playwright → system chromium
-  `/snap/bin/chromium`, `--no-sandbox`, `pyotp` VIP code). Selector constants at top → **first run needs
-  tuning** (founder runs it; failures screenshot to `/tmp`; early field-not-found = no login attempt = no
-  lockout). Cron (6d) + day-6 APNs fallback in the agent report.
+- ✅ **Headless Schwab re-auth — WORKING end-to-end, cron installed (`9b19666`).** `scripts/schwab_reauth.py`
+  runs under `xvfb-run -a` with `SCHWAB_REAUTH_HEADED=1` (Akamai blocks pure headless); selectors confirmed
+  from a real run (Security Code field by label, #acceptTerms + #agree-modal-btn-, account-link #submit-btn,
+  final "Done" by role). OTP is generated JUST before entry (waits for next 30s window if <8s left) so it's
+  never stale. Crontab: every 6 days at 06:00 → `data/reauth.log`. Day-6 APNs fallback (`_schwab_health_loop`)
+  pings the phone if a run ever fails silently. **The 7-day cliff is dead.**
 - ✅ **Past-earnings performance — DONE as EPS beat/miss + surprise %** (`611ef2f`). Finnhub free
   `/calendar/earnings` has no history AND the EDGAR path needs an unbuilt CIK cache, so the 1-day *price
   reaction* was dropped (needs paid announce dates; `research/earnings.py::compute_reaction_pct` kept for
