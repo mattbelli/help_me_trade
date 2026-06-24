@@ -70,8 +70,20 @@ The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution b
   /api/watchlists/{id}` + intraday is RTH-only (no pre/post chart bars yet).
 - Watchlist reorder syncs cross-platform via the shared server-side list (web persists; phone once it PUTs).
 
-**NEXT:** founder tests `schwab_reauth.py` (tune selectors); decide past-earnings date source (→ Finnhub
-recommended); deferred: `/api/bars`+`1Hour` aggregation to the provider; extended *intraday bars* (RTH-only now).
+**NEXT — from the Mac/RN agent's serv handoff (`References/SERV_HANDOFF_alerts_streaming.md`, read it):**
+three serv-side bugs blocking the phone experience.
+1. **Streaming frame contract.** Schwab streamer is "connected" but ticks may be dropped by the broadcast
+   path — the WS handler shape was Alpaca's (`t`/`db` frame types); verify Schwab level-one quote frames
+   actually reach `_broadcast_quote`. Also the WS frame carries only regular-session price/change — add
+   `ext_price`/`ext_change_pct` so pre/post/24-5 prices stream (the phone headlines `ext_price` during
+   off-hours; today only the 6s REST poll fills it). Agree the frame contract with the RN agent.
+2. **Price alerts render blank on phone** — fired chart price alerts are broadcast nested under `alert:{}`
+   but the mobile client reads flat fields. Fix = match the flat rule-alert shape.
+3. **No push for chart price alerts** — they're WS-only, missed when the app is closed. Route them through
+   the same APNs proposal transport (`signals.push.send_alert_push` already exists for our RVOL alerts).
+
+Deferred (still): `/api/bars`+`1Hour` aggregation to the provider; extended *intraday bars* (RTH-only now so
+no pre/post chart segments yet).
 
 > ⚠️ **SCHWAB AUTH BUG — recorded, fixed, but know it (could resurface on dep updates):** schwab-py builds its
 > authlib OAuth2 session **without** setting `token_endpoint_auth_method`, so authlib defaults to
