@@ -466,6 +466,20 @@
   transform: none;
 }
 
+.react-grid-item > .react-resizable-handle.react-resizable-handle-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+  transform: none;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+  transform: none;
+}
+
 .react-grid-item > .react-resizable-handle::after {
   border-right-color: var(--fg-faint);
   border-bottom-color: var(--fg-faint);
@@ -490,4 +504,51 @@
   border-left-color: var(--c-accent, var(--chart-accent));
   border-bottom-color: var(--c-accent, var(--chart-accent));
   border-right-color: transparent;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-ne::after {
+  top: 3px;
+  bottom: auto;
+  right: 3px;
+  left: auto;
+  border-bottom: none;
+  border-right: 2px solid var(--fg-faint);
+  border-top: 2px solid var(--fg-faint);
+}
+
+.react-grid-item:hover > .react-resizable-handle.react-resizable-handle-ne::after {
+  border-right-color: var(--c-accent, var(--chart-accent));
+  border-top-color: var(--c-accent, var(--chart-accent));
+  border-bottom-color: transparent;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-nw::after {
+  top: 3px;
+  bottom: auto;
+  left: 3px;
+  right: auto;
+  border-bottom: none;
+  border-right: none;
+  border-left: 2px solid var(--fg-faint);
+  border-top: 2px solid var(--fg-faint);
+}
+
+.react-grid-item:hover > .react-resizable-handle.react-resizable-handle-nw::after {
+  border-left-color: var(--c-accent, var(--chart-accent));
+  border-top-color: var(--c-accent, var(--chart-accent));
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+}
+
+/* Scroll surfaces with no visible scrollbar (founder preference — a bottom
+   gradient fade signifies more content instead). Scrolling still works. */
+.workspace-scroll {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+
+.workspace-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chrome / Safari */
 }

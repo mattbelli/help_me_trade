@@ -1,4 +1,5 @@
 import type { AiSettings } from "./ai-settings";
+import type { WorkspaceLayoutItem } from "./workspace/layout-persistence";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -562,6 +563,8 @@ export type PriceAlert = {
   direction: string;
   note: string;
   triggered: number;
+  repeat: number;
+  last_triggered_at?: string | null;
   created_at: string;
 };
 
@@ -582,6 +585,7 @@ export async function createPriceAlert(payload: {
   price: number;
   direction?: string;
   note?: string;
+  repeat?: boolean;
 }): Promise<PriceAlert> {
   const res = await apiFetch(`${API_BASE}/api/price-alerts`, {
     method: "POST",
@@ -723,4 +727,37 @@ export async function fetchEarningsHistory(
     );
   }
   return res.json();
+}
+
+// ── Workspace layout (server-side persistence) ────────────────────────────────
+
+export async function fetchWorkspaceLayout(): Promise<
+  WorkspaceLayoutItem[] | null
+> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/layout`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.layout)
+      ? (data.layout as WorkspaceLayoutItem[])
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspaceLayout(
+  layout: WorkspaceLayoutItem[],
+): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/layout`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ layout }),
+    });
+  } catch (err) {
+    console.warn("[workspace] server layout save failed:", err);
+  }
 }

@@ -1,3 +1,5 @@
+import { TickMarkType } from "lightweight-charts";
+
 export type ChartTimeframe = {
   label: string;
   value: string;
@@ -59,45 +61,45 @@ export function formatCrosshairTime(
   });
 }
 
+// lightweight-charts decides the tick DENSITY from the zoom level and tells us
+// the level of each tick via `tickMarkType` — so the axis naturally fades from
+// times → days → months → years as you zoom out. We just format each level.
+// (For intraday data, day-boundary ticks fall on the first bar of the session,
+// i.e. ≈market open, so the date appears there.)
 export function formatTickMark(
   time: number | { year: number; month: number; day: number },
-  intraday: boolean,
+  tickMarkType: TickMarkType,
 ): string {
   const date = timeToDate(time);
-  if (!intraday) {
-    return date.toLocaleDateString("en-US", {
-      timeZone: ET,
-      month: "short",
-      day: "numeric",
-    });
+  switch (tickMarkType) {
+    case TickMarkType.Year:
+      return date.toLocaleDateString("en-US", { timeZone: ET, year: "numeric" });
+    case TickMarkType.Month:
+      return date.toLocaleDateString("en-US", { timeZone: ET, month: "short" });
+    case TickMarkType.DayOfMonth:
+      return date.toLocaleDateString("en-US", {
+        timeZone: ET,
+        month: "short",
+        day: "numeric",
+      });
+    case TickMarkType.Time:
+      return date.toLocaleTimeString("en-US", {
+        timeZone: ET,
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    case TickMarkType.TimeWithSeconds:
+      return date.toLocaleTimeString("en-US", {
+        timeZone: ET,
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
+    default:
+      return "";
   }
-  const hour = Number(
-    date.toLocaleString("en-US", { timeZone: ET, hour: "numeric", hour12: false }),
-  );
-  const minute = Number(
-    date.toLocaleString("en-US", { timeZone: ET, minute: "2-digit" }),
-  );
-  // Show date at session open-ish ticks and midnight boundaries.
-  if (hour === 9 && minute <= 30) {
-    return date.toLocaleDateString("en-US", {
-      timeZone: ET,
-      month: "short",
-      day: "numeric",
-    });
-  }
-  if (hour === 0 && minute === 0) {
-    return date.toLocaleDateString("en-US", {
-      timeZone: ET,
-      month: "short",
-      day: "numeric",
-    });
-  }
-  return date.toLocaleTimeString("en-US", {
-    timeZone: ET,
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
 }
 
 export function formatVolume(value: number): string {

@@ -8,6 +8,7 @@ import {
   HistogramSeries,
   LineSeries,
   createChart,
+  TickMarkType,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
@@ -69,6 +70,10 @@ export function TvLightChart({
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const barsRef = useRef<Ohlcv[]>([]);
+  // True right after the chart is (re)created — i.e. on timeframe/style change.
+  // A symbol change reuses the same chart instance, so this stays false and we
+  // preserve the user's current view instead of zooming out.
+  const freshChartRef = useRef(true);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,8 +125,8 @@ export function TvLightChart({
         borderColor: border,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: Time) =>
-          formatTickMark(time as number, intraday),
+        tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) =>
+          formatTickMark(time as number, tickMarkType),
       },
       crosshair: { mode: CrosshairMode.Normal },
       localization: {
@@ -157,6 +162,7 @@ export function TvLightChart({
     chartRef.current = chart;
     mainRef.current = mainSeries;
     volumeRef.current = volumeSeries;
+    freshChartRef.current = true;
 
     chart.subscribeCrosshairMove((param) => {
       if (!param.time || !param.seriesData.size) {
@@ -194,6 +200,12 @@ export function TvLightChart({
     setLoading(true);
     setError(null);
 
+    // Capture the current view so a symbol change can keep it (logical range is
+    // index-based, so the same zoom/scroll transfers across symbols).
+    const priorRange = freshChartRef.current
+      ? null
+      : (chartRef.current?.timeScale().getVisibleLogicalRange() ?? null);
+
     fetchBars(symbol, { timeframe: timeframe.value, days: timeframe.days })
       .then((data) => {
         if (cancelled) return;
@@ -229,7 +241,27 @@ export function TvLightChart({
           }),
         );
 
-        chartRef.current?.timeScale().fitContent();
+        const timeScale = chartRef.current?.timeScale();
+        const count = ohlcv.length;
+        if (timeScale && count > 0) {
+          // Anchor the most recent candle ~80% across (a 20% right margin), and
+          // always show recent data. On a symbol switch we PRESERVE THE ZOOM
+          // (the visible bar count) but re-anchor to the latest bar — restoring
+          // the old absolute indices would point at different bars on a ticker
+          // with a different history length and drift the view back in time.
+          const RIGHT_MARGIN_FRAC = 0.2;
+          const DEFAULT_VISIBLE_BARS = 150;
+          const visibleBars =
+            priorRange && priorRange.to > priorRange.from
+              ? priorRange.to - priorRange.from
+              : Math.min(count, DEFAULT_VISIBLE_BARS);
+          const to = count - 1 + RIGHT_MARGIN_FRAC * visibleBars;
+          timeScale.setVisibleLogicalRange({ from: to - visibleBars, to });
+          // Refit the price axis to the new symbol (a $700→$50 switch rescales
+          // vertically even though the time window is unchanged).
+          mainRef.current?.priceScale().applyOptions({ autoScale: true });
+        }
+        freshChartRef.current = false;
       })
       .catch((err) => {
         if (cancelled) return;

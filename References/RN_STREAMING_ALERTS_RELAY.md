@@ -112,6 +112,32 @@ even less (battery-first), I can dial it down to 4 Hz/symbol — say the word.
 
 Alerts (`broadcast_alert` / push) are **NOT throttled** — rare events, fire instantly.
 
+## 5. Price-alert options — direction + persistent (repeat)
+`POST /api/price-alerts` body now takes two things the phone should expose:
+
+```jsonc
+{
+  "symbol": "AAPL",
+  "price": 200.0,
+  "direction": "cross",   // "above" | "below" | "cross"  (validated server-side)
+  "repeat": false,         // false = one-shot (fires once); true = persistent
+  "note": ""
+}
+```
+- **`direction: "cross"`** already exists end-to-end (it fires on a crossing in EITHER direction) — the
+  web UI exposes "Crosses / Above / Below". Add the same three-way picker on the phone; default `cross`.
+- **`repeat`** (NEW): `false` is the current one-shot behavior (fires once, then it's done). `true` makes
+  the alert **persistent** — it re-arms after each crossing and stays until the user deletes it
+  (debounced by a 60 s cooldown so tick-noise at the line can't spam pushes).
+
+The alert rows returned by `GET /api/price-alerts` now include `repeat` (0/1) and `last_triggered_at`
+(ISO string or null). Suggested display: a `↻` glyph / "persistent" label for repeat alerts, and for a
+fired persistent one show "last fired {time}" from `last_triggered_at` (it stays in the active list).
+A one-shot that fired drops out of the active list as before.
+
+(The fired-alert WS frame + APNs push shapes in §2/§3 are unchanged — `repeat` doesn't alter them; a
+persistent alert just fires the same flat alert + push each time it crosses.)
+
 ## Still open (not in this round)
 - **Extended-hours INTRADAY bars** — the 5-min `intraday[]` array on the REST payload is still
   RTH-only. No pre/post chart segments yet (Schwab pricehistory in extended-hours session is a

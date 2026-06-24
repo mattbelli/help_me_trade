@@ -94,16 +94,28 @@ export function PriceAlertsWidget() {
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] uppercase text-[var(--fg-dim)]">
                 {alert.direction}
+                {alert.repeat ? (
+                  <span
+                    className="ml-1 text-[var(--c-accent)]"
+                    title="Persistent — re-arms after each crossing"
+                  >
+                    ↻
+                  </span>
+                ) : null}
               </td>
               <td
                 className={cn(
                   "border-b border-[var(--border)] px-2 py-1.5 text-[11px] uppercase",
-                  alert.triggered
+                  alert.triggered && !alert.repeat
                     ? "text-[var(--c-green)]"
                     : "text-[var(--c-blue)]",
                 )}
               >
-                {alert.triggered ? "triggered" : "active"}
+                {alert.repeat
+                  ? "persistent"
+                  : alert.triggered
+                    ? "triggered"
+                    : "active"}
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)]">
                 {alert.note || "—"}

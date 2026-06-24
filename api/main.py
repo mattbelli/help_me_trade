@@ -92,6 +92,7 @@ from db.sqlite import (
 )
 from db.strategies import init_strategy_tables, list_strategies, seed_default_strategies
 from db.trades import init_trade_tables
+from db.workspace import init_workspace_tables, load_workspace_layout, save_workspace_layout
 from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.scan import run_signal_scan
 from signals.strategy_kinds import strategy_kind
@@ -660,6 +661,7 @@ async def lifespan(app: FastAPI):
         )
     init_db()
     init_chart_features()
+    init_workspace_tables()
     init_ai_tables()
     init_chat_tables()
     init_trade_tables()
@@ -1579,6 +1581,43 @@ async def api_earnings_history(symbol: str = "", n: int = 6):
     return {"symbol": sym, "events": events}
 
 
+@app.get("/api/workspace/layout")
+def api_get_workspace_layout():
+    return {"layout": load_workspace_layout()}
+
+
+def _is_valid_layout_item(item: object) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return (
+        isinstance(item.get("i"), str)
+        and isinstance(item.get("type"), str)
+        and isinstance(item.get("x"), (int, float))
+        and isinstance(item.get("y"), (int, float))
+        and isinstance(item.get("w"), (int, float))
+        and isinstance(item.get("h"), (int, float))
+    )
+
+
+@app.put("/api/workspace/layout")
+def api_put_workspace_layout(body: dict = Body(...)):
+    layout = body.get("layout")
+    if not isinstance(layout, list):
+        return JSONResponse({"error": "layout must be an array"}, status_code=400)
+    for item in layout:
+        if not _is_valid_layout_item(item):
+            return JSONResponse(
+                {
+                    "error": (
+                        "each layout item must have string i, type and numeric x, y, w, h"
+                    )
+                },
+                status_code=400,
+            )
+    save_workspace_layout(layout)
+    return {"ok": True}
+
+
 @app.get("/api/price-alerts")
 def api_list_alerts(symbol: str | None = None):
     return {"alerts": list_price_alerts(symbol=symbol, active_only=True)}
@@ -1588,18 +1627,24 @@ def api_list_alerts(symbol: str | None = None):
 def api_create_alert(body: dict = Body(...)):
     symbol = str(body.get("symbol", "")).strip()
     price = body.get("price")
-    direction = str(body.get("direction", "cross"))
+    direction = str(body.get("direction", "cross")).strip().lower()
     note = str(body.get("note", ""))
+    repeat = bool(body.get("repeat", False))
     if not symbol or price is None:
         return JSONResponse(
             {"error": "symbol and price are required"}, status_code=400
+        )
+    if direction not in ("above", "below", "cross"):
+        return JSONResponse(
+            {"error": "direction must be one of: above, below, cross"},
+            status_code=400,
         )
     try:
         price_f = float(price)
     except (TypeError, ValueError):
         return JSONResponse({"error": "price must be a number"}, status_code=400)
     alert = create_price_alert(
-        symbol=symbol, price=price_f, direction=direction, note=note
+        symbol=symbol, price=price_f, direction=direction, note=note, repeat=repeat
     )
     return alert
 
@@ -1616,7 +1661,7 @@ def api_trigger_alert(alert_id: int):
     active = [a for a in list_price_alerts(active_only=True) if int(a["id"]) == alert_id]
     if not active:
         return JSONResponse({"error": "Not found or already triggered"}, status_code=404)
-    mark_alert_triggered(alert_id)
+    mark_alert_triggered(alert_id, repeat=bool(active[0].get("repeat")))
     return {"ok": True, "alert": active[0]}
 
 
