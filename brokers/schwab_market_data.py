@@ -218,6 +218,22 @@ class SchwabMarketData:
 
             total_volume = _f(quote.get("totalVolume"))
 
+            fundamental = data.get("fundamental") or {}
+            pe_ratio = _f(fundamental.get("peRatio"))
+            eps = _f(fundamental.get("eps"))
+            div_yield = _f(fundamental.get("divYield"))
+            shares_outstanding = _f(fundamental.get("sharesOutstanding"))
+
+            last_earnings_ms = fundamental.get("lastEarningsDate")
+            last_earnings_date: str | None = None
+            try:
+                if last_earnings_ms is not None:
+                    last_earnings_date = datetime.fromtimestamp(
+                        int(last_earnings_ms) / 1000, tz=UTC
+                    ).strftime("%Y-%m-%d")
+            except (TypeError, ValueError, OSError):
+                pass
+
             out[sym.upper()] = {
                 "regular_last": reg_last,
                 "regular_change_pct": _f(reg_change_pct),
@@ -225,15 +241,25 @@ class SchwabMarketData:
                 "ext_change_pct": ext_change_pct,
                 "prev_close": prev_close,
                 "total_volume": total_volume,
+                "pe_ratio": pe_ratio,
+                "eps": eps,
+                "div_yield": div_yield,
+                "shares_outstanding": shares_outstanding,
+                "last_earnings_date": last_earnings_date,
             }
         return out
 
     async def aget_quotes(self, symbols: list[str]) -> dict[str, dict]:
-        """Batch quote fetch: returns {SYMBOL: {regular_last, regular_change_pct,
-        ext_last, ext_change_pct, prev_close, total_volume}} with None for absent fields.
+        """Batch quote fetch; returns {SYMBOL: {regular_last, regular_change_pct,
+        ext_last, ext_change_pct, prev_close, total_volume, pe_ratio, eps, div_yield,
+        shares_outstanding, last_earnings_date}} with None for absent fields.
 
         total_volume is the cumulative day volume from Schwab's quote.totalVolume field.
         Useful for efficient market-wide RVOL screening without per-symbol bar calls.
+
+        Fundamental fields (pe_ratio, eps, div_yield, shares_outstanding,
+        last_earnings_date) come from Schwab's fundamental block and may be None for
+        symbols without that data (e.g. ETFs).
 
         Raises BrokerError on hard failure (non-200 or unexpected response shape).
         """

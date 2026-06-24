@@ -75,6 +75,7 @@ from db.chart_features import (
 )
 from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
+from db.earnings_calendar import next_earnings_date
 from db.multi_account import migrate_multi_account
 from db.order_executions import (
     count_pending_paper_executions,
@@ -1022,6 +1023,21 @@ async def api_watchlist_market(symbols: str = ""):
         intraday = _session_intraday_closes(intraday_by_symbol.get(sym, []))
 
         eq = ext_quotes.get(sym, {})
+
+        shares_outstanding = eq.get("shares_outstanding")
+        market_cap: float | None = None
+        if shares_outstanding is not None:
+            try:
+                market_cap = round(float(shares_outstanding) * price, 2)
+            except (TypeError, ValueError):
+                pass
+
+        today_iso = date.today().isoformat()
+        try:
+            _next_earnings = next_earnings_date(sym, on_date=today_iso)
+        except Exception:
+            _next_earnings = None
+
         quotes[sym] = {
             "price": price,
             "change_pct": round(change_pct, 2),
@@ -1036,6 +1052,12 @@ async def api_watchlist_market(symbols: str = ""):
             "ext_change_pct": (
                 eq.get("ext_change_pct") if session in ("pre", "post", "overnight") else None
             ),
+            "pe": eq.get("pe_ratio"),
+            "eps": eq.get("eps"),
+            "div_yield": eq.get("div_yield"),
+            "market_cap": market_cap,
+            "last_earnings": eq.get("last_earnings_date"),
+            "next_earnings": _next_earnings,
         }
         quotes[sym]["rvol"] = _compute_rvol_field(sym, intraday_by_symbol.get(sym, []))
 

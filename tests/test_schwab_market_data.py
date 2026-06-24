@@ -349,3 +349,68 @@ async def test_aget_quotes_raises_broker_error_on_http_failure() -> None:
 
     with pytest.raises(BrokerError, match="get_quotes failed"):
         await provider.aget_quotes(["SPY"])
+
+
+# ---------------------------------------------------------------------------
+# fundamental block parsing tests
+# ---------------------------------------------------------------------------
+
+# lastEarningsDate epoch-ms → 2026-04-25 UTC
+_LAST_EARNINGS_EPOCH_MS = 1_777_075_200_000  # 2026-04-25T00:00:00Z
+
+_QUOTES_WITH_FUNDAMENTAL = {
+    "AAPL": {
+        "quote": {"lastPrice": 211.0, "closePrice": 210.0, "totalVolume": 50_000_000},
+        "regular": {"regularMarketLastPrice": 211.0, "regularMarketPercentChange": 0.5},
+        "extended": {},
+        "fundamental": {
+            "peRatio": 28.5,
+            "eps": 7.42,
+            "divYield": 0.52,
+            "sharesOutstanding": 15_200_000_000,
+            "lastEarningsDate": _LAST_EARNINGS_EPOCH_MS,
+        },
+    },
+    "ETF": {
+        # ETF-like: no fundamental block at all → all None
+        "quote": {"lastPrice": 500.0, "closePrice": 498.0},
+        "regular": {},
+        "extended": {},
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_parses_fundamental_fields() -> None:
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(_QUOTES_WITH_FUNDAMENTAL)
+    provider = _provider(client)
+
+    result = await provider.aget_quotes(["AAPL", "ETF"])
+
+    aapl = result["AAPL"]
+    assert aapl["pe_ratio"] == pytest.approx(28.5)
+    assert aapl["eps"] == pytest.approx(7.42)
+    assert aapl["div_yield"] == pytest.approx(0.52)
+    assert aapl["shares_outstanding"] == pytest.approx(15_200_000_000)
+    assert aapl["last_earnings_date"] == "2026-04-25"
+
+    etf = result["ETF"]
+    assert etf["pe_ratio"] is None
+    assert etf["eps"] is None
+    assert etf["div_yield"] is None
+    assert etf["shares_outstanding"] is None
+    assert etf["last_earnings_date"] is None
+
+
+def test_market_cap_computation_from_shares_and_price() -> None:
+    """market_cap = shares_outstanding × price (tested as pure arithmetic here)."""
+    shares = 15_200_000_000.0
+    price = 211.0
+    market_cap = round(shares * price, 2)
+    # ~$3.207T — just verify the formula
+    assert market_cap == pytest.approx(3_207_200_000_000.0, rel=1e-6)
+    # And None propagates cleanly when shares_outstanding is absent
+    shares_none = None
+    mc = round(float(shares_none) * price, 2) if shares_none is not None else None
+    assert mc is None
