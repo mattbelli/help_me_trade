@@ -23,7 +23,10 @@ export type TradeProposalState = {
   qty: number;
   orderType: string;
   winProb?: number;
-  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'executed';
+  // 'failed' = couldn't execute AFTER approval (serv blocked/failed) — distinct
+  // from 'rejected' (user declined). statusReason is the short "why" for failed.
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'executed' | 'failed';
+  statusReason?: string;
 };
 
 function TradeProposalActivity(props: TradeProposalState, _env: LiveActivityEnvironment) {
@@ -36,13 +39,19 @@ function TradeProposalActivity(props: TradeProposalState, _env: LiveActivityEnvi
   const wp = props.winProb != null ? ` · ${Math.round(props.winProb * 100)}% win` : '';
   const summary = `${props.side.toUpperCase()} ${props.qty} ${props.symbol} · ${props.orderType}${wp}`;
   const statusText =
-    props.status === 'approved' || props.status === 'executed'
-      ? 'Approved'
-      : props.status === 'rejected'
-        ? 'Rejected'
-        : props.status === 'expired'
-          ? 'Expired'
-          : 'Pending approval';
+    props.status === 'executed'
+      ? 'Executed'
+      : props.status === 'approved'
+        ? 'Approved'
+        : props.status === 'rejected'
+          ? 'Rejected'
+          : props.status === 'expired'
+            ? 'Expired'
+            : props.status === 'failed'
+              ? props.statusReason
+                ? `Couldn't execute · ${props.statusReason}`
+                : "Couldn't execute"
+              : 'Pending approval';
 
   const actions = pending ? (
     <HStack spacing={10}>
