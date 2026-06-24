@@ -774,6 +774,32 @@ def api_delete_watchlist(list_id: str):
     return state
 
 
+def _market_session() -> str:
+    """Return the current US equities market session label based on ET clock.
+
+    pre:       04:00–09:30 ET (weekday)
+    regular:   09:30–16:00 ET (weekday)
+    post:      16:00–20:00 ET (weekday)
+    overnight: the 24/5 session — Sun 20:00 ET → Fri 20:00 ET, outside pre/regular/post.
+               Many liquid names trade overnight and Schwab's `extended` block is live then.
+    closed:    Fri 20:00 ET → Sun 20:00 ET (weekend).
+    """
+    now = datetime.now(_ET)
+    wd = now.weekday()  # Mon=0 .. Sun=6
+    minutes = now.hour * 60 + now.minute
+    if wd <= 4:  # weekday RTH/pre/post windows
+        if 4 * 60 <= minutes < 9 * 60 + 30:
+            return "pre"
+        if 9 * 60 + 30 <= minutes < 16 * 60:
+            return "regular"
+        if 16 * 60 <= minutes < 20 * 60:
+            return "post"
+    # Weekend closure: Fri after 20:00, all Saturday, Sunday before 20:00.
+    if (wd == 4 and minutes >= 20 * 60) or wd == 5 or (wd == 6 and minutes < 20 * 60):
+        return "closed"
+    return "overnight"
+
+
 @app.get("/api/watchlist/market")
 async def api_watchlist_market(symbols: str = ""):
     try:
@@ -811,6 +837,19 @@ async def api_watchlist_market(symbols: str = ""):
     except BrokerError as exc:
         logger.warning("Watchlist intraday bars failed: %s", exc)
 
+    # Extended-hours quotes — Schwab only; fail-soft to empty dict on any error.
+    ext_quotes: dict[str, dict] = {}
+    if hasattr(provider, "aget_quotes"):
+        try:
+            from brokers.schwab_market_data import SchwabMarketData
+
+            if isinstance(provider, SchwabMarketData):
+                ext_quotes = await provider.aget_quotes(symbol_list)
+        except Exception:
+            logger.warning("Extended-hours quote fetch failed; continuing without", exc_info=True)
+
+    session = _market_session()
+
     quotes: dict[str, dict] = {}
     for sym in symbol_list:
         bars = bars_by_symbol.get(sym, [])
@@ -822,6 +861,8 @@ async def api_watchlist_market(symbols: str = ""):
         prev = closes[-2] if len(closes) >= 2 else price
         change_pct = ((price - prev) / prev * 100) if prev else 0.0
         intraday = _session_intraday_closes(intraday_by_symbol.get(sym, []))
+
+        eq = ext_quotes.get(sym, {})
         quotes[sym] = {
             "price": price,
             "change_pct": round(change_pct, 2),
@@ -831,6 +872,11 @@ async def api_watchlist_market(symbols: str = ""):
             "day_high": float(latest.high),
             "day_low": float(latest.low),
             "intraday": intraday,
+            "market_session": session,
+            "ext_price": eq.get("ext_last") if session in ("pre", "post", "overnight") else None,
+            "ext_change_pct": (
+                eq.get("ext_change_pct") if session in ("pre", "post", "overnight") else None
+            ),
         }
         quotes[sym]["rvol"] = _compute_rvol_field(sym, intraday_by_symbol.get(sym, []))
 

@@ -166,6 +166,73 @@ class SchwabMarketData:
                 return symbol, None
             return symbol, bars
 
+    def _fetch_quotes_sync(self, symbols: list[str]) -> dict[str, dict]:
+        """Sync inner: call get_quotes, parse regular/extended/quote blocks."""
+        response = self._client.get_quotes(symbols)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise SchwabError(f"Unexpected get_quotes response type: {type(payload)}")
+
+        out: dict[str, dict] = {}
+        for sym, data in payload.items():
+            if not isinstance(data, dict):
+                continue
+            regular = data.get("regular") or {}
+            extended = data.get("extended") or {}
+            quote = data.get("quote") or {}
+
+            # Regular-session price: prefer regularMarketLastPrice, fall back to lastPrice
+            reg_last_raw = regular.get("regularMarketLastPrice") or quote.get("lastPrice")
+            reg_change_pct_raw = regular.get("regularMarketPercentChange") or quote.get(
+                "netPercentChangeInDouble"
+            )
+            # Extended-hours price: extended block's lastPrice (or mark as fallback)
+            ext_last_raw = extended.get("lastPrice") or extended.get("mark")
+            # Extended change % relative to prev close
+            prev_close_raw = quote.get("closePrice")
+
+            def _f(v: object) -> float | None:
+                try:
+                    return float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    return None
+
+            reg_last = _f(reg_last_raw)
+            reg_change_pct = _f(reg_change_pct_raw)
+            ext_last = _f(ext_last_raw)
+            prev_close = _f(prev_close_raw)
+
+            # Compute ext_change_pct from ext_last vs prev_close when not supplied
+            ext_change_pct: float | None = None
+            if ext_last is not None and prev_close and prev_close != 0:
+                ext_change_pct = round((ext_last - prev_close) / prev_close * 100, 2)
+
+            out[sym.upper()] = {
+                "regular_last": reg_last,
+                "regular_change_pct": _f(reg_change_pct),
+                "ext_last": ext_last,
+                "ext_change_pct": ext_change_pct,
+                "prev_close": prev_close,
+            }
+        return out
+
+    async def aget_quotes(self, symbols: list[str]) -> dict[str, dict]:
+        """Batch quote fetch: returns {SYMBOL: {regular_last, regular_change_pct,
+        ext_last, ext_change_pct, prev_close}} with None for absent fields.
+
+        Raises BrokerError on hard failure (non-200 or unexpected response shape).
+        """
+        cleaned = [s.strip().upper() for s in symbols if s.strip()]
+        if not cleaned:
+            return {}
+        try:
+            return await asyncio.to_thread(self._fetch_quotes_sync, cleaned)
+        except (BrokerError, SchwabError):
+            raise
+        except Exception as exc:
+            raise BrokerError(f"Schwab get_quotes failed: {exc}") from exc
+
     async def aget_stock_bars_batch(
         self,
         symbols: list[str],

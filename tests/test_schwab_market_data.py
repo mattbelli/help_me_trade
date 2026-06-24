@@ -268,3 +268,73 @@ async def test_aget_stock_bars_uses_days_window() -> None:
     assert captured["symbol"] == "spy"
     assert captured["timeframe"] == "1Day"
     assert (captured["end"] - captured["start"]) == timedelta(days=10)
+
+
+# ---------------------------------------------------------------------------
+# aget_quotes tests
+# ---------------------------------------------------------------------------
+
+_QUOTES_PAYLOAD = {
+    "SPY": {
+        "quote": {"lastPrice": 592.5, "closePrice": 589.0, "netPercentChangeInDouble": 0.59},
+        "regular": {
+            "regularMarketLastPrice": 592.5,
+            "regularMarketPercentChange": 0.59,
+        },
+        "extended": {
+            "lastPrice": 593.1,
+            "mark": 593.0,
+        },
+    },
+    "AAPL": {
+        "quote": {"lastPrice": 211.0, "closePrice": 210.0},
+        "regular": {},
+        "extended": {},
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(_QUOTES_PAYLOAD)
+    provider = _provider(client)
+
+    result = await provider.aget_quotes(["SPY", "AAPL"])
+
+    assert set(result.keys()) == {"SPY", "AAPL"}
+
+    spy = result["SPY"]
+    assert spy["regular_last"] == 592.5
+    assert spy["regular_change_pct"] == 0.59
+    assert spy["ext_last"] == 593.1
+    assert spy["prev_close"] == 589.0
+    # ext_change_pct computed from ext_last vs prev_close
+    expected_ext_pct = round((593.1 - 589.0) / 589.0 * 100, 2)
+    assert spy["ext_change_pct"] == pytest.approx(expected_ext_pct, abs=0.01)
+
+    aapl = result["AAPL"]
+    # empty regular/extended blocks → falls back to quote block where possible
+    assert aapl["regular_last"] == 211.0
+    assert aapl["ext_last"] is None
+    assert aapl["ext_change_pct"] is None
+    assert aapl["prev_close"] == 210.0
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_empty_list_returns_empty_dict() -> None:
+    provider = _provider()
+    result = await provider.aget_quotes([])
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_raises_broker_error_on_http_failure() -> None:
+    client = MagicMock()
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = RuntimeError("403 Forbidden")
+    client.get_quotes.return_value = resp
+    provider = _provider(client)
+
+    with pytest.raises(BrokerError, match="get_quotes failed"):
+        await provider.aget_quotes(["SPY"])
