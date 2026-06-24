@@ -15,10 +15,13 @@ import {
   getSnapshot,
   getWatchlist,
   getWatchlistMarket,
+  getWatchlists,
   rejectProposal,
   removeWatchlistSymbol,
   searchSymbols,
+  updateWatchlistSymbols,
 } from './endpoints';
+import type { WatchlistsState } from './types';
 import type { PortfolioRange } from './types';
 
 function useAuthenticated(enabled = true) {
@@ -78,6 +81,28 @@ export function useRemoveWatchlistSymbol() {
     onSuccess: (data) => {
       qc.setQueryData(['watchlist'], data);
       void qc.invalidateQueries({ queryKey: ['watchlist'] });
+    },
+  });
+}
+
+export function useWatchlists() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['watchlists'],
+    queryFn: getWatchlists,
+    enabled,
+    staleTime: 300_000,
+  });
+}
+
+export function useReorderWatchlist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, symbols }: { id: string; symbols: string[] }) => updateWatchlistSymbols(id, symbols),
+    onSuccess: (data: WatchlistsState) => {
+      qc.setQueryData(['watchlists'], data);
+      const active = data.lists.find((l) => l.id === data.active_id);
+      if (active) qc.setQueryData(['watchlist'], { symbols: active.symbols });
     },
   });
 }

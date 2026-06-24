@@ -40,6 +40,7 @@ const HOME_INDEX = 2;
 export function CockpitPager() {
   const pagerRef = useRef<PagerView>(null);
   const [page, setPage] = useState(HOME_INDEX);
+  const [swipeEnabled, setSwipeEnabled] = useState(true);
   const lastPage = useRef(HOME_INDEX);
 
   const { token } = useAuth();
@@ -76,12 +77,13 @@ export function CockpitPager() {
   );
 
   return (
-    <NavProvider value={{ openInbox: () => goTo(INBOX_INDEX) }}>
+    <NavProvider value={{ openInbox: () => goTo(INBOX_INDEX), setSwipeEnabled }}>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <PagerView
           ref={pagerRef}
           style={{ flex: 1 }}
           initialPage={HOME_INDEX}
+          scrollEnabled={swipeEnabled}
           offscreenPageLimit={4}
           onPageSelected={(e) => {
             const next = e.nativeEvent.position;

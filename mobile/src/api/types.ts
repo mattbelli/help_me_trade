@@ -111,6 +111,17 @@ export interface WatchlistMarket {
   quotes: Record<string, WatchlistQuote>;
 }
 
+export interface WatchlistList {
+  id: string;
+  name: string;
+  symbols: string[];
+}
+
+export interface WatchlistsState {
+  active_id: string;
+  lists: WatchlistList[];
+}
+
 export interface ProposalScoreFactor {
   name: string;
   direction: 'bullish' | 'bearish' | string;

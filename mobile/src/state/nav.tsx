@@ -7,9 +7,11 @@ import { createContext, useContext, type ReactNode } from 'react';
 
 interface NavValue {
   openInbox: () => void;
+  /** Toggle horizontal page-swipe (watchlist edit mode disables it for swipe-to-delete). */
+  setSwipeEnabled: (enabled: boolean) => void;
 }
 
-const NavContext = createContext<NavValue>({ openInbox: () => {} });
+const NavContext = createContext<NavValue>({ openInbox: () => {}, setSwipeEnabled: () => {} });
 
 export function NavProvider({ value, children }: { value: NavValue; children: ReactNode }) {
   return <NavContext.Provider value={value}>{children}</NavContext.Provider>;

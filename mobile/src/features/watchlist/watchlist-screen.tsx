@@ -11,10 +11,17 @@
  * prev_close, volume, day_high, day_low. change$ = price − prev_close.
  * rvol shows "1.8×" once serv sends it. Reorder is local (no serv persist endpoint yet).
  */
-import { ActivityIndicator, Dimensions, RefreshControl, TextInput, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Pressable, RefreshControl, TextInput, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import Animated, { FadeInDown, runOnJS } from 'react-native-reanimated';
-import { Gesture } from 'react-native-gesture-handler';
+import Animated, {
+  FadeInDown,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import ReorderableList, {
   type ReorderableListReorderEvent,
   reorderItems,
@@ -24,7 +31,16 @@ import ReorderableList, {
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useAddWatchlistSymbol, useSymbolSearch, useWatchlist, useWatchlistMarket } from '@/api/queries';
+import {
+  useAddWatchlistSymbol,
+  useRemoveWatchlistSymbol,
+  useReorderWatchlist,
+  useSymbolSearch,
+  useWatchlist,
+  useWatchlists,
+  useWatchlistMarket,
+} from '@/api/queries';
+import { useNav } from '@/state/nav';
 import type { WatchlistQuote } from '@/api/types';
 import { Icon } from '@/components/ui/icon';
 import {
@@ -199,23 +215,51 @@ function RowBody({
   onLongPress,
   grip,
   active,
+  editing,
+  index,
+  onDelete,
 }: {
   symbol: string;
   quote?: WatchlistQuote;
   loading?: boolean;
-  onPress: () => void;
+  onPress?: () => void;
   onLongPress?: () => void;
   grip?: boolean;
   active?: boolean;
+  editing?: boolean;
+  index?: number;
+  onDelete?: () => void;
 }) {
   const sv = quote ? sessionView(quote) : null;
   const rv = rvolDisplay(quote?.rvol);
 
+  // iOS-home-screen jiggle while editing (paused on the row being dragged).
+  const tilt = useSharedValue(0);
+  useEffect(() => {
+    if (editing && !active) {
+      const dir = (index ?? 0) % 2 === 0 ? 1 : -1;
+      tilt.value = withRepeat(
+        withSequence(withTiming(dir * 0.55, { duration: 130 }), withTiming(-dir * 0.55, { duration: 130 })),
+        -1,
+        true,
+      );
+    } else {
+      tilt.value = withTiming(0, { duration: 120 });
+    }
+  }, [editing, active, index, tilt]);
+  const jiggle = useAnimatedStyle(() => ({ transform: [{ rotateZ: `${tilt.value}deg` }] }));
+
   return (
-    <View style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, boxShadow: ROW_SHADOW, backgroundColor: active ? colors.surface : undefined }}>
+    <Animated.View style={[{ borderBottomWidth: hairline, borderBottomColor: colors.border, boxShadow: ROW_SHADOW, backgroundColor: active ? colors.surface : undefined }, jiggle]}>
       <PressableScale onPress={onPress} onLongPress={onLongPress} delayLongPress={250}>
         <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
-          {grip ? (
+          {editing ? (
+            <Pressable onPress={onDelete} hitSlop={12} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: PAD_L, alignItems: 'center', justifyContent: 'center', zIndex: 4 }}>
+              <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 8, height: 2, borderRadius: 1, backgroundColor: '#fff' }} />
+              </View>
+            </Pressable>
+          ) : grip ? (
             <View pointerEvents="none" style={{ position: 'absolute', left: 2, top: 0, bottom: 0, width: PAD_L - 2, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
               <GripDots />
             </View>
@@ -290,15 +334,48 @@ function RowBody({
           </View>
         </Row>
       </PressableScale>
-    </View>
+    </Animated.View>
   );
 }
 
-// Reorderable wrapper — must call the drag hooks inside ReorderableList's renderItem.
-function ReorderableRow({ symbol, quote, loading, onPress }: { symbol: string; quote?: WatchlistQuote; loading?: boolean; onPress: () => void }) {
+function ReorderableRow({
+  symbol,
+  quote,
+  loading,
+  onPress,
+  index,
+  editing,
+  onEnterEdit,
+  onDelete,
+}: {
+  symbol: string;
+  quote?: WatchlistQuote;
+  loading?: boolean;
+  onPress: () => void;
+  index: number;
+  editing: boolean;
+  onEnterEdit: () => void;
+  onDelete: (sym: string) => void;
+}) {
   const drag = useReorderableDrag(); // call on long-press to INITIATE the drag
   const active = useIsActive();
-  return <RowBody symbol={symbol} quote={quote} loading={loading} onPress={onPress} onLongPress={drag} grip active={active} />;
+  return (
+    <RowBody
+      symbol={symbol}
+      quote={quote}
+      loading={loading}
+      onPress={editing ? undefined : onPress}
+      onLongPress={() => {
+        onEnterEdit();
+        drag();
+      }}
+      grip
+      active={active}
+      editing={editing}
+      index={index}
+      onDelete={() => onDelete(symbol)}
+    />
+  );
 }
 
 // ─── 2-col dense cell ─────────────────────────────────────────────────────────
@@ -356,22 +433,30 @@ function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) 
 }
 
 // ─── Page header ──────────────────────────────────────────────────────────────
-function WatchlistHeader({ onAdd, onOpenAlerts }: { onAdd: () => void; onOpenAlerts: () => void }) {
+function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone }: { onAdd: () => void; onOpenAlerts: () => void; editing: boolean; onDone: () => void }) {
   return (
     <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
       <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.accent }}>watchlist</Text>
-      <Row gap={spacing.xs}>
-        <PressableScale onPress={onAdd} haptic>
-          <View style={{ padding: spacing.xs }}>
-            <Icon name="plus" size={24} color={colors.accent} />
+      {editing ? (
+        <PressableScale onPress={onDone} haptic>
+          <View style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm }}>
+            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 16 }}>Done</Text>
           </View>
         </PressableScale>
-        <PressableScale onPress={onOpenAlerts} haptic>
-          <View style={{ padding: spacing.xs }}>
-            <Icon name="bell" size={22} color={colors.textMuted} />
-          </View>
-        </PressableScale>
-      </Row>
+      ) : (
+        <Row gap={spacing.xs}>
+          <PressableScale onPress={onAdd} haptic>
+            <View style={{ padding: spacing.xs }}>
+              <Icon name="plus" size={24} color={colors.accent} />
+            </View>
+          </PressableScale>
+          <PressableScale onPress={onOpenAlerts} haptic>
+            <View style={{ padding: spacing.xs }}>
+              <Icon name="bell" size={22} color={colors.textMuted} />
+            </View>
+          </PressableScale>
+        </Row>
+      )}
     </Row>
   );
 }
@@ -393,7 +478,8 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
   const add = useAddWatchlistSymbol();
   const suggestions = (search.data ?? []).slice(0, 6);
 
-  const submit = (sym: string) => {
+  // Tapping a suggestion adds it directly (always a real symbol).
+  const doAdd = (sym: string) => {
     const s = sym.trim().toUpperCase();
     if (!s || add.isPending) return;
     add.mutate(s, {
@@ -404,6 +490,15 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
       },
     });
   };
+  // Enter key: only add a REAL symbol — exact search match, else the top suggestion.
+  // Prevents adding a typed string that isn't a tradable ticker.
+  const submitTyped = () => {
+    const s = text.trim().toUpperCase();
+    const list = search.data ?? [];
+    const pick = list.find((x) => x.toUpperCase() === s) ?? list[0];
+    if (pick) doAdd(pick);
+  };
+  const noMatch = text.trim().length > 0 && !search.isFetching && (search.data?.length ?? 0) === 0;
 
   return (
     <Animated.View entering={FadeInDown.duration(160)} style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
@@ -418,7 +513,7 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
           autoCorrect={false}
           autoFocus
           returnKeyType="done"
-          onSubmitEditing={() => submit(text)}
+          onSubmitEditing={submitTyped}
           style={{ ...mono, flex: 1, fontSize: 17, color: colors.text, paddingVertical: 2 }}
         />
         {add.isPending ? <ActivityIndicator size="small" color={colors.accent} /> : null}
@@ -429,7 +524,7 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
       {suggestions.length > 0 ? (
         <View style={{ paddingBottom: spacing.xs }}>
           {suggestions.map((s) => (
-            <PressableScale key={s} onPress={() => submit(s)} haptic>
+            <PressableScale key={s} onPress={() => doAdd(s)} haptic>
               <Row justify="space-between" align="center" style={{ paddingVertical: spacing.sm, paddingLeft: PAD_L + 26, paddingRight: PAD_R }}>
                 <Text variant="bodyStrong">{s}</Text>
                 <Icon name="plus" size={15} color={colors.textMuted} />
@@ -440,6 +535,8 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
       ) : null}
       {add.isError ? (
         <Text variant="caption" style={{ color: colors.danger, paddingLeft: PAD_L, paddingBottom: spacing.sm }}>Couldn't add — check the symbol.</Text>
+      ) : noMatch ? (
+        <Text variant="caption" style={{ color: colors.textFaint, paddingLeft: PAD_L, paddingBottom: spacing.sm }}>No matching symbol.</Text>
       ) : null}
     </Animated.View>
   );
@@ -470,11 +567,18 @@ export function WatchlistScreen() {
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });
   const [order, setOrder] = useState<string[] | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const { setSwipeEnabled } = useNav();
 
   const watchlist = useWatchlist();
   const symbols: string[] = watchlist.data?.symbols ?? [];
   const market = useWatchlistMarket(symbols);
   const quotes = market.data?.quotes ?? {};
+
+  const watchlists = useWatchlists();
+  const activeId = watchlists.data?.active_id;
+  const reorder = useReorderWatchlist();
+  const remove = useRemoveWatchlistSymbol();
 
   const { refreshing, onRefresh } = usePullRefresh(() => Promise.all([watchlist.refetch(), market.refetch()]));
 
@@ -484,6 +588,17 @@ export function WatchlistScreen() {
   useEffect(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, [sort]);
+
+  // Edit mode disables page-swipe so a left-swipe deletes a row instead of paging.
+  useEffect(() => {
+    setSwipeEnabled(!editing);
+    return () => setSwipeEnabled(true);
+  }, [editing, setSwipeEnabled]);
+
+  // Sorting isn't reorderable, so leave edit mode if a column sort turns on.
+  useEffect(() => {
+    if (sort.key) setEditing(false);
+  }, [sort.key]);
 
   const onSort = (key: SortKey) =>
     setSort((s) => (s.key !== key ? { key, dir: 'desc' } : s.dir === 'desc' ? { key, dir: 'asc' } : { key: null, dir: 'desc' }));
@@ -511,30 +626,41 @@ export function WatchlistScreen() {
     return sort.dir === 'desc' ? arr.reverse() : arr;
   }, [userOrder, quotes, sort]);
 
+  // Persist the order to the active list (PUT /api/watchlists/{id}) so it survives
+  // restarts; setOrder gives instant local feedback.
+  const persistOrder = (next: string[]) => {
+    setOrder(next);
+    if (activeId) reorder.mutate({ id: activeId, symbols: next });
+  };
+
   const onReorder = ({ from, to }: ReorderableListReorderEvent) => {
-    setOrder(reorderItems(data, from, to));
+    persistOrder(reorderItems(data, from, to));
     haptics.tap();
   };
 
   // Newly-added ticker jumps to the top of the user's order.
   const onAdded = (sym: string) => {
-    setOrder((prev) => {
-      const base = prev ?? symbols;
-      return [sym, ...base.filter((s) => s !== sym)];
-    });
+    const base = order ?? symbols;
+    persistOrder([sym, ...base.filter((s) => s !== sym)]);
     haptics.success();
   };
 
-  // Drag is initiated by onLongPress={drag} on the row (delayLongPress 250ms). The pan
-  // tracks movement and activates just after, so quick swipes still reach the pager and
-  // normal vertical scroll / pull-to-refresh keep working.
-  const dragPan = useMemo(() => Gesture.Pan().activateAfterLongPress(280), []);
+  const onDelete = (sym: string) => {
+    setOrder((prev) => (prev ?? symbols).filter((s) => s !== sym));
+    remove.mutate(sym);
+    haptics.impact();
+  };
 
   const reorderable = sort.key === null;
 
   const header = (
     <View>
-      <WatchlistHeader onAdd={() => setAdding((a) => !a)} onOpenAlerts={() => router.push('/alerts')} />
+      <WatchlistHeader
+        onAdd={() => setAdding((a) => !a)}
+        onOpenAlerts={() => router.push('/alerts')}
+        editing={editing}
+        onDone={() => setEditing(false)}
+      />
       <ColumnHeader sort={sort} onSort={onSort} />
       {adding ? <AddRow onAdded={onAdded} onClose={() => setAdding(false)} /> : null}
     </View>
@@ -563,7 +689,7 @@ export function WatchlistScreen() {
         <ReorderableList
           data={data}
           onReorder={onReorder}
-          panGesture={dragPan}
+          panActivateAfterLongPress={280}
           onDragStart={onDragStartHaptic}
           onIndexChange={onIndexChangeHaptic}
           keyExtractor={(symbol) => symbol}
@@ -571,8 +697,17 @@ export function WatchlistScreen() {
           contentContainerStyle={{ paddingBottom: 110, paddingTop: spacing.xs }}
           ListHeaderComponent={header}
           ListEmptyComponent={empty}
-          renderItem={({ item }) => (
-            <ReorderableRow symbol={item} quote={quotes[item]} loading={marketLoading && !quotes[item]} onPress={() => openSymbol(item)} />
+          renderItem={({ item, index }) => (
+            <ReorderableRow
+              symbol={item}
+              quote={quotes[item]}
+              loading={marketLoading && !quotes[item]}
+              onPress={() => openSymbol(item)}
+              index={index}
+              editing={editing}
+              onEnterEdit={() => setEditing(true)}
+              onDelete={onDelete}
+            />
           )}
         />
       ) : (

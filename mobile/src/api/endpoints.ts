@@ -11,6 +11,7 @@ import type {
   PriceAlert,
   Snapshot,
   WatchlistMarket,
+  WatchlistsState,
 } from './types';
 
 export function getHealth(): Promise<HealthStatus> {
@@ -43,6 +44,17 @@ export function addWatchlistSymbol(symbol: string): Promise<{ symbols: string[] 
 export function removeWatchlistSymbol(symbol: string): Promise<{ symbols: string[] }> {
   return apiFetch<{ symbols: string[] }>(`/api/watchlist/${encodeURIComponent(symbol)}`, {
     method: 'DELETE',
+  });
+}
+
+export function getWatchlists(): Promise<WatchlistsState> {
+  return apiFetch<WatchlistsState>('/api/watchlists');
+}
+
+export function updateWatchlistSymbols(id: string, symbols: string[]): Promise<WatchlistsState> {
+  return apiFetch<WatchlistsState>(`/api/watchlists/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: { symbols },
   });
 }
 
