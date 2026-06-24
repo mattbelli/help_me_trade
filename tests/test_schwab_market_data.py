@@ -309,8 +309,9 @@ async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
     assert spy["regular_change_pct"] == 0.59
     assert spy["ext_last"] == 593.1
     assert spy["prev_close"] == 589.0
-    # ext_change_pct computed from ext_last vs prev_close
-    expected_ext_pct = round((593.1 - 589.0) / 589.0 * 100, 2)
+    # ext_change_pct: no postMarketPercentChange in this fixture, so it's computed vs
+    # today's regular close (regular_last) — correct for pre/post/overnight.
+    expected_ext_pct = round((593.1 - 592.5) / 592.5 * 100, 2)
     assert spy["ext_change_pct"] == pytest.approx(expected_ext_pct, abs=0.01)
 
     aapl = result["AAPL"]

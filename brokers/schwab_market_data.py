@@ -189,8 +189,9 @@ class SchwabMarketData:
             )
             # Extended-hours price: extended block's lastPrice (or mark as fallback)
             ext_last_raw = extended.get("lastPrice") or extended.get("mark")
-            # Extended change % relative to prev close
             prev_close_raw = quote.get("closePrice")
+            # Schwab's own post/overnight % move (vs today's regular close, like ToS)
+            post_pct_raw = quote.get("postMarketPercentChange")
 
             def _f(v: object) -> float | None:
                 try:
@@ -202,10 +203,17 @@ class SchwabMarketData:
             reg_change_pct = _f(reg_change_pct_raw)
             ext_last = _f(ext_last_raw)
             prev_close = _f(prev_close_raw)
+            post_pct = _f(post_pct_raw)
 
-            # Compute ext_change_pct from ext_last vs prev_close when not supplied
+            # Extended/overnight % move: prefer Schwab's own postMarketPercentChange
+            # (vs today's regular close, matching thinkorswim); else compute vs today's
+            # regular close (correct for pre/post/overnight); else vs prior-day close.
             ext_change_pct: float | None = None
-            if ext_last is not None and prev_close and prev_close != 0:
+            if post_pct is not None:
+                ext_change_pct = round(post_pct, 2)
+            elif ext_last is not None and reg_last and reg_last != 0:
+                ext_change_pct = round((ext_last - reg_last) / reg_last * 100, 2)
+            elif ext_last is not None and prev_close and prev_close != 0:
                 ext_change_pct = round((ext_last - prev_close) / prev_close * 100, 2)
 
             out[sym.upper()] = {
