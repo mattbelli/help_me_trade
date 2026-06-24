@@ -11,14 +11,13 @@
  * prev_close, volume, day_high, day_low. change$ = price − prev_close.
  * rvol shows "1.8×" once serv sends it. Reorder is local (no serv persist endpoint yet).
  */
-import { ActivityIndicator, Dimensions, Pressable, RefreshControl, TextInput, View } from 'react-native';
+import { ActivityIndicator, Dimensions, RefreshControl, TextInput, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import ReorderableList, {
   type ReorderableListReorderEvent,
   reorderItems,
   useIsActive,
-  useReorderableDrag,
 } from 'react-native-reorderable-list';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -149,14 +148,14 @@ function RowBody({
   quote,
   loading,
   onPress,
-  onDrag,
+  grip,
   active,
 }: {
   symbol: string;
   quote?: WatchlistQuote;
   loading?: boolean;
   onPress: () => void;
-  onDrag?: () => void;
+  grip?: boolean;
   active?: boolean;
 }) {
   const changeDol = quote?.prev_close != null ? quote.price - quote.prev_close : undefined;
@@ -168,10 +167,10 @@ function RowBody({
     <View style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, boxShadow: ROW_SHADOW, backgroundColor: active ? colors.surface : undefined }}>
       <PressableScale onPress={onPress}>
         <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
-          {onDrag ? (
-            <Pressable onPressIn={onDrag} hitSlop={12} style={{ position: 'absolute', left: 2, top: 0, bottom: 0, width: PAD_L - 2, alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
+          {grip ? (
+            <View pointerEvents="none" style={{ position: 'absolute', left: 2, top: 0, bottom: 0, width: PAD_L - 2, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
               <GripDots />
-            </Pressable>
+            </View>
           ) : null}
 
           <View style={{ width: SYM_W }}>
@@ -247,9 +246,8 @@ function RowBody({
 
 // Reorderable wrapper — must call the drag hooks inside ReorderableList's renderItem.
 function ReorderableRow({ symbol, quote, loading, onPress }: { symbol: string; quote?: WatchlistQuote; loading?: boolean; onPress: () => void }) {
-  const drag = useReorderableDrag();
   const active = useIsActive();
-  return <RowBody symbol={symbol} quote={quote} loading={loading} onPress={onPress} onDrag={drag} active={active} />;
+  return <RowBody symbol={symbol} quote={quote} loading={loading} onPress={onPress} grip active={active} />;
 }
 
 // ─── 2-col dense cell ─────────────────────────────────────────────────────────
@@ -509,6 +507,7 @@ export function WatchlistScreen() {
         <ReorderableList
           data={data}
           onReorder={onReorder}
+          panActivateAfterLongPress={220}
           onDragStart={() => haptics.impact()}
           onIndexChange={() => haptics.selection()}
           keyExtractor={(symbol) => symbol}
