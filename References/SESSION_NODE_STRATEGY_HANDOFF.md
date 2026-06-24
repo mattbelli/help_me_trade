@@ -28,11 +28,17 @@ broker path.** (Futures aren't on Alpaca — that's why SPY, not /ES.) **Compute
 `research/session_node_signal.py` (committed on my branch; merges with the rest of the data layer):
 - `compute_reference_nodes(prior_session_bars, *, n_bins=100, value_area_pct=0.70) -> ReferenceNodes`
   (POC/VAH/VAL + prior-day high/low from the prior RTH session). Reuses `build_volume_profile`.
-- `detect_node_triggers(intraday_bars, nodes, *, rearm_points=1.0, mode="reversion") -> list[NodeTrigger]`
-  — reversion direction (support node → long, resistance node → short, **target = POC**) with **re-arm
-  hysteresis**: a node fires on touch then DISARMS, and only RE-ARMS after price moves ≥ `rearm_points` away
-  (so chop at a level doesn't spam; a genuine round-trip re-fires). `rearm_points` default 1.0 SPY (≈10 ES).
-- `NodeTrigger` carries: `ts, node_name, node_price, direction, target_price, touch_price, context`.
+- `detect_node_triggers(intraday_bars, nodes, *, rearm_points=2.0, mode="reversion", max_per_node=2,
+  max_triggers_per_day=6) -> list[NodeTrigger]` — entry side. Reversion direction (support node → long,
+  resistance node → short, **target = POC**; POC is target-only, never an entry node) with **re-arm
+  hysteresis** (fire on touch → DISARM → RE-ARM only after price moves ≥ `rearm_points` away → chop doesn't
+  spam, round-trips re-fire) + per-node and per-day caps. Defaults: rearm 2.0 SPY (≈20 ES), 2/node, 6/day
+  (tunable). `NodeTrigger`: `ts, node_name, node_price, direction, target_price, touch_price, context`.
+- **EXIT side (v2):** `detect_exit_prompts(position: OpenPosition, bars_since_entry, *, invalidation_buffer=0.5)
+  -> list[ExitPrompt]` — models Adam's Set management as prompts. `ExitPrompt.kind` ∈ {`target_t1` (reached
+  POC → trim ~half, stop to BE), `runner_extend` (past POC to the opposite value edge → trail the runner /
+  T2), `invalidation` (a CLOSE back through the entry node → consider flat), `day1_close` (last RTH bar →
+  bank day-1 or carry a swing)}. Each kind fires once; deterministic from (position + post-entry bars).
 - Pure/no-lookahead/no `trading/` imports — safe to call from the scan loop.
 
 ## What you build (live wiring)
@@ -47,9 +53,14 @@ broker path.** (Futures aren't on Alpaca — that's why SPY, not /ES.) **Compute
    fabricated — do not attach a fake win%). Respect the global pending cap + market-hours gate.
 4. **Rule**: a `type:"trade"` signal-rule for SPY, **force-created DISABLED** (`create_rule` policy — human
    arms it). One position-direction at a time is fine; rely on the existing sell-only-reduces-held-long guard.
-5. **Exit = human** (v1): the proposal is ENTRY-only; the user closes manually. (v2: exit prompts.)
-6. **LEARN**: log every proposal + its outcome (live analog of `data/research/setstudy_log.csv`) so we can
-   refine which nodes/contexts actually get taken and pay.
+5. **Exit prompts (v2):** when a node proposal is APPROVED and a SPY position is open, build an `OpenPosition`
+   (entry ts/price/direction/node + the day's `nodes`) and call `detect_exit_prompts` each scan; dedup by
+   `(position_id, kind)` (deterministic, fire-once). Push each new prompt as a **phone management notification**
+   ("Reached POC — Set trims half", "runner extending — trail", "closed through entry node — consider flat",
+   "RTH close — bank or swing"). These are PROMPTS — the human still taps to act; a "reduce" routes through the
+   same sell-only-reduces-held-long chokepoint. No auto-exit.
+6. **LEARN**: log every proposal + exit prompt + outcome (live analog of `data/research/setstudy_log.csv`) so we
+   can refine which nodes/contexts get taken and pay.
 
 ## Safety checklist (please confirm in your adversarial review)
 - Propose-only: no path auto-executes; human approves on phone. ✓ (reuse R3 approve path)
@@ -58,7 +69,17 @@ broker path.** (Futures aren't on Alpaca — that's why SPY, not /ES.) **Compute
 - No new broker path — SPY through `ExecutionService.submit` only. ✓
 - No fabricated win%/edge on the proposal — honest low-confidence structure tag. ✓
 
+## Separate task for serv — durable Schwab token sync to the PC research box
+serv now runs the auto-refresher and rotated the Schwab token today, which **invalidated the PC research
+machine's copy** (Schwab rotates on refresh). Today it was hand-fixed with a one-time `scp` from serv. **Make
+it durable:** have serv's auto-refresher (or a tiny post-refresh hook) **push the fresh `data/schwab_token.json`
+to the Windows research box over Tailscale** each cycle (same channel as the nightly backup), so the PC always
+has a current token and never refreshes it itself. Keep serv the SOLE owner/refresher of the Schwab token; the
+PC is read-only consumer (research uses it for free recent SPY/`/ES` pulls). This is infra, independent of the
+strat above — but it's the fix for the "PC token goes stale" problem and worth doing while you're in here.
+(Note: futures-history deep pulls use Databento, not Schwab — unaffected.)
+
 ## Coordination
-This is your lane; I stay in `research/`. When my branch lands you'll have `session_node_signal.py`. Ping me
-if the interface needs adjusting for the scan loop. Start DISABLED; the user arms it when he wants to run the
-daily app-test.
+This is your lane; I stay in `research/`. When my branch lands you'll have `session_node_signal.py` (entry +
+exit-prompt logic). Ping me if the interface needs adjusting for the scan loop. Start DISABLED; the user arms it
+when he wants to run the daily app-test.

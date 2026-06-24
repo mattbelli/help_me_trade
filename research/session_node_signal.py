@@ -5,10 +5,10 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from research.intraday_bars import IntradayBar, load_cached_minute_bars
-from research.intraday_profile import segment_rth_sessions, session_profile, to_ny
+from research.intraday_profile import is_rth, segment_rth_sessions, session_profile, to_ny
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,24 @@ class ReferenceNodes:
             ("PDH", self.pdh),
             ("PDL", self.pdl),
         ]
+
+
+@dataclass(frozen=True)
+class OpenPosition:
+    entry_ts: str
+    entry_price: float
+    direction: str
+    entry_node_name: str
+    entry_node_price: float
+    nodes: ReferenceNodes
+
+
+@dataclass(frozen=True)
+class ExitPrompt:
+    ts: str
+    kind: str
+    price: float
+    message: str
 
 
 @dataclass(frozen=True)
@@ -158,6 +176,164 @@ def detect_node_triggers(
     return triggers
 
 
+def _day1_session_date(entry_ts: str) -> date:
+    """NY session date whose last RTH bar triggers day1_close."""
+    entry_ny = to_ny(entry_ts)
+    if is_rth(entry_ts):
+        return entry_ny.date()
+    entry_local = entry_ny.timetz().replace(tzinfo=None)
+    if entry_local >= time(16, 0):
+        return entry_ny.date() + timedelta(days=1)
+    return entry_ny.date()
+
+
+def _last_rth_bar_ts(
+    bars: list[IntradayBar], session_date: date
+) -> str | None:
+    last_ts: str | None = None
+    for bar in sorted(bars, key=lambda item: item["t"]):
+        if is_rth(bar["t"]) and to_ny(bar["t"]).date() == session_date:
+            last_ts = bar["t"]
+    return last_ts
+
+
+def detect_exit_prompts(
+    position: OpenPosition,
+    bars_since_entry: list[IntradayBar],
+    *,
+    invalidation_buffer: float = 0.5,
+) -> list[ExitPrompt]:
+    """Walk post-entry bars and emit Set-style exit prompts (each kind at most once)."""
+    entry_ts = position.entry_ts
+    ordered = sorted(
+        (bar for bar in bars_since_entry if bar["t"] > entry_ts),
+        key=lambda item: item["t"],
+    )
+    day1_close_ts = _last_rth_bar_ts(
+        bars_since_entry, _day1_session_date(entry_ts)
+    )
+
+    fired: set[str] = set()
+    prompts: list[ExitPrompt] = []
+    target_hit = False
+    nodes = position.nodes
+    entry_node = position.entry_node_name
+    entry_node_price = position.entry_node_price
+
+    for bar in ordered:
+        ts = bar["t"]
+        high = float(bar["h"])
+        low = float(bar["l"])
+        close = float(bar["c"])
+
+        if "invalidation" not in fired:
+            if position.direction == "long":
+                if close < entry_node_price - invalidation_buffer:
+                    prompts.append(
+                        ExitPrompt(
+                            ts=ts,
+                            kind="invalidation",
+                            price=close,
+                            message=(
+                                f"Closed back through {entry_node} (entry node) — "
+                                "Set invalidation, consider flat."
+                            ),
+                        )
+                    )
+                    fired.add("invalidation")
+            elif position.direction == "short":
+                if close > entry_node_price + invalidation_buffer:
+                    prompts.append(
+                        ExitPrompt(
+                            ts=ts,
+                            kind="invalidation",
+                            price=close,
+                            message=(
+                                f"Closed back through {entry_node} (entry node) — "
+                                "Set invalidation, consider flat."
+                            ),
+                        )
+                    )
+                    fired.add("invalidation")
+
+        if "target_t1" not in fired:
+            if position.direction == "long" and high >= nodes.poc:
+                prompts.append(
+                    ExitPrompt(
+                        ts=ts,
+                        kind="target_t1",
+                        price=nodes.poc,
+                        message=(
+                            f"Reached POC {nodes.poc} — Set's first target: "
+                            "trim ~half, stop to breakeven."
+                        ),
+                    )
+                )
+                fired.add("target_t1")
+                target_hit = True
+            elif position.direction == "short" and low <= nodes.poc:
+                prompts.append(
+                    ExitPrompt(
+                        ts=ts,
+                        kind="target_t1",
+                        price=nodes.poc,
+                        message=(
+                            f"Reached POC {nodes.poc} — Set's first target: "
+                            "trim ~half, stop to breakeven."
+                        ),
+                    )
+                )
+                fired.add("target_t1")
+                target_hit = True
+
+        if "runner_extend" not in fired and target_hit:
+            if position.direction == "long" and high >= nodes.vah:
+                prompts.append(
+                    ExitPrompt(
+                        ts=ts,
+                        kind="runner_extend",
+                        price=nodes.vah,
+                        message=(
+                            f"Runner extending to {nodes.vah} — "
+                            "trail the rest (Set T2)."
+                        ),
+                    )
+                )
+                fired.add("runner_extend")
+            elif position.direction == "short" and low <= nodes.val:
+                prompts.append(
+                    ExitPrompt(
+                        ts=ts,
+                        kind="runner_extend",
+                        price=nodes.val,
+                        message=(
+                            f"Runner extending to {nodes.val} — "
+                            "trail the rest (Set T2)."
+                        ),
+                    )
+                )
+                fired.add("runner_extend")
+
+        if (
+            "day1_close" not in fired
+            and day1_close_ts is not None
+            and ts == day1_close_ts
+        ):
+            prompts.append(
+                ExitPrompt(
+                    ts=ts,
+                    kind="day1_close",
+                    price=close,
+                    message=(
+                        "RTH close — Set: bank the day-1 half or carry a swing/runner."
+                    ),
+                )
+            )
+            fired.add("day1_close")
+
+    return prompts
+
+
 def _reversion_direction(node_price: float, poc: float) -> str | None:
     if node_price < poc:
         return "long"
@@ -251,6 +427,20 @@ def main(argv: list[str] | None = None) -> int:
             f"touch={trigger.touch_price:.2f}  target={trigger.target_price:.2f}  "
             f"({trigger.context})"
         )
+        position = OpenPosition(
+            entry_ts=trigger.ts,
+            entry_price=trigger.touch_price,
+            direction=trigger.direction,
+            entry_node_name=trigger.node_name,
+            entry_node_price=trigger.node_price,
+            nodes=nodes,
+        )
+        exit_prompts = detect_exit_prompts(position, today_bars)
+        for prompt in exit_prompts:
+            print(
+                f"    exit {prompt.ts}  {prompt.kind}  price={prompt.price:.2f}  "
+                f"{prompt.message}"
+            )
     print(f"total={len(triggers)}")
     return 0
 
