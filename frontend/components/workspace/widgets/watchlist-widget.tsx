@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Reorder, useDragControls } from "motion/react";
 import { Sparkline } from "@/components/trading/sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,6 +54,46 @@ function formatMarketCap(value: number): string {
     return `$${(value / 1_000_000).toFixed(0)}M`;
   }
   return `$${value.toLocaleString()}`;
+}
+
+function daysUntil(dateStr: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!match) return null;
+
+  const [, year, month, day] = match;
+  const target = new Date(Number(year), Number(month) - 1, Number(day));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffMs = target.getTime() - today.getTime();
+  return Math.round(diffMs / (24 * 60 * 60 * 1000));
+}
+
+function earningsCountdownSuffix(days: number): string {
+  if (days === 0) return "today";
+  if (days === 1) return "1d";
+  return `${days}d`;
+}
+
+function earningsBadgeLabel(days: number): string {
+  if (days === 0) return "E·today";
+  if (days === 1) return "E·1d";
+  return `E·${days}d`;
+}
+
+function earningsUrgencyColor(days: number): string {
+  if (days <= 1) return "var(--c-red)";
+  if (days <= 3) return "var(--c-amber, var(--c-yellow))";
+  return "var(--fg-dim)";
+}
+
+function earningsBadgeStyle(days: number): CSSProperties {
+  const color = earningsUrgencyColor(days);
+  return {
+    color,
+    background: `color-mix(in srgb, ${color} 12%, transparent)`,
+    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${color} 35%, var(--border))`,
+  };
 }
 
 function WatchlistAddRow({
@@ -312,15 +352,32 @@ function FundamentalsPanel({
   const divYieldStr =
     quote?.div_yield != null ? `${quote.div_yield.toFixed(2)}%` : dash;
   const lastEarningsStr = quote?.last_earnings ?? dash;
-  const nextEarningsStr = quote?.next_earnings ?? dash;
 
-  const items: { label: string; value: string }[] = [
+  const nextEarningsDate = quote?.next_earnings ?? null;
+  const nextEarningsDays =
+    nextEarningsDate != null ? daysUntil(nextEarningsDate) : null;
+  const nextEarningsStr =
+    nextEarningsDate == null
+      ? dash
+      : nextEarningsDays != null &&
+          nextEarningsDays >= 0 &&
+          nextEarningsDays <= 14
+        ? `${nextEarningsDate} · ${earningsCountdownSuffix(nextEarningsDays)}`
+        : nextEarningsDate;
+  const nextEarningsColor =
+    nextEarningsDays != null &&
+    nextEarningsDays >= 0 &&
+    nextEarningsDays <= 14
+      ? earningsUrgencyColor(nextEarningsDays)
+      : "var(--fg-dim)";
+
+  const items: { label: string; value: string; color?: string }[] = [
     { label: "P/E", value: peStr },
     { label: "Mkt Cap", value: mktCapStr },
     { label: "EPS", value: epsStr },
     { label: "Div Yield", value: divYieldStr },
     { label: "Last Earns", value: lastEarningsStr },
-    { label: "Next Earns", value: nextEarningsStr },
+    { label: "Next Earns", value: nextEarningsStr, color: nextEarningsColor },
   ];
 
   return (
@@ -332,7 +389,7 @@ function FundamentalsPanel({
           background: "var(--bg-inset)",
         }}
       >
-        {items.map(({ label, value }) => (
+        {items.map(({ label, value, color }) => (
           <div key={label} className="flex flex-col gap-px">
             <span
               className="text-[9px] font-medium tracking-[0.04em] uppercase"
@@ -342,7 +399,7 @@ function FundamentalsPanel({
             </span>
             <span
               className="tabular-nums text-[11px]"
-              style={{ color: "var(--fg-dim)" }}
+              style={{ color: color ?? "var(--fg-dim)" }}
             >
               {value}
             </span>
@@ -387,6 +444,12 @@ function WatchlistSymbolRow({
     : (quote?.change_pct ?? 0);
   const positive = displayChangePct >= 0;
 
+  const nextEarningsDate = quote?.next_earnings ?? null;
+  const earningsDays =
+    nextEarningsDate != null ? daysUntil(nextEarningsDate) : null;
+  const showEarningsBadge =
+    earningsDays != null && earningsDays >= 0 && earningsDays <= 14;
+
   return (
     <Reorder.Item
       value={symbol}
@@ -428,6 +491,15 @@ function WatchlistSymbolRow({
           <span className="truncate font-medium text-[var(--c-accent)]">
             {symbol}
           </span>
+          {showEarningsBadge && nextEarningsDate ? (
+            <span
+              className="shrink-0 rounded px-0.5 font-mono text-[9px] leading-none"
+              style={earningsBadgeStyle(earningsDays)}
+              title={`Earnings ${nextEarningsDate}`}
+            >
+              {earningsBadgeLabel(earningsDays)}
+            </span>
+          ) : null}
           <button
             type="button"
             disabled={removing}
