@@ -57,6 +57,31 @@ export function Text({
 }
 
 /**
+ * ScreenTitle — the per-screen identifier: lowercase accent monospace, a touch
+ * larger than a section Eyebrow. One uniform treatment across every screen (the
+ * "minimal eyebrow" title system) so screens stop drifting in their headers.
+ */
+export function ScreenTitle({
+  children,
+  style,
+}: {
+  children: RNTextProps['children'];
+  style?: RNTextProps['style'];
+}) {
+  return (
+    <RNText
+      maxFontSizeMultiplier={1.2}
+      style={[
+        { fontFamily: fonts.mono, fontSize: 14, letterSpacing: 1.2, color: resolveColor('accent'), textTransform: 'lowercase' },
+        style,
+      ]}
+    >
+      {children}
+    </RNText>
+  );
+}
+
+/**
  * Eyebrow — the lowercase, letter-spaced monospace section label that gives the
  * app its terminal cue (e.g. "portfolio value", "holdings"). Faint by default.
  */

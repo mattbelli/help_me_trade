@@ -50,6 +50,7 @@ import {
   PressableScale,
   Row,
   Screen,
+  ScreenTitle,
   Skeleton,
   Sparkline,
   Stack,
@@ -416,7 +417,7 @@ function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone, session }: { on
   return (
     <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
       <Row gap={spacing.sm} align="center">
-        <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.accent }}>watchlist</Text>
+        <ScreenTitle>watchlist</ScreenTitle>
         {session ? (
           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: colors.warmWash }}>
             <Text style={{ ...mono, fontSize: 10, letterSpacing: 0.6, color: colors.warm }}>{session}</Text>

@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useHealth } from '@/api/queries';
 import { useAuth } from '@/auth/auth-context';
 import { Icon } from '@/components/ui/icon';
-import { Button, Card, Eyebrow, PressableScale, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
+import { Button, Card, Eyebrow, PressableScale, Row, Screen, ScreenTitle, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
 import { colors, spacing } from '@/theme';
 
@@ -102,7 +102,7 @@ export function SettingsScreen() {
                 <Stack gap={2} style={{ flex: 1 }}>
                   <Text variant="bodyStrong">Strategies</Text>
                   <Text variant="caption" color="textMuted">
-                    configure the agent's strategies — coming soon
+                    configure the agent&apos;s strategies — coming soon
                   </Text>
                 </Stack>
                 <Icon name="chevron-right" size={20} color={colors.textMuted} />
@@ -123,12 +123,7 @@ export function SettingsScreen() {
 }
 
 function Header() {
-  return (
-    <Stack gap={2}>
-      <Eyebrow color="accent">settings</Eyebrow>
-      <Text variant="title">Preferences</Text>
-    </Stack>
-  );
+  return <ScreenTitle>settings</ScreenTitle>;
 }
 
 function stripScheme(url: string): string {
