@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from brokers.market_stream import MarketStreamHub, market_hub
+from api.main import market_hub
+from brokers.market_stream import MarketStreamHub
 
 
 @pytest.mark.asyncio

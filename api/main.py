@@ -36,8 +36,10 @@ from brokers.factory import (
     get_broker_for_account,
     get_enabled_broker_names,
     get_market_data_provider,
+    market_data_provider_name,
 )
-from brokers.market_stream import market_hub
+from brokers.market_stream import AlpacaMarketStreamHub, BaseMarketHub
+from brokers.schwab_market_stream import SchwabMarketStreamHub
 from config.settings import (
     add_watchlist_symbol,
     apply_settings_patch,
@@ -119,6 +121,15 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# NB: the live-quote hub follows the DATA provider (MARKET_DATA_PROVIDER), NOT the
+# execution broker. Keeps Schwab data/streaming decoupled from order routing —
+# Schwab stays read-only; activating Schwab streaming must never imply Schwab execution.
+market_hub: BaseMarketHub = (
+    SchwabMarketStreamHub()
+    if market_data_provider_name() == "schwab"
+    else AlpacaMarketStreamHub()
+)
 
 
 async def _poll_account(account: dict) -> bool:

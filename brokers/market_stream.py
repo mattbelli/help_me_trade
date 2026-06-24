@@ -1,4 +1,14 @@
-"""Alpaca market data WebSocket hub — one upstream connection, many browser clients."""
+"""Market data WebSocket hub — one upstream connection, many browser clients.
+
+`BaseMarketHub` holds all broker-agnostic machinery: browser-client
+register/subscribe/broadcast, the pending-add/remove diff logic, QuoteState,
+and alert broadcasting.  Broker-specific subclasses override only
+`_upstream_loop` and `_ensure_baselines`.
+
+Concrete implementations:
+  AlpacaMarketStreamHub — original Alpaca IEX/SIP websocket upstream (default)
+  SchwabMarketStreamHub — Schwab StreamClient upstream (see schwab_market_stream.py)
+"""
 
 from __future__ import annotations
 
@@ -28,6 +38,8 @@ def alpaca_market_ws_url(feed: str | None = None) -> str:
         feed if feed is not None else alpaca_config().get("data_feed", "iex")
     )
     return f"wss://stream.data.alpaca.markets/v2/{resolved}"
+
+
 MAX_WS_SYMBOLS = 30
 RECONNECT_BASE_SEC = 2.0
 RECONNECT_MAX_SEC = 60.0
@@ -39,10 +51,18 @@ class QuoteState:
     change_pct: float = 0.0
     sparkline: list[float] = field(default_factory=list)
     prev_close: float = 0.0
+    bid: float = 0.0
+    ask: float = 0.0
+    volume: float = 0.0
 
 
-class MarketStreamHub:
-    """Shares a single Alpaca data stream across frontend WebSocket clients."""
+class BaseMarketHub:
+    """Broker-agnostic hub: browser-client registry, broadcast, and pending-diff logic.
+
+    Subclasses must implement:
+      `_upstream_loop()` — drives the upstream connection
+      `_ensure_baselines(symbols)` — seeds QuoteState for new symbols
+    """
 
     def __init__(self) -> None:
         self._clients: dict[WebSocket, set[str]] = {}
@@ -112,10 +132,15 @@ class MarketStreamHub:
         await ws.send_json(
             {
                 "type": "quotes",
-                "live": broker_is_configured("alpaca"),
+                "live": self._live_flag(),
                 "quotes": {sym: _quote_payload(state) for sym, state in quotes.items()},
             }
         )
+
+    def _live_flag(self) -> bool:
+        """Return the 'live' bool sent in quote payloads.  Subclasses may override."""
+        from config.settings import primary_broker
+        return broker_is_configured(primary_broker())
 
     async def _broadcast_quote(self, symbol: str) -> None:
         state = self._quotes.get(symbol)
@@ -194,6 +219,52 @@ class MarketStreamHub:
             self._pending_remove |= to_remove
         if to_add:
             await self._ensure_baselines(to_add)
+
+    async def _ensure_baselines(self, symbols: set[str]) -> None:
+        """Seed QuoteState for new symbols.  Override in each subclass."""
+        raise NotImplementedError
+
+    async def _upstream_loop(self) -> None:
+        """Drive the upstream broker connection.  Override in each subclass."""
+        raise NotImplementedError
+
+    async def _check_price_alerts(
+        self, symbol: str, prev: float, current: float
+    ) -> None:
+        try:
+            from api.alert_checker import check_alerts
+
+            triggered = await asyncio.to_thread(
+                check_alerts,
+                {symbol: current},
+                prev_quotes={symbol: prev},
+            )
+        except Exception as exc:
+            logger.warning("Price alert check failed: %s", exc)
+            return
+
+        for alert in triggered:
+            payload = {
+                "type": "alert",
+                "symbol": symbol,
+                "price": current,
+                "alert": alert,
+            }
+            dead: list[WebSocket] = []
+            for ws in list(self._clients):
+                try:
+                    await ws.send_json(payload)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                self._clients.pop(ws, None)
+
+
+class AlpacaMarketStreamHub(BaseMarketHub):
+    """Alpaca IEX/SIP websocket upstream — original behavior, unchanged."""
+
+    def _live_flag(self) -> bool:
+        return broker_is_configured("alpaca")
 
     async def _ensure_baselines(self, symbols: set[str]) -> None:
         missing = [s for s in symbols if s not in self._quotes]
@@ -397,37 +468,6 @@ class MarketStreamHub:
             await self._check_price_alerts(symbol, prev, price_f)
         self._prev_prices[symbol] = price_f
 
-    async def _check_price_alerts(
-        self, symbol: str, prev: float, current: float
-    ) -> None:
-        try:
-            from api.alert_checker import check_alerts
-
-            triggered = await asyncio.to_thread(
-                check_alerts,
-                {symbol: current},
-                prev_quotes={symbol: prev},
-            )
-        except Exception as exc:
-            logger.warning("Price alert check failed: %s", exc)
-            return
-
-        for alert in triggered:
-            payload = {
-                "type": "alert",
-                "symbol": symbol,
-                "price": current,
-                "alert": alert,
-            }
-            dead: list[WebSocket] = []
-            for ws in list(self._clients):
-                try:
-                    await ws.send_json(payload)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                self._clients.pop(ws, None)
-
     async def _on_daily_bar(self, item: dict[str, Any]) -> None:
         symbol = str(item.get("S", "")).upper()
         close = item.get("c")
@@ -452,6 +492,15 @@ class MarketStreamHub:
             await self._check_price_alerts(symbol, prev, close_f)
         self._prev_prices[symbol] = close_f
         await self._broadcast_quote(symbol)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat alias: `market_hub` is now created in api/main.py via the
+# factory.  This module-level instance is kept for code that imports it
+# directly from brokers.market_stream (existing tests, etc.).
+# ---------------------------------------------------------------------------
+class MarketStreamHub(AlpacaMarketStreamHub):
+    """Backward-compatible alias — new code should use AlpacaMarketStreamHub."""
 
 
 def _parse_alpaca_frame(raw: str) -> list[dict[str, Any]]:
@@ -490,6 +539,9 @@ def _quote_payload(state: QuoteState) -> dict[str, Any]:
         "price": state.price,
         "change_pct": state.change_pct,
         "sparkline": state.sparkline,
+        "bid": state.bid,
+        "ask": state.ask,
+        "volume": state.volume,
     }
 
 
