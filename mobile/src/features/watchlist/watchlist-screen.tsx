@@ -13,7 +13,8 @@
  */
 import { ActivityIndicator, Dimensions, RefreshControl, TextInput, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeInDown, runOnJS } from 'react-native-reanimated';
+import { Gesture } from 'react-native-gesture-handler';
 import ReorderableList, {
   type ReorderableListReorderEvent,
   reorderItems,
@@ -127,6 +128,17 @@ function TriColumn({
     </View>
   );
 }
+
+// The lib fires onDragStart/onIndexChange INSIDE worklets (UI thread), so haptics
+// (plain JS) must be hopped back to the JS thread via runOnJS.
+const onDragStartHaptic = () => {
+  'worklet';
+  runOnJS(haptics.impact)();
+};
+const onIndexChangeHaptic = () => {
+  'worklet';
+  runOnJS(haptics.selection)();
+};
 
 function GripDots() {
   return (
@@ -474,6 +486,10 @@ export function WatchlistScreen() {
     haptics.success();
   };
 
+  // Per the lib's swipe-coexistence guidance: the drag pan only activates after a
+  // long-press, so a quick horizontal swipe passes through to the pager.
+  const dragPan = useMemo(() => Gesture.Pan().activateAfterLongPress(400), []);
+
   const reorderable = sort.key === null;
 
   const header = (
@@ -507,9 +523,9 @@ export function WatchlistScreen() {
         <ReorderableList
           data={data}
           onReorder={onReorder}
-          panActivateAfterLongPress={220}
-          onDragStart={() => haptics.impact()}
-          onIndexChange={() => haptics.selection()}
+          panGesture={dragPan}
+          onDragStart={onDragStartHaptic}
+          onIndexChange={onIndexChangeHaptic}
           keyExtractor={(symbol) => symbol}
           refreshControl={refreshControl}
           contentContainerStyle={{ paddingBottom: 110, paddingTop: spacing.xs }}
