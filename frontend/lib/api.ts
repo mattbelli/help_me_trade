@@ -444,6 +444,43 @@ export async function addWatchlistSymbol(symbol: string): Promise<string[]> {
   return data.symbols ?? [];
 }
 
+// ── RVOL Scanner ──────────────────────────────────────────────────────────────
+
+export type RvolScannerRow = {
+  symbol: string;
+  rvol: number;
+  total_volume: number;
+  price: number;
+};
+
+export type RvolScannerResult = {
+  as_of: string;
+  session: "pre" | "regular" | "post" | "overnight" | "closed";
+  count: number;
+  results: RvolScannerRow[];
+  note?: string;
+};
+
+export async function fetchRvolScanner(
+  minRvol = 1.5,
+  limit = 50,
+): Promise<RvolScannerResult> {
+  const params = new URLSearchParams({
+    min_rvol: String(minRvol),
+    limit: String(limit),
+  });
+  const res = await apiFetch(`${API_BASE}/api/scanner/rvol?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `RVOL scanner error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export async function removeWatchlistSymbol(symbol: string): Promise<string[]> {
   const res = await apiFetch(
     `${API_BASE}/api/watchlist/${encodeURIComponent(symbol)}`,
