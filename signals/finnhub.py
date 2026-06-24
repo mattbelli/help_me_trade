@@ -8,6 +8,7 @@ the whole universe's quarter. Free tier is 60 req/min — a daily refresh uses o
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 
 import httpx
 
@@ -85,6 +86,48 @@ async def afetch_earnings_calendar(
             return _parse_calendar(resp.json())
     except httpx.HTTPError as exc:
         raise FinnhubError(f"earnings calendar request failed: {exc}") from exc
+
+
+async def afetch_past_earnings_dates(
+    symbol: str,
+    *,
+    lookback_days: int = 730,
+    token: str | None = None,
+    timeout: float = _TIMEOUT,
+) -> list[str]:
+    """Return past earnings dates for a single symbol, most-recent-first.
+
+    Queries Finnhub's earnings calendar from ~lookback_days ago to today,
+    filters to events on or before today, and returns YYYY-MM-DD strings.
+    Fail-soft: returns [] on missing key, non-200, or any other error.
+    """
+    token = token or finnhub_api_key()
+    if not token:
+        logger.warning("FINNHUB_API_KEY not set — skipping past earnings fetch")
+        return []
+
+    today = date.today()
+    from_date = (today - timedelta(days=lookback_days)).isoformat()
+    to_date = today.isoformat()
+    sym = symbol.strip().upper()
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                f"{FINNHUB_BASE}/calendar/earnings",
+                params={"symbol": sym, "from": from_date, "to": to_date, "token": token},
+            )
+            resp.raise_for_status()
+            rows = _parse_calendar(resp.json())
+    except Exception as exc:  # noqa: BLE001 — fail-soft for endpoint
+        logger.warning("Finnhub past earnings fetch for %s failed: %s", sym, exc)
+        return []
+
+    past = sorted(
+        {r["date"] for r in rows if r["symbol"] == sym and r["date"] <= to_date},
+        reverse=True,
+    )
+    return past
 
 
 def finnhub_is_configured() -> bool:

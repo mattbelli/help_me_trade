@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from db.base import connect
 from research.earnings import (
@@ -190,3 +193,187 @@ def test_earnings_history_reactions_order_and_limit(tmp_path: Path) -> None:
     assert results[2]["date"] == "2024-04-23"
     assert results[0]["reaction_pct"] == round((220.0 - 200.0) / 200.0 * 100, 2)  # 10.0
     assert results[2]["reaction_pct"] == round((189.0 - 210.0) / 210.0 * 100, 2)  # -10.0
+
+
+# ---------------------------------------------------------------------------
+# afetch_past_earnings_dates — Finnhub-backed, network-free via mock
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_afetch_past_earnings_dates_returns_past_most_recent_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Returns past dates for the queried symbol, most-recent-first."""
+    from signals import finnhub
+
+    fake_rows = [
+        {"symbol": "AAPL", "date": "2025-01-30", "hour": "amc"},
+        {"symbol": "AAPL", "date": "2024-10-31", "hour": "amc"},
+        {"symbol": "AAPL", "date": "2024-08-01", "hour": "amc"},
+        {"symbol": "MSFT", "date": "2025-01-29", "hour": "amc"},  # different symbol — excluded
+    ]
+
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "fake-key")
+
+    # Patch the async HTTP call to return our fake rows via _parse_calendar.
+    # raise_for_status is sync on httpx responses, so use MagicMock (not AsyncMock).
+    with patch("signals.finnhub._parse_calendar", return_value=fake_rows):
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status = MagicMock(return_value=None)
+            mock_resp.json = MagicMock(return_value={"earningsCalendar": []})
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_resp)
+            mock_client_cls.return_value = mock_client
+
+            result = await finnhub.afetch_past_earnings_dates("AAPL")
+
+    assert result == ["2025-01-30", "2024-10-31", "2024-08-01"]
+
+
+@pytest.mark.asyncio
+async def test_afetch_past_earnings_dates_returns_empty_on_missing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-soft: returns [] when API key is absent."""
+    from signals import finnhub
+
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "")
+    result = await finnhub.afetch_past_earnings_dates("AAPL")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_afetch_past_earnings_dates_returns_empty_on_http_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-soft: returns [] on network error."""
+    import httpx
+
+    from signals import finnhub
+
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "fake-key")
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("timeout"))
+        mock_client_cls.return_value = mock_client
+
+        result = await finnhub.afetch_past_earnings_dates("AAPL")
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# /api/fundamentals/earnings-history endpoint — Finnhub-backed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_earnings_history_endpoint_returns_reactions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Endpoint wires Finnhub dates + bars → reaction list, most-recent-first."""
+    from fastapi.testclient import TestClient
+
+    import signals.finnhub as finnhub_mod
+    from api.main import app
+
+    # Fake bars: three earnings events
+    bars = _make_bars(
+        ("2024-07-29", 190.0),
+        ("2024-07-30", 200.0),  # reaction on 2024-07-30: +5.26%
+        ("2024-10-30", 200.0),
+        ("2024-10-31", 180.0),  # reaction on 2024-10-31: -10%
+        ("2025-01-29", 180.0),
+        ("2025-01-30", 189.0),  # reaction on 2025-01-30: +5%
+    )
+
+    fake_dates = ["2025-01-30", "2024-10-31", "2024-07-30"]
+
+    monkeypatch.setattr(
+        finnhub_mod,
+        "afetch_past_earnings_dates",
+        AsyncMock(return_value=fake_dates),
+    )
+
+    class _FakeProvider:
+        async def aget_stock_bars(self, symbol, *, timeframe, days):
+            return bars
+
+    import brokers.factory as factory_mod
+
+    monkeypatch.setattr(factory_mod, "get_market_data_provider", lambda: _FakeProvider())
+    # Also patch the reference in api.main
+    import api.main as api_main_mod
+
+    monkeypatch.setattr(api_main_mod, "get_market_data_provider", lambda: _FakeProvider())
+
+    with TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=True) as client:
+        resp = client.get("/api/fundamentals/earnings-history?symbol=AAPL&n=6")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["symbol"] == "AAPL"
+    events = data["events"]
+    assert len(events) == 3
+    # most-recent first
+    assert events[0]["date"] == "2025-01-30"
+    assert events[1]["date"] == "2024-10-31"
+    assert events[2]["date"] == "2024-07-30"
+    assert events[0]["reaction_pct"] == round((189.0 - 180.0) / 180.0 * 100, 2)
+    assert events[1]["reaction_pct"] == round((180.0 - 200.0) / 200.0 * 100, 2)
+    assert events[2]["reaction_pct"] == round((200.0 - 190.0) / 190.0 * 100, 2)
+
+
+@pytest.mark.asyncio
+async def test_earnings_history_endpoint_missing_symbol() -> None:
+    """Returns 400 when symbol is absent."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get("/api/fundamentals/earnings-history")
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_earnings_history_endpoint_empty_on_finnhub_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Returns empty events list (not 500) when Finnhub fetch fails."""
+    from fastapi.testclient import TestClient
+
+    import signals.finnhub as finnhub_mod
+    from api.main import app
+
+    bars = _make_bars(("2025-01-29", 100.0), ("2025-01-30", 110.0))
+
+    monkeypatch.setattr(
+        finnhub_mod,
+        "afetch_past_earnings_dates",
+        AsyncMock(return_value=[]),  # fail-soft returns []
+    )
+
+    class _FakeProvider:
+        async def aget_stock_bars(self, symbol, *, timeframe, days):
+            return bars
+
+    import api.main as api_main_mod
+
+    monkeypatch.setattr(api_main_mod, "get_market_data_provider", lambda: _FakeProvider())
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get("/api/fundamentals/earnings-history?symbol=TSLA")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"symbol": "TSLA", "events": []}

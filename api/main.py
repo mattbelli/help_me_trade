@@ -1513,8 +1513,12 @@ async def api_earnings_history(symbol: str = "", n: int = 6):
     Returns:
       {"symbol": str, "events": [{"date": "YYYY-MM-DD", "reaction_pct": float}, ...]}
       Events are ordered most-recent first. Empty events list on any data error.
+
+    Dates are sourced from Finnhub (per-symbol calendar query, no local cache
+    required). Falls back to [] on any error — never returns 500.
     """
-    from research.earnings import earnings_history_reactions
+    from research.earnings import compute_reaction_pct
+    from signals.finnhub import afetch_past_earnings_dates
 
     sym = symbol.strip().upper()
     if not sym:
@@ -1533,9 +1537,16 @@ async def api_earnings_history(symbol: str = "", n: int = 6):
         return {"symbol": sym, "events": []}
 
     try:
-        events = earnings_history_reactions(sym, bars, n=n)
+        past_dates = await afetch_past_earnings_dates(sym)
     except Exception:  # noqa: BLE001
         return {"symbol": sym, "events": []}
+
+    # past_dates is already most-recent-first; take up to n then compute reactions
+    events: list[dict] = []
+    for d in past_dates[:n]:
+        pct = compute_reaction_pct(d, bars)
+        if pct is not None:
+            events.append({"date": d, "reaction_pct": pct})
 
     return {"symbol": sym, "events": events}
 
