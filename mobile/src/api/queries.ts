@@ -2,6 +2,7 @@ import { useAuth } from '@/auth/auth-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  addWatchlistSymbol,
   approveProposal,
   createPriceAlert,
   deletePriceAlert,
@@ -15,6 +16,7 @@ import {
   getWatchlist,
   getWatchlistMarket,
   rejectProposal,
+  removeWatchlistSymbol,
 } from './endpoints';
 import type { PortfolioRange } from './types';
 
@@ -54,6 +56,28 @@ export function useWatchlist() {
     queryFn: getWatchlist,
     enabled,
     staleTime: 60_000,
+  });
+}
+
+export function useAddWatchlistSymbol() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (symbol: string) => addWatchlistSymbol(symbol),
+    onSuccess: (data) => {
+      qc.setQueryData(['watchlist'], data);
+      void qc.invalidateQueries({ queryKey: ['watchlist'] });
+    },
+  });
+}
+
+export function useRemoveWatchlistSymbol() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (symbol: string) => removeWatchlistSymbol(symbol),
+    onSuccess: (data) => {
+      qc.setQueryData(['watchlist'], data);
+      void qc.invalidateQueries({ queryKey: ['watchlist'] });
+    },
   });
 }
 

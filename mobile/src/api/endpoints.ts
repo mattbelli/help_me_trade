@@ -33,6 +33,19 @@ export function getWatchlist(): Promise<{ symbols: string[] }> {
   return apiFetch<{ symbols: string[] }>('/api/watchlist');
 }
 
+export function addWatchlistSymbol(symbol: string): Promise<{ symbols: string[] }> {
+  return apiFetch<{ symbols: string[] }>('/api/watchlist', {
+    method: 'POST',
+    body: { symbol: symbol.trim().toUpperCase() },
+  });
+}
+
+export function removeWatchlistSymbol(symbol: string): Promise<{ symbols: string[] }> {
+  return apiFetch<{ symbols: string[] }>(`/api/watchlist/${encodeURIComponent(symbol)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function getWatchlistMarket(
   symbols?: string[],
 ): Promise<WatchlistMarket> {

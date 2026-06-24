@@ -1,29 +1,33 @@
 /**
- * Watchlist — Robinhood-style rows.
- *  1-col: SYM · [H / LAST / L] · [CHG% / CHG$] · [VOL / vol] · short day-chart.
- *         Prominent values (LAST · CHG% · VOL) align on the middle line; the small
- *         values (low · CHG$ · vol) on the line below. Each row carries a subtle
- *         magnitude tint (deeper red/green for bigger moves) + a depth shadow.
+ * Watchlist — full-bleed Robinhood-style rows.
+ *  1-col (user order): grip · SYM · [H/LAST/L] · [CHG%/CHG$] · [VOL/vol] · day-chart.
+ *    Rows + dividers span edge-to-edge; the % FONT color scales with magnitude.
+ *    Long-press / grab the grip dots to drag-reorder (user order only).
+ *  1-col (column sort): same rows, no grips; tap a header to sort (desc→asc→user).
  *  2-col: dense grid — twice the tickers.
- *
- * Sortable by tapping a column header: tap → desc, tap again → asc, third → user order.
+ *  "+" (left of the column headers) adds a ticker.
  *
  * Real fields from /api/watchlist/market: price, change_pct, sparkline, intraday,
  * prev_close, volume, day_high, day_low. change$ = price − prev_close.
- * rvol (relative volume) is wired forward-compatibly — shows as "1.8×" once serv sends it.
+ * rvol shows "1.8×" once serv sends it. Reorder is local (no serv persist endpoint yet).
  */
-import { Dimensions, RefreshControl, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Modal, Pressable, RefreshControl, TextInput, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
+import ReorderableList, {
+  type ReorderableListReorderEvent,
+  reorderItems,
+  useIsActive,
+  useReorderableDrag,
+} from 'react-native-reorderable-list';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useWatchlist, useWatchlistMarket } from '@/api/queries';
+import { useAddWatchlistSymbol, useWatchlist, useWatchlistMarket } from '@/api/queries';
 import type { WatchlistQuote } from '@/api/types';
 import { Icon } from '@/components/ui/icon';
 import {
   EmptyState,
   ErrorState,
-  Eyebrow,
   Money,
   PressableScale,
   Row,
@@ -39,12 +43,21 @@ import { colors, fonts, hairline, pnlColor, spacing } from '@/theme';
 import { MiniDayChart } from './mini-day-chart';
 
 const SCREEN_W = Dimensions.get('window').width;
-const SYM_W = 50; // fits 4–5 char tickers (NVDA, GOOGL)
-const PRICE_W = 92; // fits a 4-digit LAST at the prominent "md" size ($1,072.45)
-const CHG_W = 66; // fits a double-digit signed percent (−12.55%)
-const VOL_W = 46;
+const PAD_L = 28; // left gutter holds the grip / + in line with the content
+const PAD_R = spacing.xl;
+const SYM_W = 50;
+const PRICE_W = 90;
+const CHG_W = 64;
+const VOL_W = 50; // fits "53.4M"
 const GAP = spacing.sm;
-const CHART_W = Math.max(80, SCREEN_W - 2 * spacing.xl - SYM_W - PRICE_W - CHG_W - VOL_W - 3 * GAP);
+const CHART_W = Math.max(64, SCREEN_W - PAD_L - PAD_R - SYM_W - PRICE_W - CHG_W - VOL_W - 3 * GAP);
+
+const ROW_PV = spacing.sm; // tighter rows
+const ROW_TOP = 14;
+const ROW_MID = 20;
+const ROW_BOT = 14;
+// "Opposite" of the old black drop-shadow: a faint light edge for depth.
+const ROW_SHADOW = '0px 1px 1.5px rgba(220,228,240,0.05)';
 
 type SortKey = 'sym' | 'last' | 'chg' | 'vol';
 type SortState = { key: SortKey | null; dir: 'asc' | 'desc' };
@@ -57,8 +70,8 @@ function hasChartData(q: WatchlistQuote): boolean {
 }
 function fmtVol(v: number | undefined): string {
   if (v == null) return '—';
-  if (v >= 100_000_000) return `${(v / 1_000_000).toFixed(0)}M`; // 153M — keep it narrow
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`; // 53.4M
+  if (v >= 100_000_000) return `${(v / 1_000_000).toFixed(0)}M`;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
   if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
   return `${v.toFixed(0)}`;
 }
@@ -72,8 +85,7 @@ function dolStr(v: number): string {
 function usd(v: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 }
-// Magnitude → font color: small moves muted, big moves vivid (applied to the % text
-// itself, not a background). ±5% ≈ full intensity.
+// Magnitude → font color: small moves muted, big moves vivid. ±5% ≈ full intensity.
 function pnlColorScaled(pct: number): string {
   const t = Math.min(Math.abs(pct) / 5, 1);
   const dim = pct >= 0 ? [74, 138, 103] : [158, 90, 88];
@@ -83,12 +95,6 @@ function pnlColorScaled(pct: number): string {
 }
 
 const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };
-
-// Shared 3-row rhythm so every column lines up:
-//   top = high (price only) · mid = the PROMINENT value · bottom = the small value
-const ROW_TOP = 15;
-const ROW_MID = 22;
-const ROW_BOT = 15;
 
 function TriColumn({
   width,
@@ -122,24 +128,157 @@ function TriColumn({
   );
 }
 
-// ─── Sortable column header — mirrors the row's flex geometry exactly ──────────
-function HeadCell({
-  label,
-  width,
-  marginLeft = 0,
-  left = false,
-  sortKey,
-  sort,
-  onSort,
+function GripDots() {
+  return (
+    <View style={{ flexDirection: 'row', gap: 3 }}>
+      {[0, 1].map((c) => (
+        <View key={c} style={{ gap: 3 }}>
+          {[0, 1, 2].map((r) => (
+            <View key={r} style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: colors.textMuted }} />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── 1-col row body (shared by reorderable + sorted views) ────────────────────
+function RowBody({
+  symbol,
+  quote,
+  loading,
+  onPress,
+  onDrag,
+  active,
 }: {
-  label: string;
-  width: number;
-  marginLeft?: number;
-  left?: boolean;
-  sortKey: SortKey;
-  sort: SortState;
-  onSort: (k: SortKey) => void;
+  symbol: string;
+  quote?: WatchlistQuote;
+  loading?: boolean;
+  onPress: () => void;
+  onDrag?: () => void;
+  active?: boolean;
 }) {
+  const changeDol = quote?.prev_close != null ? quote.price - quote.prev_close : undefined;
+  const rvolRaw = quote?.rvol as unknown;
+  const rvolNum = typeof rvolRaw === 'number' ? rvolRaw : typeof rvolRaw === 'string' ? Number(rvolRaw) : NaN;
+  const hasRvol = Number.isFinite(rvolNum);
+
+  return (
+    <View style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, boxShadow: ROW_SHADOW, backgroundColor: active ? colors.surface : undefined }}>
+      <PressableScale onPress={onPress}>
+        <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
+          {onDrag ? (
+            <Pressable onPressIn={onDrag} hitSlop={12} style={{ position: 'absolute', left: 2, top: 0, bottom: 0, width: PAD_L - 2, alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
+              <GripDots />
+            </Pressable>
+          ) : null}
+
+          <View style={{ width: SYM_W }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', letterSpacing: 0.2, color: colors.text }} numberOfLines={1}>{symbol}</Text>
+          </View>
+
+          {loading ? (
+            <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={46} width={70} /></View>
+          ) : quote ? (
+            <TriColumn
+              width={PRICE_W}
+              top={quote.day_high != null ? quote.day_high.toFixed(2) : undefined}
+              mid={usd(quote.price)}
+              midColor={colors.text}
+              midSize={16}
+              bottom={quote.day_low != null ? quote.day_low.toFixed(2) : '—'}
+              bottomColor={colors.textFaint}
+            />
+          ) : (
+            <View style={{ width: PRICE_W }} />
+          )}
+
+          {loading ? (
+            <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={46} width={50} /></View>
+          ) : quote ? (
+            <TriColumn
+              width={CHG_W}
+              marginLeft={GAP}
+              mid={pctStr(quote.change_pct)}
+              midColor={pnlColorScaled(quote.change_pct)}
+              bottom={changeDol != null ? dolStr(changeDol) : '—'}
+              bottomColor={changeDol != null ? pnlColorScaled(quote.change_pct) : colors.textFaint}
+            />
+          ) : (
+            <View style={{ width: CHG_W, marginLeft: GAP }} />
+          )}
+
+          {loading ? (
+            <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={46} width={40} /></View>
+          ) : quote ? (
+            <TriColumn
+              width={VOL_W}
+              marginLeft={GAP}
+              mid={hasRvol ? `${rvolNum.toFixed(1)}×` : fmtVol(quote.volume)}
+              midColor={hasRvol && rvolNum >= 1.5 ? colors.accent : colors.text}
+              bottom={hasRvol ? fmtVol(quote.volume) : 'vol'}
+              bottomColor={colors.textFaint}
+            />
+          ) : (
+            <View style={{ width: VOL_W, marginLeft: GAP }} />
+          )}
+
+          <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}>
+            {loading ? (
+              <Skeleton height={40} width={CHART_W} />
+            ) : quote && hasChartData(quote) ? (
+              <MiniDayChart
+                data={preferIntraday(quote) ? quote.intraday! : quote.sparkline}
+                intraday={preferIntraday(quote)}
+                change={quote.change_pct}
+                width={CHART_W}
+                height={40}
+              />
+            ) : (
+              <View style={{ width: CHART_W, height: 40 }} />
+            )}
+          </View>
+        </Row>
+      </PressableScale>
+    </View>
+  );
+}
+
+// Reorderable wrapper — must call the drag hooks inside ReorderableList's renderItem.
+function ReorderableRow({ symbol, quote, loading, onPress }: { symbol: string; quote?: WatchlistQuote; loading?: boolean; onPress: () => void }) {
+  const drag = useReorderableDrag();
+  const active = useIsActive();
+  return <RowBody symbol={symbol} quote={quote} loading={loading} onPress={onPress} onDrag={drag} active={active} />;
+}
+
+// ─── 2-col dense cell ─────────────────────────────────────────────────────────
+function WatchlistCard({ symbol, quote, loading, onPress }: { symbol: string; quote?: WatchlistQuote; loading?: boolean; onPress: () => void }) {
+  return (
+    <PressableScale onPress={onPress} style={{ flex: 1 }}>
+      <Stack gap={4} style={{ flex: 1, paddingVertical: spacing.sm + 1, paddingHorizontal: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
+        <Row justify="space-between" align="center" gap={spacing.xs}>
+          <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{symbol}</Text>
+          {!loading && quote && quote.sparkline.length > 1 ? (
+            <Sparkline data={quote.sparkline} width={40} height={18} color={pnlColor(quote.change_pct)} strokeWidth={1.3} />
+          ) : null}
+        </Row>
+        {loading ? (
+          <Skeleton height={13} />
+        ) : quote ? (
+          <Row gap={spacing.xs} align="center">
+            <Money value={quote.price} size="sm" numberOfLines={1} />
+            <Text style={{ ...mono, fontSize: 13, color: pnlColorScaled(quote.change_pct) }} numberOfLines={1}>{pctStr(quote.change_pct)}</Text>
+          </Row>
+        ) : (
+          <Text variant="figureSm" color="textFaint">—</Text>
+        )}
+      </Stack>
+    </PressableScale>
+  );
+}
+
+// ─── Sortable column header (full-bleed rules; + lives in the left gutter) ─────
+function HeadCell({ label, width, marginLeft = 0, left = false, sortKey, sort, onSort }: { label: string; width: number; marginLeft?: number; left?: boolean; sortKey: SortKey; sort: SortState; onSort: (k: SortKey) => void }) {
   const active = sort.key === sortKey;
   return (
     <PressableScale onPress={() => onSort(sortKey)} haptic style={{ width, marginLeft }}>
@@ -150,19 +289,13 @@ function HeadCell({
     </PressableScale>
   );
 }
-function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) => void }) {
+function ColumnHeader({ sort, onSort, onAdd }: { sort: SortState; onSort: (k: SortKey) => void; onAdd: () => void }) {
   return (
-    <View
-      style={{
-        borderTopWidth: hairline,
-        borderTopColor: colors.border,
-        borderBottomWidth: hairline,
-        borderBottomColor: colors.border,
-        paddingVertical: spacing.xs + 1,
-        marginBottom: spacing.xs,
-      }}
-    >
-      <Row align="center" gap={0}>
+    <View style={{ borderTopWidth: hairline, borderTopColor: colors.border, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
+      <Row align="center" gap={0} style={{ paddingVertical: spacing.xs + 1, paddingLeft: PAD_L, paddingRight: PAD_R }}>
+        <Pressable onPress={onAdd} hitSlop={12} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: PAD_L, alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
+          <Icon name="plus" size={16} color={colors.accent} />
+        </Pressable>
         <HeadCell label="sym" width={SYM_W} left sortKey="sym" sort={sort} onSort={onSort} />
         <HeadCell label="last" width={PRICE_W} sortKey="last" sort={sort} onSort={onSort} />
         <HeadCell label="chg" width={CHG_W} marginLeft={GAP} sortKey="chg" sort={sort} onSort={onSort} />
@@ -175,19 +308,11 @@ function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) 
   );
 }
 
-// ─── Page header: eyebrow + title + icons ─────────────────────────────────────
-function WatchlistHeader({
-  columns,
-  onToggleColumns,
-  onOpenAlerts,
-}: {
-  columns: 1 | 2;
-  onToggleColumns: () => void;
-  onOpenAlerts: () => void;
-}) {
+// ─── Page header ──────────────────────────────────────────────────────────────
+function WatchlistHeader({ columns, onToggleColumns, onOpenAlerts }: { columns: 1 | 2; onToggleColumns: () => void; onOpenAlerts: () => void }) {
   return (
-    <Row justify="space-between" align="center" style={{ paddingBottom: spacing.sm }}>
-      <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.text }}>watchlist</Text>
+    <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
+      <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.accent }}>watchlist</Text>
       <Row gap={spacing.sm}>
         <PressableScale onPress={onToggleColumns} haptic>
           <View style={{ padding: spacing.xs }}>
@@ -204,139 +329,51 @@ function WatchlistHeader({
   );
 }
 
-// ─── 1-col row ────────────────────────────────────────────────────────────────
-function WatchlistRow({
-  symbol,
-  quote,
-  loading,
-  onPress,
-}: {
-  symbol: string;
-  quote?: WatchlistQuote;
-  loading?: boolean;
-  onPress: () => void;
-}) {
-  const changeDol = quote?.prev_close != null ? quote.price - quote.prev_close : undefined;
-  // Forward-compatible: accept rvol as number OR numeric string; fall back to volume.
-  const rvolRaw = quote?.rvol as unknown;
-  const rvolNum = typeof rvolRaw === 'number' ? rvolRaw : typeof rvolRaw === 'string' ? Number(rvolRaw) : NaN;
-  const hasRvol = Number.isFinite(rvolNum);
+// ─── Add-ticker modal ─────────────────────────────────────────────────────────
+function AddTickerModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const [text, setText] = useState('');
+  const add = useAddWatchlistSymbol();
+
+  const submit = () => {
+    const sym = text.trim().toUpperCase();
+    if (!sym) return;
+    add.mutate(sym, {
+      onSuccess: () => {
+        setText('');
+        onClose();
+      },
+    });
+  };
 
   return (
-    <PressableScale onPress={onPress}>
-      <View style={{ boxShadow: '0px 2px 5px rgba(0,0,0,0.22)' }}>
-        <Row align="center" gap={0} style={{ paddingVertical: spacing.md, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
-          {/* SYM */}
-          <View style={{ width: SYM_W }}>
-            <Text style={{ fontSize: 17, fontWeight: '700', letterSpacing: 0.2, color: colors.text }} numberOfLines={1}>{symbol}</Text>
-          </View>
-
-          {/* H / LAST / L */}
-          {loading ? (
-            <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={50} width={72} /></View>
-          ) : quote ? (
-            <TriColumn
-              width={PRICE_W}
-              top={quote.day_high != null ? quote.day_high.toFixed(2) : undefined}
-              mid={usd(quote.price)}
-              midColor={colors.text}
-              midSize={16}
-              bottom={quote.day_low != null ? quote.day_low.toFixed(2) : '—'}
-              bottomColor={colors.textFaint}
-            />
-          ) : (
-            <View style={{ width: PRICE_W }} />
-          )}
-
-          {/* CHG% (mid) / CHG$ (bottom) */}
-          {loading ? (
-            <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={50} /></View>
-          ) : quote ? (
-            <TriColumn
-              width={CHG_W}
-              marginLeft={GAP}
-              mid={pctStr(quote.change_pct)}
-              midColor={pnlColorScaled(quote.change_pct)}
-              bottom={changeDol != null ? dolStr(changeDol) : '—'}
-              bottomColor={changeDol != null ? pnlColorScaled(quote.change_pct) : colors.textFaint}
-            />
-          ) : (
-            <View style={{ width: CHG_W, marginLeft: GAP }} />
-          )}
-
-          {/* VOL (mid) / vol (bottom) — shows rvol "1.8×" once serv provides it */}
-          {loading ? (
-            <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={44} /></View>
-          ) : quote ? (
-            <TriColumn
-              width={VOL_W}
-              marginLeft={GAP}
-              mid={hasRvol ? `${rvolNum.toFixed(1)}×` : fmtVol(quote.volume)}
-              midColor={hasRvol && rvolNum >= 1.5 ? colors.accent : colors.text}
-              bottom={hasRvol ? fmtVol(quote.volume) : 'vol'}
-              bottomColor={colors.textFaint}
-            />
-          ) : (
-            <View style={{ width: VOL_W, marginLeft: GAP }} />
-          )}
-
-          {/* Short day chart */}
-          <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}>
-            {loading ? (
-              <Skeleton height={42} width={CHART_W} />
-            ) : quote && hasChartData(quote) ? (
-              <MiniDayChart
-                data={preferIntraday(quote) ? quote.intraday! : quote.sparkline}
-                intraday={preferIntraday(quote)}
-                change={quote.change_pct}
-                width={CHART_W}
-                height={42}
-              />
-            ) : (
-              <View style={{ width: CHART_W, height: 42 }} />
-            )}
-          </View>
-        </Row>
-      </View>
-    </PressableScale>
-  );
-}
-
-// ─── 2-col dense cell ─────────────────────────────────────────────────────────
-function WatchlistCard({
-  symbol,
-  quote,
-  loading,
-  onPress,
-}: {
-  symbol: string;
-  quote?: WatchlistQuote;
-  loading?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <PressableScale onPress={onPress} style={{ flex: 1 }}>
-      <View style={{ flex: 1 }}>
-        <Stack gap={4} style={{ flex: 1, paddingVertical: spacing.sm + 1, paddingHorizontal: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
-          <Row justify="space-between" align="center" gap={spacing.xs}>
-            <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{symbol}</Text>
-            {!loading && quote && quote.sparkline.length > 1 ? (
-              <Sparkline data={quote.sparkline} width={40} height={18} color={pnlColor(quote.change_pct)} strokeWidth={1.3} />
-            ) : null}
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', paddingHorizontal: spacing.xl }}>
+        <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: colors.surface, borderRadius: 16, padding: spacing.xl, borderWidth: hairline, borderColor: colors.border }}>
+          <Text variant="bodyStrong" style={{ marginBottom: spacing.md }}>Add ticker</Text>
+          <TextInput
+            value={text}
+            onChangeText={(t) => setText(t.toUpperCase())}
+            placeholder="e.g. NVDA"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={submit}
+            style={{ ...mono, fontSize: 18, color: colors.text, borderWidth: hairline, borderColor: colors.border, borderRadius: 10, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.bg }}
+          />
+          {add.isError ? <Text variant="caption" style={{ color: colors.danger, marginTop: spacing.sm }}>Couldn't add — check the symbol.</Text> : null}
+          <Row gap={spacing.sm} justify="flex-end" style={{ marginTop: spacing.lg }}>
+            <PressableScale onPress={onClose} haptic style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.lg }}>
+              <Text style={{ color: colors.textMuted }}>Cancel</Text>
+            </PressableScale>
+            <PressableScale onPress={submit} haptic style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: 10, backgroundColor: colors.accent }}>
+              {add.isPending ? <ActivityIndicator size="small" color={colors.bg} /> : <Text style={{ color: colors.bg, fontWeight: '700' }}>Add</Text>}
+            </PressableScale>
           </Row>
-          {loading ? (
-            <Skeleton height={13} />
-          ) : quote ? (
-            <Row gap={spacing.xs} align="center">
-              <Money value={quote.price} size="sm" numberOfLines={1} />
-              <Text style={{ ...mono, fontSize: 13, color: pnlColorScaled(quote.change_pct) }} numberOfLines={1}>{pctStr(quote.change_pct)}</Text>
-            </Row>
-          ) : (
-            <Text variant="figureSm" color="textFaint">—</Text>
-          )}
-        </Stack>
-      </View>
-    </PressableScale>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -344,13 +381,13 @@ function SkeletonRows() {
   return (
     <Stack gap={0}>
       {[0, 1, 2, 3, 4, 5].map((i) => (
-        <View key={i} style={{ paddingVertical: spacing.md, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
-          <Row align="center" gap={0}>
+        <View key={i} style={{ borderBottomWidth: hairline, borderBottomColor: colors.border }}>
+          <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
             <View style={{ width: SYM_W }}><Skeleton height={16} width={36} /></View>
-            <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={50} width={72} /></View>
-            <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={50} /></View>
-            <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={44} /></View>
-            <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={42} width={CHART_W} /></View>
+            <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={46} width={70} /></View>
+            <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={46} width={50} /></View>
+            <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={46} width={40} /></View>
+            <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={40} width={CHART_W} /></View>
           </Row>
         </View>
       ))}
@@ -364,12 +401,8 @@ export function WatchlistScreen() {
   const listRef = useRef<FlashListRef<string>>(null);
   const [columns, setColumns] = useState<1 | 2>(1);
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });
-
-  // Re-sorting reorders the data; without this FlashList keeps its old offset and
-  // lands you off the bottom. Snap back to the top whenever the sort changes.
-  useEffect(() => {
-    listRef.current?.scrollToOffset({ offset: 0, animated: false });
-  }, [sort]);
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   const watchlist = useWatchlist();
   const symbols: string[] = watchlist.data?.symbols ?? [];
@@ -381,12 +414,23 @@ export function WatchlistScreen() {
   const loading = watchlist.isLoading;
   const marketLoading = market.isLoading && symbols.length > 0;
 
-  // tap a header: desc → asc → off (back to user order)
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [sort]);
+
   const onSort = (key: SortKey) =>
     setSort((s) => (s.key !== key ? { key, dir: 'desc' } : s.dir === 'desc' ? { key, dir: 'asc' } : { key: null, dir: 'desc' }));
 
+  // User order: keep the user's local order, reconciled with the server's set.
+  const userOrder = useMemo(() => {
+    if (!order) return symbols;
+    const known = order.filter((s) => symbols.includes(s));
+    const added = symbols.filter((s) => !order.includes(s));
+    return [...known, ...added];
+  }, [order, symbols]);
+
   const data = useMemo(() => {
-    if (!sort.key) return symbols;
+    if (!sort.key) return userOrder;
     const k = sort.key;
     const num = (sym: string) => {
       const q = quotes[sym];
@@ -396,9 +440,15 @@ export function WatchlistScreen() {
       const r = Number(q.rvol);
       return Number.isFinite(r) ? r : (q.volume ?? 0);
     };
-    const arr = [...symbols].sort((a, b) => (k === 'sym' ? a.localeCompare(b) : num(a) - num(b)));
+    const arr = [...userOrder].sort((a, b) => (k === 'sym' ? a.localeCompare(b) : num(a) - num(b)));
     return sort.dir === 'desc' ? arr.reverse() : arr;
-  }, [symbols, quotes, sort]);
+  }, [userOrder, quotes, sort]);
+
+  const onReorder = ({ from, to }: ReorderableListReorderEvent) => {
+    setOrder(reorderItems(data, from, to));
+  };
+
+  const reorderable = columns === 1 && sort.key === null;
 
   const header = (
     <View>
@@ -407,16 +457,22 @@ export function WatchlistScreen() {
         onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
         onOpenAlerts={() => router.push('/alerts')}
       />
-      {columns === 1 ? <ColumnHeader sort={sort} onSort={onSort} /> : null}
+      {columns === 1 ? <ColumnHeader sort={sort} onSort={onSort} onAdd={() => setAddOpen(true)} /> : null}
     </View>
   );
+
+  const empty = loading ? <SkeletonRows /> : <EmptyState title="Watchlist empty" subtitle="Tap + to add a symbol." />;
+  const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />;
+  const openSymbol = (symbol: string) => router.push(`/symbol/${symbol}`);
 
   if (watchlist.isError || market.isError) {
     return (
       <Screen>
-        <View style={{ flex: 1, paddingTop: spacing.xs, paddingHorizontal: spacing.xl }}>
+        <View style={{ flex: 1, paddingTop: spacing.xs }}>
           {header}
-          <ErrorState onRetry={() => { void watchlist.refetch(); void market.refetch(); }} />
+          <View style={{ paddingHorizontal: spacing.xl }}>
+            <ErrorState onRetry={() => { void watchlist.refetch(); void market.refetch(); }} />
+          </View>
         </View>
       </Screen>
     );
@@ -424,26 +480,41 @@ export function WatchlistScreen() {
 
   return (
     <Screen>
-      <FlashList
-        ref={listRef}
-        key={`watchlist-${columns}`}
-        data={data}
-        numColumns={columns}
-        keyExtractor={(symbol) => symbol}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
-        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: 110, paddingTop: spacing.xs }}
-        ListHeaderComponent={header}
-        renderItem={({ item: symbol }) =>
-          columns === 1 ? (
-            <WatchlistRow symbol={symbol} quote={quotes[symbol]} loading={marketLoading && !quotes[symbol]} onPress={() => router.push(`/symbol/${symbol}`)} />
-          ) : (
-            <WatchlistCard symbol={symbol} quote={quotes[symbol]} loading={marketLoading && !quotes[symbol]} onPress={() => router.push(`/symbol/${symbol}`)} />
-          )
-        }
-        ListEmptyComponent={
-          loading ? <SkeletonRows /> : <EmptyState title="Watchlist empty" subtitle="Add symbols from the web app." />
-        }
-      />
+      {reorderable ? (
+        <ReorderableList
+          data={data}
+          onReorder={onReorder}
+          keyExtractor={(symbol) => symbol}
+          refreshControl={refreshControl}
+          contentContainerStyle={{ paddingBottom: 110, paddingTop: spacing.xs }}
+          ListHeaderComponent={header}
+          ListEmptyComponent={empty}
+          renderItem={({ item }) => (
+            <ReorderableRow symbol={item} quote={quotes[item]} loading={marketLoading && !quotes[item]} onPress={() => openSymbol(item)} />
+          )}
+        />
+      ) : (
+        <FlashList
+          ref={listRef}
+          key={`watchlist-${columns}`}
+          data={data}
+          numColumns={columns}
+          keyExtractor={(symbol) => symbol}
+          refreshControl={refreshControl}
+          contentContainerStyle={{ paddingBottom: 110, paddingTop: spacing.xs, paddingHorizontal: columns === 2 ? spacing.lg : 0 }}
+          ListHeaderComponent={header}
+          renderItem={({ item: symbol }) =>
+            columns === 1 ? (
+              <RowBody symbol={symbol} quote={quotes[symbol]} loading={marketLoading && !quotes[symbol]} onPress={() => openSymbol(symbol)} />
+            ) : (
+              <WatchlistCard symbol={symbol} quote={quotes[symbol]} loading={marketLoading && !quotes[symbol]} onPress={() => openSymbol(symbol)} />
+            )
+          }
+          ListEmptyComponent={empty}
+        />
+      )}
+
+      <AddTickerModal visible={addOpen} onClose={() => setAddOpen(false)} />
     </Screen>
   );
 }
