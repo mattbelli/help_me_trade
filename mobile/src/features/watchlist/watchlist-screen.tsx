@@ -13,9 +13,9 @@
  * rvol (relative volume) is wired forward-compatibly — shows as "1.8×" once serv sends it.
  */
 import { Dimensions, RefreshControl, View } from 'react-native';
-import { FlashList } from '@shopify/flash-list';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useWatchlist, useWatchlistMarket } from '@/api/queries';
 import type { WatchlistQuote } from '@/api/types';
@@ -72,11 +72,14 @@ function dolStr(v: number): string {
 function usd(v: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 }
-// Subtle heatmap: the bigger the move, the more saturated the row tint. ±4% ≈ full.
-function rowTint(pct: number | undefined): string {
-  if (pct == null) return 'transparent';
-  const a = (Math.min(Math.abs(pct) / 4, 1) * 0.1).toFixed(3);
-  return pct >= 0 ? `rgba(91,201,138,${a})` : `rgba(239,111,108,${a})`;
+// Magnitude → font color: small moves muted, big moves vivid (applied to the % text
+// itself, not a background). ±5% ≈ full intensity.
+function pnlColorScaled(pct: number): string {
+  const t = Math.min(Math.abs(pct) / 5, 1);
+  const dim = pct >= 0 ? [74, 138, 103] : [158, 90, 88];
+  const vivid = pct >= 0 ? [104, 232, 154] : [255, 120, 116];
+  const c = dim.map((d, i) => Math.round(d + (vivid[i] - d) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };
@@ -183,11 +186,8 @@ function WatchlistHeader({
   onOpenAlerts: () => void;
 }) {
   return (
-    <Row justify="space-between" align="flex-end" style={{ paddingBottom: spacing.sm }}>
-      <Stack gap={1}>
-        <Eyebrow color="accent">watchlist</Eyebrow>
-        <Text variant="title">Symbols</Text>
-      </Stack>
+    <Row justify="space-between" align="center" style={{ paddingBottom: spacing.sm }}>
+      <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.text }}>watchlist</Text>
       <Row gap={spacing.sm}>
         <PressableScale onPress={onToggleColumns} haptic>
           <View style={{ padding: spacing.xs }}>
@@ -224,7 +224,7 @@ function WatchlistRow({
 
   return (
     <PressableScale onPress={onPress}>
-      <View style={{ backgroundColor: rowTint(quote?.change_pct), boxShadow: '0px 2px 5px rgba(0,0,0,0.22)' }}>
+      <View style={{ boxShadow: '0px 2px 5px rgba(0,0,0,0.22)' }}>
         <Row align="center" gap={0} style={{ paddingVertical: spacing.md, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
           {/* SYM */}
           <View style={{ width: SYM_W }}>
@@ -256,9 +256,9 @@ function WatchlistRow({
               width={CHG_W}
               marginLeft={GAP}
               mid={pctStr(quote.change_pct)}
-              midColor={pnlColor(quote.change_pct)}
+              midColor={pnlColorScaled(quote.change_pct)}
               bottom={changeDol != null ? dolStr(changeDol) : '—'}
-              bottomColor={changeDol != null ? pnlColor(changeDol) : colors.textFaint}
+              bottomColor={changeDol != null ? pnlColorScaled(quote.change_pct) : colors.textFaint}
             />
           ) : (
             <View style={{ width: CHG_W, marginLeft: GAP }} />
@@ -316,7 +316,7 @@ function WatchlistCard({
 }) {
   return (
     <PressableScale onPress={onPress} style={{ flex: 1 }}>
-      <View style={{ flex: 1, backgroundColor: rowTint(quote?.change_pct) }}>
+      <View style={{ flex: 1 }}>
         <Stack gap={4} style={{ flex: 1, paddingVertical: spacing.sm + 1, paddingHorizontal: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
           <Row justify="space-between" align="center" gap={spacing.xs}>
             <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{symbol}</Text>
@@ -329,7 +329,7 @@ function WatchlistCard({
           ) : quote ? (
             <Row gap={spacing.xs} align="center">
               <Money value={quote.price} size="sm" numberOfLines={1} />
-              <Text style={{ ...mono, fontSize: 13, color: pnlColor(quote.change_pct) }} numberOfLines={1}>{pctStr(quote.change_pct)}</Text>
+              <Text style={{ ...mono, fontSize: 13, color: pnlColorScaled(quote.change_pct) }} numberOfLines={1}>{pctStr(quote.change_pct)}</Text>
             </Row>
           ) : (
             <Text variant="figureSm" color="textFaint">—</Text>
@@ -361,8 +361,15 @@ function SkeletonRows() {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export function WatchlistScreen() {
   const router = useRouter();
+  const listRef = useRef<FlashListRef<string>>(null);
   const [columns, setColumns] = useState<1 | 2>(1);
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });
+
+  // Re-sorting reorders the data; without this FlashList keeps its old offset and
+  // lands you off the bottom. Snap back to the top whenever the sort changes.
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [sort]);
 
   const watchlist = useWatchlist();
   const symbols: string[] = watchlist.data?.symbols ?? [];
@@ -418,6 +425,7 @@ export function WatchlistScreen() {
   return (
     <Screen>
       <FlashList
+        ref={listRef}
         key={`watchlist-${columns}`}
         data={data}
         numColumns={columns}
