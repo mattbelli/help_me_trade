@@ -1,6 +1,7 @@
 /**
- * TabBar — a floating oval pill. Tap to jump; the active tab's icon springs into
- * a teal capsule and scales up. Pairs with swipe (this just adds direct access).
+ * TabBar — a floating frosted pill (expo-blur) with an Instagram-style highlight
+ * capsule that SLIDES behind the active icon (teal wash). Fixed pill shape; only
+ * the inner capsule animates, so it's cheap and smooth.
  */
 import { useEffect } from 'react';
 import { View } from 'react-native';
@@ -18,6 +19,18 @@ export interface TabDef {
   icon: IconName;
 }
 
+const CELL_W = 48;
+const CELL_H = 40;
+const GAP = 4;
+const PAD_H = 10;
+const PAD_V = 6;
+const STRIDE = CELL_W + GAP; // distance between cell origins
+const CAP_W = CELL_W;
+const CAP_H = 38;
+const CAP_TOP = PAD_V + (CELL_H - CAP_H) / 2;
+const TEAL_WASH = 'rgba(90,209,190,0.16)';
+const TEAL_BORDER = 'rgba(90,209,190,0.5)';
+
 export function TabBar({
   tabs,
   index,
@@ -30,9 +43,25 @@ export function TabBar({
   badges?: Record<string, boolean>;
 }) {
   const insets = useSafeAreaInsets();
+  const capX = useSharedValue(index * STRIDE);
+
+  useEffect(() => {
+    capX.value = withSpring(index * STRIDE, spring.snappy);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
+
+  const capStyle = useAnimatedStyle(() => ({ transform: [{ translateX: capX.value }] }));
+
   return (
     <View
-      style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, spacing.md), alignItems: 'center', pointerEvents: 'box-none' }}
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: Math.max(insets.bottom, spacing.md),
+        alignItems: 'center',
+        pointerEvents: 'box-none',
+      }}
     >
       <View style={{ borderRadius: 999, ...shadow }}>
         <BlurView
@@ -41,16 +70,33 @@ export function TabBar({
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: spacing.xs,
+            gap: GAP,
             borderRadius: 999,
             overflow: 'hidden',
             borderWidth: hairline,
             borderColor: 'rgba(255,255,255,0.16)',
-            paddingHorizontal: spacing.md,
-            paddingVertical: spacing.sm,
-            backgroundColor: 'rgba(44,49,58,0.45)',
+            paddingHorizontal: PAD_H,
+            paddingVertical: PAD_V,
+            backgroundColor: 'rgba(40,45,54,0.5)',
           }}
         >
+          {/* Sliding highlight capsule (behind the icons) */}
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                top: CAP_TOP,
+                left: PAD_H,
+                width: CAP_W,
+                height: CAP_H,
+                borderRadius: 15,
+                backgroundColor: TEAL_WASH,
+                borderWidth: 1,
+                borderColor: TEAL_BORDER,
+              },
+              capStyle,
+            ]}
+          />
           {tabs.map((t, i) => (
             <TabItem key={t.key} def={t} active={i === index} badge={badges?.[t.key]} onPress={() => onSelect(i)} />
           ))}
@@ -60,40 +106,38 @@ export function TabBar({
   );
 }
 
-function TabItem({ def, active, badge, onPress }: { def: TabDef; active: boolean; badge?: boolean; onPress: () => void }) {
-  const a = useSharedValue(active ? 1 : 0);
-  useEffect(() => {
-    a.value = withSpring(active ? 1 : 0, spring.snappy);
-  }, [active, a]);
-
-  // Animate ONLY the capsule background layer — the icon stays untransformed so
-  // its SVG never gets rasterized (which was making it briefly pixelate).
-  const capsule = useAnimatedStyle(() => ({
-    opacity: a.value,
-    transform: [{ scale: 0.7 + a.value * 0.3 }],
-  }));
-
+function TabItem({
+  def,
+  active,
+  badge,
+  onPress,
+}: {
+  def: TabDef;
+  active: boolean;
+  badge?: boolean;
+  onPress: () => void;
+}) {
+  // scaleTo=1: never scale the SVG icon on press (scaling rasterizes → pixelates).
   return (
-    <PressableScale onPress={onPress} scaleTo={0.88} haptic={false} style={{ borderRadius: 999 }}>
-      <View style={{ width: 54, height: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center' }}>
-        <Animated.View
-          style={[
-            { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 999, backgroundColor: colors.warmWash, borderWidth: hairline, borderColor: 'rgba(224,151,91,0.45)' },
-            capsule,
-          ]}
+    <PressableScale onPress={onPress} scaleTo={1} haptic={false} style={{ borderRadius: 15 }}>
+      <View style={{ width: CELL_W, height: CELL_H, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon
+          name={def.icon}
+          size={26}
+          color={active ? colors.accent : colors.textMuted}
+          strokeWidth={active ? 2.2 : 1.8}
         />
-        <Icon name={def.icon} size={24} color={active ? colors.warm : colors.textMuted} strokeWidth={active ? 2.3 : 1.8} />
         {badge ? (
           <View
             style={{
               position: 'absolute',
-              top: 4,
-              right: 8,
+              top: 3,
+              right: 6,
               width: 7,
               height: 7,
               borderRadius: 4,
-              backgroundColor: colors.accent,
-              borderWidth: 1.5,
+              backgroundColor: colors.warm,
+              borderWidth: 1.5, // gold dot stands out against the teal active capsule
               borderColor: colors.bgInset,
             }}
           />
@@ -104,6 +148,6 @@ function TabItem({ def, active, badge, onPress }: { def: TabDef; active: boolean
 }
 
 const shadow = {
-  boxShadow: '0px 8px 20px rgba(0,0,0,0.40)',
-  elevation: 10,
+  boxShadow: '0px 4px 14px rgba(0,0,0,0.38)',
+  elevation: 8,
 } as const;

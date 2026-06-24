@@ -71,11 +71,20 @@ export function CockpitPager() {
       qc.setQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] }, (old) => {
         const prev = old?.quotes[q.symbol];
         if (!prev) return old;
-        const next = { ...prev, price: q.price, change_pct: q.change_pct };
+        const session = q.market_session ?? prev.market_session;
+        const extended = session === 'pre' || session === 'post' || session === 'overnight';
+        const next = { ...prev };
+        // In extended hours, keep the REST regular-session close as the price
+        // baseline (sessionView derives the headline from it + the live ext %).
+        // Only let the WS overwrite price/change in the regular session.
+        if (!extended) {
+          next.price = q.price;
+          next.change_pct = q.change_pct;
+        }
         if (q.sparkline) next.sparkline = q.sparkline;
         if (q.market_session !== undefined) next.market_session = q.market_session;
-        if (q.ext_price !== undefined) next.ext_price = q.ext_price;
-        if (q.ext_change_pct !== undefined) next.ext_change_pct = q.ext_change_pct;
+        if (q.ext_price != null) next.ext_price = q.ext_price;
+        if (q.ext_change_pct != null) next.ext_change_pct = q.ext_change_pct;
         return { ...old, quotes: { ...old.quotes, [q.symbol]: next } };
       });
     },

@@ -59,7 +59,7 @@ import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { colors, fonts, haptics, hairline, pnlColor, spacing } from '@/theme';
 
 import { MiniDayChart } from './mini-day-chart';
-import { sessionView } from './session';
+import { sessionBadge, sessionView } from './session';
 
 const SCREEN_W = Dimensions.get('window').width;
 const PAD_L = 28; // left gutter holds the grip / + in line with the content
@@ -245,9 +245,6 @@ function RowBody({
           ) : null}
 
           <View style={{ width: SYM_W }}>
-            {sv?.badge ? (
-              <Text style={{ ...mono, fontSize: 9, letterSpacing: 0.6, lineHeight: 11, color: colors.warm }}>{sv.badge}</Text>
-            ) : null}
             <Text style={{ fontSize: 17, fontWeight: '700', letterSpacing: 0.2, color: colors.text }} numberOfLines={1}>{symbol}</Text>
           </View>
 
@@ -415,10 +412,17 @@ function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) 
 }
 
 // ─── Page header ──────────────────────────────────────────────────────────────
-function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone }: { onAdd: () => void; onOpenAlerts: () => void; editing: boolean; onDone: () => void }) {
+function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone, session }: { onAdd: () => void; onOpenAlerts: () => void; editing: boolean; onDone: () => void; session?: string | null }) {
   return (
     <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
-      <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.accent }}>watchlist</Text>
+      <Row gap={spacing.sm} align="center">
+        <Text style={{ fontFamily: fonts.mono, fontSize: 21, letterSpacing: 0.4, color: colors.accent }}>watchlist</Text>
+        {session ? (
+          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: colors.warmWash }}>
+            <Text style={{ ...mono, fontSize: 10, letterSpacing: 0.6, color: colors.warm }}>{session}</Text>
+          </View>
+        ) : null}
+      </Row>
       {editing ? (
         <PressableScale onPress={onDone} haptic>
           <View style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm }}>
@@ -556,6 +560,9 @@ export function WatchlistScreen() {
   const symbols: string[] = watchlist.data?.symbols ?? [];
   const market = useWatchlistMarket(symbols);
   const quotes = market.data?.quotes ?? {};
+  // One session indicator for the whole list (all tickers share the session) —
+  // shown in the header during extended hours instead of a badge on every row.
+  const sessionTag = sessionBadge(Object.values(quotes)[0]?.market_session);
 
   const watchlists = useWatchlists();
   const activeId = watchlists.data?.active_id;
@@ -599,8 +606,11 @@ export function WatchlistScreen() {
     const num = (sym: string) => {
       const q = quotes[sym];
       if (!q) return Number.NEGATIVE_INFINITY;
-      if (k === 'last') return q.price;
-      if (k === 'chg') return q.change_pct;
+      // Sort by the same session-aware values the rows display, so during
+      // extended hours a big aftermarket mover (e.g. an earnings beat) ranks by
+      // its shown price/change, not its frozen regular-session figure.
+      if (k === 'last') return sessionView(q).last;
+      if (k === 'chg') return sessionView(q).changePct;
       const r = q.rvol?.value;
       return r != null ? r : (q.volume ?? 0);
     };
@@ -642,6 +652,7 @@ export function WatchlistScreen() {
         onOpenAlerts={() => router.push('/alerts')}
         editing={editing}
         onDone={() => setEditing(false)}
+        session={sessionTag}
       />
       <ColumnHeader sort={sort} onSort={onSort} />
       {adding ? <AddRow onAdded={onAdded} onClose={() => setAdding(false)} /> : null}
