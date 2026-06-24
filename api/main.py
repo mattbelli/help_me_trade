@@ -77,6 +77,7 @@ from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
 from db.earnings_alerts import init_earnings_alert_tables
 from db.earnings_calendar import earnings_hour, last_earnings_date, next_earnings_date
+from db.live_activities import init_live_activity_tables
 from db.multi_account import migrate_multi_account
 from db.order_executions import (
     count_pending_paper_executions,
@@ -805,6 +806,7 @@ async def lifespan(app: FastAPI):
     init_trade_tables()
     init_paper_order_tables()
     init_device_token_tables()
+    init_live_activity_tables()
     init_execution_tables()
     migrate_multi_account()
     init_strategy_tables()

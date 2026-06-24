@@ -27,6 +27,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from config.settings import push_config
 from db.base import DEFAULT_DB_PATH
 from db.device_tokens import list_active_device_tokens
+from db.live_activities import clear_for_proposal, list_update_tokens
+from db.paper_orders import get_proposal
 
 logger = logging.getLogger(__name__)
 
@@ -317,4 +319,243 @@ async def send_proposal_push(
         return sent
     except Exception:
         logger.exception("Failed to send proposal push for %s", proposal.get("id"))
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Live Activity (ActivityKit → APNs)
+# ---------------------------------------------------------------------------
+_LA_END_DISMISSAL_GRACE_S = 600
+
+
+def _parse_expires_unix(expires_at: str | None) -> int | None:
+    if not expires_at:
+        return None
+    try:
+        from datetime import UTC, datetime
+
+        dt = datetime.fromisoformat(str(expires_at))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return int(dt.timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
+def _intent_from_proposal(proposal: dict[str, Any]) -> dict[str, Any]:
+    inner = proposal.get("proposal") if isinstance(proposal.get("proposal"), dict) else {}
+    return {
+        "symbol": inner.get("symbol") or proposal.get("symbol") or "?",
+        "side": str(inner.get("side") or proposal.get("side") or "buy").lower(),
+        "qty": inner.get("qty") if inner.get("qty") is not None else proposal.get("qty"),
+        "order_type": str(
+            inner.get("order_type") or proposal.get("order_type") or "market"
+        ).lower(),
+    }
+
+
+def _la_content_state(
+    proposal: dict[str, Any],
+    *,
+    status: str,
+    status_reason: str | None = None,
+) -> dict[str, Any]:
+    intent = _intent_from_proposal(proposal)
+    out: dict[str, Any] = {
+        "proposalId": proposal["id"],
+        "symbol": intent["symbol"],
+        "side": intent["side"],
+        "qty": intent["qty"],
+        "orderType": intent["order_type"],
+        "status": status,
+    }
+    score = proposal.get("score")
+    if isinstance(score, dict):
+        win_prob = score.get("win_prob")
+        if win_prob is not None:
+            out["winProb"] = win_prob
+    if status == "failed" and status_reason:
+        out["statusReason"] = status_reason
+    return out
+
+
+def _la_apns_config(cfg: dict[str, Any]) -> tuple[str, str, str, bytes] | None:
+    key_id = str(cfg.get("apns_key_id") or "").strip()
+    team_id = str(cfg.get("apns_team_id") or "").strip()
+    bundle = str(cfg.get("apns_bundle_id") or "").strip()
+    key_path = str(cfg.get("apns_key_path") or "").strip()
+    if not (key_id and team_id and bundle and key_path):
+        return None
+    try:
+        key_pem = Path(key_path).read_bytes()
+    except OSError:
+        logger.exception("apns key not readable at %s", key_path)
+        return None
+    return key_id, team_id, bundle, key_pem
+
+
+async def _send_live_activity(
+    token: str,
+    payload_aps: dict[str, Any],
+    *,
+    db_path: Path,
+) -> bool:
+    try:
+        cfg = push_config()
+        apns = _la_apns_config(cfg)
+        if apns is None:
+            logger.warning("apns config incomplete — skipping live activity push")
+            return False
+        key_id, team_id, bundle, key_pem = apns
+        jwt = _apns_jwt(key_pem, key_id, team_id)
+        host = _APNS_HOST_SANDBOX if cfg.get("apns_use_sandbox") else _APNS_HOST_PROD
+        headers = {
+            "authorization": f"bearer {jwt}",
+            "apns-topic": f"{bundle}.push-type.liveactivity",
+            "apns-push-type": "liveactivity",
+            "apns-priority": "10",
+        }
+        async with httpx.AsyncClient(http2=True, timeout=15.0) as client:
+            resp = await client.post(
+                f"https://{host}/3/device/{token}",
+                headers=headers,
+                json={"aps": payload_aps},
+            )
+        if resp.status_code == 200:
+            return True
+        logger.warning(
+            "live activity apns %s for %s…: %s",
+            resp.status_code,
+            token[:8],
+            resp.text[:200],
+        )
+        return False
+    except Exception:
+        logger.exception("live activity apns request failed for %s…", token[:8])
+        return False
+
+
+async def start_proposal_live_activity(
+    proposal: dict[str, Any],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Send START Live Activity push to all la_pushtostart tokens. NEVER raises."""
+    try:
+        cfg = push_config()
+        if not cfg["enabled"]:
+            logger.debug("push disabled — skipping live activity start")
+            return 0
+
+        tokens = list_active_device_tokens(token_type="la_pushtostart", db_path=db_path)
+        if not tokens:
+            return 0
+
+        if _la_apns_config(cfg) is None:
+            return 0
+
+        intent = _intent_from_proposal(proposal)
+        side = str(intent["side"]).upper()
+        qty = intent["qty"]
+        symbol = intent["symbol"]
+        ttl_unix = _parse_expires_unix(proposal.get("expires_at"))
+        now_unix = int(time.time())
+        stale = ttl_unix if ttl_unix is not None else now_unix + 3600
+        dismissal = stale
+
+        payload_aps: dict[str, Any] = {
+            "timestamp": now_unix,
+            "event": "start",
+            "attributes-type": "LiveActivityAttributes",
+            "attributes": {},
+            "content-state": _la_content_state(proposal, status="pending"),
+            "stale-date": stale,
+            "dismissal-date": dismissal,
+            "alert": {
+                "title": "Trade proposal",
+                "body": f"{side} {qty} {symbol} — approve?",
+            },
+        }
+
+        sent = 0
+        for row in tokens:
+            token = str(row["token"])
+            if await _send_live_activity(token, payload_aps, db_path=db_path):
+                sent += 1
+        if sent:
+            logger.info(
+                "Started live activity for proposal %s on %d device(s)",
+                proposal.get("id"),
+                sent,
+            )
+        return sent
+    except Exception:
+        logger.exception("Failed to start live activity for %s", proposal.get("id"))
+        return 0
+
+
+async def end_proposal_live_activity(
+    proposal_id: str,
+    *,
+    status: str,
+    status_reason: str | None = None,
+    proposal: dict[str, Any] | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Send UPDATE/END Live Activity push to per-activity tokens. NEVER raises."""
+    try:
+        cfg = push_config()
+        if not cfg["enabled"]:
+            logger.debug("push disabled — skipping live activity end")
+            return 0
+
+        update_tokens = list_update_tokens(proposal_id, db_path=db_path)
+        if not update_tokens:
+            return 0
+
+        if _la_apns_config(cfg) is None:
+            return 0
+
+        row = proposal if proposal is not None else get_proposal(proposal_id, db_path=db_path)
+        if row is None:
+            logger.warning("live activity end: proposal %s not found", proposal_id)
+            return 0
+
+        content_state = _la_content_state(row, status=status, status_reason=status_reason)
+        now_unix = int(time.time())
+        is_terminal = status != "approved"
+
+        if is_terminal:
+            payload_aps: dict[str, Any] = {
+                "timestamp": now_unix,
+                "event": "end",
+                "content-state": content_state,
+                "dismissal-date": now_unix + _LA_END_DISMISSAL_GRACE_S,
+            }
+        else:
+            payload_aps = {
+                "timestamp": now_unix,
+                "event": "update",
+                "content-state": content_state,
+            }
+
+        sent = 0
+        for entry in update_tokens:
+            token = str(entry["update_token"])
+            if await _send_live_activity(token, payload_aps, db_path=db_path):
+                sent += 1
+
+        if is_terminal:
+            clear_for_proposal(proposal_id, db_path=db_path)
+
+        if sent:
+            logger.info(
+                "Ended live activity for proposal %s (%s) on %d device(s)",
+                proposal_id,
+                status,
+                sent,
+            )
+        return sent
+    except Exception:
+        logger.exception("Failed to end live activity for %s", proposal_id)
         return 0

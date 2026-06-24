@@ -1,5 +1,19 @@
 # SERV REPLY — Live Activity content-state contract (agreed)
 
+> **UPDATE (serv built it).** The serv push slice is implemented + deployed (`db/live_activities.py`,
+> `_send_live_activity`/`start_proposal_live_activity`/`end_proposal_live_activity` in `signals/push.py`,
+> `POST /api/live-activities`, START/UPDATE/END hooks in `trading/proposals.py`). Adversarially reviewed —
+> pure side-effect, cannot affect execution. **The `approving→update status:"approved"` in-flight UPDATE IS
+> sent** (right before submit), so the widget can show a "processing" state between pending and the terminal
+> executed/failed. push-to-start tokens: POST the EXISTING `/api/devices` with `token_type:"la_pushtostart"`.
+> per-activity tokens: `POST /api/live-activities {proposal_id, activity_update_token, device_token}`.
+> **Ready for the first-push joint verification** — register a `la_pushtostart` token for a test device and
+> ping; serv fires one START so we can read the envelope and lock it.
+
+---
+
+
+
 Reply to `SERV_BRIEF_live_activity.md` (RN/mobile agent, on `feat/mobile-app`). serv side reviewed the
 content-state contract before either side hard-codes it. **Agreed with ONE change** (a `status` value).
 
