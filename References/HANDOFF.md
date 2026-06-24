@@ -1,4 +1,4 @@
-# Handoff — "you are here" (2026-06-23, late)
+# Handoff — "you are here" (2026-06-24)
 
 *Bootstrap for a fresh session. Read this first, then `CLAUDE.md` (mission + working agreements, auto-loaded),
 `AGENTS.md` (codebase map), and per-topic refs: `MULTI_ACCOUNT_PLAN.md`, `BUILD.md` (roadmap + dated history),
@@ -70,20 +70,42 @@ The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution b
   /api/watchlists/{id}` + intraday is RTH-only (no pre/post chart bars yet).
 - Watchlist reorder syncs cross-platform via the shared server-side list (web persists; phone once it PUTs).
 
-**NEXT — from the Mac/RN agent's serv handoff (`References/SERV_HANDOFF_alerts_streaming.md`, read it):**
-three serv-side bugs blocking the phone experience.
-1. **Streaming frame contract.** Schwab streamer is "connected" but ticks may be dropped by the broadcast
-   path — the WS handler shape was Alpaca's (`t`/`db` frame types); verify Schwab level-one quote frames
-   actually reach `_broadcast_quote`. Also the WS frame carries only regular-session price/change — add
-   `ext_price`/`ext_change_pct` so pre/post/24-5 prices stream (the phone headlines `ext_price` during
-   off-hours; today only the 6s REST poll fills it). Agree the frame contract with the RN agent.
-2. **Price alerts render blank on phone** — fired chart price alerts are broadcast nested under `alert:{}`
-   but the mobile client reads flat fields. Fix = match the flat rule-alert shape.
-3. **No push for chart price alerts** — they're WS-only, missed when the app is closed. Route them through
-   the same APNs proposal transport (`signals.push.send_alert_push` already exists for our RVOL alerts).
+**SHIPPED THIS ROUND — the three Mac/RN serv-side items (relay doc:
+`References/RN_STREAMING_ALERTS_RELAY.md`, contract lock-in test:
+`tests/test_price_alert_dispatch.py`, 721 green, ruff clean, frontend typecheck clean):**
+1. ✅ **Streaming actually works now — ROOT CAUSE was a dropped-tick bug, found by live probe.** The WS
+   never streamed live ticks at all (phone always fell back to the 6-12s REST poll). Schwab's stream was
+   connected + delivering ~1 tick/sec/symbol, but `_on_equity`/`_on_futures` read each tick's fields by the
+   numeric enum `.value` (`LAST_PRICE.value` = 3) while **schwab-py relabels every content dict to the field
+   MEMBER NAME** (`"LAST_PRICE"`) before the handler runs (`_Handler.label_message`). So `item.get(3)` was
+   always `None` → `price is None → continue` → **zero broadcasts, ever**. Symbol extraction used the literal
+   `"key"` field, so it looked "connected" but was silent. **Fix:** read by `.name` (constants `_EQ`/`_FUT`).
+   Verified against the LIVE stream — AAPL/NVDA/SPY populate real prices (297.38/+1.05%, 201.36, 739.52).
+   Regression lock: `tests/test_schwab_stream_handler.py` (feeds the labeled shape, asserts QuoteState).
+   ⚠️ Schwab allows only ONE stream session per login — a local probe transiently kicks the prod stream
+   (it reconnects in ~2s); don't run a second streamer while debugging unless you mean to.
+   Also: streaming frame now carries ext fields — `QuoteState` + `_quote_payload` include
+   `ext_price`/`ext_change_pct`/`market_session`; `BaseMarketHub.apply_extended(sym, ...)` lets the REST
+   `/api/watchlist/market` poll write ext through to the hub, so every WS broadcast rides with the same
+   pre/post/overnight values the phone headlines. Hardened the sync handler too: replaced deprecated
+   `asyncio.get_event_loop().create_task(...)` with `get_running_loop()` + a `_inflight_ticks` hard-ref set
+   so the GC can't cancel `_broadcast_quote` mid-run.
+2. ✅ **Price alerts now broadcast FLAT** (matching the rule-alert shape). The nested `alert:{...}` is gone;
+   `_check_price_alerts` routes through `broadcast_alert` with `{source:"price_alert", symbol, alert_id,
+   target_price, trigger_price, direction, note}` + the auto-stamped `id`/`ts`.
+3. ✅ **APNs push on price-alert trigger.** Same `_check_price_alerts` path also calls
+   `signals.push.send_alert_push("Price alert", body)` — fail-soft, never raises — so a closed phone still
+   gets notified.
+
+**ALSO THIS ROUND — WS broadcast throttle (10 Hz / symbol / client).** Schwab fires 30–100 ticks/sec on hot
+names; phone battery would suffer. `BROADCAST_THROTTLE_MS = 100`: first tick of a window fires immediately,
+further ticks inside the window collapse into a single trailing send that re-reads state (latest price always
+wins; never stale). Alerts unthrottled. Tunable single constant; lock-in tests
+`test_broadcast_throttle_coalesces_hot_ticks` + `test_broadcast_throttle_idle_ticks_pass_through`.
 
 Deferred (still): `/api/bars`+`1Hour` aggregation to the provider; extended *intraday bars* (RTH-only now so
-no pre/post chart segments yet).
+no pre/post chart segments yet); watchlist reorder cross-platform sync (phone-side wiring; backend already
+supports `PUT /api/watchlists/{id}` with a `symbols` array).
 
 > ⚠️ **SCHWAB AUTH BUG — recorded, fixed, but know it (could resurface on dep updates):** schwab-py builds its
 > authlib OAuth2 session **without** setting `token_endpoint_auth_method`, so authlib defaults to

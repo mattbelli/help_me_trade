@@ -44,6 +44,14 @@ MAX_WS_SYMBOLS = 30
 RECONNECT_BASE_SEC = 2.0
 RECONNECT_MAX_SEC = 60.0
 
+# Per-symbol broadcast coalescing window. Schwab's level-one stream can fire
+# 30–100 ticks/sec on a hot name; sending each one to the phone WS would burn
+# battery (radio + JS render) for no human-visible benefit. We send the first
+# tick immediately, then collapse any further ticks inside the window into a
+# single trailing broadcast that carries the LATEST state. Net effective rate
+# ceiling: ~10 Hz / symbol / client. Alerts are NOT throttled.
+BROADCAST_THROTTLE_MS = 100.0
+
 
 @dataclass
 class QuoteState:
@@ -54,6 +62,14 @@ class QuoteState:
     bid: float = 0.0
     ask: float = 0.0
     volume: float = 0.0
+    # Extended-hours fields — kept here so WS broadcasts carry the same
+    # pre/post/overnight quote the REST `/api/watchlist/market` returns. The
+    # Schwab level-one stream doesn't emit ext fields; they're updated via
+    # `BaseMarketHub.apply_extended()` from the REST poller and ride along on
+    # the next broadcast.
+    ext_price: float | None = None
+    ext_change_pct: float | None = None
+    market_session: str | None = None
 
 
 class BaseMarketHub:
@@ -78,6 +94,11 @@ class BaseMarketHub:
         self._recent_alerts: collections.deque[dict[str, Any]] = collections.deque(
             maxlen=50
         )
+        # Broadcast throttle bookkeeping (see BROADCAST_THROTTLE_MS):
+        #   _last_broadcast_ms[sym] — monotonic-ms of the last actual send
+        #   _pending_broadcast[sym] — the in-flight trailing broadcast (if any)
+        self._last_broadcast_ms: dict[str, float] = {}
+        self._pending_broadcast: dict[str, asyncio.Task] = {}
 
     async def start(self) -> None:
         if self._running:
@@ -94,6 +115,11 @@ class BaseMarketHub:
             except asyncio.CancelledError:
                 pass
             self._upstream_task = None
+        # Cancel any pending trailing broadcasts so they don't fire post-stop.
+        for task in list(self._pending_broadcast.values()):
+            task.cancel()
+        self._pending_broadcast.clear()
+        self._last_broadcast_ms.clear()
 
     async def handle_client(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -143,6 +169,53 @@ class BaseMarketHub:
         return broker_is_configured(primary_broker())
 
     async def _broadcast_quote(self, symbol: str) -> None:
+        """Throttled per-symbol fan-out.
+
+        First tick in a window sends immediately; subsequent ticks inside the
+        window collapse into one trailing send at the boundary that re-reads
+        `self._quotes[symbol]` (so the latest price wins). Hot streams settle
+        at ~10 Hz / symbol / client; bursts and idle ticks pass through.
+        """
+        now_ms = time.monotonic() * 1000
+        last_ms = self._last_broadcast_ms.get(symbol, 0.0)
+        elapsed = now_ms - last_ms
+
+        if elapsed >= BROADCAST_THROTTLE_MS:
+            self._last_broadcast_ms[symbol] = now_ms
+            await self._do_broadcast_quote(symbol)
+            return
+
+        existing = self._pending_broadcast.get(symbol)
+        if existing is not None and not existing.done():
+            # Another trailing broadcast is already queued for this symbol;
+            # it'll re-read state when it fires, so latest price wins anyway.
+            return
+
+        delay_s = (BROADCAST_THROTTLE_MS - elapsed) / 1000.0
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop running (defensive — shouldn't happen on the live path).
+            self._last_broadcast_ms[symbol] = now_ms
+            await self._do_broadcast_quote(symbol)
+            return
+        self._pending_broadcast[symbol] = loop.create_task(
+            self._trailing_broadcast(symbol, delay_s)
+        )
+
+    async def _trailing_broadcast(self, symbol: str, delay_s: float) -> None:
+        try:
+            await asyncio.sleep(delay_s)
+            self._last_broadcast_ms[symbol] = time.monotonic() * 1000
+            await self._do_broadcast_quote(symbol)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("Trailing broadcast for %s failed", symbol, exc_info=True)
+        finally:
+            self._pending_broadcast.pop(symbol, None)
+
+    async def _do_broadcast_quote(self, symbol: str) -> None:
         state = self._quotes.get(symbol)
         if not state:
             return
@@ -228,6 +301,34 @@ class BaseMarketHub:
         """Drive the upstream broker connection.  Override in each subclass."""
         raise NotImplementedError
 
+    async def apply_extended(
+        self,
+        symbol: str,
+        *,
+        ext_price: float | None,
+        ext_change_pct: float | None,
+        market_session: str | None,
+        broadcast: bool = True,
+    ) -> None:
+        """Update a symbol's extended-hours fields and (optionally) broadcast.
+
+        Called by the `/api/watchlist/market` REST poll so the WS stream carries the
+        same pre/post/overnight pricing the phone headlines — the Schwab level-one
+        stream doesn't emit ext fields. Creates a QuoteState if none exists yet.
+        """
+        sym = str(symbol).strip().upper()
+        if not sym:
+            return
+        state = self._quotes.get(sym)
+        if not state:
+            state = QuoteState()
+            self._quotes[sym] = state
+        state.ext_price = ext_price
+        state.ext_change_pct = ext_change_pct
+        state.market_session = market_session
+        if broadcast:
+            await self._broadcast_quote(sym)
+
     async def _check_price_alerts(
         self, symbol: str, prev: float, current: float
     ) -> None:
@@ -244,20 +345,44 @@ class BaseMarketHub:
             return
 
         for alert in triggered:
-            payload = {
-                "type": "alert",
-                "symbol": symbol,
-                "price": current,
-                "alert": alert,
-            }
-            dead: list[WebSocket] = []
-            for ws in list(self._clients):
-                try:
-                    await ws.send_json(payload)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                self._clients.pop(ws, None)
+            # Broadcast the price alert in the SAME flat shape rule alerts use
+            # (matches the phone client's reader). `trigger_price` is the price
+            # that crossed `target_price`.
+            target = float(alert.get("price", 0.0) or 0.0)
+            direction = str(alert.get("direction") or "cross")
+            note = str(alert.get("note") or "")
+            await self.broadcast_alert(
+                {
+                    "source": "price_alert",
+                    "symbol": symbol,
+                    "alert_id": alert.get("id"),
+                    "target_price": target,
+                    "trigger_price": current,
+                    "direction": direction,
+                    "note": note,
+                }
+            )
+
+            # Fire an APNs push too so a closed app still gets the alert. Flat
+            # custom keys let the phone deep-link to the symbol's detail screen
+            # on tap (mirrors how trade pushes deep-link to Approvals).
+            try:
+                from signals.push import send_alert_push
+
+                body = f"{symbol} {direction} ${target:g} — now ${current:.2f}"
+                if note:
+                    body = f"{body} ({note})"
+                await send_alert_push(
+                    title="Price alert",
+                    body=body,
+                    data={
+                        "type": "price_alert",
+                        "symbol": symbol,
+                        "alert_id": alert.get("id"),
+                    },
+                )
+            except Exception:
+                logger.warning("Price-alert push dispatch failed", exc_info=True)
 
 
 class AlpacaMarketStreamHub(BaseMarketHub):
@@ -542,6 +667,9 @@ def _quote_payload(state: QuoteState) -> dict[str, Any]:
         "bid": state.bid,
         "ask": state.ask,
         "volume": state.volume,
+        "ext_price": state.ext_price,
+        "ext_change_pct": state.ext_change_pct,
+        "market_session": state.market_session,
     }
 
 

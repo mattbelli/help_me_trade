@@ -182,14 +182,19 @@ async def send_alert_push(
     title: str,
     body: str,
     *,
+    data: dict[str, Any] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     """Send a simple alert (title + body) push to active devices.
 
-    Used for background-monitor notifications (RVOL spikes, Schwab auth expiry).
+    Used for background-monitor notifications (RVOL spikes, Schwab auth expiry)
+    and chart price alerts. `data` (optional) adds flat custom keys to the push
+    so the phone can deep-link on tap (e.g. {"type":"price_alert","symbol":"AAPL",
+    "alert_id":42}). On APNs they sit alongside `aps`; on Expo they go in `data`.
     Returns count sent. NO-OP when push is disabled / no tokens / unconfigured.
     NEVER raises.
     """
+    custom = dict(data or {})
     try:
         cfg = push_config()
         if not cfg["enabled"]:
@@ -222,6 +227,7 @@ async def send_alert_push(
                     "sound": "default",
                 },
                 "type": "alert",
+                **custom,  # flat custom keys (may override "type")
             }
             headers = {
                 "authorization": f"bearer {jwt}",
@@ -258,6 +264,7 @@ async def send_alert_push(
                     "body": body,
                     "sound": "default",
                     "priority": "high",
+                    **({"data": custom} if custom else {}),
                 }
                 for row in tokens
             ]

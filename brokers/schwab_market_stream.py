@@ -60,6 +60,15 @@ _FUTURES_FIELDS = [
     StreamClient.LevelOneFuturesFields.CLOSE_PRICE,
 ]
 
+# schwab-py relabels each content dict from numeric keys to the field enum's
+# MEMBER NAME before invoking our handler (StreamClient._Handler.label_message →
+# BaseFieldEnum.relabel_message, str(value) -> name). So a tick arrives as
+# {"key": "AAPL", "LAST_PRICE": 200.5, "BID_PRICE": ...} — we must read by
+# `.name`, NOT `.value`. Reading `.value` (the int) returns None for every field,
+# which silently drops every tick. These constants make the access key explicit.
+_EQ = StreamClient.LevelOneEquityFields
+_FUT = StreamClient.LevelOneFuturesFields
+
 
 def _partition_symbols(symbols: set[str]) -> tuple[list[str], list[str]]:
     """Return (equities, futures) sorted lists from *symbols*.
@@ -93,6 +102,13 @@ async def _build_stream_client() -> StreamClient:
 
 class SchwabMarketStreamHub(BaseMarketHub):
     """Market-data hub backed by Schwab level-one streaming quotes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Hard references to in-flight per-tick tasks so the GC can't cancel
+        # _broadcast_quote / _check_price_alerts mid-run (the cause of
+        # "ticks reach the handler but seem to disappear" reports).
+        self._inflight_ticks: set[asyncio.Task] = set()
 
     def _live_flag(self) -> bool:
         return broker_is_configured("schwab")
@@ -272,22 +288,18 @@ class SchwabMarketStreamHub(BaseMarketHub):
             symbol = str(item.get("key", "")).upper()
             if not symbol:
                 continue
-            last = item.get(
-                StreamClient.LevelOneEquityFields.LAST_PRICE.value
-            )
-            mark = item.get(StreamClient.LevelOneEquityFields.MARK.value)
+            last = item.get(_EQ.LAST_PRICE.name)
+            mark = item.get(_EQ.MARK.name)
             price_raw = last if last is not None else mark
             if price_raw is None:
                 continue
             price_f = float(price_raw)
 
-            bid_raw = item.get(StreamClient.LevelOneEquityFields.BID_PRICE.value)
-            ask_raw = item.get(StreamClient.LevelOneEquityFields.ASK_PRICE.value)
-            vol_raw = item.get(StreamClient.LevelOneEquityFields.TOTAL_VOLUME.value)
-            chg_pct_raw = item.get(
-                StreamClient.LevelOneEquityFields.NET_CHANGE_PERCENT.value
-            )
-            close_raw = item.get(StreamClient.LevelOneEquityFields.CLOSE_PRICE.value)
+            bid_raw = item.get(_EQ.BID_PRICE.name)
+            ask_raw = item.get(_EQ.ASK_PRICE.name)
+            vol_raw = item.get(_EQ.TOTAL_VOLUME.name)
+            chg_pct_raw = item.get(_EQ.NET_CHANGE_PERCENT.name)
+            close_raw = item.get(_EQ.CLOSE_PRICE.name)
 
             state = self._quotes.get(symbol)
             if not state:
@@ -318,10 +330,11 @@ class SchwabMarketStreamHub(BaseMarketHub):
             prev = self._prev_prices.get(symbol)
             self._prev_prices[symbol] = price_f
 
-            # Schedule async follow-ups (broadcast + alerts) without blocking
-            asyncio.get_event_loop().create_task(
-                self._post_tick(symbol, prev, price_f)
-            )
+            # Schedule async follow-ups (broadcast + alerts) without blocking the
+            # sync handler. schwab-py invokes us from inside its asyncio loop, so
+            # get_running_loop() is the right call (get_event_loop() is deprecated
+            # and can return a wrong loop in 3.12+).
+            self._schedule_post_tick(symbol, prev, price_f)
 
     def _on_futures(self, msg: dict[str, Any]) -> None:
         """Level-one futures handler — called synchronously by StreamClient."""
@@ -329,20 +342,16 @@ class SchwabMarketStreamHub(BaseMarketHub):
             symbol = str(item.get("key", "")).upper()
             if not symbol:
                 continue
-            last = item.get(
-                StreamClient.LevelOneFuturesFields.LAST_PRICE.value
-            )
+            last = item.get(_FUT.LAST_PRICE.name)
             if last is None:
                 continue
             price_f = float(last)
 
-            bid_raw = item.get(StreamClient.LevelOneFuturesFields.BID_PRICE.value)
-            ask_raw = item.get(StreamClient.LevelOneFuturesFields.ASK_PRICE.value)
-            vol_raw = item.get(StreamClient.LevelOneFuturesFields.TOTAL_VOLUME.value)
-            chg_pct_raw = item.get(
-                StreamClient.LevelOneFuturesFields.FUTURE_CHANGE_PERCENT.value
-            )
-            close_raw = item.get(StreamClient.LevelOneFuturesFields.CLOSE_PRICE.value)
+            bid_raw = item.get(_FUT.BID_PRICE.name)
+            ask_raw = item.get(_FUT.ASK_PRICE.name)
+            vol_raw = item.get(_FUT.TOTAL_VOLUME.name)
+            chg_pct_raw = item.get(_FUT.FUTURE_CHANGE_PERCENT.name)
+            close_raw = item.get(_FUT.CLOSE_PRICE.name)
 
             state = self._quotes.get(symbol)
             if not state:
@@ -373,9 +382,27 @@ class SchwabMarketStreamHub(BaseMarketHub):
             prev = self._prev_prices.get(symbol)
             self._prev_prices[symbol] = price_f
 
-            asyncio.get_event_loop().create_task(
-                self._post_tick(symbol, prev, price_f)
-            )
+            self._schedule_post_tick(symbol, prev, price_f)
+
+    def _schedule_post_tick(
+        self, symbol: str, prev: float | None, current: float
+    ) -> None:
+        """Fan a tick's broadcast+alert work off the sync stream handler.
+
+        Schwab-py invokes our handlers from inside its asyncio loop, so the
+        running loop is available. Failures are logged (not silently dropped) and
+        a hard reference is kept until the task finishes — otherwise the GC can
+        cancel the task before _broadcast_quote runs (the docs' "you must keep a
+        strong reference" rule).
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("Schwab tick %s: no running loop — dropping", symbol)
+            return
+        task = loop.create_task(self._post_tick(symbol, prev, current))
+        self._inflight_ticks.add(task)
+        task.add_done_callback(self._inflight_ticks.discard)
 
     async def _post_tick(
         self, symbol: str, prev: float | None, current: float

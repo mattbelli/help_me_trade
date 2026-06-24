@@ -1041,6 +1041,11 @@ async def api_watchlist_market(symbols: str = ""):
         except Exception:
             _next_earnings = None
 
+        ext_price_val = eq.get("ext_last") if session in ("pre", "post", "overnight") else None
+        ext_change_val = (
+            eq.get("ext_change_pct") if session in ("pre", "post", "overnight") else None
+        )
+
         quotes[sym] = {
             "price": price,
             "change_pct": round(change_pct, 2),
@@ -1051,10 +1056,8 @@ async def api_watchlist_market(symbols: str = ""):
             "day_low": float(latest.low),
             "intraday": intraday,
             "market_session": session,
-            "ext_price": eq.get("ext_last") if session in ("pre", "post", "overnight") else None,
-            "ext_change_pct": (
-                eq.get("ext_change_pct") if session in ("pre", "post", "overnight") else None
-            ),
+            "ext_price": ext_price_val,
+            "ext_change_pct": ext_change_val,
             "pe": eq.get("pe_ratio"),
             "eps": eq.get("eps"),
             "div_yield": eq.get("div_yield"),
@@ -1063,6 +1066,21 @@ async def api_watchlist_market(symbols: str = ""):
             "next_earnings": _next_earnings,
         }
         quotes[sym]["rvol"] = _compute_rvol_field(sym, intraday_by_symbol.get(sym, []))
+
+        # Push ext fields into the WS hub so a streamed quote frame carries the
+        # same pre/post/overnight pricing the phone headlines (Schwab level-one
+        # stream doesn't emit ext fields; without this they'd only refresh on the
+        # 6-s REST poll).
+        try:
+            await market_hub.apply_extended(
+                sym,
+                ext_price=ext_price_val,
+                ext_change_pct=ext_change_val,
+                market_session=session,
+                broadcast=True,
+            )
+        except Exception:
+            logger.debug("apply_extended failed for %s", sym, exc_info=True)
 
     return {"quotes": quotes}
 
