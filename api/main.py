@@ -391,6 +391,9 @@ async def _earnings_refresh_once() -> int:
     for s in list_strategies(enabled_only=True):
         if strategy_kind(s["id"]) == "earnings":
             symbols |= set(resolve_universe_spec(s.get("universe")))
+    # Also cover the watchlist so its fundamentals panel shows a next-earnings date
+    # (Schwab gives only lastEarningsDate; the forward date is Finnhub/calendar-sourced).
+    symbols |= set(_all_watchlist_symbols())
     if not symbols:
         return 0
     return await arefresh_earnings_calendar(sorted(symbols))
