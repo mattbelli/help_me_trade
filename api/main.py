@@ -75,7 +75,8 @@ from db.chart_features import (
 )
 from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
-from db.earnings_calendar import next_earnings_date
+from db.earnings_alerts import init_earnings_alert_tables
+from db.earnings_calendar import earnings_hour, last_earnings_date, next_earnings_date
 from db.multi_account import migrate_multi_account
 from db.order_executions import (
     count_pending_paper_executions,
@@ -126,6 +127,12 @@ SCHWAB_HEALTH_INTERVAL_SECONDS = max(
 )
 _SCHWAB_HEALTH_ALERTS_ENABLED = (
     os.environ.get("SCHWAB_HEALTH_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+)
+EARNINGS_ALERT_INTERVAL_SECONDS = max(
+    60, int(os.environ.get("EARNINGS_ALERT_INTERVAL_SECONDS", str(6 * 3600)))
+)
+_EARNINGS_ALERTS_ENABLED = (
+    os.environ.get("EARNINGS_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
 )
 _PROFILE_FRESH_S = 20 * 3600
 _PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
@@ -609,6 +616,116 @@ async def _rvol_alert_loop() -> None:
             logger.exception("RVOL alert loop iteration failed")
 
 
+def _upcoming_earnings_date(symbol: str, today_iso: str) -> str | None:
+    """Next watchlist earnings on or after today (includes day-of)."""
+    if last_earnings_date(symbol, today_iso) == today_iso:
+        return today_iso
+    return next_earnings_date(symbol, today_iso)
+
+
+def _earnings_hour_suffix(hour: str | None, *, day_of: bool) -> str:
+    if not hour:
+        return ""
+    h = hour.lower()
+    if day_of:
+        if h == "amc":
+            return ", after close"
+        if h == "bmo":
+            return ", before open"
+        return ""
+    if h == "amc":
+        return ", AMC"
+    if h == "bmo":
+        return ", BMO"
+    return ""
+
+
+async def _earnings_alert_once() -> None:
+    """Check watchlist symbols and push earnings milestone alerts (t14/t1/t0)."""
+    from db.earnings_alerts import mark_sent, was_sent
+    from signals.push import send_alert_push
+
+    today = datetime.now(_ET).date()
+    today_iso = today.isoformat()
+    symbols = _all_watchlist_symbols()
+    if not symbols:
+        return
+
+    for sym in symbols:
+        try:
+            earnings_date_str = _upcoming_earnings_date(sym, today_iso)
+            if not earnings_date_str:
+                continue
+            earnings_date = date.fromisoformat(earnings_date_str)
+            if earnings_date < today:
+                continue
+            days_until = (earnings_date - today).days
+            hour = earnings_hour(sym, earnings_date_str)
+            hour_t1 = _earnings_hour_suffix(hour, day_of=False)
+            hour_t0 = _earnings_hour_suffix(hour, day_of=True)
+
+            milestones: list[tuple[str, str]] = []
+            if 1 < days_until <= 14:
+                milestones.append(
+                    ("t14", f"📅 {sym} earnings in 2 weeks — {earnings_date_str}")
+                )
+            if 0 < days_until <= 1:
+                milestones.append(
+                    (
+                        "t1",
+                        f"⏰ {sym} reports tomorrow ({earnings_date_str}{hour_t1})",
+                    )
+                )
+            if days_until == 0:
+                milestones.append(
+                    (
+                        "t0",
+                        f"🔔 {sym} reports TODAY ({earnings_date_str}{hour_t0})",
+                    )
+                )
+
+            for milestone, body in milestones:
+                key = f"{sym}:{earnings_date_str}:{milestone}"
+                if was_sent(key):
+                    continue
+                await send_alert_push(
+                    title="Earnings",
+                    body=body,
+                    data={
+                        "type": "earnings",
+                        "symbol": sym,
+                        "earnings_date": earnings_date_str,
+                        "milestone": milestone,
+                    },
+                )
+                mark_sent(key)
+                logger.info(
+                    "Earnings alert sent: %s milestone=%s date=%s",
+                    sym,
+                    milestone,
+                    earnings_date_str,
+                )
+        except Exception:
+            logger.exception("Earnings alert: error processing symbol %s", sym)
+
+
+async def _earnings_alert_loop() -> None:
+    """Every ~6h, push phone alerts for upcoming watchlist earnings milestones.
+
+    Env gates:
+      EARNINGS_ALERTS_ENABLED           default "1"  (set to "0" to disable)
+      EARNINGS_ALERT_INTERVAL_SECONDS   default 21600
+    """
+    while True:
+        await asyncio.sleep(EARNINGS_ALERT_INTERVAL_SECONDS)
+        if not _EARNINGS_ALERTS_ENABLED:
+            continue
+        try:
+            await _earnings_alert_once()
+        except Exception:
+            logger.exception("Earnings alert loop iteration failed")
+
+
 # Schwab health alert state: last-alert date (resets each ET day)
 _schwab_health_last_date: dict[str, date] = {}  # key: alert type ("expiring"/"offline")
 
@@ -670,6 +787,7 @@ async def lifespan(app: FastAPI):
     init_workspace_tables()
     init_ai_tables()
     init_session_node_tables()
+    init_earnings_alert_tables()
     if get_rule("session_node_spy") is None:
         create_rule(
             rule_id="session_node_spy",
@@ -721,11 +839,13 @@ async def lifespan(app: FastAPI):
     earnings_task = asyncio.create_task(_earnings_refresh_loop())
     volume_profile_task = asyncio.create_task(_volume_profile_refresh_loop())
     rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
+    earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
     schwab_health_task = asyncio.create_task(_schwab_health_loop())
     yield
     earnings_task.cancel()
     volume_profile_task.cancel()
     rvol_alert_task.cancel()
+    earnings_alert_task.cancel()
     schwab_health_task.cancel()
     sync_task.cancel()
     poll_task.cancel()
@@ -741,6 +861,7 @@ async def lifespan(app: FastAPI):
         earnings_task,
         volume_profile_task,
         rvol_alert_task,
+        earnings_alert_task,
         schwab_health_task,
     ):
         try:
