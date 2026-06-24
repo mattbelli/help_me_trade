@@ -40,22 +40,36 @@ The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution b
 - ✅ **Deploy unblocked:** `tools/serv-deploy.sh [backend|frontend|both]` + the founder added
   `Bash(bash tools/serv-deploy.sh:*)` to `.claude/settings.local.json`, so the agent CAN deploy now.
 
-**OPEN / IN-FLIGHT:**
-- 🔧 **Headless re-auth NOT yet tested.** `scripts/schwab_reauth.py` written (Playwright drives **system
-  chromium `/snap/bin/chromium`** — Playwright's bundled chromium has no ubuntu-26.04 build; `--no-sandbox`;
-  enters the `pyotp` VIP code). Selectors are best-guess constants at the top → **first run will need tuning**
-  (founder runs it; failures save a screenshot to `/tmp`; early field-not-found = no login attempt = no lockout).
-  Cron line (every 6 days) + day-6 APNs fallback documented in the agent report. The 7-day cliff is the reason.
-- 🔧 **Scanner / fundamentals IN PROGRESS** — `GET /api/scanner/rvol` (market-wide unusual-volume, ranks the
-  precomputed universe via batched `aget_quotes` totalVolume / expected-cum) being built; then RVOL-spike APNs
-  alerts + data-health/token-expiry monitoring; then fundamentals (Schwab P/E·mktcap·last-earnings + Finnhub
-  next-date). RN extended-hours wiring is the Mac agent's lane (brief `References/RN_RVOL_BRIEF.md`).
-- Watchlist reorder syncs cross-platform automatically (single server-side list; web persists via
-  `PUT /api/watchlists/{id}`; phone will once the Mac agent wires the same PUT).
+**ALSO SHIPPED + DEPLOYED this session (continued):**
+- ✅ **Volume Scanner** — `GET /api/scanner/rvol?min_rvol=&limit=` ranks the precomputed universe by current
+  RVOL (batched `aget_quotes` totalVolume ÷ expected-cum; RTH-only, empty off-hours; Schwab-only). Web
+  "Volume Scanner" widget (`rvol-scanner`, polls 25s). (`6bc0eed`/`fc04618`)
+- ✅ **RVOL-spike alerts + Schwab health monitoring** — `_rvol_alert_loop` (watchlist ≥`RVOL_ALERT_THRESHOLD`
+  =3.0 during RTH, once/symbol/day) + `_schwab_health_loop` (token invalid / ≤1d-to-expiry, once/day) via new
+  `signals.push.send_alert_push`. Env-gated, fail-soft. (`72526df`)
+- ✅ **Fundamentals** — `/api/watchlist/market` adds `pe`/`eps`/`div_yield`/`market_cap`/`last_earnings`/
+  `next_earnings` (Schwab `fundamental` block + earnings-calendar; lastEarningsDate is an ISO string, not
+  epoch — `1e64d55`). Web **tap-to-expand panel** (chevron) shows them. Earnings refresh now also covers the
+  watchlist so next_earnings populates (best-effort; Finnhub free-tier gaps). (`ddb7575`/`d871e83`/`7b7d265`)
 
-**NEXT:** finish scanner → alerts + monitoring → fundamentals; founder tests `schwab_reauth.py` (tune selectors);
-deferred: `/api/bars`+`1Hour` aggregation to the provider; extended *intraday bars* (currently RTH-only, so no
-pre/post chart segments yet).
+**OPEN / IN-FLIGHT:**
+- 🔧 **Headless re-auth NOT yet tested.** `scripts/schwab_reauth.py` (Playwright → system chromium
+  `/snap/bin/chromium`, `--no-sandbox`, `pyotp` VIP code). Selector constants at top → **first run needs
+  tuning** (founder runs it; failures screenshot to `/tmp`; early field-not-found = no login attempt = no
+  lockout). Cron (6d) + day-6 APNs fallback in the agent report.
+- 🔧 **Past-earnings performance — wired but returns EMPTY on serv.** `GET /api/fundamentals/earnings-history`
+  + web panel row are built (`94582e2`); reaction = close-after vs close-before from Schwab bars. BUT it sources
+  past earnings DATES from EDGAR (`research/earnings.py`), which needs the fundamentals **`companies`/CIK
+  cache** that ISN'T built on serv (`build_earnings` → `no such table: companies`). **Decision needed:** either
+  build the EDGAR/CIK research cache on serv, OR (recommended/simpler) switch the date source to **Finnhub
+  historical** (`signals/finnhub.py` — we already have the client+key; `/calendar/earnings?symbol=&from=&to=`).
+- 🔧 **Mac/RN agent** to wire extended-hours (brief `References/RN_RVOL_BRIEF.md` updated with `overnight`);
+  RVOL column already live on phone (`13ee660`). Relay sent re: ext-hours + reorder-persist via `PUT
+  /api/watchlists/{id}` + intraday is RTH-only (no pre/post chart bars yet).
+- Watchlist reorder syncs cross-platform via the shared server-side list (web persists; phone once it PUTs).
+
+**NEXT:** founder tests `schwab_reauth.py` (tune selectors); decide past-earnings date source (→ Finnhub
+recommended); deferred: `/api/bars`+`1Hour` aggregation to the provider; extended *intraday bars* (RTH-only now).
 
 > ⚠️ **SCHWAB AUTH BUG — recorded, fixed, but know it (could resurface on dep updates):** schwab-py builds its
 > authlib OAuth2 session **without** setting `token_endpoint_auth_method`, so authlib defaults to
