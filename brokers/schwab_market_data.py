@@ -224,15 +224,19 @@ class SchwabMarketData:
             div_yield = _f(fundamental.get("divYield"))
             shares_outstanding = _f(fundamental.get("sharesOutstanding"))
 
-            last_earnings_ms = fundamental.get("lastEarningsDate")
+            # Schwab returns lastEarningsDate as an ISO string ("2026-04-30T00:00:00Z"),
+            # NOT epoch-ms — take the date part. (Schwab gives no nextEarningsDate.)
+            last_earnings_raw = fundamental.get("lastEarningsDate")
             last_earnings_date: str | None = None
-            try:
-                if last_earnings_ms is not None:
+            if isinstance(last_earnings_raw, str) and len(last_earnings_raw) >= 10:
+                last_earnings_date = last_earnings_raw[:10]
+            elif last_earnings_raw is not None:
+                try:
                     last_earnings_date = datetime.fromtimestamp(
-                        int(last_earnings_ms) / 1000, tz=UTC
+                        int(last_earnings_raw) / 1000, tz=UTC
                     ).strftime("%Y-%m-%d")
-            except (TypeError, ValueError, OSError):
-                pass
+                except (TypeError, ValueError, OSError):
+                    pass
 
             out[sym.upper()] = {
                 "regular_last": reg_last,
