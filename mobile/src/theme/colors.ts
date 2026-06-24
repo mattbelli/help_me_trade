@@ -58,6 +58,11 @@ export const colors = {
   accentWash: palette.tealDim,
   focus: palette.teal,
 
+  // Secondary accent — warm bronze/gold (from the web palette). Used for the active
+  // tab, extended-hours badges, and other warm highlights against the teal primary.
+  warm: palette.amber,
+  warmWash: 'rgba(224, 151, 91, 0.22)',
+
   // Financial semantics — the two colors that carry the most meaning in this app
   positive: palette.green,
   negative: palette.red,

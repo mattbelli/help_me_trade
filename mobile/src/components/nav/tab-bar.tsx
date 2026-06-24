@@ -38,10 +38,10 @@ export function TabBar({
           flexDirection: 'row',
           alignItems: 'center',
           gap: spacing.xs,
-          backgroundColor: 'rgba(14,16,19,0.88)',
+          backgroundColor: 'rgba(40,45,54,0.94)',
           borderRadius: 999,
           borderWidth: hairline,
-          borderColor: 'rgba(255,255,255,0.12)',
+          borderColor: 'rgba(255,255,255,0.16)',
           paddingHorizontal: spacing.md,
           paddingVertical: spacing.sm,
           ...shadow,
@@ -73,11 +73,11 @@ function TabItem({ def, active, badge, onPress }: { def: TabDef; active: boolean
       <View style={{ width: 54, height: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center' }}>
         <Animated.View
           style={[
-            { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 999, backgroundColor: colors.accentWash },
+            { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 999, backgroundColor: colors.warmWash, borderWidth: hairline, borderColor: 'rgba(224,151,91,0.45)' },
             capsule,
           ]}
         />
-        <Icon name={def.icon} size={24} color={active ? colors.accent : colors.textFaint} strokeWidth={active ? 2.2 : 1.8} />
+        <Icon name={def.icon} size={24} color={active ? colors.warm : colors.textMuted} strokeWidth={active ? 2.3 : 1.8} />
         {badge ? (
           <View
             style={{

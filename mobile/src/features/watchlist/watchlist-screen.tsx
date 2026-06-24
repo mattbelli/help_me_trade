@@ -239,7 +239,7 @@ function RowBody({
     if (editing && !active) {
       const dir = (index ?? 0) % 2 === 0 ? 1 : -1;
       tilt.value = withRepeat(
-        withSequence(withTiming(dir * 0.55, { duration: 130 }), withTiming(-dir * 0.55, { duration: 130 })),
+        withSequence(withTiming(dir * 0.3, { duration: 190 }), withTiming(-dir * 0.3, { duration: 190 })),
         -1,
         true,
       );
@@ -266,6 +266,9 @@ function RowBody({
           ) : null}
 
           <View style={{ width: SYM_W }}>
+            {sv?.badge ? (
+              <Text style={{ ...mono, fontSize: 9, letterSpacing: 0.6, lineHeight: 11, color: colors.warm }}>{sv.badge}</Text>
+            ) : null}
             <Text style={{ fontSize: 17, fontWeight: '700', letterSpacing: 0.2, color: colors.text }} numberOfLines={1}>{symbol}</Text>
           </View>
 
@@ -274,8 +277,8 @@ function RowBody({
           ) : quote ? (
             <TriColumn
               width={PRICE_W}
-              top={sv!.badge ?? (quote.day_high != null ? quote.day_high.toFixed(2) : undefined)}
-              topColor={sv!.badge ? colors.accent : colors.textFaint}
+              top={quote.day_high != null ? quote.day_high.toFixed(2) : undefined}
+              topColor={colors.textFaint}
               mid={usd(sv!.last)}
               midColor={colors.text}
               midSize={16}
