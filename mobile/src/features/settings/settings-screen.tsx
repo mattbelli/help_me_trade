@@ -1,5 +1,8 @@
+import { useRef } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
+
+import { tradeProposalActivity } from '../../../widgets/trade-proposal';
 
 import { useHealth } from '@/api/queries';
 import { useAuth } from '@/auth/auth-context';
@@ -12,6 +15,23 @@ export function SettingsScreen() {
   const router = useRouter();
   const health = useHealth();
   const { signOut } = useAuth();
+  const testLA = useRef<ReturnType<typeof tradeProposalActivity.start> | null>(null);
+
+  const startTestLA = () => {
+    testLA.current = tradeProposalActivity.start({
+      proposalId: `test-${Date.now()}`,
+      symbol: 'AAPL',
+      side: 'buy',
+      qty: 10,
+      orderType: 'market',
+      winProb: 0.62,
+      status: 'pending',
+    });
+  };
+  const endTestLA = () => {
+    tradeProposalActivity.getInstances().forEach((a) => void a.end('immediate'));
+    testLA.current = null;
+  };
 
   const host = stripScheme(API_BASE_URL);
   const ok = health.data?.status === 'ok';
@@ -40,6 +60,18 @@ export function SettingsScreen() {
       >
         <Stack gap={spacing.lg}>
           <Header />
+
+          {__DEV__ ? (
+            <Card>
+              <Stack gap={spacing.md}>
+                <Eyebrow>dev · live activity</Eyebrow>
+                <Row gap={spacing.sm}>
+                  <Button label="Start test" onPress={startTestLA} />
+                  <Button label="End test" tone="ghost" onPress={endTestLA} />
+                </Row>
+              </Stack>
+            </Card>
+          ) : null}
 
           <Card>
             <Stack gap={spacing.md}>
