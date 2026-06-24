@@ -92,6 +92,8 @@ export interface WatchlistQuote {
   intraday?: number[];
   prev_close?: number;
   volume?: number;
+  /** Relative volume = today's volume ÷ average daily volume. Pending serv handoff. */
+  rvol?: number;
   day_high?: number;
   day_low?: number;
 }

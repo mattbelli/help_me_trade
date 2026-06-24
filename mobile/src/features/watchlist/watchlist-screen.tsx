@@ -1,18 +1,21 @@
 /**
  * Watchlist — Robinhood-style rows.
- *  1-col: SYM · [H / LAST / L] · [CHG% / CHG$] · [VOL% / VOL] · short day-chart.
- *         In each stacked pair the % is prominent and the amount small (mirrors
- *         the price column's LAST-big / H-L-small hierarchy).
+ *  1-col: SYM · [H / LAST / L] · [CHG% / CHG$] · [VOL / vol] · short day-chart.
+ *         Prominent values (LAST · CHG% · VOL) align on the middle line; the small
+ *         values (low · CHG$ · vol) on the line below. Each row carries a subtle
+ *         magnitude tint (deeper red/green for bigger moves) + a depth shadow.
  *  2-col: dense grid — twice the tickers.
+ *
+ * Sortable by tapping a column header: tap → desc, tap again → asc, third → user order.
  *
  * Real fields from /api/watchlist/market: price, change_pct, sparkline, intraday,
  * prev_close, volume, day_high, day_low. change$ = price − prev_close.
- * NOTE: "VOL%" (relative volume) is not in the feed yet → shows "vol" until serv adds it.
+ * rvol (relative volume) is wired forward-compatibly — shows as "1.8×" once serv sends it.
  */
 import { Dimensions, RefreshControl, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useWatchlist, useWatchlistMarket } from '@/api/queries';
 import type { WatchlistQuote } from '@/api/types';
@@ -43,6 +46,9 @@ const VOL_W = 46;
 const GAP = spacing.sm;
 const CHART_W = Math.max(80, SCREEN_W - 2 * spacing.xl - SYM_W - PRICE_W - CHG_W - VOL_W - 3 * GAP);
 
+type SortKey = 'sym' | 'last' | 'chg' | 'vol';
+type SortState = { key: SortKey | null; dir: 'asc' | 'desc' };
+
 function preferIntraday(q: WatchlistQuote): boolean {
   return !!q.intraday && q.intraday.length >= 2;
 }
@@ -51,7 +57,8 @@ function hasChartData(q: WatchlistQuote): boolean {
 }
 function fmtVol(v: number | undefined): string {
   if (v == null) return '—';
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 100_000_000) return `${(v / 1_000_000).toFixed(0)}M`; // 153M — keep it narrow
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`; // 53.4M
   if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
   return `${v.toFixed(0)}`;
 }
@@ -62,20 +69,23 @@ function dolStr(v: number): string {
   const s = v > 0 ? '+' : v < 0 ? '−' : '';
   return `${s}$${Math.abs(v).toFixed(2)}`;
 }
-
-const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };
-
-// Shared 3-row rhythm so every column lines up across the row:
-//   top   = high (price only; blank elsewhere)
-//   mid   = the PROMINENT value (LAST / CHG% / VOL) — all aligned on one line
-//   bottom= the small value (low / CHG$ / vol)      — all aligned on the line below
-const ROW_TOP = 15;
-const ROW_MID = 22;
-const ROW_BOT = 15;
-
 function usd(v: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 }
+// Subtle heatmap: the bigger the move, the more saturated the row tint. ±4% ≈ full.
+function rowTint(pct: number | undefined): string {
+  if (pct == null) return 'transparent';
+  const a = (Math.min(Math.abs(pct) / 4, 1) * 0.1).toFixed(3);
+  return pct >= 0 ? `rgba(91,201,138,${a})` : `rgba(239,111,108,${a})`;
+}
+
+const mono = { fontFamily: fonts.mono, fontVariant: ['tabular-nums' as const] };
+
+// Shared 3-row rhythm so every column lines up:
+//   top = high (price only) · mid = the PROMINENT value · bottom = the small value
+const ROW_TOP = 15;
+const ROW_MID = 22;
+const ROW_BOT = 15;
 
 function TriColumn({
   width,
@@ -109,23 +119,60 @@ function TriColumn({
   );
 }
 
-// ─── Column header — mirrors the row's flex geometry exactly ──────────────────
-function ColLabel({ children }: { children: string }) {
-  return <Text style={{ ...mono, fontSize: 10, letterSpacing: 0.6, color: colors.textFaint }}>{children}</Text>;
-}
-function ColumnHeader() {
+// ─── Sortable column header — mirrors the row's flex geometry exactly ──────────
+function HeadCell({
+  label,
+  width,
+  marginLeft = 0,
+  left = false,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  width: number;
+  marginLeft?: number;
+  left?: boolean;
+  sortKey: SortKey;
+  sort: SortState;
+  onSort: (k: SortKey) => void;
+}) {
+  const active = sort.key === sortKey;
   return (
-    <Row align="center" gap={0} style={{ paddingBottom: spacing.sm, marginBottom: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
-      <View style={{ width: SYM_W }} />
-      <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><ColLabel>last</ColLabel></View>
-      <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><ColLabel>chg</ColLabel></View>
-      <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><ColLabel>vol</ColLabel></View>
-      <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}><ColLabel>1d</ColLabel></View>
-    </Row>
+    <PressableScale onPress={() => onSort(sortKey)} haptic style={{ width, marginLeft }}>
+      <Row gap={2} align="center" justify={left ? 'flex-start' : 'flex-end'}>
+        <Text style={{ ...mono, fontSize: 12, letterSpacing: 0.4, color: active ? colors.accent : colors.textMuted }}>{label}</Text>
+        <Text style={{ ...mono, fontSize: 9, color: active ? colors.accent : 'transparent' }}>{sort.dir === 'desc' ? '▼' : '▲'}</Text>
+      </Row>
+    </PressableScale>
+  );
+}
+function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) => void }) {
+  return (
+    <View
+      style={{
+        borderTopWidth: hairline,
+        borderTopColor: colors.border,
+        borderBottomWidth: hairline,
+        borderBottomColor: colors.border,
+        paddingVertical: spacing.xs + 1,
+        marginBottom: spacing.xs,
+      }}
+    >
+      <Row align="center" gap={0}>
+        <HeadCell label="sym" width={SYM_W} left sortKey="sym" sort={sort} onSort={onSort} />
+        <HeadCell label="last" width={PRICE_W} sortKey="last" sort={sort} onSort={onSort} />
+        <HeadCell label="chg" width={CHG_W} marginLeft={GAP} sortKey="chg" sort={sort} onSort={onSort} />
+        <HeadCell label="vol" width={VOL_W} marginLeft={GAP} sortKey="vol" sort={sort} onSort={onSort} />
+        <View style={{ width: CHART_W, marginLeft: GAP, alignItems: 'flex-end' }}>
+          <Text style={{ ...mono, fontSize: 12, letterSpacing: 0.4, color: colors.textMuted }}>1d</Text>
+        </View>
+      </Row>
+    </View>
   );
 }
 
-// ─── Header: aligned eyebrow + icons, sits high ───────────────────────────────
+// ─── Page header: eyebrow + title + icons ─────────────────────────────────────
 function WatchlistHeader({
   columns,
   onToggleColumns,
@@ -136,8 +183,11 @@ function WatchlistHeader({
   onOpenAlerts: () => void;
 }) {
   return (
-    <Row justify="space-between" align="center" style={{ paddingBottom: spacing.sm }}>
-      <Eyebrow color="accent">watchlist</Eyebrow>
+    <Row justify="space-between" align="flex-end" style={{ paddingBottom: spacing.sm }}>
+      <Stack gap={1}>
+        <Eyebrow color="accent">watchlist</Eyebrow>
+        <Text variant="title">Symbols</Text>
+      </Stack>
       <Row gap={spacing.sm}>
         <PressableScale onPress={onToggleColumns} haptic>
           <View style={{ padding: spacing.xs }}>
@@ -167,81 +217,87 @@ function WatchlistRow({
   onPress: () => void;
 }) {
   const changeDol = quote?.prev_close != null ? quote.price - quote.prev_close : undefined;
+  // Forward-compatible: accept rvol as number OR numeric string; fall back to volume.
+  const rvolRaw = quote?.rvol as unknown;
+  const rvolNum = typeof rvolRaw === 'number' ? rvolRaw : typeof rvolRaw === 'string' ? Number(rvolRaw) : NaN;
+  const hasRvol = Number.isFinite(rvolNum);
 
   return (
     <PressableScale onPress={onPress}>
-      <Row align="center" gap={0} style={{ paddingVertical: spacing.md, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
-        {/* SYM */}
-        <View style={{ width: SYM_W }}>
-          <Text variant="bodyStrong" numberOfLines={1}>{symbol}</Text>
-        </View>
+      <View style={{ backgroundColor: rowTint(quote?.change_pct), boxShadow: '0px 2px 5px rgba(0,0,0,0.22)' }}>
+        <Row align="center" gap={0} style={{ paddingVertical: spacing.md, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
+          {/* SYM */}
+          <View style={{ width: SYM_W }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', letterSpacing: 0.2, color: colors.text }} numberOfLines={1}>{symbol}</Text>
+          </View>
 
-        {/* H / LAST / L */}
-        {loading ? (
-          <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={50} width={72} /></View>
-        ) : quote ? (
-          <TriColumn
-            width={PRICE_W}
-            top={quote.day_high != null ? quote.day_high.toFixed(2) : undefined}
-            mid={usd(quote.price)}
-            midColor={colors.text}
-            midSize={16}
-            bottom={quote.day_low != null ? quote.day_low.toFixed(2) : '—'}
-            bottomColor={colors.textFaint}
-          />
-        ) : (
-          <View style={{ width: PRICE_W }} />
-        )}
-
-        {/* CHG% (mid, aligned with LAST) / CHG$ (bottom, aligned with low) */}
-        {loading ? (
-          <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={50} /></View>
-        ) : quote ? (
-          <TriColumn
-            width={CHG_W}
-            marginLeft={GAP}
-            mid={pctStr(quote.change_pct)}
-            midColor={pnlColor(quote.change_pct)}
-            bottom={changeDol != null ? dolStr(changeDol) : '—'}
-            bottomColor={changeDol != null ? pnlColor(changeDol) : colors.textFaint}
-          />
-        ) : (
-          <View style={{ width: CHG_W, marginLeft: GAP }} />
-        )}
-
-        {/* VOL (mid) / vol (bottom) — flips to vol% prominent once serv provides it */}
-        {loading ? (
-          <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={44} /></View>
-        ) : quote ? (
-          <TriColumn
-            width={VOL_W}
-            marginLeft={GAP}
-            mid={fmtVol(quote.volume)}
-            midColor={colors.text}
-            bottom="vol"
-            bottomColor={colors.textFaint}
-          />
-        ) : (
-          <View style={{ width: VOL_W, marginLeft: GAP }} />
-        )}
-
-        {/* Short day chart */}
-        <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}>
+          {/* H / LAST / L */}
           {loading ? (
-            <Skeleton height={42} width={CHART_W} />
-          ) : quote && hasChartData(quote) ? (
-            <MiniDayChart
-              data={preferIntraday(quote) ? quote.intraday! : quote.sparkline}
-              intraday={preferIntraday(quote)}
-              change={quote.change_pct}
-              width={CHART_W}
-              height={42}
+            <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={50} width={72} /></View>
+          ) : quote ? (
+            <TriColumn
+              width={PRICE_W}
+              top={quote.day_high != null ? quote.day_high.toFixed(2) : undefined}
+              mid={usd(quote.price)}
+              midColor={colors.text}
+              midSize={16}
+              bottom={quote.day_low != null ? quote.day_low.toFixed(2) : '—'}
+              bottomColor={colors.textFaint}
             />
           ) : (
-            <View style={{ width: CHART_W, height: 42 }} />
+            <View style={{ width: PRICE_W }} />
           )}
-        </View>
-      </Row>
+
+          {/* CHG% (mid) / CHG$ (bottom) */}
+          {loading ? (
+            <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={50} /></View>
+          ) : quote ? (
+            <TriColumn
+              width={CHG_W}
+              marginLeft={GAP}
+              mid={pctStr(quote.change_pct)}
+              midColor={pnlColor(quote.change_pct)}
+              bottom={changeDol != null ? dolStr(changeDol) : '—'}
+              bottomColor={changeDol != null ? pnlColor(changeDol) : colors.textFaint}
+            />
+          ) : (
+            <View style={{ width: CHG_W, marginLeft: GAP }} />
+          )}
+
+          {/* VOL (mid) / vol (bottom) — shows rvol "1.8×" once serv provides it */}
+          {loading ? (
+            <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={44} /></View>
+          ) : quote ? (
+            <TriColumn
+              width={VOL_W}
+              marginLeft={GAP}
+              mid={hasRvol ? `${rvolNum.toFixed(1)}×` : fmtVol(quote.volume)}
+              midColor={hasRvol && rvolNum >= 1.5 ? colors.accent : colors.text}
+              bottom={hasRvol ? fmtVol(quote.volume) : 'vol'}
+              bottomColor={colors.textFaint}
+            />
+          ) : (
+            <View style={{ width: VOL_W, marginLeft: GAP }} />
+          )}
+
+          {/* Short day chart */}
+          <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}>
+            {loading ? (
+              <Skeleton height={42} width={CHART_W} />
+            ) : quote && hasChartData(quote) ? (
+              <MiniDayChart
+                data={preferIntraday(quote) ? quote.intraday! : quote.sparkline}
+                intraday={preferIntraday(quote)}
+                change={quote.change_pct}
+                width={CHART_W}
+                height={42}
+              />
+            ) : (
+              <View style={{ width: CHART_W, height: 42 }} />
+            )}
+          </View>
+        </Row>
+      </View>
     </PressableScale>
   );
 }
@@ -260,24 +316,26 @@ function WatchlistCard({
 }) {
   return (
     <PressableScale onPress={onPress} style={{ flex: 1 }}>
-      <Stack gap={4} style={{ flex: 1, paddingVertical: spacing.sm + 1, paddingHorizontal: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
-        <Row justify="space-between" align="center" gap={spacing.xs}>
-          <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{symbol}</Text>
-          {!loading && quote && quote.sparkline.length > 1 ? (
-            <Sparkline data={quote.sparkline} width={40} height={18} color={pnlColor(quote.change_pct)} strokeWidth={1.3} />
-          ) : null}
-        </Row>
-        {loading ? (
-          <Skeleton height={13} />
-        ) : quote ? (
-          <Row gap={spacing.xs} align="center">
-            <Money value={quote.price} size="sm" numberOfLines={1} />
-            <Text style={{ ...mono, fontSize: 13, color: pnlColor(quote.change_pct) }} numberOfLines={1}>{pctStr(quote.change_pct)}</Text>
+      <View style={{ flex: 1, backgroundColor: rowTint(quote?.change_pct) }}>
+        <Stack gap={4} style={{ flex: 1, paddingVertical: spacing.sm + 1, paddingHorizontal: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
+          <Row justify="space-between" align="center" gap={spacing.xs}>
+            <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{symbol}</Text>
+            {!loading && quote && quote.sparkline.length > 1 ? (
+              <Sparkline data={quote.sparkline} width={40} height={18} color={pnlColor(quote.change_pct)} strokeWidth={1.3} />
+            ) : null}
           </Row>
-        ) : (
-          <Text variant="figureSm" color="textFaint">—</Text>
-        )}
-      </Stack>
+          {loading ? (
+            <Skeleton height={13} />
+          ) : quote ? (
+            <Row gap={spacing.xs} align="center">
+              <Money value={quote.price} size="sm" numberOfLines={1} />
+              <Text style={{ ...mono, fontSize: 13, color: pnlColor(quote.change_pct) }} numberOfLines={1}>{pctStr(quote.change_pct)}</Text>
+            </Row>
+          ) : (
+            <Text variant="figureSm" color="textFaint">—</Text>
+          )}
+        </Stack>
+      </View>
     </PressableScale>
   );
 }
@@ -289,9 +347,9 @@ function SkeletonRows() {
         <View key={i} style={{ paddingVertical: spacing.md, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
           <Row align="center" gap={0}>
             <View style={{ width: SYM_W }}><Skeleton height={16} width={36} /></View>
-            <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={36} width={64} /></View>
-            <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={32} width={50} /></View>
-            <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={32} width={44} /></View>
+            <View style={{ width: PRICE_W, alignItems: 'flex-end' }}><Skeleton height={50} width={72} /></View>
+            <View style={{ width: CHG_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={50} /></View>
+            <View style={{ width: VOL_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={50} width={44} /></View>
             <View style={{ width: CHART_W, alignItems: 'flex-end', marginLeft: GAP }}><Skeleton height={42} width={CHART_W} /></View>
           </Row>
         </View>
@@ -304,6 +362,7 @@ function SkeletonRows() {
 export function WatchlistScreen() {
   const router = useRouter();
   const [columns, setColumns] = useState<1 | 2>(1);
+  const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });
 
   const watchlist = useWatchlist();
   const symbols: string[] = watchlist.data?.symbols ?? [];
@@ -315,6 +374,25 @@ export function WatchlistScreen() {
   const loading = watchlist.isLoading;
   const marketLoading = market.isLoading && symbols.length > 0;
 
+  // tap a header: desc → asc → off (back to user order)
+  const onSort = (key: SortKey) =>
+    setSort((s) => (s.key !== key ? { key, dir: 'desc' } : s.dir === 'desc' ? { key, dir: 'asc' } : { key: null, dir: 'desc' }));
+
+  const data = useMemo(() => {
+    if (!sort.key) return symbols;
+    const k = sort.key;
+    const num = (sym: string) => {
+      const q = quotes[sym];
+      if (!q) return Number.NEGATIVE_INFINITY;
+      if (k === 'last') return q.price;
+      if (k === 'chg') return q.change_pct;
+      const r = Number(q.rvol);
+      return Number.isFinite(r) ? r : (q.volume ?? 0);
+    };
+    const arr = [...symbols].sort((a, b) => (k === 'sym' ? a.localeCompare(b) : num(a) - num(b)));
+    return sort.dir === 'desc' ? arr.reverse() : arr;
+  }, [symbols, quotes, sort]);
+
   const header = (
     <View>
       <WatchlistHeader
@@ -322,7 +400,7 @@ export function WatchlistScreen() {
         onToggleColumns={() => setColumns((c) => (c === 1 ? 2 : 1))}
         onOpenAlerts={() => router.push('/alerts')}
       />
-      {columns === 1 ? <ColumnHeader /> : null}
+      {columns === 1 ? <ColumnHeader sort={sort} onSort={onSort} /> : null}
     </View>
   );
 
@@ -341,7 +419,7 @@ export function WatchlistScreen() {
     <Screen>
       <FlashList
         key={`watchlist-${columns}`}
-        data={symbols}
+        data={data}
         numColumns={columns}
         keyExtractor={(symbol) => symbol}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
