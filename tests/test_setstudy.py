@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -12,6 +14,7 @@ from research.setstudy import (
     analyze_call,
     append_log_rows,
     build_setstudy_report,
+    main,
 )
 
 
@@ -239,3 +242,65 @@ def test_append_log_rows_dedupes_by_post_id(tmp_path: Path):
     assert append_log_rows(report, log_path) == 0
     text = log_path.read_text(encoding="utf-8")
     assert text.count("abc") == 1
+
+
+def test_refresh_tweets_wiring(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    """--refresh-tweets merges tweets, writes triggers, and produces a report (no network)."""
+    data_dir = tmp_path / "research"
+    adaamset_dir = data_dir / "adaamset"
+    adaamset_dir.mkdir(parents=True)
+    existing = [
+        {
+            "id": "existing",
+            "created_at": "2025-06-01T10:00:00+00:00",
+            "text": "old tweet",
+        }
+    ]
+    (adaamset_dir / "tweets.json").write_text(json.dumps(existing), encoding="utf-8")
+    triggers_path = adaamset_dir / "es_triggers_full.json"
+
+    fetched = [
+        {
+            "id": "new1",
+            "created_at": "2025-06-02T14:00:00+00:00",
+            "text": "Long $ES : 5440",
+            "_media": [],
+        }
+    ]
+
+    def fake_fetch(username: str, max_tweets: int, *, token=None, client=None):
+        assert username == "Adaamset"
+        assert max_tweets == 200
+        return fetched, {}
+
+    monkeypatch.setattr("research.x_pull.fetch_user_tweets", fake_fetch)
+    monkeypatch.setattr("research.setstudy.RESEARCH_DATA_DIR", data_dir)
+
+    ny_date = date(2025, 6, 2)
+    bars = [
+        _rth_bar(ny_date, 9, 30, o=5430, h=5450, low=5425, c=5445, v=5000),
+        _rth_bar(ny_date, 9, 31, o=5445, h=5460, low=5440, c=5455, v=4000),
+        _rth_bar(ny_date, 10, 1, o=5455, h=5480, low=5450, c=5475, v=3000),
+        _rth_bar(ny_date, 15, 59, o=5470, h=5475, low=5465, c=5472, v=2000),
+    ]
+
+    with patch("research.setstudy.load_cached_minute_bars", return_value=bars):
+        exit_code = main(
+            [
+                "--refresh-tweets",
+                "--date",
+                ny_date.isoformat(),
+                "--triggers-path",
+                str(triggers_path),
+                "--log-csv",
+                str(tmp_path / "setstudy_log.csv"),
+            ]
+        )
+
+    assert exit_code == 0
+    merged = json.loads((adaamset_dir / "tweets.json").read_text(encoding="utf-8"))
+    assert {tweet["id"] for tweet in merged} == {"existing", "new1"}
+    triggers = json.loads(triggers_path.read_text(encoding="utf-8"))
+    assert any(row["post_id"] == "new1" for row in triggers)
+    output = capsys.readouterr().out
+    assert "=== setstudy 2025-06-02 ===" in output

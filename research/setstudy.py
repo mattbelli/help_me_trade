@@ -456,6 +456,26 @@ def refresh_recent_bars(
     print(f"refresh cached {len(bars)} {source} bars")
 
 
+def refresh_tweets_and_extract(
+    *,
+    username: str = "Adaamset",
+    max_tweets: int = 200,
+    data_dir: Path | None = None,
+    triggers_path: Path = DEFAULT_TRIGGERS_PATH,
+) -> list[dict]:
+    """Pull latest tweets (merge), extract triggers, write ``triggers_path``."""
+    from research.es_trigger_extract import extract_es_triggers, write_triggers
+    from research.x_pull import fetch_user_tweets, save_tweets
+
+    base = data_dir or RESEARCH_DATA_DIR
+    user_dir = base / username.lower()
+    fetched, media_map = fetch_user_tweets(username, max_tweets)
+    merged = save_tweets(user_dir, fetched, media_map)
+    triggers = extract_es_triggers(merged)
+    write_triggers(triggers, triggers_path)
+    return triggers
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Daily @adaamset level-call review vs /ES price action."
@@ -464,6 +484,22 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--date",
         default=None,
         help="NY session date YYYY-MM-DD (default: latest in triggers file)",
+    )
+    parser.add_argument(
+        "--refresh-tweets",
+        action="store_true",
+        help="Pull latest tweets (merge), re-extract triggers, then run report",
+    )
+    parser.add_argument(
+        "--max-tweets",
+        type=int,
+        default=200,
+        help="Max tweets to fetch when --refresh-tweets (default: 200)",
+    )
+    parser.add_argument(
+        "--username",
+        default="Adaamset",
+        help="X username for --refresh-tweets (default: Adaamset)",
     )
     parser.add_argument(
         "--refresh",
@@ -500,7 +536,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    triggers = load_triggers(args.triggers_path)
+    if args.refresh_tweets:
+        triggers = refresh_tweets_and_extract(
+            username=args.username,
+            max_tweets=args.max_tweets,
+            triggers_path=args.triggers_path,
+        )
+    else:
+        triggers = load_triggers(args.triggers_path)
     if not triggers:
         print("No triggers found.", file=sys.stderr)
         return 1

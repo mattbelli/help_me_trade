@@ -120,14 +120,17 @@ the safety checklist (if ever revisited) → `References/SHORT_TRADING_FINDINGS.
   His edge (if real) is discretionary + orderflow, NOT price levels. **Do not re-run the mechanical level
   tests.** Forward path = **the setstudy** (`research/setstudy.py` → `data/research/setstudy_log.csv`): run it
   daily to log his calls vs `/ES` outcomes and learn his read qualitatively.
-  - **Setstudy daily pipeline (RESOLVED — all scripts, no LLM):** (1) `python data/research/x_pull.py
-    Adaamset 200` (X API v2; token in `data/research/x_token.txt` or `$X_BEARER_TOKEN`; ~$0.005/post) →
-    `tweets.json`; (2) `python data/research/adaamset/_extract_es_triggers.py` (deterministic regex extractor)
-    → `es_triggers_full.json`; (3) `python -m research.setstudy --date <today>` → report + appends the
-    `setstudy_log.csv` corpus. Caveats: x_pull OVERWRITES tweets.json with the latest N (run daily so no >N/day
-    gap; the log accumulates regardless); the regex extractor is good-enough for daily but the Sonnet
-    deep-extraction (broad-extraction subagent prompt) recovers shorthand/nuance — re-run it periodically.
-    Could be folded into a one-command `--refresh-tweets` chain if wanted.
+  - **Setstudy daily pipeline (RESOLVED — ONE command, no LLM):** `python -m research.setstudy
+    --refresh-tweets` chains pull → extract → report. Promoted to committed/tested modules:
+    `research/x_pull.py` (X API v2; token in `data/research/x_token.txt` or `$X_BEARER_TOKEN`; ~$0.005/post;
+    now MERGES into tweets.json by id so full history is kept) + `research/es_trigger_extract.py`
+    (deterministic regex) → `es_triggers_full.json`; then the report appends the `setstudy_log.csv` corpus.
+    Cost is printed before any X spend. **Caveat:** the regex extractor's DIRECTIONAL set (~119 long/short,
+    what the setstudy uses) is solid, but its `entry_type` LABELS are approximate vs the one-time Sonnet
+    deep-extraction (realtime≈65 vs 74, recap over-tagged, anticipatory under-tagged) — labels are cosmetic
+    for the setstudy. `--refresh-tweets` REGENERATES es_triggers_full.json (regex), overwriting the richer
+    LLM labels; the per-call ANALYSIS in setstudy_log.csv is label-independent and persists. Re-run the
+    broad-extraction subagent periodically if you want the richer entry_type tagging back.
   - **Orderflow (TBBO) — deliberately DEFERRED, not momentum.** The one untouched dimension (where his real
     edge supposedly lives); Databento has it 2010+, ~$112 credits left. Big, noisy, overfitting-prone build —
     only pursue as a scoped decision, not a default.
