@@ -1,15 +1,86 @@
-# Handoff — "you are here" (2026-06-24)
+# Handoff — "you are here" (2026-06-25)
 
 *Bootstrap for a fresh session. Read this first, then `CLAUDE.md` (mission + working agreements, auto-loaded),
 `AGENTS.md` (codebase map), and per-topic refs: `MULTI_ACCOUNT_PLAN.md`, `BUILD.md` (roadmap + dated history),
-`DECISION_ENGINE_RESEARCH.md`, `SHORT_TRADING_FINDINGS.md`, `NORGATE_PULL.md`, `ARCHITECTURE.md`, `STARTUP.md`,
-`SERVER_SETUP.md`. Deep server specifics: the `serv-runtime` memory.*
+`PLATFORM_PARITY.md` (web vs phone tracker — keep current), `DECISION_ENGINE_RESEARCH.md`,
+`SHORT_TRADING_FINDINGS.md`, `ARCHITECTURE.md`, `STARTUP.md`, `SERVER_SETUP.md`. Deep server specifics: the
+`serv-runtime` memory.*
 *Past full handoff snapshots live in `HANDOFF_ARCHIVE.md` (oldest first) — when you do a superseding rewrite of
 this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Schwab data hub: RVOL + real-time streaming + extended-hours + auto re-auth
+## CURRENT FOCUS — Web UI consolidation + the supervision backbone (2026-06-25)
+
+**Read `PLATFORM_PARITY.md` too** (web-vs-phone feature tracker; update it every change — agreed discipline).
+
+### Locked product decisions (don't re-litigate)
+- **The Workspace (`/workspace`, the draggable widget grid) is the home and the ONLY web UI going forward.**
+  The old page-nav routes (`/trading`, `/charts`, `/rules`, etc.) are to be **deprecated**. Full/rich views
+  (Automations, Performance, Research) should *launch from* the Workspace, not be a separate UI.
+- **Charts: ONE chart.** Controls live in the **workspace frame toolbar** (`ChartHeaderControls` in
+  `frontend/components/workspace/workspace-grid.tsx`): symbol + timeframe ▾ + Candles/Line ▾ + **Studies ▾**.
+  `TvLightChart` renders chart-only in the workspace (`compact` prop hides its internal toolbar/overlay).
+  ⚠️ `TvLightChart` STILL contains an old-UI internal toolbar (shadcn `Button`s) used only by the deprecated
+  `/trading` + `/charts` pages — strip it when those pages go (it's the last old-UI styling in the chart path).
+- **Studies menu** holds chart studies; only one so far: **"Session Nodes"** (prior-session volume-profile
+  POC/VAH/VAL + prior-day H/L), toggled via the Studies dropdown → `config.showSessionNodes` →
+  `TvLightChart`'s controlled `showLevels` prop → `/api/session-node/levels` → `createPriceLine`s. Future
+  studies (MAs, S/R, drawings) join the same dropdown.
+
+### Shipped today (2026-06-25, all on `main`, deployed live on serv)
+CPU peg fixed (missing `account_snapshots(poll_run_id)` index — 101%→2%); **post-market/extended-hours charts**
+(Schwab, `/api/bars` deduped — fixed a Schwab duplicate-candle bug that broke 1/5/15-min); **Session Nodes study**
++ chart overlay; **one full chart** w/ frame Studies dropdown; **Session-Node strategy promoted to the Strategies
+cockpit** (armed, propose-only, 1-min scan loop); **morning levels report** (8am push, scheduled, Generate-now,
+Automations); **Automations cockpit page** (`/automations`); chart-switch **bars cache**; **company-info last-
+earnings fix** (Finnhub `/calendar/earnings` was row-capped → now chunked; serve report date not Schwab's stale
+field); **Live Activity** trade-proposal lifecycle verified end-to-end on device.
+
+### THE QUEUE — what to build next (priority order)
+1. **Notifications / inbox (highest value — the supervision backbone; founder's biggest active pain).**
+   Build ONE persistent notification store feeding both platforms. **Web bell** (`notification-bell.tsx`): entries
+   must be **clickable with detail** (which rule, what level/price, a link to act) and **reports must register
+   there** (they don't now — bell only shows proposals + a non-clickable "rule triggered"). **Phone**: a persistent
+   **inbox** that holds reports/alerts until deleted (currently ephemeral push only). Backend likely needs a
+   notifications table + an endpoint; the alert broadcast path is in `brokers/market_stream` + `send_alert_push`.
+2. **Finish "Workspace is the only UI".** Deprecate/remove the old pages; **strip `TvLightChart`'s internal
+   toolbar** (chart-only everywhere); add an in-Workspace **launcher** to the surviving full views (Automations,
+   Performance, Research); **default-place the 6 orphaned widgets** (reports, agent-proposals, price-alerts, scans,
+   memory, rvol-scanner) so nothing's hidden. (They're registered in `widget-registry.tsx` but off the default
+   grid in `lib/workspace/layout-persistence.ts`.)
+3. **Chart/Studies polish.** Founder to eyeball Session Nodes line rendering. Studies dropdown grows (drawings,
+   MAs, S/R). If the chart's top toolbar wraps badly at small widget sizes, condense to icons (NOT a separate
+   compact chart).
+4. **HTML Session-Nodes report** — richer visual report (levels as an SVG ladder), beyond the plain push text.
+5. **Earnings + RVOL alert surfaces** — backend endpoints so they appear in Automations → Alerts (currently
+   backend-only, no UI).
+6. **Auto-execute / guardrails** — the autonomy-ladder controls (act within hard caps + kill switch); the mission
+   endgame; belongs in the Automations cockpit.
+
+### Key files
+Chart: `frontend/components/trading/tv-light-chart.tsx`, `…/workspace/workspace-grid.tsx` (`ChartHeaderControls`),
+`…/workspace/widgets/chart-widget.tsx`, `lib/workspace/layout-persistence.ts` (`WidgetInstanceConfig`).
+Session nodes: `signals/session_node_strategy.py` (`compute_session_levels`), `GET /api/session-node/levels`.
+Reports: `db/reports.py`, `signals/reports.py`, `_morning_levels_report_loop`/`_morning_report_window` in
+`api/main.py`, `GET/POST /api/reports`. Automations: `frontend/components/automations/`, `/automations`.
+Notifications: `frontend/components/workspace/notification-bell.tsx`.
+
+### Working notes
+- **Deploy:** `bash tools/serv-deploy.sh [backend|frontend|both]`. **REBUILD the frontend first**
+  (`cd frontend && npm run build`) when frontend changed — serv-deploy only RESTARTS; serving a stale `.next`
+  build is the recurring "where's my change?" bug.
+- **Discoverability rule (founder pain):** when you add a widget/page, default-place it or tell the founder exactly
+  where it is — don't leave it off-grid. Update `PLATFORM_PARITY.md` every change.
+- **Coding:** Composer bridge (`tools/composer-bridge/dispatch.mjs --brief …`, one at a time) OR Sonnet subagents.
+  Founder is considering dropping Cursor → use **Sonnet subagents for legwork, Opus for orchestration + `trading/`
+  safety**. (Evaluated the `ponytail` plugin — skipped, redundant with `CLAUDE.md`.)
+- **Safety:** `trading/` changes get an adversarial Sonnet review; session-node strat is **propose-only** (never
+  auto-executes); Schwab stays read-only; LIVE execution hard-blocked.
+
+---
+
+## SHIPPED (2026-06-24) — Schwab data hub: RVOL + real-time streaming + extended-hours + auto re-auth
 **Architecture locked (2026-06-24, see `data-vs-execution-architecture` memory):** consolidate **DATA on
 Schwab** (volume, fundamentals, extended-hours, streaming) + **Finnhub** for the forward earnings date; keep
 **EXECUTION decoupled on Alpaca paper** (Schwab read-only, never execute). Futures = its own later track.
