@@ -428,7 +428,14 @@ function StrategyCard({
   );
 }
 
-export function SettingsStrategiesPanel() {
+type SettingsStrategiesPanelProps = {
+  /** Hide intro copy when embedded in Automations (outer card provides the title). */
+  embedded?: boolean;
+};
+
+export function SettingsStrategiesPanel({
+  embedded = false,
+}: SettingsStrategiesPanelProps) {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [accounts, setAccounts] = useState<StrategyAccount[]>([]);
   const [universes, setUniverses] = useState<StrategyUniverse[]>([]);
@@ -481,13 +488,15 @@ export function SettingsStrategiesPanel() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h3 className="text-sm font-medium">Strategies</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Enable automated scans, bind an execution account, and tune per-strategy
-          sizing. Changes save per card.
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h3 className="text-sm font-medium">Strategies</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Enable automated scans, bind an execution account, and tune per-strategy
+            sizing. Changes save per card.
+          </p>
+        </div>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
