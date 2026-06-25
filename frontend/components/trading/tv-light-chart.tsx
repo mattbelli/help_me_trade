@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type RefObject,
+} from "react";
 import {
   CandlestickSeries,
   ColorType,
@@ -127,7 +133,11 @@ export function TvLightChart({
   const isControlledStyle = styleProp != null;
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [alertsRefreshKey, setAlertsRefreshKey] = useState(0);
-  const [addingAlert, setAddingAlert] = useState(false);
+  const [alertMenu, setAlertMenu] = useState<{
+    x: number;
+    y: number;
+    price: number;
+  } | null>(null);
   const [pendingAlert, setPendingAlert] = useState<{
     price: number;
     x: number;
@@ -138,7 +148,7 @@ export function TvLightChart({
   const [alertRepeat, setAlertRepeat] = useState(false);
   const [alertSaving, setAlertSaving] = useState(false);
   const [alertError, setAlertError] = useState<string | null>(null);
-  const addingAlertRef = useRef(false);
+  const alertMenuRef = useRef<HTMLDivElement>(null);
   const livePriceRef = useRef(livePrice);
   // Internal toggle for the non-compact (/trading) header; in the workspace the
   // frame's Studies dropdown drives it via the `showLevels` prop (controlled).
@@ -154,10 +164,6 @@ export function TvLightChart({
   }, []);
 
   useEffect(() => {
-    addingAlertRef.current = addingAlert;
-  }, [addingAlert]);
-
-  useEffect(() => {
     livePriceRef.current = livePrice;
   }, [livePrice]);
 
@@ -170,31 +176,62 @@ export function TvLightChart({
   }, []);
 
   useEffect(() => {
-    if (!addingAlert && !pendingAlert) return;
+    if (!alertMenu && !pendingAlert) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setAddingAlert(false);
+      setAlertMenu(null);
       setPendingAlert(null);
       setAlertError(null);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [addingAlert, pendingAlert]);
+  }, [alertMenu, pendingAlert]);
 
-  function disarmAlertMode() {
-    setAddingAlert(false);
+  useEffect(() => {
+    if (!alertMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const menu = alertMenuRef.current;
+      if (menu?.contains(event.target as Node)) return;
+      setAlertMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [alertMenu]);
+
+  function closeAlertPopover() {
     setPendingAlert(null);
     setAlertError(null);
   }
 
-  function toggleAlertMode() {
-    if (addingAlert) {
-      disarmAlertMode();
-      return;
-    }
-    setAddingAlert(true);
+  function handleChartContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    const container = containerRef.current;
+    const series = mainRef.current;
+    if (!container || !series) return;
+    const rect = container.getBoundingClientRect();
+    const xRel = event.clientX - rect.left;
+    const yRel = event.clientY - rect.top;
+    const raw = series.coordinateToPrice(yRel);
+    if (raw == null) return;
+    const price = Math.round(raw * 100) / 100;
     setPendingAlert(null);
+    setAlertMenu({ x: xRel, y: yRel, price });
+  }
+
+  function handleSetAlertFromMenu() {
+    if (!alertMenu) return;
+    const currentPrice =
+      livePriceRef.current ?? barsRef.current.at(-1)?.close;
+    setAlertPrice(String(alertMenu.price));
+    setAlertDirection(defaultAlertDirection(alertMenu.price, currentPrice));
+    setAlertRepeat(false);
     setAlertError(null);
+    setPendingAlert({
+      price: alertMenu.price,
+      x: alertMenu.x,
+      y: alertMenu.y,
+    });
+    setAlertMenu(null);
   }
 
   async function handleCreateAlert() {
@@ -213,7 +250,7 @@ export function TvLightChart({
         repeat: alertRepeat,
       });
       setAlertsRefreshKey((key) => key + 1);
-      disarmAlertMode();
+      closeAlertPopover();
     } catch {
       setAlertError("Could not create alert");
     } finally {
@@ -306,23 +343,6 @@ export function TvLightChart({
       setLegend(
         `${formatCrosshairTime(param.time as number, intraday)} · O ${bar.open.toFixed(2)} H ${bar.high.toFixed(2)} L ${bar.low.toFixed(2)} C ${bar.close.toFixed(2)} (${sign}${chg.toFixed(2)}%) · Vol ${formatVolume(bar.volume)}`,
       );
-    });
-
-    chart.subscribeClick((param) => {
-      if (!addingAlertRef.current) return;
-      if (!param.point) return;
-      const series = mainRef.current;
-      if (!series) return;
-      const rawPrice = series.coordinateToPrice(param.point.y);
-      if (rawPrice == null) return;
-      const price = Math.round(rawPrice * 100) / 100;
-      const currentPrice =
-        livePriceRef.current ?? barsRef.current.at(-1)?.close;
-      setAlertPrice(String(price));
-      setAlertDirection(defaultAlertDirection(price, currentPrice));
-      setAlertRepeat(false);
-      setAlertError(null);
-      setPendingAlert({ price, x: param.point.x, y: param.point.y });
     });
 
     return () => {
@@ -598,31 +618,23 @@ export function TvLightChart({
       )}
 
       <div
-        className={cn(
-          "relative min-h-0 flex-1",
-          addingAlert && "cursor-crosshair",
-        )}
+        className="relative min-h-0 flex-1"
+        onContextMenu={handleChartContextMenu}
       >
         {loading && (
           <Skeleton className="absolute inset-0 z-10 rounded-none" />
         )}
         <div ref={containerRef} className="absolute inset-0" />
-        <button
-          type="button"
-          className={cn(
-            "workspace-no-drag absolute right-2 top-2 z-30 inline-flex items-center gap-0.5 rounded border px-2 py-0.5 text-[11px] transition-colors",
-            addingAlert
-              ? "border-[var(--c-accent)] bg-[color-mix(in_srgb,var(--c-accent)_12%,transparent)] text-[var(--c-accent)]"
-              : "border-border/80 bg-background/80 text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
-          )}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            toggleAlertMode();
-          }}
-        >
-          ＋ Alert
-        </button>
+        {alertMenu && (
+          <ChartAlertContextMenu
+            menuRef={alertMenuRef}
+            x={alertMenu.x}
+            y={alertMenu.y}
+            price={alertMenu.price}
+            containerRef={containerRef}
+            onSelect={handleSetAlertFromMenu}
+          />
+        )}
         {pendingAlert && (
           <AlertCreatePopover
             x={pendingAlert.x}
@@ -637,7 +649,7 @@ export function TvLightChart({
             onDirectionChange={setAlertDirection}
             onRepeatChange={setAlertRepeat}
             onCreate={() => void handleCreateAlert()}
-            onCancel={disarmAlertMode}
+            onCancel={closeAlertPopover}
           />
         )}
         {!compact && (
@@ -656,6 +668,66 @@ export function TvLightChart({
         </div>
         )}
       </div>
+    </div>
+  );
+}
+
+type ChartAlertContextMenuProps = {
+  menuRef: RefObject<HTMLDivElement | null>;
+  x: number;
+  y: number;
+  price: number;
+  containerRef: RefObject<HTMLDivElement | null>;
+  onSelect: () => void;
+};
+
+function ChartAlertContextMenu({
+  menuRef,
+  x,
+  y,
+  price,
+  containerRef,
+  onSelect,
+}: ChartAlertContextMenuProps) {
+  const [position, setPosition] = useState({ left: x, top: y });
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const menu = menuRef.current;
+    if (!container || !menu) {
+      setPosition({ left: x, top: y });
+      return;
+    }
+    const margin = 8;
+    const maxLeft = Math.max(
+      margin,
+      container.clientWidth - menu.offsetWidth - margin,
+    );
+    const maxTop = Math.max(
+      margin,
+      container.clientHeight - menu.offsetHeight - margin,
+    );
+    setPosition({
+      left: Math.min(Math.max(margin, x), maxLeft),
+      top: Math.min(Math.max(margin, y), maxTop),
+    });
+  }, [x, y, containerRef, menuRef]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="workspace-no-drag absolute z-40 min-w-[160px] overflow-hidden rounded-md border border-border/80 bg-background/95 py-0.5 shadow-md backdrop-blur-sm"
+      style={{ left: position.left, top: position.top }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="w-full px-2.5 py-1.5 text-left text-[11px] text-foreground transition-colors hover:bg-secondary/80"
+        onClick={onSelect}
+      >
+        Set alert at {price.toFixed(2)}
+      </button>
     </div>
   );
 }
