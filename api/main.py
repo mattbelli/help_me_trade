@@ -936,6 +936,7 @@ async def lifespan(app: FastAPI):
     earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
     schwab_health_task = asyncio.create_task(_schwab_health_loop())
     morning_report_task = asyncio.create_task(_morning_levels_report_loop())
+    bars_prewarm_task = asyncio.create_task(_bars_prewarm_loop())
     yield
     earnings_task.cancel()
     volume_profile_task.cancel()
@@ -943,6 +944,7 @@ async def lifespan(app: FastAPI):
     earnings_alert_task.cancel()
     schwab_health_task.cancel()
     morning_report_task.cancel()
+    bars_prewarm_task.cancel()
     sync_task.cancel()
     poll_task.cancel()
     scan_task.cancel()
@@ -962,6 +964,7 @@ async def lifespan(app: FastAPI):
         earnings_alert_task,
         schwab_health_task,
         morning_report_task,
+        bars_prewarm_task,
     ):
         try:
             await task
@@ -1809,6 +1812,18 @@ async def api_generate_report(body: dict = Body(...), push: bool = False):
 _BARS_CACHE: dict[tuple, tuple[float, dict]] = {}
 _BARS_CACHE_TTL = {"1Min": 60.0, "5Min": 180.0, "15Min": 300.0, "1Hour": 600.0, "1Day": 300.0}
 
+# Recency of chart-bar requests, used to keep the cache warm (prewarm loop below).
+# spec = (timeframe, days) the frontend actually requests — capturing it avoids
+# hardcoding the frontend's per-timeframe `days` here (they must match the cache key).
+_BARS_SEEN_SYMBOLS: dict[str, float] = {}          # symbol -> last-requested monotonic
+_BARS_SEEN_SPECS: dict[tuple[str, int], float] = {}  # (timeframe, days) -> last-requested monotonic
+_BARS_SEEN_TTL = 30 * 60.0          # forget a symbol/spec 30 min after last request
+_BARS_PREWARM_INTERVAL = 15.0       # loop cadence (s)
+_BARS_PREWARM_REFRESH_LEAD = 25.0   # refetch when <25s of cache TTL remains (never go cold mid-use)
+_BARS_PREWARM_MAX_SYMBOLS = 40      # cap Schwab load for big watchlists
+_BARS_PREWARM_PACE = 0.25           # sleep between actual fetches (s)
+_BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {("1Day", 365)}  # the default chart view, warm from boot
+
 
 @app.get("/api/bars")
 async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
@@ -1816,6 +1831,26 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
         return JSONResponse({"error": "days must be 1–3650"}, status_code=400)
 
     sym = symbol.strip().upper()
+    now = time.monotonic()
+    # Record what's actually viewed so the prewarm loop keeps it warm. Real requests
+    # only — the loop calls _get_bars_cached directly so it can't self-refresh recency.
+    _BARS_SEEN_SYMBOLS[sym] = now
+    _BARS_SEEN_SPECS[(timeframe, int(days))] = now
+
+    response = await _get_bars_cached(sym, timeframe, int(days))
+    if response is None:
+        return JSONResponse({"error": "failed to load bars"}, status_code=502)
+    return response
+
+
+async def _get_bars_cached(sym: str, timeframe: str, days: int) -> dict | None:
+    """Cache-read → Schwab fetch (→ Alpaca fallback) → cache-write for chart bars.
+
+    Returns the response dict, or None on total failure. Shared by the /api/bars
+    endpoint and the prewarm loop — the loop must NOT record request-recency (else a
+    prewarmed symbol would keep refreshing its own recency and never age out), so the
+    fetch core lives here, separate from the endpoint's recency bookkeeping.
+    """
     cache_key = (sym, timeframe, int(days))
     now = time.monotonic()
     cached = _BARS_CACHE.get(cache_key)
@@ -1824,8 +1859,8 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
 
     try:
         provider = get_market_data_provider()
-    except BrokerError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=502)
+    except BrokerError:
+        return None
 
     try:
         bars = await provider.aget_stock_bars(
@@ -1834,18 +1869,14 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
     except Exception as exc:
         # Any provider failure (BrokerError, Schwab outage, httpx error) falls back
         # to Alpaca so charts never hard-break — resilience is the point of the path.
-        logger.warning(
-            "/api/bars provider failed (%s), falling back to Alpaca", exc
-        )
+        logger.warning("/api/bars provider failed (%s), falling back to Alpaca", exc)
         broker = _require_alpaca()
         if isinstance(broker, JSONResponse):
-            return broker
+            return None
         try:
-            bars = await broker.aget_stock_bars(
-                sym, timeframe=timeframe, days=days
-            )
-        except BrokerError as fallback_exc:
-            return JSONResponse({"error": str(fallback_exc)}, status_code=502)
+            bars = await broker.aget_stock_bars(sym, timeframe=timeframe, days=days)
+        except BrokerError:
+            return None
 
     response = {
         "symbol": sym,
@@ -1867,6 +1898,52 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
         for k in [k for k, (exp, _) in list(_BARS_CACHE.items()) if exp <= now]:
             _BARS_CACHE.pop(k, None)
     return response
+
+
+async def _bars_prewarm_once() -> None:
+    now = time.monotonic()
+    # Specs (timeframe, days) seen recently, plus the default view — only warm what's in use.
+    specs = {s for s, ts in _BARS_SEEN_SPECS.items() if now - ts < _BARS_SEEN_TTL}
+    specs |= _BARS_PREWARM_DEFAULT_SPECS
+    # Symbols likely to be switched to: the whole watchlist (always) + the most-recently
+    # viewed non-watchlist symbols, up to the cap (watchlist is never evicted).
+    watch = list(_all_watchlist_symbols())
+    recent = sorted(
+        (
+            s
+            for s, ts in _BARS_SEEN_SYMBOLS.items()
+            if now - ts < _BARS_SEEN_TTL and s not in set(watch)
+        ),
+        key=lambda s: _BARS_SEEN_SYMBOLS[s],
+        reverse=True,
+    )
+    extra = max(0, _BARS_PREWARM_MAX_SYMBOLS - len(watch))
+    symbols = watch + recent[:extra]
+    if not symbols or not specs:
+        return
+    for sym in symbols:
+        for timeframe, days in specs:
+            key = (sym, timeframe, int(days))
+            entry = _BARS_CACHE.get(key)
+            now = time.monotonic()
+            if entry is not None and entry[0] > now + _BARS_PREWARM_REFRESH_LEAD:
+                continue  # still warm enough — skip
+            try:
+                # Shared fetch core — refetches (cache miss/expiring) + writes _BARS_CACHE
+                # with the exact same key/shape, WITHOUT recording request-recency.
+                await _get_bars_cached(sym, timeframe, int(days))
+            except Exception:
+                logger.debug("bars prewarm failed for %s %s", sym, timeframe, exc_info=True)
+            await asyncio.sleep(_BARS_PREWARM_PACE)
+
+
+async def _bars_prewarm_loop() -> None:
+    while True:
+        try:
+            await _bars_prewarm_once()
+        except Exception:
+            logger.exception("Bars prewarm loop iteration failed")
+        await asyncio.sleep(_BARS_PREWARM_INTERVAL)
 
 
 @app.get("/api/fundamentals/earnings-history")
