@@ -30,6 +30,7 @@ import {
   formatVolume,
   isDailyTimeframe,
   sessionLabel,
+  timeframeSeconds,
   toChartTime,
   type ChartTimeframe,
 } from "@/lib/chart-time";
@@ -378,18 +379,50 @@ export function TvLightChart({
     if (livePrice == null || loading) return;
     const bars = barsRef.current;
     if (bars.length === 0) return;
+    const series = mainRef.current;
+    if (!series) return;
 
     const last = bars[bars.length - 1];
+
+    // Intraday: when the wall clock crosses into the next interval bucket, roll the
+    // forming candle over to a NEW bar (the live tick has no timestamp, so bucket off
+    // the client clock, aligned to the historical bars' own grid via last.time).
+    const intervalSec = timeframe.intraday ? timeframeSeconds(timeframe.value) : 0;
+    if (intervalSec > 0 && typeof last.time === "number") {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const lastTime = last.time as number;
+      if (nowSec >= lastTime + intervalSec) {
+        const steps = Math.floor((nowSec - lastTime) / intervalSec);
+        const newTime = (lastTime + steps * intervalSec) as Time;
+        const newBar: Ohlcv = {
+          time: newTime,
+          open: livePrice,
+          high: livePrice,
+          low: livePrice,
+          close: livePrice,
+          volume: 0,
+        };
+        bars.push(newBar);
+        if (style === "line") {
+          series.update({ time: newTime, value: livePrice });
+        } else {
+          series.update(newBar);
+        }
+        volumeRef.current?.update({ time: newTime, value: 0 });
+        return;
+      }
+    }
+
     last.close = livePrice;
     last.high = Math.max(last.high, livePrice);
     last.low = Math.min(last.low, livePrice);
 
     if (style === "line") {
-      mainRef.current?.update({ time: last.time, value: livePrice });
+      series.update({ time: last.time, value: livePrice });
     } else {
-      mainRef.current?.update(last);
+      series.update(last);
     }
-  }, [livePrice, loading, style]);
+  }, [livePrice, loading, style, timeframe.value, timeframe.intraday]);
 
   return (
     <div className="relative flex h-full w-full min-h-0 flex-col">

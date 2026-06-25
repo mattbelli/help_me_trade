@@ -465,6 +465,7 @@ function WatchlistSymbolRow({
   removing,
   onPublish,
   onRemove,
+  onDragStart,
   onDragEnd,
 }: {
   symbol: string;
@@ -474,6 +475,7 @@ function WatchlistSymbolRow({
   removing: boolean;
   onPublish: () => void;
   onRemove: () => void;
+  onDragStart: () => void;
   onDragEnd: () => void;
 }) {
   const controls = useDragControls();
@@ -519,6 +521,7 @@ function WatchlistSymbolRow({
           aria-label={`Reorder ${symbol}`}
           onPointerDown={(e) => {
             e.stopPropagation();
+            onDragStart();
             controls.start(e);
           }}
           onClick={(e) => e.stopPropagation()}
@@ -643,6 +646,10 @@ export function WatchlistWidget({ config }: WidgetProps) {
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const [sortState, setSortState] = useState<{
+    key: "symbol" | "price" | "change_pct" | "rvol";
+    dir: "asc" | "desc";
+  } | null>(null);
   const [overnightSymbols, setOvernightSymbols] = useState<Set<string>>(
     new Set(),
   );
@@ -694,8 +701,6 @@ export function WatchlistWidget({ config }: WidgetProps) {
 
   const symbolsKey = useMemo(() => symbols.join(","), [symbols]);
 
-  const orderedSymbols = dragOrder ?? symbols;
-
   useEffect(() => {
     if (symbols.length === 0) return;
 
@@ -720,6 +725,57 @@ export function WatchlistWidget({ config }: WidgetProps) {
     enabled: symbols.length > 0,
   });
 
+  const baseOrder = dragOrder ?? symbols;
+
+  const sortedSymbols = useMemo(() => {
+    if (!sortState) return baseOrder;
+
+    const { key, dir } = sortState;
+    const mul = dir === "asc" ? 1 : -1;
+
+    return [...baseOrder].sort((a, b) => {
+      const getValue = (sym: string): number | string | null => {
+        const q = quotes[sym];
+        switch (key) {
+          case "symbol":
+            return sym;
+          case "price":
+            return q?.price ?? null;
+          case "change_pct":
+            return q?.change_pct ?? null;
+          case "rvol":
+            return q?.rvol?.value ?? null;
+        }
+      };
+
+      const va = getValue(a);
+      const vb = getValue(b);
+      const aMissing = va == null;
+      const bMissing = vb == null;
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+
+      if (key === "symbol") {
+        return mul * (va as string).localeCompare(vb as string);
+      }
+      return mul * ((va as number) - (vb as number));
+    });
+  }, [baseOrder, sortState, quotes]);
+
+  const handleSortHeaderClick = useCallback(
+    (key: "symbol" | "price" | "change_pct" | "rvol") => {
+      setSortState((prev) => {
+        if (prev?.key === key) {
+          if (prev.dir === "asc") return { key, dir: "desc" };
+          return null;
+        }
+        return { key, dir: "asc" };
+      });
+    },
+    [],
+  );
+
   const removeSymbol = useCallback(
     async (symbol: string) => {
       if (!displayList) return;
@@ -742,6 +798,7 @@ export function WatchlistWidget({ config }: WidgetProps) {
 
   const persistReorder = useCallback(
     async (reordered: string[]) => {
+      setSortState(null);
       if (!displayList) return;
       if (
         reordered.length === displayList.symbols.length &&
@@ -828,27 +885,52 @@ export function WatchlistWidget({ config }: WidgetProps) {
           )}
         >
           <span />
-          {(["Sym", "Last", "Δ%", "RVOL", "7d"] as const).map((h, idx) => (
-            <span
-              key={h}
-              className={cn(
-                "text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
-                idx === 0 ? "text-left" : "text-right",
-              )}
-            >
-              {h}
-            </span>
-          ))}
+          {(
+            [
+              { label: "Sym", key: "symbol" as const },
+              { label: "Last", key: "price" as const },
+              { label: "Δ%", key: "change_pct" as const },
+              { label: "RVOL", key: "rvol" as const },
+              { label: "7d" },
+            ] as const
+          ).map((h, idx) =>
+            "key" in h ? (
+              <button
+                key={h.label}
+                type="button"
+                onClick={() => handleSortHeaderClick(h.key)}
+                className={cn(
+                  "text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                  idx === 0 ? "text-left" : "text-right",
+                )}
+              >
+                {h.label}
+                {sortState?.key === h.key ? (
+                  <span className="ml-0.5">{sortState.dir === "asc" ? "▲" : "▼"}</span>
+                ) : null}
+              </button>
+            ) : (
+              <span
+                key={h.label}
+                className={cn(
+                  "text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                  idx === 0 ? "text-left" : "text-right",
+                )}
+              >
+                {h.label}
+              </span>
+            ),
+          )}
           <span />
         </div>
 
         <Reorder.Group
           axis="y"
-          values={orderedSymbols}
+          values={sortedSymbols}
           onReorder={setDragOrder}
           className="m-0 list-none p-0"
         >
-          {orderedSymbols.map((symbol) => (
+          {sortedSymbols.map((symbol) => (
             <WatchlistSymbolRow
               key={symbol}
               symbol={symbol}
@@ -858,6 +940,7 @@ export function WatchlistWidget({ config }: WidgetProps) {
               removing={removing === symbol}
               onPublish={() => publishSymbol(symbol)}
               onRemove={() => void removeSymbol(symbol)}
+              onDragStart={() => setSortState(null)}
               onDragEnd={handleReorderEnd}
             />
           ))}
