@@ -134,6 +134,11 @@ def _read_reports(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, A
     return rows
 
 
+# ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
+# copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
+# reader reusing the existing function). That one line is what makes the agent able to
+# query it — the perception layer does NOT auto-discover new data. (Same idea as
+# get_context for per-symbol fields.) See References/PERCEPTION_LAYER.md.
 RESOURCES: dict[str, dict[str, Any]] = {
     "watchlists": {
         "description": "User watchlists and their symbols.",

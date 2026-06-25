@@ -84,6 +84,17 @@ auto-execute, no exposing the Alpaca trading toolset. Same safety model as today
    through the agent.
 4. **Later:** market/regime context; the Decision Engine consumes the facts object; MCP external interface.
 
+## ⚠️ Maintenance contract — register new data so the copilot can read it
+The perception layer does **not** auto-discover new data. Whenever you add a new feature/data source:
+- **A new per-symbol signal** (e.g. a volume-profile study, a new indicator) → add it to the `get_context`
+  facts object in `ai/perception/context.py` (`build_symbol_context` + `_SYMBOL_FIELD_GROUPS`). Then the
+  copilot sees it automatically for every symbol — no new tool.
+- **A new app-wide list/entity** (e.g. rvol-scanner, earnings calendar, tasks) → add ONE entry to `RESOURCES`
+  in `ai/perception/resources.py` (description + filters + a fail-soft reader reusing the existing function).
+  Then `query("<name>")` works immediately and it shows up in `list_capabilities()`.
+This one-line-per-source discipline is the whole point — keep it up and the agent's perception grows with the
+app for free. (It does NOT need a new specialty tool per data source.)
+
 ## ⚠️ Tool registration — TWO surfaces (gotcha)
 Adding a copilot tool requires registering it in **both** places or the live chat won't see it:
 1. **Python executor** — `ai/chat/tools.py` (`TOOL_DEFINITIONS` + `execute_tool`). This is what runs the tool.
