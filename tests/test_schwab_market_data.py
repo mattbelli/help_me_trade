@@ -451,3 +451,25 @@ def test_market_cap_computation_from_shares_and_price() -> None:
     shares_none = None
     mc = round(float(shares_none) * price, 2) if shares_none is not None else None
     assert mc is None
+
+
+def test_parse_candles_dedupes_duplicate_timestamps():
+    """Schwab can return duplicate candles for the same minute (extended hours across
+    day boundaries); _parse_candles must collapse to one bar per timestamp so charts
+    (unique ascending times) and RVOL (no double-counted volume) stay correct."""
+    from brokers.schwab_market_data import SchwabMarketData
+
+    ts = 1_750_000_000_000  # epoch ms
+    payload = {
+        "candles": [
+            {"datetime": ts, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100},
+            {"datetime": ts + 300_000, "open": 1.5, "high": 3, "low": 1, "close": 2, "volume": 200},
+            # duplicate of the first timestamp (later/authoritative wins)
+            {"datetime": ts, "open": 1.1, "high": 2.2, "low": 0.6, "close": 1.6, "volume": 150},
+        ]
+    }
+    bars = SchwabMarketData._parse_candles(payload)
+    times = [b.time for b in bars]
+    assert len(times) == len(set(times)) == 2  # deduped
+    assert times == sorted(times)  # ascending
+    assert bars[0].close == 1.6  # last-wins on the duplicate

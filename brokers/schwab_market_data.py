@@ -85,8 +85,13 @@ class SchwabMarketData:
                     volume=float(candle.get("volume", 0)),
                 )
             )
-        bars.sort(key=lambda bar: bar.time)
-        return bars
+        # Schwab can return duplicate candles for the same timestamp (notably with
+        # extended hours spanning day boundaries). Collapse to one bar per timestamp
+        # (last wins), then sort — duplicates break charts (lightweight-charts needs
+        # unique, strictly-ascending times → renders nothing) and would double-count
+        # volume in RVOL / volume profiles.
+        deduped = {bar.time: bar for bar in bars}
+        return sorted(deduped.values(), key=lambda bar: bar.time)
 
     @staticmethod
     def _aggregate_to_hourly(bars: list[StockBar]) -> list[StockBar]:
