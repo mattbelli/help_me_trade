@@ -84,6 +84,15 @@ auto-execute, no exposing the Alpaca trading toolset. Same safety model as today
    through the agent.
 4. **Later:** market/regime context; the Decision Engine consumes the facts object; MCP external interface.
 
+## ⚠️ Tool registration — TWO surfaces (gotcha)
+Adding a copilot tool requires registering it in **both** places or the live chat won't see it:
+1. **Python executor** — `ai/chat/tools.py` (`TOOL_DEFINITIONS` + `execute_tool`). This is what runs the tool.
+2. **Live-chat frontend registry** — `frontend/lib/chat-tools.ts` (`buildChatTools`, an AI-SDK `tool()` whose
+   `execute` calls `executePythonTool("<name>", input)`) **and** `frontend/lib/chat-toolbar-config.ts`
+   (`CHAT_TOOL_OPTIONS`, which drives `DEFAULT_ENABLED_TOOLS` — so the tool is on by default).
+The live chat builds its tool list from #2, not from the Python planner. (We hit this in phase 1: `get_context`
+worked in Python but the chat said it "isn't available" until registered in #2.) Phase-3 write tools: same.
+
 ## Guardrails
 - The perception service is read-only by construction; writes happen only through the explicit allowlisted
   tools. Chokepoint sacred; no shorting; paper-gated; LIVE blocked. Reviewed like any `trading/`-adjacent
