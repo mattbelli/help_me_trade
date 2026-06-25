@@ -334,6 +334,52 @@ function EarningsReactionsRow({ symbol }: { symbol: string }) {
   );
 }
 
+function ExpandableFundamentalsPanel({
+  expanded,
+  symbol,
+  quote,
+}: {
+  expanded: boolean;
+  symbol: string;
+  quote: Quote | undefined;
+}) {
+  const [mounted, setMounted] = useState(false);
+  const [openRows, setOpenRows] = useState(false);
+
+  useEffect(() => {
+    if (expanded) setMounted(true);
+  }, [expanded]);
+
+  useEffect(() => {
+    if (mounted && expanded) {
+      const id = requestAnimationFrame(() => setOpenRows(true));
+      return () => cancelAnimationFrame(id);
+    }
+    setOpenRows(false);
+  }, [mounted, expanded]);
+
+  if (!mounted) return null;
+
+  return (
+    <div
+      className={cn(
+        "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
+        openRows && expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}
+      onTransitionEnd={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.propertyName === "grid-template-rows" && !expanded) {
+          setMounted(false);
+        }
+      }}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <FundamentalsPanel symbol={symbol} quote={quote} />
+      </div>
+    </div>
+  );
+}
+
 function FundamentalsPanel({
   symbol,
   quote,
@@ -453,6 +499,7 @@ function WatchlistSymbolRow({
   return (
     <Reorder.Item
       value={symbol}
+      layout="position"
       dragListener={false}
       dragControls={controls}
       onDragEnd={onDragEnd}
@@ -581,7 +628,11 @@ function WatchlistSymbolRow({
           {expanded ? "▲" : "▼"}
         </button>
       </div>
-      {expanded ? <FundamentalsPanel symbol={symbol} quote={quote} /> : null}
+      <ExpandableFundamentalsPanel
+        expanded={expanded}
+        symbol={symbol}
+        quote={quote}
+      />
     </Reorder.Item>
   );
 }
