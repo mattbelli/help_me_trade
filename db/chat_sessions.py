@@ -202,13 +202,16 @@ def upsert_chat_message(
             "SELECT id FROM chat_messages WHERE id = ?", (message_id,)
         ).fetchone()
         if existing:
+            # Preserve created_at on update — a message's position in the thread is its
+            # FIRST-seen time. Re-upserting (streaming part growth, or re-persisting the
+            # user message across tool-continuation rounds) must not move it to the end.
             conn.execute(
                 """
                 UPDATE chat_messages
-                SET parts_json = ?, created_at = ?
+                SET parts_json = ?
                 WHERE id = ?
                 """,
-                (json.dumps(parts), now, message_id),
+                (json.dumps(parts), message_id),
             )
         else:
             conn.execute(

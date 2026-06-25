@@ -272,13 +272,13 @@ def _persist_turn(
     if session is None:
         return
 
-    last_msg = messages[-1] if messages else None
+    # Persist the latest user message of the turn. Do NOT gate on the array's LAST
+    # message being a user message — on tool-calling turns the context ends with an
+    # assistant/tool message, which previously dropped the user turn from the saved
+    # thread entirely (only AI responses survived a reload). The upsert is idempotent
+    # by the message's stable id, so re-running across tool rounds is harmless.
     user_msg = _last_message_by_role(messages, "user")
-    if (
-        user_msg
-        and isinstance(last_msg, dict)
-        and last_msg.get("role") == "user"
-    ):
+    if user_msg:
         user_parts = user_msg.get("parts")
         if not isinstance(user_parts, list):
             user_parts = [{"type": "text", "text": user_text}]
