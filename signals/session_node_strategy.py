@@ -167,7 +167,7 @@ async def _size_proposal_args(
     broker: str,
     db_path: Path,
 ) -> dict[str, Any] | None:
-    price = _live_market_price(SYMBOL)
+    price = await _live_market_price(SYMBOL)
     if price is None or price <= 0:
         return None
     price_dec = Decimal(str(price))

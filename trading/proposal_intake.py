@@ -83,7 +83,7 @@ async def propose_trade(
         if any(p["symbol"].upper() == symbol for p in pending):
             return {"status": "duplicate"}
 
-        price = _live_market_price(symbol)
+        price = await _live_market_price(symbol)
         if price is None or price <= 0:
             return {"status": "no_price"}
 

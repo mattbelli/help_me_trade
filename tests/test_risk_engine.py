@@ -220,9 +220,87 @@ async def test_risk_engine_no_live_quote(monkeypatch, tmp_path: Path) -> None:
         "trading.risk_engine.market_hub.quote_snapshot",
         lambda _symbols: {},
     )
+
+    async def _no_rest(_symbol):
+        return None
+
+    monkeypatch.setattr("trading.risk_engine._rest_quote_price", _no_rest)
     result = await RiskEngine.validate(_intent(), db_path=db)
     assert result.passed is False
     assert result.blocked_reason == "no live quote"
+
+
+@pytest.mark.asyncio
+async def test_live_quote_rest_fallback(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "risk.db"
+    _patch_passing_env(monkeypatch, db)
+    monkeypatch.setattr(
+        "trading.risk_engine.market_hub.quote_snapshot",
+        lambda _symbols: {},
+    )
+
+    async def _rest_price(_symbol):
+        return 150.0
+
+    monkeypatch.setattr("trading.risk_engine._rest_quote_price", _rest_price)
+    result = await RiskEngine.validate(_intent(), db_path=db)
+    assert result.passed is True
+    assert result.checks["live_quote"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_rest_quote_price_off_hours_returns_none(monkeypatch) -> None:
+    """The REST fallback is RTH-only: off-hours it must NOT return a (stale) price,
+    so the live-quote gate stays fail-closed exactly as before the fallback existed."""
+    from trading.risk_engine import _rest_quote_price
+
+    monkeypatch.setattr("trading.market_hours.is_market_open", lambda: False)
+
+    async def _boom(*_a, **_k):  # provider must never be consulted off-hours
+        raise AssertionError("provider should not be called outside RTH")
+
+    monkeypatch.setattr("brokers.factory.get_market_data_provider", _boom)
+    assert await _rest_quote_price("AAPL") is None
+
+
+class _Bar:
+    def __init__(self, time: str, close: float) -> None:
+        self.time, self.close = time, close
+
+
+class _BarsOnlyProvider:
+    """Provider with no `aget_quotes` (e.g. Alpaca) — forces the bars fallback path."""
+
+    def __init__(self, bar: "_Bar") -> None:
+        self._bar = bar
+
+    async def aget_stock_bars_batch(self, symbols, timeframe=None, days=None):
+        return {symbols[0]: [self._bar]}
+
+
+@pytest.mark.asyncio
+async def test_rest_quote_price_bars_rejects_stale_open_bar(monkeypatch) -> None:
+    """At the open, before today's first 5-min bar prints, bars[-1] is yesterday's
+    close — it must be rejected (return None) so we never size on a prior-day gap."""
+    from trading.risk_engine import _rest_quote_price
+
+    monkeypatch.setattr("trading.market_hours.is_market_open", lambda: True)
+    stale = _BarsOnlyProvider(_Bar("2020-01-02T20:55:00Z", 100.0))
+    monkeypatch.setattr("brokers.factory.get_market_data_provider", lambda *a, **k: stale)
+    assert await _rest_quote_price("AAPL") is None
+
+
+@pytest.mark.asyncio
+async def test_rest_quote_price_bars_accepts_todays_bar(monkeypatch) -> None:
+    from zoneinfo import ZoneInfo
+
+    from trading.risk_engine import _rest_quote_price
+
+    monkeypatch.setattr("trading.market_hours.is_market_open", lambda: True)
+    now_utc = datetime.now(ZoneInfo("America/New_York")).astimezone(UTC)
+    fresh = _BarsOnlyProvider(_Bar(now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"), 123.45))
+    monkeypatch.setattr("brokers.factory.get_market_data_provider", lambda *a, **k: fresh)
+    assert await _rest_quote_price("AAPL") == 123.45
 
 
 @pytest.mark.asyncio

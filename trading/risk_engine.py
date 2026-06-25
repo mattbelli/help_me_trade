@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -18,6 +19,8 @@ from db.order_executions import count_executions_today
 from db.sqlite import get_latest_snapshot
 from imports.option_symbol import parse_occ_symbol
 from trading.models import OrderIntent, RiskCheckResult
+
+logger = logging.getLogger(__name__)
 
 _SNAPSHOT_MAX_AGE = timedelta(minutes=5)
 _SYMBOL_RE = re.compile(r"^[A-Z]+$")
@@ -322,7 +325,7 @@ class RiskEngine:
             spend_notional = qty * spend_price * multiplier
             risk_notional = qty * risk_price * multiplier
         else:
-            market_price = _live_market_price(concentration_symbol)
+            market_price = await _live_market_price(concentration_symbol)
             if market_price is None:
                 checks["live_quote"] = "fail: no live quote"
                 return RiskCheckResult(
@@ -451,12 +454,68 @@ class RiskEngine:
         )
 
 
-def _live_market_price(symbol: str) -> Decimal | None:
+async def _rest_quote_price(symbol: str) -> float | None:
+    """Fresh REST quote for `symbol` when the stream hub doesn't carry it.
+
+    The in-process stream only subscribes symbols a browser is viewing or that have an
+    active price alert, so autonomous strategies would otherwise never get a price for an
+    un-watched symbol and could never propose. **RTH-only by design:** outside regular
+    hours we return None so the "no live quote" gate stays fail-closed exactly as before
+    — a provider's "regular last" is the prior session's (stale) close off-hours, and
+    letting it through would weaken the chokepoint. Fail-soft: returns None on ANY error,
+    never raises into RiskEngine.validate. Any value returned is therefore a fresh RTH price.
+    """
+    # Function-local imports to avoid any import-time cycle with brokers.factory.
+    from brokers.factory import get_market_data_provider
+    from trading.market_hours import is_market_open
+
+    # The autonomous proposal paths are already RTH-gated; this also guards the
+    # phone-approval path (ExecutionService.submit → validate) from stale off-hours prices.
+    if not is_market_open():
+        return None
+
+    try:
+        provider = get_market_data_provider()
+    except Exception:
+        return None
+    # Prefer the real-time regular-session quote.
+    try:
+        if hasattr(provider, "aget_quotes"):
+            quote = (await provider.aget_quotes([symbol])).get(symbol) or {}
+            last = quote.get("regular_last")
+            if last is not None and float(last) > 0:
+                return float(last)
+    except Exception:
+        logger.warning("REST quote fallback (quotes) failed for %s", symbol, exc_info=True)
+    # Secondary: latest intraday (5-min) bar close — fresh during RTH (the only time we
+    # reach here). NOT daily bars: an in-progress daily bar is often absent, so its last
+    # close would be the PRIOR day's — stale enough to mis-size on an overnight gap.
+    # Guard the at-the-open window the same way: before today's first 5-min bar prints,
+    # bars[-1] is still yesterday's close, so only trust a bar dated today (ET).
+    try:
+        from zoneinfo import ZoneInfo
+
+        et = ZoneInfo("America/New_York")
+        bars = (
+            await provider.aget_stock_bars_batch([symbol], timeframe="5Min", days=1)
+        ).get(symbol) or []
+        if bars and bars[-1].close is not None and float(bars[-1].close) > 0:
+            bar_dt = datetime.fromisoformat(bars[-1].time.replace("Z", "+00:00"))
+            if bar_dt.astimezone(et).date() == datetime.now(et).date():
+                return float(bars[-1].close)
+    except Exception:
+        logger.warning("REST quote fallback (bars) failed for %s", symbol, exc_info=True)
+    return None
+
+
+async def _live_market_price(symbol: str) -> Decimal | None:
     quotes = market_hub.quote_snapshot({symbol})
     quote = quotes.get(symbol)
-    if not quote:
-        return None
-    price_raw = quote.get("price")
+    price_raw = quote.get("price") if quote else None
+    if price_raw is None or float(price_raw) <= 0:
+        # Hub miss (symbol not currently streamed) — fall back to a REST quote so the
+        # agent proposes without a browser open. Fail-soft (returns None on error).
+        price_raw = await _rest_quote_price(symbol)
     if price_raw is None or float(price_raw) <= 0:
         return None
     return Decimal(str(price_raw))

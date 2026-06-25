@@ -179,7 +179,10 @@ def _patch_scan_env(
         },
     )
     monkeypatch.setattr("signals.session_node_strategy.is_kill_switch_active", lambda: False)
-    monkeypatch.setattr("signals.session_node_strategy._live_market_price", lambda _sym: 500.0)
+    async def _fake_price(_sym):
+        return 500.0
+
+    monkeypatch.setattr("signals.session_node_strategy._live_market_price", _fake_price)
 
     from db.accounts import default_execution_account
 

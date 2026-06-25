@@ -243,10 +243,10 @@ async def test_propose_trade_duplicate(monkeypatch, tmp_path: Path) -> None:
 async def test_propose_trade_no_price(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "intake.db"
     _patch_env(monkeypatch, db)
-    monkeypatch.setattr(
-        "trading.proposal_intake._live_market_price",
-        lambda _symbol: None,
-    )
+    async def _no_price(_symbol):
+        return None
+
+    monkeypatch.setattr("trading.proposal_intake._live_market_price", _no_price)
 
     result = await propose_trade(_candidate(), db_path=db)
 

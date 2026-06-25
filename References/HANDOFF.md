@@ -37,6 +37,19 @@ Automations); **Automations cockpit page** (`/automations`); chart-switch **bars
 earnings fix** (Finnhub `/calendar/earnings` was row-capped → now chunked; serve report date not Schwab's stale
 field); **Live Activity** trade-proposal lifecycle verified end-to-end on device.
 
+**★ CRITICAL bug fixed (2026-06-25) — autonomous proposals required a browser open.** Found while debugging
+"why didn't my vol-node strat prompt today?" (SPY tagged prior-session VAL/PDL support at 9:54 ET → a real long
+trigger → zero proposals). Root cause: `trading/risk_engine._live_market_price()` read the live quote ONLY from
+the in-process stream hub (`market_hub.quote_snapshot`), and that hub only carries a symbol while a **browser is
+viewing it** or a **price alert** exists (the sole `ensure_symbols` caller). No browser on the symbol ⇒ no quote
+⇒ `RiskEngine.validate` "no live quote" / sizing returns None ⇒ no proposal, **silently** (the scan claims-then-
+`forget`s the dedup key, leaving no log/event). This gated EVERY market entry — session-node AND dip/earnings —
+defeating "works while you step away." **Fix (mission-correct, single point):** `_live_market_price` is now async
+and falls back to a fresh **REST quote** (`provider.aget_quotes` `regular_last`, then a today-dated 5-min bar
+close) on a hub miss. **RTH-only** (off-hours → None, fail-closed, so no stale price slips the chokepoint) and
+fail-soft. Adversarial Sonnet review (2 rounds): SAFE TO COMMIT; caught/fixed off-hours-stale + Alpaca-daily-bar
+staleness. 850 tests green, live-verified (`_live_market_price("SPY")` returns a price on a hub miss).
+
 ### THE QUEUE — what to build next (priority order)
 1. **Notifications / inbox (highest value — the supervision backbone; founder's biggest active pain).**
    Build ONE persistent notification store feeding both platforms. **Web bell** (`notification-bell.tsx`): entries
