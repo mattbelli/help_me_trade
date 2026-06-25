@@ -179,13 +179,21 @@ export function registerDevice(
 }
 
 /** Register a Live Activity's per-activity APNs update token so serv can UPDATE/END
- *  that specific activity (keyed by proposal_id). Contract: SERV_BRIEF_live_activity. */
-export function registerLiveActivityToken(
-  proposalId: string,
-  activityUpdateToken: string,
-): Promise<{ status: string }> {
-  return apiFetch<{ status: string }>('/api/live-activities', {
+ *  that specific activity. The instance API can't surface the proposalId for a
+ *  push-STARTED activity, so we send the device's push-to-start token and serv
+ *  correlates to the proposal by most-recent START for that device. Contract:
+ *  SERV_BRIEF_live_activity. */
+export function registerLiveActivityToken(args: {
+  activityUpdateToken: string;
+  deviceToken: string;
+  proposalId?: string;
+}): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>('/api/live-activities', {
     method: 'POST',
-    body: { proposal_id: proposalId, activity_update_token: activityUpdateToken },
+    body: {
+      activity_update_token: args.activityUpdateToken,
+      device_token: args.deviceToken,
+      ...(args.proposalId ? { proposal_id: args.proposalId } : {}),
+    },
   });
 }

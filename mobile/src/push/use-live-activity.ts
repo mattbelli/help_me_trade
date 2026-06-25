@@ -3,20 +3,18 @@
  *
  * - Registers the device's push-to-start token with serv (token_type 'la_pushtostart')
  *   so serv can START an activity remotely when a proposal is created.
+ * - Captures the per-activity UPDATE token for serv-STARTED activities and registers
+ *   it so serv can UPDATE/END that specific card (see section 3).
  * - Handles the Approve / Reject button taps (UserInteractionEvent). Phase A safety:
  *   Approve OPENS THE APP to the Face-ID-gated approval card (no direct background
  *   approve — the widget Button can't carry an AppIntent auth policy; that's Phase B);
  *   Reject calls the reject endpoint directly.
- *
- * NOTE: per-activity UPDATE tokens (so serv can update/end a specific activity) are
- * registered where we know the proposalId — for serv-started activities that mapping
- * is a joint-test item (the instance API doesn't expose the proposalId). The
- * push-to-start token below is what unblocks serv's START path.
  */
 import { useEffect, useRef } from 'react';
 import { addPushToStartTokenListener, addUserInteractionListener } from 'expo-widgets';
 
-import { registerDevice, rejectProposal } from '@/api/endpoints';
+import { tradeProposalActivity } from '../../widgets/trade-proposal';
+import { registerDevice, registerLiveActivityToken, rejectProposal } from '@/api/endpoints';
 
 export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => void } = {}) {
   const onOpenRef = useRef(onOpenApprovals);
@@ -25,10 +23,16 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
   }, [onOpenApprovals]);
 
   useEffect(() => {
+    // The device's push-to-start token. Doubles as the key serv correlates per-activity
+    // update tokens against — a push-STARTED activity instance can't surface its proposalId.
+    let deviceToken: string | null = null;
+
     // 1. push-to-start token → serv (lets serv START activities remotely)
     const tokenSub = addPushToStartTokenListener((e) => {
       const token = e.activityPushToStartToken;
-      if (token) void registerDevice({ token, token_type: 'la_pushtostart' }).catch(() => {});
+      if (!token) return;
+      deviceToken = token;
+      void registerDevice({ token, token_type: 'la_pushtostart' }).catch(() => {});
     });
 
     // 2. Approve / Reject button taps from the Live Activity
@@ -43,9 +47,49 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
       }
     });
 
+    // 3. Per-activity UPDATE token for serv's push-STARTED activities. The patched
+    //    expo-widgets (patches/expo-widgets+56.0.19.patch — getInstances() now calls
+    //    observePushTokenUpdates) makes each push-started instance emit its update
+    //    token. We must HOLD the instance objects (SharedObject release cancels the
+    //    native observer), then POST {activity_update_token, device_token} so serv can
+    //    target UPDATE/END — it maps to the proposal by most-recent START per device.
+    const registered = new Set<string>();
+    const held: ReturnType<typeof tradeProposalActivity.getInstances> = [];
+    const listenerSubs: { remove: () => void }[] = [];
+    let tries = 0;
+    let captured = false;
+
+    const sendToken = (t: string | null | undefined) => {
+      // Wait for the device token; until it lands we skip without marking registered
+      // so the next poll tick retries.
+      if (!t || !deviceToken || registered.has(t)) return;
+      registered.add(t);
+      void registerLiveActivityToken({ activityUpdateToken: t, deviceToken }).catch(() => {});
+    };
+
+    const poll = setInterval(() => {
+      tries += 1;
+      if (!captured) {
+        const instances = tradeProposalActivity.getInstances();
+        if (instances.length > 0) {
+          captured = true;
+          instances.forEach((inst) => {
+            held.push(inst); // keep alive so the native observer isn't released
+            listenerSubs.push(
+              inst.addPushTokenListener((e) => sendToken((e as { pushToken?: string }).pushToken)),
+            );
+          });
+        }
+      }
+      held.forEach((inst) => void inst.getPushToken().then(sendToken).catch(() => {}));
+      if (tries >= 20 || (captured && registered.size > 0)) clearInterval(poll);
+    }, 2000);
+
     return () => {
       tokenSub.remove();
       interactionSub.remove();
+      clearInterval(poll);
+      listenerSubs.forEach((s) => s.remove());
     };
   }, []);
 }
