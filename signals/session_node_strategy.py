@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import logging
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from math import floor
@@ -48,6 +49,23 @@ LOG_PATH = RESEARCH_DATA_DIR / "session_node_log.csv"
 _BAR_DAYS = 5
 _BUYING_POWER_BUFFER = Decimal("0.95")
 _STRUCTURE_TAG = "structure-reaction · low-confidence · human-discretion"
+
+_LEVEL_KINDS: dict[str, str] = {
+    "POC": "poc",
+    "VAH": "resistance",
+    "VAL": "support",
+    "PDH": "prior_high",
+    "PDL": "prior_low",
+}
+
+
+@dataclass(frozen=True)
+class SessionNodeContext:
+    nodes: ReferenceNodes
+    today_bars: list[IntradayBar]
+    all_bars: list[IntradayBar]
+    session_date: date
+
 
 _LOG_COLUMNS = (
     "ts",
@@ -347,6 +365,111 @@ async def _push_exit_prompts(
     return acted
 
 
+async def _fetch_rth_sessions(
+    symbol: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> tuple[list[IntradayBar], dict[date, list[IntradayBar]]] | None:
+    """Fetch 1-min bars and segment into RTH sessions. Returns (all_bars, sessions)."""
+    del db_path  # reserved for future DB-backed bar sources
+    sym = symbol.strip().upper()
+    if not sym:
+        return None
+
+    provider = get_market_data_provider()
+    bars_by_symbol = await provider.aget_stock_bars_batch(
+        [sym], timeframe="1Min", days=_BAR_DAYS
+    )
+    raw = bars_by_symbol.get(sym, [])
+    if not raw:
+        return None
+
+    all_bars = [_stockbar_to_intraday(bar) for bar in raw]
+    sessions = segment_rth_sessions(all_bars)
+    if not sessions:
+        return None
+    return all_bars, sessions
+
+
+async def load_session_node_context(
+    symbol: str = SYMBOL,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> SessionNodeContext | None:
+    """Fetch 1-min bars, segment RTH sessions, and compute prior-session reference nodes."""
+    fetched = await _fetch_rth_sessions(symbol, db_path=db_path)
+    if fetched is None:
+        return None
+    all_bars, sessions = fetched
+
+    today = to_ny(all_bars[-1]["t"]).date()
+    prior_dates = sorted(session_date for session_date in sessions if session_date < today)
+    if not prior_dates:
+        return None
+
+    prior_bars = sessions[prior_dates[-1]]
+    today_bars = sessions.get(today, [])
+    nodes = compute_reference_nodes(prior_bars)
+    if nodes is None:
+        return None
+
+    return SessionNodeContext(
+        nodes=nodes,
+        today_bars=today_bars,
+        all_bars=all_bars,
+        session_date=nodes.session_date,
+    )
+
+
+async def compute_session_levels(
+    symbol: str = SYMBOL,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Return the most-recent COMPLETED session's node levels for chart/report consumers.
+
+    The live scan references the *prior* session because the current one is still
+    forming. Display/report consumers want the latest FINISHED session: mid-session
+    that's the prior day; after the close / pre-market / weekend it's the session that
+    just completed. Keyed off is_market_open() so the levels are never a day stale.
+    """
+    fetched = await _fetch_rth_sessions(symbol, db_path=db_path)
+    if fetched is None:
+        return None
+    _all_bars, sessions = fetched
+
+    dates = sorted(sessions)
+    if is_market_open():
+        # Current session is still forming — reference the prior COMPLETED one.
+        if len(dates) < 2:
+            return None
+        ref_date = dates[-2]
+    else:
+        # Market closed (after-hours / pre-market / weekend): the latest session is done.
+        ref_date = dates[-1]
+
+    nodes = compute_reference_nodes(sessions[ref_date])
+    if nodes is None:
+        return None
+
+    sym = symbol.strip().upper()
+    levels = [
+        {"name": name, "price": price, "kind": _LEVEL_KINDS[name]}
+        for name, price in (
+            ("POC", nodes.poc),
+            ("VAH", nodes.vah),
+            ("VAL", nodes.val),
+            ("PDH", nodes.pdh),
+            ("PDL", nodes.pdl),
+        )
+    ]
+    return {
+        "symbol": sym,
+        "session_date": nodes.session_date.isoformat(),
+        "levels": levels,
+    }
+
+
 async def run_session_node_scan(
     *,
     db_path: Path = DEFAULT_DB_PATH,
@@ -392,26 +515,13 @@ async def run_session_node_scan(
         if notional_usd <= 0:
             return []
 
-        provider = get_market_data_provider()
-        bars_by_symbol = await provider.aget_stock_bars_batch(
-            [SYMBOL], timeframe="1Min", days=_BAR_DAYS
-        )
-        raw = bars_by_symbol.get(SYMBOL, [])
-        if not raw:
+        ctx = await load_session_node_context(SYMBOL, db_path=db_path)
+        if ctx is None or not ctx.today_bars:
             return []
 
-        all_bars = [_stockbar_to_intraday(bar) for bar in raw]
-        sessions = segment_rth_sessions(all_bars)
-        today = to_ny(all_bars[-1]["t"]).date()
-        prior_dates = sorted(session_date for session_date in sessions if session_date < today)
-        if not prior_dates:
-            return []
-
-        prior_bars = sessions[prior_dates[-1]]
-        today_bars = sessions.get(today, [])
-        nodes = compute_reference_nodes(prior_bars)
-        if nodes is None or not today_bars:
-            return []
+        nodes = ctx.nodes
+        today_bars = ctx.today_bars
+        all_bars = ctx.all_bars
 
         # Short triggers are only proposed when shorting is explicitly enabled
         # (paper/dry_run); otherwise they're skipped + logged (the no-short

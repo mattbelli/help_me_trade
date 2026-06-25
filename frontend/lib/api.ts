@@ -569,6 +569,42 @@ export type PriceAlert = {
   created_at: string;
 };
 
+export type SessionLevelKind =
+  | "poc"
+  | "support"
+  | "resistance"
+  | "prior_high"
+  | "prior_low";
+
+export type SessionLevel = {
+  name: string;
+  price: number;
+  kind: SessionLevelKind;
+};
+
+export type SessionLevelsResponse = {
+  symbol: string;
+  session_date: string | null;
+  levels: SessionLevel[];
+};
+
+export async function fetchSessionLevels(
+  symbol: string,
+): Promise<SessionLevelsResponse> {
+  const params = new URLSearchParams({ symbol });
+  const res = await apiFetch(`${API_BASE}/api/session-node/levels?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Session levels error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export async function fetchPriceAlerts(symbol?: string): Promise<PriceAlert[]> {
   const params = symbol
     ? new URLSearchParams({ symbol })

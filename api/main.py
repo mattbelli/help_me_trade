@@ -98,7 +98,7 @@ from db.trades import init_trade_tables
 from db.workspace import init_workspace_tables, load_workspace_layout, save_workspace_layout
 from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.scan import run_signal_scan
-from signals.session_node_strategy import run_session_node_scan
+from signals.session_node_strategy import compute_session_levels, run_session_node_scan
 from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
@@ -1623,6 +1623,20 @@ async def api_portfolio_history(range: str = "1W"):
             for p in points
         ],
     }
+
+
+@app.get("/api/session-node/levels")
+async def api_session_node_levels(symbol: str = "SPY"):
+    sym = symbol.strip().upper()
+    if not sym:
+        return JSONResponse({"error": "symbol required"}, status_code=400)
+    try:
+        payload = await compute_session_levels(sym)
+    except BrokerError:
+        payload = None
+    if payload is None:
+        return {"symbol": sym, "session_date": None, "levels": []}
+    return payload
 
 
 @app.get("/api/bars")

@@ -18,7 +18,9 @@ import {
 import {
   fetchBars,
   fetchPriceAlerts,
+  fetchSessionLevels,
   type PriceAlert,
+  type SessionLevel,
   type StockBar,
 } from "@/lib/api";
 import {
@@ -33,6 +35,11 @@ import {
 } from "@/lib/chart-time";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  resolveCssColor,
+  toChartColor,
+  withAlpha,
+} from "@/lib/chart-colors";
 
 type Ohlcv = {
   time: Time;
@@ -43,11 +50,21 @@ type Ohlcv = {
   volume: number;
 };
 
-import {
-  resolveCssColor,
-  toChartColor,
-  withAlpha,
-} from "@/lib/chart-colors";
+function sessionLevelColor(kind: SessionLevel["kind"]): string {
+  switch (kind) {
+    case "support":
+      return "#3d8f7a";
+    case "resistance":
+      return "#9f2f2d";
+    case "poc":
+      return "#c9922a";
+    case "prior_high":
+    case "prior_low":
+      return "#7a7a78";
+    default:
+      return "#7a7a78";
+  }
+}
 
 type Props = {
   symbol: string;
@@ -69,6 +86,7 @@ export function TvLightChart({
   const mainRef = useRef<ISeriesApi<"Candlestick" | "Line"> | null>(null);
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const sessionLevelLinesRef = useRef<IPriceLine[]>([]);
   const barsRef = useRef<Ohlcv[]>([]);
   // True right after the chart is (re)created — i.e. on timeframe/style change.
   // A symbol change reuses the same chart instance, so this stays false and we
@@ -86,6 +104,8 @@ export function TvLightChart({
   const isControlledTimeframe = timeframeProp != null;
   const isControlledStyle = styleProp != null;
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [showLevels, setShowLevels] = useState(false);
+  const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([]);
   const [legend, setLegend] = useState<string>("");
   const [session, setSession] = useState(sessionLabel());
 
@@ -196,6 +216,24 @@ export function TvLightChart({
   }, [symbol]);
 
   useEffect(() => {
+    if (!showLevels) {
+      setSessionLevels([]);
+      return;
+    }
+    let cancelled = false;
+    fetchSessionLevels(symbol)
+      .then((data) => {
+        if (!cancelled) setSessionLevels(data.levels);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionLevels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, showLevels]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -298,6 +336,37 @@ export function TvLightChart({
   }, [alerts, loading]);
 
   useEffect(() => {
+    const series = mainRef.current;
+
+    const removeSessionLevelLines = () => {
+      if (!series) return;
+      for (const line of sessionLevelLinesRef.current) {
+        series.removePriceLine(line);
+      }
+      sessionLevelLinesRef.current = [];
+    };
+
+    if (!showLevels || !series || loading) {
+      removeSessionLevelLines();
+      return removeSessionLevelLines;
+    }
+
+    removeSessionLevelLines();
+    sessionLevelLinesRef.current = sessionLevels.map((level) =>
+      series.createPriceLine({
+        price: level.price,
+        color: sessionLevelColor(level.kind),
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: level.name,
+      }),
+    );
+
+    return removeSessionLevelLines;
+  }, [showLevels, sessionLevels, loading, timeframe.value, style]);
+
+  useEffect(() => {
     if (livePrice == null || loading) return;
     const bars = barsRef.current;
     if (bars.length === 0) return;
@@ -356,6 +425,16 @@ export function TvLightChart({
             }}
           >
             Line
+          </Button>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <Button
+            type="button"
+            size="sm"
+            variant={showLevels ? "secondary" : "ghost"}
+            className="h-7 px-2 text-xs"
+            onClick={() => setShowLevels((on) => !on)}
+          >
+            Levels
           </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
             {session} · ET · IEX
