@@ -142,16 +142,52 @@ async def test_aget_stock_bars_range_minute_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_aget_stock_bars_range_one_hour_raises() -> None:
-    provider = _provider()
+async def test_aget_stock_bars_range_one_hour_aggregates_from_30min() -> None:
+    client = MagicMock()
+    epoch_1300 = 1_782_219_600_000  # 2026-06-23T13:00:00Z
+    epoch_1330 = 1_782_221_400_000  # 2026-06-23T13:30:00Z
+    client.get_price_history.return_value = _FakeResponse(
+        {
+            "candles": [
+                {
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.5,
+                    "volume": 100,
+                    "datetime": epoch_1300,
+                },
+                {
+                    "open": 100.5,
+                    "high": 102.0,
+                    "low": 100.0,
+                    "close": 101.5,
+                    "volume": 200,
+                    "datetime": epoch_1330,
+                },
+            ],
+            "empty": False,
+        }
+    )
+    provider = _provider(client)
 
-    with pytest.raises(BrokerError, match="1Hour"):
-        await provider.aget_stock_bars_range(
-            "AAPL",
-            timeframe="1Hour",
-            start=datetime(2026, 6, 1, tzinfo=UTC),
-            end=datetime(2026, 6, 2, tzinfo=UTC),
-        )
+    bars = await provider.aget_stock_bars_range(
+        "AAPL",
+        timeframe="1Hour",
+        start=datetime(2026, 6, 1, tzinfo=UTC),
+        end=datetime(2026, 6, 2, tzinfo=UTC),
+    )
+
+    kwargs = client.get_price_history.call_args.kwargs
+    assert kwargs["frequency"] == Client.PriceHistory.Frequency.EVERY_THIRTY_MINUTES
+    assert kwargs["need_extended_hours_data"] is False
+    assert len(bars) == 1
+    assert bars[0].time == "2026-06-23T13:00:00Z"
+    assert bars[0].open == 100.0
+    assert bars[0].high == 102.0
+    assert bars[0].low == 99.0
+    assert bars[0].close == 101.5
+    assert bars[0].volume == 300.0
 
 
 @pytest.mark.asyncio
@@ -254,6 +290,7 @@ async def test_aget_stock_bars_uses_days_window() -> None:
         timeframe: str,
         start: datetime,
         end: datetime,
+        extended_hours: bool = False,
     ) -> list:
         captured["symbol"] = symbol
         captured["timeframe"] = timeframe

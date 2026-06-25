@@ -1636,17 +1636,33 @@ async def api_portfolio_history(range: str = "1W"):
 
 @app.get("/api/bars")
 async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
-    broker = _require_alpaca()
-    if isinstance(broker, JSONResponse):
-        return broker
-
     if days < 1 or days > 3650:
         return JSONResponse({"error": "days must be 1–3650"}, status_code=400)
 
     try:
-        bars = await broker.aget_stock_bars(symbol, timeframe=timeframe, days=days)
+        provider = get_market_data_provider()
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
+
+    try:
+        bars = await provider.aget_stock_bars(
+            symbol, timeframe=timeframe, days=days, extended_hours=True
+        )
+    except Exception as exc:
+        # Any provider failure (BrokerError, Schwab outage, httpx error) falls back
+        # to Alpaca so charts never hard-break — resilience is the point of the path.
+        logger.warning(
+            "/api/bars provider failed (%s), falling back to Alpaca", exc
+        )
+        broker = _require_alpaca()
+        if isinstance(broker, JSONResponse):
+            return broker
+        try:
+            bars = await broker.aget_stock_bars(
+                symbol, timeframe=timeframe, days=days
+            )
+        except BrokerError as fallback_exc:
+            return JSONResponse({"error": str(fallback_exc)}, status_code=502)
 
     return {
         "symbol": symbol.strip().upper(),

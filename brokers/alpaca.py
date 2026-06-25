@@ -581,7 +581,9 @@ class AlpacaAdapter:
         *,
         timeframe: str = "1Day",
         days: int = 180,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
+        # Free IEX feed is regular-hours only; extended_hours is ignored.
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
         return await self.aget_stock_bars_range(

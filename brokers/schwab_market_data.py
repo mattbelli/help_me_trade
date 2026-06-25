@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -87,6 +88,33 @@ class SchwabMarketData:
         bars.sort(key=lambda bar: bar.time)
         return bars
 
+    @staticmethod
+    def _aggregate_to_hourly(bars: list[StockBar]) -> list[StockBar]:
+        if not bars:
+            return []
+
+        buckets: dict[str, list[StockBar]] = defaultdict(list)
+        for bar in bars:
+            dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
+            hour_dt = dt.replace(minute=0, second=0, microsecond=0)
+            hour_key = hour_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            buckets[hour_key].append(bar)
+
+        hourly: list[StockBar] = []
+        for hour_key in sorted(buckets):
+            group = buckets[hour_key]
+            hourly.append(
+                StockBar(
+                    time=hour_key,
+                    open=group[0].open,
+                    high=max(b.high for b in group),
+                    low=min(b.low for b in group),
+                    close=group[-1].close,
+                    volume=sum(b.volume for b in group),
+                )
+            )
+        return hourly
+
     def _fetch_bars_sync(
         self,
         symbol: str,
@@ -94,6 +122,7 @@ class SchwabMarketData:
         timeframe: str,
         start: datetime,
         end: datetime,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
         symbol = symbol.strip().upper()
         if not symbol:
@@ -104,7 +133,7 @@ class SchwabMarketData:
             symbol,
             start_datetime=start.astimezone(UTC),
             end_datetime=end.astimezone(UTC),
-            need_extended_hours_data=False,
+            need_extended_hours_data=extended_hours,
             **params,
         )
         response.raise_for_status()
@@ -120,13 +149,25 @@ class SchwabMarketData:
         timeframe: str = "1Day",
         start: datetime,
         end: datetime,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
+        if timeframe == "1Hour":
+            bars = await asyncio.to_thread(
+                self._fetch_bars_sync,
+                symbol,
+                timeframe="30Min",
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+            return self._aggregate_to_hourly(bars)
         return await asyncio.to_thread(
             self._fetch_bars_sync,
             symbol,
             timeframe=timeframe,
             start=start,
             end=end,
+            extended_hours=extended_hours,
         )
 
     async def aget_stock_bars(
@@ -135,11 +176,16 @@ class SchwabMarketData:
         *,
         timeframe: str = "1Day",
         days: int = 180,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
         return await self.aget_stock_bars_range(
-            symbol, timeframe=timeframe, start=start, end=end
+            symbol,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            extended_hours=extended_hours,
         )
 
     async def _fetch_symbol_batch(
@@ -150,6 +196,7 @@ class SchwabMarketData:
         start: datetime,
         end: datetime,
         semaphore: asyncio.Semaphore,
+        extended_hours: bool = False,
     ) -> tuple[str, list[StockBar] | None]:
         async with semaphore:
             try:
@@ -158,6 +205,7 @@ class SchwabMarketData:
                     timeframe=timeframe,
                     start=start,
                     end=end,
+                    extended_hours=extended_hours,
                 )
             except Exception as exc:
                 logger.warning(
@@ -283,6 +331,7 @@ class SchwabMarketData:
         *,
         timeframe: str = "1Day",
         days: int = 12,
+        extended_hours: bool = False,
     ) -> dict[str, list[StockBar]]:
         cleaned: list[str] = []
         seen: set[str] = set()
@@ -306,6 +355,7 @@ class SchwabMarketData:
                     start=start,
                     end=end,
                     semaphore=semaphore,
+                    extended_hours=extended_hours,
                 )
                 for symbol in cleaned
             )
