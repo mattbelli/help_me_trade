@@ -57,6 +57,23 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Use this for 'when does X report?' instead of web_search."
         ),
     },
+    "get_context": {
+        "title": "Symbol context",
+        "description": (
+            "Read everything the app knows about a symbol — quote, RVOL, session-node "
+            "levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), "
+            "fundamentals, earnings, the calibrated decision score, and active alerts. "
+            "Use this FIRST for any question about a symbol's data/levels/signals — "
+            "do NOT web_search for our own data."
+        ),
+    },
+    "list_capabilities": {
+        "title": "Perception capabilities",
+        "description": (
+            "List what app data the agent can read (scopes + fields). Call when unsure "
+            "whether the app has some data."
+        ),
+    },
     "search_memories": {
         "title": "Search memories",
         "description": "Search stored preferences, lessons, and research notes.",
@@ -131,6 +148,8 @@ Available tools:
 - get_portfolio_snapshot — arguments: {}
 - get_agent_status — arguments: {}
 - get_earnings_dates — arguments: {"symbol": string}
+- get_context — arguments: {"symbol": string}
+- list_capabilities — arguments: {}
 - search_memories — arguments: {"query": string, "limit": number}
 - start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"}
 - get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number, "account_id": string|null}
@@ -143,6 +162,7 @@ Rules:
 - Return {"tools": []} when no tool is needed (greetings, thanks, small talk).
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
 - Only call start_research when the user explicitly asks for a deep research report or written report.
+- Use get_context FIRST for symbol prices, RVOL, session-node levels, technicals, fundamentals, earnings, decision scores, or active alerts — never web_search for our own app data.
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
@@ -383,6 +403,20 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
                 "only ~2-4 weeks out; absence ≠ no earnings."
             ),
         }
+
+    if name == "get_context":
+        symbol_raw = args.get("symbol")
+        if not symbol_raw:
+            return {"error": "symbol is required"}
+        from ai.perception.context import build_symbol_context
+
+        symbol = str(symbol_raw).upper()
+        return await build_symbol_context(symbol, db_path=DEFAULT_DB_PATH)
+
+    if name == "list_capabilities":
+        from ai.perception.context import list_capabilities
+
+        return list_capabilities()
 
     if name == "search_memories":
         query = str(args.get("query", "")).strip()

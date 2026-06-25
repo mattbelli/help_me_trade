@@ -351,3 +351,34 @@ async def test_get_earnings_dates_requires_symbol(
     _patch_db(monkeypatch, tmp_path / "empty.db")
     result = await execute_tool("get_earnings_dates", {})
     assert result == {"error": "symbol is required"}
+
+
+@pytest.mark.asyncio
+async def test_get_context_requires_symbol() -> None:
+    result = await execute_tool("get_context", {})
+    assert result == {"error": "symbol is required"}
+
+
+@pytest.mark.asyncio
+async def test_get_context_delegates_to_builder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = {"symbol": "NVDA", "quote": {"price": 900.0}}
+
+    async def fake_build(symbol: str, *, db_path: Path) -> dict:
+        assert symbol == "NVDA"
+        return expected
+
+    monkeypatch.setattr(
+        "ai.perception.context.build_symbol_context",
+        fake_build,
+    )
+    result = await execute_tool("get_context", {"symbol": "nvda"})
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_list_capabilities_tool() -> None:
+    result = await execute_tool("list_capabilities", {})
+    assert "context_scopes" in result
+    assert "symbol" in result["context_scopes"]
