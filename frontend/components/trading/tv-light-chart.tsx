@@ -447,6 +447,21 @@ export function TvLightChart({
           <Skeleton className="absolute inset-0 z-10 rounded-none" />
         )}
         <div ref={containerRef} className="absolute inset-0" />
+        {compact && (
+          // The full control row is hidden in compact mode (workspace widget /
+          // charts grid), so surface the Levels toggle as a small floating control.
+          <button
+            type="button"
+            onClick={() => setShowLevels((on) => !on)}
+            className={`absolute right-2 top-2 z-30 rounded border px-1.5 py-0.5 text-[10px] font-medium backdrop-blur transition-colors ${
+              showLevels
+                ? "border-primary/50 bg-primary/20 text-foreground"
+                : "border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Levels
+          </button>
+        )}
         {!compact && (
           <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 space-y-0.5">
             <p className="text-xs font-medium text-foreground/90">{symbol}</p>
