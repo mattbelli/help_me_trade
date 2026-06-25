@@ -329,6 +329,7 @@ export type WatchlistQuote = {
   price: number;
   change_pct: number;
   sparkline: number[];
+  intraday?: number[];
   prev_close?: number;
   volume?: number;
   day_high?: number;

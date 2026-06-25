@@ -43,6 +43,7 @@ import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
 import { ChannelSelector } from "./channel-selector";
+import { SymbolSearchInput } from "./symbol-search-input";
 import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
@@ -92,8 +93,8 @@ function ChartHeaderControls({
     setDraftSymbol(committedSymbol);
   }, [committedSymbol]);
 
-  const commitSymbol = () => {
-    const next = draftSymbol.toUpperCase().trim();
+  const commitSymbol = (override?: string) => {
+    const next = (override ?? draftSymbol).toUpperCase().trim();
     if (next && next !== committedSymbol) {
       onConfigChange({ symbol: next });
     } else {
@@ -104,22 +105,13 @@ function ChartHeaderControls({
   return (
     <>
       {manualMode ? (
-        <input
-          type="text"
+        <SymbolSearchInput
           value={draftSymbol}
-          onChange={(e) => setDraftSymbol(e.target.value.toUpperCase())}
-          onBlur={commitSymbol}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              commitSymbol();
-              e.currentTarget.blur();
-            } else if (e.key === "Escape") {
-              setDraftSymbol(committedSymbol);
-              e.currentTarget.blur();
-            }
-          }}
-          {...dragSafeControlProps}
-          className="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
+          onChange={setDraftSymbol}
+          onCommit={commitSymbol}
+          onEscape={() => setDraftSymbol(committedSymbol)}
+          dragSafeControlProps={dragSafeControlProps}
+          inputClassName="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
         />
       ) : (
         <span className="font-mono text-[11px] font-semibold text-[var(--c-accent)]">

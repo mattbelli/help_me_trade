@@ -606,7 +606,7 @@ function WatchlistSymbolRow({
         )}
         <div className="flex justify-end">
           <Sparkline
-            values={quote?.sparkline ?? []}
+            values={quote?.intraday ?? quote?.sparkline ?? []}
             width={48}
             height={18}
             className={
@@ -891,7 +891,7 @@ export function WatchlistWidget({ config }: WidgetProps) {
               { label: "Last", key: "price" as const },
               { label: "Δ%", key: "change_pct" as const },
               { label: "RVOL", key: "rvol" as const },
-              { label: "7d" },
+              { label: "1d" },
             ] as const
           ).map((h, idx) =>
             "key" in h ? (
