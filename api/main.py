@@ -118,6 +118,12 @@ POLL_INTERVAL_SECONDS = max(
 SIGNAL_SCAN_INTERVAL_SECONDS = max(
     30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300"))
 )
+# Session-node reacts to SPY touching a level on the 1-min chart, so it runs on its
+# OWN fast cadence (default 60s = the bar granularity) — decoupled from the heavy
+# 5-min signal scan so we don't also run the expensive daily-bar scans every minute.
+SESSION_NODE_SCAN_INTERVAL_SECONDS = max(
+    20, int(os.environ.get("SESSION_NODE_SCAN_INTERVAL_SECONDS", "60"))
+)
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
 RVOL_ALERT_INTERVAL_SECONDS = max(
@@ -396,13 +402,21 @@ async def _signal_scan_loop() -> None:
                 await run_strategy_scan()
             except Exception:
                 logger.exception("Dip-strategy scan failed")
-            try:
-                await run_session_node_scan()
-            except Exception:
-                logger.exception("Session-node scan failed")
         except Exception:
             logger.exception("Signal scan loop iteration failed")
         await asyncio.sleep(SIGNAL_SCAN_INTERVAL_SECONDS)
+
+
+async def _session_node_loop() -> None:
+    """Session-node scan on its own ~1-min cadence (separate from the 5-min signal
+    scan), so a node touch is proposed within ~1 min instead of up to 5. Cost is tiny:
+    one small SPY 1-min fetch + trigger detection per cycle. Propose-only as always."""
+    while True:
+        try:
+            await run_session_node_scan()
+        except Exception:
+            logger.exception("Session-node scan failed")
+        await asyncio.sleep(SESSION_NODE_SCAN_INTERVAL_SECONDS)
 
 
 async def _earnings_refresh_once() -> int:
@@ -910,6 +924,7 @@ async def lifespan(app: FastAPI):
     await _poll_once()
     poll_task = asyncio.create_task(_poll_loop())
     scan_task = asyncio.create_task(_signal_scan_loop())
+    session_node_task = asyncio.create_task(_session_node_loop())
     alert_task = asyncio.create_task(_alert_symbol_loop())
     reflection_task = asyncio.create_task(reflection_loop())
     sync_task = asyncio.create_task(_trade_sync_loop())
@@ -929,11 +944,13 @@ async def lifespan(app: FastAPI):
     sync_task.cancel()
     poll_task.cancel()
     scan_task.cancel()
+    session_node_task.cancel()
     alert_task.cancel()
     reflection_task.cancel()
     for task in (
         poll_task,
         scan_task,
+        session_node_task,
         alert_task,
         reflection_task,
         sync_task,
@@ -1781,10 +1798,24 @@ async def api_generate_report(body: dict = Body(...), push: bool = False):
     return report
 
 
+# Short-TTL cache for chart bars so flipping back to a symbol/timeframe is instant
+# instead of waiting on a fresh Schwab per-symbol round-trip (the live price rides the
+# WS stream on the frontend, so a few-minutes-stale historical window is invisible).
+_BARS_CACHE: dict[tuple, tuple[float, dict]] = {}
+_BARS_CACHE_TTL = {"1Min": 60.0, "5Min": 180.0, "15Min": 300.0, "1Hour": 600.0, "1Day": 300.0}
+
+
 @app.get("/api/bars")
 async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
     if days < 1 or days > 3650:
         return JSONResponse({"error": "days must be 1–3650"}, status_code=400)
+
+    sym = symbol.strip().upper()
+    cache_key = (sym, timeframe, int(days))
+    now = time.monotonic()
+    cached = _BARS_CACHE.get(cache_key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
 
     try:
         provider = get_market_data_provider()
@@ -1793,7 +1824,7 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
 
     try:
         bars = await provider.aget_stock_bars(
-            symbol, timeframe=timeframe, days=days, extended_hours=True
+            sym, timeframe=timeframe, days=days, extended_hours=True
         )
     except Exception as exc:
         # Any provider failure (BrokerError, Schwab outage, httpx error) falls back
@@ -1806,13 +1837,13 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
             return broker
         try:
             bars = await broker.aget_stock_bars(
-                symbol, timeframe=timeframe, days=days
+                sym, timeframe=timeframe, days=days
             )
         except BrokerError as fallback_exc:
             return JSONResponse({"error": str(fallback_exc)}, status_code=502)
 
-    return {
-        "symbol": symbol.strip().upper(),
+    response = {
+        "symbol": sym,
         "timeframe": timeframe,
         "bars": [
             {
@@ -1826,6 +1857,11 @@ async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
             for b in bars
         ],
     }
+    _BARS_CACHE[cache_key] = (now + _BARS_CACHE_TTL.get(timeframe, 120.0), response)
+    if len(_BARS_CACHE) > 256:
+        for k in [k for k, (exp, _) in list(_BARS_CACHE.items()) if exp <= now]:
+            _BARS_CACHE.pop(k, None)
+    return response
 
 
 @app.get("/api/fundamentals/earnings-history")
