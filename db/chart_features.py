@@ -182,6 +182,47 @@ def delete_price_alert(alert_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+def update_price_alert(
+    alert_id: int,
+    *,
+    price: float | None = None,
+    direction: str | None = None,
+    note: str | None = None,
+    repeat: bool | None = None,
+) -> dict | None:
+    """Edit an alert in place (only the fields provided). Editing RE-ARMS it
+    (triggered=0) so a one-shot that already fired becomes active again at its new
+    level. Returns the updated row, or None if no alert with that id exists."""
+    init_chart_features()
+    sets: list[str] = []
+    params: list = []
+    if price is not None:
+        sets.append("price = ?")
+        params.append(float(price))
+    if direction is not None:
+        sets.append("direction = ?")
+        params.append(direction)
+    if note is not None:
+        sets.append("note = ?")
+        params.append(note)
+    if repeat is not None:
+        sets.append("repeat = ?")
+        params.append(1 if repeat else 0)
+    sets.append("triggered = 0")  # editing re-arms
+    with _connect() as conn:
+        cursor = conn.execute(
+            f"UPDATE price_alerts SET {', '.join(sets)} WHERE id = ?",
+            (*params, alert_id),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute(
+            "SELECT * FROM price_alerts WHERE id = ?", (alert_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def mark_alert_triggered(alert_id: int, *, repeat: bool = False) -> None:
     """Record that an alert fired.
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   CandlestickSeries,
   ColorType,
@@ -16,6 +16,7 @@ import {
 } from "lightweight-charts";
 
 import {
+  createPriceAlert,
   fetchBars,
   fetchPriceAlerts,
   fetchSessionLevels,
@@ -23,6 +24,7 @@ import {
   type SessionLevel,
   type StockBar,
 } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import {
   CHART_TIMEFRAMES,
   formatCrosshairTime,
@@ -50,6 +52,20 @@ type Ohlcv = {
   close: number;
   volume: number;
 };
+
+const ALERT_DIRECTIONS = ["above", "below", "cross"] as const;
+type AlertDirection = (typeof ALERT_DIRECTIONS)[number];
+const ALERTS_POLL_MS = 20_000;
+
+function defaultAlertDirection(
+  clickedPrice: number,
+  currentPrice: number | undefined,
+): AlertDirection {
+  if (currentPrice == null) return "cross";
+  if (clickedPrice > currentPrice) return "above";
+  if (clickedPrice < currentPrice) return "below";
+  return "cross";
+}
 
 function sessionLevelColor(kind: SessionLevel["kind"]): string {
   switch (kind) {
@@ -110,6 +126,20 @@ export function TvLightChart({
   const isControlledTimeframe = timeframeProp != null;
   const isControlledStyle = styleProp != null;
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [alertsRefreshKey, setAlertsRefreshKey] = useState(0);
+  const [addingAlert, setAddingAlert] = useState(false);
+  const [pendingAlert, setPendingAlert] = useState<{
+    price: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [alertPrice, setAlertPrice] = useState("");
+  const [alertDirection, setAlertDirection] = useState<AlertDirection>("cross");
+  const [alertRepeat, setAlertRepeat] = useState(false);
+  const [alertSaving, setAlertSaving] = useState(false);
+  const [alertError, setAlertError] = useState<string | null>(null);
+  const addingAlertRef = useRef(false);
+  const livePriceRef = useRef(livePrice);
   // Internal toggle for the non-compact (/trading) header; in the workspace the
   // frame's Studies dropdown drives it via the `showLevels` prop (controlled).
   const [internalShowLevels, setInternalShowLevels] = useState(false);
@@ -122,6 +152,74 @@ export function TvLightChart({
     const id = setInterval(() => setSession(sessionLabel()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    addingAlertRef.current = addingAlert;
+  }, [addingAlert]);
+
+  useEffect(() => {
+    livePriceRef.current = livePrice;
+  }, [livePrice]);
+
+  useEffect(() => {
+    const id = setInterval(
+      () => setAlertsRefreshKey((key) => key + 1),
+      ALERTS_POLL_MS,
+    );
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!addingAlert && !pendingAlert) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setAddingAlert(false);
+      setPendingAlert(null);
+      setAlertError(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [addingAlert, pendingAlert]);
+
+  function disarmAlertMode() {
+    setAddingAlert(false);
+    setPendingAlert(null);
+    setAlertError(null);
+  }
+
+  function toggleAlertMode() {
+    if (addingAlert) {
+      disarmAlertMode();
+      return;
+    }
+    setAddingAlert(true);
+    setPendingAlert(null);
+    setAlertError(null);
+  }
+
+  async function handleCreateAlert() {
+    const price = Number(alertPrice.trim());
+    if (!Number.isFinite(price)) {
+      setAlertError("Enter a valid price");
+      return;
+    }
+    setAlertError(null);
+    setAlertSaving(true);
+    try {
+      await createPriceAlert({
+        symbol,
+        price,
+        direction: alertDirection,
+        repeat: alertRepeat,
+      });
+      setAlertsRefreshKey((key) => key + 1);
+      disarmAlertMode();
+    } catch {
+      setAlertError("Could not create alert");
+    } finally {
+      setAlertSaving(false);
+    }
+  }
 
   useEffect(() => {
     const el = containerRef.current;
@@ -210,6 +308,23 @@ export function TvLightChart({
       );
     });
 
+    chart.subscribeClick((param) => {
+      if (!addingAlertRef.current) return;
+      if (!param.point) return;
+      const series = mainRef.current;
+      if (!series) return;
+      const rawPrice = series.coordinateToPrice(param.point.y);
+      if (rawPrice == null) return;
+      const price = Math.round(rawPrice * 100) / 100;
+      const currentPrice =
+        livePriceRef.current ?? barsRef.current.at(-1)?.close;
+      setAlertPrice(String(price));
+      setAlertDirection(defaultAlertDirection(price, currentPrice));
+      setAlertRepeat(false);
+      setAlertError(null);
+      setPendingAlert({ price, x: param.point.x, y: param.point.y });
+    });
+
     return () => {
       chart.remove();
       chartRef.current = null;
@@ -222,7 +337,7 @@ export function TvLightChart({
     fetchPriceAlerts(symbol)
       .then(setAlerts)
       .catch(() => setAlerts([]));
-  }, [symbol]);
+  }, [symbol, alertsRefreshKey]);
 
   useEffect(() => {
     if (!showLevels) {
@@ -482,11 +597,49 @@ export function TvLightChart({
       </div>
       )}
 
-      <div className="relative min-h-0 flex-1">
+      <div
+        className={cn(
+          "relative min-h-0 flex-1",
+          addingAlert && "cursor-crosshair",
+        )}
+      >
         {loading && (
           <Skeleton className="absolute inset-0 z-10 rounded-none" />
         )}
         <div ref={containerRef} className="absolute inset-0" />
+        <button
+          type="button"
+          className={cn(
+            "workspace-no-drag absolute right-2 top-2 z-30 inline-flex items-center gap-0.5 rounded border px-2 py-0.5 text-[11px] transition-colors",
+            addingAlert
+              ? "border-[var(--c-accent)] bg-[color-mix(in_srgb,var(--c-accent)_12%,transparent)] text-[var(--c-accent)]"
+              : "border-border/80 bg-background/80 text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
+          )}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleAlertMode();
+          }}
+        >
+          ＋ Alert
+        </button>
+        {pendingAlert && (
+          <AlertCreatePopover
+            x={pendingAlert.x}
+            y={pendingAlert.y}
+            containerRef={containerRef}
+            price={alertPrice}
+            direction={alertDirection}
+            repeat={alertRepeat}
+            saving={alertSaving}
+            error={alertError}
+            onPriceChange={setAlertPrice}
+            onDirectionChange={setAlertDirection}
+            onRepeatChange={setAlertRepeat}
+            onCreate={() => void handleCreateAlert()}
+            onCancel={disarmAlertMode}
+          />
+        )}
         {!compact && (
         <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 space-y-0.5">
           <p className="text-xs font-medium text-foreground/90">{symbol}</p>
@@ -502,6 +655,140 @@ export function TvLightChart({
           )}
         </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+type AlertCreatePopoverProps = {
+  x: number;
+  y: number;
+  containerRef: RefObject<HTMLDivElement | null>;
+  price: string;
+  direction: AlertDirection;
+  repeat: boolean;
+  saving: boolean;
+  error: string | null;
+  onPriceChange: (value: string) => void;
+  onDirectionChange: (value: AlertDirection) => void;
+  onRepeatChange: (value: boolean) => void;
+  onCreate: () => void;
+  onCancel: () => void;
+};
+
+function AlertCreatePopover({
+  x,
+  y,
+  containerRef,
+  price,
+  direction,
+  repeat,
+  saving,
+  error,
+  onPriceChange,
+  onDirectionChange,
+  onRepeatChange,
+  onCreate,
+  onCancel,
+}: AlertCreatePopoverProps) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: x, top: y });
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const popover = popoverRef.current;
+    if (!container || !popover) {
+      setPosition({ left: x, top: y });
+      return;
+    }
+    const margin = 8;
+    const maxLeft = Math.max(margin, container.clientWidth - popover.offsetWidth - margin);
+    const maxTop = Math.max(margin, container.clientHeight - popover.offsetHeight - margin);
+    setPosition({
+      left: Math.min(Math.max(margin, x), maxLeft),
+      top: Math.min(Math.max(margin, y), maxTop),
+    });
+  }, [x, y, containerRef]);
+
+  return (
+    <div
+      ref={popoverRef}
+      className="workspace-no-drag absolute z-40 w-[200px] space-y-2 rounded-md border border-border/80 bg-background/95 p-2 shadow-md backdrop-blur-sm"
+      style={{ left: position.left, top: position.top }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <label className="block space-y-0.5">
+        <span className="text-[9.5px] tracking-[0.05em] text-muted-foreground uppercase">
+          Price
+        </span>
+        <input
+          type="number"
+          step="any"
+          value={price}
+          onChange={(event) => onPriceChange(event.target.value)}
+          className="w-full rounded border border-border/80 bg-transparent px-1.5 py-1 text-[11px] tabular-nums text-foreground outline-none focus:border-[var(--c-accent)]"
+        />
+      </label>
+
+      <div className="space-y-0.5">
+        <span className="text-[9.5px] tracking-[0.05em] text-muted-foreground uppercase">
+          Direction
+        </span>
+        <div className="flex gap-1">
+          {ALERT_DIRECTIONS.map((dir) => (
+            <button
+              key={dir}
+              type="button"
+              onClick={() => onDirectionChange(dir)}
+              className={cn(
+                "flex-1 rounded border px-1 py-0.5 text-[10px] tracking-wide uppercase transition-colors",
+                direction === dir
+                  ? "border-[var(--c-accent)] bg-[color-mix(in_srgb,var(--c-accent)_12%,transparent)] text-[var(--c-accent)]"
+                  : "border-border/80 text-muted-foreground hover:bg-secondary/80",
+              )}
+            >
+              {dir}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={repeat}
+          onChange={(event) => onRepeatChange(event.target.checked)}
+          className="size-3 rounded border-border/80"
+        />
+        Persistent
+      </label>
+
+      {error ? (
+        <p className="text-[10px] text-destructive">{error}</p>
+      ) : null}
+
+      <div className="flex gap-1">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="h-7 flex-1 text-[11px]"
+          disabled={saving}
+          onClick={onCreate}
+        >
+          Create
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 flex-1 text-[11px]"
+          disabled={saving}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
       </div>
     </div>
   );

@@ -698,6 +698,29 @@ export async function createPriceAlert(payload: {
   return res.json();
 }
 
+export async function updatePriceAlert(
+  id: number,
+  payload: {
+    price?: number;
+    direction?: string;
+    note?: string;
+    repeat?: boolean;
+  },
+): Promise<PriceAlert> {
+  const res = await apiFetch(`${API_BASE}/api/price-alerts/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Update alert error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export async function deletePriceAlert(id: number): Promise<void> {
   const res = await apiFetch(`${API_BASE}/api/price-alerts/${id}`, {
     method: "DELETE",

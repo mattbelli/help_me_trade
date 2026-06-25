@@ -73,6 +73,7 @@ from db.chart_features import (
     init_chart_features,
     list_price_alerts,
     mark_alert_triggered,
+    update_price_alert,
 )
 from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
@@ -2071,6 +2072,34 @@ def api_create_alert(body: dict = Body(...)):
         symbol=symbol, price=price_f, direction=direction, note=note, repeat=repeat
     )
     return alert
+
+
+@app.put("/api/price-alerts/{alert_id}")
+def api_update_alert(alert_id: int, body: dict = Body(...)):
+    price_f: float | None = None
+    if body.get("price") is not None:
+        try:
+            price_f = float(body["price"])
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "price must be a number"}, status_code=400)
+    dir_norm: str | None = None
+    if body.get("direction") is not None:
+        dir_norm = str(body["direction"]).strip().lower()
+        if dir_norm not in ("above", "below", "cross"):
+            return JSONResponse(
+                {"error": "direction must be one of: above, below, cross"},
+                status_code=400,
+            )
+    updated = update_price_alert(
+        alert_id,
+        price=price_f,
+        direction=dir_norm,
+        note=None if body.get("note") is None else str(body["note"]),
+        repeat=None if body.get("repeat") is None else bool(body["repeat"]),
+    )
+    if updated is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return updated
 
 
 @app.delete("/api/price-alerts/{alert_id}")
