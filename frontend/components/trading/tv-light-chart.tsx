@@ -68,7 +68,6 @@ function sessionLevelColor(kind: SessionLevel["kind"]): string {
 
 type Props = {
   symbol: string;
-  compact?: boolean;
   timeframe?: ChartTimeframe;
   style?: "candle" | "line";
   livePrice?: number;
@@ -76,7 +75,6 @@ type Props = {
 
 export function TvLightChart({
   symbol,
-  compact = false,
   timeframe: timeframeProp,
   style: styleProp,
   livePrice,
@@ -384,104 +382,79 @@ export function TvLightChart({
   }, [livePrice, loading, style]);
 
   return (
-    <div
-      className={`relative flex h-full w-full flex-col ${compact ? "min-h-0" : "min-h-[460px]"}`}
-    >
-      {!compact && (
-        <div className="flex flex-wrap items-center gap-1 border-b border-border/80 px-2 py-1.5">
-          {CHART_TIMEFRAMES.map((tf) => (
-            <Button
-              key={tf.label}
-              type="button"
-              size="sm"
-              variant={timeframe.label === tf.label ? "secondary" : "ghost"}
-              className="h-7 px-2 text-xs"
-              onClick={() => {
-                if (!isControlledTimeframe) setInternalTimeframe(tf);
-              }}
-            >
-              {tf.label}
-            </Button>
-          ))}
-          <span className="mx-1 h-4 w-px bg-border" />
+    <div className="relative flex h-full w-full min-h-0 flex-col">
+      <div className="flex flex-wrap items-center gap-1 border-b border-border/80 px-2 py-1.5">
+        {CHART_TIMEFRAMES.map((tf) => (
           <Button
+            key={tf.label}
             type="button"
             size="sm"
-            variant={style === "candle" ? "secondary" : "ghost"}
+            variant={timeframe.label === tf.label ? "secondary" : "ghost"}
             className="h-7 px-2 text-xs"
             onClick={() => {
-              if (!isControlledStyle) setInternalStyle("candle");
+              if (!isControlledTimeframe) setInternalTimeframe(tf);
             }}
           >
-            Candles
+            {tf.label}
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={style === "line" ? "secondary" : "ghost"}
-            className="h-7 px-2 text-xs"
-            onClick={() => {
-              if (!isControlledStyle) setInternalStyle("line");
-            }}
-          >
-            Line
-          </Button>
-          <span className="mx-1 h-4 w-px bg-border" />
-          <Button
-            type="button"
-            size="sm"
-            variant={showLevels ? "secondary" : "ghost"}
-            className="h-7 px-2 text-xs"
-            onClick={() => setShowLevels((on) => !on)}
-          >
-            Levels
-          </Button>
-          <span className="ml-auto text-[11px] text-muted-foreground">
-            {session} · ET · IEX
-          </span>
-        </div>
-      )}
+        ))}
+        <span className="mx-1 h-4 w-px bg-border" />
+        <Button
+          type="button"
+          size="sm"
+          variant={style === "candle" ? "secondary" : "ghost"}
+          className="h-7 px-2 text-xs"
+          onClick={() => {
+            if (!isControlledStyle) setInternalStyle("candle");
+          }}
+        >
+          Candles
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={style === "line" ? "secondary" : "ghost"}
+          className="h-7 px-2 text-xs"
+          onClick={() => {
+            if (!isControlledStyle) setInternalStyle("line");
+          }}
+        >
+          Line
+        </Button>
+        <span className="mx-1 h-4 w-px bg-border" />
+        {/* Becomes a "Studies" dropdown when a 2nd study is added. */}
+        <Button
+          type="button"
+          size="sm"
+          variant={showLevels ? "secondary" : "ghost"}
+          className="h-7 px-2 text-xs"
+          onClick={() => setShowLevels((on) => !on)}
+        >
+          Session Nodes
+        </Button>
+        <span className="ml-auto text-[11px] text-muted-foreground">
+          {session} · ET · IEX
+        </span>
+      </div>
 
       <div className="relative min-h-0 flex-1">
         {loading && (
           <Skeleton className="absolute inset-0 z-10 rounded-none" />
         )}
         <div ref={containerRef} className="absolute inset-0" />
-        {compact && (
-          // The full control row is hidden in compact mode (workspace widget /
-          // charts grid), so surface the Levels toggle as a small floating control.
-          <button
-            type="button"
-            onClick={() => setShowLevels((on) => !on)}
-            className={`absolute right-2 top-2 z-30 rounded border px-1.5 py-0.5 text-[10px] font-medium backdrop-blur transition-colors ${
-              showLevels
-                ? "border-primary/50 bg-primary/20 text-foreground"
-                : "border-border/60 bg-background/70 text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Levels
-          </button>
-        )}
-        {!compact && (
-          <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 space-y-0.5">
-            <p className="text-xs font-medium text-foreground/90">{symbol}</p>
-            {legend ? (
-              <p className="text-[11px] tabular-nums text-muted-foreground">
-                {legend}
-              </p>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                Hover chart for OHLCV · volume pane below
-                {error ? ` · ${error}` : ""}
-              </p>
-            )}
-          </div>
-        )}
-        {compact && error && (
-          <p className="pointer-events-none absolute bottom-1 left-2 z-20 text-[10px] text-destructive">
-            {error}
-          </p>
-        )}
+        <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 space-y-0.5">
+          <p className="text-xs font-medium text-foreground/90">{symbol}</p>
+          {legend ? (
+            <p className="text-[11px] tabular-nums text-muted-foreground">
+              {legend}
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Hover chart for OHLCV · volume pane below
+              {error ? ` · ${error}` : ""}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

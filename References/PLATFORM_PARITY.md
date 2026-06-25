@@ -33,7 +33,7 @@ Overview `/` · Trading · Charts · Performance · Research · Memories · Agen
 | Watchlist (RVOL, earnings badges, company-info panel) | ✅ widget + /trading | ✅ | company-info "last earnings" fix is backend → both get it |
 | Charts (intraday/daily) | ✅ (+ maximize-to-full-view from grid) | ✅ | both use `/api/bars`; web chart widget now has a maximize button → full interactive chart |
 | **Post-market (extended-hours) candles** | ✅ | ✅ (auto via /api/bars) | backend change → both |
-| **Session-node Levels overlay on chart** | ✅ "Levels" toggle | ⚠️ TBD | web-only UI; phone needs its own toggle |
+| **Session Nodes study (vol-profile levels)** | ✅ "Session Nodes" toggle in chart toolbar | ⚠️ TBD | web-only UI; phone needs its own toggle. Web charts are now single fully-featured (no compact mode). |
 | Trade proposals (Approve/Reject) | ✅ agent-proposals widget | ✅ Live Activity (Dynamic Island) | |
 | **Strategy cockpit (arm/configure)** | ✅ Settings + Automations | ⚠️ TBD | web-only |
 | **Morning levels report** | ✅ push + reports widget + Automations | ✅ push only | neither has a persistent inbox (see Delta) |

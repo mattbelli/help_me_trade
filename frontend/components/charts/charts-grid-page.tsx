@@ -151,7 +151,7 @@ export function ChartsGridPage() {
                 )}
               </div>
               <div className="min-h-0 flex-1">
-                <TvLightChart symbol={item.symbol} compact />
+                <TvLightChart symbol={item.symbol} />
               </div>
             </div>
           ))}
