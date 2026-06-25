@@ -38,6 +38,8 @@ export function ChartWidget({ config }: WidgetProps) {
         {symbol ? (
           <TvLightChart
             symbol={symbol}
+            compact
+            showLevels={Boolean(config.showSessionNodes)}
             timeframe={timeframe}
             style={style}
             livePrice={livePrice}

@@ -71,6 +71,11 @@ type Props = {
   timeframe?: ChartTimeframe;
   style?: "candle" | "line";
   livePrice?: number;
+  /** Hide the chart's own toolbar + overlay — the workspace frame provides the
+      controls (symbol, timeframe, style, Studies), so the internal one is redundant. */
+  compact?: boolean;
+  /** Controlled session-node levels toggle (driven by the frame's Studies dropdown). */
+  showLevels?: boolean;
 };
 
 export function TvLightChart({
@@ -78,6 +83,8 @@ export function TvLightChart({
   timeframe: timeframeProp,
   style: styleProp,
   livePrice,
+  compact = false,
+  showLevels: showLevelsProp,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -102,7 +109,10 @@ export function TvLightChart({
   const isControlledTimeframe = timeframeProp != null;
   const isControlledStyle = styleProp != null;
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
-  const [showLevels, setShowLevels] = useState(false);
+  // Internal toggle for the non-compact (/trading) header; in the workspace the
+  // frame's Studies dropdown drives it via the `showLevels` prop (controlled).
+  const [internalShowLevels, setInternalShowLevels] = useState(false);
+  const showLevels = showLevelsProp ?? internalShowLevels;
   const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([]);
   const [legend, setLegend] = useState<string>("");
   const [session, setSession] = useState(sessionLabel());
@@ -383,6 +393,7 @@ export function TvLightChart({
 
   return (
     <div className="relative flex h-full w-full min-h-0 flex-col">
+      {!compact && (
       <div className="flex flex-wrap items-center gap-1 border-b border-border/80 px-2 py-1.5">
         {CHART_TIMEFRAMES.map((tf) => (
           <Button
@@ -428,20 +439,22 @@ export function TvLightChart({
           size="sm"
           variant={showLevels ? "secondary" : "ghost"}
           className="h-7 px-2 text-xs"
-          onClick={() => setShowLevels((on) => !on)}
+          onClick={() => setInternalShowLevels((on) => !on)}
         >
           Session Nodes
         </Button>
         <span className="ml-auto text-[11px] text-muted-foreground">
-          {session} · ET · IEX
+          {session} · ET · Schwab
         </span>
       </div>
+      )}
 
       <div className="relative min-h-0 flex-1">
         {loading && (
           <Skeleton className="absolute inset-0 z-10 rounded-none" />
         )}
         <div ref={containerRef} className="absolute inset-0" />
+        {!compact && (
         <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 space-y-0.5">
           <p className="text-xs font-medium text-foreground/90">{symbol}</p>
           {legend ? (
@@ -455,6 +468,7 @@ export function TvLightChart({
             </p>
           )}
         </div>
+        )}
       </div>
     </div>
   );

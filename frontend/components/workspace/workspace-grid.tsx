@@ -12,7 +12,7 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -157,6 +157,35 @@ function ChartHeaderControls({
               {s.label}
             </DropdownMenuItem>
           ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          type="button"
+          {...dragSafeControlProps}
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          Studies
+          <ChevronDown className="size-2.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+        >
+          <DropdownMenuItem
+            onClick={() =>
+              onConfigChange({ showSessionNodes: !config.showSessionNodes })
+            }
+            className={cn(
+              "flex items-center justify-between gap-3 px-2 py-1.5",
+              config.showSessionNodes
+                ? "text-foreground"
+                : "text-[var(--fg-dim)]",
+            )}
+          >
+            Session Nodes
+            {config.showSessionNodes ? <Check className="size-3" /> : null}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </>
