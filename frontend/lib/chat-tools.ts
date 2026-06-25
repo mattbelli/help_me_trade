@@ -148,6 +148,38 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       needsApproval: true,
       execute: async (input) => executePythonTool("propose_rule", input),
     }),
+    create_price_alert: tool({
+      description:
+        "Create a price alert (a notification, not an order). direction: above|below|cross (default cross); repeat=true for a persistent alert that re-arms after each crossing. To set an alert at a named level (VAL/POC/VAH/PDH/PDL), first call get_context(symbol) to read that level's price.",
+      inputSchema: z.object({
+        symbol: z.string(),
+        price: z.number().positive(),
+        direction: z.enum(["above", "below", "cross"]).optional(),
+        note: z.string().optional(),
+        repeat: z.boolean().optional(),
+      }),
+      execute: async (input) => executePythonTool("create_price_alert", input),
+    }),
+    update_price_alert: tool({
+      description:
+        "Edit an existing price alert (id, optional price, direction, note, repeat). Get the id via query('price_alerts') or get_context.",
+      inputSchema: z.object({
+        id: z.number().int(),
+        price: z.number().positive().optional(),
+        direction: z.enum(["above", "below", "cross"]).optional(),
+        note: z.string().optional(),
+        repeat: z.boolean().optional(),
+      }),
+      execute: async (input) => executePythonTool("update_price_alert", input),
+    }),
+    delete_price_alert: tool({
+      description:
+        "Remove a price alert by id. Get the id via query('price_alerts') or get_context.",
+      inputSchema: z.object({
+        id: z.number().int(),
+      }),
+      execute: async (input) => executePythonTool("delete_price_alert", input),
+    }),
   };
 
   if (!enabled) return all;

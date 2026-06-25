@@ -147,6 +147,30 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Call on alert/signal/watch/notify requests; never narrate a fake call."
         ),
     },
+    "create_price_alert": {
+        "title": "Create price alert",
+        "description": (
+            "Create a price alert (a notification, not an order). direction: "
+            "above|below|cross (default cross); repeat=true for a persistent alert "
+            "that re-arms after each crossing. To set an alert at a named level "
+            "(VAL/POC/VAH/PDH/PDL), first call get_context(symbol) to read that "
+            "level's price."
+        ),
+    },
+    "update_price_alert": {
+        "title": "Update price alert",
+        "description": (
+            "Edit an existing price alert (id, optional price, direction, note, "
+            "repeat). Get the id via query('price_alerts') or get_context."
+        ),
+    },
+    "delete_price_alert": {
+        "title": "Delete price alert",
+        "description": (
+            "Remove a price alert by id. Get the id via query('price_alerts') or "
+            "get_context."
+        ),
+    },
 }
 
 _TOOL_PLANNER_PROMPT = """You are a tool planner for a trading copilot.
@@ -166,6 +190,9 @@ Available tools:
 - web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
 - get_option_quote — arguments: {"occ_symbol": string|null, "underlying": string|null, "expiration": string|null, "strike": number|null, "right": "C"|"P"|null}
 - propose_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
+- create_price_alert — arguments: {"symbol": string, "price": number, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
+- update_price_alert — arguments: {"id": number, "price": number|null, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
+- delete_price_alert — arguments: {"id": number}
 
 Rules:
 - Return {"tools": []} when no tool is needed (greetings, thanks, small talk).
@@ -178,6 +205,8 @@ Rules:
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
 - Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
 - When the user describes an alert/signal/rule, call propose_rule with a validated spec.
+- When the user asks to set/create an alert, call create_price_alert directly (it's safe — a notification). If they reference a level (VAL/POC/VAH/PDH/PDL/200-DMA), call get_context first to get the price.
+- Use delete_price_alert / update_price_alert to remove or change an existing alert (get its id via query('price_alerts') or get_context).
 """
 
 
@@ -757,6 +786,84 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             "summary": _summarize_rule_spec(spec),
             "message": f"Armed alert: {rule['name']}",
         }
+
+    if name == "create_price_alert":
+        from db.chart_features import create_price_alert as db_create_price_alert
+
+        symbol_raw = args.get("symbol")
+        if not symbol_raw:
+            return {"error": "symbol is required"}
+        price_raw = args.get("price")
+        if price_raw is None:
+            return {"error": "price is required"}
+        try:
+            price_f = float(price_raw)
+        except (TypeError, ValueError):
+            return {"error": "price must be a number"}
+        if price_f <= 0:
+            return {"error": "price must be a positive number"}
+        direction = str(args.get("direction", "cross")).strip().lower()
+        if direction not in ("above", "below", "cross"):
+            return {"error": "direction must be one of: above, below, cross"}
+        note = str(args.get("note", ""))
+        repeat = bool(args.get("repeat", False))
+        return db_create_price_alert(
+            symbol=str(symbol_raw),
+            price=price_f,
+            direction=direction,
+            note=note,
+            repeat=repeat,
+        )
+
+    if name == "update_price_alert":
+        from db.chart_features import update_price_alert as db_update_price_alert
+
+        alert_id_raw = args.get("id")
+        if alert_id_raw is None:
+            return {"error": "id is required"}
+        try:
+            alert_id = int(alert_id_raw)
+        except (TypeError, ValueError):
+            return {"error": "id must be an integer"}
+        price_f: float | None = None
+        if args.get("price") is not None:
+            try:
+                price_f = float(args["price"])
+            except (TypeError, ValueError):
+                return {"error": "price must be a number"}
+            if price_f <= 0:
+                return {"error": "price must be a positive number"}
+        direction: str | None = None
+        if args.get("direction") is not None:
+            direction = str(args["direction"]).strip().lower()
+            if direction not in ("above", "below", "cross"):
+                return {"error": "direction must be one of: above, below, cross"}
+        note = None if args.get("note") is None else str(args["note"])
+        repeat = None if args.get("repeat") is None else bool(args["repeat"])
+        updated = db_update_price_alert(
+            alert_id,
+            price=price_f,
+            direction=direction,
+            note=note,
+            repeat=repeat,
+        )
+        if updated is None:
+            return {"error": "not found"}
+        return updated
+
+    if name == "delete_price_alert":
+        from db.chart_features import delete_price_alert as db_delete_price_alert
+
+        alert_id_raw = args.get("id")
+        if alert_id_raw is None:
+            return {"error": "id is required"}
+        try:
+            alert_id = int(alert_id_raw)
+        except (TypeError, ValueError):
+            return {"error": "id must be an integer"}
+        if not db_delete_price_alert(alert_id):
+            return {"error": "not found"}
+        return {"ok": True}
 
     return {"error": f"Unknown tool {name}"}
 

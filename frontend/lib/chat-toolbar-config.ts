@@ -65,6 +65,21 @@ export const CHAT_TOOL_OPTIONS = [
     label: "Propose alert",
     description: "Signal/alert rule approval card",
   },
+  {
+    id: "create_price_alert",
+    label: "Set alert",
+    description: "Create a price alert at a level",
+  },
+  {
+    id: "update_price_alert",
+    label: "Edit alert",
+    description: "Change an existing price alert",
+  },
+  {
+    id: "delete_price_alert",
+    label: "Delete alert",
+    description: "Remove a price alert",
+  },
 ] as const;
 
 export type ChatToolId = (typeof CHAT_TOOL_OPTIONS)[number]["id"];

@@ -39,6 +39,13 @@ def list_capabilities() -> dict[str, Any]:
     return {
         "context_scopes": {"symbol": list(_SYMBOL_FIELD_GROUPS)},
         "resources": list_resources(),
+        "write_actions": {
+            "create_price_alert": (
+                "Create a price alert (notification, not an order)"
+            ),
+            "update_price_alert": "Edit an existing price alert",
+            "delete_price_alert": "Remove a price alert",
+        },
         "notes": (
             "Use get_context for a single symbol snapshot; use query(resource, filters) "
             "for watchlists, strategies, price alerts, proposals, and reports. Prefer "
