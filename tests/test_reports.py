@@ -213,15 +213,12 @@ def test_api_generate_list_get(
 def test_morning_report_window_predicate() -> None:
     from api.main import _morning_report_window
 
-    inside = datetime(2026, 6, 25, 8, 10, tzinfo=_ET)
-    edge = datetime(2026, 6, 25, 8, 14, tzinfo=_ET)
-    outside = datetime(2026, 6, 25, 8, 15, tzinfo=_ET)
-    wrong_hour = datetime(2026, 6, 25, 9, 5, tzinfo=_ET)
-
-    assert _morning_report_window(inside, 8) is True
-    assert _morning_report_window(edge, 8) is True
-    assert _morning_report_window(outside, 8) is False
-    assert _morning_report_window(wrong_hour, 8) is False
+    # ~2-hour window from the scheduled hour (boot-timing robust); dedup ensures one send.
+    assert _morning_report_window(datetime(2026, 6, 25, 8, 0, tzinfo=_ET), 8) is True
+    assert _morning_report_window(datetime(2026, 6, 25, 8, 45, tzinfo=_ET), 8) is True
+    assert _morning_report_window(datetime(2026, 6, 25, 9, 59, tzinfo=_ET), 8) is True
+    assert _morning_report_window(datetime(2026, 6, 25, 7, 59, tzinfo=_ET), 8) is False
+    assert _morning_report_window(datetime(2026, 6, 25, 10, 0, tzinfo=_ET), 8) is False
 
 
 @pytest.mark.asyncio

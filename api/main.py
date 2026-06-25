@@ -800,8 +800,10 @@ async def _schwab_health_loop() -> None:
 
 
 def _morning_report_window(now_et: datetime, hour_et: int) -> bool:
-    """True during the scheduled hour's first 15 minutes (ET)."""
-    return now_et.hour == hour_et and now_et.minute < 15
+    """True across a ~2-hour morning window from the scheduled hour (ET). Wide enough
+    that the 15-min poll always lands inside it regardless of boot timing (a 14-min
+    slot could be missed entirely); the per-ET-day dedup still ensures one send."""
+    return hour_et <= now_et.hour < hour_et + 2
 
 
 def _morning_report_enabled() -> bool:
