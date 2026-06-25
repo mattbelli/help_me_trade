@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Activity,
   Bot,
+  FileText,
   FileUp,
   Search,
   Settings,
@@ -36,6 +37,10 @@ import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
 import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
 import {
+  DEFAULT_REPORTS,
+  SettingsReportsPanel,
+} from "@/components/settings/settings-reports-panel";
+import {
   DEFAULT_TRADING,
   TradingRiskSettings,
 } from "@/components/settings/trading-risk-settings";
@@ -50,6 +55,7 @@ type SettingsSection =
   | "brokers"
   | "execution"
   | "strategies"
+  | "reports"
   | "ai"
   | "research"
   | "import";
@@ -62,6 +68,7 @@ const SECTIONS: {
   { id: "brokers", label: "Brokers", icon: Wallet },
   { id: "execution", label: "Execution / Risk", icon: Shield },
   { id: "strategies", label: "Strategies", icon: Activity },
+  { id: "reports", label: "Reports", icon: FileText },
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
   { id: "import", label: "Import", icon: FileUp },
@@ -88,6 +95,7 @@ const EMPTY: AppSettings = {
   ai: DEFAULT_AI_SETTINGS,
   research: { searxng_url: "" },
   trading: DEFAULT_TRADING,
+  reports: DEFAULT_REPORTS,
 };
 
 export function SettingsDialog({ collapsed = false }: Props) {
@@ -115,6 +123,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
             searxng_url: data.research?.searxng_url ?? "",
           },
           trading: { ...DEFAULT_TRADING, ...data.trading },
+          reports: { ...DEFAULT_REPORTS, ...data.reports },
         }),
       )
       .catch((err) =>
@@ -140,6 +149,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
           searxng_url: saved.research?.searxng_url ?? "",
         },
         trading: { ...DEFAULT_TRADING, ...saved.trading },
+        reports: { ...DEFAULT_REPORTS, ...saved.reports },
       });
       setMessage("Settings saved. Polling will use the updated brokers.");
       setModelsRevision((n) => n + 1);
@@ -439,6 +449,11 @@ export function SettingsDialog({ collapsed = false }: Props) {
           />
         ) : section === "strategies" ? (
           <SettingsStrategiesPanel />
+        ) : section === "reports" ? (
+          <SettingsReportsPanel
+            value={draft.reports}
+            onChange={(reports) => setDraft((d) => ({ ...d, reports }))}
+          />
         ) : section === "ai" ? (
           <div className="space-y-4">
               <AiProviderSettings

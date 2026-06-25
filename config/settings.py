@@ -70,6 +70,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             }
         ],
     },
+    "reports": {
+        "morning_levels_enabled": True,
+        "hour_et": 8,
+    },
     "trading": {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
@@ -336,6 +340,19 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
 
     if "chart_layout" in patch and isinstance(patch["chart_layout"], list):
         current["chart_layout"] = patch["chart_layout"]
+
+    if "reports" in patch and isinstance(patch["reports"], dict):
+        if "reports" not in current or not isinstance(current.get("reports"), dict):
+            current["reports"] = copy.deepcopy(DEFAULT_SETTINGS["reports"])
+        reports_patch = patch["reports"]
+        if "morning_levels_enabled" in reports_patch:
+            current["reports"]["morning_levels_enabled"] = bool(
+                reports_patch["morning_levels_enabled"]
+            )
+        if "hour_et" in reports_patch:
+            current["reports"]["hour_et"] = max(
+                0, min(23, int(reports_patch["hour_et"]))
+            )
 
     if "trading" in patch and isinstance(patch["trading"], dict):
         if "trading" not in current or not isinstance(current.get("trading"), dict):
@@ -755,6 +772,30 @@ def trading_config() -> dict[str, Any]:
             cfg.get("allow_short_selling", defaults["allow_short_selling"])
         ),
     }
+
+
+def reports_config() -> dict[str, Any]:
+    """Effective scheduled-report settings (env overrides hour when set)."""
+    with _settings_lock:
+        settings = _settings_cache if _settings_cache is not None else _build_settings()
+        defaults = DEFAULT_SETTINGS["reports"]
+        cfg = settings.get("reports")
+        if not isinstance(cfg, dict):
+            cfg = {}
+        hour_raw = os.environ.get(
+            "MORNING_REPORT_HOUR_ET",
+            str(cfg.get("hour_et", defaults["hour_et"])),
+        )
+        try:
+            hour_et = max(0, min(23, int(hour_raw)))
+        except (TypeError, ValueError):
+            hour_et = int(defaults["hour_et"])
+        return {
+            "morning_levels_enabled": bool(
+                cfg.get("morning_levels_enabled", defaults["morning_levels_enabled"])
+            ),
+            "hour_et": hour_et,
+        }
 
 
 def short_selling_allowed() -> bool:

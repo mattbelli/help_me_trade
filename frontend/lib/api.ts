@@ -248,6 +248,11 @@ export type TradingSettings = {
   allow_short_selling: boolean;
 };
 
+export type ReportsSettings = {
+  morning_levels_enabled: boolean;
+  hour_et: number;
+};
+
 export type AppSettings = {
   primary_broker: "alpaca" | "schwab";
   brokers: {
@@ -271,6 +276,7 @@ export type AppSettings = {
     searxng_url: string;
   };
   trading?: TradingSettings;
+  reports?: ReportsSettings;
 };
 
 export async function fetchSettings(): Promise<AppSettings> {
@@ -600,6 +606,64 @@ export async function fetchSessionLevels(
     throw new Error(
       (body as { error?: string }).error ??
         `Session levels error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export type ReportRow = {
+  id: string;
+  kind: string;
+  symbol: string;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  generated_at: string;
+};
+
+export async function fetchReports(limit = 30): Promise<ReportRow[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await apiFetch(`${API_BASE}/api/reports?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Reports error ${res.status}`,
+    );
+  }
+  const data = (await res.json()) as { reports?: ReportRow[] };
+  return data.reports ?? [];
+}
+
+export async function fetchReport(reportId: string): Promise<ReportRow> {
+  const res = await apiFetch(`${API_BASE}/api/reports/${encodeURIComponent(reportId)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Report error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function generateReport(
+  kind: "morning_levels",
+  symbol = "SPY",
+  options?: { push?: boolean },
+): Promise<ReportRow> {
+  const params = options?.push ? "?push=true" : "";
+  const res = await apiFetch(`${API_BASE}/api/reports/generate${params}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, symbol }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Generate report error ${res.status}`,
     );
   }
   return res.json();

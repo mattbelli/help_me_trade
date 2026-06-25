@@ -53,6 +53,7 @@ from config.settings import (
     mask_settings,
     primary_broker,
     remove_watchlist_symbol,
+    reports_config,
     save_chart_layout,
     save_watchlist,
     set_active_watchlist,
@@ -85,6 +86,7 @@ from db.order_executions import (
     init_execution_tables,
 )
 from db.paper_orders import init_paper_order_tables
+from db.reports import init_reports_tables
 from db.session_node import init_session_node_tables
 from db.sqlite import (
     compute_and_save_snapshot_analytics,
@@ -135,6 +137,13 @@ EARNINGS_ALERT_INTERVAL_SECONDS = max(
 _EARNINGS_ALERTS_ENABLED = (
     os.environ.get("EARNINGS_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
 )
+MORNING_REPORT_INTERVAL_SECONDS = max(
+    60, int(os.environ.get("MORNING_REPORT_INTERVAL_SECONDS", "900"))
+)
+_MORNING_REPORT_ENV_ENABLED = os.environ.get(
+    "MORNING_REPORT_ENABLED", "1"
+).strip() not in ("0", "false", "no")
+MORNING_REPORT_SYMBOL = "SPY"
 _PROFILE_FRESH_S = 20 * 3600
 _PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
 _UNIVERSE_DIR = Path(__file__).resolve().parent.parent / "signals" / "universes"
@@ -776,6 +785,80 @@ async def _schwab_health_loop() -> None:
             logger.exception("Schwab health loop iteration failed")
 
 
+def _morning_report_window(now_et: datetime, hour_et: int) -> bool:
+    """True during the scheduled hour's first 15 minutes (ET)."""
+    return now_et.hour == hour_et and now_et.minute < 15
+
+
+def _morning_report_enabled() -> bool:
+    cfg = reports_config()
+    return _MORNING_REPORT_ENV_ENABLED and bool(cfg.get("morning_levels_enabled", True))
+
+
+async def _morning_levels_report_once() -> None:
+    """Generate and push the SPY morning levels report once per ET day."""
+    from db.reports import morning_levels_exists_for_day
+    from signals.push import send_alert_push
+    from signals.reports import generate_morning_levels_report
+
+    now_et = datetime.now(_ET)
+    hour_et = int(reports_config().get("hour_et", 8))
+    if not _morning_report_window(now_et, hour_et):
+        return
+
+    today = now_et.date()
+    symbol = MORNING_REPORT_SYMBOL
+    if morning_levels_exists_for_day(symbol, today):
+        return
+
+    try:
+        report = await generate_morning_levels_report(symbol, et_date=today)
+    except Exception:
+        logger.exception("Morning levels report: compute/save failed")
+        return
+    if report is None:
+        logger.info("Morning levels report: no session data for %s", symbol)
+        return
+
+    try:
+        await send_alert_push(
+            title=report["title"],
+            body=report["body"],
+            data={
+                "type": "report",
+                "report_id": report["id"],
+                "kind": "morning_levels",
+            },
+        )
+    except Exception:
+        logger.exception("Morning levels report: push failed for %s", report["id"])
+    else:
+        logger.info(
+            "Morning levels report sent: id=%s symbol=%s et_date=%s",
+            report["id"],
+            symbol,
+            today.isoformat(),
+        )
+
+
+async def _morning_levels_report_loop() -> None:
+    """Poll every ~15 min; push morning levels during the configured ET hour window.
+
+    Env gates:
+      MORNING_REPORT_ENABLED              default "1"  (set to "0" to disable)
+      MORNING_REPORT_INTERVAL_SECONDS     default 900
+      MORNING_REPORT_HOUR_ET              default 8 (settings hour_et also applies)
+    """
+    while True:
+        await asyncio.sleep(MORNING_REPORT_INTERVAL_SECONDS)
+        if not _morning_report_enabled():
+            continue
+        try:
+            await _morning_levels_report_once()
+        except Exception:
+            logger.exception("Morning levels report loop iteration failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not auth_enabled():
@@ -789,6 +872,7 @@ async def lifespan(app: FastAPI):
     init_ai_tables()
     init_session_node_tables()
     init_earnings_alert_tables()
+    init_reports_tables()
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
@@ -834,12 +918,14 @@ async def lifespan(app: FastAPI):
     rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
     earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
     schwab_health_task = asyncio.create_task(_schwab_health_loop())
+    morning_report_task = asyncio.create_task(_morning_levels_report_loop())
     yield
     earnings_task.cancel()
     volume_profile_task.cancel()
     rvol_alert_task.cancel()
     earnings_alert_task.cancel()
     schwab_health_task.cancel()
+    morning_report_task.cancel()
     sync_task.cancel()
     poll_task.cancel()
     scan_task.cancel()
@@ -856,6 +942,7 @@ async def lifespan(app: FastAPI):
         rvol_alert_task,
         earnings_alert_task,
         schwab_health_task,
+        morning_report_task,
     ):
         try:
             await task
@@ -1637,6 +1724,61 @@ async def api_session_node_levels(symbol: str = "SPY"):
     if payload is None:
         return {"symbol": sym, "session_date": None, "levels": []}
     return payload
+
+
+@app.get("/api/reports")
+def api_list_reports(limit: int = 30):
+    from db.reports import list_reports
+
+    cap = max(1, min(int(limit), 100))
+    return {"reports": list_reports(limit=cap)}
+
+
+@app.get("/api/reports/{report_id}")
+def api_get_report(report_id: str):
+    from db.reports import get_report
+
+    report = get_report(report_id.strip())
+    if report is None:
+        return JSONResponse({"error": "Report not found"}, status_code=404)
+    return report
+
+
+@app.post("/api/reports/generate")
+async def api_generate_report(body: dict = Body(...), push: bool = False):
+    from signals.push import send_alert_push
+    from signals.reports import generate_morning_levels_report
+
+    kind = str(body.get("kind", "")).strip()
+    if kind != "morning_levels":
+        return JSONResponse(
+            {"error": "Only kind 'morning_levels' is supported"},
+            status_code=400,
+        )
+    symbol = str(body.get("symbol", MORNING_REPORT_SYMBOL)).strip().upper()
+    if not symbol:
+        symbol = MORNING_REPORT_SYMBOL
+    try:
+        report = await generate_morning_levels_report(symbol)
+    except Exception as exc:
+        logger.exception("Manual report generate failed")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    if report is None:
+        return JSONResponse({"error": "No session levels available"}, status_code=404)
+    if push:
+        try:
+            await send_alert_push(
+                title=report["title"],
+                body=report["body"],
+                data={
+                    "type": "report",
+                    "report_id": report["id"],
+                    "kind": "morning_levels",
+                },
+            )
+        except Exception:
+            logger.exception("Manual report push failed for %s", report["id"])
+    return report
 
 
 @app.get("/api/bars")
