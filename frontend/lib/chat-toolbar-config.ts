@@ -16,6 +16,11 @@ export const CHAT_TOOL_OPTIONS = [
     description: "Upcoming and recent earnings for a symbol",
   },
   {
+    id: "get_context",
+    label: "Symbol context",
+    description: "Quote, RVOL, session-node levels, technicals, earnings, score",
+  },
+  {
     id: "search_memories",
     label: "Memories",
     description: "Search saved preferences and lessons",

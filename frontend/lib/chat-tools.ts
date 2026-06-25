@@ -29,6 +29,12 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       inputSchema: z.object({ symbol: z.string() }),
       execute: async (input) => executePythonTool("get_earnings_dates", input),
     }),
+    get_context: tool({
+      description:
+        "Read everything the app knows about a symbol — quote, RVOL, session-node levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), fundamentals, earnings, the calibrated decision score, and active alerts. Use this FIRST for any question about a symbol's data, levels, or signals — never web_search for our own data.",
+      inputSchema: z.object({ symbol: z.string() }),
+      execute: async (input) => executePythonTool("get_context", input),
+    }),
     search_memories: tool({
       description:
         "Search stored preferences, lessons, and research notes.",
