@@ -1302,7 +1302,10 @@ async def api_watchlist_market(symbols: str = ""):
             "eps": eq.get("eps"),
             "div_yield": eq.get("div_yield"),
             "market_cap": market_cap,
-            "last_earnings": eq.get("last_earnings_date"),
+            # Prefer the Finnhub calendar's report date (fresher; Schwab's
+            # lastEarningsDate lags weeks after a report) — fall back to Schwab.
+            "last_earnings": last_earnings_date(sym, today_iso)
+            or eq.get("last_earnings_date"),
             "next_earnings": _next_earnings,
         }
         quotes[sym]["rvol"] = _compute_rvol_field(sym, intraday_by_symbol.get(sym, []))

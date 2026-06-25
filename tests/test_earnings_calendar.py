@@ -98,9 +98,13 @@ def test_refresh_filters_to_universe_and_upserts(tmp_path: Path, monkeypatch) ->
         {"symbol": "ZZZZ", "date": "2026-02-01", "hour": ""},  # not in universe
     ]
     monkeypatch.setattr(earnings_refresh, "finnhub_is_configured", lambda: True)
-    monkeypatch.setattr(
-        earnings_refresh, "fetch_earnings_calendar", lambda *a, **k: fake
-    )
+
+    # The fetch is now chunked (≤30-day windows) to dodge Finnhub's row cap, so the
+    # mock must be window-aware — each event only appears in the chunk covering its date.
+    def _fake_fetch(from_date, to_date, **_k):
+        return [r for r in fake if from_date <= r["date"] <= to_date]
+
+    monkeypatch.setattr(earnings_refresh, "fetch_earnings_calendar", _fake_fetch)
 
     n = earnings_refresh.refresh_earnings_calendar(
         ["AAPL", "NVDA"], now=datetime(2026, 2, 1, tzinfo=UTC), db_path=db
