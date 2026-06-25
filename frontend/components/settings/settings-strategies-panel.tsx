@@ -30,6 +30,73 @@ import {
 // rather than an empty string. "" is the real unbound value sent to the API.
 const UNBOUND = "__unbound__";
 
+type StrategyDoc = {
+  trigger: string;
+  action: string;
+  exit: string;
+  status: { label: string; tone: "good" | "warn" | "danger"; note: string };
+};
+
+const STRATEGY_DOCS: Record<string, StrategyDoc> = {
+  dip_buy: {
+    trigger:
+      "A healthy stock (above its 200-day average) that has sold off ~5%+ over 3 days while the broad market is also weak (SPY ~1.5%+ down over 3 days). Long only.",
+    action: "Proposes buying the dip — you approve on your phone — sized to the notional.",
+    exit:
+      "Stop at −3%; at +3% it sells half and moves the stop to breakeven; trails the rest ~11%; force-exits after 20 trading days.",
+    status: {
+      label: "Validated",
+      tone: "good",
+      note: "Triple-validated, survivorship-free (~57% win rate) — the most battle-tested strategy here.",
+    },
+  },
+  dip_refined: {
+    trigger:
+      "Same as Dip-Buy, but only when the stock is at least 5% above its nearest support level — skips dips sitting right on support, where the drop is likelier to continue.",
+    action: "Proposes buying the dip (phone-approved), sized to the notional.",
+    exit: "Same as Dip-Buy: stop −3% / +3% sell-half→breakeven / ~11% trail / 20-day cap.",
+    status: {
+      label: "Forward-test",
+      tone: "warn",
+      note: "Sharper recent excess return than Dip-Buy, but not yet block-bootstrap validated.",
+    },
+  },
+  earnings_drift: {
+    trigger:
+      "A stock that gapped up 5%+ on its last earnings, entered ~10 trading days before its NEXT earnings (when earnings are 40–90 trading days apart). Long only.",
+    action: "Proposes buying to ride the pre-earnings drift (phone-approved).",
+    exit:
+      "Sells ~1 trading day BEFORE the next earnings — captures the run-up, exits before the event. Max hold ~15 trading days.",
+    status: {
+      label: "Forward-test",
+      tone: "warn",
+      note: "Strong backtest Sharpe; combined with Dip it isn't overfit (PBO 0.18) — paper-forward is the real gate. Long-only (the short mirror had no edge).",
+    },
+  },
+  session_node_spy: {
+    trigger:
+      "Intraday on SPY: when price tags a prior-session level (Value-Area High/Low or prior-day High/Low) it signals a snap back toward the prior session's Point of Control (POC). Tagging support (below POC) → long; tagging resistance (above POC) → short. Re-arms after price moves 2 points away; max 2 per level, 6 per day.",
+    action: "Proposes a reversion trade targeting the POC (phone-approved).",
+    exit: "Phone-approved exit (propose mode).",
+    status: {
+      label: "Exploratory",
+      tone: "danger",
+      note: "No validated edge yet — runs propose-only so you approve every action. Don't treat its signals as proven.",
+    },
+  },
+};
+
+function statusToneClasses(tone: StrategyDoc["status"]["tone"]): string {
+  switch (tone) {
+    case "good":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+    case "warn":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+    case "danger":
+      return "border-destructive/40 bg-destructive/10 text-destructive";
+  }
+}
+
 type StrategyDraft = {
   enabled: boolean;
   account_id: string;
@@ -149,6 +216,7 @@ function StrategyCard({
   }
 
   const { draft, dirty, saving, error } = state;
+  const doc = STRATEGY_DOCS[strategy.id];
   const isSessionNode = strategy.id === "session_node_spy";
   const unboundEnabled = draft.enabled && !draft.account_id;
   const boundAccountLabel = draft.account_id
@@ -188,6 +256,42 @@ function StrategyCard({
       </CardHeader>
       {expanded && (
         <CardContent className="space-y-4 pb-4">
+          {doc && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium">What this does</p>
+              <div className="space-y-1.5">
+                <p className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-muted-foreground">
+                    Trigger ·{" "}
+                  </span>
+                  {doc.trigger}
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-muted-foreground">
+                    Action ·{" "}
+                  </span>
+                  {doc.action}
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-muted-foreground">
+                    Exit ·{" "}
+                  </span>
+                  {doc.exit}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+                <span
+                  className={`inline-flex h-5 shrink-0 items-center rounded-full border px-1.5 text-[10px] font-medium ${statusToneClasses(doc.status.tone)}`}
+                >
+                  {doc.status.label}
+                </span>
+                <span className="text-[11px] leading-relaxed text-muted-foreground">
+                  {doc.status.note}
+                </span>
+              </div>
+            </div>
+          )}
+
           {unboundEnabled && !isSessionNode && (
             <p className="text-xs text-amber-500">
               Enable has no effect until an account is bound — the scan skips
