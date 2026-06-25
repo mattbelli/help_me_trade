@@ -65,7 +65,9 @@ def test_list_capabilities_manifest() -> None:
     assert "symbol" in caps["context_scopes"]
     assert "quote" in caps["context_scopes"]["symbol"]
     assert "active_alerts" in caps["context_scopes"]["symbol"]
-    assert "later phases" in caps["notes"].lower()
+    assert "watchlists" in caps["resources"]
+    assert "strategies" in caps["resources"]
+    assert "query" in caps["notes"].lower()
 
 
 @pytest.mark.asyncio

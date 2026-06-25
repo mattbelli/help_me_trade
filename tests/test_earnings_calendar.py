@@ -97,6 +97,7 @@ def test_refresh_filters_to_universe_and_upserts(tmp_path: Path, monkeypatch) ->
         {"symbol": "NVDA", "date": "2026-02-25", "hour": "amc"},
         {"symbol": "ZZZZ", "date": "2026-02-01", "hour": ""},  # not in universe
     ]
+    monkeypatch.setattr(earnings_refresh, "alphavantage_is_configured", lambda: False)
     monkeypatch.setattr(earnings_refresh, "finnhub_is_configured", lambda: True)
 
     # The fetch is now chunked (≤30-day windows) to dodge Finnhub's row cap, so the
@@ -119,5 +120,6 @@ def test_refresh_noop_when_unconfigured(tmp_path: Path, monkeypatch) -> None:
     from signals import earnings_refresh
 
     db = tmp_path / "ec.db"
+    monkeypatch.setattr(earnings_refresh, "alphavantage_is_configured", lambda: False)
     monkeypatch.setattr(earnings_refresh, "finnhub_is_configured", lambda: False)
     assert earnings_refresh.refresh_earnings_calendar(["AAPL"], db_path=db) == 0

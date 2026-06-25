@@ -33,12 +33,15 @@ _SYMBOL_FIELD_GROUPS = (
 
 
 def list_capabilities() -> dict[str, Any]:
-    """Self-describing manifest of what the agent can read in phase 1."""
+    """Self-describing manifest of what the agent can read."""
+    from ai.perception.resources import list_resources
+
     return {
         "context_scopes": {"symbol": list(_SYMBOL_FIELD_GROUPS)},
+        "resources": list_resources(),
         "notes": (
-            "Phase 1: symbol context only. Generic resource query (query) and curated "
-            "write tools (price alerts, orders) arrive in later phases. Prefer "
+            "Use get_context for a single symbol snapshot; use query(resource, filters) "
+            "for watchlists, strategies, price alerts, proposals, and reports. Prefer "
             "get_context over web_search for prices, RVOL, session-node levels, "
             "technicals, earnings, decision scores, and active alerts."
         ),

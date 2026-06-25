@@ -35,6 +35,15 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       inputSchema: z.object({ symbol: z.string() }),
       execute: async (input) => executePythonTool("get_context", input),
     }),
+    query: tool({
+      description:
+        "List app data across resources: watchlists, strategies, price_alerts, proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score use get_context instead.",
+      inputSchema: z.object({
+        resource: z.string(),
+        filters: z.record(z.string(), z.any()).optional(),
+      }),
+      execute: async (input) => executePythonTool("query", input),
+    }),
     search_memories: tool({
       description:
         "Search stored preferences, lessons, and research notes.",

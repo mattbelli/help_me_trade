@@ -382,3 +382,28 @@ async def test_list_capabilities_tool() -> None:
     result = await execute_tool("list_capabilities", {})
     assert "context_scopes" in result
     assert "symbol" in result["context_scopes"]
+    assert "resources" in result
+    assert "strategies" in result["resources"]
+
+
+@pytest.mark.asyncio
+async def test_query_tool_requires_resource() -> None:
+    result = await execute_tool("query", {})
+    assert result["error"] == "resource is required"
+
+
+@pytest.mark.asyncio
+async def test_query_tool_delegates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "query_tool.db"
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
+    from db.strategies import init_strategy_tables, seed_default_strategies
+
+    init_strategy_tables(db)
+    seed_default_strategies(db_path=db)
+
+    result = await execute_tool("query", {"resource": "strategies"})
+    assert result["resource"] == "strategies"
+    assert result["count"] >= 1

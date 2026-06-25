@@ -21,6 +21,11 @@ export const CHAT_TOOL_OPTIONS = [
     description: "Quote, RVOL, session-node levels, technicals, earnings, score",
   },
   {
+    id: "query",
+    label: "App data",
+    description: "List watchlists, strategies, alerts, proposals, reports",
+  },
+  {
     id: "search_memories",
     label: "Memories",
     description: "Search saved preferences and lessons",

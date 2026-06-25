@@ -74,6 +74,14 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "whether the app has some data."
         ),
     },
+    "query": {
+        "title": "App data query",
+        "description": (
+            "List app data across resources: watchlists, strategies, price_alerts, "
+            "proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's "
+            "quote/levels/score use get_context instead."
+        ),
+    },
     "search_memories": {
         "title": "Search memories",
         "description": "Search stored preferences, lessons, and research notes.",
@@ -149,6 +157,7 @@ Available tools:
 - get_agent_status — arguments: {}
 - get_earnings_dates — arguments: {"symbol": string}
 - get_context — arguments: {"symbol": string}
+- query — arguments: {"resource": string, "filters": object|null}
 - list_capabilities — arguments: {}
 - search_memories — arguments: {"query": string, "limit": number}
 - start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"}
@@ -163,6 +172,7 @@ Rules:
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
 - Only call start_research when the user explicitly asks for a deep research report or written report.
 - Use get_context FIRST for symbol prices, RVOL, session-node levels, technicals, fundamentals, earnings, decision scores, or active alerts — never web_search for our own app data.
+- Use query for watchlists, strategies, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
@@ -417,6 +427,20 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         from ai.perception.context import list_capabilities
 
         return list_capabilities()
+
+    if name == "query":
+        from ai.perception.resources import query as perception_query
+
+        resource = args.get("resource")
+        if not resource:
+            return {"error": "resource is required"}
+        filters = args.get("filters")
+        resolved_filters = dict(filters) if isinstance(filters, dict) else None
+        return await perception_query(
+            str(resource),
+            resolved_filters,
+            db_path=DEFAULT_DB_PATH,
+        )
 
     if name == "search_memories":
         query = str(args.get("query", "")).strip()
