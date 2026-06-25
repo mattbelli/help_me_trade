@@ -68,6 +68,15 @@ def api_update_strategy(
                 content={"detail": "account_id must be an execution-capable account"},
             )
 
+    # Session-node is propose-only by design (exits are phone prompts, never auto-sold).
+    # The UI hides the auto option; block it server-side too so no direct API call can
+    # route this strategy's exits through the execution chokepoint.
+    if strategy_id == "session_node_spy" and body.get("exit_mode") == "auto":
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "session_node_spy is propose-only"},
+        )
+
     try:
         updated = update_strategy(
             strategy_id,

@@ -17,13 +17,13 @@ from config.settings import (
     short_selling_allowed,
     trading_config,
 )
-from db.accounts import default_execution_account
-from db.ai_tables import get_rule
+from db.accounts import default_execution_account, get_account
 from db.base import DEFAULT_DB_PATH
 from db.managed_positions import list_open_positions
 from db.paper_orders import list_pending_proposals
 from db.session_node import claim, forget, get_payload, mark
 from db.sqlite import get_latest_snapshot
+from db.strategies import get_strategy
 from research.bars import RESEARCH_DATA_DIR
 from research.intraday_bars import IntradayBar
 from research.intraday_profile import segment_rth_sessions, to_ny
@@ -354,8 +354,8 @@ async def run_session_node_scan(
     """Propose-only session-node scan. Never submits orders — phone approval only."""
     acted: list[dict[str, Any]] = []
     try:
-        rule = get_rule(RULE_ID, db_path=db_path)
-        if rule is None or not rule.get("enabled"):
+        strat = get_strategy(RULE_ID, db_path=db_path)
+        if strat is None or not strat.get("enabled"):
             return []
 
         if not is_market_open():
@@ -367,7 +367,11 @@ async def run_session_node_scan(
         if is_kill_switch_active():
             return []
 
-        account = default_execution_account(db_path=db_path)
+        strat_account_id = strat.get("account_id")
+        if strat_account_id:
+            account = get_account(str(strat_account_id), db_path=db_path)
+        else:
+            account = default_execution_account(db_path=db_path)
         if account is None or not account.get("execution_capable"):
             return []
         account_id = str(account["id"])
@@ -380,8 +384,7 @@ async def run_session_node_scan(
         if any(str(p.get("symbol", "")).upper() == SYMBOL for p in pending):
             return []
 
-        action = rule.get("action") or {}
-        notional_raw = action.get("notional_usd", SESSION_NODE_NOTIONAL_USD)
+        notional_raw = strat.get("notional_usd", SESSION_NODE_NOTIONAL_USD)
         try:
             notional_usd = float(notional_raw)
         except (TypeError, ValueError):

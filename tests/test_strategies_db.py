@@ -71,14 +71,37 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
 
     seed_default_strategies(db_path=db)
     first = list_strategies(db_path=db)
-    assert {s["id"] for s in first} == {"dip_buy", "dip_refined", "earnings_drift"}
+    assert {s["id"] for s in first} == {
+        "dip_buy",
+        "dip_refined",
+        "earnings_drift",
+        "session_node_spy",
+    }
 
     seed_default_strategies(db_path=db)
     assert {s["id"] for s in list_strategies(db_path=db)} == {
         "dip_buy",
         "dip_refined",
         "earnings_drift",
+        "session_node_spy",
     }
+
+
+def test_seed_session_node_spy_defaults(tmp_path: Path, monkeypatch) -> None:
+    db = _migrated_db(tmp_path)
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    seed_default_strategies(db_path=db)
+    row = get_strategy("session_node_spy", db_path=db)
+    assert row is not None
+    assert row["id"] == "session_node_spy"
+    assert row["enabled"] is False
+    assert row["account_id"] is None
+    assert row["notional_usd"] == 500.0
+    assert row["exit_mode"] == "propose"
+    assert row["params"] == {"symbol": "SPY"}
 
 
 def test_seed_earnings_drift_defaults(tmp_path: Path, monkeypatch) -> None:

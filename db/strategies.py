@@ -321,7 +321,13 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
     need_dip_buy = get_strategy("dip_buy", db_path=db_path) is None
     need_dip_refined = get_strategy("dip_refined", db_path=db_path) is None
     need_earnings = get_strategy("earnings_drift", db_path=db_path) is None
-    if not need_dip_buy and not need_dip_refined and not need_earnings:
+    need_session_node = get_strategy("session_node_spy", db_path=db_path) is None
+    if (
+        not need_dip_buy
+        and not need_dip_refined
+        and not need_earnings
+        and not need_session_node
+    ):
         return
 
     seed_account_id = _resolve_seed_account_id(db_path=db_path) if need_dip_buy else None
@@ -367,6 +373,22 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 params=_EARNINGS_DRIFT_DEFAULT_PARAMS,
                 now=now,
                 exit_mode="propose",
+            )
+
+        if need_session_node:
+            # SPY-only propose-only session-node reversion — seeded DISABLED; user arms via
+            # Settings → Strategies. Falls back to default execution account when unbound.
+            _insert_strategy(
+                conn,
+                strategy_id="session_node_spy",
+                name="Session-Node Reversion (SPY)",
+                enabled=False,
+                account_id=None,
+                notional=500.0,
+                params={"symbol": "SPY"},
+                now=now,
+                exit_mode="propose",
+                universe=None,
             )
 
         conn.commit()

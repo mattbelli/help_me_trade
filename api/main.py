@@ -65,7 +65,7 @@ from db.accounts import (
     list_accounts,
     reconcile_account_external_id,
 )
-from db.ai_tables import create_rule, get_rule, init_ai_tables
+from db.ai_tables import delete_rule, init_ai_tables
 from db.chart_features import (
     create_price_alert,
     delete_price_alert,
@@ -789,19 +789,6 @@ async def lifespan(app: FastAPI):
     init_ai_tables()
     init_session_node_tables()
     init_earnings_alert_tables()
-    if get_rule("session_node_spy") is None:
-        create_rule(
-            rule_id="session_node_spy",
-            name="Session-Node Reversion (SPY)",
-            conditions={"type": "session_node", "symbol": "SPY"},
-            action={
-                "type": "trade",
-                "symbol": "SPY",
-                "side": "buy",
-                "notional_usd": 500,
-                "order_type": "market",
-            },
-        )
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
@@ -811,6 +798,10 @@ async def lifespan(app: FastAPI):
     migrate_multi_account()
     init_strategy_tables()
     seed_default_strategies()
+    try:
+        delete_rule("session_node_spy")
+    except Exception:
+        logger.exception("Failed to remove migrated session_node_spy rule")
     await market_hub.start()
     for account in list_accounts(enabled_only=True):
         if str(account["broker"]).strip().lower() != "alpaca":

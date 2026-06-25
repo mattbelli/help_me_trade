@@ -9,9 +9,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from brokers.alpaca import StockBar
-from db.ai_tables import create_rule, update_rule
+from db.ai_tables import create_rule, get_rule, update_rule
 from db.managed_positions import init_managed_position_tables, record_open_position
 from db.session_node import init_session_node_tables
+from db.strategies import init_strategy_tables, seed_default_strategies, update_strategy
 from research.intraday_bars import IntradayBar
 from signals.session_node_strategy import RULE_ID, run_session_node_scan
 from trading.proposals import create_phone_proposal
@@ -139,23 +140,9 @@ def _init_db(tmp_path: Path) -> Path:
     migrate_multi_account(db)
     init_paper_order_tables(db)
     init_session_node_tables(db)
-    from db.ai_tables import init_ai_tables
-
-    init_ai_tables(db)
-    create_rule(
-        rule_id=RULE_ID,
-        name="Session-Node Reversion (SPY)",
-        conditions={"type": "session_node", "symbol": "SPY"},
-        action={
-            "type": "trade",
-            "symbol": "SPY",
-            "side": "buy",
-            "notional_usd": 500,
-            "order_type": "market",
-        },
-        db_path=db,
-    )
     init_managed_position_tables(db)
+    init_strategy_tables(db)
+    seed_default_strategies(db_path=db)
     return db
 
 
@@ -165,7 +152,8 @@ def _patch_scan_env(
     *,
     db: Path,
     spy_bars: list[StockBar],
-    rule_enabled: bool = True,
+    strategy_enabled: bool = True,
+    notional_usd: float | None = None,
 ) -> AsyncMock:
     from config import settings as settings_mod
     from db import base as db_base
@@ -175,10 +163,12 @@ def _patch_scan_env(
     settings_mod.clear_settings_cache()
     monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
 
-    if rule_enabled:
-        update_rule(RULE_ID, enabled=True, db_path=db)
+    if strategy_enabled:
+        update_strategy(RULE_ID, enabled=True, db_path=db)
     else:
-        update_rule(RULE_ID, enabled=False, db_path=db)
+        update_strategy(RULE_ID, enabled=False, db_path=db)
+    if notional_usd is not None:
+        update_strategy(RULE_ID, notional_usd=notional_usd, db_path=db)
 
     monkeypatch.setattr("signals.session_node_strategy.is_market_open", lambda: True)
     monkeypatch.setattr(
@@ -226,19 +216,30 @@ def _patch_scan_env(
 
 
 @pytest.mark.asyncio
-async def test_disabled_rule_proposes_nothing(monkeypatch, tmp_path: Path) -> None:
+async def test_disabled_strategy_proposes_nothing(monkeypatch, tmp_path: Path) -> None:
     db = _init_db(tmp_path)
     prior = _reference_session(DAY1)
     nodes = _nodes_from_prior(prior)
     today = _long_touch_today(nodes.val)
     spy_bars = _intraday_to_stockbars(prior + today)
     propose_mock = _patch_scan_env(
-        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, rule_enabled=False
+        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, strategy_enabled=False
     )
 
     result = await run_session_node_scan(db_path=db)
     assert result == []
     propose_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_seeded_strategy_disabled_by_default(tmp_path: Path) -> None:
+    db = _init_db(tmp_path)
+    from db.strategies import get_strategy
+
+    row = get_strategy(RULE_ID, db_path=db)
+    assert row is not None
+    assert row["id"] == RULE_ID
+    assert row["enabled"] is False
 
 
 @pytest.mark.asyncio
@@ -251,7 +252,7 @@ async def test_enabled_long_trigger_proposes_once(monkeypatch, tmp_path: Path) -
     today = _long_touch_today(nodes.val)
     spy_bars = _intraday_to_stockbars(prior + today)
     propose_mock = _patch_scan_env(
-        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, rule_enabled=True
+        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, strategy_enabled=True
     )
     trigger = NodeTrigger(
         ts=today[0]["t"],
@@ -287,7 +288,7 @@ async def test_short_trigger_skipped_not_proposed(monkeypatch, tmp_path: Path) -
     today = _short_touch_today(nodes.vah)
     spy_bars = _intraday_to_stockbars(prior + today)
     propose_mock = _patch_scan_env(
-        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, rule_enabled=True
+        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, strategy_enabled=True
     )
 
     result = await run_session_node_scan(db_path=db)
@@ -349,7 +350,7 @@ async def test_exit_prompt_dedup(monkeypatch, tmp_path: Path) -> None:
     prior = _reference_session(DAY1)
     poc_bar = _rth_bar(DAY2, 10, 0, price=100.0)
     spy_bars = _intraday_to_stockbars(prior + [poc_bar])
-    _patch_scan_env(monkeypatch, tmp_path, db=db, spy_bars=spy_bars, rule_enabled=True)
+    _patch_scan_env(monkeypatch, tmp_path, db=db, spy_bars=spy_bars, strategy_enabled=True)
 
     from db.accounts import default_execution_account
 
@@ -391,3 +392,130 @@ async def test_exit_prompt_dedup(monkeypatch, tmp_path: Path) -> None:
         if c.kwargs.get("data", {}).get("kind") == "target_t1"
     ]
     assert len(target_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_notional_from_strategy_row(monkeypatch, tmp_path: Path) -> None:
+    from research.session_node_signal import NodeTrigger
+
+    db = _init_db(tmp_path)
+    prior = _reference_session(DAY1)
+    nodes = _nodes_from_prior(prior)
+    today = _long_touch_today(nodes.val)
+    spy_bars = _intraday_to_stockbars(prior + today)
+    propose_mock = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        db=db,
+        spy_bars=spy_bars,
+        strategy_enabled=True,
+        notional_usd=1200.0,
+    )
+    trigger = NodeTrigger(
+        ts=today[0]["t"],
+        node_name="VAL",
+        node_price=nodes.val,
+        direction="long",
+        target_price=nodes.poc,
+        touch_price=nodes.val,
+        context="test long",
+    )
+    monkeypatch.setattr(
+        "signals.session_node_strategy.detect_node_triggers",
+        lambda _bars, _nodes, **kwargs: [trigger],
+    )
+
+    await run_session_node_scan(db_path=db)
+
+    propose_mock.assert_awaited_once()
+    args, _kwargs = propose_mock.await_args
+    # price mocked to 500 → floor(1200/500) = 2 shares
+    assert args[0]["qty"] == 2
+
+
+@pytest.mark.asyncio
+async def test_stale_rule_enabled_has_no_effect(monkeypatch, tmp_path: Path) -> None:
+    from db.ai_tables import init_ai_tables
+
+    db = _init_db(tmp_path)
+    init_ai_tables(db)
+    create_rule(
+        rule_id=RULE_ID,
+        name="Session-Node Reversion (SPY)",
+        conditions={"type": "session_node", "symbol": "SPY"},
+        action={
+            "type": "trade",
+            "symbol": "SPY",
+            "side": "buy",
+            "notional_usd": 500,
+            "order_type": "market",
+        },
+        db_path=db,
+    )
+    update_rule(RULE_ID, enabled=True, db_path=db)
+    update_strategy(RULE_ID, enabled=False, db_path=db)
+
+    prior = _reference_session(DAY1)
+    nodes = _nodes_from_prior(prior)
+    today = _long_touch_today(nodes.val)
+    spy_bars = _intraday_to_stockbars(prior + today)
+    propose_mock = _patch_scan_env(
+        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, strategy_enabled=False
+    )
+
+    result = await run_session_node_scan(db_path=db)
+    assert result == []
+    propose_mock.assert_not_called()
+
+    rule = get_rule(RULE_ID, db_path=db)
+    assert rule is not None
+    assert rule.get("enabled") is True
+
+
+@pytest.mark.asyncio
+async def test_strategy_enabled_proposes_despite_disabled_rule(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from db.ai_tables import init_ai_tables
+    from research.session_node_signal import NodeTrigger
+
+    db = _init_db(tmp_path)
+    init_ai_tables(db)
+    create_rule(
+        rule_id=RULE_ID,
+        name="Session-Node Reversion (SPY)",
+        conditions={"type": "session_node", "symbol": "SPY"},
+        action={
+            "type": "trade",
+            "symbol": "SPY",
+            "side": "buy",
+            "notional_usd": 500,
+            "order_type": "market",
+        },
+        db_path=db,
+    )
+
+    prior = _reference_session(DAY1)
+    nodes = _nodes_from_prior(prior)
+    today = _long_touch_today(nodes.val)
+    spy_bars = _intraday_to_stockbars(prior + today)
+    propose_mock = _patch_scan_env(
+        monkeypatch, tmp_path, db=db, spy_bars=spy_bars, strategy_enabled=True
+    )
+    trigger = NodeTrigger(
+        ts=today[0]["t"],
+        node_name="VAL",
+        node_price=nodes.val,
+        direction="long",
+        target_price=nodes.poc,
+        touch_price=nodes.val,
+        context="test long",
+    )
+    monkeypatch.setattr(
+        "signals.session_node_strategy.detect_node_triggers",
+        lambda _bars, _nodes, **kwargs: [trigger],
+    )
+
+    result = await run_session_node_scan(db_path=db)
+    assert len([x for x in result if x.get("kind") == "propose"]) == 1
+    propose_mock.assert_awaited_once()

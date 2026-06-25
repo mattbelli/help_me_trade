@@ -149,10 +149,12 @@ function StrategyCard({
   }
 
   const { draft, dirty, saving, error } = state;
+  const isSessionNode = strategy.id === "session_node_spy";
   const unboundEnabled = draft.enabled && !draft.account_id;
   const boundAccountLabel = draft.account_id
     ? (accounts.find((a) => a.id === draft.account_id)?.label ?? "Unbound")
     : "Unbound";
+  const collapsedMeta = isSessionNode ? "SPY" : draft.universe;
 
   return (
     <Card className="border-border/60 bg-card/40">
@@ -172,7 +174,7 @@ function StrategyCard({
                 <span className="shrink-0 text-[11px] text-amber-500">• unsaved</span>
               )}
               <span className="truncate text-xs text-muted-foreground">
-                {boundAccountLabel} · {draft.universe}
+                {boundAccountLabel} · {collapsedMeta}
               </span>
             </button>
           </div>
@@ -186,7 +188,7 @@ function StrategyCard({
       </CardHeader>
       {expanded && (
         <CardContent className="space-y-4 pb-4">
-          {unboundEnabled && (
+          {unboundEnabled && !isSessionNode && (
             <p className="text-xs text-amber-500">
               Enable has no effect until an account is bound — the scan skips
               unbound strategies.
@@ -221,33 +223,42 @@ function StrategyCard({
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs">Universe</Label>
-              <Select
-                value={draft.universe}
-                onValueChange={(v) =>
-                  updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
-                }
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue placeholder="Select universe" />
-                </SelectTrigger>
-                <SelectContent>
-                  {/* Surface the stored value even if it's a legacy/active spec not
-                      in the option list, so it never renders blank. */}
-                  {!universes.some((u) => u.id === draft.universe) && (
-                    <SelectItem value={draft.universe}>
-                      {draft.universe === "active_watchlist"
-                        ? "Active watchlist (legacy)"
-                        : draft.universe}
-                    </SelectItem>
-                  )}
-                  {universes.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {isSessionNode ? (
+                <>
+                  <Label className="text-xs">Symbol</Label>
+                  <p className="text-sm text-muted-foreground">SPY</p>
+                </>
+              ) : (
+                <>
+                  <Label className="text-xs">Universe</Label>
+                  <Select
+                    value={draft.universe}
+                    onValueChange={(v) =>
+                      updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder="Select universe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Surface the stored value even if it's a legacy/active spec not
+                          in the option list, so it never renders blank. */}
+                      {!universes.some((u) => u.id === draft.universe) && (
+                        <SelectItem value={draft.universe}>
+                          {draft.universe === "active_watchlist"
+                            ? "Active watchlist (legacy)"
+                            : draft.universe}
+                        </SelectItem>
+                      )}
+                      {universes.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -271,23 +282,29 @@ function StrategyCard({
 
             <div className="space-y-1.5">
               <Label className="text-xs">Exit mode</Label>
-              <Select
-                value={draft.exit_mode}
-                onValueChange={(v) =>
-                  updateDraft((d) => ({
-                    ...d,
-                    exit_mode: (v ?? "propose") as "auto" | "propose",
-                  }))
-                }
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">auto</SelectItem>
-                  <SelectItem value="propose">propose</SelectItem>
-                </SelectContent>
-              </Select>
+              {isSessionNode ? (
+                <p className="text-sm text-muted-foreground">
+                  propose — exits are phone prompts
+                </p>
+              ) : (
+                <Select
+                  value={draft.exit_mode}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({
+                      ...d,
+                      exit_mode: (v ?? "propose") as "auto" | "propose",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">auto</SelectItem>
+                    <SelectItem value="propose">propose</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -381,6 +398,14 @@ function StrategyCard({
               excess over SPY (+1.6% → +3%/trade) but is NOT
               block-bootstrap-validated like the base dip — treat as a live
               forward-test, not a guarantee.
+            </p>
+          )}
+
+          {isSessionNode && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Shorts (resistance nodes) only fire when{" "}
+              <strong>Allow short selling</strong> is on in Execution / Risk
+              Limits — otherwise long-only (support nodes).
             </p>
           )}
 
