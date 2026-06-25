@@ -121,7 +121,7 @@ function ChartHeaderControls({
               key={tf.value}
               onClick={() => onConfigChange({ timeframe: tf.value })}
               className={cn(
-                "px-2 py-1.5",
+                "px-2 py-1.5 text-[11px]",
                 timeframe.value === tf.value
                   ? "text-foreground"
                   : "text-[var(--fg-dim)]",
@@ -150,7 +150,7 @@ function ChartHeaderControls({
               key={s.value}
               onClick={() => onConfigChange({ style: s.value })}
               className={cn(
-                "px-2 py-1.5",
+                "px-2 py-1.5 text-[11px]",
                 style === s.value ? "text-foreground" : "text-[var(--fg-dim)]",
               )}
             >
@@ -177,7 +177,7 @@ function ChartHeaderControls({
               onConfigChange({ showSessionNodes: !config.showSessionNodes })
             }
             className={cn(
-              "flex items-center justify-between gap-3 px-2 py-1.5",
+              "flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]",
               config.showSessionNodes
                 ? "text-foreground"
                 : "text-[var(--fg-dim)]",
