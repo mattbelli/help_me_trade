@@ -70,6 +70,23 @@ staleness. 850 tests green, live-verified (`_live_market_price("SPY")` returns a
    backend-only, no UI).
 6. **Auto-execute / guardrails** — the autonomy-ladder controls (act within hard caps + kill switch); the mission
    endgame; belongs in the Automations cockpit.
+7. **Strategy descriptions + tunable strategies** (founder asked 2026-06-25; deferred for now — DO build).
+   Two parts: **(a) descriptions in the UI** — a readable per-strategy blurb in each StrategyCard saying *what
+   triggers it → what it does → how it exits*, with HONEST validation status (dip/dip_refined/earnings have
+   validated/forward-test edges; **session_node is exploratory, propose-only, NO validated edge — never show a
+   fabricated win-rate**). **(b) tunable strategies** — make the trigger/exit numbers adjustable, via an editable
+   config file (yaml) AND/OR per-strat fields in the Settings UI. Recon done: 3/4 strats are already
+   **param-driven** — thresholds live in `strategies.params_json`, read at runtime (dip/dip_refined: stop −3 /
+   target +3 / trail 11 / oversold −5·3d / mkt −1.5·3d / far_support_min 5; earnings: blowout 5 / entry-lead 10td
+   / exit-lead 1td / gap 40–90td); **`session_node` is HARDCODED** (rearm 2pts, max_per_node 2, max/day 6, VAH/VAL/
+   PDH/PDL→POC in `research/session_node_signal.py`) → extract to params first. ⚠️ **Safety:** strategies are
+   FROZEN/validated — editing a threshold changes the backtested edge, so any editable-params path MUST carry a
+   "this de-validates the strategy, re-validate before trusting" warning (CLAUDE.md: learning layer may observe,
+   never silently mutate validated logic). **Scope still undecided** (descriptions-only vs +read-only params vs
+   +editable params). Key files: `db/strategies.py` (seed + `params_json`; would add a `description`/config source),
+   `signals/strategy_kinds.py` (kind registry — natural home for shared descriptions), `api/strategy_routes.py`
+   (GET/PUT `/api/strategies` — add `description`), `frontend/components/settings/settings-strategies-panel.tsx`
+   (StrategyCard; render block ~just above Save), `signals/universes/*.json` (the only file-config precedent today).
 
 ### Key files
 Chart: `frontend/components/trading/tv-light-chart.tsx`, `…/workspace/workspace-grid.tsx` (`ChartHeaderControls`),
