@@ -1,8 +1,9 @@
-"""Refresh the live earnings calendar from Finnhub.
+"""Refresh the live earnings calendar from Alpha Vantage + Finnhub.
 
-Pulls a window of recent + upcoming earnings (one Finnhub call covers all
-companies), filters to the symbols we actually trade, and upserts into the
-`earnings_calendar` table. Run on a daily schedule; safe to run repeatedly.
+Alpha Vantage provides the forward calendar (including mega-caps) in one call;
+Finnhub supplements past dates for last-earnings lookups. Filters to the symbols
+we actually trade and upserts into the `earnings_calendar` table. Run on a daily
+schedule; safe to run repeatedly.
 """
 
 from __future__ import annotations
@@ -13,6 +14,12 @@ from pathlib import Path
 
 from db.base import DEFAULT_DB_PATH
 from db.earnings_calendar import upsert_earnings
+from signals.alphavantage import (
+    afetch_earnings_calendar as av_afetch_earnings_calendar,
+)
+from signals.alphavantage import (
+    alphavantage_is_configured,
+)
 from signals.finnhub import (
     FinnhubError,
     afetch_earnings_calendar,
@@ -60,6 +67,19 @@ def _filter_to_universe(
     return [r for r in rows if r["symbol"] in universe]
 
 
+async def _fetch_calendar_rows(start: str, end: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if alphavantage_is_configured():
+        rows.extend(await av_afetch_earnings_calendar(horizon="6month"))
+    if finnhub_is_configured():
+        try:
+            for chunk_start, chunk_end in _chunk_windows(start, end):
+                rows.extend(await afetch_earnings_calendar(chunk_start, chunk_end))
+        except Exception:
+            logger.warning("Finnhub earnings calendar fetch failed", exc_info=True)
+    return rows
+
+
 def refresh_earnings_calendar(
     symbols: list[str],
     *,
@@ -69,19 +89,20 @@ def refresh_earnings_calendar(
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     """Sync earnings dates for `symbols`. Returns rows upserted. 0 if unconfigured."""
-    if not finnhub_is_configured():
-        logger.info("Earnings refresh skipped — FINNHUB_API_KEY not set")
+    if not (alphavantage_is_configured() or finnhub_is_configured()):
+        logger.info("Earnings refresh skipped — no earnings calendar API key configured")
         return 0
     start, end = _window(now or datetime.now(UTC), days_back, days_fwd)
     rows: list[dict[str, str]] = []
-    for chunk_start, chunk_end in _chunk_windows(start, end):
-        try:
-            rows.extend(fetch_earnings_calendar(chunk_start, chunk_end))
-        except FinnhubError:
-            logger.exception(
-                "Earnings calendar chunk fetch failed (%s..%s)", chunk_start, chunk_end
-            )
-            # Partial data beats none — keep the chunks that succeeded.
+    if finnhub_is_configured():
+        for chunk_start, chunk_end in _chunk_windows(start, end):
+            try:
+                rows.extend(fetch_earnings_calendar(chunk_start, chunk_end))
+            except FinnhubError:
+                logger.exception(
+                    "Earnings calendar chunk fetch failed (%s..%s)", chunk_start, chunk_end
+                )
+                # Partial data beats none — keep the chunks that succeeded.
     scoped = _filter_to_universe(rows, symbols)
     upserted = upsert_earnings(scoped, db_path=db_path)
     logger.info(
@@ -102,19 +123,11 @@ async def arefresh_earnings_calendar(
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     """Async variant for the scheduler loop."""
-    if not finnhub_is_configured():
-        logger.info("Earnings refresh skipped — FINNHUB_API_KEY not set")
+    if not (alphavantage_is_configured() or finnhub_is_configured()):
+        logger.info("Earnings refresh skipped — no earnings calendar API key configured")
         return 0
     start, end = _window(now or datetime.now(UTC), days_back, days_fwd)
-    rows: list[dict[str, str]] = []
-    for chunk_start, chunk_end in _chunk_windows(start, end):
-        try:
-            rows.extend(await afetch_earnings_calendar(chunk_start, chunk_end))
-        except FinnhubError:
-            logger.exception(
-                "Earnings calendar chunk fetch failed (%s..%s)", chunk_start, chunk_end
-            )
-            # Partial data beats none — keep the chunks that succeeded.
+    rows = await _fetch_calendar_rows(start, end)
     scoped = _filter_to_universe(rows, symbols)
     upserted = upsert_earnings(scoped, db_path=db_path)
     logger.info(

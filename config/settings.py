@@ -842,6 +842,10 @@ def finnhub_api_key() -> str:
     return os.environ.get("FINNHUB_API_KEY", "").strip()
 
 
+def alphavantage_api_key() -> str:
+    return os.environ.get("ALPHAVANTAGE_API_KEY", "").strip()
+
+
 def push_config() -> dict[str, Any]:
     return {
         "enabled": os.environ.get("PUSH_ENABLED", "").strip().lower()
