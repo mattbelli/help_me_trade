@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -22,6 +23,7 @@ from db.live_activities import (
 )
 from signals.push import (
     _la_content_state,
+    _la_wire_content_state,
     end_proposal_live_activity,
     start_proposal_live_activity,
 )
@@ -191,6 +193,18 @@ def test_la_content_state_status_reason_only_on_failed() -> None:
     assert failed["status"] == "failed"
 
 
+def test_la_wire_content_state_wraps_props_as_json_string() -> None:
+    # iOS Codable decodes ContentState{name: String, props: String}; props must be a
+    # JSON-encoded STRING, not a nested object, or the activity silently drops.
+    wire = _la_wire_content_state(_sample_proposal_row(), status="pending")
+    assert wire["name"] == "TradeProposalActivity"
+    assert isinstance(wire["props"], str)
+    decoded = json.loads(wire["props"])
+    assert decoded == _la_content_state(_sample_proposal_row(), status="pending")
+    assert decoded["status"] == "pending"
+    assert decoded["symbol"] == "AAPL"
+
+
 @pytest.mark.asyncio
 async def test_start_live_activity_no_tokens_returns_zero(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "la.db"
@@ -234,8 +248,13 @@ async def test_start_live_activity_sends_start_event(monkeypatch, tmp_path: Path
     assert captured[0]["token"] == "la_start_tok"
     assert aps["event"] == "start"
     assert aps["attributes-type"] == "LiveActivityAttributes"
-    assert aps["content-state"]["status"] == "pending"
-    assert aps["content-state"]["proposalId"] == "paper_abc123"
+    # expo-widgets envelope: content-state is {name, props-as-JSON-string}.
+    cs = aps["content-state"]
+    assert cs["name"] == "TradeProposalActivity"
+    assert isinstance(cs["props"], str)
+    props = json.loads(cs["props"])
+    assert props["status"] == "pending"
+    assert props["proposalId"] == "paper_abc123"
     assert aps["alert"]["title"] == "Trade proposal"
     assert "AAPL" in aps["alert"]["body"]
 
@@ -295,7 +314,9 @@ async def test_end_live_activity_event_by_status(
     )
     assert count == 1
     assert captured[0]["event"] == expected_event
-    assert captured[0]["content-state"]["status"] == status
+    cs = captured[0]["content-state"]
+    assert cs["name"] == "TradeProposalActivity"
+    assert json.loads(cs["props"])["status"] == status
     if expected_event == "end":
         assert "dismissal-date" in captured[0]
         assert list_update_tokens("paper_abc123", db_path=db) == []

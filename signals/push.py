@@ -326,6 +326,10 @@ async def send_proposal_push(
 # Live Activity (ActivityKit → APNs)
 # ---------------------------------------------------------------------------
 _LA_END_DISMISSAL_GRACE_S = 600
+# expo-widgets routes a generic LiveActivityAttributes by this name to the widget
+# layout; the trade fields live in `props` as a JSON-ENCODED STRING (double-encoded),
+# not a nested object. See References/SERV_REPLY_live_activity.md.
+_LA_ACTIVITY_NAME = "TradeProposalActivity"
 
 
 def _parse_expires_unix(expires_at: str | None) -> int | None:
@@ -377,6 +381,22 @@ def _la_content_state(
     if status == "failed" and status_reason:
         out["statusReason"] = status_reason
     return out
+
+
+def _la_wire_content_state(
+    proposal: dict[str, Any],
+    *,
+    status: str,
+    status_reason: str | None = None,
+) -> dict[str, str]:
+    """Wrap the trade fields in the expo-widgets envelope: {name, props} where
+    props is the JSON-ENCODED STRING of the content. iOS Codable expects this exact
+    shape — top-level fields or a nested-object props silently fail to decode."""
+    fields = _la_content_state(proposal, status=status, status_reason=status_reason)
+    return {
+        "name": _LA_ACTIVITY_NAME,
+        "props": json.dumps(fields, separators=(",", ":")),
+    }
 
 
 def _la_apns_config(cfg: dict[str, Any]) -> tuple[str, str, str, bytes] | None:
@@ -468,7 +488,7 @@ async def start_proposal_live_activity(
             "event": "start",
             "attributes-type": "LiveActivityAttributes",
             "attributes": {},
-            "content-state": _la_content_state(proposal, status="pending"),
+            "content-state": _la_wire_content_state(proposal, status="pending"),
             "stale-date": stale,
             "dismissal-date": dismissal,
             "alert": {
@@ -521,7 +541,9 @@ async def end_proposal_live_activity(
             logger.warning("live activity end: proposal %s not found", proposal_id)
             return 0
 
-        content_state = _la_content_state(row, status=status, status_reason=status_reason)
+        content_state = _la_wire_content_state(
+            row, status=status, status_reason=status_reason
+        )
         now_unix = int(time.time())
         is_terminal = status != "approved"
 

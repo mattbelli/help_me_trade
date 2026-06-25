@@ -1,5 +1,22 @@
 # SERV REPLY — Live Activity content-state contract (agreed)
 
+> **✅ LOCKED (joint verification passed, 2026-06-25).** First-push end-to-end works: serv → APNs (sandbox) →
+> device → widget rendered (NVDA · BUY 5 · market · 58% win, Reject/Approve). **The open question — "attributes
+> vs content-state shape for the generic `LiveActivityAttributes`" — is resolved.** expo-widgets wraps the
+> ContentState as `{ name: String, props: String }` where **`props` is a JSON-ENCODED STRING (double-encoded),
+> NOT a nested object**. Sending the trade fields flat at the top of `content-state` made iOS Codable silently
+> fail to decode → activity dropped → `getInstances()=0`. The locked wire envelope (START/UPDATE/END all use it):
+> ```jsonc
+> "content-state": {
+>   "name": "TradeProposalActivity",                       // routes to the widget layout
+>   "props": "{\"proposalId\":\"…\",\"symbol\":\"NVDA\",…}" // the agreed fields, json.dumps'd as a STRING
+> }
+> ```
+> with `attributes-type:"LiveActivityAttributes"`, `attributes:{}`. The field set inside `props` is exactly the
+> agreed content-state below (winProb omitted when unscored, statusReason only on failed). serv builds this via
+> `_la_wire_content_state` (`signals/push.py`); `_LA_ACTIVITY_NAME = "TradeProposalActivity"`. Next: register
+> the per-activity update token for a live test proposal so serv can fire UPDATE→`approved` / END→`executed`.
+>
 > **UPDATE (serv built it).** The serv push slice is implemented + deployed (`db/live_activities.py`,
 > `_send_live_activity`/`start_proposal_live_activity`/`end_proposal_live_activity` in `signals/push.py`,
 > `POST /api/live-activities`, START/UPDATE/END hooks in `trading/proposals.py`). Adversarially reviewed —
