@@ -169,13 +169,23 @@ class ExecutionService:
                 raise RiskRejectedError(reason)
 
             try:
+                # Display-only broadcast (cockpit notification) — NOT part of the
+                # execution/risk decision. Enriched with qty/mode + strategy attribution
+                # so the web can render "BUY 1 AAPL · dip_buy [paper]".
                 alert: dict[str, str | None] = {
                     "type": "execution",
                     "execution_id": execution_id,
                     "status": status,
                     "symbol": intent.symbol,
                     "side": intent.side,
+                    "qty": str(intent.qty),
+                    "execution_mode": mode,
                 }
+                pid = intent.proposal_id or ""
+                if pid.startswith("auto_entry|"):
+                    parts = pid.split("|")
+                    if len(parts) >= 2:
+                        alert["strategy_id"] = parts[1]
                 if broker_order_id is not None:
                     alert["broker_order_id"] = broker_order_id
                 await market_hub.broadcast_alert(alert)
