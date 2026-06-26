@@ -373,6 +373,8 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         return _multi_account_context(snaps, meta, day_pl_by_account)
 
     if name == "get_agent_status":
+        from signals.strategy_stats import get_strategy_stats
+
         labels = _account_label_map(db_path=DEFAULT_DB_PATH)
         strategies = [
             {
@@ -387,6 +389,8 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
                 "universe": s["universe"],
                 "max_concurrent_positions": s["max_concurrent_positions"],
                 "max_deployed_usd": s["max_deployed_usd"],
+                # Validated backtest edge (None until the PC ships strategy_stats.json).
+                "backtest": get_strategy_stats(s["id"]),
             }
             for s in list_strategies(db_path=DEFAULT_DB_PATH)
         ]
