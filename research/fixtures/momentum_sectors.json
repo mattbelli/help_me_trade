@@ -1,0 +1,2510 @@
+{
+  "_meta": {
+    "description": "S&P 500 symbol -> sector mapping for residual-momentum strategy",
+    "source_universe": "signals/universes/sp500.json",
+    "source_sectors": "data/research/fundamentals.db -> companies",
+    "exclusion_rule": "sector NULL, empty, Unknown, Agriculture excluded",
+    "universe_count": 503,
+    "coverage_count": 498,
+    "missing_count": 5,
+    "missing_symbols": [
+      "BF.B",
+      "BRK.B",
+      "CTVA",
+      "FLEX",
+      "MRVL"
+    ]
+  },
+  "symbols": {
+    "A": {
+      "sector": "Manufacturing",
+      "sic": 3826,
+      "sic_desc": "Laboratory Analytical Instruments"
+    },
+    "AAPL": {
+      "sector": "Manufacturing",
+      "sic": 3571,
+      "sic_desc": "Electronic Computers"
+    },
+    "ABBV": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "ABNB": {
+      "sector": "Services",
+      "sic": 7340,
+      "sic_desc": "Services-To Dwellings & Other Buildings"
+    },
+    "ABT": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "ACGL": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "ACN": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "ADBE": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "ADI": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "ADM": {
+      "sector": "Manufacturing",
+      "sic": 2070,
+      "sic_desc": "Fats & Oils"
+    },
+    "ADP": {
+      "sector": "Services",
+      "sic": 7374,
+      "sic_desc": "Services-Computer Processing & Data Preparation"
+    },
+    "ADSK": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "AEE": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "AEP": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "AES": {
+      "sector": "Utilities/Transport",
+      "sic": 4991,
+      "sic_desc": "Cogeneration Services & Small Power Producers"
+    },
+    "AFL": {
+      "sector": "Finance",
+      "sic": 6321,
+      "sic_desc": "Accident & Health Insurance"
+    },
+    "AIG": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "AIZ": {
+      "sector": "Finance",
+      "sic": 6399,
+      "sic_desc": "Insurance Carriers, NEC"
+    },
+    "AJG": {
+      "sector": "Finance",
+      "sic": 6411,
+      "sic_desc": "Insurance Agents, Brokers & Service"
+    },
+    "AKAM": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "ALB": {
+      "sector": "Manufacturing",
+      "sic": 2821,
+      "sic_desc": "Plastic Materials, Synth Resins & Nonvulcan Elastomers"
+    },
+    "ALGN": {
+      "sector": "Manufacturing",
+      "sic": 3842,
+      "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies"
+    },
+    "ALL": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "ALLE": {
+      "sector": "Services",
+      "sic": 7381,
+      "sic_desc": "Services-Detective, Guard & Armored Car Services"
+    },
+    "AMAT": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "AMCR": {
+      "sector": "Manufacturing",
+      "sic": 3990,
+      "sic_desc": "Miscellaneous Manufacturing Industries"
+    },
+    "AMD": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "AME": {
+      "sector": "Manufacturing",
+      "sic": 3823,
+      "sic_desc": "Industrial Instruments For Measurement, Display, and Control"
+    },
+    "AMGN": {
+      "sector": "Manufacturing",
+      "sic": 2836,
+      "sic_desc": "Biological Products, (No Diagnostic Substances)"
+    },
+    "AMP": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "AMT": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "AMZN": {
+      "sector": "Retail",
+      "sic": 5961,
+      "sic_desc": "Retail-Catalog & Mail-Order Houses"
+    },
+    "ANET": {
+      "sector": "Manufacturing",
+      "sic": 3576,
+      "sic_desc": "Computer Communications Equipment"
+    },
+    "AON": {
+      "sector": "Finance",
+      "sic": 6411,
+      "sic_desc": "Insurance Agents, Brokers & Service"
+    },
+    "AOS": {
+      "sector": "Manufacturing",
+      "sic": 3630,
+      "sic_desc": "Household Appliances"
+    },
+    "APA": {
+      "sector": "Mining",
+      "sic": 1311,
+      "sic_desc": "Crude Petroleum & Natural Gas"
+    },
+    "APD": {
+      "sector": "Manufacturing",
+      "sic": 2810,
+      "sic_desc": "Industrial Inorganic Chemicals"
+    },
+    "APH": {
+      "sector": "Manufacturing",
+      "sic": 3678,
+      "sic_desc": "Electronic Connectors"
+    },
+    "APO": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "APP": {
+      "sector": "Services",
+      "sic": 7370,
+      "sic_desc": "Services-Computer Programming, Data Processing, Etc."
+    },
+    "APTV": {
+      "sector": "Manufacturing",
+      "sic": 3714,
+      "sic_desc": "Motor Vehicle Parts & Accessories"
+    },
+    "ARE": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "ARES": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "ATO": {
+      "sector": "Utilities/Transport",
+      "sic": 4924,
+      "sic_desc": "Natural Gas Distribution"
+    },
+    "AVB": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "AVGO": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "AVY": {
+      "sector": "Manufacturing",
+      "sic": 2670,
+      "sic_desc": "Converted Paper & Paperboard Prods (No Contaners/Boxes)"
+    },
+    "AWK": {
+      "sector": "Utilities/Transport",
+      "sic": 4941,
+      "sic_desc": "Water Supply"
+    },
+    "AXON": {
+      "sector": "Manufacturing",
+      "sic": 3480,
+      "sic_desc": "Ordnance & Accessories, (No Vehicles/Guided Missiles)"
+    },
+    "AXP": {
+      "sector": "Finance",
+      "sic": 6199,
+      "sic_desc": "Finance Services"
+    },
+    "AZO": {
+      "sector": "Retail",
+      "sic": 5531,
+      "sic_desc": "Retail-Auto & Home Supply Stores"
+    },
+    "BA": {
+      "sector": "Manufacturing",
+      "sic": 3721,
+      "sic_desc": "Aircraft"
+    },
+    "BAC": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "BALL": {
+      "sector": "Manufacturing",
+      "sic": 3411,
+      "sic_desc": "Metal Cans"
+    },
+    "BAX": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "BBY": {
+      "sector": "Retail",
+      "sic": 5731,
+      "sic_desc": "Retail-Radio, Tv & Consumer Electronics Stores"
+    },
+    "BDX": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "BEN": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "BG": {
+      "sector": "Manufacturing",
+      "sic": 2070,
+      "sic_desc": "Fats & Oils"
+    },
+    "BIIB": {
+      "sector": "Manufacturing",
+      "sic": 2836,
+      "sic_desc": "Biological Products, (No Diagnostic Substances)"
+    },
+    "BKNG": {
+      "sector": "Utilities/Transport",
+      "sic": 4700,
+      "sic_desc": "Transportation Services"
+    },
+    "BKR": {
+      "sector": "Manufacturing",
+      "sic": 3533,
+      "sic_desc": "Oil & Gas Field Machinery & Equipment"
+    },
+    "BLDR": {
+      "sector": "Retail",
+      "sic": 5211,
+      "sic_desc": "Retail-Lumber & Other Building Materials Dealers"
+    },
+    "BLK": {
+      "sector": "Finance",
+      "sic": 6211,
+      "sic_desc": "Security Brokers, Dealers & Flotation Companies"
+    },
+    "BMY": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "BNY": {
+      "sector": "Finance",
+      "sic": 6022,
+      "sic_desc": "State Commercial Banks"
+    },
+    "BR": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "BRO": {
+      "sector": "Finance",
+      "sic": 6411,
+      "sic_desc": "Insurance Agents, Brokers & Service"
+    },
+    "BSX": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "BX": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "BXP": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "C": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "CAG": {
+      "sector": "Manufacturing",
+      "sic": 2000,
+      "sic_desc": "Food and Kindred Products"
+    },
+    "CAH": {
+      "sector": "Wholesale",
+      "sic": 5122,
+      "sic_desc": "Wholesale-Drugs, Proprietaries & Druggists' Sundries"
+    },
+    "CARR": {
+      "sector": "Manufacturing",
+      "sic": 3585,
+      "sic_desc": "Air-Cond & Warm Air Heatg Equip & Comm & Indl Refrig Equip"
+    },
+    "CASY": {
+      "sector": "Retail",
+      "sic": 5500,
+      "sic_desc": "Retail-Auto Dealers & Gasoline Stations"
+    },
+    "CAT": {
+      "sector": "Manufacturing",
+      "sic": 3531,
+      "sic_desc": "Construction Machinery & Equip"
+    },
+    "CB": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "CBOE": {
+      "sector": "Finance",
+      "sic": 6200,
+      "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services"
+    },
+    "CBRE": {
+      "sector": "Finance",
+      "sic": 6500,
+      "sic_desc": "Real Estate"
+    },
+    "CCI": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "CCL": {
+      "sector": "Utilities/Transport",
+      "sic": 4400,
+      "sic_desc": "Water Transportation"
+    },
+    "CDNS": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "CDW": {
+      "sector": "Retail",
+      "sic": 5961,
+      "sic_desc": "Retail-Catalog & Mail-Order Houses"
+    },
+    "CEG": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "CF": {
+      "sector": "Manufacturing",
+      "sic": 2870,
+      "sic_desc": "Agricultural Chemicals"
+    },
+    "CFG": {
+      "sector": "Finance",
+      "sic": 6022,
+      "sic_desc": "State Commercial Banks"
+    },
+    "CHD": {
+      "sector": "Manufacturing",
+      "sic": 2840,
+      "sic_desc": "Soap, Detergents, Cleang Preparations, Perfumes, Cosmetics"
+    },
+    "CHRW": {
+      "sector": "Utilities/Transport",
+      "sic": 4731,
+      "sic_desc": "Arrangement of  Transportation of  Freight & Cargo"
+    },
+    "CHTR": {
+      "sector": "Utilities/Transport",
+      "sic": 4841,
+      "sic_desc": "Cable & Other Pay Television Services"
+    },
+    "CI": {
+      "sector": "Finance",
+      "sic": 6324,
+      "sic_desc": "Hospital & Medical Service Plans"
+    },
+    "CIEN": {
+      "sector": "Manufacturing",
+      "sic": 3661,
+      "sic_desc": "Telephone & Telegraph Apparatus"
+    },
+    "CINF": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "CL": {
+      "sector": "Manufacturing",
+      "sic": 2844,
+      "sic_desc": "Perfumes, Cosmetics & Other Toilet Preparations"
+    },
+    "CLX": {
+      "sector": "Manufacturing",
+      "sic": 2842,
+      "sic_desc": "Specialty Cleaning, Polishing and Sanitation Preparations"
+    },
+    "CMCSA": {
+      "sector": "Utilities/Transport",
+      "sic": 4841,
+      "sic_desc": "Cable & Other Pay Television Services"
+    },
+    "CME": {
+      "sector": "Finance",
+      "sic": 6200,
+      "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services"
+    },
+    "CMG": {
+      "sector": "Retail",
+      "sic": 5812,
+      "sic_desc": "Retail-Eating  Places"
+    },
+    "CMI": {
+      "sector": "Manufacturing",
+      "sic": 3510,
+      "sic_desc": "Engines & Turbines"
+    },
+    "CMS": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "CNC": {
+      "sector": "Finance",
+      "sic": 6324,
+      "sic_desc": "Hospital & Medical Service Plans"
+    },
+    "CNP": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "COF": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "COHR": {
+      "sector": "Manufacturing",
+      "sic": 3827,
+      "sic_desc": "Optical Instruments & Lenses"
+    },
+    "COIN": {
+      "sector": "Finance",
+      "sic": 6199,
+      "sic_desc": "Finance Services"
+    },
+    "COO": {
+      "sector": "Manufacturing",
+      "sic": 3851,
+      "sic_desc": "Ophthalmic Goods"
+    },
+    "COP": {
+      "sector": "Manufacturing",
+      "sic": 2911,
+      "sic_desc": "Petroleum Refining"
+    },
+    "COR": {
+      "sector": "Wholesale",
+      "sic": 5122,
+      "sic_desc": "Wholesale-Drugs, Proprietaries & Druggists' Sundries"
+    },
+    "COST": {
+      "sector": "Retail",
+      "sic": 5331,
+      "sic_desc": "Retail-Variety Stores"
+    },
+    "CPAY": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "CPRT": {
+      "sector": "Retail",
+      "sic": 5500,
+      "sic_desc": "Retail-Auto Dealers & Gasoline Stations"
+    },
+    "CPT": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "CRH": {
+      "sector": "Manufacturing",
+      "sic": 3241,
+      "sic_desc": "Cement, Hydraulic"
+    },
+    "CRL": {
+      "sector": "Services",
+      "sic": 8731,
+      "sic_desc": "Services-Commercial Physical & Biological Research"
+    },
+    "CRM": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "CRWD": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "CSCO": {
+      "sector": "Manufacturing",
+      "sic": 3576,
+      "sic_desc": "Computer Communications Equipment"
+    },
+    "CSGP": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "CSX": {
+      "sector": "Utilities/Transport",
+      "sic": 4011,
+      "sic_desc": "Railroads, Line-Haul Operating"
+    },
+    "CTAS": {
+      "sector": "Manufacturing",
+      "sic": 2320,
+      "sic_desc": "Men's & Boys' Furnishgs, Work Clothg, & Allied Garments"
+    },
+    "CTSH": {
+      "sector": "Services",
+      "sic": 7371,
+      "sic_desc": "Services-Computer Programming Services"
+    },
+    "CVNA": {
+      "sector": "Retail",
+      "sic": 5500,
+      "sic_desc": "Retail-Auto Dealers & Gasoline Stations"
+    },
+    "CVS": {
+      "sector": "Retail",
+      "sic": 5912,
+      "sic_desc": "Retail-Drug Stores and Proprietary Stores"
+    },
+    "CVX": {
+      "sector": "Manufacturing",
+      "sic": 2911,
+      "sic_desc": "Petroleum Refining"
+    },
+    "D": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "DAL": {
+      "sector": "Utilities/Transport",
+      "sic": 4512,
+      "sic_desc": "Air Transportation, Scheduled"
+    },
+    "DASH": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "DD": {
+      "sector": "Manufacturing",
+      "sic": 2821,
+      "sic_desc": "Plastic Materials, Synth Resins & Nonvulcan Elastomers"
+    },
+    "DDOG": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "DE": {
+      "sector": "Manufacturing",
+      "sic": 3523,
+      "sic_desc": "Farm Machinery & Equipment"
+    },
+    "DECK": {
+      "sector": "Manufacturing",
+      "sic": 3021,
+      "sic_desc": "Rubber & Plastics Footwear"
+    },
+    "DELL": {
+      "sector": "Manufacturing",
+      "sic": 3571,
+      "sic_desc": "Electronic Computers"
+    },
+    "DG": {
+      "sector": "Retail",
+      "sic": 5331,
+      "sic_desc": "Retail-Variety Stores"
+    },
+    "DGX": {
+      "sector": "Services",
+      "sic": 8071,
+      "sic_desc": "Services-Medical Laboratories"
+    },
+    "DHI": {
+      "sector": "Other",
+      "sic": 1531,
+      "sic_desc": "Operative Builders"
+    },
+    "DHR": {
+      "sector": "Manufacturing",
+      "sic": 3823,
+      "sic_desc": "Industrial Instruments For Measurement, Display, and Control"
+    },
+    "DIS": {
+      "sector": "Services",
+      "sic": 7990,
+      "sic_desc": "Services-Miscellaneous Amusement & Recreation"
+    },
+    "DLR": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "DLTR": {
+      "sector": "Retail",
+      "sic": 5331,
+      "sic_desc": "Retail-Variety Stores"
+    },
+    "DOC": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "DOV": {
+      "sector": "Manufacturing",
+      "sic": 3530,
+      "sic_desc": "Construction, Mining & Materials Handling Machinery & Equip"
+    },
+    "DOW": {
+      "sector": "Manufacturing",
+      "sic": 2821,
+      "sic_desc": "Plastic Materials, Synth Resins & Nonvulcan Elastomers"
+    },
+    "DPZ": {
+      "sector": "Wholesale",
+      "sic": 5140,
+      "sic_desc": "Wholesale-Groceries & Related Products"
+    },
+    "DRI": {
+      "sector": "Retail",
+      "sic": 5812,
+      "sic_desc": "Retail-Eating  Places"
+    },
+    "DTE": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "DUK": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "DVA": {
+      "sector": "Services",
+      "sic": 8090,
+      "sic_desc": "Services-Misc Health & Allied Services, NEC"
+    },
+    "DVN": {
+      "sector": "Mining",
+      "sic": 1311,
+      "sic_desc": "Crude Petroleum & Natural Gas"
+    },
+    "DXCM": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "EA": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "EBAY": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "ECL": {
+      "sector": "Manufacturing",
+      "sic": 2840,
+      "sic_desc": "Soap, Detergents, Cleang Preparations, Perfumes, Cosmetics"
+    },
+    "ED": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "EFX": {
+      "sector": "Services",
+      "sic": 7320,
+      "sic_desc": "Services-Consumer Credit Reporting, Collection Agencies"
+    },
+    "EG": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "EIX": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "EL": {
+      "sector": "Manufacturing",
+      "sic": 2844,
+      "sic_desc": "Perfumes, Cosmetics & Other Toilet Preparations"
+    },
+    "ELV": {
+      "sector": "Finance",
+      "sic": 6324,
+      "sic_desc": "Hospital & Medical Service Plans"
+    },
+    "EME": {
+      "sector": "Other",
+      "sic": 1731,
+      "sic_desc": "Electrical Work"
+    },
+    "EMR": {
+      "sector": "Manufacturing",
+      "sic": 3600,
+      "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)"
+    },
+    "EOG": {
+      "sector": "Mining",
+      "sic": 1311,
+      "sic_desc": "Crude Petroleum & Natural Gas"
+    },
+    "EQIX": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "EQR": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "EQT": {
+      "sector": "Mining",
+      "sic": 1311,
+      "sic_desc": "Crude Petroleum & Natural Gas"
+    },
+    "ERIE": {
+      "sector": "Finance",
+      "sic": 6411,
+      "sic_desc": "Insurance Agents, Brokers & Service"
+    },
+    "ES": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "ESS": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "ETN": {
+      "sector": "Manufacturing",
+      "sic": 3590,
+      "sic_desc": "Misc Industrial & Commercial Machinery & Equipment"
+    },
+    "ETR": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "EVRG": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "EW": {
+      "sector": "Manufacturing",
+      "sic": 3842,
+      "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies"
+    },
+    "EXC": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "EXE": {
+      "sector": "Mining",
+      "sic": 1311,
+      "sic_desc": "Crude Petroleum & Natural Gas"
+    },
+    "EXPD": {
+      "sector": "Utilities/Transport",
+      "sic": 4731,
+      "sic_desc": "Arrangement of  Transportation of  Freight & Cargo"
+    },
+    "EXPE": {
+      "sector": "Utilities/Transport",
+      "sic": 4700,
+      "sic_desc": "Transportation Services"
+    },
+    "EXR": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "F": {
+      "sector": "Manufacturing",
+      "sic": 3711,
+      "sic_desc": "Motor Vehicles & Passenger Car Bodies"
+    },
+    "FANG": {
+      "sector": "Mining",
+      "sic": 1311,
+      "sic_desc": "Crude Petroleum & Natural Gas"
+    },
+    "FAST": {
+      "sector": "Retail",
+      "sic": 5200,
+      "sic_desc": "Retail-Building Materials, Hardware, Garden Supply"
+    },
+    "FCX": {
+      "sector": "Mining",
+      "sic": 1000,
+      "sic_desc": "Metal Mining"
+    },
+    "FDS": {
+      "sector": "Services",
+      "sic": 7370,
+      "sic_desc": "Services-Computer Programming, Data Processing, Etc."
+    },
+    "FDX": {
+      "sector": "Utilities/Transport",
+      "sic": 4513,
+      "sic_desc": "Air Courier Services"
+    },
+    "FDXF": {
+      "sector": "Utilities/Transport",
+      "sic": 4513,
+      "sic_desc": "Air Courier Services"
+    },
+    "FE": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "FFIV": {
+      "sector": "Manufacturing",
+      "sic": 3576,
+      "sic_desc": "Computer Communications Equipment"
+    },
+    "FICO": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "FIS": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "FISV": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "FITB": {
+      "sector": "Finance",
+      "sic": 6022,
+      "sic_desc": "State Commercial Banks"
+    },
+    "FIX": {
+      "sector": "Other",
+      "sic": 1731,
+      "sic_desc": "Electrical Work"
+    },
+    "FOX": {
+      "sector": "Utilities/Transport",
+      "sic": 4833,
+      "sic_desc": "Television Broadcasting Stations"
+    },
+    "FOXA": {
+      "sector": "Utilities/Transport",
+      "sic": 4833,
+      "sic_desc": "Television Broadcasting Stations"
+    },
+    "FRT": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "FSLR": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "FTNT": {
+      "sector": "Manufacturing",
+      "sic": 3577,
+      "sic_desc": "Computer Peripheral Equipment, NEC"
+    },
+    "FTV": {
+      "sector": "Manufacturing",
+      "sic": 3823,
+      "sic_desc": "Industrial Instruments For Measurement, Display, and Control"
+    },
+    "GD": {
+      "sector": "Manufacturing",
+      "sic": 3730,
+      "sic_desc": "Ship & Boat Building & Repairing"
+    },
+    "GDDY": {
+      "sector": "Services",
+      "sic": 7373,
+      "sic_desc": "Services-Computer Integrated Systems Design"
+    },
+    "GE": {
+      "sector": "Manufacturing",
+      "sic": 3600,
+      "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)"
+    },
+    "GEHC": {
+      "sector": "Manufacturing",
+      "sic": 3844,
+      "sic_desc": "X-Ray Apparatus & Tubes & Related Irradiation Apparatus"
+    },
+    "GEN": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "GEV": {
+      "sector": "Manufacturing",
+      "sic": 3600,
+      "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)"
+    },
+    "GILD": {
+      "sector": "Manufacturing",
+      "sic": 2836,
+      "sic_desc": "Biological Products, (No Diagnostic Substances)"
+    },
+    "GIS": {
+      "sector": "Manufacturing",
+      "sic": 2040,
+      "sic_desc": "Grain Mill Products"
+    },
+    "GL": {
+      "sector": "Finance",
+      "sic": 6311,
+      "sic_desc": "Life Insurance"
+    },
+    "GLW": {
+      "sector": "Manufacturing",
+      "sic": 3357,
+      "sic_desc": "Drawing & Insulating of  Nonferrous Wire"
+    },
+    "GM": {
+      "sector": "Manufacturing",
+      "sic": 3711,
+      "sic_desc": "Motor Vehicles & Passenger Car Bodies"
+    },
+    "GNRC": {
+      "sector": "Manufacturing",
+      "sic": 3621,
+      "sic_desc": "Motors & Generators"
+    },
+    "GOOG": {
+      "sector": "Services",
+      "sic": 7370,
+      "sic_desc": "Services-Computer Programming, Data Processing, Etc."
+    },
+    "GOOGL": {
+      "sector": "Services",
+      "sic": 7370,
+      "sic_desc": "Services-Computer Programming, Data Processing, Etc."
+    },
+    "GPC": {
+      "sector": "Wholesale",
+      "sic": 5013,
+      "sic_desc": "Wholesale-Motor Vehicle Supplies & New Parts"
+    },
+    "GPN": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "GRMN": {
+      "sector": "Manufacturing",
+      "sic": 3812,
+      "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys"
+    },
+    "GS": {
+      "sector": "Finance",
+      "sic": 6211,
+      "sic_desc": "Security Brokers, Dealers & Flotation Companies"
+    },
+    "GWW": {
+      "sector": "Wholesale",
+      "sic": 5000,
+      "sic_desc": "Wholesale-Durable Goods"
+    },
+    "HAL": {
+      "sector": "Mining",
+      "sic": 1389,
+      "sic_desc": "Oil & Gas Field Services, NEC"
+    },
+    "HAS": {
+      "sector": "Manufacturing",
+      "sic": 3944,
+      "sic_desc": "Games, Toys & Children's Vehicles (No Dolls & Bicycles)"
+    },
+    "HBAN": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "HCA": {
+      "sector": "Services",
+      "sic": 8062,
+      "sic_desc": "Services-General Medical & Surgical Hospitals, NEC"
+    },
+    "HD": {
+      "sector": "Retail",
+      "sic": 5211,
+      "sic_desc": "Retail-Lumber & Other Building Materials Dealers"
+    },
+    "HIG": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "HII": {
+      "sector": "Manufacturing",
+      "sic": 3730,
+      "sic_desc": "Ship & Boat Building & Repairing"
+    },
+    "HLT": {
+      "sector": "Services",
+      "sic": 7011,
+      "sic_desc": "Hotels & Motels"
+    },
+    "HON": {
+      "sector": "Manufacturing",
+      "sic": 3724,
+      "sic_desc": "Aircraft Engines & Engine Parts"
+    },
+    "HOOD": {
+      "sector": "Finance",
+      "sic": 6211,
+      "sic_desc": "Security Brokers, Dealers & Flotation Companies"
+    },
+    "HPE": {
+      "sector": "Manufacturing",
+      "sic": 3570,
+      "sic_desc": "Computer & office Equipment"
+    },
+    "HPQ": {
+      "sector": "Manufacturing",
+      "sic": 3570,
+      "sic_desc": "Computer & office Equipment"
+    },
+    "HRL": {
+      "sector": "Manufacturing",
+      "sic": 2011,
+      "sic_desc": "Meat Packing Plants"
+    },
+    "HSIC": {
+      "sector": "Wholesale",
+      "sic": 5047,
+      "sic_desc": "Wholesale-Medical, Dental & Hospital Equipment & Supplies"
+    },
+    "HST": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "HSY": {
+      "sector": "Manufacturing",
+      "sic": 2060,
+      "sic_desc": "Sugar & Confectionery Products"
+    },
+    "HUBB": {
+      "sector": "Manufacturing",
+      "sic": 3670,
+      "sic_desc": "Electronic Components & Accessories"
+    },
+    "HUM": {
+      "sector": "Finance",
+      "sic": 6324,
+      "sic_desc": "Hospital & Medical Service Plans"
+    },
+    "HWM": {
+      "sector": "Manufacturing",
+      "sic": 3350,
+      "sic_desc": "Rolling Drawing & Extruding of  Nonferrous Metals"
+    },
+    "IBKR": {
+      "sector": "Finance",
+      "sic": 6211,
+      "sic_desc": "Security Brokers, Dealers & Flotation Companies"
+    },
+    "IBM": {
+      "sector": "Manufacturing",
+      "sic": 3570,
+      "sic_desc": "Computer & office Equipment"
+    },
+    "ICE": {
+      "sector": "Finance",
+      "sic": 6200,
+      "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services"
+    },
+    "IDXX": {
+      "sector": "Manufacturing",
+      "sic": 2835,
+      "sic_desc": "In Vitro & In Vivo Diagnostic Substances"
+    },
+    "IEX": {
+      "sector": "Manufacturing",
+      "sic": 3561,
+      "sic_desc": "Pumps & Pumping Equipment"
+    },
+    "IFF": {
+      "sector": "Manufacturing",
+      "sic": 2860,
+      "sic_desc": "Industrial Organic Chemicals"
+    },
+    "INCY": {
+      "sector": "Services",
+      "sic": 8731,
+      "sic_desc": "Services-Commercial Physical & Biological Research"
+    },
+    "INTC": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "INTU": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "INVH": {
+      "sector": "Finance",
+      "sic": 6510,
+      "sic_desc": "Real Estate Operators (No Developers) & Lessors"
+    },
+    "IP": {
+      "sector": "Manufacturing",
+      "sic": 2621,
+      "sic_desc": "Paper Mills"
+    },
+    "IQV": {
+      "sector": "Services",
+      "sic": 8731,
+      "sic_desc": "Services-Commercial Physical & Biological Research"
+    },
+    "IR": {
+      "sector": "Manufacturing",
+      "sic": 3560,
+      "sic_desc": "General Industrial Machinery & Equipment"
+    },
+    "IRM": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "ISRG": {
+      "sector": "Manufacturing",
+      "sic": 3842,
+      "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies"
+    },
+    "IT": {
+      "sector": "Services",
+      "sic": 8741,
+      "sic_desc": "Services-Management Services"
+    },
+    "ITW": {
+      "sector": "Manufacturing",
+      "sic": 3560,
+      "sic_desc": "General Industrial Machinery & Equipment"
+    },
+    "IVZ": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "J": {
+      "sector": "Other",
+      "sic": 1600,
+      "sic_desc": "Heavy Construction Other Than Bldg Const - Contractors"
+    },
+    "JBHT": {
+      "sector": "Utilities/Transport",
+      "sic": 4213,
+      "sic_desc": "Trucking (No Local)"
+    },
+    "JBL": {
+      "sector": "Manufacturing",
+      "sic": 3672,
+      "sic_desc": "Printed Circuit Boards"
+    },
+    "JCI": {
+      "sector": "Manufacturing",
+      "sic": 3585,
+      "sic_desc": "Air-Cond & Warm Air Heatg Equip & Comm & Indl Refrig Equip"
+    },
+    "JKHY": {
+      "sector": "Services",
+      "sic": 7373,
+      "sic_desc": "Services-Computer Integrated Systems Design"
+    },
+    "JNJ": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "JPM": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "KDP": {
+      "sector": "Manufacturing",
+      "sic": 2080,
+      "sic_desc": "Beverages"
+    },
+    "KEY": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "KEYS": {
+      "sector": "Manufacturing",
+      "sic": 3823,
+      "sic_desc": "Industrial Instruments For Measurement, Display, and Control"
+    },
+    "KHC": {
+      "sector": "Manufacturing",
+      "sic": 2030,
+      "sic_desc": "Canned, Frozen & Preservd Fruit, Veg & Food Specialties"
+    },
+    "KIM": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "KKR": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "KLAC": {
+      "sector": "Manufacturing",
+      "sic": 3827,
+      "sic_desc": "Optical Instruments & Lenses"
+    },
+    "KMB": {
+      "sector": "Manufacturing",
+      "sic": 2670,
+      "sic_desc": "Converted Paper & Paperboard Prods (No Contaners/Boxes)"
+    },
+    "KMI": {
+      "sector": "Utilities/Transport",
+      "sic": 4922,
+      "sic_desc": "Natural Gas Transmission"
+    },
+    "KO": {
+      "sector": "Manufacturing",
+      "sic": 2080,
+      "sic_desc": "Beverages"
+    },
+    "KR": {
+      "sector": "Retail",
+      "sic": 5411,
+      "sic_desc": "Retail-Grocery Stores"
+    },
+    "KVUE": {
+      "sector": "Manufacturing",
+      "sic": 2844,
+      "sic_desc": "Perfumes, Cosmetics & Other Toilet Preparations"
+    },
+    "L": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "LDOS": {
+      "sector": "Services",
+      "sic": 7373,
+      "sic_desc": "Services-Computer Integrated Systems Design"
+    },
+    "LEN": {
+      "sector": "Other",
+      "sic": 1520,
+      "sic_desc": "General Bldg Contractors - Residential Bldgs"
+    },
+    "LH": {
+      "sector": "Services",
+      "sic": 8071,
+      "sic_desc": "Services-Medical Laboratories"
+    },
+    "LHX": {
+      "sector": "Manufacturing",
+      "sic": 3812,
+      "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys"
+    },
+    "LII": {
+      "sector": "Manufacturing",
+      "sic": 3585,
+      "sic_desc": "Air-Cond & Warm Air Heatg Equip & Comm & Indl Refrig Equip"
+    },
+    "LIN": {
+      "sector": "Manufacturing",
+      "sic": 2810,
+      "sic_desc": "Industrial Inorganic Chemicals"
+    },
+    "LITE": {
+      "sector": "Manufacturing",
+      "sic": 3669,
+      "sic_desc": "Communications Equipment, NEC"
+    },
+    "LLY": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "LMT": {
+      "sector": "Manufacturing",
+      "sic": 3760,
+      "sic_desc": "Guided Missiles & Space Vehicles & Parts"
+    },
+    "LNT": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "LOW": {
+      "sector": "Retail",
+      "sic": 5211,
+      "sic_desc": "Retail-Lumber & Other Building Materials Dealers"
+    },
+    "LRCX": {
+      "sector": "Manufacturing",
+      "sic": 3559,
+      "sic_desc": "Special Industry Machinery, NEC"
+    },
+    "LULU": {
+      "sector": "Manufacturing",
+      "sic": 2300,
+      "sic_desc": "Apparel & Other Finishd Prods of  Fabrics & Similar Matl"
+    },
+    "LUV": {
+      "sector": "Utilities/Transport",
+      "sic": 4512,
+      "sic_desc": "Air Transportation, Scheduled"
+    },
+    "LVS": {
+      "sector": "Services",
+      "sic": 7011,
+      "sic_desc": "Hotels & Motels"
+    },
+    "LYB": {
+      "sector": "Manufacturing",
+      "sic": 2860,
+      "sic_desc": "Industrial Organic Chemicals"
+    },
+    "LYV": {
+      "sector": "Services",
+      "sic": 7900,
+      "sic_desc": "Services-Amusement & Recreation Services"
+    },
+    "MA": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "MAA": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "MAR": {
+      "sector": "Services",
+      "sic": 7011,
+      "sic_desc": "Hotels & Motels"
+    },
+    "MAS": {
+      "sector": "Manufacturing",
+      "sic": 3430,
+      "sic_desc": "Heating Equip, Except Elec & Warm Air; & Plumbing Fixtures"
+    },
+    "MCD": {
+      "sector": "Retail",
+      "sic": 5812,
+      "sic_desc": "Retail-Eating  Places"
+    },
+    "MCHP": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "MCK": {
+      "sector": "Wholesale",
+      "sic": 5122,
+      "sic_desc": "Wholesale-Drugs, Proprietaries & Druggists' Sundries"
+    },
+    "MCO": {
+      "sector": "Services",
+      "sic": 7320,
+      "sic_desc": "Services-Consumer Credit Reporting, Collection Agencies"
+    },
+    "MDLZ": {
+      "sector": "Manufacturing",
+      "sic": 2000,
+      "sic_desc": "Food and Kindred Products"
+    },
+    "MDT": {
+      "sector": "Manufacturing",
+      "sic": 3845,
+      "sic_desc": "Electromedical & Electrotherapeutic Apparatus"
+    },
+    "MET": {
+      "sector": "Finance",
+      "sic": 6311,
+      "sic_desc": "Life Insurance"
+    },
+    "META": {
+      "sector": "Services",
+      "sic": 7370,
+      "sic_desc": "Services-Computer Programming, Data Processing, Etc."
+    },
+    "MGM": {
+      "sector": "Services",
+      "sic": 7011,
+      "sic_desc": "Hotels & Motels"
+    },
+    "MKC": {
+      "sector": "Manufacturing",
+      "sic": 2090,
+      "sic_desc": "Miscellaneous Food Preparations & Kindred Products"
+    },
+    "MLM": {
+      "sector": "Mining",
+      "sic": 1400,
+      "sic_desc": "Mining & Quarrying of  Nonmetallic Minerals (No Fuels)"
+    },
+    "MMM": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "MNST": {
+      "sector": "Manufacturing",
+      "sic": 2086,
+      "sic_desc": "Bottled & Canned Soft Drinks & Carbonated Waters"
+    },
+    "MO": {
+      "sector": "Manufacturing",
+      "sic": 2111,
+      "sic_desc": "Cigarettes"
+    },
+    "MOS": {
+      "sector": "Manufacturing",
+      "sic": 2870,
+      "sic_desc": "Agricultural Chemicals"
+    },
+    "MPC": {
+      "sector": "Manufacturing",
+      "sic": 2911,
+      "sic_desc": "Petroleum Refining"
+    },
+    "MPWR": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "MRK": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "MRNA": {
+      "sector": "Manufacturing",
+      "sic": 2836,
+      "sic_desc": "Biological Products, (No Diagnostic Substances)"
+    },
+    "MRSH": {
+      "sector": "Finance",
+      "sic": 6411,
+      "sic_desc": "Insurance Agents, Brokers & Service"
+    },
+    "MS": {
+      "sector": "Finance",
+      "sic": 6211,
+      "sic_desc": "Security Brokers, Dealers & Flotation Companies"
+    },
+    "MSCI": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "MSFT": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "MSI": {
+      "sector": "Manufacturing",
+      "sic": 3663,
+      "sic_desc": "Radio & Tv Broadcasting & Communications Equipment"
+    },
+    "MTB": {
+      "sector": "Finance",
+      "sic": 6022,
+      "sic_desc": "State Commercial Banks"
+    },
+    "MTD": {
+      "sector": "Manufacturing",
+      "sic": 3826,
+      "sic_desc": "Laboratory Analytical Instruments"
+    },
+    "MU": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "NCLH": {
+      "sector": "Utilities/Transport",
+      "sic": 4400,
+      "sic_desc": "Water Transportation"
+    },
+    "NDAQ": {
+      "sector": "Finance",
+      "sic": 6200,
+      "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services"
+    },
+    "NDSN": {
+      "sector": "Manufacturing",
+      "sic": 3569,
+      "sic_desc": "General Industrial Machinery & Equipment, NEC"
+    },
+    "NEE": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "NEM": {
+      "sector": "Mining",
+      "sic": 1040,
+      "sic_desc": "Gold and Silver Ores"
+    },
+    "NFLX": {
+      "sector": "Services",
+      "sic": 7841,
+      "sic_desc": "Services-Video Tape Rental"
+    },
+    "NI": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "NKE": {
+      "sector": "Manufacturing",
+      "sic": 3021,
+      "sic_desc": "Rubber & Plastics Footwear"
+    },
+    "NOC": {
+      "sector": "Manufacturing",
+      "sic": 3812,
+      "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys"
+    },
+    "NOW": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "NRG": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "NSC": {
+      "sector": "Utilities/Transport",
+      "sic": 4011,
+      "sic_desc": "Railroads, Line-Haul Operating"
+    },
+    "NTAP": {
+      "sector": "Manufacturing",
+      "sic": 3572,
+      "sic_desc": "Computer Storage Devices"
+    },
+    "NTRS": {
+      "sector": "Finance",
+      "sic": 6022,
+      "sic_desc": "State Commercial Banks"
+    },
+    "NUE": {
+      "sector": "Manufacturing",
+      "sic": 3312,
+      "sic_desc": "Steel Works, Blast Furnaces & Rolling Mills (Coke Ovens)"
+    },
+    "NVDA": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "NVR": {
+      "sector": "Other",
+      "sic": 1531,
+      "sic_desc": "Operative Builders"
+    },
+    "NWS": {
+      "sector": "Manufacturing",
+      "sic": 2711,
+      "sic_desc": "Newspapers: Publishing or  Publishing & Printing"
+    },
+    "NWSA": {
+      "sector": "Manufacturing",
+      "sic": 2711,
+      "sic_desc": "Newspapers: Publishing or  Publishing & Printing"
+    },
+    "NXPI": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "O": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "ODFL": {
+      "sector": "Utilities/Transport",
+      "sic": 4213,
+      "sic_desc": "Trucking (No Local)"
+    },
+    "OKE": {
+      "sector": "Utilities/Transport",
+      "sic": 4923,
+      "sic_desc": "Natural Gas Transmisison & Distribution"
+    },
+    "OMC": {
+      "sector": "Services",
+      "sic": 7311,
+      "sic_desc": "Services-Advertising Agencies"
+    },
+    "ON": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "ORCL": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "ORLY": {
+      "sector": "Retail",
+      "sic": 5531,
+      "sic_desc": "Retail-Auto & Home Supply Stores"
+    },
+    "OTIS": {
+      "sector": "Manufacturing",
+      "sic": 3600,
+      "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)"
+    },
+    "OXY": {
+      "sector": "Mining",
+      "sic": 1311,
+      "sic_desc": "Crude Petroleum & Natural Gas"
+    },
+    "PANW": {
+      "sector": "Manufacturing",
+      "sic": 3577,
+      "sic_desc": "Computer Peripheral Equipment, NEC"
+    },
+    "PAYX": {
+      "sector": "Services",
+      "sic": 8700,
+      "sic_desc": "Services-Engineering, Accounting, Research, Management"
+    },
+    "PCAR": {
+      "sector": "Manufacturing",
+      "sic": 3711,
+      "sic_desc": "Motor Vehicles & Passenger Car Bodies"
+    },
+    "PCG": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "PEG": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "PEP": {
+      "sector": "Manufacturing",
+      "sic": 2080,
+      "sic_desc": "Beverages"
+    },
+    "PFE": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "PFG": {
+      "sector": "Finance",
+      "sic": 6321,
+      "sic_desc": "Accident & Health Insurance"
+    },
+    "PG": {
+      "sector": "Manufacturing",
+      "sic": 2840,
+      "sic_desc": "Soap, Detergents, Cleang Preparations, Perfumes, Cosmetics"
+    },
+    "PGR": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "PH": {
+      "sector": "Manufacturing",
+      "sic": 3490,
+      "sic_desc": "Miscellaneous Fabricated Metal Products"
+    },
+    "PHM": {
+      "sector": "Other",
+      "sic": 1531,
+      "sic_desc": "Operative Builders"
+    },
+    "PKG": {
+      "sector": "Manufacturing",
+      "sic": 2650,
+      "sic_desc": "Paperboard Containers & Boxes"
+    },
+    "PLD": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "PLTR": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "PM": {
+      "sector": "Manufacturing",
+      "sic": 2111,
+      "sic_desc": "Cigarettes"
+    },
+    "PNC": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "PNR": {
+      "sector": "Manufacturing",
+      "sic": 3550,
+      "sic_desc": "Special Industry Machinery (No Metalworking Machinery)"
+    },
+    "PNW": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "PODD": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "PPG": {
+      "sector": "Manufacturing",
+      "sic": 2851,
+      "sic_desc": "Paints, Varnishes, Lacquers, Enamels & Allied Prods"
+    },
+    "PPL": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "PRU": {
+      "sector": "Finance",
+      "sic": 6311,
+      "sic_desc": "Life Insurance"
+    },
+    "PSA": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "PSKY": {
+      "sector": "Utilities/Transport",
+      "sic": 4833,
+      "sic_desc": "Television Broadcasting Stations"
+    },
+    "PSX": {
+      "sector": "Manufacturing",
+      "sic": 2911,
+      "sic_desc": "Petroleum Refining"
+    },
+    "PTC": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "PWR": {
+      "sector": "Other",
+      "sic": 1731,
+      "sic_desc": "Electrical Work"
+    },
+    "PYPL": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "Q": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "QCOM": {
+      "sector": "Manufacturing",
+      "sic": 3663,
+      "sic_desc": "Radio & Tv Broadcasting & Communications Equipment"
+    },
+    "RCL": {
+      "sector": "Utilities/Transport",
+      "sic": 4400,
+      "sic_desc": "Water Transportation"
+    },
+    "REG": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "REGN": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "RF": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "RJF": {
+      "sector": "Finance",
+      "sic": 6211,
+      "sic_desc": "Security Brokers, Dealers & Flotation Companies"
+    },
+    "RL": {
+      "sector": "Manufacturing",
+      "sic": 2320,
+      "sic_desc": "Men's & Boys' Furnishgs, Work Clothg, & Allied Garments"
+    },
+    "RMD": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "ROK": {
+      "sector": "Manufacturing",
+      "sic": 3829,
+      "sic_desc": "Measuring & Controlling Devices, NEC"
+    },
+    "ROL": {
+      "sector": "Services",
+      "sic": 7340,
+      "sic_desc": "Services-To Dwellings & Other Buildings"
+    },
+    "ROP": {
+      "sector": "Manufacturing",
+      "sic": 3823,
+      "sic_desc": "Industrial Instruments For Measurement, Display, and Control"
+    },
+    "ROST": {
+      "sector": "Retail",
+      "sic": 5651,
+      "sic_desc": "Retail-Family Clothing Stores"
+    },
+    "RSG": {
+      "sector": "Utilities/Transport",
+      "sic": 4953,
+      "sic_desc": "Refuse Systems"
+    },
+    "RTX": {
+      "sector": "Manufacturing",
+      "sic": 3724,
+      "sic_desc": "Aircraft Engines & Engine Parts"
+    },
+    "RVTY": {
+      "sector": "Manufacturing",
+      "sic": 3826,
+      "sic_desc": "Laboratory Analytical Instruments"
+    },
+    "SATS": {
+      "sector": "Utilities/Transport",
+      "sic": 4899,
+      "sic_desc": "Communications Services, NEC"
+    },
+    "SBAC": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "SBUX": {
+      "sector": "Retail",
+      "sic": 5810,
+      "sic_desc": "Retail-Eating & Drinking Places"
+    },
+    "SCHW": {
+      "sector": "Finance",
+      "sic": 6211,
+      "sic_desc": "Security Brokers, Dealers & Flotation Companies"
+    },
+    "SHW": {
+      "sector": "Retail",
+      "sic": 5200,
+      "sic_desc": "Retail-Building Materials, Hardware, Garden Supply"
+    },
+    "SJM": {
+      "sector": "Manufacturing",
+      "sic": 2033,
+      "sic_desc": "Canned, Fruits, Veg, Preserves, Jams & Jellies"
+    },
+    "SLB": {
+      "sector": "Mining",
+      "sic": 1389,
+      "sic_desc": "Oil & Gas Field Services, NEC"
+    },
+    "SMCI": {
+      "sector": "Manufacturing",
+      "sic": 3571,
+      "sic_desc": "Electronic Computers"
+    },
+    "SNA": {
+      "sector": "Manufacturing",
+      "sic": 3420,
+      "sic_desc": "Cutlery, Handtools & General Hardware"
+    },
+    "SNDK": {
+      "sector": "Manufacturing",
+      "sic": 3572,
+      "sic_desc": "Computer Storage Devices"
+    },
+    "SNPS": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "SO": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "SOLV": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "SPG": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "SPGI": {
+      "sector": "Services",
+      "sic": 7320,
+      "sic_desc": "Services-Consumer Credit Reporting, Collection Agencies"
+    },
+    "SRE": {
+      "sector": "Utilities/Transport",
+      "sic": 4932,
+      "sic_desc": "Gas & Other Services Combined"
+    },
+    "STE": {
+      "sector": "Manufacturing",
+      "sic": 3842,
+      "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies"
+    },
+    "STLD": {
+      "sector": "Manufacturing",
+      "sic": 3312,
+      "sic_desc": "Steel Works, Blast Furnaces & Rolling Mills (Coke Ovens)"
+    },
+    "STT": {
+      "sector": "Finance",
+      "sic": 6022,
+      "sic_desc": "State Commercial Banks"
+    },
+    "STX": {
+      "sector": "Manufacturing",
+      "sic": 3572,
+      "sic_desc": "Computer Storage Devices"
+    },
+    "STZ": {
+      "sector": "Manufacturing",
+      "sic": 2080,
+      "sic_desc": "Beverages"
+    },
+    "SW": {
+      "sector": "Manufacturing",
+      "sic": 2650,
+      "sic_desc": "Paperboard Containers & Boxes"
+    },
+    "SWK": {
+      "sector": "Manufacturing",
+      "sic": 3420,
+      "sic_desc": "Cutlery, Handtools & General Hardware"
+    },
+    "SWKS": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "SYF": {
+      "sector": "Finance",
+      "sic": 6199,
+      "sic_desc": "Finance Services"
+    },
+    "SYK": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "SYY": {
+      "sector": "Wholesale",
+      "sic": 5140,
+      "sic_desc": "Wholesale-Groceries & Related Products"
+    },
+    "T": {
+      "sector": "Utilities/Transport",
+      "sic": 4813,
+      "sic_desc": "Telephone Communications (No Radiotelephone)"
+    },
+    "TAP": {
+      "sector": "Manufacturing",
+      "sic": 2082,
+      "sic_desc": "Malt Beverages"
+    },
+    "TDG": {
+      "sector": "Manufacturing",
+      "sic": 3728,
+      "sic_desc": "Aircraft Parts & Auxiliary Equipment, NEC"
+    },
+    "TDY": {
+      "sector": "Manufacturing",
+      "sic": 3812,
+      "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys"
+    },
+    "TECH": {
+      "sector": "Manufacturing",
+      "sic": 2836,
+      "sic_desc": "Biological Products, (No Diagnostic Substances)"
+    },
+    "TEL": {
+      "sector": "Wholesale",
+      "sic": 5065,
+      "sic_desc": "Wholesale-Electronic Parts & Equipment, NEC"
+    },
+    "TER": {
+      "sector": "Manufacturing",
+      "sic": 3825,
+      "sic_desc": "Instruments For Meas & Testing of  Electricity & Elec Signals"
+    },
+    "TFC": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "TGT": {
+      "sector": "Retail",
+      "sic": 5331,
+      "sic_desc": "Retail-Variety Stores"
+    },
+    "TJX": {
+      "sector": "Retail",
+      "sic": 5651,
+      "sic_desc": "Retail-Family Clothing Stores"
+    },
+    "TKO": {
+      "sector": "Services",
+      "sic": 7900,
+      "sic_desc": "Services-Amusement & Recreation Services"
+    },
+    "TMO": {
+      "sector": "Manufacturing",
+      "sic": 3829,
+      "sic_desc": "Measuring & Controlling Devices, NEC"
+    },
+    "TMUS": {
+      "sector": "Utilities/Transport",
+      "sic": 4812,
+      "sic_desc": "Radiotelephone Communications"
+    },
+    "TPL": {
+      "sector": "Finance",
+      "sic": 6792,
+      "sic_desc": "Oil Royalty Traders"
+    },
+    "TPR": {
+      "sector": "Manufacturing",
+      "sic": 3100,
+      "sic_desc": "Leather & Leather Products"
+    },
+    "TRGP": {
+      "sector": "Utilities/Transport",
+      "sic": 4922,
+      "sic_desc": "Natural Gas Transmission"
+    },
+    "TRMB": {
+      "sector": "Manufacturing",
+      "sic": 3829,
+      "sic_desc": "Measuring & Controlling Devices, NEC"
+    },
+    "TROW": {
+      "sector": "Finance",
+      "sic": 6282,
+      "sic_desc": "Investment Advice"
+    },
+    "TRV": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "TSCO": {
+      "sector": "Retail",
+      "sic": 5200,
+      "sic_desc": "Retail-Building Materials, Hardware, Garden Supply"
+    },
+    "TSLA": {
+      "sector": "Manufacturing",
+      "sic": 3711,
+      "sic_desc": "Motor Vehicles & Passenger Car Bodies"
+    },
+    "TSN": {
+      "sector": "Manufacturing",
+      "sic": 2015,
+      "sic_desc": "Poultry Slaughtering and Processing"
+    },
+    "TT": {
+      "sector": "Manufacturing",
+      "sic": 3822,
+      "sic_desc": "Auto Controls For Regulating Residential & Comml Environments"
+    },
+    "TTD": {
+      "sector": "Services",
+      "sic": 7370,
+      "sic_desc": "Services-Computer Programming, Data Processing, Etc."
+    },
+    "TTWO": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "TXN": {
+      "sector": "Manufacturing",
+      "sic": 3674,
+      "sic_desc": "Semiconductors & Related Devices"
+    },
+    "TXT": {
+      "sector": "Manufacturing",
+      "sic": 3720,
+      "sic_desc": "Aircraft & Parts"
+    },
+    "TYL": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "UAL": {
+      "sector": "Utilities/Transport",
+      "sic": 4512,
+      "sic_desc": "Air Transportation, Scheduled"
+    },
+    "UBER": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "UDR": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "UHS": {
+      "sector": "Services",
+      "sic": 8062,
+      "sic_desc": "Services-General Medical & Surgical Hospitals, NEC"
+    },
+    "ULTA": {
+      "sector": "Retail",
+      "sic": 5990,
+      "sic_desc": "Retail-Retail Stores, NEC"
+    },
+    "UNH": {
+      "sector": "Finance",
+      "sic": 6324,
+      "sic_desc": "Hospital & Medical Service Plans"
+    },
+    "UNP": {
+      "sector": "Utilities/Transport",
+      "sic": 4011,
+      "sic_desc": "Railroads, Line-Haul Operating"
+    },
+    "UPS": {
+      "sector": "Utilities/Transport",
+      "sic": 4210,
+      "sic_desc": "Trucking & Courier Services (No Air)"
+    },
+    "URI": {
+      "sector": "Services",
+      "sic": 7359,
+      "sic_desc": "Services-Equipment Rental & Leasing, NEC"
+    },
+    "USB": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "V": {
+      "sector": "Services",
+      "sic": 7389,
+      "sic_desc": "Services-Business Services, NEC"
+    },
+    "VEEV": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "VICI": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "VLO": {
+      "sector": "Manufacturing",
+      "sic": 2911,
+      "sic_desc": "Petroleum Refining"
+    },
+    "VLTO": {
+      "sector": "Manufacturing",
+      "sic": 3825,
+      "sic_desc": "Instruments For Meas & Testing of  Electricity & Elec Signals"
+    },
+    "VMC": {
+      "sector": "Mining",
+      "sic": 1400,
+      "sic_desc": "Mining & Quarrying of  Nonmetallic Minerals (No Fuels)"
+    },
+    "VRSK": {
+      "sector": "Services",
+      "sic": 7374,
+      "sic_desc": "Services-Computer Processing & Data Preparation"
+    },
+    "VRSN": {
+      "sector": "Services",
+      "sic": 7371,
+      "sic_desc": "Services-Computer Programming Services"
+    },
+    "VRT": {
+      "sector": "Manufacturing",
+      "sic": 3679,
+      "sic_desc": "Electronic Components, NEC"
+    },
+    "VRTX": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "VST": {
+      "sector": "Utilities/Transport",
+      "sic": 4911,
+      "sic_desc": "Electric Services"
+    },
+    "VTR": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "VTRS": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    },
+    "VZ": {
+      "sector": "Utilities/Transport",
+      "sic": 4813,
+      "sic_desc": "Telephone Communications (No Radiotelephone)"
+    },
+    "WAB": {
+      "sector": "Manufacturing",
+      "sic": 3743,
+      "sic_desc": "Railroad Equipment"
+    },
+    "WAT": {
+      "sector": "Manufacturing",
+      "sic": 3826,
+      "sic_desc": "Laboratory Analytical Instruments"
+    },
+    "WBD": {
+      "sector": "Utilities/Transport",
+      "sic": 4841,
+      "sic_desc": "Cable & Other Pay Television Services"
+    },
+    "WDAY": {
+      "sector": "Services",
+      "sic": 7374,
+      "sic_desc": "Services-Computer Processing & Data Preparation"
+    },
+    "WDC": {
+      "sector": "Manufacturing",
+      "sic": 3572,
+      "sic_desc": "Computer Storage Devices"
+    },
+    "WEC": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "WELL": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "WFC": {
+      "sector": "Finance",
+      "sic": 6021,
+      "sic_desc": "National Commercial Banks"
+    },
+    "WM": {
+      "sector": "Utilities/Transport",
+      "sic": 4953,
+      "sic_desc": "Refuse Systems"
+    },
+    "WMB": {
+      "sector": "Utilities/Transport",
+      "sic": 4922,
+      "sic_desc": "Natural Gas Transmission"
+    },
+    "WMT": {
+      "sector": "Retail",
+      "sic": 5331,
+      "sic_desc": "Retail-Variety Stores"
+    },
+    "WRB": {
+      "sector": "Finance",
+      "sic": 6331,
+      "sic_desc": "Fire, Marine & Casualty Insurance"
+    },
+    "WSM": {
+      "sector": "Retail",
+      "sic": 5700,
+      "sic_desc": "Retail-Home Furniture, Furnishings & Equipment Stores"
+    },
+    "WST": {
+      "sector": "Manufacturing",
+      "sic": 3841,
+      "sic_desc": "Surgical & Medical Instruments & Apparatus"
+    },
+    "WTW": {
+      "sector": "Finance",
+      "sic": 6411,
+      "sic_desc": "Insurance Agents, Brokers & Service"
+    },
+    "WY": {
+      "sector": "Finance",
+      "sic": 6798,
+      "sic_desc": "Real Estate Investment Trusts"
+    },
+    "WYNN": {
+      "sector": "Services",
+      "sic": 7011,
+      "sic_desc": "Hotels & Motels"
+    },
+    "XEL": {
+      "sector": "Utilities/Transport",
+      "sic": 4931,
+      "sic_desc": "Electric & Other Services Combined"
+    },
+    "XOM": {
+      "sector": "Manufacturing",
+      "sic": 2911,
+      "sic_desc": "Petroleum Refining"
+    },
+    "XYL": {
+      "sector": "Manufacturing",
+      "sic": 3561,
+      "sic_desc": "Pumps & Pumping Equipment"
+    },
+    "XYZ": {
+      "sector": "Services",
+      "sic": 7372,
+      "sic_desc": "Services-Prepackaged Software"
+    },
+    "YUM": {
+      "sector": "Retail",
+      "sic": 5812,
+      "sic_desc": "Retail-Eating  Places"
+    },
+    "ZBH": {
+      "sector": "Manufacturing",
+      "sic": 3842,
+      "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies"
+    },
+    "ZBRA": {
+      "sector": "Manufacturing",
+      "sic": 3560,
+      "sic_desc": "General Industrial Machinery & Equipment"
+    },
+    "ZTS": {
+      "sector": "Manufacturing",
+      "sic": 2834,
+      "sic_desc": "Pharmaceutical Preparations"
+    }
+  }
+}
