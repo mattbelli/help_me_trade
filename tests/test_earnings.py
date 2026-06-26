@@ -156,6 +156,18 @@ def test_compute_reaction_pct_uses_first_bar_on_or_after() -> None:
     assert result == round((110.0 - 100.0) / 100.0 * 100, 2)  # 10.0
 
 
+def test_calendar_quarter_label_uses_period_not_fiscal() -> None:
+    """Regression (NVDA web): the earnings-history label follows the period's CALENDAR
+    quarter, not the vendor's fiscal year/quarter — so NVDA's quarter ending 2026-06-30
+    reads as Q2'26, not the confusing fiscal "Q1'27"."""
+    from api.main import _calendar_quarter_label
+
+    assert _calendar_quarter_label("2026-06-30") == "Q2'26"
+    assert _calendar_quarter_label("2026-03-31") == "Q1'26"
+    assert _calendar_quarter_label("2025-12-31") == "Q4'25"
+    assert _calendar_quarter_label("2025-09-30T00:00:00Z") == "Q3'25"  # tolerant of datetime
+
+
 def test_earnings_history_reactions_order_and_limit(tmp_path: Path) -> None:
     """earnings_history_reactions returns most-recent-first, up to n."""
     cache_db = tmp_path / "earnings.db"

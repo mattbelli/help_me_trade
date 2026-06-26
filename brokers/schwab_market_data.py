@@ -240,8 +240,18 @@ class SchwabMarketData:
             reg_change_pct_raw = regular.get("regularMarketPercentChange") or quote.get(
                 "netPercentChangeInDouble"
             )
-            # Extended-hours price: extended block's lastPrice (or mark as fallback)
-            ext_last_raw = extended.get("lastPrice") or extended.get("mark")
+            # Extended-hours price: prefer quote.lastPrice — Schwab's consolidated last trade
+            # across sessions, which during pre/post/overnight IS the extended price and stays
+            # fresh. The `extended` block is unreliable: it can retain a STALE pre-market print
+            # for hours into the post-market session (observed: TSLA extended.lastPrice ~15h old
+            # = 371.09 vs a live quote.lastPrice = 377.93), yielding a price that contradicted
+            # its own (correct) postMarketPercentChange. Fall back to the extended block only if
+            # quote.lastPrice is absent.
+            ext_last_raw = (
+                quote.get("lastPrice")
+                or extended.get("lastPrice")
+                or extended.get("mark")
+            )
             prev_close_raw = quote.get("closePrice")
             # Schwab's own post/overnight % move (vs today's regular close, like ToS)
             post_pct_raw = quote.get("postMarketPercentChange")

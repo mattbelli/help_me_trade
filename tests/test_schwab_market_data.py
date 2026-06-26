@@ -313,8 +313,11 @@ async def test_aget_stock_bars_uses_days_window() -> None:
 
 _QUOTES_PAYLOAD = {
     "SPY": {
+        # quote.lastPrice = live consolidated last (post-market 593.1); the regular block
+        # holds the 16:00 close (592.5); the `extended` block is STALE (590.0) and must be
+        # ignored in favour of quote.lastPrice.
         "quote": {
-            "lastPrice": 592.5,
+            "lastPrice": 593.1,
             "closePrice": 589.0,
             "netPercentChangeInDouble": 0.59,
             "totalVolume": 85_432_100,
@@ -324,8 +327,8 @@ _QUOTES_PAYLOAD = {
             "regularMarketPercentChange": 0.59,
         },
         "extended": {
-            "lastPrice": 593.1,
-            "mark": 593.0,
+            "lastPrice": 590.0,
+            "mark": 590.0,
         },
     },
     "AAPL": {
@@ -347,9 +350,9 @@ async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
     assert set(result.keys()) == {"SPY", "AAPL"}
 
     spy = result["SPY"]
-    assert spy["regular_last"] == 592.5
+    assert spy["regular_last"] == 592.5  # regular block's 16:00 close
     assert spy["regular_change_pct"] == 0.59
-    assert spy["ext_last"] == 593.1
+    assert spy["ext_last"] == 593.1  # quote.lastPrice, NOT the stale extended block (590.0)
     assert spy["prev_close"] == 589.0
     # ext_change_pct: no postMarketPercentChange in this fixture, so it's computed vs
     # today's regular close (regular_last) — correct for pre/post/overnight.
@@ -360,13 +363,41 @@ async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
     assert spy["total_volume"] == 85_432_100.0
 
     aapl = result["AAPL"]
-    # empty regular/extended blocks → falls back to quote block where possible
+    # empty regular/extended blocks → both reg_last and ext_last fall back to quote.lastPrice
+    # (the consolidated last trade; ext shows flat-at-last when there's no extended print).
     assert aapl["regular_last"] == 211.0
-    assert aapl["ext_last"] is None
-    assert aapl["ext_change_pct"] is None
+    assert aapl["ext_last"] == 211.0
+    assert aapl["ext_change_pct"] == 0.0
     assert aapl["prev_close"] == 210.0
     # AAPL fixture has no totalVolume → None
     assert aapl["total_volume"] is None
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_ignores_stale_extended_block() -> None:
+    """Regression (TSLA post-market): Schwab's `extended` block held a ~15h-old pre-market
+    print (371.09) while the live quote.lastPrice (377.93) was the true post-market last and
+    matched postMarketPercentChange. ext_last must follow the live quote, not the stale block."""
+    payload = {
+        "TSLA": {
+            "quote": {
+                "lastPrice": 377.93,
+                "closePrice": 375.12,
+                "postMarketPercentChange": -0.4687788,
+            },
+            "regular": {"regularMarketLastPrice": 379.71},
+            "extended": {"lastPrice": 371.09, "mark": 0.0},  # stale — must be ignored
+        }
+    }
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(payload)
+    provider = _provider(client)
+
+    tsla = (await provider.aget_quotes(["TSLA"]))["TSLA"]
+
+    assert tsla["ext_last"] == 377.93  # live quote.lastPrice, not the stale 371.09
+    assert tsla["regular_last"] == 379.71
+    assert tsla["ext_change_pct"] == -0.47  # Schwab's own postMarketPercentChange, rounded
 
 
 @pytest.mark.asyncio
