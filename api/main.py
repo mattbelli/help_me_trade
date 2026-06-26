@@ -172,6 +172,13 @@ market_hub: BaseMarketHub = (
     else AlpacaMarketStreamHub()
 )
 
+# The trading path (execution_service/fill_tracker/exit_engine/proposals) imports
+# `brokers.market_stream.market_hub` to broadcast alerts. Point that alias at THIS live hub
+# so execution/fill/exit alerts reach connected WS clients (cockpit notifications).
+from brokers import market_stream as _market_stream  # noqa: E402
+
+_market_stream.market_hub.bind(market_hub)
+
 
 async def _poll_account(account: dict) -> bool:
     account_id = str(account["id"])

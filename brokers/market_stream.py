@@ -673,4 +673,25 @@ def _quote_payload(state: QuoteState) -> dict[str, Any]:
     }
 
 
-market_hub = MarketStreamHub()
+class _LiveHubProxy:
+    """`market_hub` is imported (at import time) by the trading path — execution_service,
+    fill_tracker, exit_engine, proposals — to broadcast alerts. But the LIVE hub that actually
+    serves WS clients is created per-data-provider in api/main.py. Historically this module-level
+    instance was a SEPARATE hub with no clients, so execution/fill/exit alerts never reached the
+    browser. This proxy forwards every attribute (broadcast_alert, …) to the live hub once it's
+    bound at startup, and falls back to a standalone hub when none is bound (tests / import-only).
+    """
+
+    def __init__(self) -> None:
+        self._fallback: BaseMarketHub = MarketStreamHub()
+        self._live: BaseMarketHub | None = None
+
+    def bind(self, hub: BaseMarketHub) -> None:
+        self._live = hub
+
+    def __getattr__(self, name: str) -> Any:
+        target = self._live if self._live is not None else self._fallback
+        return getattr(target, name)
+
+
+market_hub = _LiveHubProxy()
