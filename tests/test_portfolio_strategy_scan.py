@@ -138,6 +138,10 @@ async def test_run_portfolio_strategy_diff_and_no_execution(
     monkeypatch.setattr("signals.strategy_scan.propose_trade", propose_mock)
     auto_mock = AsyncMock()
     monkeypatch.setattr("trading.proposal_intake.auto_execute_entry", auto_mock)
+    monkeypatch.setattr(
+        "signals.strategy_scan.trading_config",
+        lambda: {"execution_mode": "live"},
+    )
 
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
@@ -160,9 +164,13 @@ async def test_run_portfolio_strategy_diff_and_no_execution(
 
 @pytest.mark.asyncio
 async def test_run_portfolio_strategy_empty_target_returns_empty(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch
 ) -> None:
     db = _init_db(tmp_path)
+    monkeypatch.setattr(
+        "signals.strategy_scan.trading_config",
+        lambda: {"execution_mode": "live"},
+    )
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
 
@@ -194,6 +202,10 @@ async def test_run_strategy_scan_includes_portfolio_when_enabled(
 
     submit_mock = AsyncMock()
     monkeypatch.setattr("trading.execution_service.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr(
+        "signals.strategy_scan.trading_config",
+        lambda: {"execution_mode": "live"},
+    )
 
     results = await run_strategy_scan(db_path=db)
 

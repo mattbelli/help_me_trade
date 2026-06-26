@@ -19,7 +19,7 @@ from db.multi_account import migrate_multi_account
 from db.paper_orders import init_paper_order_tables
 from db.sqlite import init_db
 from db.strategies import init_strategy_tables, seed_default_strategies, update_strategy
-from trading.exit_engine import run_exit_engine
+from trading.exit_engine import _process_managed_position, run_exit_engine
 
 
 def _db(tmp_path: Path) -> Path:
@@ -482,3 +482,21 @@ async def test_wrong_account_snapshot_is_rejected(
     assert outcomes[0]["reason"] == "no_snapshot"
     assert len(list_open_positions(db_path=db)) == 1  # NOT closed by a foreign snapshot
     assert exit_stubs["submit_calls"] == []
+
+
+@pytest.mark.asyncio
+async def test_portfolio_position_skipped_entirely(tmp_path: Path) -> None:
+    """Portfolio-kind (momentum) positions are skipped by the exit engine — no stop/target/
+    time exit, no closure reconcile. The monthly rebalance owns their full lifecycle."""
+    db = tmp_path / "exit_portfolio.db"
+    _open_managed(db, strategy_id="momentum_sp500", symbol="AAPL")
+    row = list_open_positions(db_path=db)[0]
+    res = await _process_managed_position(
+        row,
+        broker_name="alpaca",
+        positions_by_symbol={},
+        snapshot=None,
+        db_path=db,
+    )
+    assert res["action"] == "skip"
+    assert res["reason"] == "portfolio_rebalance_managed"

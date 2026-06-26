@@ -196,6 +196,7 @@ def update_strategy(
     universe: str | None = None,
     max_concurrent_positions: int | None = ...,  # type: ignore[assignment]
     max_deployed_usd: float | None = ...,  # type: ignore[assignment]
+    last_rebalanced_month: str | None = ...,  # type: ignore[assignment]
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_strategy_tables(db_path)
@@ -271,6 +272,9 @@ def update_strategy(
         values.append(
             float(max_deployed_usd) if max_deployed_usd is not None else None
         )
+    if last_rebalanced_month is not ...:
+        fields.append("last_rebalanced_month = ?")
+        values.append(last_rebalanced_month)
 
     if not fields:
         return existing

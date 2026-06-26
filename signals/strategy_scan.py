@@ -220,7 +220,18 @@ async def _run_portfolio_strategy(
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
-    """Rank → diff vs holdings. Read-only in Inc-2 — logs the plan, places zero orders."""
+    """Rank → diff vs holdings; execute when paper-fenced auto, else read-only plan log."""
+    exec_mode = trading_config()["execution_mode"]
+    armed = (strategy.get("entry_mode") == "auto") and exec_mode in (
+        "dry_run",
+        "paper",
+    )
+    if armed:
+        from signals.momentum import execute_rebalance
+
+        result = await execute_rebalance(strategy, db_path=db_path)
+        return [result]
+
     from signals.momentum import production_target_set
 
     sid = strategy["id"]

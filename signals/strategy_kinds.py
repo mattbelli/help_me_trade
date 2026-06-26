@@ -100,7 +100,8 @@ STRATEGY_KINDS: dict[str, StrategyKind] = {
 
 
 def strategy_kind(strategy_id: str) -> str | None:
-    """Infer kind from id. Mirrors trading/exit_engine._strategy_kind (keep them consistent)."""
+    """Infer kind from id. NOTE: trading/exit_engine._strategy_kind covers only dip/earnings
+    (it's reached only AFTER is_portfolio_kind filters momentum out) — they diverge by design."""
     sid = (strategy_id or "").lower()
     if sid.startswith("momentum"):
         return "momentum"
