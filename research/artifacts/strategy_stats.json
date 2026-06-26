@@ -17,12 +17,12 @@
       "label": "Earnings Drift",
       "win_rate": 0.572,
       "ev_pct": 0.89,
-      "ev_ci_pct": null,
+      "ev_ci_pct": [0.43, 1.28],
       "n_setups": 6624,
       "per_year_positive": "16/17",
-      "validated": "strong-unverified",
-      "method": null,
-      "note": "pre-earnings drift; buy ~10d before earnings, sell day before. Strongest per-trade EV but blowout filter adds only ~+0.19%/trade over generic drift (+0.70). Needs block-bootstrap."
+      "validated": "validated",
+      "method": "block-bootstrap CI excludes 0 (per-date; 6624 trades -> 2044 distinct entry-dates; robust at 10/21/42d blocks); p(<=0)=0%",
+      "note": "pre-earnings drift; buy ~10d before earnings, sell day before. Strongest per-trade EV. Now significance-tested (overlap-aware). Blowout filter adds ~+0.19%/trade over generic drift (control also significant, CI [+0.33,+0.94])."
     },
     "dip_refined": {
       "label": "Dip-Buy (profile-filtered)",
