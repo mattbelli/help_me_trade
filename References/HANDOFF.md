@@ -10,7 +10,44 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Web UI consolidation + the supervision backbone (2026-06-25)
+## CURRENT FOCUS — Combined book: momentum + tactical sleeves (2026-06-26)
+
+The "combined book" = 3 strategies sized 70/20/10: **residual-momentum** (alpha) + **steep-YC dip** +
+**VIX-spike** (the two tactical sleeves = downside protection, drawdown ~24%→16.5%). All behind the sacred
+chokepoint, **auto + paper-fenced, seeded DISABLED**. Spec: `MOMENTUM_PORTFOLIO_SPEC.md` + `TACTICAL_SLEEVES_SPEC.md`.
+
+### Status
+- ✅ **Momentum (Phase 3, 70%)** — MERGED to `main` (Inc-1 data/ranking → Inc-2 read-only dispatch → Inc-3a
+  residual sanity gate → Inc-3b rank→diff→**bulk-rebalance**). Gate-1 validated **bit-exact** vs the PC's golden
+  targets. Seeded DISABLED + unbound. **Market-hours-gated** (month ticks at midnight ET → only fires in RTH).
+  **Dedicated-account guard** in `api_update_strategy`. Two independent adversarial passes on the bulk path.
+  Key memory: [[momentum-inc3-data-gate]] (residual thresholds +12 hard/+8 soft, dedicated-account precondition).
+- ✅ **FRED/regime pipeline** — live. `db/regime` + `signals/regime` (`market_regime`, fail-closed
+  `regime_is_fresh`) + a daily `_regime_refresh_loop`. `FRED_API_KEY` in `.env`. Verified term_spread +0.31 / VIX 18.9.
+- ⏳ **Phase 1 — `steepyc_dip` (20%)** — was BUILDING IN COMPOSER (brief: `tools/composer-bridge/briefs/
+  phase1-steepyc-dip.md`). NEXT-SESSION TODO: review the working-tree diff, **adversarially review the
+  `evaluate_dip_exit` change** (must keep `dip_buy` BYTE-IDENTICAL — `None` disables a stop/target/trail leg),
+  run the gate (`ruff` + `pytest` + frontend typecheck), commit + push. It's the dip edge gated to
+  `term_spread > 0.5` (fail-closed on stale regime) + a 10-day fixed hold; seeded disabled+unbound.
+- ◻️ **Phase 2 — `vix_spike` (10%)** — LAST piece. New `vix_spike` kind (VIX>28 AND ≥8 of prior 12 days <22) +
+  new `evaluate_vix_exit` (VIX<20 or 60-day hold), SPY-only "buy fear." Per `TACTICAL_SLEEVES_SPEC.md`.
+
+### How to arm momentum (DELIBERATELY, when the founder says so)
+Bind to a DEDICATED paper account (strat2 is reserved for it — dip/dip_refined/earnings/session-node are all on
+strat1) + enable, **DURING MARKET HOURS** (after-hours = every order rejects on no-quote), watch the first
+rebalance + the one summary push. **2–3 monthly paper cycles vs the backtest before any trust.** It's DISABLED
+now — do NOT arm casually (arming = it rebalances on the next RTH scan). An accidental UI-arming (2026-06-26)
+fired 80 paper orders into strat2 after-hours (79 correctly rejected) — cleaned up; it surfaced the market-hours
+gate + the dedicated-account guard.
+
+### CI / ops
+`main` is green; `ci.yml` has `concurrency: cancel-in-progress`. ⚠️ Founder is **OUT of GitHub Actions minutes**
+(CI paused until monthly reset — push fixes; they sit green until then). `serv-deploy.sh` does NOT rebuild the
+frontend — `cd frontend && npm run build` FIRST (see [[serv-runtime]]).
+
+---
+
+## PRIOR FOCUS — Web UI consolidation + the supervision backbone (2026-06-25)
 
 **Read `PLATFORM_PARITY.md` too** (web-vs-phone feature tracker; update it every change — agreed discipline).
 
