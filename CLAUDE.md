@@ -74,4 +74,7 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
   fabricated.** Active founder+orchestrator deep-research effort — do not treat as a someday-footnote.
 - `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
   `References/SERVER_SETUP.md` (the home Linux server this now runs on).
+- **Git ⇄ serv ⇄ main:** `References/GIT_WORKFLOW.md` — **never self-merge to `main`** (user authorizes only;
+  a serv request isn't authorization), merge `main` into research branches ~weekly (don't drift 100+ behind),
+  deliver to serv via small PRs / force-added artifacts.
 - **Before pushing:** `ruff check .` (whole repo) + `python -m pytest -q` + `cd frontend && npm run typecheck`.
