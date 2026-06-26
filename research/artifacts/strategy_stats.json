@@ -1,0 +1,50 @@
+{
+  "as_of": "2026-06-26",
+  "source": "Norgate survivorship-free S&P500 Current&Past, 2010-2026",
+  "strategies": {
+    "dip_buy": {
+      "label": "Dip-Buy",
+      "win_rate": 0.558,
+      "ev_pct": 0.59,
+      "ev_ci_pct": [0.38, 1.02],
+      "n_setups": 21462,
+      "per_year_positive": "13/16",
+      "validated": "validated",
+      "method": "block-bootstrap CI excludes 0; OOS train/test confirmed (+0.71/+0.98)",
+      "note": "healthy>SMA200 + oversold(-5%/3d) + market-down(SPY -1.5%/3d); exit -3/+3 sell-half/trail/20d. Market-down filter ~doubles EV vs control."
+    },
+    "earnings_drift": {
+      "label": "Earnings Drift",
+      "win_rate": 0.572,
+      "ev_pct": 0.89,
+      "ev_ci_pct": null,
+      "n_setups": 6624,
+      "per_year_positive": "16/17",
+      "validated": "strong-unverified",
+      "method": null,
+      "note": "pre-earnings drift; buy ~10d before earnings, sell day before. Strongest per-trade EV but blowout filter adds only ~+0.19%/trade over generic drift (+0.70). Needs block-bootstrap."
+    },
+    "dip_refined": {
+      "label": "Dip-Buy (profile-filtered)",
+      "win_rate": 0.558,
+      "ev_pct": 0.62,
+      "ev_ci_pct": null,
+      "n_setups": 8180,
+      "per_year_positive": "11/16",
+      "validated": "strong-unverified",
+      "method": null,
+      "note": "dip_buy + require_profile_support (HVN support / below value area). Higher EV, ~62% fewer setups; inherits dip's validation but the profile filter itself is not separately significance-tested."
+    },
+    "session_node_spy": {
+      "label": "Session-Node Reversion",
+      "win_rate": null,
+      "ev_pct": null,
+      "ev_ci_pct": null,
+      "n_setups": null,
+      "per_year_positive": null,
+      "validated": "exploratory",
+      "method": null,
+      "note": "No robust edge. /ES profile mean-reversion rejected 4 ways (naive MR, daily swing vs beta, per-year robustness, true 1-min anchor); the prior-session anchor adds no alpha over long-beta. Kept as a propose-only exploratory signal, not a backtested edge."
+    }
+  }
+}
