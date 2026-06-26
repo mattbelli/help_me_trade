@@ -744,14 +744,28 @@ export type ProposalScoreFactor = {
 export type ProposalScore = {
   win_prob: number;
   ev_pct: number;
-  ci_low: number;
-  ci_high: number;
-  sufficient: boolean;
-  low_confidence: boolean;
-  base_rate: number;
-  brier: number;
-  n_samples: number;
-  top_factors: ProposalScoreFactor[];
+  // generic-scorer fields (optional — absent on strategy-backtest scores)
+  ci_low?: number;
+  ci_high?: number;
+  sufficient?: boolean;
+  low_confidence?: boolean;
+  base_rate?: number;
+  brier?: number;
+  n_samples?: number;
+  top_factors?: ProposalScoreFactor[];
+  // strategy-backtest fields (optional — present when basis === "strategy_backtest")
+  basis?: string;
+  strategy_id?: string;
+  label?: string;
+  win_rate?: number;
+  ev_ci_pct?: [number, number] | null;
+  n_setups?: number;
+  per_year_positive?: string | null;
+  validated?: string;
+  method?: string | null;
+  note?: string;
+  source?: string;
+  as_of?: string;
 };
 
 export type PendingProposal = {

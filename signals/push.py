@@ -378,6 +378,15 @@ def _la_content_state(
         win_prob = score.get("win_prob")
         if win_prob is not None:
             out["winProb"] = win_prob
+        ev_pct = score.get("ev_pct")
+        if ev_pct is not None:
+            out["evPct"] = ev_pct
+        validated = score.get("validated")
+        if validated is not None:
+            out["validated"] = validated
+        strategy_label = score.get("label")
+        if strategy_label is not None:
+            out["strategyLabel"] = strategy_label
     if status == "failed" and status_reason:
         out["statusReason"] = status_reason
     return out
