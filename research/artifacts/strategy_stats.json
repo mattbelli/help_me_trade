@@ -28,12 +28,12 @@
       "label": "Dip-Buy (profile-filtered)",
       "win_rate": 0.558,
       "ev_pct": 0.62,
-      "ev_ci_pct": null,
+      "ev_ci_pct": [0.31, 0.89],
       "n_setups": 8180,
       "per_year_positive": "11/16",
-      "validated": "strong-unverified",
-      "method": null,
-      "note": "dip_buy + require_profile_support (HVN support / below value area). Higher EV, ~62% fewer setups; inherits dip's validation but the profile filter itself is not separately significance-tested."
+      "validated": "validated",
+      "method": "block-bootstrap CI excludes 0 (per-date; 8180 trades -> 449 distinct entry-dates; robust at 10/21/42d blocks); p(<=0)=0%",
+      "note": "dip_buy + require_profile_support (HVN support / below value area). Higher EV than dip_buy, ~62% fewer setups. A refinement of dip_buy, not an independent edge; per-year robustness is the weakest of the validated three (11/16 positive)."
     },
     "session_node_spy": {
       "label": "Session-Node Reversion",
