@@ -214,3 +214,17 @@ def test_put_rejects_invalid_account(
         )
     assert response.status_code == 400
     assert "execution-capable" in response.json()["detail"]
+
+
+def test_portfolio_strategy_rejects_shared_account(strategy_api_client: TestClient) -> None:
+    """A portfolio (momentum) strategy can't bind to an account another strategy already uses."""
+    by_id = {s["id"]: s for s in strategy_api_client.get("/api/strategies").json()["strategies"]}
+    shared = by_id["dip_buy"]["account_id"]
+    assert shared, "dip_buy should be bound by default"
+
+    resp = strategy_api_client.put(
+        "/api/strategies/momentum_sp500",
+        json={"account_id": shared},
+    )
+    assert resp.status_code == 400
+    assert "DEDICATED" in resp.json()["detail"]
