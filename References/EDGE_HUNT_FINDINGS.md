@@ -1,5 +1,9 @@
 # Edge Hunt — findings (overnight multi-agent run, 2026-06-26)
 
+*Committed twin of the local research journal `data/research/backtest_lab.md` §9 (gitignored). Keep the two in
+sync — this doc is the shareable detail; the journal is the full lab record + idea backlog. This edge hunt's
+combined book **supersedes** the journal's §8 dip+earnings combo as the chosen deliverable.*
+
 Multi-round, multi-agent quant edge discovery on the survivorship-free Norgate universe
 (`data/research/bars.db`, 910 sym, 2010–2026). Each hypothesis: implemented + backtested by a
 research agent, then **adversarially verified** by a second agent (look-ahead / survivorship /
