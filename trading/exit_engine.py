@@ -26,6 +26,7 @@ from db.strategies import get_strategy
 from research.strategy_features import _trading_days_until
 from signals.exit_evaluators import ExitDecision, evaluate_dip_exit, evaluate_earnings_exit
 from signals.push import send_alert_push
+from signals.strategy_kinds import is_portfolio_kind
 from trading.execution_service import ExecutionService
 from trading.models import OrderIntent, RiskRejectedError
 from trading.proposals import create_phone_proposal
@@ -155,6 +156,18 @@ async def _process_managed_position(
 ) -> dict[str, Any]:
     position_id = row["id"]
     symbol = row["symbol"]
+
+    # Portfolio-rebalance positions are managed ENTIRELY by the monthly rebalance (entry,
+    # hold, and exit by dropping out of the target set). The exit engine must NEVER touch
+    # them — otherwise it would stop/target/time-exit a momentum name mid-month and the next
+    # rebalance would re-buy it (churn). The rebalance opens AND closes their managed rows.
+    if is_portfolio_kind(row["strategy_id"]):
+        return {
+            "action": "skip",
+            "reason": "portfolio_rebalance_managed",
+            "position_id": position_id,
+            "symbol": symbol,
+        }
 
     # (A) Closure reconcile — position gone ⇒ close the row.
     if snapshot is None:

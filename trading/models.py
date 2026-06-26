@@ -28,6 +28,11 @@ class OrderIntent:
     occ_symbol: str | None = None
     multiplier: int = 1
     account_id: str | None = None
+    # Portfolio-rebalance order. Exempts ONLY the order-COUNT throttles in RiskEngine
+    # (open-orders cap + daily-order count) — a monthly 90+-name rebalance legitimately
+    # exceeds them. Every real risk gate (value cap, buying power, concentration, kill
+    # switch, snapshot freshness) still runs. Set ONLY by the momentum rebalance path.
+    rebalance: bool = False
 
 
 @dataclass(frozen=True)

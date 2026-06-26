@@ -409,42 +409,53 @@ class RiskEngine:
         else:
             checks["concentration"] = "pass: sell"
 
-        # 9. Open-orders cap
-        max_open_orders = int(cfg["max_open_orders"])
-        if len(open_orders) >= max_open_orders:
-            checks["open_orders_cap"] = "fail: too many open orders"
-            return RiskCheckResult(
-                passed=False,
-                checks=checks,
-                blocked_reason="too many open orders",
-            )
-        checks["open_orders_cap"] = "pass"
-
-        # 10. Daily-order counter
-        max_daily_orders = int(cfg["max_daily_orders"])
-        today_count = count_executions_today(db_path=db_path)
-        if today_count >= max_daily_orders:
-            checks["daily_orders"] = "fail: daily order limit reached"
-            return RiskCheckResult(
-                passed=False,
-                checks=checks,
-                blocked_reason="daily order limit reached",
-            )
-        # Per-account ceiling (same threshold): an account can't exceed the daily cap
-        # on its own even when the global aggregate still has room.
-        if intent.account_id is not None:
-            account_today = count_executions_today(
-                account_id=intent.account_id, db_path=db_path
-            )
-            if account_today >= max_daily_orders:
-                checks["daily_orders_account"] = "fail: account daily order limit reached"
+        # 9 & 10. Order-COUNT throttles (open-orders cap + daily-order counter).
+        # Portfolio rebalances are EXEMPT from these two — and ONLY these two — because a
+        # monthly 90+-name rebalance legitimately exceeds them, and they are throttles, not
+        # risk gates. Every REAL gate above (kill switch, snapshot freshness, qty bounds,
+        # per-order value cap, buying power, concentration) already ran for this order and is
+        # NOT bypassed. Reachable as rebalance=True only from the momentum rebalance path.
+        if intent.rebalance:
+            checks["open_orders_cap"] = "exempt: portfolio rebalance"
+            checks["daily_orders"] = "exempt: portfolio rebalance"
+            checks["daily_orders_account"] = "exempt: portfolio rebalance"
+        else:
+            # 9. Open-orders cap
+            max_open_orders = int(cfg["max_open_orders"])
+            if len(open_orders) >= max_open_orders:
+                checks["open_orders_cap"] = "fail: too many open orders"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
-                    blocked_reason="account daily order limit reached",
+                    blocked_reason="too many open orders",
                 )
+            checks["open_orders_cap"] = "pass"
+
+            # 10. Daily-order counter
+            max_daily_orders = int(cfg["max_daily_orders"])
+            today_count = count_executions_today(db_path=db_path)
+            if today_count >= max_daily_orders:
+                checks["daily_orders"] = "fail: daily order limit reached"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="daily order limit reached",
+                )
+            # Per-account ceiling (same threshold): an account can't exceed the daily cap
+            # on its own even when the global aggregate still has room.
+            if intent.account_id is not None:
+                account_today = count_executions_today(
+                    account_id=intent.account_id, db_path=db_path
+                )
+                if account_today >= max_daily_orders:
+                    checks["daily_orders_account"] = "fail: account daily order limit reached"
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason="account daily order limit reached",
+                    )
             checks["daily_orders_account"] = "pass"
-        checks["daily_orders"] = "pass"
+            checks["daily_orders"] = "pass"
 
         return RiskCheckResult(
             passed=True,

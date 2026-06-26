@@ -487,3 +487,38 @@ async def test_risk_engine_daily_orders_cap(monkeypatch, tmp_path: Path) -> None
     result = await RiskEngine.validate(_intent(), db_path=db)
     assert result.passed is False
     assert result.blocked_reason == "daily order limit reached"
+
+
+@pytest.mark.asyncio
+async def test_rebalance_exempt_from_count_gates_only(monkeypatch, tmp_path: Path) -> None:
+    """rebalance=True bypasses ONLY the open-orders + daily-order COUNT throttles."""
+    db = tmp_path / "risk_rebal.db"
+    _patch_passing_env(monkeypatch, db)
+    from db.order_executions import create_execution_record
+
+    # Max out the daily-order count (cap = 20).
+    for i in range(20):
+        create_execution_record(
+            execution_id=f"e{i}", proposal_id=None, session_id=None, symbol="AAPL",
+            side="buy", qty=Decimal("1"), order_type="market", limit_price=None,
+            execution_mode="paper", status="filled", broker="alpaca", db_path=db,
+        )
+
+    blocked = await RiskEngine.validate(_intent(), db_path=db)
+    assert not blocked.passed and "daily order" in (blocked.blocked_reason or "")
+
+    ok = await RiskEngine.validate(_intent(rebalance=True), db_path=db)
+    assert ok.passed, ok.blocked_reason
+    assert ok.checks.get("daily_orders") == "exempt: portfolio rebalance"
+    assert ok.checks.get("open_orders_cap") == "exempt: portfolio rebalance"
+
+
+@pytest.mark.asyncio
+async def test_rebalance_still_enforces_real_gates(monkeypatch, tmp_path: Path) -> None:
+    """A rebalance order that breaches a REAL gate (per-order value cap) is still rejected."""
+    db = tmp_path / "risk_rebal2.db"
+    _patch_passing_env(monkeypatch, db)
+    # 400 * $150 = $60k > max_order_value_usd 50k → must still fail even as a rebalance.
+    res = await RiskEngine.validate(_intent(rebalance=True, qty=Decimal("400")), db_path=db)
+    assert not res.passed
+    assert res.blocked_reason  # a real gate caught it, not the exempted count throttles
