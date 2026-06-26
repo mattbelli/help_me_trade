@@ -5,6 +5,12 @@ on:
     branches: [main, master]
   pull_request:
 
+# Cancel an in-progress run when a newer commit lands on the same ref, so a busy merge day
+# doesn't run every superseded push/PR-sync to completion (saves Actions minutes).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest

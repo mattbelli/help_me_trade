@@ -423,6 +423,13 @@ def _insert_pending_proposal(db_path: Path, symbol: str) -> None:
 async def test_propose_trade_max_pending(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "intake.db"
     _patch_env(monkeypatch, db)
+    # propose_trade sizes (incl. the live-price lookup) before the max_pending check, so give
+    # NVDA a price — otherwise this short-circuits at no_price (was relying on a prior test
+    # warming the quote cache → order-dependent / fails in isolation / hits live Alpaca in CI).
+    monkeypatch.setattr(
+        "trading.proposal_intake._live_market_price",
+        AsyncMock(return_value=Decimal("150")),
+    )
     max_pending = 3
     for sym in ("MSFT", "GOOG", "META"):
         _insert_pending_proposal(db, sym)
