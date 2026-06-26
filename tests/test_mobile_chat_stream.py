@@ -37,7 +37,7 @@ async def test_portfolio_plan_emits_tool_events_and_answer(monkeypatch):
     execute_mock = AsyncMock(return_value={"accounts": [], "aggregate": {}})
     monkeypatch.setattr(
         "ai.chat.mobile_agent.plan_tools",
-        lambda _text, *, model=None: [("get_portfolio_snapshot", {})],
+        lambda _text, *, model=None, allow_propose_order=False: [("get_portfolio_snapshot", {})],
     )
     monkeypatch.setattr("ai.chat.mobile_agent.execute_tool", execute_mock)
 
@@ -80,7 +80,7 @@ async def test_propose_order_emits_proposal_without_execution(monkeypatch):
 
     monkeypatch.setattr(
         "ai.chat.mobile_agent.plan_tools",
-        lambda _text, *, model=None: [
+        lambda _text, *, model=None, allow_propose_order=False: [
             (
                 "propose_order",
                 {
@@ -136,7 +136,7 @@ async def test_propose_order_failure_emits_error_and_still_completes(monkeypatch
     terminal answer + done — never hang the client mid-stream."""
     monkeypatch.setattr(
         "ai.chat.mobile_agent.plan_tools",
-        lambda _text, *, model=None: [("propose_order", {"symbol": "AAPL", "side": "buy", "qty": 1})],
+        lambda _text, *, model=None, allow_propose_order=False: [("propose_order", {"symbol": "AAPL", "side": "buy", "qty": 1})],
     )
     boom = AsyncMock(side_effect=RuntimeError("db down"))
     monkeypatch.setattr("trading.proposals.create_phone_proposal", boom)
@@ -161,7 +161,7 @@ async def test_propose_order_failure_emits_error_and_still_completes(monkeypatch
 async def test_empty_plan_greeting_has_no_tool_events(monkeypatch):
     monkeypatch.setattr(
         "ai.chat.mobile_agent.plan_tools",
-        lambda _text, *, model=None: [],
+        lambda _text, *, model=None, allow_propose_order=False: [],
     )
 
     class FakeLLM:

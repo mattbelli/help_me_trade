@@ -47,7 +47,11 @@ async def run_mobile_chat_stream(
         return
 
     history = ui_messages_to_llm(messages[:-1] if messages else [])
-    plan = await asyncio.to_thread(plan_tools, user_text, model=model)
+    # allow_propose_order=True: the planner may pick propose_order; this path intercepts it
+    # into a PENDING phone proposal (create_phone_proposal) and never routes it to execute_tool.
+    plan = await asyncio.to_thread(
+        plan_tools, user_text, model=model, allow_propose_order=True
+    )
     tool_results: list[dict[str, Any]] = []
 
     for index, (name, args) in enumerate(plan):
