@@ -286,6 +286,49 @@ def recent_open_buy_exists(
     return row is not None
 
 
+def list_recent_auto_entries(
+    account_id: str | None,
+    strategy_id: str,
+    *,
+    within_seconds: float,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """In-flight/recent auto-entry BUY execs for an account+strategy (for the concurrency cap).
+
+    The per-symbol dedup (`recent_open_buy_exists`) stops same-symbol re-entry, but a strategy's
+    `max_concurrent_positions` cap also needs to see in-flight auto orders on OTHER symbols — these
+    live in order_executions, not in pending phone proposals. Matched by the synthetic
+    `auto_entry|<id>|<ts>` proposal_id via an exact split (NOT a LIKE — strategy ids contain `_`,
+    a LIKE wildcard). Terminal-failed statuses excluded; the caller dedupes already-held symbols.
+    """
+    init_execution_tables(db_path)
+    cutoff = (datetime.now(UTC) - timedelta(seconds=within_seconds)).isoformat()
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (cutoff,)
+    if account_id is not None:
+        params = (*params, account_id)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT symbol, qty, proposal_id FROM order_executions
+            WHERE side = 'buy'
+              AND status NOT IN ('rejected', 'canceled', 'cancelled', 'expired', 'failed')
+              AND created_at >= ?
+              AND proposal_id IS NOT NULL{account_clause}
+            """,
+            params,
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        pid = str(row["proposal_id"])
+        if not pid.startswith("auto_entry|"):
+            continue
+        parts = pid.split("|")
+        if len(parts) >= 2 and parts[1] == strategy_id:
+            out.append({"symbol": row["symbol"], "qty": row["qty"]})
+    return out
+
+
 def count_submitted_executions(
     broker: str,
     *,

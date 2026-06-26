@@ -892,3 +892,26 @@ async def test_auto_execute_entry_dedups_in_flight(monkeypatch, tmp_path: Path) 
     assert result == {"status": "duplicate"}
     submit_mock.assert_not_called()
     push_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_execute_entry_blocked_under_live(monkeypatch, tmp_path: Path) -> None:
+    """auto_execute_entry's own paper fence: live execution_mode never auto-submits."""
+    db = tmp_path / "auto_entry_live.db"
+    _patch_env(monkeypatch, db)
+    # Override the mode to live (the inner fence reads trading_config fresh).
+    monkeypatch.setattr(
+        "trading.proposal_intake.trading_config",
+        lambda: {"execution_mode": "live"},
+    )
+
+    submit_mock = AsyncMock()
+    push_mock = AsyncMock()
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+
+    result = await auto_execute_entry(_candidate(source="strategy:dip_buy"), db_path=db)
+
+    assert result == {"status": "blocked_live"}
+    submit_mock.assert_not_called()
+    push_mock.assert_not_called()

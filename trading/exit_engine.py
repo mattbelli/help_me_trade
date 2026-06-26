@@ -334,7 +334,7 @@ async def _process_managed_position(
                 "type": "execution_alert",
                 "symbol": symbol,
                 "side": "sell",
-                "qty": int(exit_qty),
+                "qty": str(exit_qty),
                 "strategy_id": row["strategy_id"],
                 "execution_id": result.execution_id,
             },
