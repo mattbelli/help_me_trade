@@ -33,7 +33,10 @@ _WATCHLIST_PREFIX = "watchlist:"
 _UNIVERSE_DIR = Path(__file__).resolve().parent / "universes"
 
 # Built-in (non-watchlist) universes, in display order.
-_BUILTINS: tuple[tuple[str, str], ...] = (("sp500", "S&P 500 (broad market)"),)
+_BUILTINS: tuple[tuple[str, str], ...] = (
+    ("sp500", "S&P 500 (broad market)"),
+    ("spy", "SPY only"),
+)
 
 
 @lru_cache(maxsize=None)

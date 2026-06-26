@@ -109,6 +109,7 @@ def test_strategy_kind_inference() -> None:
     assert strategy_kind("dip_buy") == "dip"
     assert strategy_kind("dip_refined") == "dip"
     assert strategy_kind("steepyc_dip") == "dip"
+    assert strategy_kind("vix_spike") == "vix_spike"
     assert strategy_kind("earnings_drift") == "earnings"
     assert strategy_kind("momentum_sp500") == "momentum"
     assert strategy_kind("momentum_residual") == "momentum"
@@ -280,3 +281,85 @@ def test_filter_entry_params_drops_unknown_keys() -> None:
     assert "stop_pct" not in filtered
     assert "unknown_key" not in filtered
     assert set(DIP_ENTRY_PARAM_KEYS) >= set(filtered)
+
+
+def _vix_obs(*, today: float, prior: list[float]) -> list[tuple[str, float]]:
+    obs: list[tuple[str, float]] = [("2026-06-24", today)]
+    for i, v in enumerate(prior, start=1):
+        obs.append((f"2026-06-{24 - i:02d}", v))
+    return obs
+
+
+def _vix_ctx() -> EntryContext:
+    sym_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+    return EntryContext(
+        sym="SPY",
+        sym_bars=sym_bars,
+        idx=idx,
+        spy_bars=spy_bars,
+        spy_idx=spy_idx,
+        params={},
+    )
+
+
+def test_vix_spike_check_fires_on_spike_from_calm(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is True
+
+
+def test_vix_spike_check_no_fire_when_today_not_above_threshold(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=28.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_no_fire_when_too_few_calm_days(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    prior = [18.0] * 7 + [25.0] * 5
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=prior),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_fail_closed_when_stale(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: False)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_fail_closed_when_history_short(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 10),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_boundary_exactly_eight_calm(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    prior = [18.0] * 8 + [25.0] * 4
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=prior),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is True

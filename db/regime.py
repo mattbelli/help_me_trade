@@ -85,3 +85,28 @@ def latest_observation(
     if row is None:
         return None
     return str(row[0]), float(row[1])
+
+
+def recent_observations(
+    series: str,
+    *,
+    limit: int,
+    as_of: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[tuple[str, float]]:
+    """Most recent (date, value) rows for series, NEWEST FIRST (date <= as_of if given)."""
+    init_regime_table(db_path)
+    with _connect(db_path) as conn:
+        if as_of is None:
+            rows = conn.execute(
+                "SELECT date, value FROM regime_macro WHERE series = ? "
+                "ORDER BY date DESC LIMIT ?",
+                (series, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT date, value FROM regime_macro WHERE series = ? AND date <= ? "
+                "ORDER BY date DESC LIMIT ?",
+                (series, as_of, limit),
+            ).fetchall()
+    return [(str(r[0]), float(r[1])) for r in rows]

@@ -56,6 +56,17 @@
       "validated": "strong-unverified",
       "method": null,
       "note": "Tactical/high-beta sleeve, NOT standalone alpha: beta-adjusted ~half the +0.88%/trade excess is beta-recovery; standalone selection alpha +0.47%/trade, not significant. Credit as tactical exposure (steep yield-curve dip, 10d fixed hold)."
+    },
+    "vix_spike": {
+      "label": "VIX-Spike Reversion (tactical)",
+      "win_rate": null,
+      "ev_pct": 3.3,
+      "ev_ci_pct": null,
+      "n_setups": 10,
+      "per_year_positive": null,
+      "validated": "pilot",
+      "method": null,
+      "note": "Thin-sample pilot: +3.3%/episode but only n=10 episodes in 16 years. Opportunistic crash-reversion overlay (buy-fear SPY long on a sudden VIX spike from calm), small notional — NEVER a primary sleeve. Not statistically robust; paper-forward is the gate."
     }
   }
 }

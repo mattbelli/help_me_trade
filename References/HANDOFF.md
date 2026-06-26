@@ -35,8 +35,22 @@ chokepoint, **auto + paper-fenced, seeded DISABLED**. Spec: `MOMENTUM_PORTFOLIO_
   branch is unreachable for `steepyc_dip` (scale never fires when `first_target_pct` is None). 931 tests green,
   ruff clean. Honest framing in `strategy_stats.json`: tactical/high-beta, standalone alpha +0.47%/trade NOT
   significant — credit as tactical exposure, not alpha.
-- ◻️ **Phase 2 — `vix_spike` (10%)** — LAST piece. New `vix_spike` kind (VIX>28 AND ≥8 of prior 12 days <22) +
-  new `evaluate_vix_exit` (VIX<20 or 60-day hold), SPY-only "buy fear." Per `TACTICAL_SLEEVES_SPEC.md`.
+- ✅ **Phase 2 — `vix_spike` (10%)** — BUILT + reviewed + gate-green + **golden-fixture bit-exact**, committed.
+  THE BOOK IS COMPLETE (momentum 70% + steepyc_dip 20% + vix_spike 10%). SPY-only "buy fear": new `vix_spike`
+  kind (VIX>28 AND ≥8 of prior 12 closes <22, fail-closed on stale/short regime) + new pure `evaluate_vix_exit`
+  (time-cap precedence: 60td OR VIX<20; HOLDS on missing VIX) wired into `exit_engine` (`_strategy_kind` + a
+  `vix_spike` branch reading `market_regime` only when fresh). SPY-only universe via new `signals/universes/spy.json`
+  (`universe="spy"`); re-entry blocked by the existing held-symbol skip. Seeded **disabled+unbound**, auto,
+  $7.5k notional, per_trade. Pure entry seam `research/strategy_features.is_vix_spike_entry` is shared by the live
+  scan AND the validation. **Golden fixtures (PC PR #27, merged):** `tests/test_tactical_fixtures.py` runs the
+  REAL entry+exit logic over the PC's 9210-row FRED series and reproduces **all 14 VIX episodes + 5705 steep-YC
+  days + 142 gate transitions bit-exact** (momentum-Gate-1 discipline). Confirmed the YC gate must use unrounded
+  `DGS10−DGS2` (the rounded field missed 2 boundary days). Honest framing: thin pilot (n small, paper-forward is
+  the gate). ⚠️ Live `holding_days` uses holiday-naive `_trading_days_until` (same as dip's 20d cap) → the 60d cap
+  may fire a few td early; the VIX<20 reversion exit (9/14 episodes) is day-count-independent.
+- ℹ️ **YC-gate flicker is EXPECTED (PC note):** the curve hovers right at +0.5 in 2026, so `steepyc_dip`'s gate
+  flips OPEN/CLOSE within days. Not a bug (hard threshold near the live spread); daily gate check handles it. Add
+  hysteresis later only if the flicker is operationally annoying. Fail-closed on stale FRED still applies.
 
 ### How to arm momentum (DELIBERATELY, when the founder says so)
 Bind to a DEDICATED paper account (strat2 is reserved for it — dip/dip_refined/earnings/session-node are all on

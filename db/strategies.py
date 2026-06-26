@@ -49,6 +49,16 @@ _STEEPYC_DIP_DEFAULT_PARAMS: dict[str, Any] = {
     "max_holding_days": 10,
 }
 
+_VIX_SPIKE_DEFAULT_PARAMS: dict[str, Any] = {
+    "side": "long",
+    "vix_spike_min": 28.0,
+    "vix_calm_max": 22.0,
+    "vix_calm_lookback": 12,
+    "vix_calm_min_days": 8,
+    "vix_exit_below": 20.0,
+    "max_holding_days": 60,
+}
+
 _EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
     # entry (mirrors is_earnings_drift_entry defaults — the validated values)
     "blowout_pct": 5.0,
@@ -373,6 +383,7 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
     need_dip_buy = get_strategy("dip_buy", db_path=db_path) is None
     need_dip_refined = get_strategy("dip_refined", db_path=db_path) is None
     need_steepyc = get_strategy("steepyc_dip", db_path=db_path) is None
+    need_vix = get_strategy("vix_spike", db_path=db_path) is None
     need_earnings = get_strategy("earnings_drift", db_path=db_path) is None
     need_session_node = get_strategy("session_node_spy", db_path=db_path) is None
     need_momentum = get_strategy("momentum_sp500", db_path=db_path) is None
@@ -380,6 +391,7 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
         not need_dip_buy
         and not need_dip_refined
         and not need_steepyc
+        and not need_vix
         and not need_earnings
         and not need_session_node
         and not need_momentum
@@ -435,6 +447,27 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 "UPDATE strategies SET entry_mode = 'auto', alert_style = 'per_trade' "
                 "WHERE id = ?",
                 ("steepyc_dip",),
+            )
+
+        if need_vix:
+            # Tactical 10% sleeve — VIX-spike reversion (buy-fear SPY long). DISABLED + UNBOUND;
+            # paper-fenced until the founder arms it. ~$7.5k = 10% of the ~$75k book (founder tunes).
+            _insert_strategy(
+                conn,
+                strategy_id="vix_spike",
+                name="VIX-Spike Reversion (tactical)",
+                enabled=False,
+                account_id=None,
+                notional=7500.0,
+                params=_VIX_SPIKE_DEFAULT_PARAMS,
+                now=now,
+                exit_mode="auto",
+                universe="spy",
+            )
+            conn.execute(
+                "UPDATE strategies SET entry_mode = 'auto', alert_style = 'per_trade' "
+                "WHERE id = ?",
+                ("vix_spike",),
             )
 
         if need_earnings:

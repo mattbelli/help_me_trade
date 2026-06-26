@@ -8,10 +8,12 @@ from typing import Any, Callable
 
 from db.base import DEFAULT_DB_PATH
 from db.earnings_calendar import earnings_dates_for
+from db.regime import recent_observations
 from research.strategy_features import (
     compute_market_context,
     is_earnings_drift_entry,
     is_strategy_entry,
+    is_vix_spike_entry,
 )
 from signals.indicators import closes, pct_change
 from signals.regime import market_regime, regime_is_fresh
@@ -85,6 +87,30 @@ def _earnings_rationale(ctx: EntryContext, strategy_name: str) -> str:
     return f"{strategy_name}: {ctx.sym} pre-earnings drift, next earnings {next_str}"
 
 
+def _vix_spike_check(ctx: EntryContext) -> bool:
+    # SPY-only, regime-driven. FAIL-CLOSED: no fresh regime / not enough VIX history ⇒ don't fire.
+    if not regime_is_fresh(db_path=ctx.db_path):
+        return False
+    lookback = int(ctx.params.get("vix_calm_lookback", 12))
+    obs = recent_observations("VIXCLS", limit=lookback + 1, db_path=ctx.db_path)
+    if len(obs) < lookback + 1:
+        return False
+    return is_vix_spike_entry(
+        obs[0][1],  # newest VIX = today
+        [v for _, v in obs[1:]],  # the prior closes (newest-first; count-only)
+        vix_spike_min=float(ctx.params.get("vix_spike_min", 28.0)),
+        vix_calm_max=float(ctx.params.get("vix_calm_max", 22.0)),
+        vix_calm_lookback=lookback,
+        vix_calm_min_days=int(ctx.params.get("vix_calm_min_days", 8)),
+    )
+
+
+def _vix_spike_rationale(ctx: EntryContext, strategy_name: str) -> str:
+    obs = recent_observations("VIXCLS", limit=1, db_path=ctx.db_path)
+    vix_str = f"{obs[0][1]:.1f}" if obs else "?"
+    return f"{strategy_name}: VIX spike {vix_str} from calm — buy-fear {ctx.sym} long"
+
+
 DIP_ENTRY_PARAM_KEYS = (
     "healthy_required",
     "oversold_3d_max",
@@ -100,6 +126,12 @@ EARNINGS_ENTRY_PARAM_KEYS = (
     "min_gap_td",
     "max_gap_td",
 )
+VIX_SPIKE_ENTRY_PARAM_KEYS = (
+    "vix_spike_min",
+    "vix_calm_max",
+    "vix_calm_lookback",
+    "vix_calm_min_days",
+)
 
 STRATEGY_KINDS: dict[str, StrategyKind] = {
     "dip": StrategyKind(
@@ -107,6 +139,9 @@ STRATEGY_KINDS: dict[str, StrategyKind] = {
     ),
     "earnings": StrategyKind(
         "earnings", EARNINGS_ENTRY_PARAM_KEYS, _earnings_check, _earnings_rationale
+    ),
+    "vix_spike": StrategyKind(
+        "vix_spike", VIX_SPIKE_ENTRY_PARAM_KEYS, _vix_spike_check, _vix_spike_rationale
     ),
 }
 
@@ -117,6 +152,8 @@ def strategy_kind(strategy_id: str) -> str | None:
     sid = (strategy_id or "").lower()
     if sid.startswith("momentum"):
         return "momentum"
+    if "vix" in sid:
+        return "vix_spike"
     if "earnings" in sid:
         return "earnings"
     if "dip" in sid:

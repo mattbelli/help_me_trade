@@ -24,8 +24,14 @@ from db.paper_orders import get_proposal
 from db.sqlite import get_latest_snapshot
 from db.strategies import get_strategy
 from research.strategy_features import _trading_days_until
-from signals.exit_evaluators import ExitDecision, evaluate_dip_exit, evaluate_earnings_exit
+from signals.exit_evaluators import (
+    ExitDecision,
+    evaluate_dip_exit,
+    evaluate_earnings_exit,
+    evaluate_vix_exit,
+)
 from signals.push import send_alert_push
+from signals.regime import market_regime, regime_is_fresh
 from signals.strategy_kinds import is_portfolio_kind
 from trading.execution_service import ExecutionService
 from trading.models import OrderIntent, RiskRejectedError
@@ -139,6 +145,10 @@ def _set_pending_marker(
 
 def _strategy_kind(strategy_id: str) -> str | None:
     sid = strategy_id.lower()
+    # Order matches signals.strategy_kinds.strategy_kind (vix before earnings/dip) so the
+    # entry kind and the exit evaluator never diverge for a mixed-substring id.
+    if "vix" in sid:
+        return "vix_spike"
     if "earnings" in sid:
         return "earnings"
     if "dip" in sid:
@@ -225,6 +235,13 @@ async def _process_managed_position(
             bar_low=None,
             high_water_mark=hwm,
             first_target_hit=row["first_target_hit"],
+            holding_days=holding_days,
+            params=row["params"],
+        )
+    elif kind == "vix_spike":
+        regime = market_regime(db_path=db_path) if regime_is_fresh(db_path=db_path) else None
+        decision = evaluate_vix_exit(
+            current_vix=(regime.get("vix") if regime else None),
             holding_days=holding_days,
             params=row["params"],
         )

@@ -485,6 +485,71 @@ async def test_wrong_account_snapshot_is_rejected(
 
 
 @pytest.mark.asyncio
+async def test_vix_spike_exits_on_reversion_when_regime_fresh(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _db(tmp_path)
+    _seed_account(db)
+    update_strategy("vix_spike", exit_mode="auto", db_path=db)
+    monkeypatch.setattr("trading.exit_engine.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "trading.exit_engine.market_regime",
+        lambda **_: {"vix": 19.0, "as_of": "2026-06-25"},
+    )
+    _save_snapshot(
+        db,
+        positions=[_position(symbol="SPY", avg_entry_price=400.0, current_price=410.0, qty=10.0)],
+    )
+    record_open_position(
+        account_id="acct_1",
+        symbol="SPY",
+        strategy_id="vix_spike",
+        qty="10",
+        exit_mode="auto",
+        params={"vix_exit_below": 20.0, "max_holding_days": 60},
+        db_path=db,
+    )
+
+    outcomes = await run_exit_engine(db_path=db)
+
+    assert outcomes[0]["action"] == "exit"
+    assert outcomes[0]["reason"] == "vix_reversion"
+    assert len(exit_stubs["submit_calls"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_vix_spike_holds_when_regime_stale(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _db(tmp_path)
+    _seed_account(db)
+    update_strategy("vix_spike", exit_mode="auto", db_path=db)
+    monkeypatch.setattr("trading.exit_engine.regime_is_fresh", lambda **_: False)
+    monkeypatch.setattr(
+        "trading.exit_engine.market_regime",
+        lambda **_: {"vix": 19.0, "as_of": "2026-06-25"},
+    )
+    _save_snapshot(
+        db,
+        positions=[_position(symbol="SPY", avg_entry_price=400.0, current_price=410.0, qty=10.0)],
+    )
+    record_open_position(
+        account_id="acct_1",
+        symbol="SPY",
+        strategy_id="vix_spike",
+        qty="10",
+        exit_mode="auto",
+        params={"vix_exit_below": 20.0, "max_holding_days": 60},
+        db_path=db,
+    )
+
+    outcomes = await run_exit_engine(db_path=db)
+
+    assert outcomes[0]["action"] == "hold"
+    assert exit_stubs["submit_calls"] == []
+
+
+@pytest.mark.asyncio
 async def test_portfolio_position_skipped_entirely(tmp_path: Path) -> None:
     """Portfolio-kind (momentum) positions are skipped by the exit engine — no stop/target/
     time exit, no closure reconcile. The monthly rebalance owns their full lifecycle."""

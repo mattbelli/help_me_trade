@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from signals.exit_evaluators import evaluate_dip_exit, evaluate_earnings_exit
+from signals.exit_evaluators import evaluate_dip_exit, evaluate_earnings_exit, evaluate_vix_exit
 
 
 def _dip(**kwargs):
@@ -179,3 +179,35 @@ def test_earnings_safety_cap():
     assert d.action == "exit"
     assert d.reason == "time_cap"
     assert d.exit_fraction == 1.0
+
+
+def test_vix_exit_time_cap_precedence():
+    d = evaluate_vix_exit(current_vix=35.0, holding_days=60, params={})
+    assert d.action == "exit"
+    assert d.reason == "time_cap"
+    assert d.exit_fraction == 1.0
+
+
+def test_vix_exit_reversion():
+    d = evaluate_vix_exit(current_vix=19.0, holding_days=10, params={})
+    assert d.action == "exit"
+    assert d.reason == "vix_reversion"
+    assert d.exit_fraction == 1.0
+
+
+def test_vix_exit_hold_when_vix_high():
+    d = evaluate_vix_exit(current_vix=25.0, holding_days=10, params={})
+    assert d.action == "hold"
+    assert d.reason == "hold"
+
+
+def test_vix_exit_hold_when_vix_missing():
+    d = evaluate_vix_exit(current_vix=None, holding_days=10, params={})
+    assert d.action == "hold"
+    assert d.detail.get("error") == "no_vix"
+
+
+def test_vix_exit_boundary_vix_exactly_20_holds():
+    d = evaluate_vix_exit(current_vix=20.0, holding_days=10, params={})
+    assert d.action == "hold"
+    assert d.reason == "hold"
