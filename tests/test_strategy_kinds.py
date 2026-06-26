@@ -10,6 +10,7 @@ from signals.strategy_kinds import (
     STRATEGY_KINDS,
     EntryContext,
     filter_entry_params,
+    is_portfolio_kind,
     kind_spec,
     strategy_kind,
 )
@@ -108,7 +109,16 @@ def test_strategy_kind_inference() -> None:
     assert strategy_kind("dip_buy") == "dip"
     assert strategy_kind("dip_refined") == "dip"
     assert strategy_kind("earnings_drift") == "earnings"
+    assert strategy_kind("momentum_sp500") == "momentum"
+    assert strategy_kind("momentum_residual") == "momentum"
     assert strategy_kind("manual_x") is None
+
+
+def test_is_portfolio_kind() -> None:
+    assert is_portfolio_kind("momentum_sp500") is True
+    assert is_portfolio_kind("momentum_residual") is True
+    assert is_portfolio_kind("dip_buy") is False
+    assert is_portfolio_kind("earnings_drift") is False
 
 
 def test_kind_spec_entry_param_keys() -> None:

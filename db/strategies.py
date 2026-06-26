@@ -49,6 +49,7 @@ _EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
 
 _VALID_EXIT_MODES = frozenset({"auto", "propose"})
 _VALID_ENTRY_MODES = frozenset({"auto", "propose"})
+_VALID_ALERT_STYLES = frozenset({"per_trade", "summary"})
 
 
 def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -88,6 +89,14 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 "UPDATE strategies SET universe = 'active_watchlist' "
                 "WHERE universe IS NULL"
             )
+        if "alert_style" not in existing:
+            conn.execute(
+                "ALTER TABLE strategies ADD COLUMN alert_style TEXT NOT NULL DEFAULT 'per_trade'"
+            )
+        if "last_rebalanced_month" not in existing:
+            conn.execute(
+                "ALTER TABLE strategies ADD COLUMN last_rebalanced_month TEXT"
+            )
         conn.commit()
 
 
@@ -118,6 +127,8 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         "max_deployed_usd": (
             float(max_deployed) if max_deployed is not None else None
         ),
+        "alert_style": row["alert_style"],
+        "last_rebalanced_month": row["last_rebalanced_month"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -136,7 +147,8 @@ def list_strategies(
                 f"""
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
                        entry_mode, params_json, universe, max_concurrent_positions,
-                       max_deployed_usd, created_at, updated_at
+                       max_deployed_usd, alert_style, last_rebalanced_month,
+                       created_at, updated_at
                 FROM strategies
                 {where}
                 ORDER BY created_at
@@ -159,7 +171,8 @@ def get_strategy(
                 """
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
                        entry_mode, params_json, universe, max_concurrent_positions,
-                       max_deployed_usd, created_at, updated_at
+                       max_deployed_usd, alert_style, last_rebalanced_month,
+                       created_at, updated_at
                 FROM strategies
                 WHERE id = ?
                 """,
@@ -178,6 +191,7 @@ def update_strategy(
     notional_usd: float | None = None,
     exit_mode: str | None = None,
     entry_mode: str | None = None,
+    alert_style: str | None = None,
     params: dict[str, Any] | None = None,
     universe: str | None = None,
     max_concurrent_positions: int | None = ...,  # type: ignore[assignment]
@@ -194,6 +208,9 @@ def update_strategy(
 
     if entry_mode is not None and entry_mode not in _VALID_ENTRY_MODES:
         raise ValueError(f"entry_mode must be one of {sorted(_VALID_ENTRY_MODES)}")
+
+    if alert_style is not None and alert_style not in _VALID_ALERT_STYLES:
+        raise ValueError(f"alert_style must be one of {sorted(_VALID_ALERT_STYLES)}")
 
     if notional_usd is not None and notional_usd < 0:
         raise ValueError("notional_usd must be >= 0")
@@ -230,6 +247,9 @@ def update_strategy(
     if entry_mode is not None:
         fields.append("entry_mode = ?")
         values.append(entry_mode)
+    if alert_style is not None:
+        fields.append("alert_style = ?")
+        values.append(alert_style)
     if params is not None:
         fields.append("params_json = ?")
         values.append(json.dumps(params))
@@ -336,11 +356,13 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
     need_dip_refined = get_strategy("dip_refined", db_path=db_path) is None
     need_earnings = get_strategy("earnings_drift", db_path=db_path) is None
     need_session_node = get_strategy("session_node_spy", db_path=db_path) is None
+    need_momentum = get_strategy("momentum_sp500", db_path=db_path) is None
     if (
         not need_dip_buy
         and not need_dip_refined
         and not need_earnings
         and not need_session_node
+        and not need_momentum
     ):
         return
 
@@ -403,6 +425,28 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 now=now,
                 exit_mode="propose",
                 universe=None,
+            )
+
+        if need_momentum:
+            # Residual-momentum portfolio — seeded DISABLED + UNBOUND. Ships full-auto +
+            # summary alerts (paper-fenced); founder binds a dedicated paper account and
+            # enables when ready. Rebalance execution is Inc-3.
+            _insert_strategy(
+                conn,
+                strategy_id="momentum_sp500",
+                name="Residual-Momentum Portfolio (S&P 500)",
+                enabled=False,
+                account_id=None,
+                notional=50000.0,
+                params={},
+                now=now,
+                exit_mode="propose",
+                universe="sp500",
+            )
+            conn.execute(
+                "UPDATE strategies SET entry_mode = 'auto', alert_style = 'summary' "
+                "WHERE id = ?",
+                ("momentum_sp500",),
             )
 
         conn.commit()

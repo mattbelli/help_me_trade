@@ -20,6 +20,7 @@ from brokers.factory import connection_is_configured, get_broker_for_account
 from config.settings import broker_is_configured, trading_config
 from db.accounts import get_account, get_connection
 from db.base import DEFAULT_DB_PATH
+from db.managed_positions import list_open_positions
 from db.order_executions import list_recent_auto_entries
 from db.paper_orders import list_pending_proposals
 from db.sqlite import get_latest_snapshot
@@ -28,6 +29,7 @@ from signals.scan import _fetch_stock_bars
 from signals.strategy_kinds import (
     EntryContext,
     filter_entry_params,
+    is_portfolio_kind,
     kind_spec,
 )
 from signals.strategy_universe import resolve_universe_spec
@@ -213,11 +215,65 @@ def _account_is_ready(
     return True
 
 
+async def _run_portfolio_strategy(
+    strategy: dict[str, Any],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Rank → diff vs holdings. Read-only in Inc-2 — logs the plan, places zero orders."""
+    from signals.momentum import production_target_set
+
+    sid = strategy["id"]
+    target_rows = production_target_set(db_path=db_path)
+    if not target_rows:
+        logger.warning(
+            "Momentum rebalance skipped for %s — empty target set (no bars yet?)",
+            sid,
+        )
+        return []
+
+    target = {str(d["symbol"]).upper() for d in target_rows}
+    held = {
+        str(row["symbol"]).upper()
+        for row in list_open_positions(db_path=db_path)
+        if row["strategy_id"] == sid
+    }
+    sells = held - target
+    buys = target - held
+    holds = held & target
+
+    logger.info(
+        "Momentum rebalance PLAN (read-only) for %s: target=%d held=%d → "
+        "buy %d, sell %d, hold %d | buys=%s sells=%s",
+        sid,
+        len(target),
+        len(held),
+        len(buys),
+        len(sells),
+        len(holds),
+        sorted(buys)[:10],
+        sorted(sells)[:10],
+    )
+    return [
+        {
+            "status": "planned",
+            "strategy_id": sid,
+            "n_target": len(target),
+            "n_buy": len(buys),
+            "n_sell": len(sells),
+            "n_hold": len(holds),
+        }
+    ]
+
+
 async def _run_strategy(
     strategy: dict[str, Any],
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
+    if is_portfolio_kind(strategy["id"]):
+        return await _run_portfolio_strategy(strategy, db_path=db_path)
+
     spec = kind_spec(strategy["id"])
     if spec is None:
         logger.warning(

@@ -20,6 +20,7 @@ from db.strategies import (
     seed_default_strategies,
     update_strategy,
 )
+from signals.strategy_kinds import is_portfolio_kind, strategy_kind
 
 
 def _migrated_db(tmp_path: Path) -> Path:
@@ -76,6 +77,7 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
         "dip_refined",
         "earnings_drift",
         "session_node_spy",
+        "momentum_sp500",
     }
 
     seed_default_strategies(db_path=db)
@@ -84,7 +86,49 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
         "dip_refined",
         "earnings_drift",
         "session_node_spy",
+        "momentum_sp500",
     }
+
+
+def test_seed_momentum_sp500_defaults(tmp_path: Path, monkeypatch) -> None:
+    db = _migrated_db(tmp_path)
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    seed_default_strategies(db_path=db)
+    row = get_strategy("momentum_sp500", db_path=db)
+    assert row is not None
+    assert row["enabled"] is False
+    assert row["account_id"] is None
+    assert row["notional_usd"] == 50000.0
+    assert row["exit_mode"] == "propose"
+    assert row["entry_mode"] == "auto"
+    assert row["alert_style"] == "summary"
+    assert row["last_rebalanced_month"] is None
+    assert row["universe"] == "sp500"
+    assert row["params"] == {}
+    assert strategy_kind("momentum_sp500") == "momentum"
+    assert is_portfolio_kind("momentum_sp500") is True
+
+
+def test_alert_style_defaults_and_migrates(tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    seed_default_strategies(db_path=db)
+    row = get_strategy("dip_buy", db_path=db)
+    assert row is not None
+    assert row["alert_style"] == "per_trade"
+    assert row["last_rebalanced_month"] is None
+
+    updated = update_strategy("dip_buy", alert_style="summary", db_path=db)
+    assert updated["alert_style"] == "summary"
+    assert get_strategy("dip_buy", db_path=db)["alert_style"] == "summary"
+
+    init_strategy_tables(db)
+    with connect(db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(strategies)")}
+    assert "alert_style" in cols
+    assert "last_rebalanced_month" in cols
 
 
 def test_seed_session_node_spy_defaults(tmp_path: Path, monkeypatch) -> None:
@@ -285,6 +329,9 @@ def test_update_strategy_validates(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="entry_mode"):
         update_strategy("dip_buy", entry_mode="invalid", db_path=db)
+
+    with pytest.raises(ValueError, match="alert_style"):
+        update_strategy("dip_buy", alert_style="invalid", db_path=db)
 
     with pytest.raises(ValueError, match="notional_usd"):
         update_strategy("dip_buy", notional_usd=-1, db_path=db)

@@ -102,11 +102,18 @@ STRATEGY_KINDS: dict[str, StrategyKind] = {
 def strategy_kind(strategy_id: str) -> str | None:
     """Infer kind from id. Mirrors trading/exit_engine._strategy_kind (keep them consistent)."""
     sid = (strategy_id or "").lower()
+    if sid.startswith("momentum"):
+        return "momentum"
     if "earnings" in sid:
         return "earnings"
     if "dip" in sid:
         return "dip"
     return None
+
+
+def is_portfolio_kind(strategy_id: str) -> bool:
+    """True for portfolio-rebalance strategies (rank → diff vs holdings)."""
+    return strategy_kind(strategy_id) == "momentum"
 
 
 def kind_spec(strategy_id: str) -> StrategyKind | None:

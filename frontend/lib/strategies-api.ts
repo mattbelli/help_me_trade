@@ -9,6 +9,8 @@ export type Strategy = {
   notional_usd: number;
   exit_mode: "auto" | "propose";
   entry_mode: "auto" | "propose";
+  alert_style?: "per_trade" | "summary";
+  last_rebalanced_month?: string | null;
   params: Record<string, unknown>;
   universe: string;
   max_concurrent_positions: number | null;
@@ -36,6 +38,7 @@ export type StrategyPatch = Partial<{
   notional_usd: number;
   exit_mode: "auto" | "propose";
   entry_mode: "auto" | "propose";
+  alert_style: "per_trade" | "summary";
   params: Record<string, unknown>;
   universe: string;
   max_concurrent_positions: number | null;
