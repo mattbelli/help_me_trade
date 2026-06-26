@@ -842,6 +842,15 @@ def finnhub_api_key() -> str:
     return os.environ.get("FINNHUB_API_KEY", "").strip()
 
 
+def fred_api_key() -> str:
+    """FRED API key for macro regime series (yield curve, VIX)."""
+    return os.environ.get("FRED_API_KEY", "").strip()
+
+
+def fred_is_configured() -> bool:
+    return bool(fred_api_key())
+
+
 def alphavantage_api_key() -> str:
     return os.environ.get("ALPHAVANTAGE_API_KEY", "").strip()
 
