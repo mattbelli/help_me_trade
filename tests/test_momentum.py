@@ -244,3 +244,19 @@ async def test_refresh_universe_bars_fail_soft_on_missing_symbol(
     n = await refresh_universe_bars(days=30, db_path=db)
     assert n == 1
     assert "AAPL" in load_daily_bars(["AAPL", "BAD"], db_path=db)
+
+
+def test_extreme_residual_gate_drops_artifacts_and_flags_boundary() -> None:
+    """Calibrated screen: hard-drop residual > +12, soft-flag > +8 (keep), keep the rest."""
+    from signals.momentum import _apply_extreme_residual_gate
+
+    target = [
+        {"symbol": "OK", "residual_momentum": 3.0},
+        {"symbol": "FLAG", "residual_momentum": 9.0},   # > +8 soft → kept + logged
+        {"symbol": "EDGE", "residual_momentum": 12.0},  # exactly +12 → kept (not strictly >)
+        {"symbol": "SNDK", "residual_momentum": 32.0},  # > +12 hard → dropped
+    ]
+    out = _apply_extreme_residual_gate(target)
+    syms = {d["symbol"] for d in out}
+    assert "SNDK" not in syms
+    assert syms == {"OK", "FLAG", "EDGE"}

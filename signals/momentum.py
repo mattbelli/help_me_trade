@@ -119,4 +119,44 @@ def production_target_set(
     if not rank_date:
         return []
 
-    return compute_target_set(bars, sector_map, rank_date)
+    # Min-real-history is enforced upstream: compute_target_set requires a 252-bar lookback
+    # index, so any symbol with <252 real bars at rank_date is skipped (no padding in prod
+    # bars). The remaining safety screen is the extreme-residual guard below.
+    target = compute_target_set(bars, sector_map, rank_date)
+    return _apply_extreme_residual_gate(target)
+
+
+# Calibrated on 15yr Norgate (180 month-ends, 16,190 selections): legit residuals top out at
+# +10.83 (CVNA's real 25x recovery), p99.9 = +5.0. Hard-drop > +12 passes every legit selection
+# ever observed and catches data artifacts (e.g. SNDK's +32 spin-off glitch); soft-flag > +8.
+RESIDUAL_HARD_DROP = 12.0
+RESIDUAL_SOFT_FLAG = 8.0
+
+
+def _apply_extreme_residual_gate(target: list[dict]) -> list[dict]:
+    """Drop implausible-residual names (data artifacts) before they can be bought.
+
+    Momentum auto-BUYS the top quintile, and "huge 12-month return" is exactly what a
+    price-history glitch (spin-off / split / incomplete listing) produces — so a bad bar
+    doesn't just add noise, it gets selected. Hard-drop > +12; soft-flag (keep + log) > +8.
+    """
+    screened: list[dict] = []
+    for row in target:
+        r = float(row.get("residual_momentum", 0.0))
+        if r > RESIDUAL_HARD_DROP:
+            logger.warning(
+                "Momentum sanity gate: HARD-DROP %s — residual %.2f > %.1f (data artifact?)",
+                row.get("symbol"),
+                r,
+                RESIDUAL_HARD_DROP,
+            )
+            continue
+        if r > RESIDUAL_SOFT_FLAG:
+            logger.warning(
+                "Momentum sanity gate: SOFT-FLAG %s — residual %.2f > %.1f (review)",
+                row.get("symbol"),
+                r,
+                RESIDUAL_SOFT_FLAG,
+            )
+        screened.append(row)
+    return screened
