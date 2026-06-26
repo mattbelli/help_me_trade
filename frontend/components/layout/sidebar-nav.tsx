@@ -11,6 +11,7 @@ import {
   LineChart,
   Scale,
   Search,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -70,6 +71,12 @@ const NAV_ITEMS: {
     label: "Rules",
     description: "Portfolio alerts",
     icon: Scale,
+  },
+  {
+    href: "/automations",
+    label: "Automations",
+    description: "Strategies, scans, reports & alerts",
+    icon: Zap,
   },
 ];
 

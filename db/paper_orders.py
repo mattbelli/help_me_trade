@@ -13,6 +13,7 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.schema_helpers import _add_column_if_missing
 
 _NEW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("expires_at", "TEXT"),
@@ -62,6 +63,13 @@ def init_paper_order_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             except sqlite3.OperationalError as exc:
                 if "duplicate column" not in str(exc).lower():
                     raise
+        _add_column_if_missing(conn, "paper_order_proposals", "account_id", "TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_proposals_account_status
+                ON paper_order_proposals(account_id, status)
+            """
+        )
         conn.commit()
 
 
@@ -148,6 +156,7 @@ def create_pending_proposal(
     source: str | None = None,
     rule_id: str | None = None,
     score: dict[str, Any] | None = None,
+    account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_paper_order_tables(db_path)
@@ -174,8 +183,8 @@ def create_pending_proposal(
             INSERT INTO paper_order_proposals (
                 id, session_id, symbol, side, qty, order_type, limit_price,
                 status, proposal_json, created_at, expires_at, payload_hash, delivery,
-                source, rule_id, score_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source, rule_id, score_json, account_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pid,
@@ -194,6 +203,7 @@ def create_pending_proposal(
                 source,
                 rule_id,
                 json.dumps(score) if score is not None else None,
+                account_id,
             ),
         )
         conn.commit()
@@ -214,19 +224,35 @@ def get_proposal(
     return _row_to_proposal(row) if row else None
 
 
-def list_pending_proposals(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+def list_pending_proposals(
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
     init_paper_order_tables(db_path)
     now = datetime.now(UTC).isoformat()
     with _connect(db_path) as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM paper_order_proposals
-            WHERE status = 'pending_phone'
-              AND (expires_at IS NULL OR expires_at > ?)
-            ORDER BY created_at DESC
-            """,
-            (now,),
-        ).fetchall()
+        if account_id is not None:
+            rows = conn.execute(
+                """
+                SELECT * FROM paper_order_proposals
+                WHERE status = 'pending_phone'
+                  AND (expires_at IS NULL OR expires_at > ?)
+                  AND account_id = ?
+                ORDER BY created_at DESC
+                """,
+                (now, account_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM paper_order_proposals
+                WHERE status = 'pending_phone'
+                  AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY created_at DESC
+                """,
+                (now,),
+            ).fetchall()
     out: list[dict[str, Any]] = []
     for row in rows:
         parsed = _row_to_proposal(row)

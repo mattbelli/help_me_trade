@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, LockOpen, Plus } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
@@ -11,16 +11,27 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   fetchBroker,
   fetchSettings,
   formatMoney,
   type BrokerInfo,
+  type BrokerSnapshot,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useDayPnl } from "@/lib/workspace/use-day-pnl";
+import {
+  maskMoney,
+  resolveAccountView,
+  useDashboardPrefs,
+} from "@/lib/workspace/use-dashboard-prefs";
 import { useEtClock } from "@/lib/workspace/use-et-clock";
-import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
-
 import { ThemeSwitcher } from "./theme-switcher";
 import { NotificationBell } from "./notification-bell";
 
@@ -34,6 +45,37 @@ function formatCompactMoney(value: number): string {
 function formatSignedPnl(value: number): string {
   const prefix = value >= 0 ? "+" : "";
   return `${prefix}${formatMoney(value)}`;
+}
+
+function accountSelectLabel(entry: BrokerSnapshot): string {
+  const base = entry.account_label ?? entry.broker;
+  return entry.is_default ? `${base} (default)` : base;
+}
+
+function ToolbarTile({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-0.5 text-center leading-tight">
+      <div className="font-mono text-[8px] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
+        {label}
+      </div>
+      <div
+        className={cn(
+          "font-mono text-[14px] font-semibold tabular-nums text-foreground",
+          valueClassName,
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
 }
 
 function formatCapturedAt(iso: string): string {
@@ -75,7 +117,16 @@ export function WorkspaceToolbar() {
   const { snapshot, brokerInfo, loading } = useSnapshot();
   const { dayPnl, loading: dayLoading } = useDayPnl();
   const clock = useEtClock();
-  const { locked, toggleLock, openPicker } = useWorkspaceStore();
+  const {
+    selectedAccountId,
+    privacyMode,
+    setSelectedAccountId,
+    togglePrivacy,
+  } = useDashboardPrefs();
+
+  const view = resolveAccountView(snapshot, selectedAccountId);
+  const accountSnapshots = snapshot?.snapshots ?? [];
+  const showAccountSelect = accountSnapshots.length > 1;
 
   const [brokerOpen, setBrokerOpen] = useState(false);
   const [brokerDetails, setBrokerDetails] = useState<BrokerInfo | null>(null);
@@ -137,7 +188,7 @@ export function WorkspaceToolbar() {
   const auth = brokerAuth(details, primary);
 
   return (
-    <header className="relative flex h-11 shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[11.5px]">
+    <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[11.5px]">
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2">
           <span
@@ -249,79 +300,95 @@ export function WorkspaceToolbar() {
         ) : null}
       </div>
 
-      <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
-        <span className="hidden font-sans text-[13px] font-semibold tracking-tight text-foreground md:inline">
-          Workspace
-        </span>
-        <span className="hidden rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[11px] text-[var(--fg-dim)] md:inline">
-          default layout
-        </span>
-        <button
-          type="button"
-          onClick={toggleLock}
-          className={cn(
-            "rounded p-1 transition-colors hover:bg-[var(--bg-hover)]",
-            locked
-              ? "text-[var(--c-accent)]"
-              : "text-[var(--fg-faint)] hover:text-foreground",
-          )}
-          aria-label={locked ? "Unlock workspace layout" : "Lock workspace layout"}
-        >
-          {locked ? (
-            <Lock className="size-3.5" />
-          ) : (
-            <LockOpen className="size-3.5" />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={openPicker}
-          className="rounded border border-dashed border-[var(--border-strong)] p-1 text-[var(--fg-dim)] transition-colors hover:border-[var(--c-accent)] hover:bg-[var(--c-accent-soft)] hover:text-foreground"
-          aria-label="Add widget"
-        >
-          <Plus className="size-3.5" />
-        </button>
-      </div>
-
-      <div className="ml-auto flex items-center gap-1.5 md:gap-5">
-        <div className="hidden items-center gap-5 text-[var(--fg-dim)] md:flex">
-          {loading && !snapshot ? null : snapshot ? (
+      <div className="absolute left-1/2 hidden -translate-x-1/2 items-center lg:flex">
+        <div className="flex items-center gap-1.5 text-[var(--fg-dim)]">
+          {loading && !snapshot ? null : snapshot && view ? (
             <>
-              <span>
-                <span className="text-[var(--fg-faint)]">PORT </span>
-                <b className="font-semibold text-foreground">
-                  {formatMoney(snapshot.account.portfolio_value)}
-                </b>
-              </span>
-              <span>
-                <span className="text-[var(--fg-faint)]">BP </span>
-                <b className="font-semibold text-foreground">
-                  {formatCompactMoney(snapshot.account.buying_power)}
-                </b>
-              </span>
-              <span>
-                <span className="text-[var(--fg-faint)]">DAY </span>
-                {dayLoading && dayPnl == null ? (
-                  <b className="font-semibold text-foreground">—</b>
-                ) : dayPnl != null ? (
-                  <b
-                    className={cn(
-                      "font-semibold",
-                      dayPnl >= 0
-                        ? "text-[var(--c-green)]"
-                        : "text-[var(--c-red)]",
-                    )}
+              {showAccountSelect ? (
+                <Select
+                  value={selectedAccountId}
+                  onValueChange={(v) => setSelectedAccountId(v ?? "all")}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-7 min-w-[7rem] border-[var(--border)] bg-[var(--bg-inset)] px-2 font-mono text-[10.5px] text-foreground"
                   >
-                    {formatSignedPnl(dayPnl)}
-                  </b>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="font-mono text-[11px]">
+                    <SelectItem value="all">All accounts</SelectItem>
+                    {accountSnapshots.map((s) =>
+                      s.account_id ? (
+                        <SelectItem key={s.account_id} value={s.account_id}>
+                          {accountSelectLabel(s)}
+                        </SelectItem>
+                      ) : null,
+                    )}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <button
+                type="button"
+                onClick={togglePrivacy}
+                title={privacyMode ? "Show balances" : "Hide balances"}
+                className="rounded p-1 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+              >
+                {privacyMode ? (
+                  <EyeOff className="size-3.5" />
                 ) : (
-                  <b className="font-semibold text-foreground">—</b>
+                  <Eye className="size-3.5" />
                 )}
-              </span>
+              </button>
+              <ToolbarTile
+                label="PORT"
+                value={maskMoney(
+                  view.portfolio_value,
+                  privacyMode,
+                  formatCompactMoney,
+                )}
+              />
+              <ToolbarTile
+                label="BP"
+                value={maskMoney(
+                  view.buying_power,
+                  privacyMode,
+                  formatCompactMoney,
+                )}
+              />
+              <ToolbarTile
+                label="DAY"
+                value={
+                  dayLoading && dayPnl == null
+                    ? "—"
+                    : dayPnl != null
+                      ? maskMoney(dayPnl, privacyMode, formatSignedPnl)
+                      : "—"
+                }
+                valueClassName={
+                  !privacyMode && dayPnl != null
+                    ? dayPnl >= 0
+                      ? "text-[var(--c-green)]"
+                      : "text-[var(--c-red)]"
+                    : undefined
+                }
+              />
+              <ToolbarTile
+                label="UPL"
+                value={maskMoney(view.unrealized_pl, privacyMode, formatSignedPnl)}
+                valueClassName={
+                  !privacyMode
+                    ? view.unrealized_pl >= 0
+                      ? "text-[var(--c-green)]"
+                      : "text-[var(--c-red)]"
+                    : undefined
+                }
+              />
             </>
           ) : null}
         </div>
+      </div>
 
+      <div className="ml-auto flex items-center gap-1.5 md:gap-5">
         <NotificationBell />
         <SettingsDialog collapsed />
         <ThemeSwitcher />

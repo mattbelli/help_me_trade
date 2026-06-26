@@ -3,10 +3,11 @@
 import { create } from "zustand";
 
 import { CHART_TIMEFRAMES } from "@/lib/chart-time";
+import { fetchWorkspaceLayout, saveWorkspaceLayout } from "@/lib/api";
 
 import {
   DEFAULT_WORKSPACE_LAYOUT,
-  localStorageLayoutPersistence,
+  localStorageLayoutPersistence, // role: fast local cache + offline fallback
   type WidgetInstanceConfig,
   type WorkspaceLayoutItem,
 } from "./layout-persistence";
@@ -24,7 +25,7 @@ type WorkspaceState = {
   locked: boolean;
   pickerOpen: boolean;
   gridCols: number;
-  hydrate: () => void;
+  hydrate: () => Promise<void>;
   setGridCols: (cols: number) => void;
   updateLayout: (layout: WorkspaceLayoutItem[]) => void;
   addWidget: (type: string) => boolean;
@@ -114,6 +115,29 @@ function defaultConfigForType(type: string): WidgetInstanceConfig | undefined {
   return undefined;
 }
 
+// ── Debounced server save ──────────────────────────────────────────────────────
+// Single module-level timer; last-write-wins is correct for a single user.
+let _serverSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const SERVER_SAVE_DEBOUNCE_MS = 500;
+
+function scheduleServerSave(layout: WorkspaceLayoutItem[]): void {
+  if (_serverSaveTimer !== null) clearTimeout(_serverSaveTimer);
+  _serverSaveTimer = setTimeout(() => {
+    _serverSaveTimer = null;
+    saveWorkspaceLayout(layout).catch((err) => {
+      console.warn("[workspace] server save error (swallowed):", err);
+    });
+  }, SERVER_SAVE_DEBOUNCE_MS);
+}
+
+// Persist to both local cache (instant) and server (debounced).
+function persistLayout(layout: WorkspaceLayoutItem[]): void {
+  localStorageLayoutPersistence.save(layout); // immediate cache
+  scheduleServerSave(layout); // debounced server write
+}
+
+// ── Store ──────────────────────────────────────────────────────────────────────
+
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   layout: DEFAULT_WORKSPACE_LAYOUT,
   hydrated: false,
@@ -123,26 +147,62 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setGridCols: (gridCols) => {
     if (get().gridCols !== gridCols) set({ gridCols });
   },
-  hydrate: () => {
-    const loaded = localStorageLayoutPersistence.load();
-    let layout = loaded ?? DEFAULT_WORKSPACE_LAYOUT;
-    if (loaded) {
-      const known = loaded.filter((item) => getWidgetDefinition(item.type));
-      if (known.length !== loaded.length) {
-        layout = known;
-        localStorageLayoutPersistence.save(known);
-      }
+
+  hydrate: async () => {
+    // Fail-soft: if the server call throws we fall back to localStorage, then
+    // DEFAULT_WORKSPACE_LAYOUT. hydrated=true is set in all branches so the
+    // UI never hangs.
+    let serverLayout: WorkspaceLayoutItem[] | null = null;
+    try {
+      serverLayout = await fetchWorkspaceLayout();
+    } catch {
+      // server unreachable — silently fall back
     }
+
+    // Drop unknown widget types (same logic as before) and verify it's non-empty.
+    function filterKnown(
+      items: WorkspaceLayoutItem[],
+    ): WorkspaceLayoutItem[] {
+      return items.filter((item) => getWidgetDefinition(item.type));
+    }
+
+    if (serverLayout && serverLayout.length > 0) {
+      const known = filterKnown(serverLayout);
+      const layout = known.length > 0 ? known : DEFAULT_WORKSPACE_LAYOUT;
+      // Sync local cache to match server (so offline opens see latest state).
+      localStorageLayoutPersistence.save(layout);
+      set({ layout, hydrated: true, locked: loadLocked() });
+      return;
+    }
+
+    // No server layout — try localStorage cache.
+    const cached = localStorageLayoutPersistence.load();
+    if (cached && cached.length > 0) {
+      const known = filterKnown(cached);
+      const layout = known.length > 0 ? known : DEFAULT_WORKSPACE_LAYOUT;
+      if (known.length !== cached.length) {
+        localStorageLayoutPersistence.save(layout);
+      }
+      // Seed the (empty) server from this device's existing local layout so it
+      // propagates to other devices/tabs on their next open.
+      scheduleServerSave(layout);
+      set({ layout, hydrated: true, locked: loadLocked() });
+      return;
+    }
+
+    // Nothing stored anywhere — use the built-in default.
     set({
-      layout,
+      layout: DEFAULT_WORKSPACE_LAYOUT,
       hydrated: true,
       locked: loadLocked(),
     });
   },
+
   updateLayout: (layout) => {
     set({ layout });
-    localStorageLayoutPersistence.save(layout);
+    persistLayout(layout);
   },
+
   addWidget: (type) => {
     const def = getWidgetDefinition(type);
     if (!def) return false;
@@ -172,9 +232,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     const merged = [...layout, next];
     set({ layout: merged, pickerOpen: false });
-    localStorageLayoutPersistence.save(merged);
+    persistLayout(merged);
     return true;
   },
+
   updateWidgetConfig: (instanceId, patch) => {
     const { layout } = get();
     const next = layout.map((item) =>
@@ -183,15 +244,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         : item,
     );
     set({ layout: next });
-    localStorageLayoutPersistence.save(next);
+    persistLayout(next);
   },
+
   removeWidget: (id) => {
     const { layout } = get();
     const next = layout.filter((item) => item.i !== id);
     if (next.length === layout.length) return;
     set({ layout: next });
-    localStorageLayoutPersistence.save(next);
+    persistLayout(next);
   },
+
   toggleLock: () => {
     const locked = !get().locked;
     set({ locked });

@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from brokers.factory import get_broker
+from brokers.factory import get_broker, get_broker_for_account
 from brokers.market_stream import market_hub
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import (
@@ -14,6 +14,7 @@ from db.order_executions import (
     list_submitted_executions,
     update_execution_status,
 )
+from trading.position_ledger import record_session_node_managed_fill, record_strategy_fill
 
 logger = logging.getLogger(__name__)
 
@@ -40,18 +41,26 @@ def _execution_age_seconds(created_at: str) -> float:
 
 
 async def reconcile_pending_executions(
-    broker_name: str, *, db_path: Path = DEFAULT_DB_PATH
+    broker_name: str,
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Recover paper rows stuck at pending after broker POST (orphan window)."""
     executions = list_stale_pending_paper_executions(
         broker_name,
         min_age_seconds=_PENDING_MIN_AGE_SECONDS,
+        account_id=account_id,
         db_path=db_path,
     )
     if not executions:
         return
 
-    adapter = get_broker(broker_name)
+    adapter = (
+        get_broker_for_account(account_id)
+        if account_id is not None
+        else get_broker(broker_name)
+    )
     for row in executions:
         execution_id = row["id"]
         try:
@@ -84,14 +93,23 @@ async def reconcile_pending_executions(
 
 
 async def reconcile_open_executions(
-    broker_name: str, *, db_path: Path = DEFAULT_DB_PATH
+    broker_name: str,
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Poll broker for submitted executions and update local status on change."""
-    executions = list_submitted_executions(broker_name, db_path=db_path)
+    executions = list_submitted_executions(
+        broker_name, account_id=account_id, db_path=db_path
+    )
     if not executions:
         return
 
-    adapter = get_broker(broker_name)
+    adapter = (
+        get_broker_for_account(account_id)
+        if account_id is not None
+        else get_broker(broker_name)
+    )
     for row in executions:
         execution_id = row["id"]
         broker_order_id = row.get("broker_order_id")
@@ -116,16 +134,34 @@ async def reconcile_open_executions(
             continue
 
         update_execution_status(execution_id, new_status, db_path=db_path)
+
+        # Record strategy attribution into the managed-position ledger so the exit
+        # engine knows whose rules apply. Bookkeeping only — fail-closed inside.
+        row_dict = dict(row)
+        record_strategy_fill(
+            row_dict,
+            filled_qty=order.filled_qty,
+            status=new_status,
+            db_path=db_path,
+        )
+        record_session_node_managed_fill(
+            row_dict,
+            filled_qty=order.filled_qty,
+            status=new_status,
+            db_path=db_path,
+        )
+
         try:
-            await market_hub.broadcast_alert(
-                {
-                    "type": "fill",
-                    "execution_id": execution_id,
-                    "status": new_status,
-                    "symbol": row["symbol"],
-                    "filled_qty": order.filled_qty,
-                }
-            )
+            payload: dict[str, object] = {
+                "type": "fill",
+                "execution_id": execution_id,
+                "status": new_status,
+                "symbol": row["symbol"],
+                "filled_qty": order.filled_qty,
+            }
+            if account_id is not None:
+                payload["account_id"] = account_id
+            await market_hub.broadcast_alert(payload)
         except Exception:
             logger.exception(
                 "Failed to broadcast fill alert for execution %s", execution_id

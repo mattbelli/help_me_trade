@@ -17,7 +17,9 @@ from brokers.base import Account, Position
 from db import order_executions as order_executions_mod
 from db import paper_orders as paper_orders_mod
 from db import sqlite as sqlite_mod
+from db.accounts import default_execution_account
 from db.ai_tables import create_rule, init_ai_tables
+from db.multi_account import migrate_multi_account
 from signals.rule_schema import Action
 from trading.market_hours import is_market_open
 from trading.order_proposal import build_order_proposal_from_args
@@ -241,10 +243,10 @@ async def test_propose_trade_duplicate(monkeypatch, tmp_path: Path) -> None:
 async def test_propose_trade_no_price(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "intake.db"
     _patch_env(monkeypatch, db)
-    monkeypatch.setattr(
-        "trading.proposal_intake._live_market_price",
-        lambda _symbol: None,
-    )
+    async def _no_price(_symbol):
+        return None
+
+    monkeypatch.setattr("trading.proposal_intake._live_market_price", _no_price)
 
     result = await propose_trade(_candidate(), db_path=db)
 
@@ -520,3 +522,274 @@ def test_action_trade_requires_fields() -> None:
         side="buy",
         notional_usd=100,
     )
+
+
+def _migrated_db(tmp_path: Path) -> Path:
+    db = tmp_path / "multi_intake.db"
+    init_ai_tables(db)
+    sqlite_mod.init_db(db)
+    from db.paper_orders import init_paper_order_tables
+    from db.trades import init_trade_tables
+
+    init_trade_tables(db)
+    order_executions_mod.init_execution_tables(db)
+    init_paper_order_tables(db)
+    migrate_multi_account(db)
+    return db
+
+
+def _seed_strat1_account(db: Path) -> str:
+    from datetime import UTC, datetime
+
+    from db.base import connect
+
+    now = datetime.now(UTC).isoformat()
+    conn_id = "conn_alpaca_strat1"
+    acct_id = "acct_alpaca_strat1"
+    with connect(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO broker_connections (
+                id, broker, label, enabled, credentials_json, created_at
+            ) VALUES (?, 'alpaca', 'STRAT1', 1, '{}', ?)
+            """,
+            (conn_id, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_accounts (
+                id, label, broker, created_at, connection_id,
+                enabled, execution_capable, is_default
+            ) VALUES (?, 'STRAT1', 'alpaca', ?, ?, 1, 1, 0)
+            """,
+            (acct_id, now, conn_id),
+        )
+        conn.commit()
+    return acct_id
+
+
+def _save_account_snapshot(
+    db: Path,
+    *,
+    account_id: str,
+    buying_power: float = 100_000.0,
+) -> None:
+    account = Account(
+        id=account_id,
+        status="ACTIVE",
+        cash=50_000.0,
+        buying_power=buying_power,
+        portfolio_value=100_000.0,
+    )
+    sqlite_mod.save_snapshot(
+        account,
+        [],
+        [],
+        broker="alpaca",
+        db_path=db,
+        account_id=account_id,
+    )
+
+
+def _patch_env_multi(
+    monkeypatch,
+    db_path: Path,
+    *,
+    price: float = 150.0,
+    symbol: str = "AAPL",
+    agent_enabled: bool = True,
+    kill_switch: bool = False,
+) -> None:
+    from db import base as db_base
+
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sqlite_mod, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(paper_orders_mod, "DEFAULT_DB_PATH", db_path)
+
+    trading_cfg = {
+        "execution_mode": "dry_run",
+        "kill_switch_active": kill_switch,
+        "agent_proposals_enabled": agent_enabled,
+        "max_pending_agent_proposals": 3,
+        "max_order_value_usd": 50_000,
+        "max_position_pct": 30,
+        "max_open_orders": 10,
+        "max_daily_orders": 20,
+    }
+
+    monkeypatch.setattr(
+        "trading.risk_engine.get_broker",
+        lambda _name: _stub_alpaca(),
+    )
+    monkeypatch.setattr(
+        "trading.risk_engine.market_hub.quote_snapshot",
+        lambda _symbols: {symbol: {"price": price}},
+    )
+    monkeypatch.setattr("trading.risk_engine.is_kill_switch_active", lambda: kill_switch)
+    monkeypatch.setattr("trading.risk_engine.trading_config", lambda: trading_cfg)
+    monkeypatch.setattr("trading.proposal_intake.is_kill_switch_active", lambda: kill_switch)
+    monkeypatch.setattr("trading.proposal_intake.trading_config", lambda: trading_cfg)
+    monkeypatch.setattr("trading.proposal_intake.is_market_open", lambda: True)
+    monkeypatch.setattr(
+        "trading.proposals.market_hub.broadcast_alert",
+        AsyncMock(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_propose_trade_routes_to_bound_account(monkeypatch, tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    strat1_id = _seed_strat1_account(db)
+    _save_account_snapshot(db, account_id=strat1_id, buying_power=50_000.0)
+    _patch_env_multi(monkeypatch, db)
+
+    default = default_execution_account(db_path=db)
+    assert default is not None
+    _save_account_snapshot(db, account_id=default["id"], buying_power=200.0)
+
+    result = await propose_trade(
+        _candidate(notional_usd=Decimal("500"), account_id=strat1_id),
+        db_path=db,
+    )
+
+    assert result["status"] == "proposed"
+    row = paper_orders_mod.get_proposal(result["id"], db_path=db)
+    assert row is not None
+    import sqlite3
+
+    conn = sqlite3.connect(db)
+    stored = conn.execute(
+        "SELECT account_id FROM paper_order_proposals WHERE id = ?",
+        (result["id"],),
+    ).fetchone()
+    conn.close()
+    assert stored[0] == strat1_id
+    assert int(row["qty"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_propose_trade_invalid_account_denied(monkeypatch, tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    _patch_env_multi(monkeypatch, db)
+
+    result = await propose_trade(
+        _candidate(account_id="acct_nonexistent"),
+        db_path=db,
+    )
+    assert result == {"status": "invalid_account"}
+    assert _proposal_count(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_propose_trade_non_exec_account_denied(monkeypatch, tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    from db.base import connect
+
+    db = _migrated_db(tmp_path)
+    _patch_env_multi(monkeypatch, db)
+    now = datetime.now(UTC).isoformat()
+    readonly_id = "acct_readonly"
+    with connect(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_accounts (
+                id, label, broker, created_at,
+                enabled, execution_capable, is_default
+            ) VALUES (?, 'Read Only', 'schwab', ?, 1, 0, 0)
+            """,
+            (readonly_id, now),
+        )
+        conn.commit()
+
+    result = await propose_trade(
+        _candidate(account_id=readonly_id),
+        db_path=db,
+    )
+    assert result == {"status": "invalid_account"}
+
+
+@pytest.mark.asyncio
+async def test_propose_trade_per_account_dedup(monkeypatch, tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    strat1_id = _seed_strat1_account(db)
+    default = default_execution_account(db_path=db)
+    assert default is not None
+    _save_account_snapshot(db, account_id=strat1_id)
+    _save_account_snapshot(db, account_id=default["id"])
+    _patch_env_multi(monkeypatch, db)
+
+    built = build_order_proposal_from_args(
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 1,
+            "order_type": "market",
+            "account_id": strat1_id,
+        },
+        db_path=db,
+    )
+    paper_orders_mod.create_pending_proposal(
+        proposal=built["proposal"],
+        intent_fields=built["intent_fields"],
+        session_id=None,
+        ttl_seconds=300,
+        summary="existing on strat1",
+        account_id=strat1_id,
+        db_path=db,
+    )
+
+    result = await propose_trade(
+        _candidate(account_id=default["id"]),
+        db_path=db,
+    )
+    assert result["status"] == "proposed"
+
+    result_strat1 = await propose_trade(
+        _candidate(account_id=strat1_id),
+        db_path=db,
+    )
+    assert result_strat1 == {"status": "duplicate"}
+
+
+def test_list_pending_proposals_account_filter(tmp_path: Path) -> None:
+    db = tmp_path / "pending_filter.db"
+    from db.trades import init_trade_tables
+
+    init_trade_tables(db)
+    paper_orders_mod.init_paper_order_tables(db)
+
+    built_a = build_order_proposal_from_args(
+        {"symbol": "AAPL", "side": "buy", "qty": 1, "order_type": "market"},
+        db_path=db,
+    )
+    built_b = build_order_proposal_from_args(
+        {"symbol": "MSFT", "side": "buy", "qty": 1, "order_type": "market"},
+        db_path=db,
+    )
+    paper_orders_mod.create_pending_proposal(
+        proposal=built_a["proposal"],
+        intent_fields=built_a["intent_fields"],
+        session_id=None,
+        ttl_seconds=300,
+        summary="acct_a",
+        account_id="acct_a",
+        db_path=db,
+    )
+    paper_orders_mod.create_pending_proposal(
+        proposal=built_b["proposal"],
+        intent_fields=built_b["intent_fields"],
+        session_id=None,
+        ttl_seconds=300,
+        summary="acct_b",
+        account_id="acct_b",
+        db_path=db,
+    )
+
+    all_pending = paper_orders_mod.list_pending_proposals(db_path=db)
+    assert len(all_pending) == 2
+
+    filtered = paper_orders_mod.list_pending_proposals(account_id="acct_a", db_path=db)
+    assert len(filtered) == 1
+    assert filtered[0]["symbol"] == "AAPL"

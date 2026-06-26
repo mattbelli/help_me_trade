@@ -70,15 +70,26 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             }
         ],
     },
+    "reports": {
+        "morning_levels_enabled": True,
+        "hour_et": 8,
+    },
     "trading": {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
         "agent_proposals_enabled": True,
+        # deprecated: see strategies registry (db/strategies.py)
+        "dip_strategy_enabled": False,
+        # deprecated: see strategies registry (db/strategies.py)
+        "dip_strategy_notional_usd": 500,
         "max_pending_agent_proposals": 3,
         "max_order_value_usd": 50000,
         "max_position_pct": 30,
         "max_open_orders": 10,
         "max_daily_orders": 20,
+        # Short selling (sell-to-open). OFF by default. Only ever honored in
+        # dry_run/paper — LIVE short selling stays hard-blocked regardless.
+        "allow_short_selling": False,
     },
 }
 
@@ -330,6 +341,19 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     if "chart_layout" in patch and isinstance(patch["chart_layout"], list):
         current["chart_layout"] = patch["chart_layout"]
 
+    if "reports" in patch and isinstance(patch["reports"], dict):
+        if "reports" not in current or not isinstance(current.get("reports"), dict):
+            current["reports"] = copy.deepcopy(DEFAULT_SETTINGS["reports"])
+        reports_patch = patch["reports"]
+        if "morning_levels_enabled" in reports_patch:
+            current["reports"]["morning_levels_enabled"] = bool(
+                reports_patch["morning_levels_enabled"]
+            )
+        if "hour_et" in reports_patch:
+            current["reports"]["hour_et"] = max(
+                0, min(23, int(reports_patch["hour_et"]))
+            )
+
     if "trading" in patch and isinstance(patch["trading"], dict):
         if "trading" not in current or not isinstance(current.get("trading"), dict):
             current["trading"] = copy.deepcopy(DEFAULT_SETTINGS["trading"])
@@ -351,8 +375,14 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["max_open_orders"] = int(value)
             elif key == "max_daily_orders":
                 current["trading"]["max_daily_orders"] = int(value)
+            elif key == "allow_short_selling":
+                current["trading"]["allow_short_selling"] = bool(value)
             elif key == "agent_proposals_enabled":
                 current["trading"]["agent_proposals_enabled"] = bool(value)
+            elif key == "dip_strategy_enabled":
+                current["trading"]["dip_strategy_enabled"] = bool(value)
+            elif key == "dip_strategy_notional_usd":
+                current["trading"]["dip_strategy_notional_usd"] = max(0.0, float(value))
             elif key == "max_pending_agent_proposals":
                 current["trading"]["max_pending_agent_proposals"] = max(
                     0, min(50, int(value))
@@ -641,6 +671,42 @@ def alpaca_config() -> dict[str, str]:
     }
 
 
+_ALPACA_KEY_SUFFIX_RE = re.compile(r"^APCA_API_KEY_ID_(.+)$")
+
+
+def alpaca_config_for_suffix(suffix: str | None) -> dict[str, str]:
+    """Resolve Alpaca credentials from env, optionally via a connection suffix."""
+    if not suffix:
+        return alpaca_config()
+    primary = alpaca_config()
+    tag = str(suffix).strip()
+    data_feed_env = os.environ.get(f"APCA_DATA_FEED_{tag}", "").strip()
+    data_base_env = os.environ.get(f"APCA_DATA_BASE_URL_{tag}", "").strip()
+    return {
+        "api_key_id": os.environ.get(f"APCA_API_KEY_ID_{tag}", "").strip(),
+        "api_secret_key": os.environ.get(f"APCA_API_SECRET_KEY_{tag}", "").strip(),
+        "api_base_url": os.environ.get(f"APCA_API_BASE_URL_{tag}", "").strip(),
+        "data_base_url": data_base_env or primary["data_base_url"],
+        "data_feed": normalize_alpaca_data_feed(
+            data_feed_env or primary["data_feed"]
+        ),
+    }
+
+
+def discover_alpaca_credential_suffixes() -> list[str]:
+    """Return env suffixes with a complete Alpaca key pair + base URL."""
+    found: set[str] = set()
+    for key in os.environ:
+        match = _ALPACA_KEY_SUFFIX_RE.match(key)
+        if not match:
+            continue
+        suffix = match.group(1)
+        cfg = alpaca_config_for_suffix(suffix)
+        if cfg["api_key_id"] and cfg["api_secret_key"] and cfg["api_base_url"]:
+            found.add(suffix)
+    return sorted(found)
+
+
 def schwab_config() -> dict[str, str]:
     cfg = load_settings()["brokers"]["schwab"]
     return {
@@ -682,6 +748,12 @@ def trading_config() -> dict[str, Any]:
         "agent_proposals_enabled": bool(
             cfg.get("agent_proposals_enabled", defaults["agent_proposals_enabled"])
         ),
+        "dip_strategy_enabled": bool(
+            cfg.get("dip_strategy_enabled", defaults["dip_strategy_enabled"])
+        ),
+        "dip_strategy_notional_usd": float(
+            cfg.get("dip_strategy_notional_usd", defaults["dip_strategy_notional_usd"])
+        ),
         "max_pending_agent_proposals": int(
             cfg.get(
                 "max_pending_agent_proposals",
@@ -696,7 +768,47 @@ def trading_config() -> dict[str, Any]:
         ),
         "max_open_orders": int(cfg.get("max_open_orders", defaults["max_open_orders"])),
         "max_daily_orders": int(cfg.get("max_daily_orders", defaults["max_daily_orders"])),
+        "allow_short_selling": bool(
+            cfg.get("allow_short_selling", defaults["allow_short_selling"])
+        ),
     }
+
+
+def reports_config() -> dict[str, Any]:
+    """Effective scheduled-report settings (env overrides hour when set)."""
+    with _settings_lock:
+        settings = _settings_cache if _settings_cache is not None else _build_settings()
+        defaults = DEFAULT_SETTINGS["reports"]
+        cfg = settings.get("reports")
+        if not isinstance(cfg, dict):
+            cfg = {}
+        hour_raw = os.environ.get(
+            "MORNING_REPORT_HOUR_ET",
+            str(cfg.get("hour_et", defaults["hour_et"])),
+        )
+        try:
+            hour_et = max(0, min(23, int(hour_raw)))
+        except (TypeError, ValueError):
+            hour_et = int(defaults["hour_et"])
+        return {
+            "morning_levels_enabled": bool(
+                cfg.get("morning_levels_enabled", defaults["morning_levels_enabled"])
+            ),
+            "hour_et": hour_et,
+        }
+
+
+def short_selling_allowed() -> bool:
+    """True only when shorting is explicitly enabled AND we're not in live mode.
+
+    Single source of truth for the short-sell gate. LIVE short selling is
+    hard-blocked regardless of the toggle (live needs the typed double-gate,
+    not built) — only ``dry_run``/``paper`` ever honor the toggle.
+    """
+    cfg = trading_config()
+    return bool(cfg.get("allow_short_selling", False)) and cfg.get(
+        "execution_mode"
+    ) in ("dry_run", "paper")
 
 
 def is_paper_trading() -> bool:
@@ -723,3 +835,27 @@ def broker_is_configured(name: str) -> bool:
     if name == "schwab":
         return bool(cfg.get("api_key") and cfg.get("app_secret"))
     return False
+
+
+def finnhub_api_key() -> str:
+    """Finnhub API key for the earnings-calendar feed (provider-agnostic, .env)."""
+    return os.environ.get("FINNHUB_API_KEY", "").strip()
+
+
+def alphavantage_api_key() -> str:
+    return os.environ.get("ALPHAVANTAGE_API_KEY", "").strip()
+
+
+def push_config() -> dict[str, Any]:
+    return {
+        "enabled": os.environ.get("PUSH_ENABLED", "").strip().lower()
+        in ("1", "true", "yes"),
+        "provider": os.environ.get("PUSH_PROVIDER", "expo").strip().lower(),
+        "expo_access_token": os.environ.get("EXPO_ACCESS_TOKEN", "").strip(),
+        "apns_key_id": os.environ.get("APNS_KEY_ID", "").strip(),
+        "apns_team_id": os.environ.get("APNS_TEAM_ID", "").strip(),
+        "apns_bundle_id": os.environ.get("APNS_BUNDLE_ID", "").strip(),
+        "apns_key_path": os.environ.get("APNS_KEY_PATH", "").strip(),
+        "apns_use_sandbox": os.environ.get("APNS_USE_SANDBOX", "1").strip().lower()
+        in ("1", "true", "yes"),
+    }

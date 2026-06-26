@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ai.insights import snapshot_to_context
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
@@ -16,8 +15,19 @@ from ai.memories import get_memory_service
 from ai.perf_context import format_perf_insights_for_llm, sanitize_trade_history_stats
 from ai.research.jobs import submit_research_job
 from ai.utils.symbols import extract_symbol
+from db.accounts import (
+    account_is_execution_capable,
+    default_execution_account,
+    get_account,
+    list_accounts,
+)
 from db.analytics import ai_performance_context
-from db.sqlite import get_latest_snapshot
+from db.base import now_iso
+from db.earnings_calendar import earnings_dates_for, next_earnings_date
+from db.managed_positions import list_open_positions
+from db.paper_orders import get_proposal, list_pending_proposals
+from db.sqlite import get_all_latest_snapshots
+from db.strategies import list_strategies
 from db.trades import list_trade_events, trade_summary_stats
 from signals.rule_schema import Group, Leaf, RuleSpec
 
@@ -26,7 +36,51 @@ logger = logging.getLogger(__name__)
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_portfolio_snapshot": {
         "title": "Portfolio snapshot",
-        "description": "Latest account, positions, and open orders from the broker poll.",
+        "description": (
+            "All accounts (Alpaca paper + read-only Schwab): equity, cash, positions, "
+            "open orders — per account plus an aggregate. Includes today's day P&L per "
+            "account + aggregate, plus cumulative unrealized P&L on positions."
+        ),
+    },
+    "get_agent_status": {
+        "title": "Agent status",
+        "description": (
+            "What the trading agent is running right now: enabled strategies + their "
+            "config, positions the agent is managing (with exit state), and proposals "
+            "pending phone approval."
+        ),
+    },
+    "get_earnings_dates": {
+        "title": "Earnings dates",
+        "description": (
+            "Upcoming + recent earnings dates for a symbol (live Finnhub calendar). "
+            "Use this for 'when does X report?' instead of web_search."
+        ),
+    },
+    "get_context": {
+        "title": "Symbol context",
+        "description": (
+            "Read everything the app knows about a symbol — quote, RVOL, session-node "
+            "levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), "
+            "fundamentals, earnings, the calibrated decision score, and active alerts. "
+            "Use this FIRST for any question about a symbol's data/levels/signals — "
+            "do NOT web_search for our own data."
+        ),
+    },
+    "list_capabilities": {
+        "title": "Perception capabilities",
+        "description": (
+            "List what app data the agent can read (scopes + fields). Call when unsure "
+            "whether the app has some data."
+        ),
+    },
+    "query": {
+        "title": "App data query",
+        "description": (
+            "List app data across resources: watchlists, strategies, price_alerts, "
+            "proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's "
+            "quote/levels/score use get_context instead."
+        ),
     },
     "search_memories": {
         "title": "Search memories",
@@ -75,12 +129,14 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "title": "Propose order",
         "description": (
             "Propose a paper trade for user approval (symbol, side buy|sell, qty, "
-            "order_type market|limit). Options: long-only buy-to-open calls/puts, "
-            "limit-only — limit_price is per-share premium (max loss = premium × 100 "
-            "× contracts). Use option_underlying, option_expiration (YYYY-MM-DD), "
-            "option_strike, option_right (C|P), or a Schwab-style option symbol. "
-            "Shows Approve/Reject card — does not execute. "
-            "Call immediately on buy/sell requests; never narrate a fake tool call."
+            "order_type market|limit). Optionally set account_id to target a specific "
+            "paper account (STRAT1/STRAT2); defaults to the primary paper account. "
+            "Options: long-only buy-to-open calls/puts, limit-only — limit_price is "
+            "per-share premium (max loss = premium × 100 × contracts). Use "
+            "option_underlying, option_expiration (YYYY-MM-DD), option_strike, "
+            "option_right (C|P), or a Schwab-style option symbol. Shows Approve/Reject "
+            "card — does not execute. Call immediately on buy/sell requests; never "
+            "narrate a fake tool call."
         ),
     },
     "propose_rule": {
@@ -91,6 +147,30 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Call on alert/signal/watch/notify requests; never narrate a fake call."
         ),
     },
+    "create_price_alert": {
+        "title": "Create price alert",
+        "description": (
+            "Create a price alert (a notification, not an order). direction: "
+            "above|below|cross (default cross); repeat=true for a persistent alert "
+            "that re-arms after each crossing. To set an alert at a named level "
+            "(VAL/POC/VAH/PDH/PDL), first call get_context(symbol) to read that "
+            "level's price."
+        ),
+    },
+    "update_price_alert": {
+        "title": "Update price alert",
+        "description": (
+            "Edit an existing price alert (id, optional price, direction, note, "
+            "repeat). Get the id via query('price_alerts') or get_context."
+        ),
+    },
+    "delete_price_alert": {
+        "title": "Delete price alert",
+        "description": (
+            "Remove a price alert by id. Get the id via query('price_alerts') or "
+            "get_context."
+        ),
+    },
 }
 
 _TOOL_PLANNER_PROMPT = """You are a tool planner for a trading copilot.
@@ -98,23 +178,35 @@ Return JSON only: {"tools": [{"name": "<tool>", "arguments": {...}}]}
 
 Available tools:
 - get_portfolio_snapshot — arguments: {}
+- get_agent_status — arguments: {}
+- get_earnings_dates — arguments: {"symbol": string}
+- get_context — arguments: {"symbol": string}
+- query — arguments: {"resource": string, "filters": object|null}
+- list_capabilities — arguments: {}
 - search_memories — arguments: {"query": string, "limit": number}
 - start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"}
-- get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number}
+- get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number, "account_id": string|null}
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
 - web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
 - get_option_quote — arguments: {"occ_symbol": string|null, "underlying": string|null, "expiration": string|null, "strike": number|null, "right": "C"|"P"|null}
 - propose_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
+- create_price_alert — arguments: {"symbol": string, "price": number, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
+- update_price_alert — arguments: {"id": number, "price": number|null, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
+- delete_price_alert — arguments: {"id": number}
 
 Rules:
 - Return {"tools": []} when no tool is needed (greetings, thanks, small talk).
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
 - Only call start_research when the user explicitly asks for a deep research report or written report.
+- Use get_context FIRST for symbol prices, RVOL, session-node levels, technicals, fundamentals, earnings, decision scores, or active alerts — never web_search for our own app data.
+- Use query for watchlists, strategies, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
 - Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
 - When the user describes an alert/signal/rule, call propose_rule with a validated spec.
+- When the user asks to set/create an alert, call create_price_alert directly (it's safe — a notification). If they reference a level (VAL/POC/VAH/PDH/PDL/200-DMA), call get_context first to get the price.
+- Use delete_price_alert / update_price_alert to remove or change an existing alert (get its id via query('price_alerts') or get_context).
 """
 
 
@@ -128,6 +220,88 @@ class ToolPlan(BaseModel):
 
 
 _ALLOWED_TOOLS = frozenset(TOOL_DEFINITIONS.keys())
+
+_MULTI_ACCOUNT_NOTE = (
+    "Per-position `unrealized_pl` is CUMULATIVE since entry — NOT today. "
+    "`day_pl` / `day_pl_pct` (per account) and `total_day_pl` (aggregate) are "
+    "TODAY's change. Alpaca = paper (tradeable); Schwab = real money, read-only "
+    "(no day P&L shown)."
+)
+
+
+def _multi_account_context(
+    snaps: list[dict[str, Any]],
+    meta: dict[str, dict[str, Any]],
+    day_pl_by_account: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    day_pl_map = day_pl_by_account or {}
+    accounts_out: list[dict[str, Any]] = []
+    total_equity = 0.0
+    total_cash = 0.0
+    tradeable_equity = 0.0
+    total_day_pl = 0.0
+
+    for snap in snaps:
+        account_id = snap.get("account_id") or snap.get("account", {}).get("id")
+        acct_meta = meta.get(str(account_id), {}) if account_id else {}
+        execution_capable = bool(acct_meta.get("execution_capable"))
+
+        account = snap.get("account", {})
+        positions = snap.get("positions", [])
+        equity = float(account.get("portfolio_value", 0))
+        cash = float(account.get("cash", 0))
+        buying_power = float(account.get("buying_power", 0))
+
+        total_equity += equity
+        total_cash += cash
+        if execution_capable:
+            tradeable_equity += equity
+
+        day_pl_entry = day_pl_map.get(str(account_id)) if account_id else None
+        day_pl = day_pl_entry.get("day_pl") if day_pl_entry else None
+        day_pl_pct = day_pl_entry.get("day_pl_pct") if day_pl_entry else None
+        if day_pl is not None:
+            total_day_pl += float(day_pl)
+
+        accounts_out.append(
+            {
+                "account_id": account_id,
+                "label": acct_meta.get("label") or account_id,
+                "broker": acct_meta.get("broker") or snap.get("broker"),
+                "tradeable": execution_capable,
+                "read_only": not execution_capable,
+                "equity": equity,
+                "cash": cash,
+                "buying_power": buying_power,
+                "day_pl": day_pl,
+                "day_pl_pct": day_pl_pct,
+                "position_count": len(positions),
+                "positions": positions[:20],
+                "captured_at": snap.get("captured_at"),
+            }
+        )
+
+    return {
+        "accounts": accounts_out,
+        "aggregate": {
+            "total_equity": total_equity,
+            "total_cash": total_cash,
+            "tradeable_equity": tradeable_equity,
+            "total_day_pl": total_day_pl,
+            "account_count": len(accounts_out),
+        },
+        "note": _MULTI_ACCOUNT_NOTE,
+    }
+
+
+def _account_label_map(*, db_path: Path | None = None) -> dict[str, str]:
+    from db.base import DEFAULT_DB_PATH
+
+    resolved = db_path or DEFAULT_DB_PATH
+    return {
+        a["id"]: str(a.get("label") or a["id"])
+        for a in list_accounts(db_path=resolved)
+    }
 
 
 def plan_tools(user_text: str, *, model: str | None = None) -> list[tuple[str, dict[str, Any]]]:
@@ -168,11 +342,138 @@ def plan_tools(user_text: str, *, model: str | None = None) -> list[tuple[str, d
 
 
 async def execute_tool(name: str, args: dict[str, Any]) -> Any:
+    from db.base import DEFAULT_DB_PATH
+
     if name == "get_portfolio_snapshot":
-        snapshot = get_latest_snapshot()
-        if snapshot is None:
+        from brokers.factory import get_broker_for_account
+
+        snaps = get_all_latest_snapshots(db_path=DEFAULT_DB_PATH)
+        if not snaps:
             return {"error": "No snapshot yet — broker poll has not run."}
-        return json.loads(snapshot_to_context(snapshot))
+        meta = {a["id"]: a for a in list_accounts(db_path=DEFAULT_DB_PATH)}
+
+        day_pl_by_account: dict[str, dict[str, Any]] = {}
+        for a in list_accounts(db_path=DEFAULT_DB_PATH):
+            if str(a.get("broker", "")).lower() != "alpaca" or not a.get(
+                "execution_capable"
+            ):
+                continue
+            try:
+                broker = get_broker_for_account(a["id"])
+                points = await broker.aget_portfolio_history("1D")
+                if points:
+                    last = points[-1]
+                    day_pl_by_account[a["id"]] = {
+                        "day_pl": last.profit_loss,
+                        "day_pl_pct": last.profit_loss_pct,
+                    }
+            except Exception:
+                logger.exception("day P&L fetch failed for account %s", a.get("id"))
+
+        return _multi_account_context(snaps, meta, day_pl_by_account)
+
+    if name == "get_agent_status":
+        from signals.strategy_stats import get_strategy_stats
+
+        labels = _account_label_map(db_path=DEFAULT_DB_PATH)
+        strategies = [
+            {
+                "id": s["id"],
+                "name": s["name"],
+                "enabled": s["enabled"],
+                "account_label": labels.get(s["account_id"])
+                if s.get("account_id")
+                else None,
+                "notional_usd": s["notional_usd"],
+                "exit_mode": s["exit_mode"],
+                "universe": s["universe"],
+                "max_concurrent_positions": s["max_concurrent_positions"],
+                "max_deployed_usd": s["max_deployed_usd"],
+                # Validated backtest edge (None until the PC ships strategy_stats.json).
+                "backtest": get_strategy_stats(s["id"]),
+            }
+            for s in list_strategies(db_path=DEFAULT_DB_PATH)
+        ]
+        managed_positions = [
+            {
+                "symbol": p["symbol"],
+                "strategy_id": p["strategy_id"],
+                "account_label": labels.get(p["account_id"], p["account_id"]),
+                "exit_mode": p["exit_mode"],
+                "first_target_hit": p["first_target_hit"],
+                "high_water_mark": p.get("high_water_mark"),
+                "entry_date": p["entry_date"],
+            }
+            for p in list_open_positions(db_path=DEFAULT_DB_PATH)
+        ]
+        pending_approvals = []
+        for proposal in list_pending_proposals(db_path=DEFAULT_DB_PATH):
+            full = get_proposal(proposal["id"], db_path=DEFAULT_DB_PATH) or {}
+            payload = full.get("proposal") or {}
+            account_id = payload.get("account_id")
+            pending_approvals.append(
+                {
+                    "id": proposal["id"],
+                    "summary": proposal.get("summary"),
+                    "symbol": proposal["symbol"],
+                    "side": proposal["side"],
+                    "qty": proposal["qty"],
+                    "account_label": labels.get(account_id, account_id)
+                    if account_id
+                    else None,
+                    "expires_at": proposal.get("expires_at"),
+                }
+            )
+        return {
+            "strategies": strategies,
+            "managed_positions": managed_positions,
+            "pending_approvals": pending_approvals,
+        }
+
+    if name == "get_earnings_dates":
+        symbol_raw = args.get("symbol")
+        if not symbol_raw:
+            return {"error": "symbol is required"}
+        symbol = str(symbol_raw).upper()
+        today = now_iso()[:10]
+        recent = earnings_dates_for(symbol, db_path=DEFAULT_DB_PATH)[-6:]
+        return {
+            "symbol": symbol,
+            "next_earnings": next_earnings_date(symbol, today, db_path=DEFAULT_DB_PATH),
+            "recent": recent,
+            "note": (
+                "Source: Finnhub (free tier). Forward dates are typically confirmed "
+                "only ~2-4 weeks out; absence ≠ no earnings."
+            ),
+        }
+
+    if name == "get_context":
+        symbol_raw = args.get("symbol")
+        if not symbol_raw:
+            return {"error": "symbol is required"}
+        from ai.perception.context import build_symbol_context
+
+        symbol = str(symbol_raw).upper()
+        return await build_symbol_context(symbol, db_path=DEFAULT_DB_PATH)
+
+    if name == "list_capabilities":
+        from ai.perception.context import list_capabilities
+
+        return list_capabilities()
+
+    if name == "query":
+        from ai.perception.resources import query as perception_query
+
+        resource = args.get("resource")
+        if not resource:
+            return {"error": "resource is required"}
+        filters = args.get("filters")
+        resolved_filters = dict(filters) if isinstance(filters, dict) else None
+        return await perception_query(
+            str(resource),
+            resolved_filters,
+            db_path=DEFAULT_DB_PATH,
+        )
 
     if name == "search_memories":
         query = str(args.get("query", "")).strip()
@@ -208,16 +509,20 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         from_date = args.get("from_date")
         to_date = args.get("to_date")
         limit = min(int(args.get("limit", 50)), 200)
+        account_id = args.get("account_id")
+        resolved_account_id = str(account_id) if account_id else None
         events = list_trade_events(
             symbol=sym,
             from_date=str(from_date) if from_date else None,
             to_date=str(to_date) if to_date else None,
             limit=limit,
+            account_id=resolved_account_id,
         )
         stats = sanitize_trade_history_stats(
             trade_summary_stats(
                 from_date=str(from_date) if from_date else None,
                 to_date=str(to_date) if to_date else None,
+                account_id=resolved_account_id,
             )
         )
         return {
@@ -379,6 +684,17 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             order_intent_from_fields,
         )
 
+        explicit_account_id = args.get("account_id")
+        if explicit_account_id and not account_is_execution_capable(
+            str(explicit_account_id), db_path=DEFAULT_DB_PATH
+        ):
+            return {
+                "error": (
+                    f"Account {explicit_account_id} is read-only (e.g. a real Schwab "
+                    "account) — pick a paper account (STRAT1/STRAT2) to place orders."
+                ),
+            }
+
         built = build_order_proposal_from_args(args, db_path=DEFAULT_DB_PATH)
         if "error" in built:
             return built
@@ -386,6 +702,15 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         proposal_payload = built["proposal"]
         intent_fields = built["intent_fields"]
         session_id_str = built["session_id"]
+        resolved_account_id = intent_fields.get("account_id")
+        account_row = (
+            get_account(str(resolved_account_id), db_path=DEFAULT_DB_PATH)
+            if resolved_account_id
+            else default_execution_account(db_path=DEFAULT_DB_PATH)
+        )
+        account_label = (
+            str(account_row.get("label") or account_row["id"]) if account_row else None
+        )
 
         recorded = record_paper_order_proposal(
             proposal=proposal_payload,
@@ -398,6 +723,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             intent_fields,
             proposal_id=proposal_id,
             session_id=session_id_str,
+            db_path=DEFAULT_DB_PATH,
         )
 
         try:
@@ -431,6 +757,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             "proposal": proposal_payload,
             "message": message,
             "score": score,
+            "account_label": account_label,
         }
 
     if name == "propose_rule":
@@ -463,6 +790,84 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             "summary": _summarize_rule_spec(spec),
             "message": f"Armed alert: {rule['name']}",
         }
+
+    if name == "create_price_alert":
+        from db.chart_features import create_price_alert as db_create_price_alert
+
+        symbol_raw = args.get("symbol")
+        if not symbol_raw:
+            return {"error": "symbol is required"}
+        price_raw = args.get("price")
+        if price_raw is None:
+            return {"error": "price is required"}
+        try:
+            price_f = float(price_raw)
+        except (TypeError, ValueError):
+            return {"error": "price must be a number"}
+        if price_f <= 0:
+            return {"error": "price must be a positive number"}
+        direction = str(args.get("direction", "cross")).strip().lower()
+        if direction not in ("above", "below", "cross"):
+            return {"error": "direction must be one of: above, below, cross"}
+        note = str(args.get("note", ""))
+        repeat = bool(args.get("repeat", False))
+        return db_create_price_alert(
+            symbol=str(symbol_raw),
+            price=price_f,
+            direction=direction,
+            note=note,
+            repeat=repeat,
+        )
+
+    if name == "update_price_alert":
+        from db.chart_features import update_price_alert as db_update_price_alert
+
+        alert_id_raw = args.get("id")
+        if alert_id_raw is None:
+            return {"error": "id is required"}
+        try:
+            alert_id = int(alert_id_raw)
+        except (TypeError, ValueError):
+            return {"error": "id must be an integer"}
+        price_f: float | None = None
+        if args.get("price") is not None:
+            try:
+                price_f = float(args["price"])
+            except (TypeError, ValueError):
+                return {"error": "price must be a number"}
+            if price_f <= 0:
+                return {"error": "price must be a positive number"}
+        direction: str | None = None
+        if args.get("direction") is not None:
+            direction = str(args["direction"]).strip().lower()
+            if direction not in ("above", "below", "cross"):
+                return {"error": "direction must be one of: above, below, cross"}
+        note = None if args.get("note") is None else str(args["note"])
+        repeat = None if args.get("repeat") is None else bool(args["repeat"])
+        updated = db_update_price_alert(
+            alert_id,
+            price=price_f,
+            direction=direction,
+            note=note,
+            repeat=repeat,
+        )
+        if updated is None:
+            return {"error": "not found"}
+        return updated
+
+    if name == "delete_price_alert":
+        from db.chart_features import delete_price_alert as db_delete_price_alert
+
+        alert_id_raw = args.get("id")
+        if alert_id_raw is None:
+            return {"error": "id is required"}
+        try:
+            alert_id = int(alert_id_raw)
+        except (TypeError, ValueError):
+            return {"error": "id must be an integer"}
+        if not db_delete_price_alert(alert_id):
+            return {"error": "not found"}
+        return {"ok": True}
 
     return {"error": f"Unknown tool {name}"}
 

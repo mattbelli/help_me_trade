@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import is_kill_switch_active, primary_broker, trading_config
+from db.accounts import default_execution_account, get_account
 from db.base import DEFAULT_DB_PATH
 from db.paper_orders import list_pending_proposals
 from db.sqlite import get_latest_snapshot
@@ -34,6 +35,7 @@ class TradeCandidate:
     source: str = "unknown"
     rule_id: str | None = None
     rationale: str | None = None
+    account_id: str | None = None
 
 
 async def propose_trade(
@@ -54,19 +56,41 @@ async def propose_trade(
             return {"status": "market_closed"}
 
         symbol = candidate.symbol.strip().upper()
-        pending = list_pending_proposals(db_path=db_path)
+
+        if candidate.account_id:
+            account = get_account(candidate.account_id, db_path=db_path)
+            if (
+                account is None
+                or not account.get("enabled")
+                or not account.get("execution_capable")
+            ):
+                return {"status": "invalid_account"}
+        else:
+            account = default_execution_account(db_path=db_path)
+
+        resolved_account_id = account["id"] if account else None
+        broker = account["broker"] if account else primary_broker()
+
+        if candidate.account_id is not None:
+            pending = list_pending_proposals(
+                account_id=resolved_account_id, db_path=db_path
+            )
+        else:
+            pending = list_pending_proposals(db_path=db_path)
         max_pending = cfg.get("max_pending_agent_proposals", 3)
         if len(pending) >= max_pending:
             return {"status": "max_pending"}
         if any(p["symbol"].upper() == symbol for p in pending):
             return {"status": "duplicate"}
 
-        price = _live_market_price(symbol)
+        price = await _live_market_price(symbol)
         if price is None or price <= 0:
             return {"status": "no_price"}
 
         qty = floor(candidate.notional_usd / price)
-        snapshot = get_latest_snapshot(primary_broker(), db_path=db_path)
+        snapshot = get_latest_snapshot(
+            broker, account_id=resolved_account_id, db_path=db_path
+        )
         if snapshot is not None:
             buying_power = Decimal(str(snapshot["account"]["buying_power"]))
             cap_qty = floor(buying_power * _BUYING_POWER_BUFFER / price)
@@ -83,6 +107,8 @@ async def propose_trade(
         }
         if candidate.limit_price is not None:
             args["limit_price"] = candidate.limit_price
+        if resolved_account_id is not None:
+            args["account_id"] = resolved_account_id
 
         built = build_order_proposal_from_args(args, db_path=db_path)
         if "error" in built:
@@ -92,6 +118,7 @@ async def propose_trade(
             built["intent_fields"],
             proposal_id="precheck",
             session_id=None,
+            db_path=db_path,
         )
         risk = await RiskEngine.validate(intent, db_path=db_path)
         if not risk.passed:

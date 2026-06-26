@@ -10,6 +10,7 @@ from pathlib import Path
 from brokers.base import Account, Order, Position
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
+from db.schema_helpers import _add_column_if_missing
 
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -79,6 +80,29 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON poll_runs(broker, captured_at DESC)
             """
         )
+        _add_column_if_missing(conn, "poll_runs", "account_id", "TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_poll_runs_account_captured
+                ON poll_runs(account_id, captured_at)
+            """
+        )
+        # Index the poll_run_id JOIN keys. Without these, history queries that join
+        # across many poll_runs (e.g. list_equity_history's 7-day equity series) do a
+        # full table scan of account_snapshots per matched run — an O(n*m) nested loop
+        # that grew to ~45s as the tables passed 35k rows, saturating the poll thread.
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_account_snapshots_poll_run
+                ON account_snapshots(poll_run_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_position_snapshots_poll_run
+                ON position_snapshots(poll_run_id)
+            """
+        )
 
 
 def save_snapshot(
@@ -87,6 +111,7 @@ def save_snapshot(
     orders: list[Order],
     *,
     broker: str = "alpaca",
+    account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> str:
     captured_at = datetime.now(UTC).isoformat()
@@ -94,8 +119,8 @@ def save_snapshot(
 
     with _connect(db_path) as conn:
         cursor = conn.execute(
-            "INSERT INTO poll_runs (captured_at, broker) VALUES (?, ?)",
-            (captured_at, broker),
+            "INSERT INTO poll_runs (captured_at, broker, account_id) VALUES (?, ?, ?)",
+            (captured_at, broker, account_id),
         )
         run_id = cursor.lastrowid
 
@@ -195,6 +220,20 @@ def _latest_run_id(conn: sqlite3.Connection, broker: str | None = None) -> int |
         row = conn.execute(
             "SELECT id FROM poll_runs ORDER BY captured_at DESC LIMIT 1"
         ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _latest_run_id_for_account(
+    conn: sqlite3.Connection, account_id: str
+) -> int | None:
+    row = conn.execute(
+        """
+        SELECT id FROM poll_runs
+        WHERE account_id = ?
+        ORDER BY captured_at DESC LIMIT 1
+        """,
+        (account_id,),
+    ).fetchone()
     return int(row["id"]) if row else None
 
 
@@ -431,11 +470,18 @@ def get_prior_snapshot(
 
 
 def get_latest_snapshot(
-    broker: str | None = None, db_path: Path = DEFAULT_DB_PATH
+    broker: str | None = None,
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> dict | None:
     init_db(db_path)
     with _connect(db_path) as conn:
-        run_id = _latest_run_id(conn, broker)
+        run_id: int | None = None
+        if account_id is not None:
+            run_id = _latest_run_id_for_account(conn, account_id)
+        if run_id is None:
+            run_id = _latest_run_id(conn, broker)
         if run_id is None:
             return None
         broker_name = broker or conn.execute(
@@ -445,14 +491,21 @@ def get_latest_snapshot(
 
 
 def get_all_latest_snapshots(db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """Latest snapshot per ACCOUNT (not per broker).
+
+    Multiple accounts can share a broker (e.g. two Alpaca paper accounts), so
+    grouping by broker alone returns whichever account polled last — making the
+    dashboard summary flicker between accounts. Grouping by (broker, account_id)
+    returns one stable snapshot per account, each carrying its `account_id`.
+    """
     init_db(db_path)
     with _connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT broker, MAX(captured_at) AS latest
+            SELECT broker, account_id, MAX(captured_at) AS latest
             FROM poll_runs
-            GROUP BY broker
-            ORDER BY broker
+            GROUP BY broker, account_id
+            ORDER BY broker, account_id
             """
         ).fetchall()
 
@@ -462,12 +515,14 @@ def get_all_latest_snapshots(db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
                 """
                 SELECT id FROM poll_runs
                 WHERE broker = ? AND captured_at = ?
+                  AND COALESCE(account_id, '') = COALESCE(?, '')
+                ORDER BY id DESC
                 LIMIT 1
                 """,
-                (row["broker"], row["latest"]),
+                (row["broker"], row["latest"], row["account_id"]),
             ).fetchone()
             if run:
-                snapshots.append(
-                    _snapshot_with_analytics(conn, int(run["id"]), row["broker"])
-                )
+                snap = _snapshot_with_analytics(conn, int(run["id"]), row["broker"])
+                snap["account_id"] = row["account_id"]
+                snapshots.append(snap)
         return snapshots

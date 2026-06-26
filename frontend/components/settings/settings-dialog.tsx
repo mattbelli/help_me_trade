@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, FileUp, Search, Settings, Shield, Wallet } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  FileText,
+  FileUp,
+  Search,
+  Settings,
+  Shield,
+  Wallet,
+} from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Button } from "@/components/ui/button";
@@ -25,7 +34,12 @@ import {
 } from "@/lib/api";
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
+import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
+import {
+  DEFAULT_REPORTS,
+  SettingsReportsPanel,
+} from "@/components/settings/settings-reports-panel";
 import {
   DEFAULT_TRADING,
   TradingRiskSettings,
@@ -37,7 +51,14 @@ type Props = {
   collapsed?: boolean;
 };
 
-type SettingsSection = "brokers" | "execution" | "ai" | "research" | "import";
+type SettingsSection =
+  | "brokers"
+  | "execution"
+  | "strategies"
+  | "reports"
+  | "ai"
+  | "research"
+  | "import";
 
 const SECTIONS: {
   id: SettingsSection;
@@ -46,6 +67,8 @@ const SECTIONS: {
 }[] = [
   { id: "brokers", label: "Brokers", icon: Wallet },
   { id: "execution", label: "Execution / Risk", icon: Shield },
+  { id: "strategies", label: "Strategies", icon: Activity },
+  { id: "reports", label: "Reports", icon: FileText },
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
   { id: "import", label: "Import", icon: FileUp },
@@ -72,6 +95,7 @@ const EMPTY: AppSettings = {
   ai: DEFAULT_AI_SETTINGS,
   research: { searxng_url: "" },
   trading: DEFAULT_TRADING,
+  reports: DEFAULT_REPORTS,
 };
 
 export function SettingsDialog({ collapsed = false }: Props) {
@@ -99,6 +123,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
             searxng_url: data.research?.searxng_url ?? "",
           },
           trading: { ...DEFAULT_TRADING, ...data.trading },
+          reports: { ...DEFAULT_REPORTS, ...data.reports },
         }),
       )
       .catch((err) =>
@@ -124,6 +149,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
           searxng_url: saved.research?.searxng_url ?? "",
         },
         trading: { ...DEFAULT_TRADING, ...saved.trading },
+        reports: { ...DEFAULT_REPORTS, ...saved.reports },
       });
       setMessage("Settings saved. Polling will use the updated brokers.");
       setModelsRevision((n) => n + 1);
@@ -167,8 +193,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1">
-          <nav className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-border bg-muted/20 p-4">
+        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border bg-muted/20 p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -421,6 +447,13 @@ export function SettingsDialog({ collapsed = false }: Props) {
             value={draft.trading}
             onChange={(trading) => setDraft((d) => ({ ...d, trading }))}
           />
+        ) : section === "strategies" ? (
+          <SettingsStrategiesPanel />
+        ) : section === "reports" ? (
+          <SettingsReportsPanel
+            value={draft.reports}
+            onChange={(reports) => setDraft((d) => ({ ...d, reports }))}
+          />
         ) : section === "ai" ? (
           <div className="space-y-4">
               <AiProviderSettings
@@ -471,17 +504,32 @@ export function SettingsDialog({ collapsed = false }: Props) {
         )}
 
         <DialogFooter className="sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setOpen(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={handleSave} disabled={saving || loading || section === "import"}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
+          {section === "import" || section === "strategies" ? (
+            // These sections save their own changes inline (per-card / per-action),
+            // so the global Save doesn't apply — offer a plain Done to close instead
+            // of a disabled Save + a misleading "Cancel".
+            <Button type="button" onClick={() => setOpen(false)} disabled={saving}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || loading}
+              >
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            </>
+          )}
         </DialogFooter>
         </div>
       </DialogContent>

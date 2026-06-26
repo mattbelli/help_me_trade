@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -12,11 +13,14 @@ from brokers.alpaca import AlpacaAdapter
 from brokers.factory import get_broker
 from brokers.market_stream import market_hub
 from config.settings import is_kill_switch_active, trading_config
+from db.accounts import account_is_execution_capable
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import count_executions_today
 from db.sqlite import get_latest_snapshot
 from imports.option_symbol import parse_occ_symbol
 from trading.models import OrderIntent, RiskCheckResult
+
+logger = logging.getLogger(__name__)
 
 _SNAPSHOT_MAX_AGE = timedelta(minutes=5)
 _SYMBOL_RE = re.compile(r"^[A-Z]+$")
@@ -33,6 +37,14 @@ class RiskEngine:
         checks: dict[str, str] = {}
         cfg = trading_config()
         is_option = intent.asset_class == "us_option"
+        # Short selling is honored ONLY when explicitly enabled AND not live
+        # (live shorting stays hard-blocked regardless of the toggle). A short
+        # (sell with no held long) is treated like a buy for the exposure caps
+        # below, since it INCREASES exposure rather than closing a position.
+        short_allowed = bool(cfg.get("allow_short_selling", False)) and cfg.get(
+            "execution_mode"
+        ) in ("dry_run", "paper")
+        is_short_open = False
 
         # 1. Kill switch
         if is_kill_switch_active():
@@ -43,6 +55,21 @@ class RiskEngine:
                 blocked_reason="kill switch active",
             )
         checks["kill_switch"] = "pass"
+
+        # Account must be execution-capable — deny-by-default AT THE CHOKEPOINT.
+        # approve_proposal also guards this, but enforcing it here makes submit
+        # self-defending regardless of caller. account_id None = legacy/primary path.
+        if intent.account_id is not None and not account_is_execution_capable(
+            intent.account_id, db_path=db_path
+        ):
+            checks["account_execution_capable"] = "fail: account not execution-capable"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="account not execution-capable",
+            )
+        if intent.account_id is not None:
+            checks["account_execution_capable"] = "pass"
 
         concentration_symbol: str
 
@@ -179,7 +206,9 @@ class RiskEngine:
         checks["qty_bounds"] = "pass"
 
         # 5. Snapshot freshness
-        snapshot = get_latest_snapshot(intent.broker, db_path=db_path)
+        snapshot = get_latest_snapshot(
+            intent.broker, account_id=intent.account_id, db_path=db_path
+        )
         if snapshot is None:
             checks["snapshot_freshness"] = "fail: no portfolio snapshot"
             return RiskCheckResult(
@@ -228,48 +257,61 @@ class RiskEngine:
                 if str(p.get("symbol", "")).upper() == concentration_symbol:
                     pos = p
                     break
-            if (
-                pos is None
-                or pos.get("side") != "long"
-                or Decimal(str(pos.get("qty", 0))) <= Decimal("0")
-            ):
+            held_long = (
+                pos is not None
+                and pos.get("side") == "long"
+                and Decimal(str(pos.get("qty", 0))) > Decimal("0")
+            )
+            if held_long:
+                held = Decimal(str(pos["qty"]))
+                pending_sell = Decimal("0")
+                for o in open_orders:
+                    if (
+                        str(o.get("symbol", "")).upper() == concentration_symbol
+                        and o.get("side") == "sell"
+                    ):
+                        # Clamp per-order remaining at 0 — a data anomaly where
+                        # filled_qty > qty must never inflate `available` into an oversell.
+                        pending_sell += max(
+                            Decimal("0"),
+                            Decimal(str(o.get("qty", 0)))
+                            - Decimal(str(o.get("filled_qty", 0))),
+                        )
+                available = held - pending_sell
+                if qty > available:
+                    # Selling MORE than the held long would flip into a short
+                    # mid-close. Never do that implicitly — a short must start
+                    # from flat. Block regardless of the short toggle.
+                    checks["sell_position"] = (
+                        f"fail: sell qty {qty} exceeds available {available}"
+                    )
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason=(
+                            f"sell qty exceeds available position "
+                            f"(held {held}, pending sells {pending_sell})"
+                        ),
+                    )
+                checks["sell_position"] = f"pass: closing {qty} of {held} long"
+            elif short_allowed and not is_option:
+                # No held long → this OPENS/extends a short. Allowed only because
+                # the toggle is on and we're not live. EQUITY ONLY — options stay
+                # long-only (no naked writing), so the toggle must not enable a
+                # sell-to-open on an option. Exposure caps (buying power / value /
+                # concentration) apply below, same as a buy.
+                is_short_open = True
+                checks["sell_position"] = f"pass: short-to-open {qty} (no held long)"
+            else:
                 checks["sell_position"] = "fail: no held long position"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
                     blocked_reason=(
                         "sell-to-close requires a held long position; "
-                        "short selling not supported"
+                        "short selling not enabled"
                     ),
                 )
-            held = Decimal(str(pos["qty"]))
-            pending_sell = Decimal("0")
-            for o in open_orders:
-                if (
-                    str(o.get("symbol", "")).upper() == concentration_symbol
-                    and o.get("side") == "sell"
-                ):
-                    # Clamp per-order remaining at 0 — a data anomaly where
-                    # filled_qty > qty must never inflate `available` into an oversell.
-                    pending_sell += max(
-                        Decimal("0"),
-                        Decimal(str(o.get("qty", 0)))
-                        - Decimal(str(o.get("filled_qty", 0))),
-                    )
-            available = held - pending_sell
-            if qty > available:
-                checks["sell_position"] = (
-                    f"fail: sell qty {qty} exceeds available {available}"
-                )
-                return RiskCheckResult(
-                    passed=False,
-                    checks=checks,
-                    blocked_reason=(
-                        f"sell qty exceeds available position "
-                        f"(held {held}, pending sells {pending_sell})"
-                    ),
-                )
-            checks["sell_position"] = f"pass: closing {qty} of {held} long"
         else:
             checks["sell_position"] = "pass: buy"
 
@@ -283,7 +325,7 @@ class RiskEngine:
             spend_notional = qty * spend_price * multiplier
             risk_notional = qty * risk_price * multiplier
         else:
-            market_price = _live_market_price(concentration_symbol)
+            market_price = await _live_market_price(concentration_symbol)
             if market_price is None:
                 checks["live_quote"] = "fail: no live quote"
                 return RiskCheckResult(
@@ -310,8 +352,8 @@ class RiskEngine:
             spend_notional = qty * spend_price
             risk_notional = qty * risk_price
 
-        # 6. Buying power (buys only)
-        if intent.side == "buy":
+        # 6. Buying power (buys + short-opens — both consume buying power)
+        if intent.side == "buy" or is_short_open:
             max_spend = buying_power * Decimal("0.95")
             if spend_notional > max_spend:
                 checks["buying_power"] = "fail: insufficient buying power"
@@ -324,8 +366,8 @@ class RiskEngine:
         else:
             checks["buying_power"] = "pass: sell"
 
-        # 7. Per-order value cap (buys only — closes must not be blocked)
-        if intent.side == "buy":
+        # 7. Per-order value cap (buys + short-opens — closes must not be blocked)
+        if intent.side == "buy" or is_short_open:
             max_order_value = Decimal(str(cfg["max_order_value_usd"]))
             if risk_notional > max_order_value:
                 checks["order_value_cap"] = "fail: order exceeds max value"
@@ -338,8 +380,8 @@ class RiskEngine:
         else:
             checks["order_value_cap"] = "pass: sell"
 
-        # 8. Concentration (buys only)
-        if intent.side == "buy":
+        # 8. Concentration (buys + short-opens — bound the position size either way)
+        if intent.side == "buy" or is_short_open:
             if portfolio_value <= Decimal("0"):
                 checks["concentration"] = "fail: portfolio value unknown"
                 return RiskCheckResult(
@@ -350,7 +392,9 @@ class RiskEngine:
             existing_mv = Decimal("0")
             for pos in positions:
                 if str(pos.get("symbol", "")).upper() == concentration_symbol:
-                    existing_mv = Decimal(str(pos.get("market_value", 0)))
+                    # Use absolute exposure so an existing SHORT (negative market
+                    # value) still counts toward the concentration ceiling.
+                    existing_mv = abs(Decimal(str(pos.get("market_value", 0))))
                     break
             max_position_pct = Decimal(str(cfg["max_position_pct"]))
             concentration_pct = (existing_mv + risk_notional) / portfolio_value * Decimal("100")
@@ -386,17 +430,92 @@ class RiskEngine:
                 checks=checks,
                 blocked_reason="daily order limit reached",
             )
+        # Per-account ceiling (same threshold): an account can't exceed the daily cap
+        # on its own even when the global aggregate still has room.
+        if intent.account_id is not None:
+            account_today = count_executions_today(
+                account_id=intent.account_id, db_path=db_path
+            )
+            if account_today >= max_daily_orders:
+                checks["daily_orders_account"] = "fail: account daily order limit reached"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="account daily order limit reached",
+                )
+            checks["daily_orders_account"] = "pass"
         checks["daily_orders"] = "pass"
 
-        return RiskCheckResult(passed=True, checks=checks, blocked_reason=None)
+        return RiskCheckResult(
+            passed=True,
+            checks=checks,
+            blocked_reason=None,
+            is_short_open=is_short_open,
+        )
 
 
-def _live_market_price(symbol: str) -> Decimal | None:
+async def _rest_quote_price(symbol: str) -> float | None:
+    """Fresh REST quote for `symbol` when the stream hub doesn't carry it.
+
+    The in-process stream only subscribes symbols a browser is viewing or that have an
+    active price alert, so autonomous strategies would otherwise never get a price for an
+    un-watched symbol and could never propose. **RTH-only by design:** outside regular
+    hours we return None so the "no live quote" gate stays fail-closed exactly as before
+    — a provider's "regular last" is the prior session's (stale) close off-hours, and
+    letting it through would weaken the chokepoint. Fail-soft: returns None on ANY error,
+    never raises into RiskEngine.validate. Any value returned is therefore a fresh RTH price.
+    """
+    # Function-local imports to avoid any import-time cycle with brokers.factory.
+    from brokers.factory import get_market_data_provider
+    from trading.market_hours import is_market_open
+
+    # The autonomous proposal paths are already RTH-gated; this also guards the
+    # phone-approval path (ExecutionService.submit → validate) from stale off-hours prices.
+    if not is_market_open():
+        return None
+
+    try:
+        provider = get_market_data_provider()
+    except Exception:
+        return None
+    # Prefer the real-time regular-session quote.
+    try:
+        if hasattr(provider, "aget_quotes"):
+            quote = (await provider.aget_quotes([symbol])).get(symbol) or {}
+            last = quote.get("regular_last")
+            if last is not None and float(last) > 0:
+                return float(last)
+    except Exception:
+        logger.warning("REST quote fallback (quotes) failed for %s", symbol, exc_info=True)
+    # Secondary: latest intraday (5-min) bar close — fresh during RTH (the only time we
+    # reach here). NOT daily bars: an in-progress daily bar is often absent, so its last
+    # close would be the PRIOR day's — stale enough to mis-size on an overnight gap.
+    # Guard the at-the-open window the same way: before today's first 5-min bar prints,
+    # bars[-1] is still yesterday's close, so only trust a bar dated today (ET).
+    try:
+        from zoneinfo import ZoneInfo
+
+        et = ZoneInfo("America/New_York")
+        bars = (
+            await provider.aget_stock_bars_batch([symbol], timeframe="5Min", days=1)
+        ).get(symbol) or []
+        if bars and bars[-1].close is not None and float(bars[-1].close) > 0:
+            bar_dt = datetime.fromisoformat(bars[-1].time.replace("Z", "+00:00"))
+            if bar_dt.astimezone(et).date() == datetime.now(et).date():
+                return float(bars[-1].close)
+    except Exception:
+        logger.warning("REST quote fallback (bars) failed for %s", symbol, exc_info=True)
+    return None
+
+
+async def _live_market_price(symbol: str) -> Decimal | None:
     quotes = market_hub.quote_snapshot({symbol})
     quote = quotes.get(symbol)
-    if not quote:
-        return None
-    price_raw = quote.get("price")
+    price_raw = quote.get("price") if quote else None
+    if price_raw is None or float(price_raw) <= 0:
+        # Hub miss (symbol not currently streamed) — fall back to a REST quote so the
+        # agent proposes without a browser open. Fail-soft (returns None on error).
+        price_raw = await _rest_quote_price(symbol)
     if price_raw is None or float(price_raw) <= 0:
         return None
     return Decimal(str(price_raw))

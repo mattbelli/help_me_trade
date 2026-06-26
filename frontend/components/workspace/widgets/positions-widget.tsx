@@ -4,10 +4,15 @@ import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  resolvePositions,
+  useDashboardPrefs,
+} from "@/lib/workspace/use-dashboard-prefs";
 
 export function PositionsWidget() {
   const { snapshot, loading } = useSnapshot();
-  const positions = snapshot?.positions ?? [];
+  const { selectedAccountId } = useDashboardPrefs();
+  const positions = resolvePositions(snapshot, selectedAccountId);
 
   if (loading && !snapshot) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
@@ -51,13 +56,20 @@ export function PositionsWidget() {
           </tr>
         </thead>
         <tbody>
-          {positions.map((p) => (
+          {positions.map((p, idx) => (
             <tr
-              key={p.symbol}
+              key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
               className="transition-colors hover:bg-[var(--bg-hover)]"
             >
               <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
-                {p.symbol}
+                <span className="inline-flex items-center gap-1.5">
+                  {p.symbol}
+                  {p.accountLabel ? (
+                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+                      {p.accountLabel}
+                    </span>
+                  ) : null}
+                </span>
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
                 {p.qty}

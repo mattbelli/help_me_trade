@@ -3,7 +3,27 @@ export const CHAT_TOOL_OPTIONS = [
   {
     id: "get_portfolio_snapshot",
     label: "Portfolio",
-    description: "Live positions and account snapshot",
+    description: "All accounts — equity, positions, aggregate",
+  },
+  {
+    id: "get_agent_status",
+    label: "Agent status",
+    description: "Strategies, managed positions, pending approvals",
+  },
+  {
+    id: "get_earnings_dates",
+    label: "Earnings dates",
+    description: "Upcoming and recent earnings for a symbol",
+  },
+  {
+    id: "get_context",
+    label: "Symbol context",
+    description: "Quote, RVOL, session-node levels, technicals, earnings, score",
+  },
+  {
+    id: "query",
+    label: "App data",
+    description: "List watchlists, strategies, alerts, proposals, reports",
   },
   {
     id: "search_memories",
@@ -44,6 +64,21 @@ export const CHAT_TOOL_OPTIONS = [
     id: "propose_rule",
     label: "Propose alert",
     description: "Signal/alert rule approval card",
+  },
+  {
+    id: "create_price_alert",
+    label: "Set alert",
+    description: "Create a price alert at a level",
+  },
+  {
+    id: "update_price_alert",
+    label: "Edit alert",
+    description: "Change an existing price alert",
+  },
+  {
+    id: "delete_price_alert",
+    label: "Delete alert",
+    description: "Remove a price alert",
   },
 ] as const;
 

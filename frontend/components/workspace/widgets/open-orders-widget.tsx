@@ -4,6 +4,10 @@ import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, type Order } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  resolveOpenOrders,
+  useDashboardPrefs,
+} from "@/lib/workspace/use-dashboard-prefs";
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
@@ -31,7 +35,8 @@ function formatQty(order: Order): string {
 
 export function OpenOrdersWidget() {
   const { snapshot, loading } = useSnapshot();
-  const orders = snapshot?.open_orders ?? [];
+  const { selectedAccountId } = useDashboardPrefs();
+  const orders = resolveOpenOrders(snapshot, selectedAccountId);
 
   if (loading && !snapshot) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
@@ -86,7 +91,14 @@ export function OpenOrdersWidget() {
                 #{order.id.slice(-5)}
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
-                {order.symbol}
+                <span className="inline-flex items-center gap-1.5">
+                  {order.symbol}
+                  {order.accountLabel ? (
+                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+                      {order.accountLabel}
+                    </span>
+                  ) : null}
+                </span>
               </td>
               <td
                 className={cn(

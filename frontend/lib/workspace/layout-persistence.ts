@@ -8,6 +8,8 @@ export type WidgetInstanceConfig = {
   timeframe?: string;
   style?: "candle" | "line";
   watchlistId?: string;
+  /** Chart studies toggled from the frame toolbar's Studies dropdown. */
+  showSessionNodes?: boolean;
 };
 
 export type WorkspaceLayoutItem = {

@@ -62,6 +62,12 @@ function formatPrice(value: number) {
   });
 }
 
+const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
+  pre: { label: "PRE", title: "Pre-market" },
+  post: { label: "AFT", title: "After-hours" },
+  overnight: { label: "24h", title: "Overnight (24/5)" },
+};
+
 const EMPTY_SYMBOLS: string[] = [];
 
 export function WatchlistPanel({
@@ -293,7 +299,17 @@ export function WatchlistPanel({
           <ul className="space-y-0.5">
             {symbols.map((sym) => {
               const quote = quotes[sym];
-              const change = quote?.change_pct ?? 0;
+              const session = quote?.market_session;
+              const extBadge =
+                session && session in EXT_SESSION_BADGE && quote?.ext_price != null
+                  ? EXT_SESSION_BADGE[session]
+                  : null;
+              const displayPrice = extBadge
+                ? (quote?.ext_price ?? 0)
+                : (quote?.price ?? 0);
+              const change = extBadge
+                ? (quote?.ext_change_pct ?? 0)
+                : (quote?.change_pct ?? 0);
               const positive = change >= 0;
 
               return (
@@ -316,8 +332,16 @@ export function WatchlistPanel({
                           {sym}
                         </span>
                         {quote && (
-                          <span className="text-[11px] text-muted-foreground tabular-nums">
-                            {formatPrice(quote.price)}
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground tabular-nums"
+                            title={extBadge?.title}
+                          >
+                            {formatPrice(displayPrice)}
+                            {extBadge ? (
+                              <span className="rounded px-0.5 font-mono text-[8px] leading-none text-muted-foreground ring-1 ring-border">
+                                {extBadge.label}
+                              </span>
+                            ) : null}
                           </span>
                         )}
                       </div>

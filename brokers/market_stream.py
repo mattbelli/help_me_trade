@@ -1,4 +1,14 @@
-"""Alpaca market data WebSocket hub — one upstream connection, many browser clients."""
+"""Market data WebSocket hub — one upstream connection, many browser clients.
+
+`BaseMarketHub` holds all broker-agnostic machinery: browser-client
+register/subscribe/broadcast, the pending-add/remove diff logic, QuoteState,
+and alert broadcasting.  Broker-specific subclasses override only
+`_upstream_loop` and `_ensure_baselines`.
+
+Concrete implementations:
+  AlpacaMarketStreamHub — original Alpaca IEX/SIP websocket upstream (default)
+  SchwabMarketStreamHub — Schwab StreamClient upstream (see schwab_market_stream.py)
+"""
 
 from __future__ import annotations
 
@@ -28,9 +38,19 @@ def alpaca_market_ws_url(feed: str | None = None) -> str:
         feed if feed is not None else alpaca_config().get("data_feed", "iex")
     )
     return f"wss://stream.data.alpaca.markets/v2/{resolved}"
+
+
 MAX_WS_SYMBOLS = 30
 RECONNECT_BASE_SEC = 2.0
 RECONNECT_MAX_SEC = 60.0
+
+# Per-symbol broadcast coalescing window. Schwab's level-one stream can fire
+# 30–100 ticks/sec on a hot name; sending each one to the phone WS would burn
+# battery (radio + JS render) for no human-visible benefit. We send the first
+# tick immediately, then collapse any further ticks inside the window into a
+# single trailing broadcast that carries the LATEST state. Net effective rate
+# ceiling: ~10 Hz / symbol / client. Alerts are NOT throttled.
+BROADCAST_THROTTLE_MS = 100.0
 
 
 @dataclass
@@ -39,10 +59,26 @@ class QuoteState:
     change_pct: float = 0.0
     sparkline: list[float] = field(default_factory=list)
     prev_close: float = 0.0
+    bid: float = 0.0
+    ask: float = 0.0
+    volume: float = 0.0
+    # Extended-hours fields — kept here so WS broadcasts carry the same
+    # pre/post/overnight quote the REST `/api/watchlist/market` returns. The
+    # Schwab level-one stream doesn't emit ext fields; they're updated via
+    # `BaseMarketHub.apply_extended()` from the REST poller and ride along on
+    # the next broadcast.
+    ext_price: float | None = None
+    ext_change_pct: float | None = None
+    market_session: str | None = None
 
 
-class MarketStreamHub:
-    """Shares a single Alpaca data stream across frontend WebSocket clients."""
+class BaseMarketHub:
+    """Broker-agnostic hub: browser-client registry, broadcast, and pending-diff logic.
+
+    Subclasses must implement:
+      `_upstream_loop()` — drives the upstream connection
+      `_ensure_baselines(symbols)` — seeds QuoteState for new symbols
+    """
 
     def __init__(self) -> None:
         self._clients: dict[WebSocket, set[str]] = {}
@@ -58,6 +94,11 @@ class MarketStreamHub:
         self._recent_alerts: collections.deque[dict[str, Any]] = collections.deque(
             maxlen=50
         )
+        # Broadcast throttle bookkeeping (see BROADCAST_THROTTLE_MS):
+        #   _last_broadcast_ms[sym] — monotonic-ms of the last actual send
+        #   _pending_broadcast[sym] — the in-flight trailing broadcast (if any)
+        self._last_broadcast_ms: dict[str, float] = {}
+        self._pending_broadcast: dict[str, asyncio.Task] = {}
 
     async def start(self) -> None:
         if self._running:
@@ -74,6 +115,11 @@ class MarketStreamHub:
             except asyncio.CancelledError:
                 pass
             self._upstream_task = None
+        # Cancel any pending trailing broadcasts so they don't fire post-stop.
+        for task in list(self._pending_broadcast.values()):
+            task.cancel()
+        self._pending_broadcast.clear()
+        self._last_broadcast_ms.clear()
 
     async def handle_client(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -112,12 +158,64 @@ class MarketStreamHub:
         await ws.send_json(
             {
                 "type": "quotes",
-                "live": broker_is_configured("alpaca"),
+                "live": self._live_flag(),
                 "quotes": {sym: _quote_payload(state) for sym, state in quotes.items()},
             }
         )
 
+    def _live_flag(self) -> bool:
+        """Return the 'live' bool sent in quote payloads.  Subclasses may override."""
+        from config.settings import primary_broker
+        return broker_is_configured(primary_broker())
+
     async def _broadcast_quote(self, symbol: str) -> None:
+        """Throttled per-symbol fan-out.
+
+        First tick in a window sends immediately; subsequent ticks inside the
+        window collapse into one trailing send at the boundary that re-reads
+        `self._quotes[symbol]` (so the latest price wins). Hot streams settle
+        at ~10 Hz / symbol / client; bursts and idle ticks pass through.
+        """
+        now_ms = time.monotonic() * 1000
+        last_ms = self._last_broadcast_ms.get(symbol, 0.0)
+        elapsed = now_ms - last_ms
+
+        if elapsed >= BROADCAST_THROTTLE_MS:
+            self._last_broadcast_ms[symbol] = now_ms
+            await self._do_broadcast_quote(symbol)
+            return
+
+        existing = self._pending_broadcast.get(symbol)
+        if existing is not None and not existing.done():
+            # Another trailing broadcast is already queued for this symbol;
+            # it'll re-read state when it fires, so latest price wins anyway.
+            return
+
+        delay_s = (BROADCAST_THROTTLE_MS - elapsed) / 1000.0
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop running (defensive — shouldn't happen on the live path).
+            self._last_broadcast_ms[symbol] = now_ms
+            await self._do_broadcast_quote(symbol)
+            return
+        self._pending_broadcast[symbol] = loop.create_task(
+            self._trailing_broadcast(symbol, delay_s)
+        )
+
+    async def _trailing_broadcast(self, symbol: str, delay_s: float) -> None:
+        try:
+            await asyncio.sleep(delay_s)
+            self._last_broadcast_ms[symbol] = time.monotonic() * 1000
+            await self._do_broadcast_quote(symbol)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("Trailing broadcast for %s failed", symbol, exc_info=True)
+        finally:
+            self._pending_broadcast.pop(symbol, None)
+
+    async def _do_broadcast_quote(self, symbol: str) -> None:
         state = self._quotes.get(symbol)
         if not state:
             return
@@ -194,6 +292,104 @@ class MarketStreamHub:
             self._pending_remove |= to_remove
         if to_add:
             await self._ensure_baselines(to_add)
+
+    async def _ensure_baselines(self, symbols: set[str]) -> None:
+        """Seed QuoteState for new symbols.  Override in each subclass."""
+        raise NotImplementedError
+
+    async def _upstream_loop(self) -> None:
+        """Drive the upstream broker connection.  Override in each subclass."""
+        raise NotImplementedError
+
+    async def apply_extended(
+        self,
+        symbol: str,
+        *,
+        ext_price: float | None,
+        ext_change_pct: float | None,
+        market_session: str | None,
+        broadcast: bool = True,
+    ) -> None:
+        """Update a symbol's extended-hours fields and (optionally) broadcast.
+
+        Called by the `/api/watchlist/market` REST poll so the WS stream carries the
+        same pre/post/overnight pricing the phone headlines — the Schwab level-one
+        stream doesn't emit ext fields. Creates a QuoteState if none exists yet.
+        """
+        sym = str(symbol).strip().upper()
+        if not sym:
+            return
+        state = self._quotes.get(sym)
+        if not state:
+            state = QuoteState()
+            self._quotes[sym] = state
+        state.ext_price = ext_price
+        state.ext_change_pct = ext_change_pct
+        state.market_session = market_session
+        if broadcast:
+            await self._broadcast_quote(sym)
+
+    async def _check_price_alerts(
+        self, symbol: str, prev: float, current: float
+    ) -> None:
+        try:
+            from api.alert_checker import check_alerts
+
+            triggered = await asyncio.to_thread(
+                check_alerts,
+                {symbol: current},
+                prev_quotes={symbol: prev},
+            )
+        except Exception as exc:
+            logger.warning("Price alert check failed: %s", exc)
+            return
+
+        for alert in triggered:
+            # Broadcast the price alert in the SAME flat shape rule alerts use
+            # (matches the phone client's reader). `trigger_price` is the price
+            # that crossed `target_price`.
+            target = float(alert.get("price", 0.0) or 0.0)
+            direction = str(alert.get("direction") or "cross")
+            note = str(alert.get("note") or "")
+            await self.broadcast_alert(
+                {
+                    "source": "price_alert",
+                    "symbol": symbol,
+                    "alert_id": alert.get("id"),
+                    "target_price": target,
+                    "trigger_price": current,
+                    "direction": direction,
+                    "note": note,
+                }
+            )
+
+            # Fire an APNs push too so a closed app still gets the alert. Flat
+            # custom keys let the phone deep-link to the symbol's detail screen
+            # on tap (mirrors how trade pushes deep-link to Approvals).
+            try:
+                from signals.push import send_alert_push
+
+                body = f"{symbol} {direction} ${target:g} — now ${current:.2f}"
+                if note:
+                    body = f"{body} ({note})"
+                await send_alert_push(
+                    title="Price alert",
+                    body=body,
+                    data={
+                        "type": "price_alert",
+                        "symbol": symbol,
+                        "alert_id": alert.get("id"),
+                    },
+                )
+            except Exception:
+                logger.warning("Price-alert push dispatch failed", exc_info=True)
+
+
+class AlpacaMarketStreamHub(BaseMarketHub):
+    """Alpaca IEX/SIP websocket upstream — original behavior, unchanged."""
+
+    def _live_flag(self) -> bool:
+        return broker_is_configured("alpaca")
 
     async def _ensure_baselines(self, symbols: set[str]) -> None:
         missing = [s for s in symbols if s not in self._quotes]
@@ -397,37 +593,6 @@ class MarketStreamHub:
             await self._check_price_alerts(symbol, prev, price_f)
         self._prev_prices[symbol] = price_f
 
-    async def _check_price_alerts(
-        self, symbol: str, prev: float, current: float
-    ) -> None:
-        try:
-            from api.alert_checker import check_alerts
-
-            triggered = await asyncio.to_thread(
-                check_alerts,
-                {symbol: current},
-                prev_quotes={symbol: prev},
-            )
-        except Exception as exc:
-            logger.warning("Price alert check failed: %s", exc)
-            return
-
-        for alert in triggered:
-            payload = {
-                "type": "alert",
-                "symbol": symbol,
-                "price": current,
-                "alert": alert,
-            }
-            dead: list[WebSocket] = []
-            for ws in list(self._clients):
-                try:
-                    await ws.send_json(payload)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                self._clients.pop(ws, None)
-
     async def _on_daily_bar(self, item: dict[str, Any]) -> None:
         symbol = str(item.get("S", "")).upper()
         close = item.get("c")
@@ -452,6 +617,15 @@ class MarketStreamHub:
             await self._check_price_alerts(symbol, prev, close_f)
         self._prev_prices[symbol] = close_f
         await self._broadcast_quote(symbol)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat alias: `market_hub` is now created in api/main.py via the
+# factory.  This module-level instance is kept for code that imports it
+# directly from brokers.market_stream (existing tests, etc.).
+# ---------------------------------------------------------------------------
+class MarketStreamHub(AlpacaMarketStreamHub):
+    """Backward-compatible alias — new code should use AlpacaMarketStreamHub."""
 
 
 def _parse_alpaca_frame(raw: str) -> list[dict[str, Any]]:
@@ -490,6 +664,12 @@ def _quote_payload(state: QuoteState) -> dict[str, Any]:
         "price": state.price,
         "change_pct": state.change_pct,
         "sparkline": state.sparkline,
+        "bid": state.bid,
+        "ask": state.ask,
+        "volume": state.volume,
+        "ext_price": state.ext_price,
+        "ext_change_pct": state.ext_change_pct,
+        "market_session": state.market_session,
     }
 
 

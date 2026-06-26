@@ -27,6 +27,7 @@ class OrderIntent:
     asset_class: str = "us_equity"
     occ_symbol: str | None = None
     multiplier: int = 1
+    account_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,10 @@ class RiskCheckResult:
     passed: bool
     checks: dict[str, str]
     blocked_reason: str | None
+    # True when a passing SELL has no held long to close — i.e. it opens/extends a
+    # short (only reachable when short selling is enabled + paper/dry_run). The
+    # chokepoint uses this to send position_intent="sell_to_open" to the broker.
+    is_short_open: bool = False
 
 
 @dataclass(frozen=True)

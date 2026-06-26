@@ -1,3 +1,5 @@
+import { TickMarkType } from "lightweight-charts";
+
 export type ChartTimeframe = {
   label: string;
   value: string;
@@ -5,9 +7,12 @@ export type ChartTimeframe = {
   intraday: boolean;
 };
 
+// `days` = history fetched per timeframe (drives payload size + cold-load lag). Kept
+// generous enough to pan back several sessions, but trimmed off the heaviest views —
+// 1Min @ 10d was ~9k bars / ~1MB, an unreasonable client freeze for a ~150-bar view.
 export const CHART_TIMEFRAMES: ChartTimeframe[] = [
-  { label: "1m", value: "1Min", days: 10, intraday: true },
-  { label: "5m", value: "5Min", days: 30, intraday: true },
+  { label: "1m", value: "1Min", days: 5, intraday: true },
+  { label: "5m", value: "5Min", days: 20, intraday: true },
   { label: "15m", value: "15Min", days: 60, intraday: true },
   { label: "1H", value: "1Hour", days: 180, intraday: true },
   { label: "1D", value: "1Day", days: 365, intraday: false },
@@ -17,6 +22,15 @@ const ET = "America/New_York";
 
 export function isDailyTimeframe(tf: string) {
   return tf === "1Day" || tf === "1D";
+}
+
+export function timeframeSeconds(tf: string): number {
+  const m = /^(\d+)(Min|Hour|Day)$/.exec(tf);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  if (m[2] === "Min") return n * 60;
+  if (m[2] === "Hour") return n * 3600;
+  return n * 86400; // Day
 }
 
 export function toChartTime(iso: string, timeframe: string): number | { year: number; month: number; day: number } {
@@ -59,45 +73,45 @@ export function formatCrosshairTime(
   });
 }
 
+// lightweight-charts decides the tick DENSITY from the zoom level and tells us
+// the level of each tick via `tickMarkType` — so the axis naturally fades from
+// times → days → months → years as you zoom out. We just format each level.
+// (For intraday data, day-boundary ticks fall on the first bar of the session,
+// i.e. ≈market open, so the date appears there.)
 export function formatTickMark(
   time: number | { year: number; month: number; day: number },
-  intraday: boolean,
+  tickMarkType: TickMarkType,
 ): string {
   const date = timeToDate(time);
-  if (!intraday) {
-    return date.toLocaleDateString("en-US", {
-      timeZone: ET,
-      month: "short",
-      day: "numeric",
-    });
+  switch (tickMarkType) {
+    case TickMarkType.Year:
+      return date.toLocaleDateString("en-US", { timeZone: ET, year: "numeric" });
+    case TickMarkType.Month:
+      return date.toLocaleDateString("en-US", { timeZone: ET, month: "short" });
+    case TickMarkType.DayOfMonth:
+      return date.toLocaleDateString("en-US", {
+        timeZone: ET,
+        month: "short",
+        day: "numeric",
+      });
+    case TickMarkType.Time:
+      return date.toLocaleTimeString("en-US", {
+        timeZone: ET,
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    case TickMarkType.TimeWithSeconds:
+      return date.toLocaleTimeString("en-US", {
+        timeZone: ET,
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
+    default:
+      return "";
   }
-  const hour = Number(
-    date.toLocaleString("en-US", { timeZone: ET, hour: "numeric", hour12: false }),
-  );
-  const minute = Number(
-    date.toLocaleString("en-US", { timeZone: ET, minute: "2-digit" }),
-  );
-  // Show date at session open-ish ticks and midnight boundaries.
-  if (hour === 9 && minute <= 30) {
-    return date.toLocaleDateString("en-US", {
-      timeZone: ET,
-      month: "short",
-      day: "numeric",
-    });
-  }
-  if (hour === 0 && minute === 0) {
-    return date.toLocaleDateString("en-US", {
-      timeZone: ET,
-      month: "short",
-      day: "numeric",
-    });
-  }
-  return date.toLocaleTimeString("en-US", {
-    timeZone: ET,
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
 }
 
 export function formatVolume(value: number): string {

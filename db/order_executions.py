@@ -12,6 +12,7 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.schema_helpers import _add_column_if_missing
 
 
 def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -45,6 +46,13 @@ def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON order_executions(status, created_at DESC);
             """
         )
+        _add_column_if_missing(conn, "order_executions", "account_id", "TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_order_exec_account_created
+                ON order_executions(account_id, created_at, status)
+            """
+        )
 
 
 def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
@@ -65,6 +73,7 @@ def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
         "submitted_at": row["submitted_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "account_id": row["account_id"],
     }
 
 
@@ -84,6 +93,7 @@ def create_execution_record(
     risk_checks_json: dict[str, Any] | str | None = None,
     broker_order_id: str | None = None,
     submitted_at: str | None = None,
+    account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_execution_tables(db_path)
@@ -99,8 +109,8 @@ def create_execution_record(
             INSERT INTO order_executions (
                 id, proposal_id, session_id, symbol, side, qty, order_type,
                 limit_price, execution_mode, status, broker_order_id, broker,
-                risk_checks_json, submitted_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                risk_checks_json, submitted_at, created_at, updated_at, account_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 execution_id,
@@ -119,6 +129,7 @@ def create_execution_record(
                 submitted_at,
                 now,
                 now,
+                account_id,
             ),
         )
         conn.commit()
@@ -170,29 +181,37 @@ def update_execution_status(
 
 def count_executions_today(
     *,
+    account_id: str | None = None,
     exclude_statuses: frozenset[str] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     init_execution_tables(db_path)
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     excluded = exclude_statuses or frozenset({"dry_run", "rejected", "error"})
+    account_clause = " AND account_id = ?" if account_id is not None else ""
     with _connect(db_path) as conn:
         if excluded:
             placeholders = ", ".join("?" for _ in excluded)
+            params: tuple[Any, ...] = (f"{today}T00:00:00", *excluded)
+            if account_id is not None:
+                params = (*params, account_id)
             row = conn.execute(
                 f"""
                 SELECT COUNT(*) AS cnt FROM order_executions
-                WHERE created_at >= ? AND status NOT IN ({placeholders})
+                WHERE created_at >= ? AND status NOT IN ({placeholders}){account_clause}
                 """,
-                (f"{today}T00:00:00", *excluded),
+                params,
             ).fetchone()
         else:
+            params = (f"{today}T00:00:00",)
+            if account_id is not None:
+                params = (*params, account_id)
             row = conn.execute(
-                """
+                f"""
                 SELECT COUNT(*) AS cnt FROM order_executions
-                WHERE created_at >= ?
+                WHERE created_at >= ?{account_clause}
                 """,
-                (f"{today}T00:00:00",),
+                params,
             ).fetchone()
     return int(row["cnt"]) if row else 0
 
@@ -209,49 +228,70 @@ def get_execution(
 
 
 def list_submitted_executions(
-    broker: str, *, db_path: Path = DEFAULT_DB_PATH
+    broker: str,
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     init_execution_tables(db_path)
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (broker,)
+    if account_id is not None:
+        params = (*params, account_id)
     with _connect(db_path) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT * FROM order_executions
-            WHERE status = 'submitted' AND broker = ?
+            WHERE status = 'submitted' AND broker = ?{account_clause}
             ORDER BY created_at ASC
             """,
-            (broker,),
+            params,
         ).fetchall()
     return [_row_to_execution(row) for row in rows]
 
 
 def count_submitted_executions(
-    broker: str, *, db_path: Path = DEFAULT_DB_PATH
+    broker: str,
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     init_execution_tables(db_path)
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (broker,)
+    if account_id is not None:
+        params = (*params, account_id)
     with _connect(db_path) as conn:
         row = conn.execute(
-            """
+            f"""
             SELECT COUNT(*) AS cnt FROM order_executions
-            WHERE status = 'submitted' AND broker = ?
+            WHERE status = 'submitted' AND broker = ?{account_clause}
             """,
-            (broker,),
+            params,
         ).fetchone()
     return int(row["cnt"]) if row else 0
 
 
 def count_pending_paper_executions(
-    broker: str, *, db_path: Path = DEFAULT_DB_PATH
+    broker: str,
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     init_execution_tables(db_path)
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (broker,)
+    if account_id is not None:
+        params = (*params, account_id)
     with _connect(db_path) as conn:
         row = conn.execute(
-            """
+            f"""
             SELECT COUNT(*) AS cnt FROM order_executions
             WHERE status = 'pending'
               AND execution_mode = 'paper'
-              AND broker = ?
+              AND broker = ?{account_clause}
             """,
-            (broker,),
+            params,
         ).fetchone()
     return int(row["cnt"]) if row else 0
 
@@ -260,22 +300,27 @@ def list_stale_pending_paper_executions(
     broker: str,
     *,
     min_age_seconds: float = 30,
+    account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     """Pending paper rows older than min_age_seconds (avoid racing in-flight submits)."""
     init_execution_tables(db_path)
     cutoff = datetime.now(UTC).timestamp() - min_age_seconds
     cutoff_iso = datetime.fromtimestamp(cutoff, tz=UTC).isoformat()
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (broker, cutoff_iso)
+    if account_id is not None:
+        params = (*params, account_id)
     with _connect(db_path) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT * FROM order_executions
             WHERE status = 'pending'
               AND execution_mode = 'paper'
               AND broker = ?
-              AND created_at < ?
+              AND created_at < ?{account_clause}
             ORDER BY created_at ASC
             """,
-            (broker, cutoff_iso),
+            params,
         ).fetchall()
     return [_row_to_execution(row) for row in rows]

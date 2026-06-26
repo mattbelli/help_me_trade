@@ -16,6 +16,7 @@ from ai.chat.stream import UIMessageStream
 from ai.chat.tools import TOOL_DEFINITIONS
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm, get_llm_provider_name
+from db.accounts import list_accounts
 from db.chat_sessions import (
     PERSISTED_MODES,
     get_chat_session,
@@ -66,6 +67,21 @@ def chat_system_prompt() -> str:
     return _system_prompt()
 
 
+def _accounts_context_block() -> str:
+    accounts = list_accounts()
+    if not accounts:
+        return "Accounts: none configured."
+    parts: list[str] = []
+    for account in accounts:
+        label = account.get("label") or account["id"]
+        broker = account.get("broker", "?")
+        if account.get("execution_capable"):
+            parts.append(f"'{label}' ({broker}) = PAPER (tradeable)")
+        else:
+            parts.append(f"'{label}' ({broker}) = REAL money, READ-ONLY")
+    return "Accounts: " + "; ".join(parts) + "."
+
+
 def _system_prompt() -> str:
     tools = "\n".join(
         f"- {name}: {meta['description']}"
@@ -73,11 +89,16 @@ def _system_prompt() -> str:
     )
     return (
         f"{current_date_context()}\n\n"
-        "You are Help Me Trade, a trading copilot. "
+        f"{_accounts_context_block()}\n\n"
+        "Help Me Trade runs autonomous strategies (e.g. dip, earnings) that scan, "
+        "propose trades to the user's phone, and execute through a guarded chokepoint "
+        "on approval. You are the cockpit: use get_agent_status to report what's running.\n\n"
         "Answer clearly and concisely in markdown when helpful.\n\n"
         "Behavior rules:\n"
         "- Greetings (hi, hello, hey): reply in 1–2 short friendly sentences. "
         "Do not call tools and do not mention portfolio, positions, or P&L.\n"
+        "- NEVER call propose_order for a read-only/Schwab account. They are real money. "
+        "If asked, explain they're read-only and offer a paper account.\n"
         "- News and public web pages: call web_search (SearXNG). Only cite returned "
         "snippets/URLs. web_search is NOT live X or Reddit — no tweet streams, no "
         "subreddit feeds, no clock-time filters (6–8am). time_range is day/week/month "
@@ -87,6 +108,8 @@ def _system_prompt() -> str:
         "in text. Use the tool API and wait for results before answering.\n"
         "- Buy/sell requests: call propose_order (symbol, side, qty, order_type market|limit). "
         "Do not describe calling the tool — call it. The Approve/Reject card is the UI.\n"
+        "- When a propose_order result includes a `score`, surface the calibrated win%, "
+        "EV, and top factors to the user (honestly — never invent a score).\n"
         "- Option pricing/bid-ask: call get_option_quote (broker options data) — NEVER web_search "
         "for quotes. Options require a limit order; if no live options quote is available, tell "
         "the user to set the limit from their broker's option chain. Options are buy-to-open "
@@ -99,6 +122,11 @@ def _system_prompt() -> str:
         "NEVER present approximate_fifo figures or incomplete_positions proceeds as "
         "realized P&L — incomplete positions (e.g. PLTR) lack cost basis and their "
         "P&L is unknown.\n"
+        "- Portfolio P&L: a position's `unrealized_pl` is CUMULATIVE since entry, "
+        "never today's move. For 'today'/'how'd I do today' questions, use the "
+        "snapshot's per-account `day_pl`/`day_pl_pct` and aggregate `total_day_pl`. "
+        "Always say whether a number is today's or since-entry; never present "
+        "cumulative unrealized P&L as a daily result.\n"
         "- Do NOT invent goals, targets, rules, thresholds, or preferences the user "
         "never stated and that are not in the provided data or memories "
         "(e.g. never claim a '10 trades/week goal'). If you do not have a fact, say so.\n"
@@ -244,13 +272,13 @@ def _persist_turn(
     if session is None:
         return
 
-    last_msg = messages[-1] if messages else None
+    # Persist the latest user message of the turn. Do NOT gate on the array's LAST
+    # message being a user message — on tool-calling turns the context ends with an
+    # assistant/tool message, which previously dropped the user turn from the saved
+    # thread entirely (only AI responses survived a reload). The upsert is idempotent
+    # by the message's stable id, so re-running across tool rounds is harmless.
     user_msg = _last_message_by_role(messages, "user")
-    if (
-        user_msg
-        and isinstance(last_msg, dict)
-        and last_msg.get("role") == "user"
-    ):
+    if user_msg:
         user_parts = user_msg.get("parts")
         if not isinstance(user_parts, list):
             user_parts = [{"type": "text", "text": user_text}]

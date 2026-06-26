@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from authlib.integrations.httpx_client import OAuth2Client
 from dotenv import load_dotenv
 from schwab import auth
+from schwab.auth import TOKEN_ENDPOINT
+from schwab.client import Client
 
 from brokers.errors import BrokerError
 
@@ -109,22 +113,28 @@ def run_interactive_login(interactive: bool = True) -> None:
     api_key, app_secret, callback_url = _credentials()
     path = token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    # easy_client() short-circuits and returns the EXISTING token whenever the
-    # file is present and younger than its max_token_age — so a weekly re-auth
-    # would silently no-op (no browser, ignoring `interactive`). Force a fresh
-    # login flow by removing any prior token first.
+    print("Schwab manual login (headless-friendly — no local browser needed).")
+    # Manual flow always runs the full paste-based login (it never short-circuits
+    # on an existing token, unlike easy_client). Remove any prior token first so a
+    # weekly re-auth starts clean rather than refreshing a possibly-stale token.
     if path.exists():
         print(f"Removing existing token to force re-auth: {path}")
         path.unlink()
-    print("Opening browser for Schwab login...")
     print(f"Callback URL must match your Schwab app: {callback_url}")
     print(f"Token will be saved to: {path}")
-    auth.easy_client(
+    print(
+        "\nA URL will be printed below. Open it on any device, log in, and when "
+        "the browser is redirected to your callback URL (it will fail to load — "
+        "that's expected), copy the FULL address-bar URL and paste it back here.\n"
+    )
+    # NB: client_from_manual_flow has no `interactive` kwarg (unlike easy_client);
+    # the manual paste flow is inherently interactive. `interactive` stays on the
+    # signature for caller compatibility (scripts/schwab_login.py --no-prompt).
+    auth.client_from_manual_flow(
         api_key,
         app_secret,
         callback_url,
         str(path),
-        interactive=interactive,
     )
     print("Login complete. Set BROKER=schwab in .env and restart the API.")
 
@@ -148,7 +158,46 @@ def create_client(*, interactive: bool = False):
             "Schwab token missing. Run: python -m scripts.schwab_login"
         )
 
-    return auth.client_from_token_file(str(path), api_key, app_secret)
+    return _client_from_token_basic(api_key, app_secret, path)
+
+
+def _client_from_token_basic(api_key: str, app_secret: str, path: Path):
+    """Build a Schwab client whose token refresh uses HTTP Basic auth.
+
+    schwab-py builds its OAuth2 session without setting
+    ``token_endpoint_auth_method``, so authlib defaults to
+    ``client_secret_post`` (credentials in the body) — which Schwab's token
+    endpoint rejects with ``invalid_client``. authlib binds the auth method at
+    construction, so we build the session ourselves with
+    ``client_secret_basic`` and persist refreshed tokens in schwab-py's
+    ``{creation_timestamp, token}`` file format.
+    """
+    raw = json.loads(path.read_text())
+    token = raw.get("token", raw) if isinstance(raw, dict) else raw
+
+    def _write(new_token, *args, **kwargs):
+        path.write_text(
+            json.dumps({"creation_timestamp": int(time.time()), "token": new_token})
+        )
+
+    session = OAuth2Client(
+        api_key,
+        client_secret=app_secret,
+        token=token,
+        token_endpoint=TOKEN_ENDPOINT,
+        token_endpoint_auth_method="client_secret_basic",
+        update_token=_write,
+        leeway=300,
+    )
+    # Populate token_metadata (schwab-py leaves it None when we build the session
+    # ourselves) so StreamClient.login() can read token_metadata.token['access_token'].
+    creation_ts = (
+        int(raw.get("creation_timestamp", time.time()))
+        if isinstance(raw, dict)
+        else int(time.time())
+    )
+    token_metadata = auth.TokenMetadata(token, creation_ts, _write)
+    return Client(api_key, session, token_metadata=token_metadata)
 
 
 def resolve_account_hash(client, *, account_hash: str | None = None) -> str:

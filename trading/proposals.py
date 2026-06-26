@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from brokers.market_stream import market_hub
+from db.accounts import account_is_execution_capable
 from db.base import DEFAULT_DB_PATH
 from db.paper_orders import (
     claim_proposal_for_approval,
@@ -61,6 +62,28 @@ def _is_expired(row: dict[str, Any]) -> bool:
     return now >= expires
 
 
+async def _try_end_proposal_live_activity(
+    proposal_id: str,
+    *,
+    status: str,
+    status_reason: str | None = None,
+    proposal: dict[str, Any] | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    try:
+        from signals.push import end_proposal_live_activity
+
+        await end_proposal_live_activity(
+            proposal_id,
+            status=status,
+            status_reason=status_reason,
+            proposal=proposal,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("Failed to end live activity for proposal %s", proposal_id)
+
+
 async def approve_proposal(
     proposal_id: str,
     *,
@@ -82,6 +105,9 @@ async def approve_proposal(
             to="expired",
             db_path=db_path,
         )
+        await _try_end_proposal_live_activity(
+            proposal_id, status="expired", proposal=row, db_path=db_path
+        )
         return {"status": "expired"}
 
     if expected_hash is not None and expected_hash != row.get("payload_hash"):
@@ -95,6 +121,9 @@ async def approve_proposal(
         transition_proposal_status(
             proposal_id, expect="pending_phone", to="expired", db_path=db_path
         )
+        await _try_end_proposal_live_activity(
+            proposal_id, status="expired", proposal=row, db_path=db_path
+        )
         return {"status": "expired"}
     if claim == "not_found":
         return {"status": "not_found"}
@@ -106,6 +135,33 @@ async def approve_proposal(
         stored,
         proposal_id=proposal_id,
         session_id=row.get("session_id"),
+        db_path=db_path,
+    )
+
+    if intent.account_id is not None and not account_is_execution_capable(
+        intent.account_id, db_path=db_path
+    ):
+        transition_proposal_status(
+            proposal_id,
+            expect="approving",
+            to="blocked",
+            last_error="account not execution-capable",
+            db_path=db_path,
+        )
+        await _try_end_proposal_live_activity(
+            proposal_id,
+            status="failed",
+            status_reason="account not execution-capable",
+            proposal=row,
+            db_path=db_path,
+        )
+        return {"status": "blocked", "reason": "account not execution-capable"}
+
+    # In-flight: the proposal is approving and about to be placed. Surface the
+    # "Approved" state on the Live Activity (an UPDATE, not an END) so the widget
+    # shows processing before the terminal executed/failed arrives.
+    await _try_end_proposal_live_activity(
+        proposal_id, status="approved", proposal=row, db_path=db_path
     )
 
     try:
@@ -118,6 +174,13 @@ async def approve_proposal(
             last_error=exc.reason,
             db_path=db_path,
         )
+        await _try_end_proposal_live_activity(
+            proposal_id,
+            status="failed",
+            status_reason=exc.reason,
+            proposal=row,
+            db_path=db_path,
+        )
         return {"status": "blocked", "reason": exc.reason}
     except Exception as exc:
         transition_proposal_status(
@@ -125,6 +188,13 @@ async def approve_proposal(
             expect="approving",
             to="failed",
             last_error=str(exc),
+            db_path=db_path,
+        )
+        await _try_end_proposal_live_activity(
+            proposal_id,
+            status="failed",
+            status_reason=str(exc),
+            proposal=row,
             db_path=db_path,
         )
         return {"status": "failed", "reason": str(exc)}
@@ -159,6 +229,9 @@ async def approve_proposal(
             proposal_id,
             result.execution_id,
         )
+    await _try_end_proposal_live_activity(
+        proposal_id, status="executed", proposal=row, db_path=db_path
+    )
     return out
 
 
@@ -182,6 +255,9 @@ async def reject_proposal(
     ):
         return {"status": "already_decided"}
 
+    await _try_end_proposal_live_activity(
+        proposal_id, status="rejected", proposal=row, db_path=db_path
+    )
     return {"status": "rejected"}
 
 
@@ -191,6 +267,7 @@ async def create_phone_proposal(
     session_id: str | None = None,
     source: str | None = None,
     rule_id: str | None = None,
+    score: bool = True,
     ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
@@ -202,18 +279,32 @@ async def create_phone_proposal(
     intent_fields = built["intent_fields"]
     summary = _proposal_summary(intent_fields)
 
-    score = None
-    try:
-        from signals.decision_scorer import score_symbol
+    score_result = None
+    # A validated strategy's backtested stats are the HONEST conviction; prefer them over
+    # the generic per-symbol scorer (calibrated but edgeless). Display/context only — not
+    # read by RiskEngine or the execution chokepoint.
+    if rule_id:
+        try:
+            from signals.strategy_stats import strategy_conviction
 
-        score = score_symbol(
-            intent_fields["symbol"],
-            side=intent_fields["side"],
-            db_path=db_path,
-        )
-    except Exception:
-        logger.exception("Failed to score proposal for %s", intent_fields.get("symbol"))
+            score_result = strategy_conviction(rule_id)
+        except Exception:
+            logger.exception("Failed to load strategy stats for %s", rule_id)
+    if score_result is None and score:
+        try:
+            from signals.decision_scorer import score_symbol
 
+            score_result = score_symbol(
+                intent_fields["symbol"],
+                side=intent_fields["side"],
+                db_path=db_path,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to score proposal for %s", intent_fields.get("symbol")
+            )
+
+    account_id = intent_fields.get("account_id")
     row = create_pending_proposal(
         proposal=built["proposal"],
         intent_fields=intent_fields,
@@ -222,7 +313,8 @@ async def create_phone_proposal(
         summary=summary,
         source=source,
         rule_id=rule_id,
-        score=score,
+        score=score_result,
+        account_id=account_id,
         db_path=db_path,
     )
 
@@ -243,5 +335,19 @@ async def create_phone_proposal(
         )
     except Exception:
         logger.exception("Failed to broadcast phone proposal alert")
+
+    try:
+        from signals.push import send_proposal_push
+
+        await send_proposal_push(row, db_path=db_path)
+    except Exception:
+        logger.exception("Failed to send proposal push")
+
+    try:
+        from signals.push import start_proposal_live_activity
+
+        await start_proposal_live_activity(row, db_path=db_path)
+    except Exception:
+        logger.exception("Failed to start live activity for proposal %s", row.get("id"))
 
     return row

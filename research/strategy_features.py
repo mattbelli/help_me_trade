@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import bisect
+from datetime import date, timedelta
+
 from research.levels import level_features
 from research.volume_profile import compute_profile_features
 from signals.indicators import (
@@ -317,3 +320,83 @@ def is_momentum_entry(
             return False
 
     return True
+
+
+def _trading_days_until(from_date: str, to_date: str) -> int:
+    """Approx trading days from from_date (exclusive) to to_date (inclusive).
+
+    Mon-Fri count, HOLIDAY-NAIVE — a live approximation of the backtest's exact
+    bar-index gap, since the next earnings is a future date with no bar yet. May
+    drift ~1-2 days vs the real calendar over a few weeks (documented caveat).
+    """
+    try:
+        start = date.fromisoformat(from_date[:10])
+        end = date.fromisoformat(to_date[:10])
+    except ValueError:
+        return -1
+    if end <= start:
+        return 0
+    days = 0
+    cur = start
+    while cur < end:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            days += 1
+    return days
+
+
+def is_earnings_drift_entry(
+    bars: list[DatedBar],
+    idx: int,
+    *,
+    earnings_dates: list[str],
+    blowout_pct: float = 5.0,
+    entry_lead_td: int = 10,
+    exit_lead_td: int = 1,
+    min_gap_td: int = 40,
+    max_gap_td: int = 90,
+) -> bool:
+    """Pre-earnings drift after a blowout — LONG-only entry, point-in-time at idx.
+
+    Mirrors research/earnings_strategy.py: if the PRIOR earnings produced a
+    blowout-UP reaction (close[j+1]/close[j-1]-1 >= blowout_pct), buy ~entry_lead_td
+    trading days before the NEXT earnings (exit ~exit_lead_td days before — never
+    holds through the announcement). `earnings_dates` is the symbol's known
+    earnings dates (live: from db.earnings_calendar). No look-ahead: only the prior
+    earnings' reaction (already realized) is used; the next date only times entry.
+    """
+    if idx < 0 or idx >= len(bars):
+        return False
+    today = bars[idx]["d"]
+
+    past = [d for d in earnings_dates if d and d <= today]
+    future = [d for d in earnings_dates if d and d > today]
+    if not past or not future:
+        return False
+    last_e = max(past)
+    next_e = min(future)
+
+    bar_dates = [b["d"] for b in bars]
+    j = bisect.bisect_left(bar_dates, last_e)
+    # Need the prior-earnings bar plus the day before and after to score reaction,
+    # and j must not run past the loaded bars.
+    if j >= len(bars) or j - 1 < 0 or j + 1 >= len(bars):
+        return False
+    c = [float(b["c"]) for b in bars]
+    prev_close = c[j - 1]
+    if prev_close <= 0:
+        return False
+    reaction_pct = (c[j + 1] / prev_close - 1.0) * 100.0
+    if reaction_pct < blowout_pct:  # require a positive blowout (long-only thesis)
+        return False
+
+    td_to_next = _trading_days_until(today, next_e)
+    if td_to_next < 0:
+        return False
+    gap_td = (idx - j) + td_to_next
+    if gap_td < min_gap_td or gap_td > max_gap_td:
+        return False
+
+    # In the pre-earnings holding window: at/just-inside the entry lead, but not yet
+    # past the exit lead. One-entry-per-signal upstream keeps it from re-firing.
+    return exit_lead_td < td_to_next <= entry_lead_td
