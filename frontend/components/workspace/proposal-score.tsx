@@ -59,6 +59,7 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
   const hasEv = evPct != null && Number.isFinite(evPct);
   const evCi = score.ev_ci_pct;
   const isExploratory = !hasWinRate;
+  const planRules = score.plan?.rules ?? [];
 
   return (
     <div className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-inset)]/40 px-2.5 py-2 text-xs">
@@ -119,6 +120,20 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
           n={score.n_setups.toLocaleString()} setups
           {score.per_year_positive ? ` · ${score.per_year_positive} yrs+` : ""}
         </p>
+      ) : null}
+
+      {planRules.length > 0 ? (
+        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 border-t border-[var(--border)]/60 pt-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-[var(--fg-faint)]">
+            Plan
+          </span>
+          {planRules.map((rule, i) => (
+            <span key={rule} className="font-mono text-[10px] text-[var(--fg-dim)]">
+              {rule}
+              {i < planRules.length - 1 ? " ·" : ""}
+            </span>
+          ))}
+        </div>
       ) : null}
 
       {score.note ? (

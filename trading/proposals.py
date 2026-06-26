@@ -286,9 +286,13 @@ async def create_phone_proposal(
         # only — not read by RiskEngine or the execution chokepoint.
         if rule_id:
             try:
-                from signals.strategy_stats import strategy_conviction
+                from signals.strategy_stats import strategy_conviction, strategy_plan
 
                 score_result = strategy_conviction(rule_id)
+                if score_result is not None:
+                    plan = strategy_plan(rule_id, db_path=db_path)
+                    if plan is not None:
+                        score_result["plan"] = plan
             except Exception:
                 logger.exception("Failed to load strategy stats for %s", rule_id)
         if score_result is None:

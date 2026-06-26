@@ -766,6 +766,11 @@ export type ProposalScore = {
   note?: string;
   source?: string;
   as_of?: string;
+  plan?: {
+    kind?: string;
+    exit_basis?: string;
+    rules?: string[];
+  } | null;
 };
 
 export type PendingProposal = {
