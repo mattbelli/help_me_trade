@@ -1,0 +1,106 @@
+{
+ "_meta": {
+  "algorithm": "entry: vix_close>28 AND >=8 of prior 12 trading days vix<22 AND no open position; exit: vix_close<20 OR 60 trading-day max hold",
+  "n_episodes": 14
+ },
+ "episodes": [
+  {
+   "entry_date": "1990-08-03",
+   "entry_vix": 28.74,
+   "exit_date": "1990-10-29",
+   "exit_reason": "60d_max_hold",
+   "hold_trading_days": 60
+  },
+  {
+   "entry_date": "1997-10-27",
+   "entry_vix": 31.12,
+   "exit_date": "1998-01-26",
+   "exit_reason": "60d_max_hold",
+   "hold_trading_days": 60
+  },
+  {
+   "entry_date": "2000-10-12",
+   "entry_vix": 30.51,
+   "exit_date": "2001-01-09",
+   "exit_reason": "60d_max_hold",
+   "hold_trading_days": 60
+  },
+  {
+   "entry_date": "2010-05-06",
+   "entry_vix": 32.8,
+   "exit_date": "2010-08-02",
+   "exit_reason": "60d_max_hold",
+   "hold_trading_days": 60
+  },
+  {
+   "entry_date": "2011-03-16",
+   "entry_vix": 29.4,
+   "exit_date": "2011-03-23",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 5
+  },
+  {
+   "entry_date": "2015-08-21",
+   "entry_vix": 28.03,
+   "exit_date": "2015-10-05",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 30
+  },
+  {
+   "entry_date": "2018-02-05",
+   "entry_vix": 37.32,
+   "exit_date": "2018-02-14",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 7
+  },
+  {
+   "entry_date": "2020-02-27",
+   "entry_vix": 39.16,
+   "exit_date": "2020-05-22",
+   "exit_reason": "60d_max_hold",
+   "hold_trading_days": 60
+  },
+  {
+   "entry_date": "2021-02-25",
+   "entry_vix": 28.89,
+   "exit_date": "2021-03-16",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 13
+  },
+  {
+   "entry_date": "2021-11-26",
+   "entry_vix": 28.62,
+   "exit_date": "2021-12-08",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 8
+  },
+  {
+   "entry_date": "2022-01-21",
+   "entry_vix": 28.85,
+   "exit_date": "2022-02-09",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 13
+  },
+  {
+   "entry_date": "2024-08-05",
+   "entry_vix": 38.57,
+   "exit_date": "2024-08-13",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 6
+  },
+  {
+   "entry_date": "2025-04-03",
+   "entry_vix": 30.02,
+   "exit_date": "2025-05-12",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 26
+  },
+  {
+   "entry_date": "2026-03-06",
+   "entry_vix": 29.49,
+   "exit_date": "2026-04-09",
+   "exit_reason": "vix<20",
+   "hold_trading_days": 23
+  }
+ ]
+}
