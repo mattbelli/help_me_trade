@@ -280,29 +280,30 @@ async def create_phone_proposal(
     summary = _proposal_summary(intent_fields)
 
     score_result = None
-    # A validated strategy's backtested stats are the HONEST conviction; prefer them over
-    # the generic per-symbol scorer (calibrated but edgeless). Display/context only — not
-    # read by RiskEngine or the execution chokepoint.
-    if rule_id:
-        try:
-            from signals.strategy_stats import strategy_conviction
+    if score:
+        # A validated strategy's backtested stats are the HONEST conviction; prefer them
+        # over the generic per-symbol scorer (calibrated but edgeless). Display/context
+        # only — not read by RiskEngine or the execution chokepoint.
+        if rule_id:
+            try:
+                from signals.strategy_stats import strategy_conviction
 
-            score_result = strategy_conviction(rule_id)
-        except Exception:
-            logger.exception("Failed to load strategy stats for %s", rule_id)
-    if score_result is None and score:
-        try:
-            from signals.decision_scorer import score_symbol
+                score_result = strategy_conviction(rule_id)
+            except Exception:
+                logger.exception("Failed to load strategy stats for %s", rule_id)
+        if score_result is None:
+            try:
+                from signals.decision_scorer import score_symbol
 
-            score_result = score_symbol(
-                intent_fields["symbol"],
-                side=intent_fields["side"],
-                db_path=db_path,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to score proposal for %s", intent_fields.get("symbol")
-            )
+                score_result = score_symbol(
+                    intent_fields["symbol"],
+                    side=intent_fields["side"],
+                    db_path=db_path,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to score proposal for %s", intent_fields.get("symbol")
+                )
 
     account_id = intent_fields.get("account_id")
     row = create_pending_proposal(
