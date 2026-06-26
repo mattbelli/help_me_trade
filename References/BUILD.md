@@ -217,6 +217,12 @@ review (standing rule) caught + fixed a double-submit window — new `recent_ope
 (re-asserts paper-only + refuses non-`strategy:` sources). Default `entry_mode='propose'` → **zero behavior
 change until a founder flips a toggle.** 879 tests; ruff + typecheck clean. PR for the founder to merge; then
 flip `dip_buy`/`dip_refined`/`earnings_drift` to paper-auto.
+⚠️ **Alert design (founder/PC, 2026-06-26):** per-trade pushes are correct for these tactical sleeves (rare,
+each fill worth knowing), but the future **momentum/rebalance book** (Sharpe-1.42, separate later promotion) can
+fire 40+ fills/hour → alert fatigue → user ignores pushes → misses the one that matters. Build a per-strategy
+`alert_style` (`per_trade` | `summary`, mirroring `entry_mode`) and emit ONE summary push for bulk-rebalance
+strategies AT THAT PROMOTION (not now — no bulk strategy is live). Today's mitigation: `max_concurrent_positions`
+caps bound any burst.
 
 **1. Support/Resistance + trade-PLAN outputs (completes the "fully-planned idea").**
 - *Features:* distance to nearest support/resistance, room-to-run to next level, level-test counts (from bars:
