@@ -22,6 +22,8 @@ from ai.chat.brain import (
 )
 from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.messages import last_user_text
+from ai.chat.mobile_agent import run_mobile_chat_stream
+from ai.chat.mobile_stream import sse
 from ai.llm.config import get_default_llm
 from ai.llm.factory import get_llm, get_llm_provider_name
 from ai.llm.models import list_chat_models, list_default_model_options
@@ -377,6 +379,70 @@ def api_chat_finalize(body: dict = Body(...)):
         mode=mode,
         model=chat_model,
         assistant_message=assistant_message,
+    )
+
+
+@router.post("/chat/stream")
+async def api_chat_stream(body: dict = Body(...)):
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return JSONResponse({"error": "messages must be a list"}, status_code=400)
+
+    session_id = body.get("sessionId") or body.get("session_id")
+    mode = normalize_chat_mode(str(body.get("mode", "temporary")))
+    model = body.get("model")
+    chat_model = str(model).strip() if model else None
+    if session_id is not None:
+        session_id = str(session_id).strip()
+    if mode == "saved" and not session_id:
+        return JSONResponse(
+            {"error": "sessionId is required for saved chats"},
+            status_code=400,
+        )
+
+    run = ChatRunResult()
+    user_text = last_user_text(messages)
+
+    async def gen():
+        try:
+            async for event in run_mobile_chat_stream(
+                messages,
+                session_id=session_id,
+                mode=mode,
+                model=chat_model,
+                result=run,
+            ):
+                yield sse(event)
+                await asyncio.sleep(0)
+        except Exception:
+            # Never leave the mobile client hanging: always emit a terminal event.
+            # (Can't yield from `finally`, so catch here.) Generic message — no leak.
+            logging.getLogger(__name__).exception("mobile chat stream failed")
+            yield sse({"type": "error", "message": "Chat stream failed."})
+            yield sse(
+                {"type": "done", "sessionId": session_id, "messageId": uuid.uuid4().hex}
+            )
+        finally:
+            if user_text and run.assistant_text:
+                finalize_chat_turn(
+                    messages=messages,
+                    user_text=user_text,
+                    assistant_text=run.assistant_text,
+                    session_id=session_id,
+                    mode=mode,
+                    model=chat_model,
+                    run=run,
+                    extract=False,
+                )
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

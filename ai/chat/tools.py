@@ -219,6 +219,10 @@ class ToolPlan(BaseModel):
     tools: list[PlannedToolCall] = Field(default_factory=list)
 
 
+# Includes `propose_order` (it's a TOOL_DEFINITION), but the planner prompt deliberately
+# omits it so the planner never returns it. The mobile path (ai/chat/mobile_agent.py) also
+# intercepts `propose_order` by name and routes it to create_phone_proposal (pending, never
+# executes) — so it is safe to leave here even if a future prompt edit surfaces it.
 _ALLOWED_TOOLS = frozenset(TOOL_DEFINITIONS.keys())
 
 _MULTI_ACCOUNT_NOTE = (
