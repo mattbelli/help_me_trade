@@ -24,11 +24,17 @@ chokepoint, **auto + paper-fenced, seeded DISABLED**. Spec: `MOMENTUM_PORTFOLIO_
   Key memory: [[momentum-inc3-data-gate]] (residual thresholds +12 hard/+8 soft, dedicated-account precondition).
 - ✅ **FRED/regime pipeline** — live. `db/regime` + `signals/regime` (`market_regime`, fail-closed
   `regime_is_fresh`) + a daily `_regime_refresh_loop`. `FRED_API_KEY` in `.env`. Verified term_spread +0.31 / VIX 18.9.
-- ⏳ **Phase 1 — `steepyc_dip` (20%)** — was BUILDING IN COMPOSER (brief: `tools/composer-bridge/briefs/
-  phase1-steepyc-dip.md`). NEXT-SESSION TODO: review the working-tree diff, **adversarially review the
-  `evaluate_dip_exit` change** (must keep `dip_buy` BYTE-IDENTICAL — `None` disables a stop/target/trail leg),
-  run the gate (`ruff` + `pytest` + frontend typecheck), commit + push. It's the dip edge gated to
-  `term_spread > 0.5` (fail-closed on stale regime) + a 10-day fixed hold; seeded disabled+unbound.
+- ✅ **Phase 1 — `steepyc_dip` (20%)** — BUILT + reviewed + gate-green, committed (brief:
+  `tools/composer-bridge/briefs/phase1-steepyc-dip.md`). The dip edge gated to `term_spread > 0.5`
+  (fail-closed on stale/missing regime) + a 10-day fixed hold; seeded **disabled + unbound**, `exit_mode=auto`,
+  notional $15k, kind `dip`. Mechanism: `yc_min_spread` param added to `DIP_ENTRY_PARAM_KEYS` so it round-trips
+  into `ctx.params` but `_dip_check` strips it before `is_strategy_entry` and applies the regime gate after;
+  `evaluate_dip_exit` now treats an explicit `None` stop/target/trail leg as DISABLED (→ pure max-holding exit).
+  **Adversarial review done:** `dip_buy`/`dip_refined` are BYTE-IDENTICAL — they have no `yc` param (gate skipped)
+  and real stop/target/trail numbers (every new `is not None` guard transparently true). The trail-`None` phase-2
+  branch is unreachable for `steepyc_dip` (scale never fires when `first_target_pct` is None). 931 tests green,
+  ruff clean. Honest framing in `strategy_stats.json`: tactical/high-beta, standalone alpha +0.47%/trade NOT
+  significant — credit as tactical exposure, not alpha.
 - ◻️ **Phase 2 — `vix_spike` (10%)** — LAST piece. New `vix_spike` kind (VIX>28 AND ≥8 of prior 12 days <22) +
   new `evaluate_vix_exit` (VIX<20 or 60-day hold), SPY-only "buy fear." Per `TACTICAL_SLEEVES_SPEC.md`.
 

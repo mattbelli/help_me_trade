@@ -14,6 +14,7 @@ from research.strategy_features import (
     is_strategy_entry,
 )
 from signals.indicators import closes, pct_change
+from signals.regime import market_regime, regime_is_fresh
 from signals.trade_context import DatedBar
 
 
@@ -37,13 +38,23 @@ class StrategyKind:
 
 
 def _dip_check(ctx: EntryContext) -> bool:
-    return is_strategy_entry(
+    yc_min = ctx.params.get("yc_min_spread")
+    entry_params = {k: v for k, v in ctx.params.items() if k != "yc_min_spread"}
+    if not is_strategy_entry(
         ctx.sym_bars,
         ctx.idx,
         spy_bars=ctx.spy_bars,
         spy_idx=ctx.spy_idx,
-        **ctx.params,
-    )
+        **entry_params,
+    ):
+        return False
+    if yc_min is not None:
+        if not regime_is_fresh():
+            return False
+        regime = market_regime()
+        if regime is None or regime["term_spread"] <= float(yc_min):
+            return False
+    return True
 
 
 def _dip_rationale(ctx: EntryContext, strategy_name: str) -> str:
@@ -80,6 +91,7 @@ DIP_ENTRY_PARAM_KEYS = (
     "mkt_down_3d_max",
     "side",
     "far_support_min",
+    "yc_min_spread",
 )
 EARNINGS_ENTRY_PARAM_KEYS = (
     "blowout_pct",

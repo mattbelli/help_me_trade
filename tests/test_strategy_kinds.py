@@ -108,6 +108,7 @@ def _earnings_setup(
 def test_strategy_kind_inference() -> None:
     assert strategy_kind("dip_buy") == "dip"
     assert strategy_kind("dip_refined") == "dip"
+    assert strategy_kind("steepyc_dip") == "dip"
     assert strategy_kind("earnings_drift") == "earnings"
     assert strategy_kind("momentum_sp500") == "momentum"
     assert strategy_kind("momentum_residual") == "momentum"
@@ -155,6 +156,79 @@ def test_dip_check_entry_fails_when_market_up() -> None:
     assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
 
 
+def _dip_ctx_with_yc(*, yc_min_spread: float | None = 0.5) -> EntryContext:
+    sym_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+    params: dict = {}
+    if yc_min_spread is not None:
+        params["yc_min_spread"] = yc_min_spread
+    return EntryContext(
+        sym="AAPL",
+        sym_bars=sym_bars,
+        idx=idx,
+        spy_bars=spy_bars,
+        spy_idx=spy_idx,
+        params=params,
+    )
+
+
+def test_dip_check_yc_gate_passes_when_steep_and_fresh(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.market_regime",
+        lambda **_: {"term_spread": 0.75, "as_of": "2026-06-25"},
+    )
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is True
+
+
+def test_dip_check_yc_gate_fails_when_spread_too_low(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.market_regime",
+        lambda **_: {"term_spread": 0.5, "as_of": "2026-06-25"},
+    )
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
+
+
+def test_dip_check_yc_gate_fail_closed_when_stale(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: False)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.market_regime",
+        lambda **_: {"term_spread": 1.0, "as_of": "2026-06-25"},
+    )
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
+
+
+def test_dip_check_yc_gate_fail_closed_when_regime_missing(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr("signals.strategy_kinds.market_regime", lambda **_: None)
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
+
+
+def test_dip_check_without_yc_param_ignores_regime(monkeypatch) -> None:
+    sym_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+    ctx = EntryContext(
+        sym="AAPL",
+        sym_bars=sym_bars,
+        idx=idx,
+        spy_bars=spy_bars,
+        spy_idx=spy_idx,
+        params={},
+    )
+
+    def _fail_if_called(**_kwargs):
+        raise AssertionError("market_regime should not be called without yc_min_spread")
+
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", _fail_if_called)
+    monkeypatch.setattr("signals.strategy_kinds.market_regime", _fail_if_called)
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is True
+
+
 def test_earnings_check_entry_passes(monkeypatch) -> None:
     sym_bars, idx, earnings = _earnings_setup(reaction_close=106.0, entry_td_out=10)
     spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
@@ -197,11 +271,12 @@ def test_filter_entry_params_drops_unknown_keys() -> None:
         spec,
         {
             "oversold_3d_max": -5.0,
+            "yc_min_spread": 0.5,
             "stop_pct": -3.0,
             "unknown_key": 99,
         },
     )
-    assert filtered == {"oversold_3d_max": -5.0}
+    assert filtered == {"oversold_3d_max": -5.0, "yc_min_spread": 0.5}
     assert "stop_pct" not in filtered
     assert "unknown_key" not in filtered
     assert set(DIP_ENTRY_PARAM_KEYS) >= set(filtered)

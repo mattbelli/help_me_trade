@@ -35,6 +35,20 @@ _DIP_REFINED_DEFAULT_PARAMS: dict[str, Any] = {
     "far_support_min": 5.0,
 }
 
+# Tactical sleeve: validated dip edge gated to steep yield-curve regimes (term_spread > 0.5),
+# 10-day fixed hold (stop/target/trail disabled). Seeded DISABLED + UNBOUND.
+_STEEPYC_DIP_DEFAULT_PARAMS: dict[str, Any] = {
+    "side": "long",
+    "healthy_required": True,
+    "oversold_3d_max": -5.0,
+    "mkt_down_3d_max": -1.5,
+    "yc_min_spread": 0.5,
+    "stop_pct": None,
+    "first_target_pct": None,
+    "trail_pct": None,
+    "max_holding_days": 10,
+}
+
 _EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
     # entry (mirrors is_earnings_drift_entry defaults — the validated values)
     "blowout_pct": 5.0,
@@ -358,12 +372,14 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
 
     need_dip_buy = get_strategy("dip_buy", db_path=db_path) is None
     need_dip_refined = get_strategy("dip_refined", db_path=db_path) is None
+    need_steepyc = get_strategy("steepyc_dip", db_path=db_path) is None
     need_earnings = get_strategy("earnings_drift", db_path=db_path) is None
     need_session_node = get_strategy("session_node_spy", db_path=db_path) is None
     need_momentum = get_strategy("momentum_sp500", db_path=db_path) is None
     if (
         not need_dip_buy
         and not need_dip_refined
+        and not need_steepyc
         and not need_earnings
         and not need_session_node
         and not need_momentum
@@ -398,6 +414,27 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 notional=500.0,
                 params=_DIP_REFINED_DEFAULT_PARAMS,
                 now=now,
+            )
+
+        if need_steepyc:
+            # Tactical 20% sleeve — steep yield-curve dip with 10d fixed hold.
+            # Seeded DISABLED + UNBOUND; paper-fenced until founder arms it.
+            _insert_strategy(
+                conn,
+                strategy_id="steepyc_dip",
+                name="Steep-Curve Dip (tactical)",
+                enabled=False,
+                account_id=None,
+                notional=15000.0,
+                params=_STEEPYC_DIP_DEFAULT_PARAMS,
+                now=now,
+                exit_mode="auto",
+                universe="sp500",
+            )
+            conn.execute(
+                "UPDATE strategies SET entry_mode = 'auto', alert_style = 'per_trade' "
+                "WHERE id = ?",
+                ("steepyc_dip",),
             )
 
         if need_earnings:

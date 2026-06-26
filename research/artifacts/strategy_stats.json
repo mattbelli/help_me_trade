@@ -45,6 +45,17 @@
       "validated": "exploratory",
       "method": null,
       "note": "No robust edge. /ES profile mean-reversion rejected 4 ways (naive MR, daily swing vs beta, per-year robustness, true 1-min anchor); the prior-session anchor adds no alpha over long-beta. Kept as a propose-only exploratory signal, not a backtested edge."
+    },
+    "steepyc_dip": {
+      "label": "Steep-Curve Dip (tactical)",
+      "win_rate": 0.558,
+      "ev_pct": 0.88,
+      "ev_ci_pct": null,
+      "n_setups": null,
+      "per_year_positive": null,
+      "validated": "strong-unverified",
+      "method": null,
+      "note": "Tactical/high-beta sleeve, NOT standalone alpha: beta-adjusted ~half the +0.88%/trade excess is beta-recovery; standalone selection alpha +0.47%/trade, not significant. Credit as tactical exposure (steep yield-curve dip, 10d fixed hold)."
     }
   }
 }

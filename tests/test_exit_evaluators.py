@@ -100,6 +100,35 @@ def test_dip_bad_entry_price():
     assert d.detail.get("error") == "bad_entry_price"
 
 
+def test_dip_fixed_hold_only_exits_at_max_holding():
+    fixed_hold_params = {
+        "stop_pct": None,
+        "first_target_pct": None,
+        "trail_pct": None,
+        "max_holding_days": 10,
+    }
+    d = _dip(
+        holding_days=5,
+        bar_low=90.0,
+        bar_high=110.0,
+        current_price=100.0,
+        params=fixed_hold_params,
+    )
+    assert d.action == "hold"
+    assert d.reason == "hold"
+
+    d = _dip(
+        holding_days=10,
+        current_price=101.0,
+        bar_high=101.0,
+        bar_low=101.0,
+        params=fixed_hold_params,
+    )
+    assert d.action == "exit"
+    assert d.reason == "time_cap"
+    assert d.exit_fraction == 1.0
+
+
 def test_dip_bar_high_low_default_to_current_price():
     d = _dip(current_price=96.9)
     assert d.action == "exit"

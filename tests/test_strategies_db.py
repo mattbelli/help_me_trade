@@ -75,6 +75,7 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
     assert {s["id"] for s in first} == {
         "dip_buy",
         "dip_refined",
+        "steepyc_dip",
         "earnings_drift",
         "session_node_spy",
         "momentum_sp500",
@@ -84,6 +85,7 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
     assert {s["id"] for s in list_strategies(db_path=db)} == {
         "dip_buy",
         "dip_refined",
+        "steepyc_dip",
         "earnings_drift",
         "session_node_spy",
         "momentum_sp500",
@@ -110,6 +112,37 @@ def test_seed_momentum_sp500_defaults(tmp_path: Path, monkeypatch) -> None:
     assert row["params"] == {}
     assert strategy_kind("momentum_sp500") == "momentum"
     assert is_portfolio_kind("momentum_sp500") is True
+
+
+def test_seed_steepyc_dip_defaults(tmp_path: Path, monkeypatch) -> None:
+    db = _migrated_db(tmp_path)
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    seed_default_strategies(db_path=db)
+    row = get_strategy("steepyc_dip", db_path=db)
+    assert row is not None
+    assert row["enabled"] is False
+    assert row["account_id"] is None
+    assert row["notional_usd"] == 15000.0
+    assert row["exit_mode"] == "auto"
+    assert row["entry_mode"] == "auto"
+    assert row["alert_style"] == "per_trade"
+    assert row["universe"] == "sp500"
+    assert row["params"] == {
+        "side": "long",
+        "healthy_required": True,
+        "oversold_3d_max": -5.0,
+        "mkt_down_3d_max": -1.5,
+        "yc_min_spread": 0.5,
+        "stop_pct": None,
+        "first_target_pct": None,
+        "trail_pct": None,
+        "max_holding_days": 10,
+    }
+    assert strategy_kind("steepyc_dip") == "dip"
+    assert is_portfolio_kind("steepyc_dip") is False
 
 
 def test_alert_style_defaults_and_migrates(tmp_path: Path) -> None:

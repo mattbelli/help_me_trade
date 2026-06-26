@@ -33,7 +33,7 @@ def evaluate_dip_exit(
     if entry_price <= 0 or not math.isfinite(entry_price):
         return ExitDecision("hold", "hold", detail={"error": "bad_entry_price"})
 
-    stop_pct_mag = abs(params.get("stop_pct", -3.0))
+    stop_pct = params.get("stop_pct", -3.0)
     first_target_pct = params.get("first_target_pct", 3.0)
     trail_pct = params.get("trail_pct", 11.0)
     max_holding = int(params.get("max_holding_days", 20))
@@ -66,18 +66,20 @@ def evaluate_dip_exit(
         )
 
     if not first_target_hit:
-        if low_ret <= -stop_pct_mag:
-            return ExitDecision(
-                "exit",
-                "stop",
-                exit_fraction=1.0,
-                detail={
-                    **base_detail,
-                    "stop_pct_mag": stop_pct_mag,
-                    "stop_threshold_ret": -stop_pct_mag,
-                },
-            )
-        if high_ret >= first_target_pct:
+        if stop_pct is not None:
+            stop_pct_mag = abs(stop_pct)
+            if low_ret <= -stop_pct_mag:
+                return ExitDecision(
+                    "exit",
+                    "stop",
+                    exit_fraction=1.0,
+                    detail={
+                        **base_detail,
+                        "stop_pct_mag": stop_pct_mag,
+                        "stop_threshold_ret": -stop_pct_mag,
+                    },
+                )
+        if first_target_pct is not None and high_ret >= first_target_pct:
             return ExitDecision(
                 "scale",
                 "first_target",
@@ -93,6 +95,16 @@ def evaluate_dip_exit(
         return ExitDecision("hold", "hold", detail=base_detail)
 
     hwm = high_water_mark if high_water_mark is not None else bar_high
+
+    if trail_pct is None:
+        new_hwm = max(hwm, bar_high)
+        return ExitDecision(
+            "hold",
+            "hold",
+            new_high_water_mark=new_hwm if new_hwm > hwm else None,
+            detail={**base_detail, "high_water_mark": hwm},
+        )
+
     trail_stop = hwm * (1 - trail_pct / 100)
     effective_stop = max(breakeven_price, trail_stop)
 
