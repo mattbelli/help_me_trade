@@ -66,8 +66,99 @@ Complements the in-flight AV-surprise earnings work. `_edgehunt/pead.py`
 - **Halloween (standalone)** — seasonal pattern is real (winter EW ≫ summer) but trails SPY ~4%/yr as a
   flat-half-year strategy; useful only as a tilt/overlay, alpha-vs-SPY evaporates if the boundary moves 2wk.
 
-## Bottom line
-**Momentum is the real, robust edge family here** — and the *sector×stock double-filter* is the one that
-proved genuine alpha over SPY. The *steep-YC dip* is an immediately usable refinement of our existing
-validated dip. Everything else is either beta in disguise or noise. Next: re-test all momentum variants on
-an **excess-over-SPY** basis, add momentum-crash (2022) protection, and combine the winners.
+## Bottom line (round 1)
+Momentum looked like the real edge family, with the sector×stock double-filter as the star. **Round 2 (below)
+revises this** — the honest excess-over-SPY test demoted several round-1 "edges" as beta/crisis-clustered.
+
+---
+
+# Round 2 — the excess-over-SPY gauntlet (REVISES round 1)
+
+Re-tested every candidate bootstrapping the **excess return over SPY** (not raw), with mandatory ex-2020(COVID)
++ ex-2026(tariff) robustness cuts and momentum-crash tail checks. 27 hypotheses, 3 rounds. This is the honest
+alpha test — and it changed the standings.
+
+## ★ Confirmed robust edges (survive excess-over-SPY AND the worst robustness cut)
+1. **★ Steep-yield-curve dip — STRONGEST, ship-candidate.** Dip entry only when **Y10−Y2 > 0.5**.
+   **+1.01%/trade excess over SPY** (CI [+0.30, +1.40], p=0.0014, n=13,102), +0.91% net of cost; OOS 2020+
+   **+2.17%**; survives worst cut (ex-2020+2026: +0.74%, p=0.013) across all block sizes 5–60d and 10 seeds;
+   survivorship clean; Bonferroni passes. Only caveat: significance fades above YC>0.6 (moderate threshold
+   specificity). **Directly actionable: an upgrade to the existing validated dip — gate dip proposals on the
+   yield curve.** `_edgehunt/steepyc_dip_prod.py`
+2. **Idiosyncratic (residual) momentum — ship-candidate w/ caveat.** Rank by stock 12-1 *minus* its EW-sector
+   12-1; long top quintile. **+0.47%/mo excess** (CI [+0.14, +0.83], p=0.003), survives all cuts (worst
+   ex-2020+2026: +0.32%, p=0.022), 16/16 yrs gross-positive, mild 2021 tail (−0.77%). Cleaner than plain
+   momentum. Caveat: EW vs cap-weight SPY — ~0.1–0.15%/mo may be the size/EW tilt; needs attribution vs an
+   equal-weight benchmark. `_edgehunt/sector_idio_mom_verify.py`
+3. **VIX-spike reversion — big but rare (pilot sleeve).** Buy the broad market after a VIX spike (>~28),
+   hold to reversion. **+3.34%/episode excess** (CI [+1.95, +5.10]), **10/10 episodes beat SPY**, OOS +3.25%,
+   survives every jackknife/exclusion. But **n=10 episodes** in 16y (rare) and threshold-sensitive (>28 passes,
+   >26 fails). Economically clean ("buy fear"). Deploy small as an opportunistic overlay. `_edgehunt/vix_spike_reversion.py`
+4. **VIX + YC two-sleeve** confirms the sleeves are **diversifying** (cross-correlation −0.18) — promising for a
+   combined book; needs a clean portfolio-NAV-vs-SPY framing (currently measured as conditional alpha; has a
+   cosmetic worst-year bug). `_edgehunt/vix_yc_two_sleeve.py`
+
+## Demoted / killed by the honest test (were round-1 "edges")
+- **Sector×stock double-filter momentum** (round-1 #1) — excess CI compresses away when crisis years stripped
+  (worstCutSig=FALSE). It was largely **beta + crisis-regime**, not durable alpha.
+- **Plain 12-1 cross-sectional momentum** — excess is **regime-clustered**: +0.78%/mo full-sample but ≈0 (even
+  slightly negative) in quiet/trending markets (2015–17, 2019, 2021); the alpha lives in 2020 + 2026. Real but
+  not all-weather — must be regime-conditioned. The *residual* version (#2) is the better form.
+- **PEAD (gap-based)** — does **not** survive on excess basis at the correct block_size=20. Mostly beta.
+- **Momentum-crash protection** (SPY>200dma overlay) — **killed the alpha** rather than preserving it.
+- **Short-term reversal as diversifier** — dead (+0.01%/wk excess). Not a diversifier here.
+- Re-confirmed no-edge on excess: low-vol, overnight drift, turn-of-month, RSI2-quality, breadth thrust,
+  /ES overnight, 52w-high, Halloween×YC, rate-spike reversion.
+
+## Net after both rounds
+Three genuinely robust, survivorship-free edges emerge — and they're **complementary**:
+- **Steep-YC dip** (event-driven mean-reversion; best evidence) — upgrade to the live dip.
+- **Residual momentum** (monthly trend core).
+- **VIX-spike reversion** (rare opportunistic "buy fear").
+VIX and YC sleeves are mildly anti-correlated (−0.18) → a combined book should be smoother than any single one.
+**Next: build the combined portfolio NAV vs SPY (Sharpe/drawdown/CAGR — the deployability test the verifiers
+keep demanding), finalize the steep-YC dip production spec, and run the residual-momentum EW-benchmark attribution.**
+
+---
+
+# Round 3 — consolidation: the deployable combined book
+
+## ★ THE RESULT: a combined book beats SPY risk-adjusted (confirmed, HIGH confidence)
+Static-weight book = **70% residual-momentum core + steep-YC dip (tactical) + VIX-spike (opportunistic)**:
+
+| Metric | Combined book | SPY buy-hold |
+|---|---|---|
+| Sharpe | **1.42** | 1.03 |
+| CAGR | **+18.9%** | +15.2% |
+| Max drawdown | **−16.5%** | −23.3% |
+| Rolling-12m windows beating SPY | **69.9%** | — |
+| Correlation to SPY | 0.87 | — |
+
+**Better return AND lower tail risk.** Survives the worst robustness cut (ex-2020+2026: Sharpe 1.43 vs 1.11) —
+not a crisis-year artifact. Refinement: crediting T-bill yield on idle dip/VIX cash lifts it to **Sharpe 1.454,
+CAGR +19.4%** (helps most in the high-rate 2022–26 regime).
+**Honest caveat: 0.87 SPY-correlated — this is a *better equity book*, not market-neutral alpha.**
+
+## What did NOT improve the book (keep it simple)
+vol-targeting (*hurt* — excess went negative), regime-adaptive sleeve weights (no better than static),
+a breadth-thrust 4th sleeve (dead), credit-spread timing (dead — sat out the bull market, Sharpe 0.72).
+The plain static-weight book is the winner.
+
+## Locked / finalized specs
+- **`steepyc_dip` v1.0 (DEPLOY in propose-mode):** entry `c>SMA200 ∧ stock −5%/3d ∧ SPY −1.5%/3d ∧ Y10−Y2>0.5`,
+  fill T+1 open; **exit = 10-day fixed hold** (the −3%/+3% sell-half/trail **destroys** the edge → excess −0.12%,
+  CI below zero — do NOT use it). +0.88% net/trade excess, CI [+0.18,+1.26], ~20 signal events/yr (~1000 trades).
+  ⚠️ Pre-LIVE: entry selects high-beta names that fell hard; much of the excess may be **beta-recovery** — needs
+  a **beta-adjusted (Jensen) alpha** check + a portfolio NAV before going past propose-mode.
+- **`residual_mom`:** +0.47%/mo vs SPY = +0.18 passive EW/size tilt + **+0.30 genuine selection alpha**; pure
+  selection alpha is *fragile* (loses significance ex-2020+2026, p=0.118) but the sleeve's Sharpe (0.998 vs 0.80)
+  is robust → good as the **momentum core**, not as a standalone stock-picker.
+- **`vix_spike`:** +3.3%/episode, ~0.6 episodes/yr, n=10 pilot; opportunistic "buy fear" overlay, light on capital.
+
+## Bottom line (night's deliverable)
+From "the scorer is edgeless" → **a deployable, survivorship-free, 3-sleeve book that beats SPY on both return
+and drawdown, robust to crisis-year exclusion**, plus a **locked steep-YC dip spec** that upgrades the existing
+live dip. Remaining work is *engineering/validation, not hunting*: (1) beta-adjusted Jensen alpha on the dip +
+book (how much is true alpha vs leveraged beta); (2) wire `steepyc_dip` into `strategy_stats.json` as the dip
+upgrade; (3) build the book as a live propose-mode strategy. Hypothesis space is well-explored — last round's
+refinements all failed, signalling convergence.
