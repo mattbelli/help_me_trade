@@ -100,6 +100,7 @@ from db.strategies import init_strategy_tables, list_strategies, seed_default_st
 from db.trades import init_trade_tables
 from db.workspace import init_workspace_tables, load_workspace_layout, save_workspace_layout
 from signals.earnings_refresh import arefresh_earnings_calendar
+from signals.momentum import refresh_universe_bars
 from signals.scan import run_signal_scan
 from signals.session_node_strategy import compute_session_levels, run_session_node_scan
 from signals.strategy_kinds import strategy_kind
@@ -126,6 +127,7 @@ SESSION_NODE_SCAN_INTERVAL_SECONDS = max(
     20, int(os.environ.get("SESSION_NODE_SCAN_INTERVAL_SECONDS", "60"))
 )
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
+MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
 RVOL_ALERT_INTERVAL_SECONDS = max(
     60, int(os.environ.get("RVOL_ALERT_INTERVAL_SECONDS", "300"))
@@ -447,6 +449,30 @@ async def _earnings_refresh_loop() -> None:
         except Exception:
             logger.exception("Earnings refresh loop iteration failed")
         await asyncio.sleep(EARNINGS_REFRESH_INTERVAL_SECONDS)
+
+
+def _momentum_strategy_enabled() -> bool:
+    return any(
+        s.get("enabled") and str(s.get("id", "")).startswith("momentum")
+        for s in list_strategies()
+    )
+
+
+async def _momentum_bars_refresh_once() -> int:
+    if not _momentum_strategy_enabled():
+        return 0
+    return await refresh_universe_bars()
+
+
+async def _momentum_bars_refresh_loop() -> None:
+    while True:
+        try:
+            n = await _momentum_bars_refresh_once()
+            if n:
+                logger.info("Momentum daily bars refresh upserted %d rows", n)
+        except Exception:
+            logger.exception("Momentum bars refresh loop iteration failed")
+        await asyncio.sleep(MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS)
 
 
 def _all_watchlist_symbols() -> list[str]:
@@ -932,6 +958,7 @@ async def lifespan(app: FastAPI):
     reflection_task = asyncio.create_task(reflection_loop())
     sync_task = asyncio.create_task(_trade_sync_loop())
     earnings_task = asyncio.create_task(_earnings_refresh_loop())
+    momentum_bars_task = asyncio.create_task(_momentum_bars_refresh_loop())
     volume_profile_task = asyncio.create_task(_volume_profile_refresh_loop())
     rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
     earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
@@ -940,6 +967,7 @@ async def lifespan(app: FastAPI):
     bars_prewarm_task = asyncio.create_task(_bars_prewarm_loop())
     yield
     earnings_task.cancel()
+    momentum_bars_task.cancel()
     volume_profile_task.cancel()
     rvol_alert_task.cancel()
     earnings_alert_task.cancel()
@@ -960,6 +988,7 @@ async def lifespan(app: FastAPI):
         reflection_task,
         sync_task,
         earnings_task,
+        momentum_bars_task,
         volume_profile_task,
         rvol_alert_task,
         earnings_alert_task,
