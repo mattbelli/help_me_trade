@@ -286,6 +286,37 @@ def recent_open_buy_exists(
     return row is not None
 
 
+def recent_open_sell_exists(
+    symbol: str,
+    *,
+    account_id: str | None,
+    within_seconds: float,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
+    """True if a non-failed SELL execution for this symbol+account was created within the window.
+
+    Rebalance-side double-submit guard: mirrors ``recent_open_buy_exists`` for sells.
+    """
+    init_execution_tables(db_path)
+    cutoff = (datetime.now(UTC) - timedelta(seconds=within_seconds)).isoformat()
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (symbol.strip().upper(), cutoff)
+    if account_id is not None:
+        params = (*params, account_id)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            f"""
+            SELECT 1 FROM order_executions
+            WHERE symbol = ? AND side = 'sell'
+              AND status NOT IN ('rejected', 'canceled', 'cancelled', 'expired', 'failed')
+              AND created_at >= ?{account_clause}
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+    return row is not None
+
+
 def list_recent_auto_entries(
     account_id: str | None,
     strategy_id: str,
