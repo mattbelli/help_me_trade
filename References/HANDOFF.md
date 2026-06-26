@@ -1,15 +1,224 @@
-# Handoff — "you are here" (2026-06-22, late)
+# Handoff — "you are here" (2026-06-25)
 
 *Bootstrap for a fresh session. Read this first, then `CLAUDE.md` (mission + working agreements, auto-loaded),
 `AGENTS.md` (codebase map), and per-topic refs: `MULTI_ACCOUNT_PLAN.md`, `BUILD.md` (roadmap + dated history),
-`DECISION_ENGINE_RESEARCH.md`, `SHORT_TRADING_FINDINGS.md`, `NORGATE_PULL.md`, `ARCHITECTURE.md`, `STARTUP.md`,
-`SERVER_SETUP.md`. Deep server specifics: the `serv-runtime` memory.*
+`PLATFORM_PARITY.md` (web vs phone tracker — keep current), `DECISION_ENGINE_RESEARCH.md`,
+`SHORT_TRADING_FINDINGS.md`, `ARCHITECTURE.md`, `STARTUP.md`, `SERVER_SETUP.md`. Deep server specifics: the
+`serv-runtime` memory.*
 *Past full handoff snapshots live in `HANDOFF_ARCHIVE.md` (oldest first) — when you do a superseding rewrite of
 this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — make dip + earnings live ROUND-TRIPS: the per-strategy EXIT MODULE (Phase D) + EARNINGS sleeve (Phase E)
+## CURRENT FOCUS — Web UI consolidation + the supervision backbone (2026-06-25)
+
+**Read `PLATFORM_PARITY.md` too** (web-vs-phone feature tracker; update it every change — agreed discipline).
+
+### Locked product decisions (don't re-litigate)
+- **The Workspace (`/workspace`, the draggable widget grid) is the home and the ONLY web UI going forward.**
+  The old page-nav routes (`/trading`, `/charts`, `/rules`, etc.) are to be **deprecated**. Full/rich views
+  (Automations, Performance, Research) should *launch from* the Workspace, not be a separate UI.
+- **Charts: ONE chart.** Controls live in the **workspace frame toolbar** (`ChartHeaderControls` in
+  `frontend/components/workspace/workspace-grid.tsx`): symbol + timeframe ▾ + Candles/Line ▾ + **Studies ▾**.
+  `TvLightChart` renders chart-only in the workspace (`compact` prop hides its internal toolbar/overlay).
+  ⚠️ `TvLightChart` STILL contains an old-UI internal toolbar (shadcn `Button`s) used only by the deprecated
+  `/trading` + `/charts` pages — strip it when those pages go (it's the last old-UI styling in the chart path).
+- **Studies menu** holds chart studies; only one so far: **"Session Nodes"** (prior-session volume-profile
+  POC/VAH/VAL + prior-day H/L), toggled via the Studies dropdown → `config.showSessionNodes` →
+  `TvLightChart`'s controlled `showLevels` prop → `/api/session-node/levels` → `createPriceLine`s. Future
+  studies (MAs, S/R, drawings) join the same dropdown.
+
+### Shipped today (2026-06-25, all on `main`, deployed live on serv)
+CPU peg fixed (missing `account_snapshots(poll_run_id)` index — 101%→2%); **post-market/extended-hours charts**
+(Schwab, `/api/bars` deduped — fixed a Schwab duplicate-candle bug that broke 1/5/15-min); **Session Nodes study**
++ chart overlay; **one full chart** w/ frame Studies dropdown; **Session-Node strategy promoted to the Strategies
+cockpit** (armed, propose-only, 1-min scan loop); **morning levels report** (8am push, scheduled, Generate-now,
+Automations); **Automations cockpit page** (`/automations`); chart-switch **bars cache**; **company-info last-
+earnings fix** (Finnhub `/calendar/earnings` was row-capped → now chunked; serve report date not Schwab's stale
+field); **Live Activity** trade-proposal lifecycle verified end-to-end on device.
+
+**★ CRITICAL bug fixed (2026-06-25) — autonomous proposals required a browser open.** Found while debugging
+"why didn't my vol-node strat prompt today?" (SPY tagged prior-session VAL/PDL support at 9:54 ET → a real long
+trigger → zero proposals). Root cause: `trading/risk_engine._live_market_price()` read the live quote ONLY from
+the in-process stream hub (`market_hub.quote_snapshot`), and that hub only carries a symbol while a **browser is
+viewing it** or a **price alert** exists (the sole `ensure_symbols` caller). No browser on the symbol ⇒ no quote
+⇒ `RiskEngine.validate` "no live quote" / sizing returns None ⇒ no proposal, **silently** (the scan claims-then-
+`forget`s the dedup key, leaving no log/event). This gated EVERY market entry — session-node AND dip/earnings —
+defeating "works while you step away." **Fix (mission-correct, single point):** `_live_market_price` is now async
+and falls back to a fresh **REST quote** (`provider.aget_quotes` `regular_last`, then a today-dated 5-min bar
+close) on a hub miss. **RTH-only** (off-hours → None, fail-closed, so no stale price slips the chokepoint) and
+fail-soft. Adversarial Sonnet review (2 rounds): SAFE TO COMMIT; caught/fixed off-hours-stale + Alpaca-daily-bar
+staleness. 850 tests green, live-verified (`_live_market_price("SPY")` returns a price on a hub miss).
+
+### THE QUEUE — what to build next (priority order)
+1. **Notifications / inbox (highest value — the supervision backbone; founder's biggest active pain).**
+   Build ONE persistent notification store feeding both platforms. **Web bell** (`notification-bell.tsx`): entries
+   must be **clickable with detail** (which rule, what level/price, a link to act) and **reports must register
+   there** (they don't now — bell only shows proposals + a non-clickable "rule triggered"). **Phone**: a persistent
+   **inbox** that holds reports/alerts until deleted (currently ephemeral push only). Backend likely needs a
+   notifications table + an endpoint; the alert broadcast path is in `brokers/market_stream` + `send_alert_push`.
+2. **Finish "Workspace is the only UI".** Deprecate/remove the old pages; **strip `TvLightChart`'s internal
+   toolbar** (chart-only everywhere); add an in-Workspace **launcher** to the surviving full views (Automations,
+   Performance, Research); **default-place the 6 orphaned widgets** (reports, agent-proposals, price-alerts, scans,
+   memory, rvol-scanner) so nothing's hidden. (They're registered in `widget-registry.tsx` but off the default
+   grid in `lib/workspace/layout-persistence.ts`.)
+3. **Chart/Studies polish.** Founder to eyeball Session Nodes line rendering. Studies dropdown grows (drawings,
+   MAs, S/R). If the chart's top toolbar wraps badly at small widget sizes, condense to icons (NOT a separate
+   compact chart).
+4. **HTML Session-Nodes report** — richer visual report (levels as an SVG ladder), beyond the plain push text.
+5. **Earnings + RVOL alert surfaces** — backend endpoints so they appear in Automations → Alerts (currently
+   backend-only, no UI).
+6. **Auto-execute / guardrails** — the autonomy-ladder controls (act within hard caps + kill switch); the mission
+   endgame; belongs in the Automations cockpit.
+7. **Strategy descriptions + tunable strategies** (founder asked 2026-06-25; deferred for now — DO build).
+   Two parts: **(a) descriptions in the UI** — a readable per-strategy blurb in each StrategyCard saying *what
+   triggers it → what it does → how it exits*, with HONEST validation status (dip/dip_refined/earnings have
+   validated/forward-test edges; **session_node is exploratory, propose-only, NO validated edge — never show a
+   fabricated win-rate**). **(b) tunable strategies** — make the trigger/exit numbers adjustable, via an editable
+   config file (yaml) AND/OR per-strat fields in the Settings UI. Recon done: 3/4 strats are already
+   **param-driven** — thresholds live in `strategies.params_json`, read at runtime (dip/dip_refined: stop −3 /
+   target +3 / trail 11 / oversold −5·3d / mkt −1.5·3d / far_support_min 5; earnings: blowout 5 / entry-lead 10td
+   / exit-lead 1td / gap 40–90td); **`session_node` is HARDCODED** (rearm 2pts, max_per_node 2, max/day 6, VAH/VAL/
+   PDH/PDL→POC in `research/session_node_signal.py`) → extract to params first. ⚠️ **Safety:** strategies are
+   FROZEN/validated — editing a threshold changes the backtested edge, so any editable-params path MUST carry a
+   "this de-validates the strategy, re-validate before trusting" warning (CLAUDE.md: learning layer may observe,
+   never silently mutate validated logic). **Scope still undecided** (descriptions-only vs +read-only params vs
+   +editable params). Key files: `db/strategies.py` (seed + `params_json`; would add a `description`/config source),
+   `signals/strategy_kinds.py` (kind registry — natural home for shared descriptions), `api/strategy_routes.py`
+   (GET/PUT `/api/strategies` — add `description`), `frontend/components/settings/settings-strategies-panel.tsx`
+   (StrategyCard; render block ~just above Save), `signals/universes/*.json` (the only file-config precedent today).
+
+### Key files
+Chart: `frontend/components/trading/tv-light-chart.tsx`, `…/workspace/workspace-grid.tsx` (`ChartHeaderControls`),
+`…/workspace/widgets/chart-widget.tsx`, `lib/workspace/layout-persistence.ts` (`WidgetInstanceConfig`).
+Session nodes: `signals/session_node_strategy.py` (`compute_session_levels`), `GET /api/session-node/levels`.
+Reports: `db/reports.py`, `signals/reports.py`, `_morning_levels_report_loop`/`_morning_report_window` in
+`api/main.py`, `GET/POST /api/reports`. Automations: `frontend/components/automations/`, `/automations`.
+Notifications: `frontend/components/workspace/notification-bell.tsx`.
+
+### Working notes
+- **Deploy:** `bash tools/serv-deploy.sh [backend|frontend|both]`. **REBUILD the frontend first**
+  (`cd frontend && npm run build`) when frontend changed — serv-deploy only RESTARTS; serving a stale `.next`
+  build is the recurring "where's my change?" bug.
+- **Discoverability rule (founder pain):** when you add a widget/page, default-place it or tell the founder exactly
+  where it is — don't leave it off-grid. Update `PLATFORM_PARITY.md` every change.
+- **Coding:** Composer bridge (`tools/composer-bridge/dispatch.mjs --brief …`, one at a time) OR Sonnet subagents.
+  Founder is considering dropping Cursor → use **Sonnet subagents for legwork, Opus for orchestration + `trading/`
+  safety**. (Evaluated the `ponytail` plugin — skipped, redundant with `CLAUDE.md`.)
+- **Safety:** `trading/` changes get an adversarial Sonnet review; session-node strat is **propose-only** (never
+  auto-executes); Schwab stays read-only; LIVE execution hard-blocked.
+
+---
+
+## SHIPPED (2026-06-24) — Schwab data hub: RVOL + real-time streaming + extended-hours + auto re-auth
+**Architecture locked (2026-06-24, see `data-vs-execution-architecture` memory):** consolidate **DATA on
+Schwab** (volume, fundamentals, extended-hours, streaming) + **Finnhub** for the forward earnings date; keep
+**EXECUTION decoupled on Alpaca paper** (Schwab read-only, never execute). Futures = its own later track.
+The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution broker.
+
+**SHIPPED + DEPLOYED + LIVE on serv (2026-06-24, commits on `main`):**
+- ✅ **Watchlist RVOL column** — `signals/volume_profile.py` (median 20-day, 78-bucket cumfrac S-curve;
+  `rvol_now` warming/live/settled). `/api/watchlist/market` returns `rvol:{value,state}`. Web + **phone (RN
+  `13ee660`)** render `2.3×` + color band (dim/yellow/amber/red), overnight dimmed. Validated live (CAT 1.78×,
+  SPY 1.23×, NVDA 0.83×…).
+- ✅ **RVOL for ANY stock** — lazy on-demand profile build on cache-miss (`_schedule_profile_build`, 10-min
+  cooldown) + **nightly 986-symbol precompute** (S&P500 ∪ Russell1000 ∪ Nasdaq100, rate-limited ~100/min,
+  skip <20h-fresh). Universe lists in `signals/universes/{russell1000,nasdaq100}.json`.
+- ✅ **Schwab real-time streaming** (`brokers/schwab_market_stream.py` `SchwabMarketStreamHub`; refactored
+  `market_stream.py` → `BaseMarketHub`). Level-one equities + futures (/ES routed to futures handler), dynamic
+  subscribe/unsubscribe, 30s heartbeat + reconnect. Hub selected by `market_data_provider_name()`. **Fixed a
+  bug:** `_client_from_token_basic` built Client with `token_metadata=None` → StreamClient.login crashed;
+  now populates TokenMetadata (`f71f599`). Verified: `Schwab market stream connected`. Live ticks at market open.
+- ✅ **Extended-hours + 24/5 OVERNIGHT pricing** — `SchwabMarketData.aget_quotes` (regular/extended/quote
+  blocks); `/api/watchlist/market` stamps `market_session` (pre/regular/post/**overnight**/closed, weekday-aware)
+  + `ext_price`/`ext_change_pct`. Overnight (Sun 20:00→Fri 20:00 ET) IS covered — Schwab's `extended` block is
+  live overnight (verified: TSLA 382.74 +0.22%, etc.). ext change% uses Schwab's `postMarketPercentChange`
+  (matches ToS). Web shows PRE/AFT/24h badges; RN brief updated for the same.
+- ✅ **Schwab 2FA auto-codes** — Symantec VIP (Security token, Always-at-login) set up. Fresh VIP credential
+  provisioned on the founder's Mac via `python-vipaccess`; **secret in `.env` `SCHWAB_VIP_SECRET`** (+
+  `SCHWAB_VIP_CREDENTIAL_ID=SYMC38763863`, registered in Schwab). serv generates codes via `pyotp` — verified
+  serv↔phone match. `SCHWAB_LOGIN_USERNAME`/`PASSWORD` also in `.env`.
+- ✅ **Deploy unblocked:** `tools/serv-deploy.sh [backend|frontend|both]` + the founder added
+  `Bash(bash tools/serv-deploy.sh:*)` to `.claude/settings.local.json`, so the agent CAN deploy now.
+
+**ALSO SHIPPED + DEPLOYED this session (continued):**
+- ✅ **Volume Scanner** — `GET /api/scanner/rvol?min_rvol=&limit=` ranks the precomputed universe by current
+  RVOL (batched `aget_quotes` totalVolume ÷ expected-cum; RTH-only, empty off-hours; Schwab-only). Web
+  "Volume Scanner" widget (`rvol-scanner`, polls 25s). (`6bc0eed`/`fc04618`)
+- ✅ **RVOL-spike alerts + Schwab health monitoring** — `_rvol_alert_loop` (watchlist ≥`RVOL_ALERT_THRESHOLD`
+  =3.0 during RTH, once/symbol/day) + `_schwab_health_loop` (token invalid / ≤1d-to-expiry, once/day) via new
+  `signals.push.send_alert_push`. Env-gated, fail-soft. (`72526df`)
+- ✅ **Fundamentals** — `/api/watchlist/market` adds `pe`/`eps`/`div_yield`/`market_cap`/`last_earnings`/
+  `next_earnings` (Schwab `fundamental` block + earnings-calendar; lastEarningsDate is an ISO string, not
+  epoch — `1e64d55`). Web **tap-to-expand panel** (chevron) shows them. Earnings refresh now also covers the
+  watchlist so next_earnings populates (best-effort; Finnhub free-tier gaps). (`ddb7575`/`d871e83`/`7b7d265`)
+
+**OPEN / IN-FLIGHT:**
+- ✅ **Headless Schwab re-auth — WORKING end-to-end, cron installed (`9b19666`).** `scripts/schwab_reauth.py`
+  runs under `xvfb-run -a` with `SCHWAB_REAUTH_HEADED=1` (Akamai blocks pure headless); selectors confirmed
+  from a real run (Security Code field by label, #acceptTerms + #agree-modal-btn-, account-link #submit-btn,
+  final "Done" by role). OTP is generated JUST before entry (waits for next 30s window if <8s left) so it's
+  never stale. Crontab: every 6 days at 06:00 → `data/reauth.log`. Day-6 APNs fallback (`_schwab_health_loop`)
+  pings the phone if a run ever fails silently. **The 7-day cliff is dead.**
+- ✅ **Past-earnings performance — DONE as EPS beat/miss + surprise %** (`611ef2f`). Finnhub free
+  `/calendar/earnings` has no history AND the EDGAR path needs an unbuilt CIK cache, so the 1-day *price
+  reaction* was dropped (needs paid announce dates; `research/earnings.py::compute_reaction_pct` kept for
+  later). Instead `signals/finnhub.afetch_eps_surprises` (free `/stock/earnings`) feeds
+  `GET /api/fundamentals/earnings-history` → `{period,label "Q2'26",eps_actual,eps_estimate,surprise_pct}`
+  most-recent-first; the web panel shows last-N quarters' beat/miss. Verified live (AAPL all beats).
+- 🔧 **Mac/RN agent** to wire extended-hours (brief `References/RN_RVOL_BRIEF.md` updated with `overnight`);
+  RVOL column already live on phone (`13ee660`). Relay sent re: ext-hours + reorder-persist via `PUT
+  /api/watchlists/{id}` + intraday is RTH-only (no pre/post chart bars yet).
+- Watchlist reorder syncs cross-platform via the shared server-side list (web persists; phone once it PUTs).
+
+**SHIPPED THIS ROUND — the three Mac/RN serv-side items (relay doc:
+`References/RN_STREAMING_ALERTS_RELAY.md`, contract lock-in test:
+`tests/test_price_alert_dispatch.py`, 721 green, ruff clean, frontend typecheck clean):**
+1. ✅ **Streaming actually works now — ROOT CAUSE was a dropped-tick bug, found by live probe.** The WS
+   never streamed live ticks at all (phone always fell back to the 6-12s REST poll). Schwab's stream was
+   connected + delivering ~1 tick/sec/symbol, but `_on_equity`/`_on_futures` read each tick's fields by the
+   numeric enum `.value` (`LAST_PRICE.value` = 3) while **schwab-py relabels every content dict to the field
+   MEMBER NAME** (`"LAST_PRICE"`) before the handler runs (`_Handler.label_message`). So `item.get(3)` was
+   always `None` → `price is None → continue` → **zero broadcasts, ever**. Symbol extraction used the literal
+   `"key"` field, so it looked "connected" but was silent. **Fix:** read by `.name` (constants `_EQ`/`_FUT`).
+   Verified against the LIVE stream — AAPL/NVDA/SPY populate real prices (297.38/+1.05%, 201.36, 739.52).
+   Regression lock: `tests/test_schwab_stream_handler.py` (feeds the labeled shape, asserts QuoteState).
+   ⚠️ Schwab allows only ONE stream session per login — a local probe transiently kicks the prod stream
+   (it reconnects in ~2s); don't run a second streamer while debugging unless you mean to.
+   Also: streaming frame now carries ext fields — `QuoteState` + `_quote_payload` include
+   `ext_price`/`ext_change_pct`/`market_session`; `BaseMarketHub.apply_extended(sym, ...)` lets the REST
+   `/api/watchlist/market` poll write ext through to the hub, so every WS broadcast rides with the same
+   pre/post/overnight values the phone headlines. Hardened the sync handler too: replaced deprecated
+   `asyncio.get_event_loop().create_task(...)` with `get_running_loop()` + a `_inflight_ticks` hard-ref set
+   so the GC can't cancel `_broadcast_quote` mid-run.
+2. ✅ **Price alerts now broadcast FLAT** (matching the rule-alert shape). The nested `alert:{...}` is gone;
+   `_check_price_alerts` routes through `broadcast_alert` with `{source:"price_alert", symbol, alert_id,
+   target_price, trigger_price, direction, note}` + the auto-stamped `id`/`ts`.
+3. ✅ **APNs push on price-alert trigger.** Same `_check_price_alerts` path also calls
+   `signals.push.send_alert_push("Price alert", body)` — fail-soft, never raises — so a closed phone still
+   gets notified.
+
+**ALSO THIS ROUND — WS broadcast throttle (10 Hz / symbol / client).** Schwab fires 30–100 ticks/sec on hot
+names; phone battery would suffer. `BROADCAST_THROTTLE_MS = 100`: first tick of a window fires immediately,
+further ticks inside the window collapse into a single trailing send that re-reads state (latest price always
+wins; never stale). Alerts unthrottled. Tunable single constant; lock-in tests
+`test_broadcast_throttle_coalesces_hot_ticks` + `test_broadcast_throttle_idle_ticks_pass_through`.
+
+Deferred (still): `/api/bars`+`1Hour` aggregation to the provider; extended *intraday bars* (RTH-only now so
+no pre/post chart segments yet); watchlist reorder cross-platform sync (phone-side wiring; backend already
+supports `PUT /api/watchlists/{id}` with a `symbols` array).
+
+> ⚠️ **SCHWAB AUTH BUG — recorded, fixed, but know it (could resurface on dep updates):** schwab-py builds its
+> authlib OAuth2 session **without** setting `token_endpoint_auth_method`, so authlib defaults to
+> `client_secret_post` (creds in the body) — which Schwab's token endpoint **rejects with `invalid_client`**.
+> Schwab requires **HTTP Basic** (`client_secret_basic`), and authlib binds the auth method at construction
+> (setting the attribute post-hoc does NOT work). Fix lives in `brokers/schwab_auth.py::_client_from_token_basic`
+> (builds the session with `client_secret_basic` + a token-persistence writer). **This fixed Schwab auth
+> APP-WIDE — the existing account-sync `SchwabAdapter` was broken by the same bug.** Second, separate gotcha:
+> `config.settings.schwab_config()` reads creds **only from `data/settings.json`, never `.env`** — that file
+> had `.env.example` placeholder Schwab creds shadowing the real `.env` values (corrected on serv; gitignored).
+
+## SHIPPED & MONITORING — make dip + earnings live ROUND-TRIPS: the per-strategy EXIT MODULE (Phase D) + EARNINGS sleeve (Phase E)
 Entries already work (phone-approved through the chokepoint). What's missing is **exits** — and the earnings
 strategy *can't* go live without them (its edge IS selling ~1 day before the next earnings). Settled design
 (founder): **exits are per-strategy**, governed by each strategy's existing **`exit_mode`** field
@@ -105,10 +314,15 @@ Native iOS app (the "phone-approval unlock") is being built on a **MacBook** in 
 (monorepo)** by a dedicated agent. Specs: `References/RN_APP_BRIEF.md` (what/why + integration contract;
 push-first delivery, Face-ID-gated approve, tasteful ephemeral Dynamic Island, manual orders
 chokepoint-routed) + `References/RN_UI_PLAYBOOK.md` (adversarially-verified UI/RN dossier). **Server
-push-delivery core shipped + INERT** (`db/device_tokens.py`, `api/device_routes.py` →
-`POST /api/devices`, `signals/push.py`, `push_config()`, fail-safe hook in `create_phone_proposal`):
-no-op until `PUSH_ENABLED=1` + Expo/APNs creds. Lanes: RN agent owns `mobile/` + may extend the push
-slice; serv stays out of `mobile/`. The Live-Activity (real Dynamic Island) push path is Phase 3+.
+push-delivery is LIVE** (`db/device_tokens.py`, `api/device_routes.py` → `POST /api/devices`,
+`signals/push.py`, `push_config()`, fail-safe hook in `create_phone_proposal`). **Direct token-based APNs
+sender (`_send_apns`, ES256 JWT via `cryptography` + HTTP/2 via `httpx`/`h2`) merged to main** (the RN
+agent built it in its lane; serv reviewed line-by-line + verified: deps present, real `.p8` signs a valid
+JWT, fail-safe, no key/token logged). `.env`: `PUSH_ENABLED=1`, `PUSH_PROVIDER=apns`, APNs creds,
+`.p8` at gitignored `secrets/apns.p8`, `APNS_USE_SANDBOX=1` (flip to 0 for a prod/TestFlight build). **1
+APNs device registered** → new proposals now fire a real push. Lanes: RN agent owns `mobile/` + the push
+slice; serv stays out of `mobile/`. Live-Activity (real Dynamic Island) push is Phase 3+. **Follow-up:** a
+`_send_apns` unit test (mock httpx; assert request shape + fail-safe) — path verified live but untested.
 
 ## Planned — execution enhancements (NOT implemented; design captured)
 Current execution is **market orders, regular-hours only** (entries `strategy_scan.py`, exits `exit_engine.py` both
@@ -158,6 +372,12 @@ gap-down stops fill at the gapped market price on the first post-open poll cycle
 - **Access:** backend `0.0.0.0:8000` + frontend `:3001` on serv, tailnet only (`serv.tail78aab8.ts.net`). The app
   is pinned to that exact hostname (CORS + Host allowlist + baked `NEXT_PUBLIC_API_URL`) — accessing by raw
   tailnet IP fails CORS; use the `.ts.net` name. Never port-forward to the public internet.
+
+- **Schwab auth needs `client_secret_basic`** (schwab-py defaults to `client_secret_post` → `invalid_client`)
+  and **creds come from `data/settings.json`, NOT `.env`** (`schwab_config()`). Both fixed — see the boxed
+  note under CURRENT FOCUS. Schwab is **READ-ONLY** (data + ledger sync; NEVER execute against it). The
+  market-data path uses `get_market_data_provider()` (`MARKET_DATA_PROVIDER` flag, default `alpaca`), separate
+  from the execution broker. **serv's Schwab token expires ~2026-06-29** (copied from PC) — re-auth before then.
 
 ## The validated edges
 - **Dip-Buy (triple-validated, Norgate survivorship-free):** healthy(>SMA200) + oversold(−5%/3d) +

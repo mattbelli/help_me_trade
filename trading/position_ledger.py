@@ -52,12 +52,17 @@ def record_strategy_fill(
         proposal_id = execution_row.get("proposal_id")
         if not proposal_id:
             return None
-        proposal = get_proposal(str(proposal_id), db_path=db_path)
-        if proposal is None:
-            return None
-        strategy_id = _strategy_id_from_source(proposal.get("source"))
+        proposal_id = str(proposal_id)
+        if proposal_id.startswith("auto_entry|"):
+            parts = proposal_id.split("|")
+            strategy_id = parts[1] if len(parts) >= 2 else None
+        else:
+            proposal = get_proposal(proposal_id, db_path=db_path)
+            if proposal is None:
+                return None
+            strategy_id = _strategy_id_from_source(proposal.get("source"))
         if strategy_id is None:
-            return None  # not a strategy-originated fill (manual/rule/etc.)
+            return None
 
         strategy = get_strategy(strategy_id, db_path=db_path)
         if strategy is None:
@@ -105,4 +110,26 @@ def record_strategy_fill(
         )
     except Exception:
         logger.exception("Failed to record managed position from fill")
+        return None
+
+
+def record_session_node_managed_fill(
+    execution_row: dict[str, Any],
+    *,
+    filled_qty: float | None,
+    status: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> str | None:
+    """Tag session-node SPY fills for exit-prompt tracking. Never executes."""
+    try:
+        from signals.session_node_strategy import record_session_node_fill
+
+        return record_session_node_fill(
+            execution_row,
+            filled_qty=filled_qty,
+            status=status,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("Failed to record session-node managed position from fill")
         return None

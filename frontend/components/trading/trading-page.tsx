@@ -43,6 +43,7 @@ export function TradingPage() {
   const [alertPrice, setAlertPrice] = useState("");
   const [alertDirection, setAlertDirection] =
     useState<(typeof DIRECTIONS)[number]["value"]>("cross");
+  const [alertRepeat, setAlertRepeat] = useState(false);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [alertError, setAlertError] = useState<string | null>(null);
   const [notificationsOn, setNotificationsOn] = useState(false);
@@ -120,6 +121,7 @@ export function TradingPage() {
         symbol,
         price,
         direction: alertDirection,
+        repeat: alertRepeat,
       });
       setAlerts((prev) => [created, ...prev]);
       setAlertPrice("");
@@ -241,6 +243,16 @@ export function TradingPage() {
                   Add
                 </Button>
               </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={alertRepeat ? "secondary" : "ghost"}
+                className="h-8 w-full justify-start px-2 text-xs"
+                onClick={() => setAlertRepeat((v) => !v)}
+                title="Persistent alerts re-arm after each crossing and stay until you remove them. One-shot alerts fire once."
+              >
+                {alertRepeat ? "↻ Repeat (stays until removed)" : "→ One-shot (fires once)"}
+              </Button>
               {alertError ? (
                 <p className="text-xs text-destructive">{alertError}</p>
               ) : null}
@@ -276,6 +288,16 @@ export function TradingPage() {
                       </span>
                       <span className="tabular-nums text-muted-foreground">
                         @ {a.price.toFixed(2)}
+                      </span>
+                      <span
+                        className="text-xs text-muted-foreground"
+                        title={
+                          a.repeat
+                            ? "Persistent — re-arms after each crossing"
+                            : "One-shot — fires once"
+                        }
+                      >
+                        {a.repeat ? "↻" : "→"}
                       </span>
                       <Button
                         type="button"

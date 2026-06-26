@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from datetime import datetime
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from brokers.alpaca import StockBar
 
 
 @dataclass(frozen=True)
@@ -92,3 +96,34 @@ class BrokerAdapter(Protocol):
     async def acancel_order(self, broker_order_id: str) -> None: ...
 
     async def aget_order(self, broker_order_id: str) -> Order: ...
+
+
+@runtime_checkable
+class MarketDataProvider(Protocol):
+    """Read-only historical bar data (Alpaca, Schwab, ...)."""
+
+    async def aget_stock_bars(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        days: int = 180,
+        extended_hours: bool = False,
+    ) -> list[StockBar]: ...
+
+    async def aget_stock_bars_range(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        start: datetime,
+        end: datetime,
+    ) -> list[StockBar]: ...
+
+    async def aget_stock_bars_batch(
+        self,
+        symbols: list[str],
+        *,
+        timeframe: str = "1Day",
+        days: int = 12,
+    ) -> dict[str, list[StockBar]]: ...

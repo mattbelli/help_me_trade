@@ -7,11 +7,13 @@ connection id (per-connection credentials for multi-account Alpaca).
 from __future__ import annotations
 
 import json
+import os
 
 from brokers.alpaca import AlpacaAdapter
-from brokers.base import BrokerAdapter
+from brokers.base import BrokerAdapter, MarketDataProvider
 from brokers.errors import BrokerError
 from brokers.schwab import SchwabAdapter
+from brokers.schwab_market_data import SchwabMarketData
 from config.settings import (
     alpaca_config_for_suffix,
     broker_is_configured,
@@ -21,6 +23,7 @@ from config.settings import (
 
 _broker_cache: dict[str, BrokerAdapter] = {}
 _broker_by_connection: dict[str, BrokerAdapter] = {}
+_market_data_cache: dict[str, MarketDataProvider] = {}
 
 
 def active_broker_name() -> str:
@@ -62,6 +65,7 @@ def clear_broker_cache() -> None:
     _broker_cache.clear()
     _close_adapters(_broker_by_connection)
     _broker_by_connection.clear()
+    _market_data_cache.clear()
 
 
 async def aclose_broker_cache() -> None:
@@ -69,6 +73,39 @@ async def aclose_broker_cache() -> None:
     _broker_cache.clear()
     await _aclose_adapters(_broker_by_connection)
     _broker_by_connection.clear()
+    _market_data_cache.clear()
+
+
+def market_data_provider_name() -> str:
+    return os.environ.get("MARKET_DATA_PROVIDER", "alpaca").strip().lower()
+
+
+def _create_market_data_provider(name: str) -> MarketDataProvider:
+    if name == "alpaca":
+        if not broker_is_configured("alpaca"):
+            raise BrokerError(
+                "Alpaca is not configured. Add API keys in Settings or .env."
+            )
+        return AlpacaAdapter.from_settings()
+    if name == "schwab":
+        if not broker_is_configured("schwab"):
+            raise BrokerError(
+                "Schwab is not configured. Add app credentials in Settings or .env."
+            )
+        return SchwabMarketData.from_settings()
+    raise BrokerError(
+        f"Unknown market data provider {name!r}. Use alpaca or schwab."
+    )
+
+
+def get_market_data_provider(name: str | None = None) -> MarketDataProvider:
+    provider = (name or market_data_provider_name()).strip().lower()
+    cached = _market_data_cache.get(provider)
+    if cached is not None:
+        return cached
+    adapter = _create_market_data_provider(provider)
+    _market_data_cache[provider] = adapter
+    return adapter
 
 
 def _connection_env_suffix(connection: dict) -> str | None:

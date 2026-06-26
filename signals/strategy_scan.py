@@ -17,9 +17,10 @@ from typing import Any
 
 from brokers.alpaca import StockBar
 from brokers.factory import connection_is_configured, get_broker_for_account
-from config.settings import broker_is_configured
+from config.settings import broker_is_configured, trading_config
 from db.accounts import get_account, get_connection
 from db.base import DEFAULT_DB_PATH
+from db.order_executions import list_recent_auto_entries
 from db.paper_orders import list_pending_proposals
 from db.sqlite import get_latest_snapshot
 from db.strategies import list_strategies
@@ -31,7 +32,11 @@ from signals.strategy_kinds import (
 )
 from signals.strategy_universe import resolve_universe_spec
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
-from trading.proposal_intake import TradeCandidate, propose_trade
+from trading.proposal_intake import (
+    _AUTO_ENTRY_DEDUP_SECONDS,
+    TradeCandidate,
+    propose_trade,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +156,45 @@ def _pending_exposure(
     return len(pending), value
 
 
+def _inflight_auto_exposure(
+    account_id: str,
+    strategy_id: str,
+    *,
+    held: set[str],
+    prices: dict[str, float],
+    fallback_notional: float,
+    within_seconds: float,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> tuple[int, float]:
+    """(count, est. $) of this strategy's in-flight auto-entry orders not yet held.
+
+    Auto-entries land in order_executions, invisible to `_pending_exposure`; this lets the
+    concurrency/deployed caps see them so a capped strategy can't exceed its cap across scan
+    ticks on different symbols. Symbols already in the snapshot's `held` set are skipped —
+    `_open_exposure` already counts those filled+reconciled positions (no double counting).
+    """
+    rows = list_recent_auto_entries(
+        account_id, strategy_id, within_seconds=within_seconds, db_path=db_path
+    )
+    count = 0
+    value = 0.0
+    for row in rows:
+        symbol = str(row.get("symbol", "")).upper()
+        if symbol in held:
+            continue
+        count += 1
+        try:
+            qty = abs(float(row.get("qty") or 0.0))
+        except (TypeError, ValueError):
+            qty = 0.0
+        price = prices.get(symbol)
+        if price is not None and qty > 0:
+            value += qty * price
+        else:
+            value += fallback_notional
+    return count, value
+
+
 def _account_is_ready(
     account: dict[str, Any],
     *,
@@ -206,6 +250,12 @@ async def _run_strategy(
         return []
 
     broker_name = str(account["broker"]).strip().lower()
+    exec_mode = trading_config()["execution_mode"]
+    auto_entry = (
+        (strategy.get("entry_mode") or "propose") == "auto"
+        and exec_mode in ("dry_run", "paper")
+        and strategy["id"] != "session_node_spy"
+    )
     # The strategy's OWN universe (decoupled from the cockpit's active watchlist).
     symbols = resolve_universe_spec(strategy.get("universe"))
     fetch_symbols = sorted(set(symbols) | {SPY_SYMBOL})
@@ -265,15 +315,29 @@ async def _run_strategy(
     committed_count = 0
     committed_usd = 0.0
     if max_concurrent is not None or max_deployed is not None:
+        prices = _latest_close_map(raw_bars)
         open_count, open_value = _open_exposure(snapshot)
         pending_count, pending_value = _pending_exposure(
             str(account_id),
-            prices=_latest_close_map(raw_bars),
+            prices=prices,
             fallback_notional=notional,
             db_path=db_path,
         )
-        committed_count = open_count + pending_count
-        committed_usd = open_value + pending_value
+        # In-flight auto-entries live in order_executions (not pending phone proposals), so
+        # without this the concurrency/deployed caps are blind to them and a capped strategy
+        # could exceed the cap across scan ticks on different symbols. Held symbols are
+        # excluded — _open_exposure already counts filled+reconciled positions.
+        inflight_count, inflight_value = _inflight_auto_exposure(
+            str(account_id),
+            strategy["id"],
+            held=held,
+            prices=prices,
+            fallback_notional=notional,
+            within_seconds=_AUTO_ENTRY_DEDUP_SECONDS,
+            db_path=db_path,
+        )
+        committed_count = open_count + pending_count + inflight_count
+        committed_usd = open_value + pending_value + inflight_value
 
     results: list[dict[str, Any]] = []
     evaluated = 0
@@ -361,11 +425,14 @@ async def _run_strategy(
                 rationale=spec.build_rationale(ctx, strategy["name"]),
                 account_id=str(account_id),
             )
-            result = await propose_trade(candidate, db_path=db_path)
+            if auto_entry:
+                from trading.proposal_intake import auto_execute_entry
+
+                result = await auto_execute_entry(candidate, db_path=db_path)
+            else:
+                result = await propose_trade(candidate, db_path=db_path)
             results.append(result)
-            # Only a freshly-created proposal adds to committed exposure (duplicates
-            # were already in pending_count; blocks/errors commit nothing).
-            if result.get("status") == "proposed":
+            if result.get("status") in ("proposed", "executed"):
                 committed_count += 1
                 committed_usd += notional
         except Exception:

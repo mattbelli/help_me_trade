@@ -5,13 +5,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type HTMLAttributes,
   type MouseEvent,
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -28,8 +29,7 @@ import type { ChannelId } from "@/lib/workspace/channels";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
 import { cn } from "@/lib/utils";
 import {
-  clampLayoutWidth,
-  deriveGridCols,
+  colsForLayout,
   GRID_COL_TARGET_PX,
   GRID_DEFAULT_COLS,
   GRID_MARGIN_PX,
@@ -43,6 +43,7 @@ import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
 import { ChannelSelector } from "./channel-selector";
+import { SymbolSearchInput } from "./symbol-search-input";
 import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
@@ -84,19 +85,33 @@ function ChartHeaderControls({
   const styleLabel =
     CHART_STYLES.find((s) => s.value === style)?.label ?? "Candles";
 
+  // Local draft so the symbol box is freely editable (you can clear it and retype) —
+  // we only COMMIT (and refetch the chart) on Enter/blur, not on every keystroke.
+  const committedSymbol = config.symbol ?? "SPY";
+  const [draftSymbol, setDraftSymbol] = useState(committedSymbol);
+  useEffect(() => {
+    setDraftSymbol(committedSymbol);
+  }, [committedSymbol]);
+
+  const commitSymbol = (override?: string) => {
+    const next = (override ?? draftSymbol).toUpperCase().trim();
+    if (next && next !== committedSymbol) {
+      onConfigChange({ symbol: next });
+    } else {
+      setDraftSymbol(committedSymbol); // revert empty/unchanged back to current
+    }
+  };
+
   return (
     <>
       {manualMode ? (
-        <input
-          type="text"
-          value={config.symbol ?? "SPY"}
-          onChange={(e) =>
-            onConfigChange({
-              symbol: e.target.value.toUpperCase().trim() || "SPY",
-            })
-          }
-          {...dragSafeControlProps}
-          className="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
+        <SymbolSearchInput
+          value={draftSymbol}
+          onChange={setDraftSymbol}
+          onCommit={commitSymbol}
+          onEscape={() => setDraftSymbol(committedSymbol)}
+          dragSafeControlProps={dragSafeControlProps}
+          inputClassName="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
         />
       ) : (
         <span className="font-mono text-[11px] font-semibold text-[var(--c-accent)]">
@@ -121,7 +136,7 @@ function ChartHeaderControls({
               key={tf.value}
               onClick={() => onConfigChange({ timeframe: tf.value })}
               className={cn(
-                "px-2 py-1.5",
+                "px-2 py-1.5 text-[11px]",
                 timeframe.value === tf.value
                   ? "text-foreground"
                   : "text-[var(--fg-dim)]",
@@ -150,13 +165,42 @@ function ChartHeaderControls({
               key={s.value}
               onClick={() => onConfigChange({ style: s.value })}
               className={cn(
-                "px-2 py-1.5",
+                "px-2 py-1.5 text-[11px]",
                 style === s.value ? "text-foreground" : "text-[var(--fg-dim)]",
               )}
             >
               {s.label}
             </DropdownMenuItem>
           ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          type="button"
+          {...dragSafeControlProps}
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          Studies
+          <ChevronDown className="size-2.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+        >
+          <DropdownMenuItem
+            onClick={() =>
+              onConfigChange({ showSessionNodes: !config.showSessionNodes })
+            }
+            className={cn(
+              "flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]",
+              config.showSessionNodes
+                ? "text-foreground"
+                : "text-[var(--fg-dim)]",
+            )}
+          >
+            Session Nodes
+            {config.showSessionNodes ? <Check className="size-3" /> : null}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </>
@@ -380,6 +424,16 @@ const WidgetCard = forwardRef<
   );
 });
 
+// Distance (px) over which content fades at a scrollable edge.
+const SCROLL_FADE_PX = 40;
+
+type EdgeState = {
+  top: boolean;
+  bottom: boolean;
+  left: boolean;
+  right: boolean;
+};
+
 export function WorkspaceGrid() {
   const {
     layout,
@@ -393,14 +447,49 @@ export function WorkspaceGrid() {
     setPickerOpen,
     setGridCols,
   } = useWorkspaceStore();
-  const [width, setWidth] = useState(() =>
-    gridPixelWidth(GRID_DEFAULT_COLS),
-  );
+
+  const [width, setWidth] = useState(() => gridPixelWidth(GRID_DEFAULT_COLS));
   const [cols, setCols] = useState(GRID_DEFAULT_COLS);
 
+  // Four-edge scroll indicators: show subtle gradient overlays when there is
+  // more content in that direction (right/bottom are the important ones for
+  // the growing canvas; top/left show when scrolled away from origin).
+  const [edges, setEdges] = useState<EdgeState>({
+    top: false,
+    bottom: false,
+    left: false,
+    right: false,
+  });
+
+  const measureEdges = useCallback(() => {
+    const el = document.getElementById("workspace-grid-scroll");
+    if (!el) return;
+    const top = el.scrollTop > 2;
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 2;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdges((prev) => {
+      if (
+        prev.top === top &&
+        prev.bottom === bottom &&
+        prev.left === left &&
+        prev.right === right
+      )
+        return prev;
+      return { top, bottom, left, right };
+    });
+  }, []);
+
   useEffect(() => {
-    hydrate();
+    void hydrate();
   }, [hydrate]);
+
+  // Stable ref so the ResizeObserver closure always reads the latest layout
+  // without re-attaching the observer on every layout change.
+  const layoutRef = useRef(layout);
+  useEffect(() => {
+    layoutRef.current = layout;
+  });
 
   useEffect(() => {
     if (!hydrated) return;
@@ -409,11 +498,12 @@ export function WorkspaceGrid() {
     if (!el) return;
 
     function measure() {
-      const availWidth = el!.clientWidth - 32;
-      const nextCols = deriveGridCols(availWidth);
+      const availWidth = el!.clientWidth - 32; // 2×16px padding
+      const nextCols = colsForLayout(layoutRef.current, availWidth);
       setCols(nextCols);
       setGridCols(nextCols);
       setWidth(gridPixelWidth(nextCols));
+      measureEdges();
     }
 
     measure();
@@ -421,23 +511,43 @@ export function WorkspaceGrid() {
     const observer = new ResizeObserver(() => measure());
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hydrated, setGridCols]);
+  }, [hydrated, setGridCols, measureEdges]);
 
+  // When layout changes (widget moved/resized/added), recompute cols so the
+  // canvas grows immediately. Wrapped in rAF so RGL has time to apply DOM
+  // changes before we re-measure, avoiding synchronous cascades.
+  useEffect(() => {
+    if (!hydrated) return;
+    const id = requestAnimationFrame(() => {
+      const el = document.getElementById("workspace-grid-scroll");
+      if (!el) return;
+      const availWidth = el.clientWidth - 32;
+      const nextCols = colsForLayout(layout, availWidth);
+      setCols(nextCols);
+      setGridCols(nextCols);
+      setWidth(gridPixelWidth(nextCols));
+      measureEdges();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [layout, hydrated, setGridCols, measureEdges]);
+
+  // Pass each item's real x,y,w,h straight through — NO clamping to window
+  // cols. The growing canvas means a widget at x=20,w=8 on a 28-col canvas
+  // always sits exactly there, regardless of viewport width. This is what
+  // eliminates overlap when the same layout is opened on different screens.
   const gridLayout: Layout = useMemo(
     () =>
-      layout.map(({ i, x, y, w, h, minW, minH }) => {
-        const clamped = clampLayoutWidth(x, w, cols);
-        return {
-          i,
-          x: clamped.x,
-          y,
-          w: clamped.w,
-          h,
-          minW: Math.min(minW ?? 4, cols),
-          minH: minH ?? 2,
-        };
-      }),
-    [layout, cols],
+      layout.map(({ i, x, y, w, h, minW, minH }) => ({
+        i,
+        // Defensive: ensure non-negative position and at least 1 wide/tall.
+        x: Math.max(0, x),
+        y: Math.max(0, y),
+        w: Math.max(1, w),
+        h: Math.max(1, h),
+        minW: minW ?? 4,
+        minH: minH ?? 2,
+      })),
+    [layout],
   );
 
   const persistLayout = useCallback(
@@ -453,60 +563,107 @@ export function WorkspaceGrid() {
   );
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
       {pickerOpen ? (
         <WorkspaceWidgetPicker onClose={() => setPickerOpen(false)} />
       ) : null}
 
-      <div
-        id="workspace-grid-scroll"
-        className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-6"
-        style={
-          locked
-            ? undefined
-            : {
-                backgroundImage:
-                  "radial-gradient(circle, color-mix(in srgb, var(--fg-faint) 30%, transparent) 1px, transparent 1px)",
-                backgroundSize: `${GRID_COL_TARGET_PX + GRID_MARGIN_PX}px ${ROW_HEIGHT_PX + GRID_MARGIN_PX}px`,
-                backgroundPosition: "16px 16px",
-                backgroundAttachment: "local",
-              }
-        }
-      >
-        {hydrated ? (
-          <div id="workspace-grid-root" className="relative" style={{ width }}>
-            <ReactGridLayout
-              className="layout"
-              layout={gridLayout}
-              cols={cols}
-              rowHeight={ROW_HEIGHT_PX}
-              width={width}
-              margin={[GRID_MARGIN_PX, GRID_MARGIN_PX]}
-              containerPadding={[0, 0]}
-              compactType={null}
-              preventCollision
-              onDragStop={persistLayout}
-              onResizeStop={persistLayout}
-              draggableHandle=".workspace-drag-handle"
-              draggableCancel=".workspace-no-drag"
-              resizeHandles={["se", "sw"]}
-              isDraggable={!locked}
-              isResizable={!locked}
-              useCSSTransforms={false}
-            >
-              {layout.map((item) => (
-                <WidgetCard
-                  key={item.i}
-                  item={item}
-                  locked={locked}
-                  onConfigChange={(patch) =>
-                    updateWidgetConfig(item.i, patch)
-                  }
-                  onRemove={() => removeWidget(item.i)}
-                />
-              ))}
-            </ReactGridLayout>
-          </div>
+      {/* Relative wrapper for the four-edge gradient overlays. */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div
+          id="workspace-grid-scroll"
+          onScroll={measureEdges}
+          className="workspace-scroll h-full overflow-auto px-4 pt-4 pb-6"
+          style={
+            locked
+              ? {}
+              : {
+                  backgroundImage:
+                    "radial-gradient(circle, color-mix(in srgb, var(--fg-faint) 30%, transparent) 1px, transparent 1px)",
+                  backgroundSize: `${GRID_COL_TARGET_PX + GRID_MARGIN_PX}px ${ROW_HEIGHT_PX + GRID_MARGIN_PX}px`,
+                  backgroundPosition: "16px 16px",
+                  backgroundAttachment: "local",
+                }
+          }
+        >
+          {hydrated ? (
+            <div id="workspace-grid-root" className="relative" style={{ width }}>
+              <ReactGridLayout
+                className="layout"
+                layout={gridLayout}
+                cols={cols}
+                rowHeight={ROW_HEIGHT_PX}
+                width={width}
+                margin={[GRID_MARGIN_PX, GRID_MARGIN_PX]}
+                containerPadding={[0, 0]}
+                compactType={null}
+                preventCollision
+                onDragStop={persistLayout}
+                onResizeStop={persistLayout}
+                draggableHandle=".workspace-drag-handle"
+                draggableCancel=".workspace-no-drag"
+                resizeHandles={["se", "sw", "ne", "nw"]}
+                isDraggable={!locked}
+                isResizable={!locked}
+                useCSSTransforms={false}
+              >
+                {layout.map((item) => (
+                  <WidgetCard
+                    key={item.i}
+                    item={item}
+                    locked={locked}
+                    onConfigChange={(patch) =>
+                      updateWidgetConfig(item.i, patch)
+                    }
+                    onRemove={() => removeWidget(item.i)}
+                  />
+                ))}
+              </ReactGridLayout>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Four-edge gradient hints — pointer-events-none so they don't block
+            interaction with widgets. Shown only when there is content that way. */}
+        {edges.top ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 z-10"
+            style={{
+              height: SCROLL_FADE_PX,
+              background: `linear-gradient(to bottom, var(--background), transparent)`,
+            }}
+          />
+        ) : null}
+        {edges.bottom ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
+            style={{
+              height: SCROLL_FADE_PX,
+              background: `linear-gradient(to top, var(--background), transparent)`,
+            }}
+          />
+        ) : null}
+        {edges.left ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 z-10"
+            style={{
+              width: SCROLL_FADE_PX,
+              background: `linear-gradient(to right, var(--background), transparent)`,
+            }}
+          />
+        ) : null}
+        {edges.right ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 z-10"
+            style={{
+              width: SCROLL_FADE_PX,
+              background: `linear-gradient(to left, var(--background), transparent)`,
+            }}
+          />
         ) : null}
       </div>
     </div>

@@ -87,6 +87,22 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON poll_runs(account_id, captured_at)
             """
         )
+        # Index the poll_run_id JOIN keys. Without these, history queries that join
+        # across many poll_runs (e.g. list_equity_history's 7-day equity series) do a
+        # full table scan of account_snapshots per matched run — an O(n*m) nested loop
+        # that grew to ~45s as the tables passed 35k rows, saturating the poll thread.
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_account_snapshots_poll_run
+                ON account_snapshots(poll_run_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_position_snapshots_poll_run
+                ON position_snapshots(poll_run_id)
+            """
+        )
 
 
 def save_snapshot(

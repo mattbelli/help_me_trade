@@ -34,11 +34,12 @@ export function ChartWidget({ config }: WidgetProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {symbol ? (
           <TvLightChart
             symbol={symbol}
             compact
+            showLevels={Boolean(config.showSessionNodes)}
             timeframe={timeframe}
             style={style}
             livePrice={livePrice}

@@ -125,6 +125,27 @@ def test_record_strategy_fill_buy_records(tmp_path: Path) -> None:
     assert rows[0]["qty"] == "10.0"
 
 
+def test_record_strategy_fill_auto_entry_proposal_id(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    mp_id = record_strategy_fill(
+        {
+            "id": "exec_auto",
+            "symbol": "AAPL",
+            "side": "buy",
+            "proposal_id": "auto_entry|dip_buy|2026-06-26T12:00:00+00:00",
+            "account_id": "acct_x",
+        },
+        filled_qty=10.0,
+        status="filled",
+        db_path=db,
+    )
+    assert mp_id is not None
+    rows = list_open_positions(account_id="acct_x", db_path=db)
+    assert len(rows) == 1
+    assert rows[0]["strategy_id"] == "dip_buy"
+    assert rows[0]["qty"] == "10.0"
+
+
 def test_record_strategy_fill_ignores_sell_and_nonstrategy(tmp_path: Path) -> None:
     db = _db(tmp_path)
     _seed_proposal(db, pid="paper_sell", source="strategy:dip_buy", account_id="a")

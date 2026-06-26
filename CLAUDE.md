@@ -37,6 +37,20 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
    recon/review/research → **Sonnet subagents**; keep the main loop short — don't do heavy generation or broad
    file-reading inline when a subagent can. `/model sonnet` for routine turns is the user's biggest lever.
 
+## Engineering discipline (default coding posture — applies to your edits AND the briefs you write Composer)
+Bias toward caution over speed on non-trivial work; use judgment on trivial edits.
+- **Think before coding.** State assumptions explicitly; if multiple interpretations exist, name them — don't
+  pick silently. This *sharpens* rule #2, it doesn't undo it: surface ambiguity about **what/why**
+  (requirements, product direction) before building; stay decisive on **how** (don't pose menus on mechanics).
+- **Simplicity first.** Minimum code that solves the problem — nothing speculative. No unrequested
+  abstractions / config / "flexibility", no error handling for impossible cases. If 200 lines could be 50,
+  rewrite. Ask: "would a senior engineer call this overcomplicated?"
+- **Surgical changes.** Touch only what the request needs; match existing style even if you'd do it
+  differently. Don't refactor/reformat adjacent code. Remove only the orphans *your* change created; flag
+  pre-existing dead code, don't delete it. Every changed line should trace to the request.
+- **Goal-driven execution.** Turn the task into a verifiable goal and loop until met ("fix the bug" → write a
+  failing test, then make it pass). For multi-step work, state a brief plan with a verify step per item.
+
 ## Safety — non-negotiable (this trades real money)
 - **The execution chokepoint is sacred.** `trading/execution_service.submit()` is the ONLY path to a broker;
   `RiskEngine.validate()` gates every order; kill-switch-first; deny-by-default; **paper before live**; LIVE
@@ -61,12 +75,3 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
 - `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
   `References/SERVER_SETUP.md` (the home Linux server this now runs on).
 - **Before pushing:** `ruff check .` (whole repo) + `python -m pytest -q` + `cd frontend && npm run typecheck`.
-
-## Open project threads
-- **Futures history not yet imported** — the user traded a lot of futures; they live in Schwab/thinkorswim
-  **PDF** (daily statements / yearly 1099-B), separate from the loaded equities+options. Needs its own
-  importer (contract roots `/ES /MES /CL` with point multipliers; P&L = (exit−entry) × point_value × contracts,
-  not share-based FIFO). A completeness gate for the retrospective — backfill before treating the agent's read
-  of the user as whole.
-- Roadmap: **watchlist v3** (spec'd) → phone delivery (Capacitor + APNs) → live double-gate. Dockerize at
-  live-prep.

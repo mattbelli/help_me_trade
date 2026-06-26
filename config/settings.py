@@ -70,6 +70,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             }
         ],
     },
+    "reports": {
+        "morning_levels_enabled": True,
+        "hour_et": 8,
+    },
     "trading": {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
@@ -83,6 +87,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_position_pct": 30,
         "max_open_orders": 10,
         "max_daily_orders": 20,
+        # Short selling (sell-to-open). OFF by default. Only ever honored in
+        # dry_run/paper — LIVE short selling stays hard-blocked regardless.
+        "allow_short_selling": False,
     },
 }
 
@@ -334,6 +341,19 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     if "chart_layout" in patch and isinstance(patch["chart_layout"], list):
         current["chart_layout"] = patch["chart_layout"]
 
+    if "reports" in patch and isinstance(patch["reports"], dict):
+        if "reports" not in current or not isinstance(current.get("reports"), dict):
+            current["reports"] = copy.deepcopy(DEFAULT_SETTINGS["reports"])
+        reports_patch = patch["reports"]
+        if "morning_levels_enabled" in reports_patch:
+            current["reports"]["morning_levels_enabled"] = bool(
+                reports_patch["morning_levels_enabled"]
+            )
+        if "hour_et" in reports_patch:
+            current["reports"]["hour_et"] = max(
+                0, min(23, int(reports_patch["hour_et"]))
+            )
+
     if "trading" in patch and isinstance(patch["trading"], dict):
         if "trading" not in current or not isinstance(current.get("trading"), dict):
             current["trading"] = copy.deepcopy(DEFAULT_SETTINGS["trading"])
@@ -355,6 +375,8 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["max_open_orders"] = int(value)
             elif key == "max_daily_orders":
                 current["trading"]["max_daily_orders"] = int(value)
+            elif key == "allow_short_selling":
+                current["trading"]["allow_short_selling"] = bool(value)
             elif key == "agent_proposals_enabled":
                 current["trading"]["agent_proposals_enabled"] = bool(value)
             elif key == "dip_strategy_enabled":
@@ -746,7 +768,47 @@ def trading_config() -> dict[str, Any]:
         ),
         "max_open_orders": int(cfg.get("max_open_orders", defaults["max_open_orders"])),
         "max_daily_orders": int(cfg.get("max_daily_orders", defaults["max_daily_orders"])),
+        "allow_short_selling": bool(
+            cfg.get("allow_short_selling", defaults["allow_short_selling"])
+        ),
     }
+
+
+def reports_config() -> dict[str, Any]:
+    """Effective scheduled-report settings (env overrides hour when set)."""
+    with _settings_lock:
+        settings = _settings_cache if _settings_cache is not None else _build_settings()
+        defaults = DEFAULT_SETTINGS["reports"]
+        cfg = settings.get("reports")
+        if not isinstance(cfg, dict):
+            cfg = {}
+        hour_raw = os.environ.get(
+            "MORNING_REPORT_HOUR_ET",
+            str(cfg.get("hour_et", defaults["hour_et"])),
+        )
+        try:
+            hour_et = max(0, min(23, int(hour_raw)))
+        except (TypeError, ValueError):
+            hour_et = int(defaults["hour_et"])
+        return {
+            "morning_levels_enabled": bool(
+                cfg.get("morning_levels_enabled", defaults["morning_levels_enabled"])
+            ),
+            "hour_et": hour_et,
+        }
+
+
+def short_selling_allowed() -> bool:
+    """True only when shorting is explicitly enabled AND we're not in live mode.
+
+    Single source of truth for the short-sell gate. LIVE short selling is
+    hard-blocked regardless of the toggle (live needs the typed double-gate,
+    not built) — only ``dry_run``/``paper`` ever honor the toggle.
+    """
+    cfg = trading_config()
+    return bool(cfg.get("allow_short_selling", False)) and cfg.get(
+        "execution_mode"
+    ) in ("dry_run", "paper")
 
 
 def is_paper_trading() -> bool:
@@ -780,6 +842,10 @@ def finnhub_api_key() -> str:
     return os.environ.get("FINNHUB_API_KEY", "").strip()
 
 
+def alphavantage_api_key() -> str:
+    return os.environ.get("ALPHAVANTAGE_API_KEY", "").strip()
+
+
 def push_config() -> dict[str, Any]:
     return {
         "enabled": os.environ.get("PUSH_ENABLED", "").strip().lower()
@@ -789,4 +855,7 @@ def push_config() -> dict[str, Any]:
         "apns_key_id": os.environ.get("APNS_KEY_ID", "").strip(),
         "apns_team_id": os.environ.get("APNS_TEAM_ID", "").strip(),
         "apns_bundle_id": os.environ.get("APNS_BUNDLE_ID", "").strip(),
+        "apns_key_path": os.environ.get("APNS_KEY_PATH", "").strip(),
+        "apns_use_sandbox": os.environ.get("APNS_USE_SANDBOX", "1").strip().lower()
+        in ("1", "true", "yes"),
     }

@@ -26,6 +26,7 @@ from trading.order_proposal import build_order_proposal_from_args
 from trading.proposal_intake import (
     AGENT_PROPOSAL_TTL_SECONDS,
     TradeCandidate,
+    auto_execute_entry,
     propose_from_scan_fire,
     propose_trade,
 )
@@ -243,10 +244,10 @@ async def test_propose_trade_duplicate(monkeypatch, tmp_path: Path) -> None:
 async def test_propose_trade_no_price(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "intake.db"
     _patch_env(monkeypatch, db)
-    monkeypatch.setattr(
-        "trading.proposal_intake._live_market_price",
-        lambda _symbol: None,
-    )
+    async def _no_price(_symbol):
+        return None
+
+    monkeypatch.setattr("trading.proposal_intake._live_market_price", _no_price)
 
     result = await propose_trade(_candidate(), db_path=db)
 
@@ -793,3 +794,124 @@ def test_list_pending_proposals_account_filter(tmp_path: Path) -> None:
     filtered = paper_orders_mod.list_pending_proposals(account_id="acct_a", db_path=db)
     assert len(filtered) == 1
     assert filtered[0]["symbol"] == "AAPL"
+
+
+@pytest.mark.asyncio
+async def test_auto_execute_entry_submits_and_pushes(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "auto_entry.db"
+    _patch_env(monkeypatch, db)
+
+    from trading.models import ExecutionResult
+
+    submit_mock = AsyncMock(
+        return_value=ExecutionResult(
+            execution_id="exec_auto_1",
+            broker_order_id=None,
+            execution_mode="paper",
+            status="submitted",
+            dry_run_log=None,
+        )
+    )
+    push_mock = AsyncMock()
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+
+    result = await auto_execute_entry(
+        _candidate(source="strategy:dip_buy"),
+        db_path=db,
+    )
+
+    assert result == {"status": "executed", "execution_id": "exec_auto_1"}
+    submit_mock.assert_awaited_once()
+    intent = submit_mock.await_args.args[0]
+    assert intent.symbol == "AAPL"
+    assert intent.side == "buy"
+    assert intent.proposal_id.startswith("auto_entry|dip_buy|")
+    push_mock.assert_awaited_once()
+    assert push_mock.await_args.kwargs["title"] == "Trade executed"
+
+
+@pytest.mark.asyncio
+async def test_auto_execute_entry_risk_blocked_no_push(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "auto_entry_reject.db"
+    _patch_env(monkeypatch, db)
+
+    from trading.models import RiskRejectedError
+
+    submit_mock = AsyncMock(side_effect=RiskRejectedError("mock block"))
+    push_mock = AsyncMock()
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+
+    result = await auto_execute_entry(
+        _candidate(source="strategy:dip_buy"),
+        db_path=db,
+    )
+
+    assert result == {"status": "risk_blocked", "reason": "mock block"}
+    push_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_execute_entry_dedups_in_flight(monkeypatch, tmp_path: Path) -> None:
+    """A symbol with a recent in-flight buy must NOT be auto-entered again (double-submit guard).
+
+    Auto-entries land in order_executions (not pending phone proposals) and aren't yet 'held'
+    (snapshot lag), so without this guard a re-scan would re-enter before the first fill.
+    """
+    db = tmp_path / "auto_entry_dedup.db"
+    _patch_env(monkeypatch, db)
+
+    from db.accounts import default_execution_account
+    from db.order_executions import create_execution_record
+
+    acct = default_execution_account(db_path=db)
+    create_execution_record(
+        execution_id="exec_inflight",
+        proposal_id="auto_entry|dip_buy|2026-06-26T00:00:00+00:00",
+        session_id=None,
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("2"),
+        order_type="market",
+        limit_price=None,
+        execution_mode="paper",
+        status="submitted",
+        broker="alpaca",
+        account_id=acct["id"] if acct else None,
+        db_path=db,
+    )
+
+    submit_mock = AsyncMock()
+    push_mock = AsyncMock()
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+
+    result = await auto_execute_entry(_candidate(source="strategy:dip_buy"), db_path=db)
+
+    assert result == {"status": "duplicate"}
+    submit_mock.assert_not_called()
+    push_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_execute_entry_blocked_under_live(monkeypatch, tmp_path: Path) -> None:
+    """auto_execute_entry's own paper fence: live execution_mode never auto-submits."""
+    db = tmp_path / "auto_entry_live.db"
+    _patch_env(monkeypatch, db)
+    # Override the mode to live (the inner fence reads trading_config fresh).
+    monkeypatch.setattr(
+        "trading.proposal_intake.trading_config",
+        lambda: {"execution_mode": "live"},
+    )
+
+    submit_mock = AsyncMock()
+    push_mock = AsyncMock()
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+
+    result = await auto_execute_entry(_candidate(source="strategy:dip_buy"), db_path=db)
+
+    assert result == {"status": "blocked_live"}
+    submit_mock.assert_not_called()
+    push_mock.assert_not_called()

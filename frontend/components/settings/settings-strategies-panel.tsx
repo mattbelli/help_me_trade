@@ -30,10 +30,78 @@ import {
 // rather than an empty string. "" is the real unbound value sent to the API.
 const UNBOUND = "__unbound__";
 
+type StrategyDoc = {
+  trigger: string;
+  action: string;
+  exit: string;
+  status: { label: string; tone: "good" | "warn" | "danger"; note: string };
+};
+
+const STRATEGY_DOCS: Record<string, StrategyDoc> = {
+  dip_buy: {
+    trigger:
+      "A healthy stock (above its 200-day average) that has sold off ~5%+ over 3 days while the broad market is also weak (SPY ~1.5%+ down over 3 days). Long only.",
+    action: "Proposes buying the dip — you approve on your phone — sized to the notional.",
+    exit:
+      "Stop at −3%; at +3% it sells half and moves the stop to breakeven; trails the rest ~11%; force-exits after 20 trading days.",
+    status: {
+      label: "Validated",
+      tone: "good",
+      note: "Triple-validated, survivorship-free (~57% win rate) — the most battle-tested strategy here.",
+    },
+  },
+  dip_refined: {
+    trigger:
+      "Same as Dip-Buy, but only when the stock is at least 5% above its nearest support level — skips dips sitting right on support, where the drop is likelier to continue.",
+    action: "Proposes buying the dip (phone-approved), sized to the notional.",
+    exit: "Same as Dip-Buy: stop −3% / +3% sell-half→breakeven / ~11% trail / 20-day cap.",
+    status: {
+      label: "Forward-test",
+      tone: "warn",
+      note: "Sharper recent excess return than Dip-Buy, but not yet block-bootstrap validated.",
+    },
+  },
+  earnings_drift: {
+    trigger:
+      "A stock that gapped up 5%+ on its last earnings, entered ~10 trading days before its NEXT earnings (when earnings are 40–90 trading days apart). Long only.",
+    action: "Proposes buying to ride the pre-earnings drift (phone-approved).",
+    exit:
+      "Sells ~1 trading day BEFORE the next earnings — captures the run-up, exits before the event. Max hold ~15 trading days.",
+    status: {
+      label: "Forward-test",
+      tone: "warn",
+      note: "Strong backtest Sharpe; combined with Dip it isn't overfit (PBO 0.18) — paper-forward is the real gate. Long-only (the short mirror had no edge).",
+    },
+  },
+  session_node_spy: {
+    trigger:
+      "Intraday on SPY: when price tags a prior-session level (Value-Area High/Low or prior-day High/Low) it signals a snap back toward the prior session's Point of Control (POC). Tagging support (below POC) → long; tagging resistance (above POC) → short. Re-arms after price moves 2 points away; max 2 per level, 6 per day.",
+    action: "Proposes a reversion trade targeting the POC (phone-approved).",
+    exit: "Phone-approved exit (propose mode).",
+    status: {
+      label: "Exploratory",
+      tone: "danger",
+      note: "No validated edge yet — runs propose-only so you approve every action. Don't treat its signals as proven.",
+    },
+  },
+};
+
+function statusToneClasses(tone: StrategyDoc["status"]["tone"]): string {
+  switch (tone) {
+    case "good":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+    case "warn":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+    case "danger":
+      return "border-destructive/40 bg-destructive/10 text-destructive";
+  }
+}
+
 type StrategyDraft = {
   enabled: boolean;
   account_id: string;
   notional_usd: number;
+  entry_mode: "auto" | "propose";
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
   universe: string;
@@ -53,6 +121,7 @@ function strategyToDraft(strategy: Strategy): StrategyDraft {
     enabled: strategy.enabled,
     account_id: strategy.account_id ?? "",
     notional_usd: strategy.notional_usd,
+    entry_mode: strategy.entry_mode ?? "propose",
     exit_mode: strategy.exit_mode,
     params: { ...strategy.params },
     universe: strategy.universe,
@@ -73,6 +142,7 @@ function buildPatch(
   if (draft.notional_usd !== original.notional_usd) {
     patch.notional_usd = draft.notional_usd;
   }
+  if (draft.entry_mode !== original.entry_mode) patch.entry_mode = draft.entry_mode;
   if (draft.exit_mode !== original.exit_mode) patch.exit_mode = draft.exit_mode;
   if (draft.universe !== original.universe) patch.universe = draft.universe;
   if (draft.max_concurrent_positions !== original.max_concurrent_positions) {
@@ -149,10 +219,13 @@ function StrategyCard({
   }
 
   const { draft, dirty, saving, error } = state;
+  const doc = STRATEGY_DOCS[strategy.id];
+  const isSessionNode = strategy.id === "session_node_spy";
   const unboundEnabled = draft.enabled && !draft.account_id;
   const boundAccountLabel = draft.account_id
     ? (accounts.find((a) => a.id === draft.account_id)?.label ?? "Unbound")
     : "Unbound";
+  const collapsedMeta = isSessionNode ? "SPY" : draft.universe;
 
   return (
     <Card className="border-border/60 bg-card/40">
@@ -172,7 +245,7 @@ function StrategyCard({
                 <span className="shrink-0 text-[11px] text-amber-500">• unsaved</span>
               )}
               <span className="truncate text-xs text-muted-foreground">
-                {boundAccountLabel} · {draft.universe}
+                {boundAccountLabel} · {collapsedMeta}
               </span>
             </button>
           </div>
@@ -186,7 +259,43 @@ function StrategyCard({
       </CardHeader>
       {expanded && (
         <CardContent className="space-y-4 pb-4">
-          {unboundEnabled && (
+          {doc && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium">What this does</p>
+              <div className="space-y-1.5">
+                <p className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-muted-foreground">
+                    Trigger ·{" "}
+                  </span>
+                  {doc.trigger}
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-muted-foreground">
+                    Action ·{" "}
+                  </span>
+                  {doc.action}
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-muted-foreground">
+                    Exit ·{" "}
+                  </span>
+                  {doc.exit}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+                <span
+                  className={`inline-flex h-5 shrink-0 items-center rounded-full border px-1.5 text-[10px] font-medium ${statusToneClasses(doc.status.tone)}`}
+                >
+                  {doc.status.label}
+                </span>
+                <span className="text-[11px] leading-relaxed text-muted-foreground">
+                  {doc.status.note}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {unboundEnabled && !isSessionNode && (
             <p className="text-xs text-amber-500">
               Enable has no effect until an account is bound — the scan skips
               unbound strategies.
@@ -221,33 +330,42 @@ function StrategyCard({
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs">Universe</Label>
-              <Select
-                value={draft.universe}
-                onValueChange={(v) =>
-                  updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
-                }
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue placeholder="Select universe" />
-                </SelectTrigger>
-                <SelectContent>
-                  {/* Surface the stored value even if it's a legacy/active spec not
-                      in the option list, so it never renders blank. */}
-                  {!universes.some((u) => u.id === draft.universe) && (
-                    <SelectItem value={draft.universe}>
-                      {draft.universe === "active_watchlist"
-                        ? "Active watchlist (legacy)"
-                        : draft.universe}
-                    </SelectItem>
-                  )}
-                  {universes.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {isSessionNode ? (
+                <>
+                  <Label className="text-xs">Symbol</Label>
+                  <p className="text-sm text-muted-foreground">SPY</p>
+                </>
+              ) : (
+                <>
+                  <Label className="text-xs">Universe</Label>
+                  <Select
+                    value={draft.universe}
+                    onValueChange={(v) =>
+                      updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder="Select universe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Surface the stored value even if it's a legacy/active spec not
+                          in the option list, so it never renders blank. */}
+                      {!universes.some((u) => u.id === draft.universe) && (
+                        <SelectItem value={draft.universe}>
+                          {draft.universe === "active_watchlist"
+                            ? "Active watchlist (legacy)"
+                            : draft.universe}
+                        </SelectItem>
+                      )}
+                      {universes.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -270,24 +388,57 @@ function StrategyCard({
             </div>
 
             <div className="space-y-1.5">
+              <Label className="text-xs">Entry mode</Label>
+              {isSessionNode ? (
+                <p className="text-sm text-muted-foreground">
+                  propose — entries are phone prompts
+                </p>
+              ) : (
+                <Select
+                  value={draft.entry_mode}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({
+                      ...d,
+                      entry_mode: (v ?? "propose") as "auto" | "propose",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">auto</SelectItem>
+                    <SelectItem value="propose">propose</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
               <Label className="text-xs">Exit mode</Label>
-              <Select
-                value={draft.exit_mode}
-                onValueChange={(v) =>
-                  updateDraft((d) => ({
-                    ...d,
-                    exit_mode: (v ?? "propose") as "auto" | "propose",
-                  }))
-                }
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">auto</SelectItem>
-                  <SelectItem value="propose">propose</SelectItem>
-                </SelectContent>
-              </Select>
+              {isSessionNode ? (
+                <p className="text-sm text-muted-foreground">
+                  propose — exits are phone prompts
+                </p>
+              ) : (
+                <Select
+                  value={draft.exit_mode}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({
+                      ...d,
+                      exit_mode: (v ?? "propose") as "auto" | "propose",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">auto</SelectItem>
+                    <SelectItem value="propose">propose</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -362,9 +513,10 @@ function StrategyCard({
           </p>
 
           <p className="text-[11px] text-muted-foreground">
-            auto = the agent sells through the execution chokepoint when an exit
-            rule triggers; propose = it pings your phone to approve each sell.
-            You&apos;re notified either way.
+            Entry auto = the agent buys through the execution chokepoint when a
+            signal fires (paper/dry-run only); propose = phone approval for each
+            buy. Exit auto = same for sells when an exit rule triggers; propose =
+            phone approval for each sell. You&apos;re notified either way.
           </p>
 
           <p className="text-[11px] text-muted-foreground">
@@ -381,6 +533,14 @@ function StrategyCard({
               excess over SPY (+1.6% → +3%/trade) but is NOT
               block-bootstrap-validated like the base dip — treat as a live
               forward-test, not a guarantee.
+            </p>
+          )}
+
+          {isSessionNode && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Shorts (resistance nodes) only fire when{" "}
+              <strong>Allow short selling</strong> is on in Execution / Risk
+              Limits — otherwise long-only (support nodes).
             </p>
           )}
 
@@ -403,7 +563,14 @@ function StrategyCard({
   );
 }
 
-export function SettingsStrategiesPanel() {
+type SettingsStrategiesPanelProps = {
+  /** Hide intro copy when embedded in Automations (outer card provides the title). */
+  embedded?: boolean;
+};
+
+export function SettingsStrategiesPanel({
+  embedded = false,
+}: SettingsStrategiesPanelProps) {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [accounts, setAccounts] = useState<StrategyAccount[]>([]);
   const [universes, setUniverses] = useState<StrategyUniverse[]>([]);
@@ -456,13 +623,15 @@ export function SettingsStrategiesPanel() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h3 className="text-sm font-medium">Strategies</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Enable automated scans, bind an execution account, and tune per-strategy
-          sizing. Changes save per card.
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h3 className="text-sm font-medium">Strategies</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Enable automated scans, bind an execution account, and tune per-strategy
+            sizing. Changes save per card.
+          </p>
+        </div>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

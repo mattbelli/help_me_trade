@@ -203,6 +203,11 @@ async def test_execution_service_risk_failure_persists_rejected(
         lambda _symbols: {},
     )
 
+    async def _no_rest(_symbol):
+        return None
+
+    monkeypatch.setattr("trading.risk_engine._rest_quote_price", _no_rest)
+
     with pytest.raises(RiskRejectedError):
         await ExecutionService.submit(_intent(), db_path=db)
 

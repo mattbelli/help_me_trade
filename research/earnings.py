@@ -253,6 +253,76 @@ def earnings_dates(
         conn.close()
 
 
+def compute_reaction_pct(
+    earnings_date: str,
+    bars: list,
+) -> float | None:
+    """Compute 1-day price reaction % for one earnings date given a sorted bar list.
+
+    Bars must be sorted ascending by .time (ISO date string).  Returns None when
+    there are insufficient bars to compute the reaction (e.g. earnings date is before
+    the bar history, or there is no subsequent trading day in the data).
+
+    The reaction is defined as:
+        (close_of_first_bar_on_or_after_date - close_of_bar_immediately_before) /
+        close_of_bar_immediately_before * 100
+
+    Earnings typically print after the close, so the *next* session's open reflects
+    the reaction; using the bar on/after date vs. the bar immediately before captures
+    that cleanly regardless of whether the report was pre-open or after-close.
+    """
+    # Find the index of the first bar whose date >= earnings_date
+    after_idx: int | None = None
+    for i, bar in enumerate(bars):
+        bar_date = bar.time[:10]  # ISO date prefix
+        if bar_date >= earnings_date:
+            after_idx = i
+            break
+
+    if after_idx is None or after_idx == 0:
+        # No bar on/after the date, or no prior bar to compare against
+        return None
+
+    before_close = bars[after_idx - 1].close
+    after_close = bars[after_idx].close
+    if before_close == 0:
+        return None
+    return round((after_close - before_close) / before_close * 100, 2)
+
+
+def earnings_history_reactions(
+    symbol: str,
+    bars: list,
+    *,
+    n: int = 6,
+    cache_db: Path = DEFAULT_EARNINGS_DB_PATH,
+) -> list[dict]:
+    """Return the last N earnings events with their 1-day price reaction %.
+
+    Args:
+        symbol: Ticker symbol.
+        bars: Daily bars sorted ascending by .time (from aget_stock_bars).
+        n: Max number of most-recent events to return.
+        cache_db: Path to the EDGAR earnings SQLite cache.
+
+    Returns:
+        List of {"date": "YYYY-MM-DD", "reaction_pct": float} dicts, most recent
+        first, only including events where the reaction could be computed.
+    """
+    all_dates = earnings_dates(symbol, cache_db=cache_db)
+    # Take the last n dates (most recent) and compute reactions
+    recent_dates = all_dates[-n:] if len(all_dates) > n else all_dates
+
+    results: list[dict] = []
+    for d in recent_dates:
+        pct = compute_reaction_pct(d, bars)
+        if pct is not None:
+            results.append({"date": d, "reaction_pct": pct})
+
+    results.reverse()  # most recent first
+    return results
+
+
 def _print_coverage(report: dict) -> None:
     print("=== Earnings coverage (EDGAR ticker map is current-only) ===")
     print(f"requested:    {report['requested']}")

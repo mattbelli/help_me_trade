@@ -606,3 +606,113 @@ async def test_earnings_strategy_proposes_when_predicate_passes(
     assert "Earnings Drift:" in (candidate.rationale or "")
     assert "pre-earnings drift" in (candidate.rationale or "")
 
+
+@pytest.mark.asyncio
+async def test_auto_entry_dispatches_when_paper(monkeypatch, tmp_path: Path) -> None:
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        watchlist=[PASS_SYMBOL],
+    )
+    update_strategy("dip_buy", entry_mode="auto", db_path=db)
+    auto_mock = AsyncMock(return_value={"status": "executed", "execution_id": "exec_1"})
+    monkeypatch.setattr("trading.proposal_intake.auto_execute_entry", auto_mock)
+    monkeypatch.setattr(
+        "signals.strategy_scan.trading_config",
+        lambda: {"execution_mode": "paper"},
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert len(result) == 1
+    assert result[0]["status"] == "executed"
+    auto_mock.assert_awaited_once()
+    propose_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_entry_reverts_to_propose_under_live(monkeypatch, tmp_path: Path) -> None:
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        watchlist=[PASS_SYMBOL],
+    )
+    update_strategy("dip_buy", entry_mode="auto", db_path=db)
+    auto_mock = AsyncMock()
+    monkeypatch.setattr("trading.proposal_intake.auto_execute_entry", auto_mock)
+    monkeypatch.setattr(
+        "signals.strategy_scan.trading_config",
+        lambda: {"execution_mode": "live"},
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert len(result) == 1
+    propose_mock.assert_awaited_once()
+    auto_mock.assert_not_called()
+
+
+
+def test_inflight_auto_exposure_counts_cross_symbol_dedups_held(tmp_path) -> None:
+    """In-flight auto-entries feed the concurrency cap; held + other-strategy rows excluded."""
+    from decimal import Decimal
+
+    from db.order_executions import create_execution_record
+    from signals.strategy_scan import _inflight_auto_exposure
+
+    db = tmp_path / "inflight.db"
+    for sym in ("AAPL", "MSFT"):
+        create_execution_record(
+            execution_id=f"ex_{sym}",
+            proposal_id="auto_entry|dip_buy|2026-06-26T00:00:00+00:00",
+            session_id=None,
+            symbol=sym,
+            side="buy",
+            qty=Decimal("3"),
+            order_type="market",
+            limit_price=None,
+            execution_mode="paper",
+            status="submitted",
+            broker="alpaca",
+            account_id="acc1",
+            db_path=db,
+        )
+    # a different strategy's auto-entry must NOT count toward dip_buy's cap
+    create_execution_record(
+        execution_id="ex_other",
+        proposal_id="auto_entry|earnings_drift|2026-06-26T00:00:00+00:00",
+        session_id=None,
+        symbol="NVDA",
+        side="buy",
+        qty=Decimal("1"),
+        order_type="market",
+        limit_price=None,
+        execution_mode="paper",
+        status="submitted",
+        broker="alpaca",
+        account_id="acc1",
+        db_path=db,
+    )
+
+    # MSFT is already held (filled + in snapshot) → excluded to avoid double-count.
+    count, value = _inflight_auto_exposure(
+        "acc1",
+        "dip_buy",
+        held={"MSFT"},
+        prices={"AAPL": 100.0},
+        fallback_notional=500.0,
+        within_seconds=900,
+        db_path=db,
+    )
+    assert count == 1  # AAPL only (MSFT held, NVDA is earnings_drift)
+    assert value == 300.0  # 3 * 100

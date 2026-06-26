@@ -5,11 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
+import db.base as db_base
 from db.device_tokens import (
     deactivate_device_token,
     list_active_device_tokens,
     register_device_token,
 )
+from db.live_activities import record_update_token
 
 router = APIRouter(prefix="/api", tags=["devices"])
 
@@ -58,3 +60,22 @@ def api_delete_device(token: str):
 @router.get("/devices")
 def api_list_devices():
     return {"devices": list_active_device_tokens()}
+
+
+@router.post("/live-activities")
+def api_register_live_activity(body: dict = Body(...)):
+    proposal_id = str(body.get("proposal_id", "")).strip()
+    activity_update_token = str(body.get("activity_update_token", "")).strip()
+    device_token = str(body.get("device_token", "")).strip()
+    if not proposal_id or not activity_update_token or not device_token:
+        return JSONResponse(
+            {"error": "proposal_id, activity_update_token, and device_token are required"},
+            status_code=400,
+        )
+    record_update_token(
+        proposal_id,
+        device_token,
+        activity_update_token,
+        db_path=db_base.DEFAULT_DB_PATH,
+    )
+    return {"ok": True}

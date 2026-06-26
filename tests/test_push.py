@@ -200,3 +200,124 @@ async def test_create_phone_proposal_survives_push_failure(
     assert row["id"]
     assert row["payload_hash"]
     assert row["expires_at"]
+
+
+# --- Direct APNs sender tests ---
+
+
+def _make_test_p8(tmp_path):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    p = tmp_path / "apns.p8"
+    p.write_bytes(pem)
+    return p
+
+
+def _apns_cfg(key_path, **over):
+    cfg = {
+        "enabled": True,
+        "provider": "apns",
+        "expo_access_token": "",
+        "apns_key_id": "KEY1234567",
+        "apns_team_id": "TEAM123456",
+        "apns_bundle_id": "com.helpmetrade.app",
+        "apns_key_path": str(key_path),
+        "apns_use_sandbox": True,
+    }
+    cfg.update(over)
+    return cfg
+
+
+class _FakeResp:
+    def __init__(self, status_code=200):
+        self.status_code = status_code
+        self.headers = {"apns-id": "test-id"}
+        self.text = ""
+
+
+class _FakeClient:
+    last = None
+
+    def __init__(self, *_a, **_k):
+        self.posts = []
+
+    async def __aenter__(self):
+        _FakeClient.last = self
+        return self
+
+    async def __aexit__(self, *_a):
+        return False
+
+    async def post(self, url, headers=None, json=None):
+        self.posts.append({"url": url, "headers": headers, "json": json})
+        return _FakeResp(200)
+
+
+def test_make_apns_jwt_shape(tmp_path):
+    import base64
+
+    from signals.push import _make_apns_jwt
+
+    pem = _make_test_p8(tmp_path).read_bytes()
+    jwt = _make_apns_jwt(pem, "KEY1234567", "TEAM123456")
+    parts = jwt.split(".")
+    assert len(parts) == 3
+    sig = parts[2]
+    raw = base64.urlsafe_b64decode(sig + "=" * (-len(sig) % 4))
+    assert len(raw) == 64  # JOSE raw R||S, not DER
+
+
+def test_build_apns_payload_has_category_and_data():
+    from signals.push import _build_apns_payload
+
+    payload = _build_apns_payload(_sample_proposal())
+    assert payload["aps"]["category"] == "TRADE_PROPOSAL"
+    assert payload["aps"]["alert"]["body"]
+    assert payload["type"] == "trade_proposal"
+    assert payload["proposal_id"] == "paper_abc123"
+    assert payload["payload_hash"] == "hash123"
+
+
+@pytest.mark.asyncio
+async def test_apns_sends_to_active_apns_tokens(monkeypatch, tmp_path):
+    db = tmp_path / "push.db"
+    init_device_token_tables(db)
+    register_device_token(token="apnsdevtoken1", token_type="apns", db_path=db)
+    register_device_token(token="ExponentPushToken[x]", token_type="expo", db_path=db)
+
+    key_path = _make_test_p8(tmp_path)
+    monkeypatch.setattr("signals.push.push_config", lambda: _apns_cfg(key_path))
+    monkeypatch.setattr("signals.push.httpx.AsyncClient", _FakeClient)
+
+    sent = await send_proposal_push(_sample_proposal(), db_path=db)
+
+    assert sent == 1  # the expo token is ignored by the apns path
+    post = _FakeClient.last.posts[0]
+    assert post["url"].endswith("/3/device/apnsdevtoken1")
+    assert "api.sandbox.push.apple.com" in post["url"]
+    assert post["headers"]["apns-topic"] == "com.helpmetrade.app"
+    assert post["headers"]["authorization"].startswith("bearer ")
+    assert post["headers"]["apns-push-type"] == "alert"
+    assert post["json"]["aps"]["category"] == "TRADE_PROPOSAL"
+    assert post["json"]["proposal_id"] == "paper_abc123"
+
+
+@pytest.mark.asyncio
+async def test_apns_incomplete_config_is_noop(monkeypatch, tmp_path):
+    db = tmp_path / "push.db"
+    init_device_token_tables(db)
+    register_device_token(token="apnsdevtoken1", token_type="apns", db_path=db)
+
+    # Missing key_path → must no-op (never raise, never POST).
+    monkeypatch.setattr("signals.push.push_config", lambda: _apns_cfg("", apns_key_path=""))
+    monkeypatch.setattr("signals.push.httpx.AsyncClient", _FakeClient)
+
+    sent = await send_proposal_push(_sample_proposal(), db_path=db)
+    assert sent == 0

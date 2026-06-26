@@ -1,4 +1,5 @@
 import type { AiSettings } from "./ai-settings";
+import type { WorkspaceLayoutItem } from "./workspace/layout-persistence";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -244,6 +245,12 @@ export type TradingSettings = {
   max_position_pct: number;
   max_open_orders: number;
   max_daily_orders: number;
+  allow_short_selling: boolean;
+};
+
+export type ReportsSettings = {
+  morning_levels_enabled: boolean;
+  hour_et: number;
 };
 
 export type AppSettings = {
@@ -269,6 +276,7 @@ export type AppSettings = {
     searxng_url: string;
   };
   trading?: TradingSettings;
+  reports?: ReportsSettings;
 };
 
 export async function fetchSettings(): Promise<AppSettings> {
@@ -312,14 +320,30 @@ export type WatchlistsState = {
   lists: Watchlist[];
 };
 
+export type RvolInfo = {
+  value: number | null;
+  state: "warming" | "live" | "settled" | "overnight";
+};
+
 export type WatchlistQuote = {
   price: number;
   change_pct: number;
   sparkline: number[];
+  intraday?: number[];
   prev_close?: number;
   volume?: number;
   day_high?: number;
   day_low?: number;
+  rvol?: RvolInfo | null;
+  market_session?: "pre" | "regular" | "post" | "overnight" | "closed";
+  ext_price?: number | null;
+  ext_change_pct?: number | null;
+  pe?: number | null;
+  eps?: number | null;
+  div_yield?: number | null;
+  market_cap?: number | null;
+  last_earnings?: string | null;
+  next_earnings?: string | null;
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {
@@ -435,6 +459,43 @@ export async function addWatchlistSymbol(symbol: string): Promise<string[]> {
   return data.symbols ?? [];
 }
 
+// ── RVOL Scanner ──────────────────────────────────────────────────────────────
+
+export type RvolScannerRow = {
+  symbol: string;
+  rvol: number;
+  total_volume: number;
+  price: number;
+};
+
+export type RvolScannerResult = {
+  as_of: string;
+  session: "pre" | "regular" | "post" | "overnight" | "closed";
+  count: number;
+  results: RvolScannerRow[];
+  note?: string;
+};
+
+export async function fetchRvolScanner(
+  minRvol = 1.5,
+  limit = 50,
+): Promise<RvolScannerResult> {
+  const params = new URLSearchParams({
+    min_rvol: String(minRvol),
+    limit: String(limit),
+  });
+  const res = await apiFetch(`${API_BASE}/api/scanner/rvol?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `RVOL scanner error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export async function removeWatchlistSymbol(symbol: string): Promise<string[]> {
   const res = await apiFetch(
     `${API_BASE}/api/watchlist/${encodeURIComponent(symbol)}`,
@@ -510,8 +571,104 @@ export type PriceAlert = {
   direction: string;
   note: string;
   triggered: number;
+  repeat: number;
+  last_triggered_at?: string | null;
   created_at: string;
 };
+
+export type SessionLevelKind =
+  | "poc"
+  | "support"
+  | "resistance"
+  | "prior_high"
+  | "prior_low";
+
+export type SessionLevel = {
+  name: string;
+  price: number;
+  kind: SessionLevelKind;
+};
+
+export type SessionLevelsResponse = {
+  symbol: string;
+  session_date: string | null;
+  levels: SessionLevel[];
+};
+
+export async function fetchSessionLevels(
+  symbol: string,
+): Promise<SessionLevelsResponse> {
+  const params = new URLSearchParams({ symbol });
+  const res = await apiFetch(`${API_BASE}/api/session-node/levels?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Session levels error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export type ReportRow = {
+  id: string;
+  kind: string;
+  symbol: string;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  generated_at: string;
+};
+
+export async function fetchReports(limit = 30): Promise<ReportRow[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await apiFetch(`${API_BASE}/api/reports?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Reports error ${res.status}`,
+    );
+  }
+  const data = (await res.json()) as { reports?: ReportRow[] };
+  return data.reports ?? [];
+}
+
+export async function fetchReport(reportId: string): Promise<ReportRow> {
+  const res = await apiFetch(`${API_BASE}/api/reports/${encodeURIComponent(reportId)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Report error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function generateReport(
+  kind: "morning_levels",
+  symbol = "SPY",
+  options?: { push?: boolean },
+): Promise<ReportRow> {
+  const params = options?.push ? "?push=true" : "";
+  const res = await apiFetch(`${API_BASE}/api/reports/generate${params}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, symbol }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Generate report error ${res.status}`,
+    );
+  }
+  return res.json();
+}
 
 export async function fetchPriceAlerts(symbol?: string): Promise<PriceAlert[]> {
   const params = symbol
@@ -530,6 +687,7 @@ export async function createPriceAlert(payload: {
   price: number;
   direction?: string;
   note?: string;
+  repeat?: boolean;
 }): Promise<PriceAlert> {
   const res = await apiFetch(`${API_BASE}/api/price-alerts`, {
     method: "POST",
@@ -537,6 +695,29 @@ export async function createPriceAlert(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Create alert error ${res.status}`);
+  return res.json();
+}
+
+export async function updatePriceAlert(
+  id: number,
+  payload: {
+    price?: number;
+    direction?: string;
+    note?: string;
+    repeat?: boolean;
+  },
+): Promise<PriceAlert> {
+  const res = await apiFetch(`${API_BASE}/api/price-alerts/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Update alert error ${res.status}`,
+    );
+  }
   return res.json();
 }
 
@@ -563,14 +744,33 @@ export type ProposalScoreFactor = {
 export type ProposalScore = {
   win_prob: number;
   ev_pct: number;
-  ci_low: number;
-  ci_high: number;
-  sufficient: boolean;
-  low_confidence: boolean;
-  base_rate: number;
-  brier: number;
-  n_samples: number;
-  top_factors: ProposalScoreFactor[];
+  // generic-scorer fields (optional — absent on strategy-backtest scores)
+  ci_low?: number;
+  ci_high?: number;
+  sufficient?: boolean;
+  low_confidence?: boolean;
+  base_rate?: number;
+  brier?: number;
+  n_samples?: number;
+  top_factors?: ProposalScoreFactor[];
+  // strategy-backtest fields (optional — present when basis === "strategy_backtest")
+  basis?: string;
+  strategy_id?: string;
+  label?: string;
+  win_rate?: number;
+  ev_ci_pct?: [number, number] | null;
+  n_setups?: number;
+  per_year_positive?: string | null;
+  validated?: string;
+  method?: string | null;
+  note?: string;
+  source?: string;
+  as_of?: string;
+  plan?: {
+    kind?: string;
+    exit_basis?: string;
+    rules?: string[];
+  } | null;
 };
 
 export type PendingProposal = {
@@ -639,4 +839,69 @@ export async function rejectProposal(
     method: "POST",
   });
   return res.json();
+}
+
+export type EarningsEvent = {
+  period: string; // "YYYY-MM-DD"
+  label: string; // e.g. "Q2'26"
+  eps_actual: number | null;
+  eps_estimate: number | null;
+  surprise_pct: number | null;
+};
+
+export type EarningsHistoryResult = {
+  symbol: string;
+  events: EarningsEvent[];
+};
+
+export async function fetchEarningsHistory(
+  symbol: string,
+  n = 6,
+): Promise<EarningsHistoryResult> {
+  const params = new URLSearchParams({ symbol, n: String(n) });
+  const res = await apiFetch(
+    `${API_BASE}/api/fundamentals/earnings-history?${params}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Earnings history error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+// ── Workspace layout (server-side persistence) ────────────────────────────────
+
+export async function fetchWorkspaceLayout(): Promise<
+  WorkspaceLayoutItem[] | null
+> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/layout`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.layout)
+      ? (data.layout as WorkspaceLayoutItem[])
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspaceLayout(
+  layout: WorkspaceLayoutItem[],
+): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/layout`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ layout }),
+    });
+  } catch (err) {
+    console.warn("[workspace] server layout save failed:", err);
+  }
 }

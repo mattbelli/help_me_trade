@@ -48,6 +48,7 @@ _EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
 }
 
 _VALID_EXIT_MODES = frozenset({"auto", "propose"})
+_VALID_ENTRY_MODES = frozenset({"auto", "propose"})
 
 
 def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -61,6 +62,7 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 account_id TEXT,
                 notional_usd REAL NOT NULL DEFAULT 500,
                 exit_mode TEXT NOT NULL DEFAULT 'propose',
+                entry_mode TEXT NOT NULL DEFAULT 'propose',
                 params_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -73,6 +75,10 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute("ALTER TABLE strategies ADD COLUMN max_concurrent_positions INTEGER")
         if "max_deployed_usd" not in existing:
             conn.execute("ALTER TABLE strategies ADD COLUMN max_deployed_usd REAL")
+        if "entry_mode" not in existing:
+            conn.execute(
+                "ALTER TABLE strategies ADD COLUMN entry_mode TEXT NOT NULL DEFAULT 'propose'"
+            )
         if "universe" not in existing:
             conn.execute("ALTER TABLE strategies ADD COLUMN universe TEXT")
             # Backfill EXISTING rows to their current behavior (the active
@@ -101,6 +107,7 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         "account_id": row["account_id"],
         "notional_usd": float(row["notional_usd"]),
         "exit_mode": row["exit_mode"],
+        "entry_mode": row["entry_mode"],
         "params": params,
         # NULL is only reachable via a half-applied migration or a hand-inserted
         # row; fall back to the NARROW active watchlist, never silently broaden.
@@ -128,7 +135,7 @@ def list_strategies(
             rows = conn.execute(
                 f"""
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       params_json, universe, max_concurrent_positions,
+                       entry_mode, params_json, universe, max_concurrent_positions,
                        max_deployed_usd, created_at, updated_at
                 FROM strategies
                 {where}
@@ -151,7 +158,7 @@ def get_strategy(
             row = conn.execute(
                 """
                 SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       params_json, universe, max_concurrent_positions,
+                       entry_mode, params_json, universe, max_concurrent_positions,
                        max_deployed_usd, created_at, updated_at
                 FROM strategies
                 WHERE id = ?
@@ -170,6 +177,7 @@ def update_strategy(
     account_id: str | None = ...,  # type: ignore[assignment]
     notional_usd: float | None = None,
     exit_mode: str | None = None,
+    entry_mode: str | None = None,
     params: dict[str, Any] | None = None,
     universe: str | None = None,
     max_concurrent_positions: int | None = ...,  # type: ignore[assignment]
@@ -183,6 +191,9 @@ def update_strategy(
 
     if exit_mode is not None and exit_mode not in _VALID_EXIT_MODES:
         raise ValueError(f"exit_mode must be one of {sorted(_VALID_EXIT_MODES)}")
+
+    if entry_mode is not None and entry_mode not in _VALID_ENTRY_MODES:
+        raise ValueError(f"entry_mode must be one of {sorted(_VALID_ENTRY_MODES)}")
 
     if notional_usd is not None and notional_usd < 0:
         raise ValueError("notional_usd must be >= 0")
@@ -216,6 +227,9 @@ def update_strategy(
     if exit_mode is not None:
         fields.append("exit_mode = ?")
         values.append(exit_mode)
+    if entry_mode is not None:
+        fields.append("entry_mode = ?")
+        values.append(entry_mode)
     if params is not None:
         fields.append("params_json = ?")
         values.append(json.dumps(params))
@@ -321,7 +335,13 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
     need_dip_buy = get_strategy("dip_buy", db_path=db_path) is None
     need_dip_refined = get_strategy("dip_refined", db_path=db_path) is None
     need_earnings = get_strategy("earnings_drift", db_path=db_path) is None
-    if not need_dip_buy and not need_dip_refined and not need_earnings:
+    need_session_node = get_strategy("session_node_spy", db_path=db_path) is None
+    if (
+        not need_dip_buy
+        and not need_dip_refined
+        and not need_earnings
+        and not need_session_node
+    ):
         return
 
     seed_account_id = _resolve_seed_account_id(db_path=db_path) if need_dip_buy else None
@@ -367,6 +387,22 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 params=_EARNINGS_DRIFT_DEFAULT_PARAMS,
                 now=now,
                 exit_mode="propose",
+            )
+
+        if need_session_node:
+            # SPY-only propose-only session-node reversion — seeded DISABLED; user arms via
+            # Settings → Strategies. Falls back to default execution account when unbound.
+            _insert_strategy(
+                conn,
+                strategy_id="session_node_spy",
+                name="Session-Node Reversion (SPY)",
+                enabled=False,
+                account_id=None,
+                notional=500.0,
+                params={"symbol": "SPY"},
+                now=now,
+                exit_mode="propose",
+                universe=None,
             )
 
         conn.commit()

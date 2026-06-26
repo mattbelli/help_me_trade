@@ -8,6 +8,7 @@ export type Strategy = {
   account_label: string | null;
   notional_usd: number;
   exit_mode: "auto" | "propose";
+  entry_mode: "auto" | "propose";
   params: Record<string, unknown>;
   universe: string;
   max_concurrent_positions: number | null;
@@ -34,6 +35,7 @@ export type StrategyPatch = Partial<{
   account_id: string;
   notional_usd: number;
   exit_mode: "auto" | "propose";
+  entry_mode: "auto" | "propose";
   params: Record<string, unknown>;
   universe: string;
   max_concurrent_positions: number | null;

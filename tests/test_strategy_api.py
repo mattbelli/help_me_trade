@@ -113,6 +113,24 @@ def test_put_updates_strategy(strategy_api_client: TestClient) -> None:
     assert updated["params"]["oversold_3d_max"] == -4.0
 
 
+def test_put_updates_entry_mode(strategy_api_client: TestClient) -> None:
+    response = strategy_api_client.put(
+        "/api/strategies/dip_buy",
+        json={"entry_mode": "auto"},
+    )
+    assert response.status_code == 200
+    assert response.json()["strategy"]["entry_mode"] == "auto"
+
+
+def test_put_rejects_session_node_auto_entry(strategy_api_client: TestClient) -> None:
+    response = strategy_api_client.put(
+        "/api/strategies/session_node_spy",
+        json={"entry_mode": "auto"},
+    )
+    assert response.status_code == 400
+    assert "propose-only" in response.json()["detail"]
+
+
 def test_put_round_trips_risk_caps(strategy_api_client: TestClient) -> None:
     resp = strategy_api_client.put(
         "/api/strategies/dip_refined",

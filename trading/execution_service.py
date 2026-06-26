@@ -111,9 +111,14 @@ class ExecutionService:
                 )
                 raise RiskRejectedError(reason)
             elif mode == "paper":
-                position_intent = (
-                    "sell_to_close" if intent.side == "sell" else "buy_to_open"
-                )
+                if intent.side == "sell":
+                    # RiskEngine flagged whether this sell closes a long or opens
+                    # a short — tell the broker so a short opens correctly.
+                    position_intent = (
+                        "sell_to_open" if risk.is_short_open else "sell_to_close"
+                    )
+                else:
+                    position_intent = "buy_to_open"
                 req = PlaceOrderRequest(
                     client_order_id=execution_id,
                     symbol=intent.occ_symbol or intent.symbol,

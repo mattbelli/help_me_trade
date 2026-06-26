@@ -57,9 +57,11 @@ def _clear_broker_caches():
 
     factory._broker_cache.clear()
     factory._broker_by_connection.clear()
+    factory._market_data_cache.clear()
     yield
     factory._broker_cache.clear()
     factory._broker_by_connection.clear()
+    factory._market_data_cache.clear()
 
 
 @pytest.fixture(autouse=True)

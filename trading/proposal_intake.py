@@ -11,10 +11,14 @@ from typing import Any
 
 from config.settings import is_kill_switch_active, primary_broker, trading_config
 from db.accounts import default_execution_account, get_account
-from db.base import DEFAULT_DB_PATH
+from db.base import DEFAULT_DB_PATH, now_iso
+from db.order_executions import recent_open_buy_exists
 from db.paper_orders import list_pending_proposals
 from db.sqlite import get_latest_snapshot
+from signals.push import send_alert_push
+from trading.execution_service import ExecutionService
 from trading.market_hours import is_market_open
+from trading.models import RiskRejectedError
 from trading.order_proposal import build_order_proposal_from_args, order_intent_from_fields
 from trading.proposals import create_phone_proposal
 from trading.risk_engine import RiskEngine, _live_market_price
@@ -23,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 AGENT_PROPOSAL_TTL_SECONDS = 1800
 _BUYING_POWER_BUFFER = Decimal("0.95")
+# Auto-entry double-submit window: a symbol just auto-entered isn't yet "held" (snapshot
+# lag) nor a pending phone proposal, so re-scans must skip it for longer than a scan cycle
+# + snapshot refresh. 15 min comfortably covers both; once filled, the `held` set takes over.
+_AUTO_ENTRY_DEDUP_SECONDS = 900
 
 
 @dataclass(frozen=True)
@@ -38,6 +46,69 @@ class TradeCandidate:
     account_id: str | None = None
 
 
+async def _size_candidate(
+    candidate: TradeCandidate,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Shared gating + sizing for propose and auto-entry paths."""
+    if is_kill_switch_active():
+        return {"status": "kill_switch"}
+
+    if not is_market_open():
+        return {"status": "market_closed"}
+
+    symbol = candidate.symbol.strip().upper()
+
+    if candidate.account_id:
+        account = get_account(candidate.account_id, db_path=db_path)
+        if (
+            account is None
+            or not account.get("enabled")
+            or not account.get("execution_capable")
+        ):
+            return {"status": "invalid_account"}
+    else:
+        account = default_execution_account(db_path=db_path)
+
+    resolved_account_id = account["id"] if account else None
+    broker = account["broker"] if account else primary_broker()
+
+    price = await _live_market_price(symbol)
+    if price is None or price <= 0:
+        return {"status": "no_price"}
+
+    qty = floor(candidate.notional_usd / price)
+    snapshot = get_latest_snapshot(
+        broker, account_id=resolved_account_id, db_path=db_path
+    )
+    if snapshot is not None:
+        buying_power = Decimal(str(snapshot["account"]["buying_power"]))
+        cap_qty = floor(buying_power * _BUYING_POWER_BUFFER / price)
+        qty = min(qty, cap_qty)
+
+    if qty < 1:
+        return {"status": "too_small"}
+
+    args: dict[str, Any] = {
+        "symbol": symbol,
+        "side": candidate.side,
+        "qty": int(qty),
+        "order_type": candidate.order_type,
+    }
+    if candidate.limit_price is not None:
+        args["limit_price"] = candidate.limit_price
+    if resolved_account_id is not None:
+        args["account_id"] = resolved_account_id
+
+    return {
+        "status": "ok",
+        "args": args,
+        "broker": broker,
+        "account_id": resolved_account_id,
+    }
+
+
 async def propose_trade(
     candidate: TradeCandidate,
     *,
@@ -49,27 +120,13 @@ async def propose_trade(
         if not cfg.get("agent_proposals_enabled", True):
             return {"status": "disabled"}
 
-        if is_kill_switch_active():
-            return {"status": "kill_switch"}
+        sized = await _size_candidate(candidate, db_path=db_path)
+        if sized.get("status") != "ok":
+            return sized
 
-        if not is_market_open():
-            return {"status": "market_closed"}
-
-        symbol = candidate.symbol.strip().upper()
-
-        if candidate.account_id:
-            account = get_account(candidate.account_id, db_path=db_path)
-            if (
-                account is None
-                or not account.get("enabled")
-                or not account.get("execution_capable")
-            ):
-                return {"status": "invalid_account"}
-        else:
-            account = default_execution_account(db_path=db_path)
-
-        resolved_account_id = account["id"] if account else None
-        broker = account["broker"] if account else primary_broker()
+        args = sized["args"]
+        symbol = args["symbol"]
+        resolved_account_id = sized.get("account_id")
 
         if candidate.account_id is not None:
             pending = list_pending_proposals(
@@ -82,33 +139,6 @@ async def propose_trade(
             return {"status": "max_pending"}
         if any(p["symbol"].upper() == symbol for p in pending):
             return {"status": "duplicate"}
-
-        price = _live_market_price(symbol)
-        if price is None or price <= 0:
-            return {"status": "no_price"}
-
-        qty = floor(candidate.notional_usd / price)
-        snapshot = get_latest_snapshot(
-            broker, account_id=resolved_account_id, db_path=db_path
-        )
-        if snapshot is not None:
-            buying_power = Decimal(str(snapshot["account"]["buying_power"]))
-            cap_qty = floor(buying_power * _BUYING_POWER_BUFFER / price)
-            qty = min(qty, cap_qty)
-
-        if qty < 1:
-            return {"status": "too_small"}
-
-        args: dict[str, Any] = {
-            "symbol": symbol,
-            "side": candidate.side,
-            "qty": int(qty),
-            "order_type": candidate.order_type,
-        }
-        if candidate.limit_price is not None:
-            args["limit_price"] = candidate.limit_price
-        if resolved_account_id is not None:
-            args["account_id"] = resolved_account_id
 
         built = build_order_proposal_from_args(args, db_path=db_path)
         if "error" in built:
@@ -141,6 +171,75 @@ async def propose_trade(
             candidate.symbol,
             candidate.source,
         )
+        return {"status": "error"}
+
+
+async def auto_execute_entry(
+    candidate: TradeCandidate,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Auto-execute a strategy entry through the execution chokepoint (paper-fenced upstream)."""
+    try:
+        # Defense in depth: the scan's dispatch fence already gates on this, but this
+        # function must be self-protecting — auto-entry never runs outside paper/dry_run.
+        if trading_config()["execution_mode"] not in ("dry_run", "paper"):
+            logger.error("auto_execute_entry blocked — execution_mode is not paper/dry_run")
+            return {"status": "blocked_live"}
+
+        # The synthetic proposal_id encodes the strategy for fill attribution; refuse to
+        # auto-submit anything we can't attribute (else the fill opens no managed position
+        # and the exit engine is blind to it).
+        if not candidate.source.startswith("strategy:"):
+            logger.error("auto_execute_entry called with non-strategy source %r", candidate.source)
+            return {"status": "error", "reason": "non-strategy source"}
+        strategy_id = candidate.source.split("strategy:", 1)[1]
+        if not strategy_id:
+            return {"status": "error", "reason": "empty strategy id"}
+
+        sized = await _size_candidate(candidate, db_path=db_path)
+        if sized.get("status") != "ok":
+            return sized
+        args = sized["args"]
+
+        # Double-submit guard: skip if a non-failed buy for this symbol+account is already
+        # in flight (or just filled but not yet reconciled into the snapshot/held set).
+        if recent_open_buy_exists(
+            args["symbol"],
+            account_id=sized.get("account_id"),
+            within_seconds=_AUTO_ENTRY_DEDUP_SECONDS,
+            db_path=db_path,
+        ):
+            return {"status": "duplicate"}
+
+        built = build_order_proposal_from_args(args, db_path=db_path)
+        if "error" in built:
+            return {"status": "invalid", "reason": built["error"]}
+        intent = order_intent_from_fields(
+            built["intent_fields"],
+            proposal_id=f"auto_entry|{strategy_id}|{now_iso()}",
+            session_id=None,
+            db_path=db_path,
+        )
+        result = await ExecutionService.submit(intent, db_path=db_path)
+        await send_alert_push(
+            title="Trade executed",
+            body=f"BUY {args['qty']} {args['symbol']} @ mkt [{result.execution_mode}]",
+            data={
+                "type": "execution_alert",
+                "symbol": args["symbol"],
+                "side": "buy",
+                "qty": int(args["qty"]),
+                "strategy_id": strategy_id,
+                "execution_id": result.execution_id,
+            },
+            db_path=db_path,
+        )
+        return {"status": "executed", "execution_id": result.execution_id}
+    except RiskRejectedError as exc:
+        return {"status": "risk_blocked", "reason": str(exc)}
+    except Exception:
+        logger.exception("auto_execute_entry failed for %s", candidate.symbol)
         return {"status": "error"}
 
 

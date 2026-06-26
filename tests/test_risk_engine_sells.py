@@ -176,7 +176,7 @@ async def test_equity_sell_no_position_rejected(monkeypatch, tmp_path: Path) -> 
     result = await RiskEngine.validate(_equity_intent(), db_path=db)
     assert result.passed is False
     assert result.blocked_reason == (
-        "sell-to-close requires a held long position; short selling not supported"
+        "sell-to-close requires a held long position; short selling not enabled"
     )
     assert result.checks["sell_position"] == "fail: no held long position"
 

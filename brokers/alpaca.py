@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -17,6 +18,11 @@ from brokers.base import Account, Order, PlaceOrderRequest, PlaceOrderResponse, 
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
+
+logger = logging.getLogger(__name__)
+
+_MAX_BAR_PAGES = 50
+_BATCH_BARS_PATH = "/v2/stocks/bars"
 
 
 from brokers.errors import BrokerError
@@ -472,6 +478,90 @@ class AlpacaAdapter:
             )
         return bars
 
+    @staticmethod
+    def _bar_fetch_context(path: str, params: dict[str, Any]) -> str:
+        timeframe = params.get("timeframe", "?")
+        if path == _BATCH_BARS_PATH:
+            return f"symbols={params.get('symbols', '?')} timeframe={timeframe}"
+        parts = path.rstrip("/").split("/")
+        symbol = parts[-2] if len(parts) >= 2 else "?"
+        return f"symbol={symbol} timeframe={timeframe}"
+
+    @staticmethod
+    def _merge_bar_pages(
+        accumulated: list | dict[str, list],
+        page_bars: list | dict[str, list],
+    ) -> list | dict[str, list]:
+        if isinstance(page_bars, list):
+            if isinstance(accumulated, list):
+                accumulated.extend(page_bars)
+            return accumulated
+        if isinstance(page_bars, dict):
+            if not isinstance(accumulated, dict):
+                accumulated = {}
+            for symbol, items in page_bars.items():
+                if isinstance(items, list):
+                    accumulated.setdefault(str(symbol), []).extend(items)
+        return accumulated
+
+    def _get_all_bar_pages(
+        self, path: str, params: dict[str, Any]
+    ) -> dict[str, list | dict[str, list]]:
+        is_batch = path == _BATCH_BARS_PATH
+        accumulated: list | dict[str, list] = {} if is_batch else []
+        page_token: str | None = None
+        context = self._bar_fetch_context(path, params)
+
+        for page_num in range(_MAX_BAR_PAGES):
+            request_params = dict(params)
+            if page_token:
+                request_params["page_token"] = page_token
+
+            data = self._get_data(path, params=request_params)
+            page_bars = data.get("bars") or ({} if is_batch else [])
+            accumulated = self._merge_bar_pages(accumulated, page_bars)
+
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+        else:
+            logger.warning(
+                "Bar pagination capped at %d pages for %s",
+                _MAX_BAR_PAGES,
+                context,
+            )
+
+        return {"bars": accumulated}
+
+    async def _aget_all_bar_pages(
+        self, path: str, params: dict[str, Any]
+    ) -> dict[str, list | dict[str, list]]:
+        is_batch = path == _BATCH_BARS_PATH
+        accumulated: list | dict[str, list] = {} if is_batch else []
+        page_token: str | None = None
+        context = self._bar_fetch_context(path, params)
+
+        for page_num in range(_MAX_BAR_PAGES):
+            request_params = dict(params)
+            if page_token:
+                request_params["page_token"] = page_token
+
+            data = await self._aget_data(path, params=request_params)
+            page_bars = data.get("bars") or ({} if is_batch else [])
+            accumulated = self._merge_bar_pages(accumulated, page_bars)
+
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+        else:
+            logger.warning(
+                "Bar pagination capped at %d pages for %s",
+                _MAX_BAR_PAGES,
+                context,
+            )
+
+        return {"bars": accumulated}
+
     def get_stock_bars(
         self,
         symbol: str,
@@ -491,7 +581,9 @@ class AlpacaAdapter:
         *,
         timeframe: str = "1Day",
         days: int = 180,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
+        # Free IEX feed is regular-hours only; extended_hours is ignored.
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
         return await self.aget_stock_bars_range(
@@ -519,7 +611,7 @@ class AlpacaAdapter:
             "sort": "asc",
         }
 
-        data = self._get_data(f"/v2/stocks/{symbol}/bars", params=params)
+        data = self._get_all_bar_pages(f"/v2/stocks/{symbol}/bars", params)
         return self._parse_stock_bars(data.get("bars") or [])
 
     async def aget_stock_bars_range(
@@ -543,7 +635,9 @@ class AlpacaAdapter:
             "sort": "asc",
         }
 
-        data = await self._aget_data(f"/v2/stocks/{symbol}/bars", params=params)
+        data = await self._aget_all_bar_pages(
+            f"/v2/stocks/{symbol}/bars", params
+        )
         return self._parse_stock_bars(data.get("bars") or [])
 
     _assets_cache: tuple[float, list[str]] | None = None
@@ -713,7 +807,7 @@ class AlpacaAdapter:
         if not cleaned:
             return {}
 
-        data = self._get_data("/v2/stocks/bars", params=params)
+        data = self._get_all_bar_pages(_BATCH_BARS_PATH, params)
         return self._parse_batch_bars(data.get("bars") or {})
 
     async def aget_stock_bars_batch(
@@ -729,7 +823,7 @@ class AlpacaAdapter:
         if not cleaned:
             return {}
 
-        data = await self._aget_data("/v2/stocks/bars", params=params)
+        data = await self._aget_all_bar_pages(_BATCH_BARS_PATH, params)
         return self._parse_batch_bars(data.get("bars") or {})
 
     def get_forward_splits(

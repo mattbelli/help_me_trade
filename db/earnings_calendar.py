@@ -119,6 +119,25 @@ def last_earnings_date(
     return row["d"] if row and row["d"] else None
 
 
+def earnings_hour(
+    symbol: str,
+    date: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> str | None:
+    """Finnhub hour for a symbol/date (`bmo` / `amc` / `dmh`), or None if unknown."""
+    init_earnings_calendar_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT hour FROM earnings_calendar WHERE symbol = ? AND date = ?",
+            (symbol.strip().upper(), date),
+        ).fetchone()
+    if row is None or not row["hour"]:
+        return None
+    hour = str(row["hour"]).strip().lower()
+    return hour or None
+
+
 def earnings_calendar_count(db_path: Path = DEFAULT_DB_PATH) -> int:
     init_earnings_calendar_tables(db_path)
     with _connect(db_path) as conn:

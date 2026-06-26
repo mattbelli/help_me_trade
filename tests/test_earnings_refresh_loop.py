@@ -59,6 +59,7 @@ async def test_earnings_refresh_once_enabled_earnings_strategy(
         "api.main.resolve_universe_spec",
         lambda spec: [s.strip().upper() for s in str(spec).split(",") if s.strip()],
     )
+    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: [])
 
     from api.main import _earnings_refresh_once
 
@@ -80,9 +81,34 @@ async def test_earnings_refresh_once_skips_when_no_enabled_earnings(
             "db.strategies", fromlist=["list_strategies"]
         ).list_strategies(**kw, db_path=db),
     )
+    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: [])
 
     from api.main import _earnings_refresh_once
 
     n = await _earnings_refresh_once()
     assert n == 0
     refresh_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_earnings_refresh_once_includes_watchlist_symbols(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Watchlist symbols are refreshed even with no enabled earnings strategy
+    (so the fundamentals panel gets a next-earnings date)."""
+    db = _init_db(tmp_path)
+    refresh_mock = AsyncMock(return_value=1)
+    monkeypatch.setattr("api.main.arefresh_earnings_calendar", refresh_mock)
+    monkeypatch.setattr(
+        "api.main.list_strategies",
+        lambda **kw: __import__(
+            "db.strategies", fromlist=["list_strategies"]
+        ).list_strategies(**kw, db_path=db),
+    )
+    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["TSLA"])
+
+    from api.main import _earnings_refresh_once
+
+    n = await _earnings_refresh_once()
+    assert n == 1
+    refresh_mock.assert_awaited_once_with(["TSLA"])

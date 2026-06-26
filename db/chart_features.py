@@ -29,6 +29,8 @@ def init_chart_features(db_path: Path = DEFAULT_DB_PATH) -> None:
                 direction TEXT NOT NULL DEFAULT 'cross',
                 note TEXT NOT NULL DEFAULT '',
                 triggered INTEGER NOT NULL DEFAULT 0,
+                repeat INTEGER NOT NULL DEFAULT 0,
+                last_triggered_at TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -38,6 +40,16 @@ def init_chart_features(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON price_alerts(symbol, triggered);
             """
         )
+        # Idempotent migration for DBs created before repeat/last_triggered_at.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(price_alerts)")}
+        if "repeat" not in cols:
+            conn.execute(
+                "ALTER TABLE price_alerts ADD COLUMN repeat INTEGER NOT NULL DEFAULT 0"
+            )
+        if "last_triggered_at" not in cols:
+            conn.execute(
+                "ALTER TABLE price_alerts ADD COLUMN last_triggered_at TEXT"
+            )
 
 
 def list_chart_layouts(symbol: str | None = None) -> list[dict]:
@@ -125,7 +137,9 @@ def list_price_alerts(*, symbol: str | None = None, active_only: bool = True) ->
         query += " AND symbol = ?"
         params.append(symbol.strip().upper())
     if active_only:
-        query += " AND triggered = 0"
+        # Repeat (persistent) alerts stay active forever — they re-arm after each
+        # crossing and only leave the list when deleted.
+        query += " AND (triggered = 0 OR repeat = 1)"
     query += " ORDER BY created_at DESC"
     with _connect() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -138,6 +152,7 @@ def create_price_alert(
     price: float,
     direction: str = "cross",
     note: str = "",
+    repeat: bool = False,
 ) -> dict:
     init_chart_features()
     now = datetime.now(UTC).isoformat()
@@ -145,10 +160,11 @@ def create_price_alert(
     with _connect() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO price_alerts (symbol, price, direction, note, triggered, created_at)
-            VALUES (?, ?, ?, ?, 0, ?)
+            INSERT INTO price_alerts
+                (symbol, price, direction, note, triggered, repeat, created_at)
+            VALUES (?, ?, ?, ?, 0, ?, ?)
             """,
-            (sym, price, direction, note, now),
+            (sym, price, direction, note, 1 if repeat else 0, now),
         )
         conn.commit()
         row_id = int(cursor.lastrowid)
@@ -166,10 +182,65 @@ def delete_price_alert(alert_id: int) -> bool:
     return cursor.rowcount > 0
 
 
-def mark_alert_triggered(alert_id: int) -> None:
+def update_price_alert(
+    alert_id: int,
+    *,
+    price: float | None = None,
+    direction: str | None = None,
+    note: str | None = None,
+    repeat: bool | None = None,
+) -> dict | None:
+    """Edit an alert in place (only the fields provided). Editing RE-ARMS it
+    (triggered=0) so a one-shot that already fired becomes active again at its new
+    level. Returns the updated row, or None if no alert with that id exists."""
     init_chart_features()
+    sets: list[str] = []
+    params: list = []
+    if price is not None:
+        sets.append("price = ?")
+        params.append(float(price))
+    if direction is not None:
+        sets.append("direction = ?")
+        params.append(direction)
+    if note is not None:
+        sets.append("note = ?")
+        params.append(note)
+    if repeat is not None:
+        sets.append("repeat = ?")
+        params.append(1 if repeat else 0)
+    sets.append("triggered = 0")  # editing re-arms
     with _connect() as conn:
-        conn.execute(
-            "UPDATE price_alerts SET triggered = 1 WHERE id = ?", (alert_id,)
+        cursor = conn.execute(
+            f"UPDATE price_alerts SET {', '.join(sets)} WHERE id = ?",
+            (*params, alert_id),
         )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute(
+            "SELECT * FROM price_alerts WHERE id = ?", (alert_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def mark_alert_triggered(alert_id: int, *, repeat: bool = False) -> None:
+    """Record that an alert fired.
+
+    One-shot (repeat=False): set triggered=1 so it leaves the active list.
+    Persistent (repeat=True): stamp last_triggered_at but keep it active so it
+    re-arms for the next crossing.
+    """
+    init_chart_features()
+    now = datetime.now(UTC).isoformat()
+    with _connect() as conn:
+        if repeat:
+            conn.execute(
+                "UPDATE price_alerts SET last_triggered_at = ? WHERE id = ?",
+                (now, alert_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE price_alerts SET triggered = 1, last_triggered_at = ? WHERE id = ?",
+                (now, alert_id),
+            )
         conn.commit()
