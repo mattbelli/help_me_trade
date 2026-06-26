@@ -517,6 +517,12 @@ export function TvLightChart({
     const series = mainRef.current;
     if (!series) return;
 
+    // No equity bars form when the session is closed (overnight ~8pm–4am ET / weekend).
+    // Without this guard the live-price effect would roll spurious off-hours bars AND
+    // overwrite the last real bar's close with the overnight extended quote, making the
+    // chart look broken past 8pm. The watchlist still shows the extended price separately.
+    if (sessionLabel() === "Closed") return;
+
     const last = bars[bars.length - 1];
 
     // Intraday: when the wall clock crosses into the next interval bucket, roll the
