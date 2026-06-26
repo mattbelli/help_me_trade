@@ -77,6 +77,8 @@ def _patch_db(monkeypatch, db: Path) -> None:
 
     monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
     monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    # Rebalances only fire during the regular session; default tests to market-open.
+    monkeypatch.setattr("signals.momentum.is_market_open", lambda: True)
 
 
 def _mock_submit(monkeypatch) -> AsyncMock:
@@ -508,3 +510,19 @@ async def test_max_deployed_drops_lowest_residual_not_alphabetical(tmp_path: Pat
     plan = _compute_rebalance_plan(strategy, db_path=db)
     # per_name=100; cap=150 fits one buy → the HIGH-residual ZHI, not alphabetically-first ALO.
     assert [b["symbol"] for b in plan["buys"]] == ["ZHI"]
+
+
+@pytest.mark.asyncio
+async def test_rebalance_deferred_when_market_closed(tmp_path: Path, monkeypatch) -> None:
+    """The rebalance defers (no orders) outside the regular session — the month ticks at
+    midnight ET, so without this it would fire after-hours and reject everything."""
+    db, _account_id = _init_db(tmp_path)
+    _patch_db(monkeypatch, db)
+    submit = _mock_submit(monkeypatch)
+    monkeypatch.setattr("signals.momentum.is_market_open", lambda: False)
+
+    strategy = get_strategy("momentum_sp500", db_path=db)
+    result = await execute_rebalance(strategy, db_path=db)
+
+    assert result["status"] == "market_closed"
+    submit.assert_not_called()

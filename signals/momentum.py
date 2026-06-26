@@ -25,7 +25,7 @@ from research.momentum_reference import compute_target_set, load_sector_map
 from signals.push import send_alert_push
 from signals.strategy_universe import resolve_universe_spec
 from trading.execution_service import ExecutionService
-from trading.market_hours import _ET
+from trading.market_hours import _ET, is_market_open
 from trading.models import OrderIntent, RiskRejectedError
 from trading.proposal_intake import _AUTO_ENTRY_DEDUP_SECONDS
 
@@ -362,6 +362,7 @@ async def execute_rebalance(
         return {"status": "no_account", "month": month}
 
     broker_name = str(account["broker"]).strip().lower()
+
     existing_run = get_run(sid, month, db_path=db_path)
     if existing_run is not None and existing_run.get("status") == "complete":
         # The run table is authoritative: a 'complete' run means this month is done even if
@@ -372,6 +373,13 @@ async def execute_rebalance(
         existing_run is None or existing_run.get("status") != "executing"
     ):
         return {"status": "already_rebalanced", "month": month}
+
+    # Only rebalance during the regular session. The month ticks at MIDNIGHT ET, so the first
+    # scan of a new month is after-hours — firing then means no live quotes (RiskEngine rejects
+    # every order, the run gets stuck) and partial fills based on whichever names happen to be
+    # cached in the hub. Defer to the first regular-session scan, when the whole universe prices.
+    if not is_market_open():
+        return {"status": "market_closed", "month": month}
 
     if existing_run is not None and existing_run.get("status") == "executing":
         plan = existing_run.get("plan") or {}
