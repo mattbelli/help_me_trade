@@ -113,6 +113,7 @@ type StrategyCardState = {
   draft: StrategyDraft;
   dirty: boolean;
   saving: boolean;
+  toggling: boolean;
   error: string | null;
 };
 
@@ -187,6 +188,7 @@ function StrategyCard({
     draft: original,
     dirty: false,
     saving: false,
+    toggling: false,
     error: null,
   }));
 
@@ -218,7 +220,30 @@ function StrategyCard({
     }
   }
 
-  const { draft, dirty, saving, error } = state;
+  async function handleToggle(checked: boolean) {
+    // Optimistic: flip the local draft immediately so the Switch feels instant.
+    setState((prev) => ({
+      ...prev,
+      draft: { ...prev.draft, enabled: checked },
+      toggling: true,
+      error: null,
+    }));
+    try {
+      const updated = await updateStrategy(strategy.id, { enabled: checked });
+      // onSaved updates the parent list and re-keys this card, resetting state.
+      onSaved(updated);
+    } catch (err) {
+      // Revert optimistic update.
+      setState((prev) => ({
+        ...prev,
+        draft: { ...prev.draft, enabled: !checked },
+        toggling: false,
+        error: err instanceof Error ? err.message : "Failed to update strategy",
+      }));
+    }
+  }
+
+  const { draft, dirty, saving, toggling, error } = state;
   const doc = STRATEGY_DOCS[strategy.id];
   const isSessionNode = strategy.id === "session_node_spy";
   const unboundEnabled = draft.enabled && !draft.account_id;
@@ -251,9 +276,8 @@ function StrategyCard({
           </div>
           <Switch
             checked={draft.enabled}
-            onCheckedChange={(checked) =>
-              updateDraft((d) => ({ ...d, enabled: checked }))
-            }
+            disabled={toggling}
+            onCheckedChange={(checked) => void handleToggle(checked)}
           />
         </div>
       </CardHeader>

@@ -450,6 +450,10 @@ export function WorkspaceGrid() {
 
   const [width, setWidth] = useState(() => gridPixelWidth(GRID_DEFAULT_COLS));
   const [cols, setCols] = useState(GRID_DEFAULT_COLS);
+  // Tracks whether cols/width have been measured from the real container width.
+  // The grid must NOT render until this is true, or RGL will clamp widgets that
+  // sit beyond the default 24-col boundary (causing the "chart jumps left" bug).
+  const [colsMeasured, setColsMeasured] = useState(false);
 
   // Four-edge scroll indicators: show subtle gradient overlays when there is
   // more content in that direction (right/bottom are the important ones for
@@ -503,6 +507,7 @@ export function WorkspaceGrid() {
       setCols(nextCols);
       setGridCols(nextCols);
       setWidth(gridPixelWidth(nextCols));
+      setColsMeasured(true);
       measureEdges();
     }
 
@@ -586,7 +591,7 @@ export function WorkspaceGrid() {
                 }
           }
         >
-          {hydrated ? (
+          {hydrated && colsMeasured ? (
             <div id="workspace-grid-root" className="relative" style={{ width }}>
               <ReactGridLayout
                 className="layout"
