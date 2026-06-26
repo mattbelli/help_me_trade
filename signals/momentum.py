@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import Any
@@ -39,6 +39,20 @@ _REBALANCE_PACE_SECONDS = 0.3
 # A healthy top-quintile is ~95-100 names. If the target collapses to far fewer (stale/partial
 # bar data), the diff would spuriously SELL most of the book — abort the rebalance instead.
 MINIMUM_MOMENTUM_TARGET = 50
+# A rebalance normally completes in well under a minute. If a run stays 'executing' far longer,
+# some leg is persistently rejecting (e.g. buying-power exhaustion) and rejected orders bypass
+# the 900s dedup — so without a bound it retries that leg every scan forever. Give up after this.
+MAX_REBALANCE_AGE_SECONDS = 1800  # 30 min
+
+
+def _rebalance_run_age(run: dict[str, Any]) -> float:
+    created = run.get("created_at")
+    if not created:
+        return 0.0
+    try:
+        return (datetime.now(UTC) - datetime.fromisoformat(str(created))).total_seconds()
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def _bar_date(time_str: str) -> str:
@@ -246,11 +260,21 @@ def _compute_rebalance_plan(
     if not target_rows or len(target_rows) < MINIMUM_MOMENTUM_TARGET:
         return None
 
-    target_syms = {str(d["symbol"]).strip().upper() for d in target_rows}
+    residual = {
+        str(d["symbol"]).strip().upper(): float(d.get("residual_momentum", 0.0))
+        for d in target_rows
+    }
+    target_syms = set(residual)
     held = _held_qty_map(sid, strategy.get("account_id"), db_path=db_path)
 
     sell_syms = sorted(s for s in held if s not in target_syms)
-    buy_syms = sorted(s for s in target_syms if s not in held)
+    # Highest-conviction first, so a tight max_deployed_usd cap drops the LOWEST-residual
+    # names — not late-alphabet ones (which a plain sorted() would).
+    buy_syms = sorted(
+        (s for s in target_syms if s not in held),
+        key=lambda s: residual.get(s, 0.0),
+        reverse=True,
+    )
 
     notional = Decimal(str(strategy.get("notional_usd") or 0))
     if notional <= 0 or not target_syms:
@@ -272,7 +296,7 @@ def _compute_rebalance_plan(
 
     buys: list[dict[str, str]] = []
     deployed = Decimal(0)
-    for sym in buy_syms:
+    for i, sym in enumerate(buy_syms):
         price = _latest_close(sym, db_path=db_path)
         if price is None or price <= 0:
             logger.warning(
@@ -284,6 +308,13 @@ def _compute_rebalance_plan(
             continue
         cost = qty * price
         if max_deployed is not None and deployed + cost > max_deployed:
+            logger.warning(
+                "Momentum rebalance: max_deployed_usd cap reached (~$%s) — dropping %d "
+                "lower-conviction names: %s",
+                deployed,
+                len(buy_syms) - i,
+                buy_syms[i:][:10],
+            )
             break
         buys.append({"symbol": sym, "qty": str(qty)})
         deployed += cost
@@ -310,7 +341,14 @@ async def execute_rebalance(
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
-    """Execute a monthly momentum portfolio rebalance (paper-fenced upstream)."""
+    """Execute a monthly momentum portfolio rebalance (paper-fenced upstream).
+
+    ★ PRECONDITION — bind this strategy to a DEDICATED account. "Held" for buy-suppression is
+    sourced from this strategy's managed_positions, so a broker long that exists WITHOUT a
+    managed row (shared account with another strategy, or a fill whose ledger row failed to
+    create) would be re-bought. Acceptable on a dedicated paper account; a LIVE unlock must add
+    an explicit account-dedicated guard first.
+    """
     sid = strategy["id"]
     month = _current_rebalance_month()
     account_id = strategy.get("account_id")
@@ -337,6 +375,28 @@ async def execute_rebalance(
 
     if existing_run is not None and existing_run.get("status") == "executing":
         plan = existing_run.get("plan") or {}
+        # Bound the retry of a stuck run: persistent rejects keep it 'executing', and rejected
+        # orders bypass the 900s dedup — so without this it retries the stuck leg every scan
+        # forever. Give up after MAX_REBALANCE_AGE: stamp the month, alert, move on.
+        if _rebalance_run_age(existing_run) > MAX_REBALANCE_AGE_SECONDS:
+            complete_run(sid, month, db_path=db_path)
+            update_strategy(sid, last_rebalanced_month=month, db_path=db_path)
+            logger.error(
+                "Momentum rebalance %s month=%s ABANDONED after >%ds stuck — unfinished plan "
+                "(%d sells, %d buys); persistent rejects? Next month recomputes fresh.",
+                sid,
+                month,
+                MAX_REBALANCE_AGE_SECONDS,
+                len(plan.get("sells") or []),
+                len(plan.get("buys") or []),
+            )
+            await send_alert_push(
+                title="Momentum rebalance incomplete",
+                body=f"{sid} {month}: orders kept failing — rebalance abandoned, retries next month.",
+                data={"type": "rebalance_incomplete", "strategy_id": sid, "month": month},
+                db_path=db_path,
+            )
+            return {"status": "abandoned", "month": month}
         logger.info(
             "Momentum rebalance RESUME for %s month=%s — %d sells, %d buys",
             sid,

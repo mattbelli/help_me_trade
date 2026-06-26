@@ -465,3 +465,46 @@ async def test_complete_run_blocks_re_execution(tmp_path: Path, monkeypatch) -> 
     result = await execute_rebalance(strategy, db_path=db)
     assert result["status"] == "already_rebalanced"
     submit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stuck_run_abandoned_after_timeout(tmp_path: Path, monkeypatch) -> None:
+    """A run stuck 'executing' past MAX_REBALANCE_AGE is abandoned (stamped + alerted),
+    not retried forever."""
+    db, _account_id = _init_db(tmp_path)
+    _patch_db(monkeypatch, db)
+    submit = _mock_submit(monkeypatch)
+    push = AsyncMock(return_value=0)
+    monkeypatch.setattr("signals.momentum.send_alert_push", push)
+    month = _current_rebalance_month()
+    start_run("momentum_sp500", month, {"buys": [{"symbol": "AAA", "qty": "1"}], "sells": []}, db_path=db)
+    monkeypatch.setattr("signals.momentum._rebalance_run_age", lambda run: 9999.0)
+
+    strategy = get_strategy("momentum_sp500", db_path=db)
+    result = await execute_rebalance(strategy, db_path=db)
+
+    assert result["status"] == "abandoned"
+    submit.assert_not_called()           # gave up — no infinite retry of the stuck leg
+    push.assert_awaited_once()           # founder alerted
+    assert get_strategy("momentum_sp500", db_path=db)["last_rebalanced_month"] == month
+
+
+@pytest.mark.asyncio
+async def test_max_deployed_drops_lowest_residual_not_alphabetical(tmp_path: Path, monkeypatch) -> None:
+    """A tight max_deployed_usd drops the LOWEST-residual names, not late-alphabet ones."""
+    db, _account_id = _init_db(tmp_path)
+    _patch_db(monkeypatch, db)
+    upsert_daily_bars(_bar_row("ZHI", price=100) + _bar_row("ALO", price=100), db_path=db)
+    monkeypatch.setattr(
+        "signals.momentum.production_target_set",
+        lambda **k: [
+            {"symbol": "ZHI", "residual_momentum": 9.0},   # high conviction, late alphabet
+            {"symbol": "ALO", "residual_momentum": 1.0},   # low conviction, early alphabet
+        ] + [{"symbol": f"F{i:02d}", "residual_momentum": 0.0} for i in range(48)],
+    )
+    update_strategy("momentum_sp500", notional_usd=5000, max_deployed_usd=150, db_path=db)
+    strategy = get_strategy("momentum_sp500", db_path=db)
+
+    plan = _compute_rebalance_plan(strategy, db_path=db)
+    # per_name=100; cap=150 fits one buy → the HIGH-residual ZHI, not alphabetically-first ALO.
+    assert [b["symbol"] for b in plan["buys"]] == ["ZHI"]
