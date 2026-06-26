@@ -205,6 +205,19 @@ save-per-card, with a no-fabrication honesty caption on the refined variant. Set
 ⚠️ Its "+1.6%→+3%/trade" backtest gain is **recent-excess, NOT block-bootstrap-validated** like the base dip —
 a forward-test candidate only. 510 tests green; UI typecheck/lint clean; **UI pending on-phone visual check.**
 
+**Update (2026-06-26) — Per-strategy paper AUTO-ENTRY (`feat/strategy-auto-entry`, PR-pending).** The entry-side
+mirror of auto-exit: a strategy can be toggled `entry_mode="auto"` to auto-execute its entries through the
+existing chokepoint (`ExecutionService.submit` → `RiskEngine.validate` — unchanged), **paper-fenced** (honored
+only in `dry_run`/`paper`; reverts to `propose` under `live`; `session_node_spy` blocked), with a "Trade
+executed" phone push on every fill (entry AND auto-exit). `record_strategy_fill` recovers the strategy from a
+synthetic `auto_entry|<id>|<ts>` proposal_id so the auto-entered position is tracked + managed/exited normally.
+Sizing is a shared helper refactored out of `propose_trade` (identical buying-power cap + risk path). Adversarial
+review (standing rule) caught + fixed a double-submit window — new `recent_open_buy_exists` in-flight guard
+(15-min) is the entry-side analog of the exit engine's pending marker; `auto_execute_entry` is also self-fencing
+(re-asserts paper-only + refuses non-`strategy:` sources). Default `entry_mode='propose'` → **zero behavior
+change until a founder flips a toggle.** 879 tests; ruff + typecheck clean. PR for the founder to merge; then
+flip `dip_buy`/`dip_refined`/`earnings_drift` to paper-auto.
+
 **1. Support/Resistance + trade-PLAN outputs (completes the "fully-planned idea").**
 - *Features:* distance to nearest support/resistance, room-to-run to next level, level-test counts (from bars:
   swing pivots, volume-by-price, prior highs/lows, round numbers).

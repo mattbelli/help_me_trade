@@ -17,7 +17,7 @@ from typing import Any
 
 from brokers.alpaca import StockBar
 from brokers.factory import connection_is_configured, get_broker_for_account
-from config.settings import broker_is_configured
+from config.settings import broker_is_configured, trading_config
 from db.accounts import get_account, get_connection
 from db.base import DEFAULT_DB_PATH
 from db.paper_orders import list_pending_proposals
@@ -206,6 +206,12 @@ async def _run_strategy(
         return []
 
     broker_name = str(account["broker"]).strip().lower()
+    exec_mode = trading_config()["execution_mode"]
+    auto_entry = (
+        (strategy.get("entry_mode") or "propose") == "auto"
+        and exec_mode in ("dry_run", "paper")
+        and strategy["id"] != "session_node_spy"
+    )
     # The strategy's OWN universe (decoupled from the cockpit's active watchlist).
     symbols = resolve_universe_spec(strategy.get("universe"))
     fetch_symbols = sorted(set(symbols) | {SPY_SYMBOL})
@@ -361,11 +367,14 @@ async def _run_strategy(
                 rationale=spec.build_rationale(ctx, strategy["name"]),
                 account_id=str(account_id),
             )
-            result = await propose_trade(candidate, db_path=db_path)
+            if auto_entry:
+                from trading.proposal_intake import auto_execute_entry
+
+                result = await auto_execute_entry(candidate, db_path=db_path)
+            else:
+                result = await propose_trade(candidate, db_path=db_path)
             results.append(result)
-            # Only a freshly-created proposal adds to committed exposure (duplicates
-            # were already in pending_count; blocks/errors commit nothing).
-            if result.get("status") == "proposed":
+            if result.get("status") in ("proposed", "executed"):
                 committed_count += 1
                 committed_usd += notional
         except Exception:

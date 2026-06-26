@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -248,6 +248,42 @@ def list_submitted_executions(
             params,
         ).fetchall()
     return [_row_to_execution(row) for row in rows]
+
+
+def recent_open_buy_exists(
+    symbol: str,
+    *,
+    account_id: str | None,
+    within_seconds: float,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
+    """True if a non-failed BUY execution for this symbol+account was created within the window.
+
+    Entry-side double-submit guard for auto-entry: an in-flight or just-filled order is NOT yet
+    a held position (snapshot lags) nor a pending phone proposal, so without this a re-scan could
+    re-enter the same symbol before the first fill reconciles. Mirrors the propose path's
+    pending-proposal dedup. Terminal-failed statuses are excluded so a rejected attempt can retry.
+    (A partial-fill→canceled order ends 'canceled' and would pass here, but its partial fill has
+    already opened a managed position + entered the held set, which blocks re-entry independently.)
+    """
+    init_execution_tables(db_path)
+    cutoff = (datetime.now(UTC) - timedelta(seconds=within_seconds)).isoformat()
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (symbol.strip().upper(), cutoff)
+    if account_id is not None:
+        params = (*params, account_id)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            f"""
+            SELECT 1 FROM order_executions
+            WHERE symbol = ? AND side = 'buy'
+              AND status NOT IN ('rejected', 'canceled', 'cancelled', 'expired', 'failed')
+              AND created_at >= ?{account_clause}
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+    return row is not None
 
 
 def count_submitted_executions(

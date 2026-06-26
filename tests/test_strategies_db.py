@@ -101,6 +101,7 @@ def test_seed_session_node_spy_defaults(tmp_path: Path, monkeypatch) -> None:
     assert row["account_id"] is None
     assert row["notional_usd"] == 500.0
     assert row["exit_mode"] == "propose"
+    assert row["entry_mode"] == "propose"
     assert row["params"] == {"symbol": "SPY"}
 
 
@@ -282,8 +283,28 @@ def test_update_strategy_validates(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="exit_mode"):
         update_strategy("dip_buy", exit_mode="invalid", db_path=db)
 
+    with pytest.raises(ValueError, match="entry_mode"):
+        update_strategy("dip_buy", entry_mode="invalid", db_path=db)
+
     with pytest.raises(ValueError, match="notional_usd"):
         update_strategy("dip_buy", notional_usd=-1, db_path=db)
 
     with pytest.raises(ValueError, match="unknown strategy"):
         update_strategy(f"missing_{uuid.uuid4().hex[:8]}", enabled=True, db_path=db)
+
+
+def test_entry_mode_defaults_and_migrates(tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    seed_default_strategies(db_path=db)
+    row = get_strategy("dip_buy", db_path=db)
+    assert row is not None
+    assert row["entry_mode"] == "propose"
+
+    updated = update_strategy("dip_buy", entry_mode="auto", db_path=db)
+    assert updated["entry_mode"] == "auto"
+    assert get_strategy("dip_buy", db_path=db)["entry_mode"] == "auto"
+
+    init_strategy_tables(db)
+    with connect(db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(strategies)")}
+    assert "entry_mode" in cols

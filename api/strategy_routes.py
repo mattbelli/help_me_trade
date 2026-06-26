@@ -77,6 +77,12 @@ def api_update_strategy(
             content={"detail": "session_node_spy is propose-only"},
         )
 
+    if strategy_id == "session_node_spy" and body.get("entry_mode") == "auto":
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "session_node_spy is propose-only"},
+        )
+
     try:
         updated = update_strategy(
             strategy_id,
@@ -86,6 +92,7 @@ def api_update_strategy(
             if "notional_usd" in body
             else None,
             exit_mode=body.get("exit_mode") if "exit_mode" in body else None,
+            entry_mode=body.get("entry_mode") if "entry_mode" in body else None,
             params=body.get("params") if "params" in body else None,
             universe=body.get("universe") if "universe" in body else None,
             max_concurrent_positions=body.get("max_concurrent_positions")

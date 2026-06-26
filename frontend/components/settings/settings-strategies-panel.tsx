@@ -101,6 +101,7 @@ type StrategyDraft = {
   enabled: boolean;
   account_id: string;
   notional_usd: number;
+  entry_mode: "auto" | "propose";
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
   universe: string;
@@ -120,6 +121,7 @@ function strategyToDraft(strategy: Strategy): StrategyDraft {
     enabled: strategy.enabled,
     account_id: strategy.account_id ?? "",
     notional_usd: strategy.notional_usd,
+    entry_mode: strategy.entry_mode ?? "propose",
     exit_mode: strategy.exit_mode,
     params: { ...strategy.params },
     universe: strategy.universe,
@@ -140,6 +142,7 @@ function buildPatch(
   if (draft.notional_usd !== original.notional_usd) {
     patch.notional_usd = draft.notional_usd;
   }
+  if (draft.entry_mode !== original.entry_mode) patch.entry_mode = draft.entry_mode;
   if (draft.exit_mode !== original.exit_mode) patch.exit_mode = draft.exit_mode;
   if (draft.universe !== original.universe) patch.universe = draft.universe;
   if (draft.max_concurrent_positions !== original.max_concurrent_positions) {
@@ -385,6 +388,33 @@ function StrategyCard({
             </div>
 
             <div className="space-y-1.5">
+              <Label className="text-xs">Entry mode</Label>
+              {isSessionNode ? (
+                <p className="text-sm text-muted-foreground">
+                  propose — entries are phone prompts
+                </p>
+              ) : (
+                <Select
+                  value={draft.entry_mode}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({
+                      ...d,
+                      entry_mode: (v ?? "propose") as "auto" | "propose",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">auto</SelectItem>
+                    <SelectItem value="propose">propose</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
               <Label className="text-xs">Exit mode</Label>
               {isSessionNode ? (
                 <p className="text-sm text-muted-foreground">
@@ -483,9 +513,10 @@ function StrategyCard({
           </p>
 
           <p className="text-[11px] text-muted-foreground">
-            auto = the agent sells through the execution chokepoint when an exit
-            rule triggers; propose = it pings your phone to approve each sell.
-            You&apos;re notified either way.
+            Entry auto = the agent buys through the execution chokepoint when a
+            signal fires (paper/dry-run only); propose = phone approval for each
+            buy. Exit auto = same for sells when an exit rule triggers; propose =
+            phone approval for each sell. You&apos;re notified either way.
           </p>
 
           <p className="text-[11px] text-muted-foreground">

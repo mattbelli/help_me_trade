@@ -52,12 +52,17 @@ def record_strategy_fill(
         proposal_id = execution_row.get("proposal_id")
         if not proposal_id:
             return None
-        proposal = get_proposal(str(proposal_id), db_path=db_path)
-        if proposal is None:
-            return None
-        strategy_id = _strategy_id_from_source(proposal.get("source"))
+        proposal_id = str(proposal_id)
+        if proposal_id.startswith("auto_entry|"):
+            parts = proposal_id.split("|")
+            strategy_id = parts[1] if len(parts) >= 2 else None
+        else:
+            proposal = get_proposal(proposal_id, db_path=db_path)
+            if proposal is None:
+                return None
+            strategy_id = _strategy_id_from_source(proposal.get("source"))
         if strategy_id is None:
-            return None  # not a strategy-originated fill (manual/rule/etc.)
+            return None
 
         strategy = get_strategy(strategy_id, db_path=db_path)
         if strategy is None:

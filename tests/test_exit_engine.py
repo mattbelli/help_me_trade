@@ -129,6 +129,7 @@ def exit_stubs(monkeypatch: pytest.MonkeyPatch):
     class _SubmitResult:
         execution_id = "exec_x"
         status = "submitted"
+        execution_mode = "paper"
 
     async def _submit(intent, *, db_path):
         submit_calls.append({"intent": intent, "db_path": db_path})
@@ -143,9 +144,13 @@ def exit_stubs(monkeypatch: pytest.MonkeyPatch):
     async def _broadcast(payload):
         broadcast_calls.append(payload)
 
+    async def _push(**kwargs):
+        pass
+
     monkeypatch.setattr("trading.exit_engine.ExecutionService.submit", _submit)
     monkeypatch.setattr("trading.exit_engine.create_phone_proposal", _proposal)
     monkeypatch.setattr("trading.exit_engine.market_hub.broadcast_alert", _broadcast)
+    monkeypatch.setattr("trading.exit_engine.send_alert_push", _push)
 
     return {
         "submit_calls": submit_calls,

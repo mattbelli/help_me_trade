@@ -25,6 +25,7 @@ from db.sqlite import get_latest_snapshot
 from db.strategies import get_strategy
 from research.strategy_features import _trading_days_until
 from signals.exit_evaluators import ExitDecision, evaluate_dip_exit, evaluate_earnings_exit
+from signals.push import send_alert_push
 from trading.execution_service import ExecutionService
 from trading.models import OrderIntent, RiskRejectedError
 from trading.proposals import create_phone_proposal
@@ -326,6 +327,19 @@ async def _process_managed_position(
                 "symbol": symbol,
             }
         ref = result.execution_id
+        await send_alert_push(
+            title="Trade executed",
+            body=f"SELL {exit_qty} {symbol} @ mkt [{result.execution_mode}]",
+            data={
+                "type": "execution_alert",
+                "symbol": symbol,
+                "side": "sell",
+                "qty": int(exit_qty),
+                "strategy_id": row["strategy_id"],
+                "execution_id": result.execution_id,
+            },
+            db_path=db_path,
+        )
         _set_pending_marker(
             row,
             kind="auto",
