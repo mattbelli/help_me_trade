@@ -15,6 +15,15 @@ export const API_BASE_URL =
 export const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 /**
+ * Chat copilot: stream from a local canned stub instead of the live
+ * `POST /api/chat/stream` endpoint. ON by default so the chat UI + SSE parser
+ * can be built/verified before serv ships the backend (see
+ * References/MOBILE_CHAT_BRIEF.md). Flip to false (or set EXPO_PUBLIC_CHAT_STUB=0)
+ * the day the endpoint lands — that's the one-line swap to go live.
+ */
+export const CHAT_STUB = (process.env.EXPO_PUBLIC_CHAT_STUB ?? '1') !== '0';
+
+/**
  * Build the authenticated market WebSocket URL.
  * Converts http→ws / https→wss and appends the token query param.
  */
