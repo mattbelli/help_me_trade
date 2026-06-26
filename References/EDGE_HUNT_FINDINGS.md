@@ -162,3 +162,57 @@ live dip. Remaining work is *engineering/validation, not hunting*: (1) beta-adju
 book (how much is true alpha vs leveraged beta); (2) wire `steepyc_dip` into `strategy_stats.json` as the dip
 upgrade; (3) build the book as a live propose-mode strategy. Hypothesis space is well-explored — last round's
 refinements all failed, signalling convergence.
+
+---
+
+# Beta-adjusted validation (Jensen alpha — real skill vs leveraged beta)
+
+CAPM/Jensen regressions to separate genuine alpha from market exposure. `_edgehunt/capm_alpha.py`.
+
+## ★ Combined book = REAL ALPHA (confirmed)
+Monthly CAPM, 177 months: **Jensen alpha +6.4%/yr** (ex-2020+2026: **+5.0%/yr**), **t-stat +3.6 / +3.0,
+p < 0.005 in both windows**. **Beta = 0.76** — the book runs *less* market exposure than SPY, which rules out
+"leveraged beta" as the explanation (that would need β>1). R²=0.75. The outperformance is a genuine premium,
+coming from the residual-momentum core + the cash-when-idle low-beta design. **This is the trustworthy result.**
+
+## Steep-YC dip = ~half leveraged beta (REVISES the round-3 "strongest edge" framing)
+Mean entry **beta 1.30** — the selection rule (stock −5% while SPY −1.5%, above SMA200, steep curve)
+structurally fishes high-beta names that overshoot down then bounce harder on the SPY recovery. Decomposition:
+- Raw excess +0.98%/trade → **beta-adjusted +0.47%/trade, p=0.078 (NOT significant)**; ex-2020+2026 only
+  +0.33%, p=0.27. Beta-stratified: highest-beta names (β 1.5–3.0) show +1.51% raw but **−0.03% beta-adjusted**.
+- So the dip's edge is largely *"systematized high-beta dip-buy into a steep-curve recovery,"* not standalone
+  alpha. **Revision: keep it as the 20% tactical sleeve (the book as a whole works), but do NOT ship it into
+  `strategy_stats.json` as standalone alpha — credit it as high-beta tactical exposure.**
+
+## Net
+The deployable result is **the BOOK** (real +5–6%/yr Jensen alpha at beta 0.76), not the dip in isolation.
+The residual-momentum core + low-beta-when-idle structure is what creates the genuine alpha; the dip and VIX
+sleeves add tactical timing but are beta-flavoured.
+
+---
+
+# Idle-capital policy: cash vs SPY (settled — keep CASH)
+
+What should the ~30% tactical capital do when the dip/VIX sleeves are idle? `_edgehunt/combined_book_idle_spy.py`.
+
+| Config | CAGR | Vol | **Sharpe** | MaxDD | Corr | Beat-SPY% |
+|---|---|---|---|---|---|---|
+| **① idle = CASH (KEEP)** | +18.9% | 12.9% | **1.42** | **−16.5%** | 0.87 | 69.9% |
+| ② idle = SPY | +21.9% | 15.6% | 1.36 | −21.6% | 0.91 | 88.0% |
+| ③ control: 70% mom + 30% SPY, no tactical | +19.5% | 16.3% | 1.18 | −23.6% | 0.93 | 79.5% |
+| SPY buy-hold | +15.2% | 14.8% | 1.03 | −23.3% | 1.00 | — |
+
+- **Idle-in-SPY HURTS risk-adjusted return**: +3pp CAGR but −0.06 Sharpe, +5pp drawdown, +0.04 correlation — it's
+  *pure beta addition*. The book's edge IS its low vol (12.9% vs SPY 14.8%) + moderate correlation; filling dead
+  time with SPY directly imports the disadvantages. Gap holds ex-2020+2026 (−0.054 Sharpe), not crisis noise.
+- **Tactical timing earns its keep**: ② (1.36) beats the dumb static blend ③ (1.18) by +0.18 Sharpe — so the
+  conditional sleeves add real value beyond just SPY exposure, even though the dip is beta-flavoured per-trade.
+  (Conditional-deployment value ≠ per-trade alpha — both are true.)
+- **Decision: idle stays in CASH (Config ①).** Use idle-in-SPY only if the mandate explicitly wants max CAGR and
+  can tolerate deeper drawdowns — it's an "aggressive dial," not an improvement.
+
+## FINAL deployable picture
+**The book, idle-in-cash, is the keeper:** Sharpe **1.42** vs SPY 1.03, **+5–6%/yr genuine Jensen alpha** at
+**beta 0.76**, max drawdown **−16.5%** vs SPY −23.3%, robust to crisis-year exclusion. It's a *better, lower-risk
+equity book* (0.87 SPY-corr — not market-neutral). Sleeves: 70% residual-momentum (the alpha engine) +
+20% steep-YC dip (high-beta tactical, not standalone alpha) + 10% VIX-spike (rare opportunistic, n=10 pilot).
