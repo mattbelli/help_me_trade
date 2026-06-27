@@ -15,6 +15,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -51,6 +52,8 @@ def estimate_cost(
     stype_in: str = "continuous",
 ) -> tuple[float, int]:
     """Return (estimated USD cost, billable bytes). FREE metadata query — no download."""
+    import warnings
+
     client = _client()
     end = end or datetime.now(timezone.utc).date().isoformat()
     kw = dict(
@@ -61,8 +64,10 @@ def estimate_cost(
         end=end,
         stype_in=stype_in,
     )
-    cost = float(client.metadata.get_cost(mode="historical-streaming", **kw))
-    size = int(client.metadata.get_billable_size(**kw))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        cost = float(client.metadata.get_cost(mode="historical-streaming", **kw))
+        size = int(client.metadata.get_billable_size(**kw))
     return cost, size
 
 
@@ -114,6 +119,129 @@ def pull_ohlcv_1m(
     bars = _records_to_bars(df)
     cache_minute_bars(store_symbol, bars, source=source, db_path=db_path)
     return len(bars)
+
+
+def pull_tbbo(
+    *,
+    start: str,
+    end: str,
+    symbol: str = DEFAULT_SYMBOL,
+    budget_usd: float = 1.50,
+) -> "tuple[Any, float]":
+    """Pull TBBO (trade + BBO snapshot) data for a time window.
+
+    **SPENDS CREDITS.** Always estimates cost first; raises RuntimeError if the
+    estimated cost exceeds *budget_usd* (default $1.50 per window).
+
+    Returns ``(df, estimated_cost_usd)`` where ``df`` has columns::
+
+        ts, price, size, side, action, bid_px_00, ask_px_00, bid_sz_00, ask_sz_00
+
+    ``side``: 'A' = buyer aggressor (hit ask), 'B' = seller aggressor (hit bid).
+    ``action``: 'T' = trade (filter to these for footprint volume).
+    """
+    import pandas as pd
+
+    cost, size_bytes = estimate_cost(
+        symbol=symbol,
+        schema="tbbo",
+        start=start,
+        end=end,
+        stype_in="continuous",
+    )
+    if cost > budget_usd:
+        raise RuntimeError(
+            f"Budget guard: estimated ${cost:.4f} > ${budget_usd:.2f} limit for "
+            f"tbbo {start}..{end}. Aborting to protect credits."
+        )
+
+    client = _client()
+    data = client.timeseries.get_range(
+        dataset=DATASET,
+        symbols=[symbol],
+        schema="tbbo",
+        start=start,
+        end=end,
+        stype_in="continuous",
+    )
+    df = data.to_df(price_type="float")
+    if df.empty:
+        return pd.DataFrame(), cost
+
+    # Flatten: index is ts_recv (or ts_event); rename to ts
+    df = df.reset_index()
+    for old, new in [("ts_recv", "ts"), ("ts_event", "ts")]:
+        if old in df.columns and "ts" not in df.columns:
+            df = df.rename(columns={old: new})
+
+    keep = [
+        c for c in [
+            "ts", "price", "size", "side", "action",
+            "bid_px_00", "ask_px_00", "bid_sz_00", "ask_sz_00",
+        ]
+        if c in df.columns
+    ]
+    return df[keep].copy(), cost
+
+
+def pull_mbo(
+    *,
+    start: str,
+    end: str,
+    symbol: str = DEFAULT_SYMBOL,
+    budget_usd: float = 2.00,
+) -> "tuple[Any, float]":
+    """Pull MBO (market by order, full book) data for a time window.
+
+    **SPENDS CREDITS.** Always estimates cost first; raises RuntimeError if the
+    estimated cost exceeds *budget_usd* (default $2.00 per window).
+
+    Note: short MBO windows include a synthetic full-book snapshot at window start
+    (needed for book reconstruction) — this is expected and makes MBO windows
+    substantially larger than equivalent TBBO windows for the same range.
+
+    Returns ``(df, estimated_cost_usd)`` where ``df`` preserves all MBO columns::
+
+        ts, action, side, price, size, order_id, ...
+
+    ``action``: 'A'=add, 'C'=cancel, 'M'=modify, 'T'=trade, 'F'=fill, 'R'=clear.
+    ``side``: 'A'=ask side, 'B'=bid side.
+    """
+    import pandas as pd
+
+    cost, _size_bytes = estimate_cost(
+        symbol=symbol,
+        schema="mbo",
+        start=start,
+        end=end,
+        stype_in="continuous",
+    )
+    if cost > budget_usd:
+        raise RuntimeError(
+            f"Budget guard: estimated ${cost:.4f} > ${budget_usd:.2f} limit for "
+            f"mbo {start}..{end}. Aborting to protect credits."
+        )
+
+    client = _client()
+    data = client.timeseries.get_range(
+        dataset=DATASET,
+        symbols=[symbol],
+        schema="mbo",
+        start=start,
+        end=end,
+        stype_in="continuous",
+    )
+    df = data.to_df(price_type="float")
+    if df.empty:
+        return pd.DataFrame(), cost
+
+    df = df.reset_index()
+    # Normalize timestamp column name (ts_recv → ts)
+    for old, new in [("ts_recv", "ts"), ("ts_event", "ts")]:
+        if old in df.columns and "ts" not in df.columns:
+            df = df.rename(columns={old: new})
+
+    return df.copy(), cost
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
