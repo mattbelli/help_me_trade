@@ -104,7 +104,10 @@ export function useChat(): UseChat {
         const proposals: ProposalRef[] = [];
         try {
           for await (const ev of streamChat(
-            { messages: history, sessionId: sessionId.current, mode: 'saved' },
+            // v1 = temporary (ephemeral). `saved` requires a sessionId (serv 400s
+            // otherwise) and a history screen to surface persisted chats — both are
+            // the follow-up. See References/SERV_chat_stream_DONE.md.
+            { messages: history, sessionId: sessionId.current, mode: 'temporary' },
             controller.signal,
           )) {
             switch (ev.type) {
