@@ -247,3 +247,30 @@ the earnings universe is survivorship-biased (~614 current names), so live would
 *correlation* benefit is robust to that). It's a **risk-preference choice** (4S-B = smoother/lower-DD; 3-sleeve =
 more bull participation), not a free win. **Op note:** earnings is event-driven *stocks* → needs its OWN dedicated
 account (shared-symbol exit collision, same rule as momentum).
+
+---
+
+# Tier-1 hardening (confidence checks — generalization, PBO/DSR, regime stress)
+
+Run to build trust in the book, not chase return. `_edgehunt/hardening_*.py`. **Verdict: the book holds up.**
+
+- **No survivorship bias.** Residual momentum on the full survivorship-free set (676 syms incl. delisted) ≈ the
+  current-500 result (Sharpe 1.19 vs 1.24; excess +6.1% vs +5.9%). The validated numbers are clean. *Caveat:*
+  mid-cap **Russell generalization is untested** — bars.db is S&P-only (only 83 non-S&P Russell names); a true
+  small-cap test needs a separate Norgate pull.
+- **★ NOT overfit (the headline confidence result).** PBO/CSCV = **0.000** (the in-sample-best config beat median
+  OOS in every one of 12,870 splits); **DSR survives even at N=76 trials = 0.9997** — the book's Sharpe 1.42 sits
+  far above the expected-max-Sharpe-from-fishing (~0.40 even at N=100). The +5–6% alpha is **not** a selection
+  artifact across the ~76 hypotheses we tested. Bootstrap Sharpe 95% CI **[0.91, 2.01]**, P(Sharpe ≤ SPY 1.03) =
+  6.8% → ~**93% confident it beats SPY risk-adjusted** (the CI low end dips just under SPY's 1.03, so 93% not 95%;
+  wide band is just 177 monthly observations).
+- **One structural regime dependency — flat/inverted yield curve.** Steep YC (>0.5, 63% of months): Sharpe **2.11**,
+  excess +6.7%. Flat/inverted (≤0.5, 37%): Sharpe **0.69**, excess **−0.83%** (lags SPY). The book's primary
+  conditional fragility — momentum struggles late-cycle and the YC-dip sleeve is idle then. **The curve has been
+  flat/inverted since 2022 and hovers near +0.5 now, so expect compressed alpha in the current regime; the book
+  shines when the curve is steep.** All other splits (vol, bull/bear, decade) are positive on both sides; modest
+  decade alpha-decay (6.3→3.1→2.2%).
+
+**Net:** well-hardened — not overfit, survivorship-clean, broad regime robustness, with one known YC-regime
+dependency to put on the dashboard. Backtesting is exhausted; the honest next step is **forward paper**, not more
+analysis. Open data gap: a Norgate mid-cap pull for a true Russell-1000 generalization test.
