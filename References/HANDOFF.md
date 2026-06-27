@@ -1,4 +1,4 @@
-# Handoff — "you are here" (2026-06-25)
+# Handoff — "you are here" (2026-06-27)
 
 *Bootstrap for a fresh session. Read this first, then `CLAUDE.md` (mission + working agreements, auto-loaded),
 `AGENTS.md` (codebase map), and per-topic refs: `MULTI_ACCOUNT_PLAN.md`, `BUILD.md` (roadmap + dated history),
@@ -10,11 +10,68 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Combined book: momentum + tactical sleeves (2026-06-26)
+## CURRENT FOCUS — Notifications/inbox supervision backbone (2026-06-27)
+
+The agent now runs many strategies (combined book **ARMED** + dip/earnings/session-node) across 3 accounts. The
+next build is the **unified notifications + artifacts + scheduled-tasks foundation** so the founder can SEE +
+TRUST what the agent does, on every device. **Full design (founder-agreed): `References/NOTIFICATIONS_FOUNDATION.md`
+— read it** (principles, data model, the emit-site recon table, the absorb map, the 4 phases).
+
+**Why:** emit sites are fragmented today — rule-triggers/fills are WEB-only (bell), RVOL/earnings/Schwab-health/
+exit-prompts/auto-entry/rebalance are MOBILE-only (APNs), only price-alerts/proposals/exits hit both; read-state
+lives in browser localStorage (never syncs). The unified `notify()` (persist → WS + APNs from one row, server-side
+`read_at`) fixes all of it at the root.
+
+### Status
+- ✅ **Phase 1a — inbox foundation** — COMMITTED (`9ccbb99`), **inert + NOT deployed** (nothing calls `notify()`
+  yet → zero behavior change; held so Phase 1 goes live as one unit). `db/notifications.py` (table: kind/title/
+  body/severity + account_id/strategy_id/group_key + ref_type/ref_id/action_url + data_json + server-side
+  read_at/dismissed_at; CRUD) + `signals/notify.py` (`notify()` persist-first then best-effort WS + APNs, both
+  guarded; `notify_soon()`; `broadcast_notification_update`) + `api/notification_routes.py` (list+unread,
+  unread-count, read, read-all, dismiss). 972 green.
+- ⏳ **Phase 1b — reroute the ~12 emit sites through `notify()`** (NEXT). The enrichment + parity fix: "rule
+  triggered" → specific content; every event hits BOTH web + mobile. Emit inventory + payloads = the recon table
+  in `NOTIFICATIONS_FOUNDATION.md`. ⚠️ Several are in `trading/` (exit_engine, proposals, fill_tracker,
+  execution_service) → **adversarial-review the trading-path changes**. Map each existing `broadcast_alert(...)` /
+  `send_alert_push(...)` to one `notify(kind, title=<specific>, body, account_id, strategy_id, ref_type/ref_id,
+  action_url, data)`. **Coordinate 1b + 1c so they deploy TOGETHER** (don't break the live bell mid-flight — the
+  old bell listens for WS `type:"alert"`, the new one for `type:"notification"`).
+- ◻️ **Phase 1c — rework the web bell** (`frontend/components/workspace/notification-bell.tsx`) to consume
+  `GET /api/notifications` + WS `notification`/`notification_update`, with SERVER-backed read-state (drop
+  localStorage as the source of truth). Deploy 1b+1c together → notifications go live rich + synced + cross-platform.
+- ◻️ **Phase 2** web push (service worker + VAPID) + sound · **Phase 3** artifacts + Markdown viewer (extend
+  `db.reports` with a `format` column) · **Phase 4** AI scheduled generative tasks (the "8am macro report"). Design doc has all.
+
+**Principles (founder's "no compromise" bar):** server store = single source of truth; push = transport; ONE
+emit path (`notify()`); Markdown-canonical artifacts (PDF export later, skip MDX); absorb existing reports/
+Automations/bell/push (don't duplicate); design for the whole, build in phases.
+
+---
+
+## ALSO SHIPPED THIS SESSION (2026-06-27, all on `main`)
+- ✅ **Mobile copilot endpoint `POST /api/chat/stream`** (`6ff24db`+`962bba9`, LIVE + curl-verified). Single-pass
+  `plan_tools → execute_tool → answer` reusing the web copilot's Python tool layer → **mobile inherits the
+  perception layer** (ask anything about app data). Trade requests create a **PENDING** proposal via
+  `create_phone_proposal` (Face-ID approve later) — **never executes** (`ExecutionService.submit` unreachable;
+  adversarially reviewed; verified live: buy AAPL → proposal + pending row, zero executions). Mac handoff:
+  `References/SERV_chat_stream_DONE.md` (flip `EXPO_PUBLIC_CHAT_STUB=0`). See [[mobile-chat-architecture]].
+  Cross-platform chat history works via shared `chat_sessions` (`GET /api/chat/sessions` + `/{id}`); saved-only.
+- ✅ **Data-correctness fixes** (deployed live): TSLA after-hours price used a STALE Schwab `extended` block →
+  now `quote.lastPrice` (`brokers/schwab_market_data.py`); NVDA earnings label "Q1'27"→"Q1'26" (keep the
+  company's fiscal quarter NUMBER, use the period's CALENDAR year — `_earnings_quarter_label` in `api/main.py`).
+- ✅ **UI fixes** (deployed): workspace chart no longer jumps left on reload (gate RGL render on `colsMeasured`);
+  Settings→Strategies enable toggle persists immediately (optimistic; safe — scan skips unbound strategies).
+
+---
+
+## Combined book — COMPLETE + **ARMED** (paper forward-test, 2026-06-27)
 
 The "combined book" = 3 strategies sized 70/20/10: **residual-momentum** (alpha) + **steep-YC dip** +
 **VIX-spike** (the two tactical sleeves = downside protection, drawdown ~24%→16.5%). All behind the sacred
-chokepoint, **auto + paper-fenced, seeded DISABLED**. Spec: `MOMENTUM_PORTFOLIO_SPEC.md` + `TACTICAL_SLEEVES_SPEC.md`.
+chokepoint, **auto + paper-fenced**. Spec: `MOMENTUM_PORTFOLIO_SPEC.md` + `TACTICAL_SLEEVES_SPEC.md`.
+**Founder ARMED it 2026-06-27** (momentum in its own dedicated account; the two sleeves can share — the bind API
+hard-blocks momentum onto a shared account). NEXT: watch the first RTH rebalance + the one summary push, and the
+first exit round-trips; **2–3 monthly paper cycles vs the backtest before any trust.**
 
 ### Status
 - ✅ **Momentum (Phase 3, 70%)** — MERGED to `main` (Inc-1 data/ranking → Inc-2 read-only dispatch → Inc-3a
