@@ -1999,13 +1999,15 @@ async def _bars_prewarm_loop() -> None:
         await asyncio.sleep(_BARS_PREWARM_INTERVAL)
 
 
-def _calendar_quarter_label(period_iso: str) -> str:
-    """Label an earnings period by its CALENDAR quarter, not the data vendor's fiscal
-    year/quarter. Offset-fiscal names (NVDA, AAPL) otherwise show a confusing forward
-    label — e.g. NVDA's quarter ending 2026-06-30 is Finnhub-fiscal "Q1'27" but reads
-    as Q2'26. Calendar labels stay consistent across the watchlist."""
-    d = date.fromisoformat(period_iso[:10])
-    return f"Q{(d.month - 1) // 3 + 1}'{d.year % 100:02d}"
+def _earnings_quarter_label(fiscal_quarter: int, period_iso: str) -> str:
+    """Label an earnings report by the company's own fiscal quarter NUMBER, but with the
+    CALENDAR year of the period (not the fiscal year). Offset-fiscal names (NVDA, AAPL)
+    report e.g. "Q1 fiscal 2027" for a quarter that lands in calendar 2026 — Finnhub's raw
+    fiscal year gives the confusing forward "Q1'27", so use the period's calendar year →
+    "Q1'26" (matches how the company + news refer to the quarter). Calendar-fiscal names
+    are unaffected (fiscal quarter == calendar quarter)."""
+    year = date.fromisoformat(period_iso[:10]).year
+    return f"Q{fiscal_quarter}'{year % 100:02d}"
 
 
 @app.get("/api/fundamentals/earnings-history")
@@ -2049,7 +2051,7 @@ async def api_earnings_history(symbol: str = "", n: int = 6):
     events: list[dict] = []
     for item in raw:
         try:
-            label = _calendar_quarter_label(str(item["period"]))
+            label = _earnings_quarter_label(int(item["quarter"]), str(item["period"]))
             events.append(
                 {
                     "period": item["period"],

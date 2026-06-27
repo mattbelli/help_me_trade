@@ -156,16 +156,16 @@ def test_compute_reaction_pct_uses_first_bar_on_or_after() -> None:
     assert result == round((110.0 - 100.0) / 100.0 * 100, 2)  # 10.0
 
 
-def test_calendar_quarter_label_uses_period_not_fiscal() -> None:
-    """Regression (NVDA web): the earnings-history label follows the period's CALENDAR
-    quarter, not the vendor's fiscal year/quarter — so NVDA's quarter ending 2026-06-30
-    reads as Q2'26, not the confusing fiscal "Q1'27"."""
-    from api.main import _calendar_quarter_label
+def test_earnings_quarter_label_uses_fiscal_quarter_with_calendar_year() -> None:
+    """Regression (NVDA web): keep the company's fiscal quarter NUMBER but use the period's
+    CALENDAR year — so NVDA's "Q1 fiscal 2027" (period 2026-06-30) reads as Q1'26, not the
+    confusing forward "Q1'27" (raw fiscal) nor "Q2'26" (calendar quarter of the report)."""
+    from api.main import _earnings_quarter_label
 
-    assert _calendar_quarter_label("2026-06-30") == "Q2'26"
-    assert _calendar_quarter_label("2026-03-31") == "Q1'26"
-    assert _calendar_quarter_label("2025-12-31") == "Q4'25"
-    assert _calendar_quarter_label("2025-09-30T00:00:00Z") == "Q3'25"  # tolerant of datetime
+    assert _earnings_quarter_label(1, "2026-06-30") == "Q1'26"
+    assert _earnings_quarter_label(4, "2026-03-31") == "Q4'26"
+    assert _earnings_quarter_label(3, "2025-12-31") == "Q3'25"
+    assert _earnings_quarter_label(2, "2025-09-30T00:00:00Z") == "Q2'25"  # tolerant of datetime
 
 
 def test_earnings_history_reactions_order_and_limit(tmp_path: Path) -> None:
