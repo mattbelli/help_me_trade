@@ -274,3 +274,19 @@ Run to build trust in the book, not chase return. `_edgehunt/hardening_*.py`. **
 **Net:** well-hardened — not overfit, survivorship-clean, broad regime robustness, with one known YC-regime
 dependency to put on the dashboard. Backtesting is exhausted; the honest next step is **forward paper**, not more
 analysis. Open data gap: a Norgate mid-cap pull for a true Russell-1000 generalization test.
+
+---
+
+# Active-MR thread #1 — absorption-triggered intraday /ES mean-reversion (cost-killed, but informative)
+
+Founder's tape thesis: volume spike + rejection wick at a volume node = absorption → bounce. Tested on 10y /ES
+1-min (3.49M bars), reusing the volume-profile + intraday-reversion machinery. `_edgehunt/es_absorption_mr.py`.
+
+**Cost-killed:** net EV **−0.87 pt/trade** (gross −0.12), block-bootstrap CI [−1.16,−0.54] all-negative,
+P(EV≤0)=100%, 870 trades. **63% stop out.** Robust across all 27 param combos (uniformly negative → clean, not
+knife-edge). **Key insight:** a 1-min candle cannot distinguish *absorption* (buyers soak sellers → bounce) from
+*breakdown* (sellers overwhelm → drop) — they look identical (volume + wick). That distinction lives in **order
+flow** (bid/ask volume + delta), which the eye reads on the tape but the candle discards. Gross EV ~0 means a
+*faint* signal exists, but it's cost-swamped at the candle level. **This is a data problem, not a parameter
+problem** — the real test of the thesis needs Databento order-flow (footprint), which is wired. Don't tweak the
+candle version (chasing the least-bad corner = overfitting). Fork: order-flow pull (real test) or shelve.
