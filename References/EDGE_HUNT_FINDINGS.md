@@ -220,3 +220,30 @@ What should the ~30% tactical capital do when the dip/VIX sleeves are idle? `_ed
 **beta 0.76**, max drawdown **−16.5%** vs SPY −23.3%, robust to crisis-year exclusion. It's a *better, lower-risk
 equity book* (0.87 SPY-corr — not market-neutral). Sleeves: 70% residual-momentum (the alpha engine) +
 20% steep-YC dip (high-beta tactical, not standalone alpha) + 10% VIX-spike (rare opportunistic, n=10 pilot).
+
+---
+
+# Extension — earnings-drift as a 4th sleeve (tested 2026-06-26)
+
+"Next level without overfitting" → add an uncorrelated, **pre-validated** edge rather than refine existing ones.
+Earnings-blowout (the §7a strategy / live `earnings_drift`) is calendar-driven → hypothesis: low-correlation to
+the price/market-driven sleeves. `_edgehunt/earnings_sleeve_4way.py`.
+
+**Diversification confirmed:** earnings monthly returns correlate **+0.147** with the 3-sleeve book (vs
+momentum↔SPY +0.876 for scale; ↔VIX +0.04) — near-orthogonal, a genuine calendar-driven diversifier.
+
+| Book | CAGR | Sharpe | MaxDD | Beta | Jensen α/yr | Beat-SPY% |
+|---|---|---|---|---|---|---|
+| 3-sleeve (70/20/10) | +18.9% | 1.42 | −16.5% | 0.76 | +6.7% | 69.9% |
+| **★ 4-sleeve (60/20/10/10)** | +17.6% | **1.50** | **−14.7%** | 0.66 | +6.9% | 59.6% |
+| 4-sleeve (50/20/10/20) | +16.3% | 1.59 | −12.8% | 0.56 | +7.1% | 50.6% |
+
+**Verdict:** earnings genuinely improves the book — but via **risk reduction, not return** (lower vol/DD/beta;
+CAGR *drops* since earnings returns less than momentum; alpha preserved, not diluted). 4S-B holds ex-crisis
+(Sharpe 1.49 vs baseline 1.43). It's a **non-overfitting** lift (orthogonal pre-validated edge, 3 pre-specified
+weights, no grid-search). **The cost:** bull-market beat-rate 70%→60% (lower beta lags in up-years); 4S-C maxes
+Sharpe but its beat-rate collapses to ~50% → avoid. **Caveats:** modest (+0.08 Sharpe) and an **upper bound** —
+the earnings universe is survivorship-biased (~614 current names), so live would be somewhat smaller (the
+*correlation* benefit is robust to that). It's a **risk-preference choice** (4S-B = smoother/lower-DD; 3-sleeve =
+more bull participation), not a free win. **Op note:** earnings is event-driven *stocks* → needs its OWN dedicated
+account (shared-symbol exit collision, same rule as momentum).
