@@ -60,11 +60,14 @@ export function PressableScale({
 
 type Tone = 'primary' | 'ghost' | 'danger';
 
-const toneStyle: Record<Tone, { bg: string; fg: string; border?: string }> = {
-  primary: { bg: colors.accent, fg: colors.onAccent },
-  ghost: { bg: 'transparent', fg: colors.text, border: colors.borderStrong },
-  danger: { bg: colors.negativeWash, fg: colors.negative, border: colors.negative },
-};
+// Built per-call so tone colors follow the active theme after a palette swap.
+function toneStyles(): Record<Tone, { bg: string; fg: string; border?: string }> {
+  return {
+    primary: { bg: colors.accent, fg: colors.onAccent },
+    ghost: { bg: 'transparent', fg: colors.text, border: colors.borderStrong },
+    danger: { bg: colors.negativeWash, fg: colors.negative, border: colors.negative },
+  };
+}
 
 export function Button({
   label,
@@ -83,7 +86,7 @@ export function Button({
   style?: ViewStyle;
   leading?: ReactNode;
 }) {
-  const t = toneStyle[tone];
+  const t = toneStyles()[tone];
   const isDisabled = disabled || loading;
   return (
     <PressableScale

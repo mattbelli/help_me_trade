@@ -26,14 +26,14 @@ import { MessageBubble } from './chat-bubbles';
 import { useChat } from './use-chat';
 
 const SUGGESTIONS = [
-  'How is my portfolio doing today?',
-  "What are you watching and why?",
-  "What's my biggest risk right now?",
+  'What was my unrealized P&L today?',
+  'What trades were made today?',
+  "What's my year-to-date performance?",
 ];
 
 // The floating tab pill (~52pt) sits at the bottom; lift the composer above it
-// when the keyboard is closed so the two never overlap.
-const TAB_PILL_CLEARANCE = 56;
+// when the keyboard is closed so the two clear each other with breathing room.
+const TAB_PILL_CLEARANCE = 78;
 
 export function ChatScreen() {
   const insets = useSafeAreaInsets();

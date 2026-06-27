@@ -20,16 +20,19 @@ import { Button } from './button';
 import { Text } from './text';
 
 type BadgeTone = 'neutral' | 'accent' | 'positive' | 'negative' | 'warning';
-const badgeColors: Record<BadgeTone, { bg: string; fg: string }> = {
-  neutral: { bg: colors.surfaceRaised, fg: colors.textMuted },
-  accent: { bg: colors.accentWash, fg: colors.accent },
-  positive: { bg: colors.positiveWash, fg: colors.positive },
-  negative: { bg: colors.negativeWash, fg: colors.negative },
-  warning: { bg: 'rgba(227,179,65,0.14)', fg: colors.warning },
-};
+// Built per-call so badge tones follow the active theme after a palette swap.
+function badgeColorsFor(): Record<BadgeTone, { bg: string; fg: string }> {
+  return {
+    neutral: { bg: colors.surfaceRaised, fg: colors.textMuted },
+    accent: { bg: colors.accentWash, fg: colors.accent },
+    positive: { bg: colors.positiveWash, fg: colors.positive },
+    negative: { bg: colors.negativeWash, fg: colors.negative },
+    warning: { bg: 'rgba(227,179,65,0.14)', fg: colors.warning },
+  };
+}
 
 export function Badge({ label, tone = 'neutral' }: { label: string; tone?: BadgeTone }) {
-  const c = badgeColors[tone];
+  const c = badgeColorsFor()[tone];
   return (
     <View
       style={{

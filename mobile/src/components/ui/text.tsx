@@ -17,19 +17,20 @@ export interface TextProps extends RNTextProps {
   center?: boolean;
 }
 
-const colorTokens: Record<ColorToken, string> = {
-  text: colors.text,
-  textMuted: colors.textMuted,
-  textFaint: colors.textFaint,
-  accent: colors.accent,
-  positive: colors.positive,
-  negative: colors.negative,
-  warning: colors.warning,
-  onAccent: colors.onAccent,
-};
-
+// Built per-call (not a module-scope const) so it reflects the active theme after
+// a palette swap — see theme/colors.ts.
 function resolveColor(c: ColorToken | string): string {
-  return (colorTokens as Record<string, string>)[c] ?? c;
+  const tokens: Record<ColorToken, string> = {
+    text: colors.text,
+    textMuted: colors.textMuted,
+    textFaint: colors.textFaint,
+    accent: colors.accent,
+    positive: colors.positive,
+    negative: colors.negative,
+    warning: colors.warning,
+    onAccent: colors.onAccent,
+  };
+  return (tokens as Record<string, string>)[c] ?? c;
 }
 
 export function Text({

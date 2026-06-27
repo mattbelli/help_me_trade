@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PressableScale } from '@/components/ui';
 import { Icon, type IconName } from '@/components/ui/icon';
-import { colors, hairline, spacing, spring } from '@/theme';
+import { colors, hairline, isLightTheme, spacing, spring, useThemeMode } from '@/theme';
 
 export interface TabDef {
   key: string;
@@ -28,8 +28,6 @@ const STRIDE = CELL_W + GAP; // distance between cell origins
 const CAP_W = CELL_W;
 const CAP_H = 38;
 const CAP_TOP = PAD_V + (CELL_H - CAP_H) / 2;
-const TEAL_WASH = 'rgba(90,209,190,0.16)';
-const TEAL_BORDER = 'rgba(90,209,190,0.5)';
 
 export function TabBar({
   tabs,
@@ -43,6 +41,12 @@ export function TabBar({
   badges?: Record<string, boolean>;
 }) {
   const insets = useSafeAreaInsets();
+  const { resolved } = useThemeMode();
+  const light = isLightTheme(resolved);
+  // The frosted pill is tinted for the active theme — a dark glass on dark themes,
+  // a light glass in light mode (otherwise the dark pill + dark icons vanish).
+  const pillBg = light ? 'rgba(255,255,255,0.62)' : 'rgba(40,45,54,0.5)';
+  const pillBorder = light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.16)';
   const capX = useSharedValue(index * STRIDE);
 
   useEffect(() => {
@@ -66,7 +70,7 @@ export function TabBar({
       <View style={{ borderRadius: 999, ...shadow }}>
         <BlurView
           intensity={64}
-          tint="dark"
+          tint={light ? 'light' : 'dark'}
           style={{
             flexDirection: 'row',
             alignItems: 'center',
@@ -74,10 +78,10 @@ export function TabBar({
             borderRadius: 999,
             overflow: 'hidden',
             borderWidth: hairline,
-            borderColor: 'rgba(255,255,255,0.16)',
+            borderColor: pillBorder,
             paddingHorizontal: PAD_H,
             paddingVertical: PAD_V,
-            backgroundColor: 'rgba(40,45,54,0.5)',
+            backgroundColor: pillBg,
           }}
         >
           {/* Sliding highlight capsule (behind the icons) */}
@@ -90,9 +94,9 @@ export function TabBar({
                 width: CAP_W,
                 height: CAP_H,
                 borderRadius: 15,
-                backgroundColor: TEAL_WASH,
+                backgroundColor: colors.accentWash,
                 borderWidth: 1,
-                borderColor: TEAL_BORDER,
+                borderColor: colors.accent,
               },
               capStyle,
             ]}
