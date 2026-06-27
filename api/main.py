@@ -22,6 +22,7 @@ from api.ai_routes import router as ai_router
 from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
 from api.device_routes import router as device_router
 from api.middleware import SecurityMiddleware
+from api.notification_routes import router as notification_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
 from api.strategy_routes import router as strategy_router
@@ -81,6 +82,7 @@ from db.earnings_alerts import init_earnings_alert_tables
 from db.earnings_calendar import earnings_hour, last_earnings_date, next_earnings_date
 from db.live_activities import init_live_activity_tables
 from db.multi_account import migrate_multi_account
+from db.notifications import init_notifications_tables
 from db.order_executions import (
     count_pending_paper_executions,
     count_submitted_executions,
@@ -936,6 +938,7 @@ async def lifespan(app: FastAPI):
     init_session_node_tables()
     init_earnings_alert_tables()
     init_reports_tables()
+    init_notifications_tables()
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
@@ -1033,6 +1036,7 @@ app.include_router(device_router)
 app.include_router(trade_router)
 app.include_router(performance_router)
 app.include_router(strategy_router)
+app.include_router(notification_router)
 
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(
