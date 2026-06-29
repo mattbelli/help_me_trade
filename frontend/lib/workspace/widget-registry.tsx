@@ -9,6 +9,7 @@ import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-w
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
 import { MemoryWidget } from "@/components/workspace/widgets/memory-widget";
+import { NotificationsWidget } from "@/components/workspace/widgets/notifications-widget";
 import { PriceAlertsWidget } from "@/components/workspace/widgets/price-alerts-widget";
 import { ReportsWidget } from "@/components/workspace/widgets/reports-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
@@ -115,6 +116,13 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: "Long-term preferences and lessons the copilot has learned",
     component: MemoryWidget,
     defaultSize: { w: 10, h: 5, minW: 4, minH: 3 },
+  },
+  {
+    id: "notifications",
+    title: "notifications",
+    description: "Full inbox — read, filter, and dismiss alerts",
+    component: NotificationsWidget,
+    defaultSize: { w: 8, h: 6, minW: 4, minH: 3 },
   },
   {
     id: "agent-proposals",

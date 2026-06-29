@@ -514,6 +514,12 @@ The big UX pivot toward the "Hermes" vision. No desktop shell required yet. Deta
 | **Mobile shell (bottom-tab app)** | M | ✅ **v1 SHIPPED** — `/workspace` on phones (`<768px`) renders a dedicated `MobileWorkspace` (bottom floating **pill** tab bar: Watch / Portfolio / Agent / Activity) instead of the desktop grid, reusing existing widgets + the copilot thread + notification store. Desktop keeps the drag grid. Founder reaction: "good first pass." **Deferred refinements:** (1) richer per-tab layouts / curated content; (2) brief desktop-layout flash before the mobile breakpoint resolves (SSR `useIsMobile` starts false); (3) Activity tab → R3 phone-approval home. |
 | First-run onboarding + agent charter | M | Name the agent; write charter `.md`; seed memory (§2.1) |
 
+**★ Workspace consolidation (founder-agreed 2026-06-29) — the active UI direction.** Collapse the old page-nav UI
+into the workspace: everything becomes a widget; multiple savable, hot-swappable **pages** (cap 5; "channels" =
+the existing within-page symbol-link groups); a "Configure-your-AI" setup page + the live canvas, both editable
+defaults. 5-stage plan + current-state map: `References/CONSOLIDATION_PLAN.md` + `CONSOLIDATION_RECON.md`.
+**Stage 1 ✅ SHIPPED** — notifications inbox widget (first component→widget). Next: Stage 2 multi-page foundation.
+
 **Noted future ideas (Phase 6/7):**
 - **Tabbed widgets (browser-style).** A `+` on a widget (esp. **chart**) to add multiple instances (e.g. 4–5 tickers) and tab between them in one tile — like browser tabs. Founder request 2026-06-20.
 - **No-overlap is a hard rule.** Widgets must never sit on top of each other. (A 2026-06-20 regression — lowering the grid column floor to fit narrow desktops clamped widgets into collisions — was reverted: the floor stays at `GRID_DEFAULT_COLS` since phones now use the mobile shell, so the desktop grid never narrows enough to clamp.)
@@ -527,7 +533,7 @@ The agent comes alive and becomes reachable. Detail: [`IDEA_BANK.md`](IDEA_BANK.
 | Headless core + gateway + auth | L | Deployable service; gateway auth (tokens/TLS/device pairing); assume remote clients |
 | Secrets-at-rest encryption | M | Graduates from Phase 0 — required once reachable beyond localhost |
 | Proactive engine + Tasks scheduler | L | Background watch loop; scheduled prompts (7AM/4PM); event triggers |
-| Notifications (in-app + Telegram/Discord interactive) | M | ✅ **in-app SHIPPED** — fired rule/scan `{type:"alert"}` frames over `/ws/market` now surface as a top-right slide-in **banner** + a top-bar **bell** with unread counter + dropdown history (backend ring-buffer `/api/alerts/recent` so a fresh tab shows recent fires). OS notification when tab unfocused. Telegram/Discord interactive + per-channel config still pending. |
+| Notifications (in-app + Telegram/Discord interactive) | M | ✅ **UNIFIED inbox SHIPPED (Phase 1a–1c, 2026-06-29)** — superseded the old `{type:"alert"}` deque. One `notify()` emit path: every event (fills/exits/proposals/rule-triggers/RVOL/earnings/Schwab-health/rebalances/price-alerts) → persists to a `notifications` table → WS `{type:"notification"}` + APNs, from one row, **server-side `read_at` (cross-tab/device sync)**. Web: a unified WS consumer + server-backed bell + a **notifications inbox WIDGET** (expand-to-read, filter, dismiss). Backend adversarially reviewed (7 `trading/` sites). Deployed live + verified end-to-end. **Click-through deep-links** deferred (workspace-only routes); Telegram/Discord + Web Push (Phase 2) + per-channel routing still pending. Design: `References/NOTIFICATIONS_FOUNDATION.md`. |
 | Chart-level monitoring | M | Draw-on-chart + plain-language → watchable conditions |
 | Source scripts (X/Reddit via LLM search) | M | Crafted-search ingestion; prototype reliability first (no paid APIs to start) |
 

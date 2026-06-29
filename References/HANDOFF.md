@@ -10,12 +10,19 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Notifications/inbox supervision backbone (2026-06-27)
+## CURRENT FOCUS — Workspace consolidation (everything → widgets, multi-page) (2026-06-29)
 
-> ▶ **START HERE (next session, founder's pick): Phase 1b — reroute the ~12 emit sites through `notify()`.**
-> Read `References/NOTIFICATIONS_FOUNDATION.md` (the emit-site recon table is the work list). Phase 1a is built +
-> committed (`9ccbb99`) but inert/undeployed. ⚠️ Several emit sites are in `trading/` → adversarial-review those.
-> **1b + 1c must deploy TOGETHER** (old bell listens for WS `type:"alert"`, new one for `type:"notification"`).
+> ▶ **START HERE: workspace consolidation — read `References/CONSOLIDATION_PLAN.md` (5-stage plan, founder-agreed)
+> + `CONSOLIDATION_RECON.md` (current-state map).** Workspace is the UI; collapse the old page-nav routes into
+> widgets; multiple savable, hot-swappable **pages** (cap 5; "channels" = within-page symbol-link groups). Two
+> editable default pages: a Configure-your-AI setup page (config widgets) + the live canvas.
+> **Stage 1 ✅ DONE** (notifications inbox widget). **NEXT = Stage 2: multi-page foundation** (one layout → named
+> pages + switcher + hot-swap keybind; today there's only ONE layout slot — that's why a saved layout doesn't show
+> new widgets like the notifications widget; `/add notifications` until then).
+>
+> **Notifications supervision backbone — Phase 1 SHIPPED + deployed live (2026-06-29):** 1a (inbox foundation,
+> `9ccbb99`) + 1b (all emits → `notify()`) + 1c (web unified consumer + server-backed bell). Detail below + in
+> `NOTIFICATIONS_FOUNDATION.md`. Remaining: Phase 2 (Web Push + sound), click-through deep-links, Telegram/Discord.
 
 The agent now runs many strategies (combined book **ARMED** + dip/earnings/session-node) across 3 accounts. The
 next build is the **unified notifications + artifacts + scheduled-tasks foundation** so the founder can SEE +
@@ -34,16 +41,29 @@ lives in browser localStorage (never syncs). The unified `notify()` (persist →
   read_at/dismissed_at; CRUD) + `signals/notify.py` (`notify()` persist-first then best-effort WS + APNs, both
   guarded; `notify_soon()`; `broadcast_notification_update`) + `api/notification_routes.py` (list+unread,
   unread-count, read, read-all, dismiss). 972 green.
-- ⏳ **Phase 1b — reroute the ~12 emit sites through `notify()`** (NEXT). The enrichment + parity fix: "rule
-  triggered" → specific content; every event hits BOTH web + mobile. Emit inventory + payloads = the recon table
-  in `NOTIFICATIONS_FOUNDATION.md`. ⚠️ Several are in `trading/` (exit_engine, proposals, fill_tracker,
-  execution_service) → **adversarial-review the trading-path changes**. Map each existing `broadcast_alert(...)` /
-  `send_alert_push(...)` to one `notify(kind, title=<specific>, body, account_id, strategy_id, ref_type/ref_id,
-  action_url, data)`. **Coordinate 1b + 1c so they deploy TOGETHER** (don't break the live bell mid-flight — the
-  old bell listens for WS `type:"alert"`, the new one for `type:"notification"`).
-- ◻️ **Phase 1c — rework the web bell** (`frontend/components/workspace/notification-bell.tsx`) to consume
-  `GET /api/notifications` + WS `notification`/`notification_update`, with SERVER-backed read-state (drop
-  localStorage as the source of truth). Deploy 1b+1c together → notifications go live rich + synced + cross-platform.
+- ✅ **Phase 1b — reroute all emit sites through `notify()`** (2026-06-29) — BUILT + reviewed + adversarially-
+  reviewed clean, gate-green (ruff + 1010 pytest). **In the working tree, NOT committed (waits for 1c), NOT
+  deployed.** Worklist + full detail: `References/PHASE_1B_EMIT_RECON.md` (16 logical events / 21 call sites,
+  "★ LOCKED DECISIONS" block, post-build status). Governing rule: route ALL through `notify()` for persist+WS
+  parity, **preserve each site's CURRENT mobile-push profile** (`push=True` iff it pushes today; proposal keeps
+  its interactive `send_proposal_push` + Live Activity; exit `push=(exit_mode=="auto")`). Also **hardened
+  `notify()` to never raise into its caller** (persist wrapped → `return {}`). Briefs: `tools/composer-bridge/
+  briefs/phase1b-notify-{nontrading,trading}.md`. Adversarial Sonnet review of the 7 `trading/` sites: SAFE — all
+  execution-safety invariants clean; one MINOR fixed (`proposals.py` `ref_id=str(...)`).
+- ✅ **Phase 1c — frontend: unified `type:"notification"` consumer + server-backed inbox** (2026-06-29) — BUILT,
+  typecheck + build green, **in the working tree, NOT committed, NOT deployed**. Recon + decisions:
+  `References/PHASE_1C_FRONTEND_RECON.md`; brief: `tools/composer-bridge/briefs/phase1c-notification-frontend.md`.
+  Collapsed the 2 notification-feeding consumers into ONE `frontend/lib/workspace/use-notification-stream.ts`
+  (handles `type:"notification"` all kinds + `type:"notification_update"` for cross-tab read-sync), mounted
+  app-wide; **deleted** `use-alert-stream.ts` + `use-execution-monitor.ts`. Store (`use-notification-store.ts`)
+  rewritten: `hydrate()`→`GET /api/notifications`, **localStorage dropped (server = source of truth)**, optimistic
+  `markRead`/`markAllRead`/`dismiss` → POST endpoints. `api.ts` gained `ServerNotification` + 4 fns. Bell/banner/
+  mobile field renames (`ruleName→title`, `ts→created_at`, severity `info|success|warning|critical`).
+  `use-price-alert-monitor.ts`: removed only its dead `type:"alert"` WS handler (kept client-side cross-detection
+  + toast). **Locked decisions:** click = mark-read only (NO deep-link nav in 1c — `action_url` targets mostly
+  don't exist in the workspace-only UI → 404; field carried for a later nav pass); `/api/alerts/recent` kept but
+  unused (remove later). **NEXT: in-browser eyeball → deploy 1b+1c TOGETHER → update BUILD.md → commit.**
+  (Mobile APNs push unaffected throughout.)
 - ◻️ **Phase 2** web push (service worker + VAPID) + sound · **Phase 3** artifacts + Markdown viewer (extend
   `db.reports` with a `format` column) · **Phase 4** AI scheduled generative tasks (the "8am macro report"). Design doc has all.
 

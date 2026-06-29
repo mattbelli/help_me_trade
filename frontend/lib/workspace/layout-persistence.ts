@@ -94,6 +94,16 @@ export const DEFAULT_WORKSPACE_LAYOUT: WorkspaceLayoutItem[] = [
     minW: 5,
     minH: 3,
   },
+  {
+    i: "notifications",
+    type: "notifications",
+    x: 12,
+    y: 14,
+    w: 8,
+    h: 6,
+    minW: 4,
+    minH: 3,
+  },
 ];
 
 function isValidLayoutItem(item: unknown): item is WorkspaceLayoutItem {
