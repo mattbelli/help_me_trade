@@ -30,6 +30,7 @@ from brokers.market_stream import (
     QuoteState,
 )
 from config.settings import broker_is_configured
+from trading.market_hours import is_market_open
 
 logger = logging.getLogger(__name__)
 
@@ -409,5 +410,13 @@ class SchwabMarketStreamHub(BaseMarketHub):
     ) -> None:
         """Broadcast the updated quote and fire price alerts."""
         await self._broadcast_quote(symbol)
-        if prev is not None and prev != current:
+        if prev is None or prev == current:
+            return
+        # Equity LAST_PRICE is the live price only during RTH — pre/post-market it
+        # reverts to the frozen regular-session last, which flickers against the live
+        # extended price and fires phantom alert crosses ("SPY cross 731.27 — now
+        # 728.99"). Off-hours equity alerts come from the REST extended-quote poll
+        # (apply_extended) on the true current price instead. Futures trade ~23h with
+        # a single live last, so their stream alerts always apply.
+        if symbol.startswith("/") or is_market_open():
             await self._check_price_alerts(symbol, prev, current)

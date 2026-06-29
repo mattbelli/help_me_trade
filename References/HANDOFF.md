@@ -75,8 +75,13 @@ All gate-green (1003 tests, ruff, typecheck), deployed live. No `trading/` chang
   carry a recent tradeTime and beat the genuinely-traded `quote` block → a phantom price (e.g. 720 while real
   last was 737) flowed into the watchlist AND the new alerts → "SPY cross 731.27 — now 720" when SPY never went
   there. **Fix:** a block only counts as a live price if it has a non-zero bid/ask or volume. Two regression
-  tests. (Founder caught this; my "real cross / thin pre-market" first read was wrong.) **Watch for any residual
-  odd alert** — if the STREAM feed has a separate staleness, that's a distinct follow-up.
+  tests. (Founder caught this; my "real cross / thin pre-market" first read was wrong.)
+- ⚠️ **Phantom alert part 2 — the STREAM feed** (`brokers/schwab_market_stream.py`). The parser fix corrected the
+  REST/ext path, but alerts kept firing "SPY cross 731.27 — now 728.99": the equity stream's `LAST_PRICE` is the
+  FROZEN regular-session last pre/post-market (728.99), and as it flickered against the live extended price it
+  phantom-crossed. **Fix:** `_post_tick` only fires equity stream-alerts during RTH (`is_market_open()`); off-hours
+  equity alerts come from the REST ext poll (true current price); FUTURES (`/`-prefixed, ~23h single live last)
+  always fire. Regression test in `test_schwab_stream_handler.py`. Deployed.
 - ✅ **Watchlist sparkline fix for futures** (`api/main.py`): `_session_intraday_closes` was RTH-filtered →
   empty for futures off-RTH → frontend drew no-data dashes (`intraday ?? sparkline` doesn't fall through on `[]`).
   Now futures use the latest Globex session's closes; frontend also falls back to the daily sparkline on empty.
