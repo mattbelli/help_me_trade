@@ -2,7 +2,7 @@
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatMoney } from "@/lib/api";
+import { formatMoney, formatQty } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   resolvePositions,
@@ -72,7 +72,7 @@ export function PositionsWidget() {
                 </span>
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-                {p.qty}
+                {formatQty(p.qty)}
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] tracking-wide text-[var(--fg-faint)] uppercase">
                 {p.side}

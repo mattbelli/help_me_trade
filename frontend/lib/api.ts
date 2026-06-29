@@ -170,6 +170,16 @@ export function formatMoney(value: number): string {
   });
 }
 
+// Share quantity: whole shares show clean (48), fractional caps at 3 decimals
+// (0.871166 -> 0.871) with trailing zeros dropped. Display only — full precision
+// stays in the data.
+export function formatQty(value: number): string {
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+    useGrouping: false,
+  });
+}
+
 export type PnlRange = "1D" | "3D" | "1W" | "1M" | "1Y" | "ALL";
 
 export type PortfolioHistoryPoint = {
