@@ -12,6 +12,11 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Notifications/inbox supervision backbone (2026-06-27)
 
+> ▶ **START HERE (next session, founder's pick): Phase 1b — reroute the ~12 emit sites through `notify()`.**
+> Read `References/NOTIFICATIONS_FOUNDATION.md` (the emit-site recon table is the work list). Phase 1a is built +
+> committed (`9ccbb99`) but inert/undeployed. ⚠️ Several emit sites are in `trading/` → adversarial-review those.
+> **1b + 1c must deploy TOGETHER** (old bell listens for WS `type:"alert"`, new one for `type:"notification"`).
+
 The agent now runs many strategies (combined book **ARMED** + dip/earnings/session-node) across 3 accounts. The
 next build is the **unified notifications + artifacts + scheduled-tasks foundation** so the founder can SEE +
 TRUST what the agent does, on every device. **Full design (founder-agreed): `References/NOTIFICATIONS_FOUNDATION.md`
@@ -48,8 +53,9 @@ Automations/bell/push (don't duplicate); design for the whole, build in phases.
 
 ---
 
-## ALSO SHIPPED (2026-06-29) — Futures data + alert/price correctness (on `main`, deployed to serv)
-All gate-green (1003 tests, ruff, typecheck), deployed live. No `trading/` changes.
+## ALSO SHIPPED (2026-06-29) — Futures data, alert/price correctness, momentum fractional sizing (on `main`, deployed)
+All gate-green (ruff + ~1007 pytest + typecheck), deployed live. The MOMENTUM changes touched `trading/`
+(`risk_engine`, `fill_tracker`) and were adversarially reviewed clean; the futures/alert work did not touch `trading/`.
 - ✅ **Futures on the main watchlist** — type `/ES` (`/`-prefixed) and it adds + persists with the slash; live
   price (bars + Schwab futures stream) + working sparkline; equity-only columns (RVOL/PE/EPS/div/mkt-cap/
   earnings) blank. Backend skips equity-only enrichment for `/`-symbols in `/api/watchlist/market`; frontend
@@ -85,6 +91,34 @@ All gate-green (1003 tests, ruff, typecheck), deployed live. No `trading/` chang
 - ✅ **Watchlist sparkline fix for futures** (`api/main.py`): `_session_intraday_closes` was RTH-filtered →
   empty for futures off-RTH → frontend drew no-data dashes (`intraday ?? sparkline` doesn't fall through on `[]`).
   Now futures use the latest Globex session's closes; frontend also falls back to the daily sparkline on empty.
+
+### Momentum portfolio — fractional sizing + execution fixes (strat2, paper)
+Founder checked in on momentum after its first rebalance (this morning, 86 buys); two real issues surfaced + fixed:
+- ✅ **Stuck `partially_filled` orders** (`db/order_executions.py` + `trading/fill_tracker.py`, commit `5660d6a`).
+  The reconcile pool queried `status='submitted'` only → an order stamped `partially_filled` left the pool and
+  never re-polled the broker → stuck forever (the 86-order rebalance left 40 stuck despite being fully filled).
+  Now `partially_filled` stays in the pool until terminal; side-effects gated on an actual status change.
+  Adversarially reviewed: clean (`record_open_position` is idempotent — no dup managed rows).
+- ✅ **Dollar-weighted FRACTIONAL sizing** (`signals/momentum.py` + `trading/risk_engine.py`, commit `3dac6b4`).
+  Was whole-share floor + dropped every name priced > per-name budget → ~24% cash drag + missed NVDA/META/AVGO.
+  Now buys = `per_name/price` fractional (ROUND_FLOOR 6dp), sells = the full held fraction. **RiskEngine permits
+  fractional ONLY for `rebalance=True`** (momentum-exclusive — confirmed); every other path keeps the whole-share
+  invariant. Chokepoint change adversarially reviewed: safe (gate contained, fractional sells degrade safely —
+  reject not short). Takes effect automatically at each rebalance.
+- ✅ **Forced one-off re-rebalance** (founder-approved override of the 2 monthly guards — `rebalance_runs`=complete
+  + `last_rebalanced_month`; done in RTH). Deployed **$53.2k→$61.2k** (76%→87.5%): 18 fractional buys + 8 sells,
+  0 rejected; the 40 stuck orders settled to `filled`. Remaining ~$8.8k cash = whole-share rounding on the 86
+  ORIGINAL positions (a diff-rebalance buys entrants / sells dropouts but does NOT re-weight held names).
+  **July's rebalance = the first fully-clean, fully-deployed fractional month** (treat June as a warmup/partial).
+- ✅ **Position qty display capped at 3 decimals** (`frontend/lib/api.ts` `formatQty`, commit `769fe5f`) — fractional
+  positions read clean (`0.871` not `0.871166`); whole shares unchanged. Applied to the workspace widget + dashboard table.
+- ◻️ **OPEN — Area 4: strat2 has NO account-level equity snapshot** (`position_snapshots` exist but no
+  `account_snapshots.portfolio_value`), so account-level P&L isn't visible for strat2. Recon was inconclusive
+  (candidates: `compute_and_save_snapshot_analytics` skipped for non-default accounts at `api/main.py:245`;
+  `_latest_run_id` not account-scoped → cross-account race in `db/sqlite.py`; or a `broker_external_id` mismatch
+  skipping the save). **Needs its own focused pass.** Monitoring gap, NOT a trading-safety issue.
+- ✅ **Personal status line on serv** (`~/.claude/statusline.js` + `~/.claude/settings.json`) — model + context% +
+  5h/7d usage bars. Not in the repo (user-level config).
 
 ## ALSO SHIPPED THIS SESSION (2026-06-27, all on `main`)
 - ✅ **Mobile copilot endpoint `POST /api/chat/stream`** (`6ff24db`+`962bba9`, LIVE + curl-verified). Single-pass
