@@ -196,7 +196,12 @@ class RiskEngine:
                 checks=checks,
                 blocked_reason="qty out of bounds",
             )
-        if qty != qty.to_integral_value():
+        # Fractional shares are allowed ONLY for portfolio rebalances (rebalance=True,
+        # reachable only from the momentum path), which size by dollar weight to match
+        # the dollar-weighted backtest and would otherwise leave ~24% in cash and drop
+        # every name priced above the per-name budget. Every OTHER path keeps the
+        # whole-share invariant (deny-by-default). The qty range bound above still applies.
+        if qty != qty.to_integral_value() and not intent.rebalance:
             checks["qty_bounds"] = "fail: fractional shares not supported"
             return RiskCheckResult(
                 passed=False,

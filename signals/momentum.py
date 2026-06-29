@@ -290,8 +290,10 @@ def _compute_rebalance_plan(
 
     sells: list[dict[str, str]] = []
     for sym in sell_syms:
-        qty = held[sym].to_integral_value(rounding=ROUND_FLOOR)
-        if qty >= 1:
+        # Sell the ENTIRE held position (fractional included) to fully exit a dropout —
+        # flooring to whole shares would strand the fractional remainder forever.
+        qty = held[sym]
+        if qty > 0:
             sells.append({"symbol": sym, "qty": str(qty)})
 
     buys: list[dict[str, str]] = []
@@ -303,8 +305,12 @@ def _compute_rebalance_plan(
                 "Momentum rebalance: skip buy %s — no bar price", sym
             )
             continue
-        qty = (per_name / price).to_integral_value(rounding=ROUND_FLOOR)
-        if qty < 1:
+        # Dollar-weighted FRACTIONAL shares (matches the dollar-weighted backtest):
+        # deploy the full per-name budget instead of flooring to whole shares, which
+        # left ~24% in cash and dropped every name priced above per_name (NVDA/META/…).
+        # ROUND_FLOOR keeps us at or under budget (never over-deploy / over-spend BP).
+        qty = (per_name / price).quantize(Decimal("0.000001"), rounding=ROUND_FLOOR)
+        if qty <= 0:
             continue
         cost = qty * price
         if max_deployed is not None and deployed + cost > max_deployed:

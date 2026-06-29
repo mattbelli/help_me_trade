@@ -161,6 +161,39 @@ async def test_diff_correctness(tmp_path: Path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_fractional_sizing_keeps_expensive_names(tmp_path: Path, monkeypatch) -> None:
+    """Dollar-weighted fractional sizing: a name priced ABOVE the per-name budget is
+    bought fractionally (the whole-share floor used to drop it, the 24% cash drag), and
+    quantities are fractional Decimals."""
+    from decimal import ROUND_FLOOR
+
+    db, account_id = _init_db(tmp_path)
+    _patch_db(monkeypatch, db)
+    # EXP far above per_name (floor(per_name/50000) == 0 under the old code → dropped);
+    # CHEAP below. Filler names have no bars → skipped as buys (clear the MINIMUM guard).
+    upsert_daily_bars(_bar_row("EXP", price=50000.0) + _bar_row("CHEAP", price=100.0), db_path=db)
+    strategy = get_strategy("momentum_sp500", db_path=db)
+    assert strategy is not None
+    targets = [{"symbol": "EXP"}, {"symbol": "CHEAP"}] + [{"symbol": f"F{i:02d}"} for i in range(48)]
+    monkeypatch.setattr("signals.momentum.production_target_set", lambda **kw: targets)
+
+    plan = _compute_rebalance_plan(strategy, db_path=db)
+    buys = {b["symbol"]: b["qty"] for b in plan["buys"]}
+    per_name = Decimal(str(strategy["notional_usd"])) / Decimal(len(targets))
+
+    # EXP is INCLUDED (not dropped) with a fractional qty == per_name/price floored to 6dp.
+    assert "EXP" in buys
+    assert Decimal(buys["EXP"]) == (per_name / Decimal("50000")).quantize(
+        Decimal("0.000001"), rounding=ROUND_FLOOR
+    )
+    assert Decimal(buys["EXP"]) > 0
+    assert "." in buys["EXP"]  # fractional, not floored to a whole share
+    assert Decimal(buys["CHEAP"]) == (per_name / Decimal("100")).quantize(
+        Decimal("0.000001"), rounding=ROUND_FLOOR
+    )
+
+
+@pytest.mark.asyncio
 async def test_empty_target_places_nothing(tmp_path: Path, monkeypatch) -> None:
     db, _account_id = _init_db(tmp_path)
     _patch_db(monkeypatch, db)
