@@ -322,7 +322,7 @@ Brokers (Alpaca, Schwab) ──► db/ (SQLite) ──► api/ (FastAPI)
 | **Brokers** | Alpaca + Schwab adapters; settings-driven enable; paper primary |
 | **Polling** | Multi-broker poll; resilient loops + `poll_health`; WAL SQLite |
 | **Auth** | `API_TOKEN` on API/WS; Host-header check; frontend `X-API-Token` |
-| **Market** | Shared WebSocket hub; price alerts; chart grid |
+| **Market** | Shared WebSocket hub; price alerts (RTH + overnight/extended); chart grid; **futures data** (`/ES` watchlist + chart, Globex RVOL + session nodes, Level-1 only) |
 | **Trade ledger** | Schwab JSON import; Alpaca/Schwab API sync on connect + hourly; dedup by `external_key` |
 | **Performance** | `/performance` — periods, FIFO round-trips, calendar w/ $ labels, realized vs cash-flow toggle, charts |
 | **AI tools** | `get_portfolio_snapshot`, `search_memories`, `start_research` (async job), `get_trade_history`, `get_performance_insights` |

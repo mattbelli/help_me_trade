@@ -261,14 +261,25 @@ class SchwabMarketData:
             # live while `extended` goes stale (TSLA: extended 15h old, quote fresh); weekend/
             # overnight the reverse (SPY Sun-night: quote frozen at Friday, extended live 733.3).
             # Freshest-by-time is correct for both; fall back to any value if a tradeTime is absent.
+            # A block only counts as a live price if it actually has a market
+            # (non-zero bid/ask or volume). Schwab leaves a STALE `extended` block
+            # — bid/ask/volume all 0 — carrying a misleadingly recent tradeTime
+            # during weekday pre/post-market; trusting its tradeTime fed a phantom
+            # price (e.g. an old 720 while the real last is 737) into the watchlist
+            # AND price alerts. Require liveness so the genuinely-traded block wins.
+            _e_live = bool(
+                _f(extended.get("bidPrice"))
+                or _f(extended.get("askPrice"))
+                or _f(extended.get("totalVolume"))
+            )
             _q_last, _q_time = _f(quote.get("lastPrice")), _f(quote.get("tradeTime"))
             _e_last = _f(extended.get("lastPrice")) or _f(extended.get("mark"))
             _e_time = _f(extended.get("tradeTime"))
-            _cands = [
-                (t, p)
-                for t, p in ((_q_time, _q_last), (_e_time, _e_last))
-                if p is not None and t is not None
-            ]
+            _cands = []
+            if _q_last is not None and _q_time is not None:
+                _cands.append((_q_time, _q_last))
+            if _e_last is not None and _e_time is not None and _e_live:
+                _cands.append((_e_time, _e_last))
             if _cands:
                 ext_last = max(_cands, key=lambda c: c[0])[1]
             else:

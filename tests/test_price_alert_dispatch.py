@@ -152,6 +152,78 @@ async def test_broadcast_throttle_idle_ticks_pass_through(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_apply_extended_drives_price_alerts(monkeypatch) -> None:
+    """Overnight: the ext-price path must evaluate price alerts (stream is silent).
+
+    Two polls — the first only seeds prev_ext (no prior value → no check), the
+    second moves the price → check_alerts runs against (prev, current) and a
+    triggered alert fans out to the WS broadcast.
+    """
+    hub = MarketStreamHub()
+
+    calls: list[tuple[dict, dict]] = []
+
+    def _fake_check(quotes, *, prev_quotes):
+        calls.append((quotes, prev_quotes))
+        return [{"id": 7, "symbol": "TSLA", "price": 383.0, "direction": "above"}]
+
+    monkeypatch.setattr("api.alert_checker.check_alerts", _fake_check)
+
+    async def _fake_push(title, body, **kw):
+        return 1
+
+    monkeypatch.setattr("signals.push.send_alert_push", _fake_push)
+
+    # First poll: no prior ext value, so cross-detection can't run yet.
+    await hub.apply_extended(
+        "TSLA", ext_price=382.5, ext_change_pct=0.1,
+        market_session="overnight", broadcast=False,
+    )
+    assert calls == []
+
+    # Second poll: price moved → alert check runs with the right prev/current.
+    await hub.apply_extended(
+        "TSLA", ext_price=383.5, ext_change_pct=0.4,
+        market_session="overnight", broadcast=False,
+    )
+    assert len(calls) == 1
+    quotes, prev_quotes = calls[0]
+    assert quotes == {"TSLA": pytest.approx(383.5)}
+    assert prev_quotes == {"TSLA": pytest.approx(382.5)}
+
+    recent = hub.recent_alerts()
+    assert len(recent) == 1
+    assert recent[0]["source"] == "price_alert"
+    assert recent[0]["symbol"] == "TSLA"
+
+
+@pytest.mark.asyncio
+async def test_apply_extended_no_alert_on_flat_or_first_price(monkeypatch) -> None:
+    """No prior value, or an unchanged price, must NOT trigger an alert check."""
+    hub = MarketStreamHub()
+
+    calls = 0
+
+    def _fake_check(quotes, *, prev_quotes):
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr("api.alert_checker.check_alerts", _fake_check)
+
+    # First poll seeds prev_ext (no prior → skip); second is identical (no move → skip).
+    await hub.apply_extended(
+        "TSLA", ext_price=382.5, ext_change_pct=0.1,
+        market_session="overnight", broadcast=False,
+    )
+    await hub.apply_extended(
+        "TSLA", ext_price=382.5, ext_change_pct=0.1,
+        market_session="overnight", broadcast=False,
+    )
+    assert calls == 0
+
+
+@pytest.mark.asyncio
 async def test_apply_extended_updates_state_and_payload() -> None:
     """REST poller writes ext fields → next WS broadcast carries them."""
     from brokers.market_stream import _quote_payload

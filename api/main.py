@@ -591,9 +591,53 @@ async def _alert_symbol_loop() -> None:
                 for a in list_price_alerts(active_only=True)
             }
             await market_hub.ensure_symbols(symbols)
+            # Outside regular hours the Schwab equity stream is silent, so alerts
+            # would never fire overnight. Poll extended quotes server-side for the
+            # alert symbols and push them through apply_extended (which evaluates
+            # the alerts) — independent of whether any client has the watchlist open.
+            if symbols and _market_session() in ("pre", "post", "overnight"):
+                await _poll_ext_quotes_for_alerts(symbols)
         except Exception:
             logger.exception("Alert symbol loop iteration failed")
         await asyncio.sleep(30)
+
+
+async def _poll_ext_quotes_for_alerts(symbols: set[str]) -> None:
+    """Fetch extended-hours quotes for alert symbols and feed apply_extended.
+
+    Server-side so off-hours price alerts fire even with no browser/phone polling
+    the watchlist (the only other apply_extended caller). Schwab-only (ext quotes);
+    fail-soft — a quote miss just skips the symbol this cycle.
+    """
+    try:
+        provider = get_market_data_provider()
+    except BrokerError:
+        return
+    from brokers.schwab_market_data import SchwabMarketData
+
+    if not isinstance(provider, SchwabMarketData):
+        return
+    session = _market_session()
+    try:
+        ext_quotes = await provider.aget_quotes(sorted(symbols))
+    except Exception:
+        logger.debug("Alert ext-quote poll failed", exc_info=True)
+        return
+    for sym in symbols:
+        eq = ext_quotes.get(sym, {})
+        ext_price = eq.get("ext_last")
+        if ext_price is None:
+            continue
+        try:
+            await market_hub.apply_extended(
+                sym,
+                ext_price=ext_price,
+                ext_change_pct=eq.get("ext_change_pct"),
+                market_session=session,
+                broadcast=True,
+            )
+        except Exception:
+            logger.debug("apply_extended (alert poll) failed for %s", sym, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1287,7 +1331,8 @@ async def api_watchlist_market(symbols: str = ""):
     # nightly-precomputed watchlist. It populates within a poll cycle.
     for sym in symbol_list:
         if load_profile(sym) is None:
-            _schedule_profile_build(provider, sym)
+            session_type = "globex" if sym.startswith("/") else "rth"
+            _schedule_profile_build(provider, sym, session=session_type)
 
     try:
         bars_by_symbol = await provider.aget_stock_bars_batch(symbol_list, days=12)
@@ -1325,7 +1370,38 @@ async def api_watchlist_market(symbols: str = ""):
         price = closes[-1]
         prev = closes[-2] if len(closes) >= 2 else price
         change_pct = ((price - prev) / prev * 100) if prev else 0.0
-        intraday = _session_intraday_closes(intraday_by_symbol.get(sym, []))
+        intraday = _session_intraday_closes(
+            intraday_by_symbol.get(sym, []), futures=sym.startswith("/")
+        )
+
+        # Futures symbols (e.g. /ES, /NQ) have no fundamentals, extended session,
+        # volume profile, or earnings — skip all equity-only enrichment.
+        is_future = sym.startswith("/")
+
+        if is_future:
+            quotes[sym] = {
+                "price": price,
+                "change_pct": round(change_pct, 2),
+                "sparkline": [round(c, 4) for c in closes[-7:]],
+                "prev_close": prev,
+                "volume": float(latest.volume),
+                "day_high": float(latest.high),
+                "day_low": float(latest.low),
+                "intraday": intraday,
+                "market_session": session,
+                "ext_price": None,
+                "ext_change_pct": None,
+                "pe": None,
+                "eps": None,
+                "div_yield": None,
+                "market_cap": None,
+                "last_earnings": None,
+                "next_earnings": None,
+                "rvol": _compute_rvol_field(
+                    sym, intraday_by_symbol.get(sym, []), session="globex"
+                ),
+            }
+            continue
 
         eq = ext_quotes.get(sym, {})
 
@@ -1394,11 +1470,12 @@ _profile_build_attempts: dict[str, float] = {}
 _PROFILE_BUILD_COOLDOWN_S = 600  # don't re-attempt a symbol's profile more than once / 10 min
 
 
-def _schedule_profile_build(provider, symbol: str) -> None:
+def _schedule_profile_build(provider, symbol: str, *, session: str = "rth") -> None:
     """Fire-and-forget a volume-profile build for one symbol, deduped by cooldown.
 
     Guards against hammering Schwab when a symbol can't form a profile (illiquid →
-    compute returns None → no file saved → would otherwise retry every poll)."""
+    compute returns None → no file saved → would otherwise retry every poll).
+    Pass ``session="globex"`` for futures symbols."""
     now = time.time()
     if now - _profile_build_attempts.get(symbol, 0.0) < _PROFILE_BUILD_COOLDOWN_S:
         return
@@ -1406,18 +1483,20 @@ def _schedule_profile_build(provider, symbol: str) -> None:
 
     async def _run() -> None:
         try:
-            await build_profile(provider, symbol)
+            await build_profile(provider, symbol, session=session)
         except Exception:
             logger.exception("On-demand volume-profile build failed for %s", symbol)
 
     asyncio.create_task(_run())
 
 
-def _compute_rvol_field(symbol: str, intraday_bars: list[StockBar]) -> dict | None:
+def _compute_rvol_field(
+    symbol: str, intraday_bars: list[StockBar], *, session: str = "rth"
+) -> dict | None:
     profile = load_profile(symbol)
     if profile is None or not intraday_bars:
         return None
-    result = rvol_now(profile, intraday_bars)
+    result = rvol_now(profile, intraday_bars, session=session)
     if result is None or result.value is None:
         if result is not None:
             return {"value": None, "state": result.state}
@@ -1611,12 +1690,30 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     }
 
 
-def _session_intraday_closes(bars: list[StockBar]) -> list[float]:
+def _session_intraday_closes(
+    bars: list[StockBar], *, futures: bool = False
+) -> list[float]:
     if not bars:
         return []
 
     def _bar_et(bar: StockBar) -> datetime:
         return datetime.fromisoformat(bar.time.replace("Z", "+00:00")).astimezone(_ET)
+
+    # Futures trade ~23h on Globex with no RTH window — group by Globex session
+    # (18:00 ET prev day -> 17:00 ET) and return the latest session's closes. The
+    # RTH path below would return [] off-RTH, which the sparkline can't fall back from.
+    if futures:
+        from research.intraday_profile import globex_session_date
+
+        sessions = [
+            (sd, bar)
+            for bar in bars
+            if (sd := globex_session_date(_bar_et(bar))) is not None
+        ]
+        if not sessions:
+            return []
+        latest = max(sd for sd, _ in sessions)
+        return [round(bar.close, 4) for sd, bar in sessions if sd == latest]
 
     session_date = _bar_et(bars[-1]).date()
     open_minutes = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]

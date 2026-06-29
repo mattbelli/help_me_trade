@@ -48,6 +48,39 @@ Automations/bell/push (don't duplicate); design for the whole, build in phases.
 
 ---
 
+## ALSO SHIPPED (2026-06-29) — Futures data + alert/price correctness (on `main`, deployed to serv)
+All gate-green (1003 tests, ruff, typecheck), deployed live. No `trading/` changes.
+- ✅ **Futures on the main watchlist** — type `/ES` (`/`-prefixed) and it adds + persists with the slash; live
+  price (bars + Schwab futures stream) + working sparkline; equity-only columns (RVOL/PE/EPS/div/mkt-cap/
+  earnings) blank. Backend skips equity-only enrichment for `/`-symbols in `/api/watchlist/market`; frontend
+  add-input already preserved the slash. **Data depth = Level-1 (top-of-book) + 1-min bars only — NO DOM/MBO/
+  time-and-sales** (Schwab has no futures book service); a real ladder needs a CME-entitled vendor.
+- ✅ **Globex session primitive** (`research/intraday_profile.py`): `globex_session_date`/`globex_bucket_index`/
+  `segment_globex_sessions` (session = 18:00 ET prev day → 17:00 ET, daily 17:00–18:00 break excluded, 276
+  5-min buckets). The shared correctness core for the two below. 9 boundary tests.
+- ✅ **Futures RVOL** (`signals/volume_profile.py`): Globex expected-volume profile (parameterized `session=`
+  "rth"|"globex"; equity path byte-identical). ⚠️ **caught a bug via live probe** — `compute_profile`/`rvol_now`
+  grouped by **calendar date**, which splits a Globex session across midnight; fixed to group by
+  `globex_session_date` (discriminating regression test). Futures profiles stored under `data/volume_profiles/
+  futures/<sym>.json` (the bare `/ES` path resolved to FS-root + collided with equity ES). RVOL builds lazily on
+  first watchlist poll.
+- ✅ **Globex session nodes** (`signals/session_node_strategy.py`): `_fetch_rth_sessions` branches `/`-symbols
+  onto `segment_globex_sessions` (10-day lookback) so `/ES` POC/VAH/VAL + prior-day H/L use the full ~23h
+  session, not RTH-only (which was materially wrong — dropped ~14.5h of overnight).
+- ✅ **Overnight/extended price alerts** (`brokers/market_stream.py` + `api/main.py`): `apply_extended` now drives
+  `_check_price_alerts`, and a server-side `_poll_ext_quotes_for_alerts` (off-hours, in `_alert_symbol_loop`)
+  evaluates alerts for ALL alert symbols even with no client open — so chart alerts fire overnight, any symbol.
+- ⚠️ **Schwab price-source fix — was firing PHANTOM alerts** (`brokers/schwab_market_data.py`). The quote parser
+  picked the block with the freshest `tradeTime`, but a STALE/empty `extended` block (bid/ask/volume all 0) can
+  carry a recent tradeTime and beat the genuinely-traded `quote` block → a phantom price (e.g. 720 while real
+  last was 737) flowed into the watchlist AND the new alerts → "SPY cross 731.27 — now 720" when SPY never went
+  there. **Fix:** a block only counts as a live price if it has a non-zero bid/ask or volume. Two regression
+  tests. (Founder caught this; my "real cross / thin pre-market" first read was wrong.) **Watch for any residual
+  odd alert** — if the STREAM feed has a separate staleness, that's a distinct follow-up.
+- ✅ **Watchlist sparkline fix for futures** (`api/main.py`): `_session_intraday_closes` was RTH-filtered →
+  empty for futures off-RTH → frontend drew no-data dashes (`intraday ?? sparkline` doesn't fall through on `[]`).
+  Now futures use the latest Globex session's closes; frontend also falls back to the daily sparkline on empty.
+
 ## ALSO SHIPPED THIS SESSION (2026-06-27, all on `main`)
 - ✅ **Mobile copilot endpoint `POST /api/chat/stream`** (`6ff24db`+`962bba9`, LIVE + curl-verified). Single-pass
   `plan_tools → execute_tool → answer` reusing the web copilot's Python tool layer → **mobile inherits the

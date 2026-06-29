@@ -380,6 +380,11 @@ function ExpandableFundamentalsPanel({
   );
 }
 
+// A futures symbol starts with "/", e.g. /ES, /NQ, /CL, /ESU26.
+function isFuturesSymbol(symbol: string): boolean {
+  return symbol.startsWith("/");
+}
+
 function FundamentalsPanel({
   symbol,
   quote,
@@ -388,6 +393,7 @@ function FundamentalsPanel({
   quote: Quote | undefined;
 }) {
   const dash = "—";
+  const futures = isFuturesSymbol(symbol);
 
   const peStr =
     quote?.pe != null ? quote.pe.toFixed(1) : dash;
@@ -452,7 +458,7 @@ function FundamentalsPanel({
           </div>
         ))}
       </div>
-      <EarningsReactionsRow symbol={symbol} />
+      {!futures && <EarningsReactionsRow symbol={symbol} />}
     </>
   );
 }
@@ -606,7 +612,9 @@ function WatchlistSymbolRow({
         )}
         <div className="flex justify-end">
           <Sparkline
-            values={quote?.intraday ?? quote?.sparkline ?? []}
+            values={
+              (quote?.intraday?.length ? quote.intraday : quote?.sparkline) ?? []
+            }
             width={48}
             height={18}
             className={

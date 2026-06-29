@@ -312,9 +312,11 @@ class BaseMarketHub:
     ) -> None:
         """Update a symbol's extended-hours fields and (optionally) broadcast.
 
-        Called by the `/api/watchlist/market` REST poll so the WS stream carries the
-        same pre/post/overnight pricing the phone headlines — the Schwab level-one
-        stream doesn't emit ext fields. Creates a QuoteState if none exists yet.
+        Called by the `/api/watchlist/market` REST poll and the server-side alert
+        poll so the WS stream carries the same pre/post/overnight pricing the phone
+        headlines — the Schwab level-one stream doesn't emit ext fields. Creates a
+        QuoteState if none exists yet. Also drives price-alert evaluation off the
+        extended price (see below).
         """
         sym = str(symbol).strip().upper()
         if not sym:
@@ -323,11 +325,18 @@ class BaseMarketHub:
         if not state:
             state = QuoteState()
             self._quotes[sym] = state
+        prev_ext = state.ext_price
         state.ext_price = ext_price
         state.ext_change_pct = ext_change_pct
         state.market_session = market_session
         if broadcast:
             await self._broadcast_quote(sym)
+        # Drive price-alert evaluation off the extended/overnight price too. The
+        # live stream is silent outside regular hours, so without this an alert set
+        # on the chart would never fire overnight even though the price updates here.
+        # Cross-detection needs a prior value and an actual move.
+        if ext_price is not None and prev_ext is not None and prev_ext != ext_price:
+            await self._check_price_alerts(sym, prev_ext, ext_price)
 
     async def _check_price_alerts(
         self, symbol: str, prev: float, current: float

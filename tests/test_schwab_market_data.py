@@ -414,7 +414,14 @@ async def test_aget_quotes_picks_fresh_extended_overnight() -> None:
                 "closePrice": 728.99,
             },
             "regular": {"regularMarketLastPrice": 728.99},
-            "extended": {"lastPrice": 733.3, "tradeTime": 2_000_000_000_000},  # live now
+            # live now — a real overnight session carries a bid/ask + volume
+            "extended": {
+                "lastPrice": 733.3,
+                "tradeTime": 2_000_000_000_000,
+                "bidPrice": 733.2,
+                "askPrice": 733.4,
+                "totalVolume": 1_500_000,
+            },
         }
     }
     client = MagicMock()
@@ -423,6 +430,40 @@ async def test_aget_quotes_picks_fresh_extended_overnight() -> None:
 
     assert spy["ext_last"] == 733.3  # live extended, not the frozen quote-block 731.20
     assert spy["ext_change_pct"] == round((733.3 - 728.99) / 728.99 * 100, 2)  # agrees w/ price
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_ignores_empty_extended_with_recent_tradetime() -> None:
+    """Regression (SPY pre-market phantom price): Schwab left a STALE `extended` block —
+    bid/ask/volume all 0 — carrying a tradeTime MORE recent than the genuinely-traded
+    `quote` block. Freshest-by-tradeTime alone would pick the stale 720 and fire phantom
+    price alerts (real last was ~737). Liveness must exclude the empty block."""
+    payload = {
+        "SPY": {
+            "quote": {
+                "lastPrice": 737.35,
+                "tradeTime": 2_000_000_000_000,  # older than the stale extended below
+                "closePrice": 728.99,
+                "bidPrice": 737.33,
+                "askPrice": 737.35,
+                "totalVolume": 639_969,
+            },
+            "regular": {"regularMarketLastPrice": 728.99},
+            # stale placeholder: a recent tradeTime but NO market (bid/ask/volume all 0)
+            "extended": {
+                "lastPrice": 720.0,
+                "tradeTime": 2_000_000_500_000,  # newer than quote — would win by time alone
+                "bidPrice": 0.0,
+                "askPrice": 0.0,
+                "totalVolume": 0,
+            },
+        }
+    }
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(payload)
+    spy = (await _provider(client).aget_quotes(["SPY"]))["SPY"]
+
+    assert spy["ext_last"] == 737.35  # live quote, NOT the empty extended's stale 720
 
 
 @pytest.mark.asyncio
