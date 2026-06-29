@@ -273,7 +273,13 @@ The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution b
   from a real run (Security Code field by label, #acceptTerms + #agree-modal-btn-, account-link #submit-btn,
   final "Done" by role). OTP is generated JUST before entry (waits for next 30s window if <8s left) so it's
   never stale. Crontab: every 6 days at 06:00 → `data/reauth.log`. Day-6 APNs fallback (`_schwab_health_loop`)
-  pings the phone if a run ever fails silently. **The 7-day cliff is dead.**
+  pings the phone if a run ever fails silently.
+  ⚠️ **CORRECTION (2026-06-29): the CRON was silently broken** — it ran `python -m scripts.schwab_reauth` but
+  cron's CWD is `/home/mbelli`, so `scripts` wasn't importable (`No module named 'scripts'` every run). The
+  SCRIPT works (manual runs from the project root minted real tokens — that's what kept the token alive). Fixed
+  by prepending `cd /home/mbelli/dev/help_me_trade &&` to the cron line. ALSO learned the hard way: **never
+  burst-request Schwab while debugging — Akamai WAF-blocks the serv IP (`403 Access Denied` on everything,
+  incl. quotes); normal ~10-20s polling is fine, bursts are not.** See [[schwab-data-ops]].
 - ✅ **Past-earnings performance — DONE as EPS beat/miss + surprise %** (`611ef2f`). Finnhub free
   `/calendar/earnings` has no history AND the EDGAR path needs an unbuilt CIK cache, so the 1-day *price
   reaction* was dropped (needs paid announce dates; `research/earnings.py::compute_reaction_pct` kept for
