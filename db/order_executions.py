@@ -242,7 +242,7 @@ def list_submitted_executions(
         rows = conn.execute(
             f"""
             SELECT * FROM order_executions
-            WHERE status = 'submitted' AND broker = ?{account_clause}
+            WHERE status IN ('submitted', 'partially_filled') AND broker = ?{account_clause}
             ORDER BY created_at ASC
             """,
             params,
@@ -375,7 +375,7 @@ def count_submitted_executions(
         row = conn.execute(
             f"""
             SELECT COUNT(*) AS cnt FROM order_executions
-            WHERE status = 'submitted' AND broker = ?{account_clause}
+            WHERE status IN ('submitted', 'partially_filled') AND broker = ?{account_clause}
             """,
             params,
         ).fetchone()

@@ -130,7 +130,11 @@ async def reconcile_open_executions(
             continue
 
         new_status = _map_broker_status(order.status)
-        if new_status is None:
+        if new_status is None or new_status == row.get("status"):
+            # Unchanged since last reconcile — don't re-write the row, re-record the
+            # managed fill, or re-broadcast a "fill" event. (partially_filled now stays
+            # in the reconcile pool until it reaches a terminal status, so without this
+            # guard a lingering partial would re-fire every tick.)
             continue
 
         update_execution_status(execution_id, new_status, db_path=db_path)
