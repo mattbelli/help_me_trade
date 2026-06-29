@@ -12,12 +12,10 @@ import { WorkspaceGrid } from "@/components/workspace/workspace-grid";
 import { WorkspaceToastProvider } from "@/components/workspace/workspace-toast";
 import { WorkspaceToolbar } from "@/components/workspace/workspace-toolbar";
 import { useConsoleStore } from "@/lib/workspace/use-console-store";
-import { useAlertStream } from "@/lib/workspace/use-alert-stream";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 
 export default function WorkspacePage() {
-  useAlertStream();
   const isMobile = useIsMobile();
   const collapsedHeight = useConsoleStore((s) => s.collapsedHeight);
   const open = useCopilotStore((s) => s.open);
@@ -32,8 +30,7 @@ export default function WorkspacePage() {
 
   // Phones get a purpose-built bottom-tab shell instead of the desktop widget
   // grid. It still lives inside the chat providers so the Agent tab's thread
-  // works. useAlertStream() above keeps the notification store live for the
-  // Activity tab.
+  // works. AppShell's notification stream keeps the store live for the Activity tab.
   if (isMobile) {
     return (
       <WorkspaceToastProvider>

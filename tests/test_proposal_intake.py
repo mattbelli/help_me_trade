@@ -107,7 +107,7 @@ def _patch_env(
     monkeypatch.setattr("trading.proposal_intake.trading_config", lambda: trading_cfg)
     monkeypatch.setattr("trading.proposal_intake.is_market_open", lambda: True)
     monkeypatch.setattr(
-        "trading.proposals.market_hub.broadcast_alert",
+        "trading.proposals.notify",
         AsyncMock(),
     )
 
@@ -640,7 +640,7 @@ def _patch_env_multi(
     monkeypatch.setattr("trading.proposal_intake.trading_config", lambda: trading_cfg)
     monkeypatch.setattr("trading.proposal_intake.is_market_open", lambda: True)
     monkeypatch.setattr(
-        "trading.proposals.market_hub.broadcast_alert",
+        "trading.proposals.notify",
         AsyncMock(),
     )
 
@@ -819,9 +819,9 @@ async def test_auto_execute_entry_submits_and_pushes(monkeypatch, tmp_path: Path
             dry_run_log=None,
         )
     )
-    push_mock = AsyncMock()
+    notify_mock = AsyncMock(return_value={})
     monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
-    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+    monkeypatch.setattr("trading.proposal_intake.notify", notify_mock)
 
     result = await auto_execute_entry(
         _candidate(source="strategy:dip_buy"),
@@ -834,8 +834,11 @@ async def test_auto_execute_entry_submits_and_pushes(monkeypatch, tmp_path: Path
     assert intent.symbol == "AAPL"
     assert intent.side == "buy"
     assert intent.proposal_id.startswith("auto_entry|dip_buy|")
-    push_mock.assert_awaited_once()
-    assert push_mock.await_args.kwargs["title"] == "Trade executed"
+    notify_mock.assert_awaited_once()
+    call = notify_mock.await_args.kwargs
+    assert call["kind"] == "execution"
+    assert call["push"] is True
+    assert call["title"].startswith("BUY ")
 
 
 @pytest.mark.asyncio
@@ -846,9 +849,9 @@ async def test_auto_execute_entry_risk_blocked_no_push(monkeypatch, tmp_path: Pa
     from trading.models import RiskRejectedError
 
     submit_mock = AsyncMock(side_effect=RiskRejectedError("mock block"))
-    push_mock = AsyncMock()
+    notify_mock = AsyncMock()
     monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
-    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+    monkeypatch.setattr("trading.proposal_intake.notify", notify_mock)
 
     result = await auto_execute_entry(
         _candidate(source="strategy:dip_buy"),
@@ -856,7 +859,7 @@ async def test_auto_execute_entry_risk_blocked_no_push(monkeypatch, tmp_path: Pa
     )
 
     assert result == {"status": "risk_blocked", "reason": "mock block"}
-    push_mock.assert_not_called()
+    notify_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -890,15 +893,15 @@ async def test_auto_execute_entry_dedups_in_flight(monkeypatch, tmp_path: Path) 
     )
 
     submit_mock = AsyncMock()
-    push_mock = AsyncMock()
+    notify_mock = AsyncMock()
     monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
-    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+    monkeypatch.setattr("trading.proposal_intake.notify", notify_mock)
 
     result = await auto_execute_entry(_candidate(source="strategy:dip_buy"), db_path=db)
 
     assert result == {"status": "duplicate"}
     submit_mock.assert_not_called()
-    push_mock.assert_not_called()
+    notify_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -913,12 +916,12 @@ async def test_auto_execute_entry_blocked_under_live(monkeypatch, tmp_path: Path
     )
 
     submit_mock = AsyncMock()
-    push_mock = AsyncMock()
+    notify_mock = AsyncMock()
     monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
-    monkeypatch.setattr("trading.proposal_intake.send_alert_push", push_mock)
+    monkeypatch.setattr("trading.proposal_intake.notify", notify_mock)
 
     result = await auto_execute_entry(_candidate(source="strategy:dip_buy"), db_path=db)
 
     assert result == {"status": "blocked_live"}
     submit_mock.assert_not_called()
-    push_mock.assert_not_called()
+    notify_mock.assert_not_called()

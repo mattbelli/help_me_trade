@@ -265,15 +265,24 @@ async def _poll_account(account: dict) -> bool:
                     account_id,
                     [t["rule_id"] for t in triggered],
                 )
+                from signals.notify import notify
+
                 for item in triggered:
-                    await market_hub.broadcast_alert(
-                        {
-                            "source": "rule",
+                    await notify(
+                        kind="rule_triggered",
+                        title=f"{item['rule_name']} triggered — {item['action'].get('type', '?')}",
+                        body=str(item["action"]),
+                        severity="info",
+                        ref_type="rule",
+                        ref_id=item["rule_id"],
+                        action_url="/alerts",
+                        data={
                             "rule_id": item["rule_id"],
                             "rule_name": item["rule_name"],
                             "action": item["action"],
                             "broker": broker_name,
-                        }
+                        },
+                        push=False,
                     )
         return True
     except Exception:
@@ -322,15 +331,24 @@ async def _poll_broker(broker_name: str) -> bool:
                     broker_name,
                     [t["rule_id"] for t in triggered],
                 )
+                from signals.notify import notify
+
                 for item in triggered:
-                    await market_hub.broadcast_alert(
-                        {
-                            "source": "rule",
+                    await notify(
+                        kind="rule_triggered",
+                        title=f"{item['rule_name']} triggered — {item['action'].get('type', '?')}",
+                        body=str(item["action"]),
+                        severity="info",
+                        ref_type="rule",
+                        ref_id=item["rule_id"],
+                        action_url="/alerts",
+                        data={
                             "rule_id": item["rule_id"],
                             "rule_name": item["rule_name"],
                             "action": item["action"],
                             "broker": broker_name,
-                        }
+                        },
+                        push=False,
                     )
         return True
     except Exception:
@@ -404,13 +422,22 @@ async def _signal_scan_loop() -> None:
                             item.get("rule_id"),
                         )
                 else:
-                    await market_hub.broadcast_alert(
-                        {
-                            "source": "signal_scan",
+                    from signals.notify import notify
+
+                    await notify(
+                        kind="rule_triggered",
+                        title=f"{item['rule_name']} — signal",
+                        body=str(item["action"]),
+                        severity="info",
+                        ref_type="rule",
+                        ref_id=item["rule_id"],
+                        action_url="/alerts",
+                        data={
                             "rule_id": item["rule_id"],
                             "rule_name": item["rule_name"],
                             "action": item["action"],
-                        }
+                        },
+                        push=False,
                     )
             try:
                 await run_strategy_scan()
@@ -701,7 +728,7 @@ async def _rvol_alert_loop() -> None:
 
             today_et = datetime.now(_ET).date()
 
-            from signals.push import send_alert_push
+            from signals.notify import notify
 
             for sym in symbols:
                 try:
@@ -721,9 +748,17 @@ async def _rvol_alert_loop() -> None:
                         continue
                     price = q.get("regular_last") or q.get("ext_last")
                     price_str = f"${price:.2f}" if price else "n/a"
-                    await send_alert_push(
-                        title="Unusual volume",
+                    await notify(
+                        kind="rvol",
+                        title=f"Unusual volume: {sym}",
                         body=f"{sym} {rvol_val:.1f}× normal volume ({price_str})",
+                        severity="info",
+                        action_url=f"/watchlist/{sym}",
+                        data={
+                            "symbol": sym,
+                            "rvol": round(rvol_val, 2),
+                            "price": price,
+                        },
                     )
                     _mark_rvol_alerted(sym, today_et)
                     logger.info("RVOL alert sent: %s rvol=%.2f", sym, rvol_val)
@@ -760,7 +795,7 @@ def _earnings_hour_suffix(hour: str | None, *, day_of: bool) -> str:
 async def _earnings_alert_once() -> None:
     """Check watchlist symbols and push earnings milestone alerts (t14/t1/t0)."""
     from db.earnings_alerts import mark_sent, was_sent
-    from signals.push import send_alert_push
+    from signals.notify import notify
 
     today = datetime.now(_ET).date()
     today_iso = today.isoformat()
@@ -805,11 +840,13 @@ async def _earnings_alert_once() -> None:
                 key = f"{sym}:{earnings_date_str}:{milestone}"
                 if was_sent(key):
                     continue
-                await send_alert_push(
-                    title="Earnings",
+                await notify(
+                    kind="earnings",
+                    title=f"Earnings: {sym} — {milestone}",
                     body=body,
+                    severity="info",
+                    action_url=f"/watchlist/{sym}",
                     data={
-                        "type": "earnings",
                         "symbol": sym,
                         "earnings_date": earnings_date_str,
                         "milestone": milestone,
@@ -860,16 +897,20 @@ async def _schwab_health_loop() -> None:
             continue
         try:
             from brokers.schwab_auth import auth_status
-            from signals.push import send_alert_push
+            from signals.notify import notify
 
             status = auth_status()
             today_et = datetime.now(_ET).date()
 
             if not status.get("authenticated"):
                 if _schwab_health_last_date.get("offline") != today_et:
-                    await send_alert_push(
+                    await notify(
+                        kind="schwab_health",
                         title="Schwab data offline",
                         body="Token invalid; re-auth needed. Run scripts.schwab_reauth or re-login.",
+                        severity="critical",
+                        group_key="schwab_health_offline",
+                        data={"auth_status": "offline"},
                     )
                     _schwab_health_last_date["offline"] = today_et
                     logger.warning("Schwab health alert: token offline")
@@ -877,12 +918,19 @@ async def _schwab_health_loop() -> None:
                 days_left = status.get("estimated_days_until_reauth")
                 if days_left is not None and days_left <= 1.0:
                     if _schwab_health_last_date.get("expiring") != today_et:
-                        await send_alert_push(
+                        await notify(
+                            kind="schwab_health",
                             title="Schwab re-auth needed",
                             body=(
                                 f"Token expires within ~{days_left:.1f} day(s). "
                                 "Run scripts.schwab_reauth or re-login."
                             ),
+                            severity="warning",
+                            group_key="schwab_health_expiring",
+                            data={
+                                "auth_status": "expiring",
+                                "days_left": days_left,
+                            },
                         )
                         _schwab_health_last_date["expiring"] = today_et
                         logger.warning(
@@ -907,7 +955,7 @@ def _morning_report_enabled() -> bool:
 async def _morning_levels_report_once() -> None:
     """Generate and push the SPY morning levels report once per ET day."""
     from db.reports import morning_levels_exists_for_day
-    from signals.push import send_alert_push
+    from signals.notify import notify
     from signals.reports import generate_morning_levels_report
 
     now_et = datetime.now(_ET)
@@ -930,14 +978,15 @@ async def _morning_levels_report_once() -> None:
         return
 
     try:
-        await send_alert_push(
+        await notify(
+            kind="report_ready",
             title=report["title"],
             body=report["body"],
-            data={
-                "type": "report",
-                "report_id": report["id"],
-                "kind": "morning_levels",
-            },
+            severity="info",
+            ref_type="report",
+            ref_id=report["id"],
+            action_url=f"/reports/{report['id']}",
+            data={"report_id": report["id"], "kind": "morning_levels"},
         )
     except Exception:
         logger.exception("Morning levels report: push failed for %s", report["id"])
@@ -1925,7 +1974,7 @@ def api_get_report(report_id: str):
 
 @app.post("/api/reports/generate")
 async def api_generate_report(body: dict = Body(...), push: bool = False):
-    from signals.push import send_alert_push
+    from signals.notify import notify
     from signals.reports import generate_morning_levels_report
 
     kind = str(body.get("kind", "")).strip()
@@ -1944,19 +1993,20 @@ async def api_generate_report(body: dict = Body(...), push: bool = False):
         return JSONResponse({"error": str(exc)}, status_code=500)
     if report is None:
         return JSONResponse({"error": "No session levels available"}, status_code=404)
-    if push:
-        try:
-            await send_alert_push(
-                title=report["title"],
-                body=report["body"],
-                data={
-                    "type": "report",
-                    "report_id": report["id"],
-                    "kind": "morning_levels",
-                },
-            )
-        except Exception:
-            logger.exception("Manual report push failed for %s", report["id"])
+    try:
+        await notify(
+            kind="report_ready",
+            title=report["title"],
+            body=report["body"],
+            severity="info",
+            ref_type="report",
+            ref_id=report["id"],
+            action_url=f"/reports/{report['id']}",
+            data={"report_id": report["id"], "kind": "morning_levels"},
+            push=push,
+        )
+    except Exception:
+        logger.exception("Manual report notify failed for %s", report["id"])
     return report
 
 

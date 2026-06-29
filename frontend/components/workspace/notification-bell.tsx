@@ -110,13 +110,13 @@ export function NotificationBell() {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-foreground">
-                        {n.ruleName}
+                        {n.title}
                       </span>
                       <span className="mt-0.5 block truncate text-[var(--fg-dim)]">
                         {notificationLabel(n)}
                       </span>
                       <span className="mt-1 block text-[9.5px] text-[var(--fg-faint)]">
-                        {formatRelativeTime(n.ts)}
+                        {formatRelativeTime(n.created_at)}
                       </span>
                     </span>
                   </button>

@@ -15,7 +15,7 @@ from db.base import DEFAULT_DB_PATH, now_iso
 from db.order_executions import recent_open_buy_exists
 from db.paper_orders import list_pending_proposals
 from db.sqlite import get_latest_snapshot
-from signals.push import send_alert_push
+from signals.notify import notify
 from trading.execution_service import ExecutionService
 from trading.market_hours import is_market_open
 from trading.models import RiskRejectedError
@@ -222,17 +222,23 @@ async def auto_execute_entry(
             db_path=db_path,
         )
         result = await ExecutionService.submit(intent, db_path=db_path)
-        await send_alert_push(
-            title="Trade executed",
-            body=f"BUY {args['qty']} {args['symbol']} @ mkt [{result.execution_mode}]",
+        await notify(
+            kind="execution",
+            title=f"BUY {args['qty']} {args['symbol']} @ mkt [{result.execution_mode}]",
+            body=f"Auto-entry: {strategy_id} bought {args['qty']} {args['symbol']}",
+            severity="success",
+            strategy_id=strategy_id,
+            ref_type="execution",
+            ref_id=result.execution_id,
+            action_url=f"/executions/{result.execution_id}",
             data={
-                "type": "execution_alert",
                 "symbol": args["symbol"],
                 "side": "buy",
                 "qty": int(args["qty"]),
                 "strategy_id": strategy_id,
                 "execution_id": result.execution_id,
             },
+            push=True,
             db_path=db_path,
         )
         return {"status": "executed", "execution_id": result.execution_id}

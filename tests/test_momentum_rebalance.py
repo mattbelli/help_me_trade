@@ -241,7 +241,7 @@ async def test_every_submit_carries_rebalance_true(tmp_path: Path, monkeypatch) 
         lambda **kwargs: [{"symbol": "AAA"}],
     )
     push_mock = AsyncMock(return_value=0)
-    monkeypatch.setattr("signals.momentum.send_alert_push", push_mock)
+    monkeypatch.setattr("signals.momentum.notify", push_mock)
 
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
@@ -289,7 +289,7 @@ async def test_sell_closes_managed_row_buy_uses_auto_entry_proposal_id(
         lambda **kwargs: [{"symbol": "AAA"}],
     )
     push_mock = AsyncMock(return_value=0)
-    monkeypatch.setattr("signals.momentum.send_alert_push", push_mock)
+    monkeypatch.setattr("signals.momentum.notify", push_mock)
 
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
@@ -358,7 +358,7 @@ async def test_resume_skips_already_submitted_order(tmp_path: Path, monkeypatch)
         lambda **kwargs: [{"symbol": "AAA"}, {"symbol": "BBB"}],
     )
     push_mock = AsyncMock(return_value=0)
-    monkeypatch.setattr("signals.momentum.send_alert_push", push_mock)
+    monkeypatch.setattr("signals.momentum.notify", push_mock)
 
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
@@ -433,7 +433,7 @@ async def test_one_summary_push_zero_per_trade_pushes(
         lambda **kwargs: [{"symbol": "AAA"}],
     )
     push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.momentum.send_alert_push", push_mock)
+    monkeypatch.setattr("signals.momentum.notify", push_mock)
 
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
@@ -441,8 +441,9 @@ async def test_one_summary_push_zero_per_trade_pushes(
 
     assert result["status"] == "rebalanced"
     push_mock.assert_awaited_once()
-    assert push_mock.await_args.kwargs["title"] == "Momentum rebalance"
-    assert push_mock.await_args.kwargs["data"]["type"] == "rebalance_summary"
+    assert push_mock.await_args.kwargs["kind"] == "rebalance"
+    assert push_mock.await_args.kwargs["title"].startswith("Momentum rebalance complete")
+    assert push_mock.await_args.kwargs["data"]["strategy_id"] == "momentum_sp500"
 
     run = get_run("momentum_sp500", month, db_path=db)
     assert run is not None
@@ -510,7 +511,7 @@ async def test_stuck_run_abandoned_after_timeout(tmp_path: Path, monkeypatch) ->
     _patch_db(monkeypatch, db)
     submit = _mock_submit(monkeypatch)
     push = AsyncMock(return_value=0)
-    monkeypatch.setattr("signals.momentum.send_alert_push", push)
+    monkeypatch.setattr("signals.momentum.notify", push)
     month = _current_rebalance_month()
     start_run("momentum_sp500", month, {"buys": [{"symbol": "AAA", "qty": "1"}], "sells": []}, db_path=db)
     monkeypatch.setattr("signals.momentum._rebalance_run_age", lambda run: 9999.0)

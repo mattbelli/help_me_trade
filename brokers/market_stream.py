@@ -354,44 +354,31 @@ class BaseMarketHub:
             return
 
         for alert in triggered:
-            # Broadcast the price alert in the SAME flat shape rule alerts use
-            # (matches the phone client's reader). `trigger_price` is the price
-            # that crossed `target_price`.
             target = float(alert.get("price", 0.0) or 0.0)
             direction = str(alert.get("direction") or "cross")
             note = str(alert.get("note") or "")
-            await self.broadcast_alert(
-                {
-                    "source": "price_alert",
+            from signals.notify import notify
+
+            await notify(
+                kind="price_alert",
+                title=f"Price alert: {symbol} {direction} ${target:g}",
+                body=(
+                    f"{symbol} {direction} ${target:g} — now ${current:.2f}"
+                    + (f" ({note})" if note else "")
+                ),
+                severity="info",
+                ref_type="alert",
+                ref_id=str(alert.get("id")),
+                action_url=f"/watchlist/{symbol}",
+                data={
                     "symbol": symbol,
                     "alert_id": alert.get("id"),
                     "target_price": target,
                     "trigger_price": current,
                     "direction": direction,
                     "note": note,
-                }
+                },
             )
-
-            # Fire an APNs push too so a closed app still gets the alert. Flat
-            # custom keys let the phone deep-link to the symbol's detail screen
-            # on tap (mirrors how trade pushes deep-link to Approvals).
-            try:
-                from signals.push import send_alert_push
-
-                body = f"{symbol} {direction} ${target:g} — now ${current:.2f}"
-                if note:
-                    body = f"{body} ({note})"
-                await send_alert_push(
-                    title="Price alert",
-                    body=body,
-                    data={
-                        "type": "price_alert",
-                        "symbol": symbol,
-                        "alert_id": alert.get("id"),
-                    },
-                )
-            except Exception:
-                logger.warning("Price-alert push dispatch failed", exc_info=True)
 
 
 class AlpacaMarketStreamHub(BaseMarketHub):

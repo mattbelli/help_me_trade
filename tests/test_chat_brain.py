@@ -138,8 +138,8 @@ async def test_run_tool_propose_order_ok(monkeypatch, tmp_path):
         lambda: settings_mod.DEFAULT_SETTINGS["trading"],
     )
     monkeypatch.setattr(
-        "trading.execution_service.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.execution_service.notify",
+        AsyncMock(return_value={}),
     )
 
     result = await run_tool(

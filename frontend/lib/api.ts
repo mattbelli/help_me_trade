@@ -915,3 +915,84 @@ export async function saveWorkspaceLayout(
     console.warn("[workspace] server layout save failed:", err);
   }
 }
+
+// ── Notifications (server-backed inbox) ─────────────────────────────────────────
+
+export type NotificationSeverity = "info" | "success" | "warning" | "critical";
+
+export type ServerNotification = {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  severity: NotificationSeverity;
+  account_id: string | null;
+  strategy_id: string | null;
+  ref_type: string | null;
+  ref_id: string | null;
+  action_url: string | null;
+  group_key: string | null;
+  data: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+  dismissed_at: string | null;
+  read: boolean;
+  dismissed: boolean;
+};
+
+export type NotificationsResponse = {
+  notifications: ServerNotification[];
+  unread: number;
+};
+
+export async function fetchNotifications(params?: {
+  limit?: number;
+  before?: string;
+  include_dismissed?: boolean;
+}): Promise<NotificationsResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit != null) search.set("limit", String(params.limit));
+  if (params?.before) search.set("before", params.before);
+  if (params?.include_dismissed) search.set("include_dismissed", "true");
+  const qs = search.toString();
+  const res = await apiFetch(
+    `${API_BASE}/api/notifications${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Notifications error ${res.status}`);
+  return res.json();
+}
+
+export async function markNotificationRead(
+  id: string,
+): Promise<{ notification: ServerNotification }> {
+  const res = await apiFetch(
+    `${API_BASE}/api/notifications/${encodeURIComponent(id)}/read`,
+    { method: "POST" },
+  );
+  if (!res.ok) throw new Error(`Mark read error ${res.status}`);
+  return res.json();
+}
+
+export async function markAllNotificationsRead(
+  accountId?: string,
+): Promise<{ updated: number }> {
+  const res = await apiFetch(`${API_BASE}/api/notifications/read-all`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(accountId ? { account_id: accountId } : {}),
+  });
+  if (!res.ok) throw new Error(`Mark all read error ${res.status}`);
+  return res.json();
+}
+
+export async function dismissNotification(
+  id: string,
+): Promise<{ notification: ServerNotification }> {
+  const res = await apiFetch(
+    `${API_BASE}/api/notifications/${encodeURIComponent(id)}/dismiss`,
+    { method: "POST" },
+  );
+  if (!res.ok) throw new Error(`Dismiss error ${res.status}`);
+  return res.json();
+}

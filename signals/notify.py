@@ -56,20 +56,26 @@ async def notify(
     push: bool = True,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
-    row = create_notification(
-        kind=kind,
-        title=title,
-        body=body,
-        severity=severity,
-        account_id=account_id,
-        strategy_id=strategy_id,
-        ref_type=ref_type,
-        ref_id=ref_id,
-        action_url=action_url,
-        group_key=group_key,
-        data=data,
-        db_path=db_path,
-    )
+    try:
+        row = create_notification(
+            kind=kind,
+            title=title,
+            body=body,
+            severity=severity,
+            account_id=account_id,
+            strategy_id=strategy_id,
+            ref_type=ref_type,
+            ref_id=ref_id,
+            action_url=action_url,
+            group_key=group_key,
+            data=data,
+            db_path=db_path,
+        )
+    except Exception:
+        # notify() must never raise into its caller (poll loops, the execution
+        # chokepoint). A persist failure loses this one notification, logged.
+        logger.exception("notification persist failed: kind=%s title=%s", kind, title)
+        return {}
 
     await _broadcast_ws({"type": "notification", **row})
 

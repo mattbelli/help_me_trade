@@ -126,8 +126,8 @@ def _patch_passing_env(monkeypatch, db_path: Path, *, execution_mode: str) -> No
     monkeypatch.setattr("trading.execution_service.is_kill_switch_active", lambda: False)
     monkeypatch.setattr("trading.execution_service.trading_config", lambda: trading_cfg)
     monkeypatch.setattr(
-        "trading.execution_service.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.execution_service.notify",
+        AsyncMock(return_value={}),
     )
 
 

@@ -123,7 +123,6 @@ export function usePriceAlertMonitor({
             symbol?: string;
             price?: number;
             quotes?: Record<string, { price: number }>;
-            alert?: PriceAlert;
           };
           if (msg.type === "quotes" && msg.quotes) {
             for (const [sym, quote] of Object.entries(msg.quotes)) {
@@ -132,9 +131,6 @@ export function usePriceAlertMonitor({
           }
           if (msg.type === "quote" && msg.symbol && msg.price != null) {
             onPrice(msg.symbol, msg.price);
-          }
-          if (msg.type === "alert" && msg.alert && msg.price != null) {
-            handleTrigger(msg.alert, msg.price);
           }
         } catch {
           // Ignore malformed frames.

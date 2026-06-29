@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from brokers.market_stream import market_hub
 from db.accounts import account_is_execution_capable
 from db.base import DEFAULT_DB_PATH
 from db.paper_orders import (
@@ -16,6 +15,7 @@ from db.paper_orders import (
     get_proposal,
     transition_proposal_status,
 )
+from signals.notify import notify
 from trading.execution_service import ExecutionService
 from trading.models import RiskRejectedError
 from trading.order_proposal import (
@@ -323,20 +323,26 @@ async def create_phone_proposal(
         db_path=db_path,
     )
 
+    side = str(intent_fields["side"]).upper()
+    qty = intent_fields["qty"]
+    symbol = intent_fields["symbol"]
     try:
-        await market_hub.broadcast_alert(
-            {
-                "type": "alert",
-                "source": "proposal",
-                "rule_name": "Order proposal",
+        await notify(
+            kind="proposal",
+            title=f"Trade proposal: {side} {qty} {symbol}",
+            body=summary,
+            severity="info",
+            account_id=account_id,
+            ref_type="proposal",
+            ref_id=str(row["id"]),
+            action_url=f"/approvals/{row['id']}",
+            data={
                 "proposal_id": row["id"],
-                "action": {
-                    "type": "order_proposal",
-                    "proposal_id": row["id"],
-                    "summary": summary,
-                    "expires_at": row["expires_at"],
-                },
-            }
+                "summary": summary,
+                "expires_at": row["expires_at"],
+            },
+            push=False,
+            db_path=db_path,
         )
     except Exception:
         logger.exception("Failed to broadcast phone proposal alert")

@@ -22,7 +22,7 @@ from db.order_executions import recent_open_buy_exists, recent_open_sell_exists
 from db.sqlite import get_latest_snapshot
 from db.strategies import update_strategy
 from research.momentum_reference import compute_target_set, load_sector_map
-from signals.push import send_alert_push
+from signals.notify import notify
 from signals.strategy_universe import resolve_universe_spec
 from trading.execution_service import ExecutionService
 from trading.market_hours import _ET, is_market_open
@@ -404,10 +404,17 @@ async def execute_rebalance(
                 len(plan.get("sells") or []),
                 len(plan.get("buys") or []),
             )
-            await send_alert_push(
-                title="Momentum rebalance incomplete",
-                body=f"{sid} {month}: orders kept failing — rebalance abandoned, retries next month.",
-                data={"type": "rebalance_incomplete", "strategy_id": sid, "month": month},
+            await notify(
+                kind="rebalance",
+                title=f"Momentum rebalance abandoned: {sid} {month}",
+                body=(
+                    f"{sid} {month}: orders kept failing — rebalance abandoned, "
+                    "retries next month."
+                ),
+                severity="warning",
+                strategy_id=sid,
+                group_key=f"rebalance:{sid}:{month}",
+                data={"strategy_id": sid, "month": month, "status": "abandoned"},
                 db_path=db_path,
             )
             return {"status": "abandoned", "month": month}
@@ -564,14 +571,17 @@ async def execute_rebalance(
 
     nh = len(target_syms)
     mode = trading_config()["execution_mode"]
-    await send_alert_push(
-        title="Momentum rebalance",
+    await notify(
+        kind="rebalance",
+        title=f"Momentum rebalance complete: {sid} {month}",
         body=(
             f"Bought {nb}, sold {ns}, holding {nh} · "
             f"~${float(deployed):,.0f} [{mode}]"
         ),
+        severity="success",
+        strategy_id=sid,
+        group_key=f"rebalance:{sid}:{month}",
         data={
-            "type": "rebalance_summary",
             "strategy_id": sid,
             "month": month,
             "bought": nb,

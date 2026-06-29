@@ -14,7 +14,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from brokers.market_stream import market_hub
 from db.accounts import get_account
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.earnings_calendar import earnings_dates_for
@@ -30,7 +29,7 @@ from signals.exit_evaluators import (
     evaluate_earnings_exit,
     evaluate_vix_exit,
 )
-from signals.push import send_alert_push
+from signals.notify import notify
 from signals.regime import market_regime, regime_is_fresh
 from signals.strategy_kinds import is_portfolio_kind
 from trading.execution_service import ExecutionService
@@ -357,19 +356,6 @@ async def _process_managed_position(
                 "symbol": symbol,
             }
         ref = result.execution_id
-        await send_alert_push(
-            title="Trade executed",
-            body=f"SELL {exit_qty} {symbol} @ mkt [{result.execution_mode}]",
-            data={
-                "type": "execution_alert",
-                "symbol": symbol,
-                "side": "sell",
-                "qty": str(exit_qty),
-                "strategy_id": row["strategy_id"],
-                "execution_id": result.execution_id,
-            },
-            db_path=db_path,
-        )
         _set_pending_marker(
             row,
             kind="auto",
@@ -430,22 +416,27 @@ async def _process_managed_position(
 
     # (H) Notify the user — ALWAYS after successful dispatch.
     try:
-        await market_hub.broadcast_alert(
-            {
-                "type": "alert",
-                "source": "exit_engine",
-                "rule_name": f"Exit: {row['strategy_id']}",
-                "action": {
-                    "type": "exit",
-                    "mode": exit_mode,
-                    "decision": decision.action,
-                    "symbol": symbol,
-                    "reason": decision.reason,
-                    "qty": exit_qty,
-                    "strategy_id": row["strategy_id"],
-                    "detail": decision.detail,
-                },
-            }
+        await notify(
+            kind="exit",
+            title=f"Exit: {symbol} — {decision.action} [{exit_mode}]",
+            body=f"SELL {exit_qty} {symbol} — {decision.reason}",
+            severity="success" if exit_mode == "auto" else "info",
+            strategy_id=row["strategy_id"],
+            ref_type="position",
+            ref_id=str(position_id),
+            action_url=f"/positions/{position_id}",
+            data={
+                "symbol": symbol,
+                "decision": decision.action,
+                "exit_mode": exit_mode,
+                "reason": decision.reason,
+                "qty": exit_qty,
+                "strategy_id": row["strategy_id"],
+                "detail": decision.detail,
+                "execution_id": ref if exit_mode == "auto" else None,
+            },
+            push=exit_mode == "auto",
+            db_path=db_path,
         )
     except Exception:
         logger.exception("failed to broadcast exit alert")

@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import { PendingProposalCard } from "@/components/workspace/pending-proposal-card";
 import type { PendingProposal } from "@/lib/api";
 import {
-  notificationLabel,
   useNotificationStore,
   type WorkspaceNotification,
 } from "@/lib/workspace/use-notification-store";
@@ -134,7 +133,7 @@ function ActivityTab({ proposals, refetchProposals }: ActivityTabProps) {
   const sorted = useMemo(
     () =>
       [...notifications].sort(
-        (a, b) => Date.parse(b.ts) - Date.parse(a.ts),
+        (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
       ),
     [notifications],
   );
@@ -183,9 +182,12 @@ function ActivityCard({ notification: n }: { notification: WorkspaceNotification
         !n.read && "border-l-2 border-l-[var(--c-accent)]",
       )}
     >
-      <p className="text-sm text-foreground">{notificationLabel(n)}</p>
+      <p className="text-sm font-medium text-foreground">{n.title}</p>
+      {n.body ? (
+        <p className="mt-0.5 text-sm text-[var(--fg-dim)]">{n.body}</p>
+      ) : null}
       <p className="mt-1 text-[11px] text-[var(--fg-faint)]">
-        {formatRelativeTime(n.ts)}
+        {formatRelativeTime(n.created_at)}
       </p>
     </li>
   );

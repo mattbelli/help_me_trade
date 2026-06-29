@@ -124,7 +124,7 @@ def _open_managed(
 def exit_stubs(monkeypatch: pytest.MonkeyPatch):
     submit_calls: list = []
     proposal_calls: list = []
-    broadcast_calls: list = []
+    notify_calls: list = []
 
     class _SubmitResult:
         execution_id = "exec_x"
@@ -141,21 +141,18 @@ def exit_stubs(monkeypatch: pytest.MonkeyPatch):
         )
         return {"status": "pending_phone", "id": "prop_x"}
 
-    async def _broadcast(payload):
-        broadcast_calls.append(payload)
-
-    async def _push(**kwargs):
-        pass
+    async def _notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "notif_x"}
 
     monkeypatch.setattr("trading.exit_engine.ExecutionService.submit", _submit)
     monkeypatch.setattr("trading.exit_engine.create_phone_proposal", _proposal)
-    monkeypatch.setattr("trading.exit_engine.market_hub.broadcast_alert", _broadcast)
-    monkeypatch.setattr("trading.exit_engine.send_alert_push", _push)
+    monkeypatch.setattr("trading.exit_engine.notify", _notify)
 
     return {
         "submit_calls": submit_calls,
         "proposal_calls": proposal_calls,
-        "broadcast_calls": broadcast_calls,
+        "notify_calls": notify_calls,
     }
 
 
@@ -186,8 +183,12 @@ async def test_dip_stop_auto_dispatches_sell(
     row = list_open_positions(db_path=db)[0]
     assert row["exit_context"]["pending_exit"]["kind"] == "auto"
     assert row["exit_context"]["pending_exit"]["ref"] == "exec_x"
-    assert len(exit_stubs["broadcast_calls"]) == 1
-    assert exit_stubs["broadcast_calls"][0]["source"] == "exit_engine"
+    assert len(exit_stubs["notify_calls"]) == 1
+    notify = exit_stubs["notify_calls"][0]
+    assert notify["kind"] == "exit"
+    assert notify["push"] is True
+    assert notify["data"]["exit_mode"] == "auto"
+    assert notify["data"]["execution_id"] == "exec_x"
 
 
 @pytest.mark.asyncio
@@ -290,7 +291,49 @@ async def test_propose_mode_uses_phone_proposal(
     assert exit_stubs["submit_calls"] == []
     row = list_open_positions(db_path=db)[0]
     assert row["exit_context"]["pending_exit"]["kind"] == "propose"
-    assert len(exit_stubs["broadcast_calls"]) == 1
+    assert len(exit_stubs["notify_calls"]) == 1
+    assert exit_stubs["notify_calls"][0]["push"] is False
+    assert exit_stubs["notify_calls"][0]["data"]["exit_mode"] == "propose"
+
+
+@pytest.mark.asyncio
+async def test_exit_notify_push_flag_auto_vs_propose(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Auto-exit pushes via notify(); propose-exit does not (proposal push is separate)."""
+    db = _db(tmp_path)
+    _seed_account(db)
+
+    # Auto path: push=True, single notify.
+    _save_snapshot(
+        db,
+        positions=[_position(avg_entry_price=100.0, current_price=96.0, qty=10.0)],
+    )
+    _open_managed(db, params={"stop_pct": -3.0})
+    await run_exit_engine(db_path=db)
+    assert len(exit_stubs["notify_calls"]) == 1
+    assert exit_stubs["notify_calls"][0]["push"] is True
+
+    exit_stubs["notify_calls"].clear()
+    exit_stubs["submit_calls"].clear()
+
+    # Propose path: push=False only — no second mobile push from exit notify.
+    update_strategy("dip_buy", exit_mode="propose", db_path=db)
+    pid = _open_managed(
+        db,
+        exit_mode="propose",
+        params={"stop_pct": -3.0},
+    )
+    update_exit_state(pid, exit_context={}, db_path=db)
+    _save_snapshot(
+        db,
+        positions=[_position(avg_entry_price=100.0, current_price=96.0, qty=10.0)],
+    )
+    await run_exit_engine(db_path=db)
+    assert len(exit_stubs["notify_calls"]) == 1
+    assert exit_stubs["notify_calls"][0]["push"] is False
+    assert exit_stubs["notify_calls"][0]["data"]["exit_mode"] == "propose"
+    assert exit_stubs["notify_calls"][0]["data"]["execution_id"] is None
 
 
 @pytest.mark.asyncio

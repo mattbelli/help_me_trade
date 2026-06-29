@@ -1,9 +1,4 @@
-"""Price-alert dispatch: flat WS shape + APNs push fan-out.
-
-Locks in the contract the phone client + Mac agent rely on (HANDOFF NEXT items #2
-and #3). Triggered chart-price alerts now broadcast as a FLAT alert (matching the
-rule-alert shape) and ALSO fire an APNs push so a closed app still gets notified.
-"""
+"""Price-alert dispatch via unified notify() — persist, WS, and APNs push."""
 
 from __future__ import annotations
 
@@ -13,7 +8,7 @@ from brokers.market_stream import MarketStreamHub
 
 
 @pytest.mark.asyncio
-async def test_price_alert_broadcasts_flat_and_pushes(monkeypatch) -> None:
+async def test_price_alert_calls_notify_with_kind_and_push(monkeypatch) -> None:
     hub = MarketStreamHub()
 
     triggered_alert = {
@@ -30,6 +25,48 @@ async def test_price_alert_broadcasts_flat_and_pushes(monkeypatch) -> None:
         lambda quotes, prev_quotes: [triggered_alert],
     )
 
+    notify_calls: list[dict] = []
+
+    async def _fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "notif-test", **kwargs}
+
+    monkeypatch.setattr("signals.notify.notify", _fake_notify)
+
+    await hub._check_price_alerts("AAPL", prev=199.0, current=200.5)
+
+    assert len(notify_calls) == 1
+    call = notify_calls[0]
+    assert call["kind"] == "price_alert"
+    assert call.get("push", True) is True
+    assert call["ref_type"] == "alert"
+    assert call["ref_id"] == "42"
+    assert call["data"]["symbol"] == "AAPL"
+    assert call["data"]["alert_id"] == 42
+    assert call["data"]["target_price"] == pytest.approx(200.0)
+    assert call["data"]["trigger_price"] == pytest.approx(200.5)
+    assert call["data"]["direction"] == "above"
+    assert call["data"]["note"] == "breakout"
+    assert "breakout" in call["body"]
+
+
+@pytest.mark.asyncio
+async def test_price_alert_notify_persists_and_broadcasts(monkeypatch) -> None:
+    hub = MarketStreamHub()
+
+    triggered_alert = {
+        "id": 42,
+        "symbol": "AAPL",
+        "price": 200.0,
+        "direction": "above",
+        "note": "",
+    }
+
+    monkeypatch.setattr(
+        "api.alert_checker.check_alerts",
+        lambda quotes, prev_quotes: [triggered_alert],
+    )
+
     pushes: list[tuple[str, str, dict]] = []
 
     async def _fake_push(title, body, *, data=None, **kw):
@@ -37,55 +74,48 @@ async def test_price_alert_broadcasts_flat_and_pushes(monkeypatch) -> None:
         return 1
 
     monkeypatch.setattr("signals.push.send_alert_push", _fake_push)
+    monkeypatch.setattr("brokers.market_stream.market_hub", hub)
 
     await hub._check_price_alerts("AAPL", prev=199.0, current=200.5)
 
-    # WS broadcast: flat (no nested "alert": {...}), matches rule-alert shape.
     recent = hub.recent_alerts()
     assert len(recent) == 1
     enriched = recent[0]
-    assert enriched["source"] == "price_alert"
-    assert enriched["symbol"] == "AAPL"
-    assert enriched["alert_id"] == 42
-    assert enriched["target_price"] == pytest.approx(200.0)
-    assert enriched["trigger_price"] == pytest.approx(200.5)
-    assert enriched["direction"] == "above"
-    assert enriched["note"] == "breakout"
-    # broadcast_alert auto-stamps id+ts (same as rule alerts).
+    assert enriched["type"] == "notification"
+    assert enriched["kind"] == "price_alert"
+    assert enriched["data"]["symbol"] == "AAPL"
+    assert enriched["data"]["alert_id"] == 42
     assert enriched["id"]
-    assert enriched["ts"]
-    # No nested "alert" key — the bug we're fixing.
-    assert "alert" not in enriched
+    assert enriched["created_at"]
 
-    # APNs push fired (phone gets notified even with the app closed).
     assert len(pushes) == 1
     title, body, data = pushes[0]
-    assert title == "Price alert"
+    assert "Price alert" in title
     assert "AAPL" in body and "above" in body
-    # Flat custom keys for tap-to-deep-link to the symbol detail screen.
-    assert data["type"] == "price_alert"
+    assert data["type"] == "notification"
+    assert data["kind"] == "price_alert"
     assert data["symbol"] == "AAPL"
     assert data["alert_id"] == 42
 
 
 @pytest.mark.asyncio
-async def test_price_alert_no_triggers_no_push(monkeypatch) -> None:
+async def test_price_alert_no_triggers_no_notify(monkeypatch) -> None:
     hub = MarketStreamHub()
     monkeypatch.setattr(
         "api.alert_checker.check_alerts",
         lambda quotes, prev_quotes: [],
     )
-    push_calls = 0
+    notify_calls = 0
 
-    async def _fake_push(title, body, **kw):
-        nonlocal push_calls
-        push_calls += 1
-        return 1
+    async def _fake_notify(**kwargs):
+        nonlocal notify_calls
+        notify_calls += 1
+        return {}
 
-    monkeypatch.setattr("signals.push.send_alert_push", _fake_push)
+    monkeypatch.setattr("signals.notify.notify", _fake_notify)
 
     await hub._check_price_alerts("AAPL", prev=199.0, current=200.5)
-    assert push_calls == 0
+    assert notify_calls == 0
     assert hub.recent_alerts() == []
 
 
@@ -153,11 +183,11 @@ async def test_broadcast_throttle_idle_ticks_pass_through(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_apply_extended_drives_price_alerts(monkeypatch) -> None:
-    """Overnight: the ext-price path must evaluate price alerts (stream is silent).
+    """Overnight: the ext-price path must evaluate price alerts (stream is silent.
 
     Two polls — the first only seeds prev_ext (no prior value → no check), the
     second moves the price → check_alerts runs against (prev, current) and a
-    triggered alert fans out to the WS broadcast.
+    triggered alert fans out through notify().
     """
     hub = MarketStreamHub()
 
@@ -173,6 +203,7 @@ async def test_apply_extended_drives_price_alerts(monkeypatch) -> None:
         return 1
 
     monkeypatch.setattr("signals.push.send_alert_push", _fake_push)
+    monkeypatch.setattr("brokers.market_stream.market_hub", hub)
 
     # First poll: no prior ext value, so cross-detection can't run yet.
     await hub.apply_extended(
@@ -193,8 +224,9 @@ async def test_apply_extended_drives_price_alerts(monkeypatch) -> None:
 
     recent = hub.recent_alerts()
     assert len(recent) == 1
-    assert recent[0]["source"] == "price_alert"
-    assert recent[0]["symbol"] == "TSLA"
+    assert recent[0]["type"] == "notification"
+    assert recent[0]["kind"] == "price_alert"
+    assert recent[0]["data"]["symbol"] == "TSLA"
 
 
 @pytest.mark.asyncio

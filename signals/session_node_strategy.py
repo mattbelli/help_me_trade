@@ -296,7 +296,7 @@ async def _push_exit_prompts(
     all_bars: list[IntradayBar],
     db_path: Path,
 ) -> list[dict[str, Any]]:
-    from signals.push import send_alert_push
+    from signals.notify import notify
 
     acted: list[dict[str, Any]] = []
     open_rows = [
@@ -323,11 +323,15 @@ async def _push_exit_prompts(
             if not claim(dedup_key, "exit_prompt", db_path=db_path):
                 continue
             try:
-                await send_alert_push(
-                    title=f"SPY exit prompt ({prompt.kind})",
+                await notify(
+                    kind="exit",
+                    title=f"SPY exit prompt: {prompt.kind}",
                     body=prompt.message,
+                    severity="warning",
+                    ref_type="position",
+                    ref_id=str(row["id"]),
+                    action_url=f"/positions/{row['id']}",
                     data={
-                        "type": "exit_prompt",
                         "symbol": SYMBOL,
                         "position_id": row["id"],
                         "kind": prompt.kind,

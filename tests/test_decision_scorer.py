@@ -260,8 +260,8 @@ def _patch_phone_env(monkeypatch, db_path: Path) -> None:
         },
     )
     monkeypatch.setattr(
-        "trading.proposals.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.proposals.notify",
+        AsyncMock(return_value={}),
     )
 
 

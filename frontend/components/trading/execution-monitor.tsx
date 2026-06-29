@@ -1,8 +1,8 @@
 "use client";
 
-import { useExecutionMonitor } from "@/lib/use-execution-monitor";
+import { useNotificationStream } from "@/lib/workspace/use-notification-stream";
 
 export function ExecutionMonitor() {
-  useExecutionMonitor();
+  useNotificationStream();
   return null;
 }

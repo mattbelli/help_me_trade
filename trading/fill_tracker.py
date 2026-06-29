@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from brokers.factory import get_broker, get_broker_for_account
-from brokers.market_stream import market_hub
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import (
     list_stale_pending_paper_executions,
     list_submitted_executions,
     update_execution_status,
 )
+from signals.notify import notify
 from trading.position_ledger import record_session_node_managed_fill, record_strategy_fill
 
 logger = logging.getLogger(__name__)
@@ -156,16 +156,29 @@ async def reconcile_open_executions(
         )
 
         try:
-            payload: dict[str, object] = {
-                "type": "fill",
+            data: dict[str, object] = {
                 "execution_id": execution_id,
                 "status": new_status,
                 "symbol": row["symbol"],
                 "filled_qty": order.filled_qty,
             }
             if account_id is not None:
-                payload["account_id"] = account_id
-            await market_hub.broadcast_alert(payload)
+                data["account_id"] = account_id
+            await notify(
+                kind="fill",
+                title=f"{row['symbol']} {new_status}",
+                body=(
+                    f"Execution {execution_id}: {order.filled_qty} shares {new_status}"
+                ),
+                severity="success" if new_status == "filled" else "info",
+                account_id=str(account_id) if account_id else None,
+                ref_type="execution",
+                ref_id=execution_id,
+                action_url=f"/executions/{execution_id}",
+                data=data,
+                push=False,
+                db_path=db_path,
+            )
         except Exception:
             logger.exception(
                 "Failed to broadcast fill alert for execution %s", execution_id

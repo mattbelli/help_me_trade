@@ -322,8 +322,8 @@ async def test_create_phone_proposal_score_false_stores_none(
 
     account_id = default_execution_account(db_path=db)["id"]
     monkeypatch.setattr(
-        "trading.proposals.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.proposals.notify",
+        AsyncMock(return_value={}),
     )
     monkeypatch.setattr("signals.push.send_proposal_push", AsyncMock())
 

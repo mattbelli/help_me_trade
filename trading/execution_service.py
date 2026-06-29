@@ -10,10 +10,10 @@ from uuid import uuid4
 from brokers.alpaca import AlpacaError
 from brokers.base import PlaceOrderRequest
 from brokers.factory import get_broker, get_broker_for_account
-from brokers.market_stream import market_hub
 from config.settings import is_kill_switch_active, trading_config
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import create_execution_record, update_execution_status
+from signals.notify import notify
 from trading.models import ExecutionResult, OrderIntent, RiskRejectedError
 from trading.risk_engine import RiskEngine
 
@@ -188,7 +188,19 @@ class ExecutionService:
                         alert["strategy_id"] = parts[1]
                 if broker_order_id is not None:
                     alert["broker_order_id"] = broker_order_id
-                await market_hub.broadcast_alert(alert)
+                await notify(
+                    kind="execution",
+                    title=f"{intent.side.upper()} {intent.qty} {intent.symbol} — {status}",
+                    body=f"Execution {execution_id} [{mode}]",
+                    severity="info",
+                    strategy_id=alert.get("strategy_id"),
+                    ref_type="execution",
+                    ref_id=execution_id,
+                    action_url=f"/executions/{execution_id}",
+                    data=dict(alert),
+                    push=False,
+                    db_path=db_path,
+                )
             except Exception:
                 logger.exception("Failed to broadcast execution alert")
 
