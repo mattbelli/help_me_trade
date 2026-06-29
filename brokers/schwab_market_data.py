@@ -240,18 +240,6 @@ class SchwabMarketData:
             reg_change_pct_raw = regular.get("regularMarketPercentChange") or quote.get(
                 "netPercentChangeInDouble"
             )
-            # Extended-hours price: prefer quote.lastPrice — Schwab's consolidated last trade
-            # across sessions, which during pre/post/overnight IS the extended price and stays
-            # fresh. The `extended` block is unreliable: it can retain a STALE pre-market print
-            # for hours into the post-market session (observed: TSLA extended.lastPrice ~15h old
-            # = 371.09 vs a live quote.lastPrice = 377.93), yielding a price that contradicted
-            # its own (correct) postMarketPercentChange. Fall back to the extended block only if
-            # quote.lastPrice is absent.
-            ext_last_raw = (
-                quote.get("lastPrice")
-                or extended.get("lastPrice")
-                or extended.get("mark")
-            )
             prev_close_raw = quote.get("closePrice")
             # Schwab's own post/overnight % move (vs today's regular close, like ToS)
             post_pct_raw = quote.get("postMarketPercentChange")
@@ -264,18 +252,36 @@ class SchwabMarketData:
 
             reg_last = _f(reg_last_raw)
             reg_change_pct = _f(reg_change_pct_raw)
-            ext_last = _f(ext_last_raw)
             prev_close = _f(prev_close_raw)
             post_pct = _f(post_pct_raw)
 
-            # Extended/overnight % move: prefer Schwab's own postMarketPercentChange
-            # (vs today's regular close, matching thinkorswim); else compute vs today's
-            # regular close (correct for pre/post/overnight); else vs prior-day close.
+            # Extended/overnight last trade: take whichever of the consolidated `quote` block
+            # or the `extended` block has the more RECENT tradeTime. Schwab keeps one live and
+            # freezes the other depending on session — weekday post-market the `quote` block is
+            # live while `extended` goes stale (TSLA: extended 15h old, quote fresh); weekend/
+            # overnight the reverse (SPY Sun-night: quote frozen at Friday, extended live 733.3).
+            # Freshest-by-time is correct for both; fall back to any value if a tradeTime is absent.
+            _q_last, _q_time = _f(quote.get("lastPrice")), _f(quote.get("tradeTime"))
+            _e_last = _f(extended.get("lastPrice")) or _f(extended.get("mark"))
+            _e_time = _f(extended.get("tradeTime"))
+            _cands = [
+                (t, p)
+                for t, p in ((_q_time, _q_last), (_e_time, _e_last))
+                if p is not None and t is not None
+            ]
+            if _cands:
+                ext_last = max(_cands, key=lambda c: c[0])[1]
+            else:
+                ext_last = _q_last if _q_last is not None else _e_last
+
+            # Compute the move vs today's regular close FIRST so the % always agrees with the
+            # freshest ext_last above (Schwab's postMarketPercentChange can be stale overnight).
+            # This equals postMarketPercentChange in the normal weekday post-market case.
             ext_change_pct: float | None = None
-            if post_pct is not None:
-                ext_change_pct = round(post_pct, 2)
-            elif ext_last is not None and reg_last and reg_last != 0:
+            if ext_last is not None and reg_last and reg_last != 0:
                 ext_change_pct = round((ext_last - reg_last) / reg_last * 100, 2)
+            elif post_pct is not None:
+                ext_change_pct = round(post_pct, 2)
             elif ext_last is not None and prev_close and prev_close != 0:
                 ext_change_pct = round((ext_last - prev_close) / prev_close * 100, 2)
 

@@ -375,18 +375,19 @@ async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_aget_quotes_ignores_stale_extended_block() -> None:
-    """Regression (TSLA post-market): Schwab's `extended` block held a ~15h-old pre-market
-    print (371.09) while the live quote.lastPrice (377.93) was the true post-market last and
-    matched postMarketPercentChange. ext_last must follow the live quote, not the stale block."""
+    """Regression (TSLA post-market): the `extended` block held a ~15h-old pre-market print
+    (371.09) while quote.lastPrice (377.93) was the live post-market last. Freshest-by-tradeTime
+    picks the live quote block."""
     payload = {
         "TSLA": {
             "quote": {
                 "lastPrice": 377.93,
+                "tradeTime": 2_000_000_000_000,  # fresh
                 "closePrice": 375.12,
                 "postMarketPercentChange": -0.4687788,
             },
             "regular": {"regularMarketLastPrice": 379.71},
-            "extended": {"lastPrice": 371.09, "mark": 0.0},  # stale — must be ignored
+            "extended": {"lastPrice": 371.09, "tradeTime": 1_999_946_000_000},  # ~15h older
         }
     }
     client = MagicMock()
@@ -395,9 +396,33 @@ async def test_aget_quotes_ignores_stale_extended_block() -> None:
 
     tsla = (await provider.aget_quotes(["TSLA"]))["TSLA"]
 
-    assert tsla["ext_last"] == 377.93  # live quote.lastPrice, not the stale 371.09
+    assert tsla["ext_last"] == 377.93  # fresh quote block, not the stale extended 371.09
     assert tsla["regular_last"] == 379.71
-    assert tsla["ext_change_pct"] == -0.47  # Schwab's own postMarketPercentChange, rounded
+    assert tsla["ext_change_pct"] == -0.47  # (377.93-379.71)/379.71, agrees with ext_last
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_picks_fresh_extended_overnight() -> None:
+    """Regression (SPY Sunday overnight): the consolidated `quote` block is FROZEN at Friday's
+    last trade (731.20) while the `extended` block is live (733.3). Freshest-by-tradeTime must
+    pick the live extended price — the inverse of the TSLA post-market case."""
+    payload = {
+        "SPY": {
+            "quote": {
+                "lastPrice": 731.20,
+                "tradeTime": 1_999_000_000_000,  # Friday, stale
+                "closePrice": 728.99,
+            },
+            "regular": {"regularMarketLastPrice": 728.99},
+            "extended": {"lastPrice": 733.3, "tradeTime": 2_000_000_000_000},  # live now
+        }
+    }
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(payload)
+    spy = (await _provider(client).aget_quotes(["SPY"]))["SPY"]
+
+    assert spy["ext_last"] == 733.3  # live extended, not the frozen quote-block 731.20
+    assert spy["ext_change_pct"] == round((733.3 - 728.99) / 728.99 * 100, 2)  # agrees w/ price
 
 
 @pytest.mark.asyncio
