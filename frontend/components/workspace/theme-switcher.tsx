@@ -20,8 +20,9 @@ import { cn } from "@/lib/utils";
 
 const THEME_SWATCH: Record<WorkspaceTheme, string> = {
   carbon: "bg-background border-border",
-  ember: "bg-background border-border",
-  paper: "bg-background border-border",
+  warm: "bg-background border-border",
+  oled: "bg-background border-border",
+  light: "bg-background border-border",
 };
 
 const subscribe = () => () => {};

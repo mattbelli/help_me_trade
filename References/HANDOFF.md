@@ -10,8 +10,20 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Workspace consolidation (everything → widgets, multi-page) (2026-06-29)
+## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-06-30) — workspace polish + new features phase.** Consolidation Stages 1–3 are shipped + deployed
+> (notifications widget; multi-page foundation; rules/research/performance widgets). Since then, a rapid polish burst
+> (all shipped + deployed): **widget-picker fix** (cmdk filter was dropping registered widgets → plain-list render,
+> `93ed48a`); **chat restyle** to the mobile look (`7b20197`) + **terminal mono font** on the copilot (`3fd1ed8`);
+> **theme port** — web themes now match the phone (carbon/warm/oled/light; dropped ember/paper/dark; guardrail:
+> `--chart-accent` stays teal/green in every theme so candles never go amber). **QUEUED, recon-done, ready to build:**
+> (1) **save pages + workspaces** — founder-confirmed SNAPSHOT semantics; `References/SAVE_LAYOUTS_RECON.md`
+> (additive KV `saved_pages`/`saved_workspaces`, page-template right-click menu + a console-bar workspace switcher,
+> `workspaceDirty` confirm). (2) **performance breakup** — split the whole-page `performance` widget into 5 focused
+> tiles; `References/PERF_SPLIT_RECON.md` (research needs the same trim). Still open: consolidation **Stage 4** (the
+> Configure-your-AI setup page) + **Stage 5** (retire old routes). Briefs live in `tools/composer-bridge/briefs/`.
+>
 > ▶ **START HERE: workspace consolidation — read `References/CONSOLIDATION_PLAN.md` (5-stage plan, founder-agreed)
 > + `CONSOLIDATION_RECON.md` (current-state map).** Workspace is the UI; collapse the old page-nav routes into
 > widgets; multiple savable, hot-swappable **pages** (cap 5; "channels" = within-page symbol-link groups). Two

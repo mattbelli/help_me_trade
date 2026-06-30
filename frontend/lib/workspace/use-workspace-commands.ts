@@ -118,7 +118,7 @@ export function useWorkspaceCommands() {
           if (!WORKSPACE_THEMES.includes(named as WorkspaceTheme)) {
             return {
               handled: true,
-              error: `unknown theme: ${named} (carbon, ember, paper)`,
+              error: `unknown theme: ${named} (carbon, warm, oled, light)`,
             };
           }
           setTheme(named);
