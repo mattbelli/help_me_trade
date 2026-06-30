@@ -16,9 +16,13 @@ this file, append the old full version there as a new dated section.*
 > + `CONSOLIDATION_RECON.md` (current-state map).** Workspace is the UI; collapse the old page-nav routes into
 > widgets; multiple savable, hot-swappable **pages** (cap 5; "channels" = within-page symbol-link groups). Two
 > editable default pages: a Configure-your-AI setup page (config widgets) + the live canvas.
-> **Stage 1 ✅ DONE** (notifications inbox widget). **NEXT = Stage 2: multi-page foundation** (one layout → named
-> pages + switcher + hot-swap keybind; today there's only ONE layout slot — that's why a saved layout doesn't show
-> new widgets like the notifications widget; `/add notifications` until then).
+> **Stage 1 ✅ DONE + deployed live** (notifications inbox widget — committed `5bbd3a1`). **NEXT = Stage 2:
+> multi-page foundation** (one layout → named pages + switcher + hot-swap keybind; today there's only ONE layout
+> slot — that's why a saved layout doesn't auto-show new widgets like the notifications widget; add it via the
+> **+ widget button** / picker until Stage 2 lands).
+> - ⚠️ **Known polish (do in Stage 2):** the console `/add` command only OPENS the picker — `/add <widget-name>`
+>   (e.g. `/add notifications`) returns "unknown" (no arg support). Make `/add <id>` add a registered widget
+>   directly (derive from `WIDGET_REGISTRY`); handler at `frontend/lib/workspace/use-workspace-commands.ts:143`.
 >
 > **Notifications supervision backbone — Phase 1 SHIPPED + deployed live (2026-06-29):** 1a (inbox foundation,
 > `9ccbb99`) + 1b (all emits → `notify()`) + 1c (web unified consumer + server-backed bell). Detail below + in

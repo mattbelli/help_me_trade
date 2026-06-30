@@ -45,7 +45,9 @@ the widget is the full inbox. Default-place it on the grid (+ available via `/ad
 (`layout[]` → `pages: {id → layout[]}` + `activePageId`), backend (additive `workspace_state` keys per page —
 non-breaking; wrap the current layout as default page "canvas" on first load), a page-switcher in the toolbar +
 hot-swap keybind. Wire the unfinished PHASE_6_TITLEBAR center cluster (label / + / lock) here. Everything else
-drops into this.
+drops into this. **Small polish to fold in:** make the console `/add <widget>` accept a registered widget id
+directly (today `/add` only opens the picker; `/add notifications` returns "unknown") —
+`frontend/lib/workspace/use-workspace-commands.ts:143`, derive from `WIDGET_REGISTRY`.
 
 **Stage 3 — Componentize the old pages → widgets.** Build the NOT-yet-widgetized surfaces as widgets: Performance
 (analytics), Research (input + streaming output), Rules (rule editor; scans widget already shows fires), + gaps
