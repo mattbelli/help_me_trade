@@ -16,8 +16,14 @@ this file, append the old full version there as a new dated section.*
 > (notifications widget; multi-page foundation; rules/research/performance widgets). Since then, a rapid polish burst
 > (all shipped + deployed): **widget-picker fix** (cmdk filter was dropping registered widgets → plain-list render,
 > `93ed48a`); **chat restyle** to the mobile look (`7b20197`) + **terminal mono font** on the copilot (`3fd1ed8`);
-> **theme port** — web themes now match the phone (carbon/warm/oled/light; dropped ember/paper/dark; guardrail:
-> `--chart-accent` stays teal/green in every theme so candles never go amber). **QUEUED, recon-done, ready to build:**
+> **theme port** then a **full theme OVERHAUL via an ultracode multi-agent workflow** (`2f7fc4b`): 28 hardcoded-color
+> offenders app-wide wired to theme vars (+ new `--scrim`); palettes redesigned (warm=warm grey, oled near-black
+> panels on true black, light redone clean, carbon kept); the **chart now rethemes live** (MutationObserver on
+> `data-theme` → `themeNonce` in `tv-light-chart` effects, no more "one theme behind"); and a **THEME BUILDER**
+> shipped (`theme ▾ → + Custom theme`: clone→live-edit→save; customs persist via additive
+> `/api/workspace/custom-themes` KV + localStorage + anti-FOUC script; `theme-editor-dialog.tsx`,
+> `use-custom-theme-store.ts`, `custom-themes.ts`). Recon: `THEME_OVERHAUL_RECON.md`. Open follow-up: the darker
+> `--scrim` dialog backdrop is a deliberate change — revert if disliked. **QUEUED, recon-done, ready to build:**
 > (1) **save pages + workspaces** — founder-confirmed SNAPSHOT semantics; `References/SAVE_LAYOUTS_RECON.md`
 > (additive KV `saved_pages`/`saved_workspaces`, page-template right-click menu + a console-bar workspace switcher,
 > `workspaceDirty` confirm). (2) **performance breakup** — split the whole-page `performance` widget into 5 focused
