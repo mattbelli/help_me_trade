@@ -3,7 +3,6 @@
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { TerminalButton, TerminalInput } from "@/components/ui/terminal";
 import {
   applyInlinePreview,
   captureThemeVars,
@@ -145,21 +144,28 @@ export function ThemeEditorDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-md font-mono" showCloseButton={false}>
+      <DialogContent
+        className="border border-[var(--border)] bg-[var(--panel)] font-mono shadow-[var(--panel-shadow)] sm:max-w-md"
+        showCloseButton={false}
+      >
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit theme" : "New theme"}</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
+            {editing ? "Edit theme" : "New theme"}
+          </DialogTitle>
+          <DialogDescription className="font-mono text-[10px] text-[var(--fg-dim)]">
             Cloned from {baseLabel(cloneBase, editing?.name)}
           </DialogDescription>
         </DialogHeader>
 
-        <label className="flex items-center gap-3 text-xs text-[var(--fg-dim)]">
-          <span className="w-20 shrink-0">Name</span>
-          <Input
+        <label className="flex items-center gap-3">
+          <span className="w-20 shrink-0 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
+            Name
+          </span>
+          <TerminalInput
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="My theme"
-            className="h-7 font-mono text-xs"
+            className="h-7"
           />
         </label>
 
@@ -168,7 +174,7 @@ export function ThemeEditorDialog({
             const value = normalizeHex(tokens[token] ?? "#000000");
             return (
               <div key={token} className="flex items-center gap-3">
-                <span className="w-20 shrink-0 text-xs text-[var(--fg-dim)]">
+                <span className="w-20 shrink-0 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
                   {label}
                 </span>
                 <input
@@ -178,11 +184,11 @@ export function ThemeEditorDialog({
                   onChange={(e) => handleColor(token, e.target.value)}
                   className="size-7 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
                 />
-                <Input
+                <TerminalInput
                   value={tokens[token] ?? ""}
                   onChange={(e) => handleColor(token, e.target.value)}
                   spellCheck={false}
-                  className="h-7 w-28 font-mono text-xs uppercase"
+                  className="h-7 w-28 uppercase"
                 />
               </div>
             );
@@ -191,26 +197,16 @@ export function ThemeEditorDialog({
 
         <div className="-mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t border-[var(--border)] bg-[var(--bg-inset)]/50 p-3">
           {editing ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDelete}
-              className="text-[var(--c-red)] hover:bg-[var(--c-red)]/10 hover:text-[var(--c-red)]"
-            >
+            <TerminalButton variant="danger" onClick={handleDelete}>
               Delete
-            </Button>
+            </TerminalButton>
           ) : null}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleCancel}
-            className="ml-auto"
-          >
+          <TerminalButton onClick={handleCancel} className="ml-auto">
             Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave}>
+          </TerminalButton>
+          <TerminalButton variant="primary" onClick={handleSave}>
             Save
-          </Button>
+          </TerminalButton>
         </div>
       </DialogContent>
     </Dialog>
