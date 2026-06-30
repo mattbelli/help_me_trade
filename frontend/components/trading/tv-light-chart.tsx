@@ -7,7 +7,6 @@ import {
   type MouseEvent,
   type RefObject,
 } from "react";
-import { useTheme } from "next-themes";
 import {
   CandlestickSeries,
   ColorType,
@@ -159,7 +158,14 @@ export function TvLightChart({
   const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([]);
   const [legend, setLegend] = useState<string>("");
   const [session, setSession] = useState(sessionLabel());
-  const { resolvedTheme } = useTheme();
+  const [themeNonce, setThemeNonce] = useState(0);
+
+  useEffect(() => {
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));
+    obs.observe(el, { attributes: true, attributeFilter: ["data-theme", "class"] });
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setSession(sessionLabel()), 60_000);
@@ -373,7 +379,7 @@ export function TvLightChart({
       mainRef.current = null;
       volumeRef.current = null;
     };
-  }, [timeframe.value, style, resolvedTheme]);
+  }, [timeframe.value, style, themeNonce]);
 
   useEffect(() => {
     fetchPriceAlerts(symbol)
@@ -481,7 +487,7 @@ export function TvLightChart({
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe, style, resolvedTheme]);
+  }, [symbol, timeframe, style, themeNonce]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -501,7 +507,7 @@ export function TvLightChart({
         title: `Alert ${alert.price.toFixed(2)}`,
       }),
     );
-  }, [alerts, loading, resolvedTheme]);
+  }, [alerts, loading, themeNonce]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -532,7 +538,7 @@ export function TvLightChart({
     );
 
     return removeSessionLevelLines;
-  }, [showLevels, sessionLevels, loading, timeframe.value, style, resolvedTheme]);
+  }, [showLevels, sessionLevels, loading, timeframe.value, style, themeNonce]);
 
   useEffect(() => {
     if (livePrice == null || loading) return;
