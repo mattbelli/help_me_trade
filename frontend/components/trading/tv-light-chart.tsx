@@ -7,6 +7,7 @@ import {
   type MouseEvent,
   type RefObject,
 } from "react";
+import { useTheme } from "next-themes";
 import {
   CandlestickSeries,
   ColorType,
@@ -76,16 +77,17 @@ function defaultAlertDirection(
 function sessionLevelColor(kind: SessionLevel["kind"]): string {
   switch (kind) {
     case "support":
-      return "#3d8f7a";
+      return resolveCssColor("--c-green", "#5bc98a");
     case "resistance":
-      return "#9f2f2d";
+      return resolveCssColor("--c-red", "#ef6f6c");
     case "poc":
-      return "#c9922a";
+      return resolveCssColor("--c-amber", "#e0975b");
     case "prior_high":
+      return resolveCssColor("--c-blue", "#6cb0ff");
     case "prior_low":
-      return "#7a7a78";
+      return resolveCssColor("--fg-faint", "#616873");
     default:
-      return "#7a7a78";
+      return resolveCssColor("--fg-faint", "#616873");
   }
 }
 
@@ -157,6 +159,7 @@ export function TvLightChart({
   const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([]);
   const [legend, setLegend] = useState<string>("");
   const [session, setSession] = useState(sessionLabel());
+  const { resolvedTheme } = useTheme();
 
   useEffect(() => {
     const id = setInterval(() => setSession(sessionLabel()), 60_000);
@@ -262,18 +265,27 @@ export function TvLightChart({
     const el = containerRef.current;
     if (!el) return;
 
-    const text = resolveCssColor("--foreground", "#c8c6c3");
+    const background = resolveCssColor("--background", "#131519");
+    const text = resolveCssColor("--fg-dim", "#9aa1ab");
     const border = toChartColor(
       resolveCssColor("--border", "rgba(255,255,255,0.09)"),
       "rgba(255,255,255,0.09)",
     );
-    const accent = resolveCssColor("--chart-accent", "#3d8f7a");
-    const down = "#9f2f2d";
+    const crosshairLine = toChartColor(
+      resolveCssColor("--fg-faint", "#616873"),
+      "#616873",
+    );
+    const crosshairLabel = toChartColor(
+      resolveCssColor("--border-strong", "#333a44"),
+      "#333a44",
+    );
+    const accent = resolveCssColor("--chart-accent", "#5ad1be");
+    const down = resolveCssColor("--chart-down", "#ef6f6c");
     const intraday = !isDailyTimeframe(timeframe.value);
 
     const chart = createChart(el, {
       layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
+        background: { type: ColorType.Solid, color: background },
         textColor: text,
         fontFamily: "var(--font-sans), system-ui, sans-serif",
       },
@@ -292,7 +304,17 @@ export function TvLightChart({
         tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) =>
           formatTickMark(time as number, tickMarkType),
       },
-      crosshair: { mode: CrosshairMode.Normal },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: crosshairLine,
+          labelBackgroundColor: crosshairLabel,
+        },
+        horzLine: {
+          color: crosshairLine,
+          labelBackgroundColor: crosshairLabel,
+        },
+      },
       localization: {
         timeFormatter: (time: number) =>
           formatCrosshairTime(time, intraday),
@@ -351,7 +373,7 @@ export function TvLightChart({
       mainRef.current = null;
       volumeRef.current = null;
     };
-  }, [timeframe.value, style]);
+  }, [timeframe.value, style, resolvedTheme]);
 
   useEffect(() => {
     fetchPriceAlerts(symbol)
@@ -391,8 +413,8 @@ export function TvLightChart({
     fetchBars(symbol, { timeframe: timeframe.value, days: timeframe.days })
       .then((data) => {
         if (cancelled) return;
-        const accent = resolveCssColor("--chart-accent", "#3d8f7a");
-        const down = "#9f2f2d";
+        const accent = resolveCssColor("--chart-accent", "#5ad1be");
+        const down = resolveCssColor("--chart-down", "#ef6f6c");
 
         const ohlcv: Ohlcv[] = data.bars.map((b: StockBar) => ({
           time: toChartTime(b.time, data.timeframe) as Time,
@@ -459,7 +481,7 @@ export function TvLightChart({
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe, style]);
+  }, [symbol, timeframe, style, resolvedTheme]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -467,17 +489,19 @@ export function TvLightChart({
     for (const line of priceLinesRef.current) {
       series.removePriceLine(line);
     }
+    const alertUp = resolveCssColor("--c-green", "#5bc98a");
+    const alertDown = resolveCssColor("--c-red", "#ef6f6c");
     priceLinesRef.current = alerts.map((alert) =>
       series.createPriceLine({
         price: alert.price,
-        color: alert.direction === "below" ? "#9f2f2d" : "#3d8f7a",
+        color: alert.direction === "below" ? alertDown : alertUp,
         lineWidth: 2,
         lineStyle: 2,
         axisLabelVisible: true,
         title: `Alert ${alert.price.toFixed(2)}`,
       }),
     );
-  }, [alerts, loading]);
+  }, [alerts, loading, resolvedTheme]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -508,7 +532,7 @@ export function TvLightChart({
     );
 
     return removeSessionLevelLines;
-  }, [showLevels, sessionLevels, loading, timeframe.value, style]);
+  }, [showLevels, sessionLevels, loading, timeframe.value, style, resolvedTheme]);
 
   useEffect(() => {
     if (livePrice == null || loading) return;

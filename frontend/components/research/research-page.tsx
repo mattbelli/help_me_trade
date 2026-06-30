@@ -367,7 +367,7 @@ export function ResearchPage() {
               <iframe
                 title={selected.topic}
                 src={researchHtmlUrl(selected.id)}
-                className="h-[560px] w-full border-0 bg-[#0f1115]"
+                className="h-[560px] w-full border-0 bg-[var(--bg-inset)]"
                 sandbox="allow-same-origin"
               />
             )}
