@@ -3,7 +3,6 @@
 import { ShieldAlertIcon } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -12,9 +11,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import {
+  SettingsSection,
+  TerminalButton,
+  TerminalField,
+  TerminalInput,
+  TerminalSelect,
+  TerminalToggle,
+} from "@/components/ui/terminal";
 import type { TradingSettings } from "@/lib/api";
 
 const DEFAULT_TRADING: TradingSettings = {
@@ -63,18 +67,18 @@ export function TradingRiskSettings({ value, onChange }: Props) {
   return (
     <div className="space-y-5">
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold">Execution / Risk Limits</h3>
-        <p className="text-xs text-muted-foreground">
+        <h3 className="font-mono text-[11px] tracking-[0.1em] uppercase text-foreground">
+          Execution / Risk Limits
+        </h3>
+        <p className="font-mono text-[10px] leading-snug text-[var(--fg-dim)]">
           Controls whether approved orders are logged only (dry run) or sent to
           Alpaca paper. Live trading is not available yet.
         </p>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="execution-mode">Execution mode</Label>
-        <select
+      <TerminalField label="Execution mode" htmlFor="execution-mode">
+        <TerminalSelect
           id="execution-mode"
-          className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
           value={trading.execution_mode}
           onChange={(e) =>
             patch({
@@ -87,51 +91,46 @@ export function TradingRiskSettings({ value, onChange }: Props) {
           <option value="live" disabled>
             Live — coming soon (Increment 3)
           </option>
-        </select>
+        </TerminalSelect>
         {trading.execution_mode === "live" && (
-          <p className="text-xs text-[var(--c-amber)]">
+          <p className="font-mono text-[10px] text-[var(--c-amber)]">
             Live execution is disabled. Switch to dry run or paper.
           </p>
         )}
-      </div>
+      </TerminalField>
 
-      <div
-        className={`rounded-lg border p-3 ${
-          trading.kill_switch_active
-            ? "border-destructive/50 bg-destructive/5"
-            : "border-border"
-        }`}
+      <SettingsSection
+        variant="card"
+        tone={trading.kill_switch_active ? "danger" : "default"}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-start gap-2">
             <ShieldAlertIcon
               className={`mt-0.5 size-4 shrink-0 ${
                 trading.kill_switch_active
-                  ? "text-destructive"
-                  : "text-muted-foreground"
+                  ? "text-[var(--c-red)]"
+                  : "text-[var(--fg-faint)]"
               }`}
             />
             <div>
-              <p className="text-sm font-medium">Kill switch</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="font-mono text-[11px] text-foreground">Kill switch</p>
+              <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                 When active, all order submissions are rejected immediately.
               </p>
             </div>
           </div>
-          <Switch
+          <TerminalToggle
+            tone="danger"
             checked={trading.kill_switch_active}
             onCheckedChange={requestKillSwitchToggle}
             aria-label="Kill switch"
           />
         </div>
-      </div>
+      </SettingsSection>
 
-      <div
-        className={`rounded-lg border p-3 ${
-          trading.allow_short_selling
-            ? "border-[var(--c-amber)]/50 bg-[var(--c-amber)]/5"
-            : "border-border"
-        }`}
+      <SettingsSection
+        variant="card"
+        tone={trading.allow_short_selling ? "warn" : "default"}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-start gap-2">
@@ -139,19 +138,22 @@ export function TradingRiskSettings({ value, onChange }: Props) {
               className={`mt-0.5 size-4 shrink-0 ${
                 trading.allow_short_selling
                   ? "text-[var(--c-amber)]"
-                  : "text-muted-foreground"
+                  : "text-[var(--fg-faint)]"
               }`}
             />
             <div>
-              <p className="text-sm font-medium">Allow short selling</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="font-mono text-[11px] text-foreground">
+                Allow short selling
+              </p>
+              <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                 Lets strategies sell-to-open (short) when flat. Paper only — live
                 short selling stays blocked. Shorts get the same value/position
                 caps as buys.
               </p>
             </div>
           </div>
-          <Switch
+          <TerminalToggle
+            tone="warn"
             checked={trading.allow_short_selling}
             onCheckedChange={(checked) =>
               patch({ allow_short_selling: checked })
@@ -159,12 +161,11 @@ export function TradingRiskSettings({ value, onChange }: Props) {
             aria-label="Allow short selling"
           />
         </div>
-      </div>
+      </SettingsSection>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="max-order-value">Max order value (USD)</Label>
-          <Input
+        <TerminalField label="Max order value (USD)" htmlFor="max-order-value">
+          <TerminalInput
             id="max-order-value"
             type="number"
             min={0}
@@ -174,10 +175,12 @@ export function TradingRiskSettings({ value, onChange }: Props) {
               patch({ max_order_value_usd: Number(e.target.value) || 0 })
             }
           />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="max-position-pct">Max position (% of portfolio)</Label>
-          <Input
+        </TerminalField>
+        <TerminalField
+          label="Max position (% of portfolio)"
+          htmlFor="max-position-pct"
+        >
+          <TerminalInput
             id="max-position-pct"
             type="number"
             min={0}
@@ -188,10 +191,9 @@ export function TradingRiskSettings({ value, onChange }: Props) {
               patch({ max_position_pct: Number(e.target.value) || 0 })
             }
           />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="max-open-orders">Max open orders</Label>
-          <Input
+        </TerminalField>
+        <TerminalField label="Max open orders" htmlFor="max-open-orders">
+          <TerminalInput
             id="max-open-orders"
             type="number"
             min={0}
@@ -201,10 +203,9 @@ export function TradingRiskSettings({ value, onChange }: Props) {
               patch({ max_open_orders: Number(e.target.value) || 0 })
             }
           />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="max-daily-orders">Max daily orders</Label>
-          <Input
+        </TerminalField>
+        <TerminalField label="Max daily orders" htmlFor="max-daily-orders">
+          <TerminalInput
             id="max-daily-orders"
             type="number"
             min={0}
@@ -214,7 +215,7 @@ export function TradingRiskSettings({ value, onChange }: Props) {
               patch({ max_daily_orders: Number(e.target.value) || 0 })
             }
           />
-        </div>
+        </TerminalField>
       </div>
 
       <Dialog open={killSwitchConfirmOpen} onOpenChange={setKillSwitchConfirmOpen}>
@@ -227,19 +228,18 @@ export function TradingRiskSettings({ value, onChange }: Props) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button
+            <TerminalButton
               type="button"
-              variant="outline"
               onClick={() => {
                 setKillSwitchConfirmOpen(false);
                 setPendingKillSwitch(null);
               }}
             >
               Cancel
-            </Button>
-            <Button type="button" variant="destructive" onClick={confirmKillSwitch}>
+            </TerminalButton>
+            <TerminalButton type="button" variant="danger" onClick={confirmKillSwitch}>
               Enable kill switch
-            </Button>
+            </TerminalButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

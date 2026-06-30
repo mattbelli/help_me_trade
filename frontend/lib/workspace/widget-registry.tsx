@@ -57,14 +57,16 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "open-orders",
     title: "open orders",
     description: "Working and recent orders",
-    component: OpenOrdersWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: OpenOrdersWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
   },
   {
     id: "positions",
     title: "positions",
     description: "Open positions table",
-    component: PositionsWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: PositionsWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
   },
   {

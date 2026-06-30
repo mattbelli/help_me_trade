@@ -12,6 +12,21 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-06-30) — terminal-UI polish round (shipped + deployed).** Four-part pass via 8 Composer briefs
+> (one-at-a-time, each diff-reviewed): (1) **Settings → terminal UI** — new reusable primitives in
+> `frontend/components/ui/terminal/` (Field/Input/Select/Toggle/Button + SettingsSection; mono `[x] ON / [ ] OFF`
+> toggle); every section converted; **kill-switch confirm flow untouched** (restyle-only, Sonnet-reviewed). (2)
+> **Clickable tickers** in Positions + Open-Orders (flipped `channelAware`) via a shared `usePublishSymbol` hook +
+> `ClickableSymbol` (accent "ticker type" shared with watchlist/rvol) + a publish confirmation toast. (3)
+> **Notifications deep-link** = in-workspace focus, NO route nav: `notification-target.ts` → `focusWidget`/
+> `focusSymbol` on the workspace store + a flash ring on the `widget-${i}` anchor; wired into bell/banner/inbox. (4)
+> **Per-theme accents** in `globals.css` so each theme has its own identity: oled = electric violet `#9b6bff` on
+> neutralized flat-black greys (no teal), warm = off-white `#efe7d6` tickers (no longer all-orange), light = royal
+> blue `#2563eb`; carbon unchanged; candle `--chart-accent` kept green/teal everywhere (guardrail). Frontend-only;
+> deployed via the no-sudo `kill + systemd Restart=always` rebuild on serv (port 3001). Side-note: normalized the
+> anomalous `default-model-select.tsx` from CRLF→LF (big diff, 2-line real change). Deferred (optional): restyle the
+> theme-editor dialog with the same primitives.
+>
 > ▶ **LATEST (2026-06-30) — workspace polish + new features phase.** Consolidation Stages 1–3 are shipped + deployed
 > (notifications widget; multi-page foundation; rules/research/performance widgets). Since then, a rapid polish burst
 > (all shipped + deployed): **widget-picker fix** (cmdk filter was dropping registered widgets → plain-list render,

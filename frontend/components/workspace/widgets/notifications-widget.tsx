@@ -10,6 +10,7 @@ import {
   type WorkspaceNotification,
   useNotificationStore,
 } from "@/lib/workspace/use-notification-store";
+import { useNotificationActivate } from "@/lib/workspace/use-notification-activate";
 import { cn } from "@/lib/utils";
 
 type FilterMode = "all" | "unread" | `kind:${string}`;
@@ -61,6 +62,7 @@ export function NotificationsWidget({}: WidgetProps) {
   const markRead = useNotificationStore((s) => s.markRead);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const dismiss = useNotificationStore((s) => s.dismiss);
+  const activate = useNotificationActivate();
 
   const [filter, setFilter] = useState<FilterMode>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -233,6 +235,17 @@ export function NotificationsWidget({}: WidgetProps) {
                         {n.body}
                       </p>
                     ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[11px] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-accent)]"
+                    aria-label="Open in workspace"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      activate(n);
+                    }}
+                  >
+                    →
                   </button>
                   <button
                     type="button"

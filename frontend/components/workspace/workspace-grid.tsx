@@ -359,6 +359,7 @@ const WidgetCard = forwardRef<
     item: WorkspaceLayoutItem;
     locked: boolean;
     static?: boolean;
+    flashing?: boolean;
     onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
     onRemove: () => void;
   } & HTMLAttributes<HTMLDivElement>
@@ -367,6 +368,7 @@ const WidgetCard = forwardRef<
     item,
     locked,
     static: isStatic,
+    flashing,
     onConfigChange,
     onRemove,
     className,
@@ -388,6 +390,8 @@ const WidgetCard = forwardRef<
       className={cn(
         "group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)]",
         isStatic && "h-full",
+        flashing &&
+          "ring-2 ring-[var(--c-accent)] ring-offset-1 ring-offset-[var(--panel)]",
         className,
       )}
       style={style}
@@ -439,6 +443,7 @@ export function WorkspaceGrid() {
   const layout = useWorkspaceStore(
     (s) => s.pages[s.activePageId]?.layout ?? [],
   );
+  const focusRequest = useWorkspaceStore((s) => s.focusRequest);
   const {
     hydrated,
     hydrate,
@@ -457,6 +462,23 @@ export function WorkspaceGrid() {
   // The grid must NOT render until this is true, or RGL will clamp widgets that
   // sit beyond the default 24-col boundary (causing the "chart jumps left" bug).
   const [colsMeasured, setColsMeasured] = useState(false);
+  const [flashingId, setFlashingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const { instanceId } = focusRequest;
+    const raf = requestAnimationFrame(() => {
+      document
+        .getElementById(`widget-${instanceId}`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      setFlashingId(instanceId);
+    });
+    const t = setTimeout(() => setFlashingId(null), 1200);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [focusRequest]);
 
   // Four-edge scroll indicators: show subtle gradient overlays when there is
   // more content in that direction (right/bottom are the important ones for
@@ -621,6 +643,7 @@ export function WorkspaceGrid() {
                     key={item.i}
                     item={item}
                     locked={locked}
+                    flashing={item.i === flashingId}
                     onConfigChange={(patch) =>
                       updateWidgetConfig(item.i, patch)
                     }

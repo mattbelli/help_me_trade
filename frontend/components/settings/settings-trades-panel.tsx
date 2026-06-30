@@ -4,10 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FileUp, Loader2, RefreshCw, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -15,6 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  TerminalButton,
+  TerminalField,
+  TerminalInput,
+} from "@/components/ui/terminal";
 import {
   Table,
   TableBody,
@@ -264,10 +266,8 @@ export function SettingsTradesPanel() {
             </p>
           )}
         </div>
-        <Button
+        <TerminalButton
           type="button"
-          variant="outline"
-          size="sm"
           disabled={syncing}
           onClick={() => void handleSync()}
         >
@@ -277,15 +277,14 @@ export function SettingsTradesPanel() {
             <RefreshCw className="mr-2 size-3.5" />
           )}
           Sync now
-        </Button>
+        </TerminalButton>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
         {accounts.length > 0 && (
-          <div className="space-y-1.5">
-            <Label className="text-xs">Account</Label>
+          <TerminalField label="Account">
             <Select value={accountId} onValueChange={(v) => setAccountId(v ?? "")}>
-              <SelectTrigger className="h-8 w-[200px]">
+              <SelectTrigger className="h-8 w-[200px] bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
                 <SelectValue placeholder="Account" />
               </SelectTrigger>
               <SelectContent>
@@ -296,17 +295,16 @@ export function SettingsTradesPanel() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </TerminalField>
         )}
         {!accountId && (
-          <div className="space-y-1.5">
-            <Label className="text-xs">New account label</Label>
-            <Input
-              className="h-8 w-[200px]"
+          <TerminalField label="New account label">
+            <TerminalInput
+              className="w-[200px]"
               value={newAccountLabel}
               onChange={(e) => setNewAccountLabel(e.target.value)}
             />
-          </div>
+          </TerminalField>
         )}
         <input
           ref={fileRef}
@@ -318,29 +316,22 @@ export function SettingsTradesPanel() {
             if (file) void handlePreview(file);
           }}
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => fileRef.current?.click()}
-        >
+        <TerminalButton type="button" onClick={() => fileRef.current?.click()}>
           <FileUp className="mr-2 size-3.5" />
           {importFile ? importFile.name : "Choose JSON"}
-        </Button>
-        <Button
+        </TerminalButton>
+        <TerminalButton
           type="button"
-          size="sm"
+          variant="primary"
           onClick={() => void handleImport()}
           disabled={!importFile || importing}
         >
           {importing && <Loader2 className="mr-2 size-3.5 animate-spin" />}
           Import
-        </Button>
+        </TerminalButton>
         {accountId && summary && summary.trade_count > 0 && (
-          <Button
+          <TerminalButton
             type="button"
-            variant="secondary"
-            size="sm"
             onClick={() => void handleReview()}
             disabled={reviewing}
           >
@@ -350,7 +341,7 @@ export function SettingsTradesPanel() {
               <Sparkles className="mr-2 size-3.5" />
             )}
             AI review
-          </Button>
+          </TerminalButton>
         )}
       </div>
 
@@ -399,15 +390,13 @@ export function SettingsTradesPanel() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium text-muted-foreground">Daily P&L</p>
             {selectedDate && (
-              <Button
+              <TerminalButton
                 type="button"
-                variant="ghost"
-                size="sm"
                 className="h-7 text-xs"
                 onClick={() => setSelectedDate(null)}
               >
                 Clear filter
-              </Button>
+              </TerminalButton>
             )}
           </div>
           <TradeCalendar

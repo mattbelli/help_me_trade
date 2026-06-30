@@ -15,7 +15,7 @@ import {
 } from "@/lib/api";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
 import type { ChannelId } from "@/lib/workspace/channels";
-import { useChannelStore } from "@/lib/workspace/use-channel-store";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
@@ -179,7 +179,7 @@ function WatchlistAddRow({
   return (
     <div
       ref={wrapRef}
-      className="relative flex items-center gap-x-1 border-b border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5"
+      className="relative m-1.5 flex items-center gap-x-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 transition-colors focus-within:border-[var(--c-accent)]"
     >
       <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--fg-faint)]">
         +
@@ -662,9 +662,8 @@ export function WatchlistWidget({ config }: WidgetProps) {
     new Set(),
   );
   const dragOrderRef = useRef<string[] | null>(null);
-  const setChannelSymbol = useChannelStore((s) => s.setChannelSymbol);
   const channel: ChannelId = config.channel ?? "none";
-  const linked = channel !== "none";
+  const { publish, linked } = usePublishSymbol(channel);
 
   useEffect(() => {
     dragOrderRef.current = dragOrder;
@@ -851,14 +850,6 @@ export function WatchlistWidget({ config }: WidgetProps) {
     if (reordered) void persistReorder(reordered);
   }, [persistReorder]);
 
-  const publishSymbol = useCallback(
-    (symbol: string) => {
-      if (!linked) return;
-      setChannelSymbol(channel, symbol);
-    },
-    [channel, linked, setChannelSymbol],
-  );
-
   if (loading && !state) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
@@ -946,7 +937,7 @@ export function WatchlistWidget({ config }: WidgetProps) {
               isOvernight={overnightSymbols.has(symbol.toUpperCase())}
               linked={linked}
               removing={removing === symbol}
-              onPublish={() => publishSymbol(symbol)}
+              onPublish={() => publish(symbol)}
               onRemove={() => void removeSymbol(symbol)}
               onDragStart={() => setSortState(null)}
               onDragEnd={handleReorderEnd}

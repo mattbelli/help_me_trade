@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -23,9 +22,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import {
+  SettingsSection,
+  TerminalButton,
+  TerminalField,
+  TerminalInput,
+  TerminalSelect,
+  TerminalToggle,
+} from "@/components/ui/terminal";
 import {
   fetchSettings,
   saveSettings,
@@ -184,30 +188,32 @@ export function SettingsDialog({ collapsed = false }: Props) {
           <span className="text-[13px] font-medium">Settings</span>
         )}
       </DialogTrigger>
-      <DialogContent className="flex h-[min(88vh,820px)] max-h-[88vh] w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden bg-popover/95 p-0 backdrop-blur-md sm:!max-w-[min(96vw,80rem)]">
+      <DialogContent className="flex h-[min(88vh,820px)] max-h-[88vh] w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden border border-[var(--border)] bg-[var(--panel)] p-0 font-mono shadow-[var(--panel-shadow)] sm:!max-w-[min(96vw,80rem)]">
         <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
+            Settings
+          </DialogTitle>
+          <DialogDescription className="font-mono text-[10px] text-[var(--fg-dim)]">
             Brokers, AI, research, and imported trade history. Stored locally in{" "}
-            <code className="text-xs">data/</code>.
+            <code className="text-[10px]">data/</code>.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border bg-muted/20 p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
+          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border bg-[var(--bg-inset)] p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setSection(id)}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium transition-colors",
+                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left font-mono text-[11px] tracking-[0.06em] uppercase transition-colors",
                   section === id
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    ? "border-l-2 border-[var(--c-accent)] bg-[var(--bg-hover)] text-foreground"
+                    : "text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground",
                 )}
               >
-                <Icon className="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
+                <Icon className="size-3.5 shrink-0 text-[var(--fg-faint)]" strokeWidth={1.75} />
                 {label}
               </button>
             ))}
@@ -215,17 +221,16 @@ export function SettingsDialog({ collapsed = false }: Props) {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="font-mono text-[10px] text-[var(--fg-dim)]">Loading…</p>
         ) : section === "brokers" ? (
           <div className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="primary-broker">Primary broker</Label>
-                <p className="text-xs text-muted-foreground">
-                  Used for charts and market data (Alpaca recommended).
-                </p>
-                <select
+              <TerminalField
+                label="Primary broker"
+                htmlFor="primary-broker"
+                hint="Used for charts and market data (Alpaca recommended)."
+              >
+                <TerminalSelect
                   id="primary-broker"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={draft.primary_broker}
                   onChange={(e) =>
                     setDraft((d) => ({
@@ -236,18 +241,18 @@ export function SettingsDialog({ collapsed = false }: Props) {
                 >
                   <option value="alpaca">Alpaca</option>
                   <option value="schwab">Schwab</option>
-                </select>
-              </div>
+                </TerminalSelect>
+              </TerminalField>
 
-              <div className="space-y-3 rounded-lg border border-border p-3">
+              <SettingsSection variant="card">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium">Alpaca</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-mono text-[11px] text-foreground">Alpaca</p>
+                    <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                       Paper trading & market data
                     </p>
                   </div>
-                  <Switch
+                  <TerminalToggle
                     checked={draft.brokers.alpaca.enabled}
                     onCheckedChange={(checked) =>
                       setDraft((d) => ({
@@ -261,78 +266,81 @@ export function SettingsDialog({ collapsed = false }: Props) {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="alpaca-key">API key ID</Label>
-                  <Input
-                    id="alpaca-key"
-                    value={secretInputValue(draft.brokers.alpaca.api_key_id)}
-                    placeholder={secretInputPlaceholder(
-                      draft.brokers.alpaca.api_key_id,
-                      "PK…",
-                    )}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        brokers: {
-                          ...d.brokers,
-                          alpaca: {
-                            ...d.brokers.alpaca,
-                            api_key_id: e.target.value,
+                  <TerminalField label="API key ID" htmlFor="alpaca-key">
+                    <TerminalInput
+                      id="alpaca-key"
+                      value={secretInputValue(draft.brokers.alpaca.api_key_id)}
+                      placeholder={secretInputPlaceholder(
+                        draft.brokers.alpaca.api_key_id,
+                        "PK…",
+                      )}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          brokers: {
+                            ...d.brokers,
+                            alpaca: {
+                              ...d.brokers.alpaca,
+                              api_key_id: e.target.value,
+                            },
                           },
-                        },
-                      }))
-                    }
-                  />
-                  <Label htmlFor="alpaca-secret">API secret</Label>
-                  <Input
-                    id="alpaca-secret"
-                    type="password"
-                    value={secretInputValue(draft.brokers.alpaca.api_secret_key)}
-                    placeholder={secretInputPlaceholder(
-                      draft.brokers.alpaca.api_secret_key,
-                      "Secret key",
-                    )}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        brokers: {
-                          ...d.brokers,
-                          alpaca: {
-                            ...d.brokers.alpaca,
-                            api_secret_key: e.target.value,
+                        }))
+                      }
+                    />
+                  </TerminalField>
+                  <TerminalField label="API secret" htmlFor="alpaca-secret">
+                    <TerminalInput
+                      id="alpaca-secret"
+                      type="password"
+                      value={secretInputValue(draft.brokers.alpaca.api_secret_key)}
+                      placeholder={secretInputPlaceholder(
+                        draft.brokers.alpaca.api_secret_key,
+                        "Secret key",
+                      )}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          brokers: {
+                            ...d.brokers,
+                            alpaca: {
+                              ...d.brokers.alpaca,
+                              api_secret_key: e.target.value,
+                            },
                           },
-                        },
-                      }))
-                    }
-                  />
-                  <Label htmlFor="alpaca-base">API base URL</Label>
-                  <Input
-                    id="alpaca-base"
-                    value={draft.brokers.alpaca.api_base_url}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        brokers: {
-                          ...d.brokers,
-                          alpaca: {
-                            ...d.brokers.alpaca,
-                            api_base_url: e.target.value,
+                        }))
+                      }
+                    />
+                  </TerminalField>
+                  <TerminalField label="API base URL" htmlFor="alpaca-base">
+                    <TerminalInput
+                      id="alpaca-base"
+                      value={draft.brokers.alpaca.api_base_url}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          brokers: {
+                            ...d.brokers,
+                            alpaca: {
+                              ...d.brokers.alpaca,
+                              api_base_url: e.target.value,
+                            },
                           },
-                        },
-                      }))
-                    }
-                  />
+                        }))
+                      }
+                    />
+                  </TerminalField>
                 </div>
-              </div>
+              </SettingsSection>
 
-              <div className="space-y-3 rounded-lg border border-border p-3">
+              <SettingsSection variant="card">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium">Schwab</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-mono text-[11px] text-foreground">Schwab</p>
+                    <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                       OAuth — run login script after saving credentials
                     </p>
                   </div>
-                  <Switch
+                  <TerminalToggle
                     checked={draft.brokers.schwab.enabled}
                     onCheckedChange={(checked) =>
                       setDraft((d) => ({
@@ -346,98 +354,102 @@ export function SettingsDialog({ collapsed = false }: Props) {
                   />
                 </div>
                 {brokerInfo?.brokers?.schwab?.auth && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                     {brokerInfo.brokers.schwab.auth.message}
                   </p>
                 )}
                 <div className="grid gap-2">
-                  <Label htmlFor="schwab-key">App key</Label>
-                  <Input
-                    id="schwab-key"
-                    value={secretInputValue(draft.brokers.schwab.api_key)}
-                    placeholder={secretInputPlaceholder(
-                      draft.brokers.schwab.api_key,
-                      "App key",
-                    )}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        brokers: {
-                          ...d.brokers,
-                          schwab: {
-                            ...d.brokers.schwab,
-                            api_key: e.target.value,
+                  <TerminalField label="App key" htmlFor="schwab-key">
+                    <TerminalInput
+                      id="schwab-key"
+                      value={secretInputValue(draft.brokers.schwab.api_key)}
+                      placeholder={secretInputPlaceholder(
+                        draft.brokers.schwab.api_key,
+                        "App key",
+                      )}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          brokers: {
+                            ...d.brokers,
+                            schwab: {
+                              ...d.brokers.schwab,
+                              api_key: e.target.value,
+                            },
                           },
-                        },
-                      }))
-                    }
-                  />
-                  <Label htmlFor="schwab-secret">App secret</Label>
-                  <Input
-                    id="schwab-secret"
-                    type="password"
-                    value={secretInputValue(draft.brokers.schwab.app_secret)}
-                    placeholder={secretInputPlaceholder(
-                      draft.brokers.schwab.app_secret,
-                      "App secret",
-                    )}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        brokers: {
-                          ...d.brokers,
-                          schwab: {
-                            ...d.brokers.schwab,
-                            app_secret: e.target.value,
+                        }))
+                      }
+                    />
+                  </TerminalField>
+                  <TerminalField label="App secret" htmlFor="schwab-secret">
+                    <TerminalInput
+                      id="schwab-secret"
+                      type="password"
+                      value={secretInputValue(draft.brokers.schwab.app_secret)}
+                      placeholder={secretInputPlaceholder(
+                        draft.brokers.schwab.app_secret,
+                        "App secret",
+                      )}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          brokers: {
+                            ...d.brokers,
+                            schwab: {
+                              ...d.brokers.schwab,
+                              app_secret: e.target.value,
+                            },
                           },
-                        },
-                      }))
-                    }
-                  />
-                  <Label htmlFor="schwab-callback">Callback URL</Label>
-                  <Input
-                    id="schwab-callback"
-                    value={draft.brokers.schwab.callback_url}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        brokers: {
-                          ...d.brokers,
-                          schwab: {
-                            ...d.brokers.schwab,
-                            callback_url: e.target.value,
+                        }))
+                      }
+                    />
+                  </TerminalField>
+                  <TerminalField label="Callback URL" htmlFor="schwab-callback">
+                    <TerminalInput
+                      id="schwab-callback"
+                      value={draft.brokers.schwab.callback_url}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          brokers: {
+                            ...d.brokers,
+                            schwab: {
+                              ...d.brokers.schwab,
+                              callback_url: e.target.value,
+                            },
                           },
-                        },
-                      }))
-                    }
-                  />
-                  <Label htmlFor="schwab-hash">Account hash (optional)</Label>
-                  <Input
-                    id="schwab-hash"
-                    value={draft.brokers.schwab.account_hash}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        brokers: {
-                          ...d.brokers,
-                          schwab: {
-                            ...d.brokers.schwab,
-                            account_hash: e.target.value,
+                        }))
+                      }
+                    />
+                  </TerminalField>
+                  <TerminalField label="Account hash (optional)" htmlFor="schwab-hash">
+                    <TerminalInput
+                      id="schwab-hash"
+                      value={draft.brokers.schwab.account_hash}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          brokers: {
+                            ...d.brokers,
+                            schwab: {
+                              ...d.brokers.schwab,
+                              account_hash: e.target.value,
+                            },
                           },
-                        },
-                      }))
-                    }
-                  />
+                        }))
+                      }
+                    />
+                  </TerminalField>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                   After saving, authenticate:{" "}
-                  <code className="text-[11px]">
+                  <code className="text-[10px]">
                     python -m scripts.schwab_login
                   </code>
                 </p>
-              </div>
+              </SettingsSection>
 
-              <p className="text-xs text-muted-foreground">
+              <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                 Enable both brokers to see a combined overview with separate
                 account sections.
               </p>
@@ -461,17 +473,19 @@ export function SettingsDialog({ collapsed = false }: Props) {
                 onChange={(ai) => setDraft((d) => ({ ...d, ai }))}
                 modelsRevision={modelsRevision}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                 Keys are stored locally in{" "}
-                <code className="text-[11px]">data/settings.json</code>. Custom
+                <code className="text-[10px]">data/settings.json</code>. Custom
                 base URLs support proxies, Azure OpenAI, and compatible gateways.
               </p>
           </div>
         ) : section === "research" ? (
           <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="searxng-url">SearXNG URL (optional)</Label>
-                <Input
+              <TerminalField
+                label="SearXNG URL (optional)"
+                htmlFor="searxng-url"
+              >
+                <TerminalInput
                   id="searxng-url"
                   value={draft.research?.searxng_url ?? ""}
                   placeholder="http://localhost:8080"
@@ -482,14 +496,14 @@ export function SettingsDialog({ collapsed = false }: Props) {
                     }))
                   }
                 />
-                <p className="text-xs text-muted-foreground">
-                  When set, deep research uses live web search instead of mock
-                  snippets. You can also set{" "}
-                  <code className="text-[11px]">SEARXNG_URL</code> in{" "}
-                  <code className="text-[11px]">.env</code>. Env wins if both are
-                  set.
-                </p>
-              </div>
+              </TerminalField>
+              <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+                When set, deep research uses live web search instead of mock
+                snippets. You can also set{" "}
+                <code className="text-[10px]">SEARXNG_URL</code> in{" "}
+                <code className="text-[10px]">.env</code>. Env wins if both are
+                set.
+              </p>
           </div>
         ) : (
           <SettingsTradesPanel />
@@ -498,9 +512,11 @@ export function SettingsDialog({ collapsed = false }: Props) {
         </div>
 
         <div className="shrink-0 border-t border-border px-6 py-4">
-        {error && <p className="mb-2 text-sm text-destructive">{error}</p>}
+        {error && (
+          <p className="mb-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
+        )}
         {message && (
-          <p className="mb-2 text-sm text-muted-foreground">{message}</p>
+          <p className="mb-2 font-mono text-[11px] text-[var(--fg-dim)]">{message}</p>
         )}
 
         <DialogFooter className="sm:justify-end">
@@ -508,26 +524,26 @@ export function SettingsDialog({ collapsed = false }: Props) {
             // These sections save their own changes inline (per-card / per-action),
             // so the global Save doesn't apply — offer a plain Done to close instead
             // of a disabled Save + a misleading "Cancel".
-            <Button type="button" onClick={() => setOpen(false)} disabled={saving}>
+            <TerminalButton type="button" onClick={() => setOpen(false)} disabled={saving}>
               Done
-            </Button>
+            </TerminalButton>
           ) : (
             <>
-              <Button
+              <TerminalButton
                 type="button"
-                variant="outline"
                 onClick={() => setOpen(false)}
                 disabled={saving}
               >
                 Cancel
-              </Button>
-              <Button
+              </TerminalButton>
+              <TerminalButton
                 type="button"
+                variant="primary"
                 onClick={handleSave}
                 disabled={saving || loading}
               >
                 {saving ? "Saving…" : "Save"}
-              </Button>
+              </TerminalButton>
             </>
           )}
         </DialogFooter>

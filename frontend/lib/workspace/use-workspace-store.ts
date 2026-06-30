@@ -16,6 +16,7 @@ import {
   type WorkspacePage,
   type WorkspacePagesState,
 } from "./layout-persistence";
+import { useChannelStore } from "./use-channel-store";
 import { GRID_DEFAULT_COLS } from "./grid-metrics";
 import {
   getWidgetDefinition,
@@ -32,6 +33,7 @@ type WorkspaceState = {
   locked: boolean;
   pickerOpen: boolean;
   gridCols: number;
+  focusRequest: { instanceId: string; nonce: number } | null;
   hydrate: () => Promise<void>;
   getActiveLayout: () => WorkspaceLayoutItem[];
   setGridCols: (cols: number) => void;
@@ -49,6 +51,8 @@ type WorkspaceState = {
   toggleLock: () => void;
   setPickerOpen: (open: boolean) => void;
   openPicker: () => void;
+  focusWidget: (type: string) => boolean;
+  focusSymbol: (symbol: string) => boolean;
 };
 
 function loadLocked(): boolean {
@@ -197,6 +201,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   locked: false,
   pickerOpen: false,
   gridCols: GRID_DEFAULT_COLS,
+  focusRequest: null,
 
   getActiveLayout: () => {
     const { pages, activePageId } = get();
@@ -408,4 +413,52 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   setPickerOpen: (pickerOpen) => set({ pickerOpen }),
   openPicker: () => set({ pickerOpen: true }),
+
+  focusWidget: (type) => {
+    const { pages, activePageId } = get();
+    let found = pages[activePageId]?.layout.find((it) => it.type === type);
+    let pageId = activePageId;
+    if (!found) {
+      for (const [pid, page] of Object.entries(pages)) {
+        const hit = page.layout.find((it) => it.type === type);
+        if (hit) {
+          found = hit;
+          pageId = pid;
+          break;
+        }
+      }
+    }
+    if (!found) return false;
+    if (pageId !== activePageId) get().setActivePage(pageId);
+    set({ focusRequest: { instanceId: found.i, nonce: Date.now() } });
+    return true;
+  },
+
+  focusSymbol: (symbol) => {
+    const sym = symbol.trim().toUpperCase();
+    if (!sym) return false;
+    const { pages, activePageId } = get();
+    let chart = pages[activePageId]?.layout.find((it) => it.type === "chart");
+    let pageId = activePageId;
+    if (!chart) {
+      for (const [pid, page] of Object.entries(pages)) {
+        const hit = page.layout.find((it) => it.type === "chart");
+        if (hit) {
+          chart = hit;
+          pageId = pid;
+          break;
+        }
+      }
+    }
+    if (!chart) return false;
+    if (pageId !== activePageId) get().setActivePage(pageId);
+    const channel = chart.config?.channel ?? "none";
+    if (channel !== "none") {
+      useChannelStore.getState().setChannelSymbol(channel, sym);
+    } else {
+      get().updateWidgetConfig(chart.i, { symbol: sym });
+    }
+    set({ focusRequest: { instanceId: chart.i, nonce: Date.now() } });
+    return true;
+  },
 }));

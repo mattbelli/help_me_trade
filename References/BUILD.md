@@ -524,6 +524,16 @@ store→`pages` model (non-breaking auto-migration), page switcher (tabs + add/r
 — `rules` / `research` / `performance` widgets (wrap the existing page components into the grid; routes stay alive).
 Route redirects deferred to cleanup. Next: Stage 4 (Configure-your-AI setup page).
 
+**UI polish round (2026-06-30) ✅ built + deployed.** Terminal-UI pass over the cockpit: (1) **Settings restyled**
+to the terminal language via reusable primitives (`frontend/components/ui/terminal/` — Field/Input/Select/Toggle/
+Button + SettingsSection; the mono `[x] ON / [ ] OFF` toggle); every section converted, **kill-switch confirm flow
+untouched** (restyle-only, Sonnet-reviewed). (2) **Clickable tickers** in Positions + Open-Orders (now `channelAware`)
+via a shared `usePublishSymbol` hook + `ClickableSymbol` (accent ticker type shared with watchlist/rvol) + a publish
+confirmation toast. (3) **Notifications deep-link** (in-workspace focus, no nav): `notificationTarget` +
+`focusWidget`/`focusSymbol` on the workspace store + a flash ring; wired into bell/banner/inbox. (4) **Per-theme
+accent identities** (`globals.css`): oled→violet on neutral flat-black, warm→off-white tickers (de-oranged),
+light→royal blue; carbon kept; candle `--chart-accent` stays green/teal (guardrail).
+
 **Noted future ideas (Phase 6/7):**
 - **Tabbed widgets (browser-style).** A `+` on a widget (esp. **chart**) to add multiple instances (e.g. 4–5 tickers) and tab between them in one tile — like browser tabs. Founder request 2026-06-20.
 - **No-overlap is a hard rule.** Widgets must never sit on top of each other. (A 2026-06-20 regression — lowering the grid column floor to fit narrow desktops clamped widgets into collisions — was reverted: the floor stays at `GRID_DEFAULT_COLS` since phones now use the mobile shell, so the desktop grid never narrows enough to clamp.)

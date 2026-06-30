@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import {
+  TerminalButton,
+  TerminalField,
+  TerminalInput,
+  TerminalToggle,
+} from "@/components/ui/terminal";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import {
   fetchStrategies,
   fetchStrategyAccounts,
@@ -274,10 +276,11 @@ function StrategyCard({
               </span>
             </button>
           </div>
-          <Switch
+          <TerminalToggle
             checked={draft.enabled}
             disabled={toggling}
             onCheckedChange={(checked) => void handleToggle(checked)}
+            aria-label={`Enable ${strategy.name}`}
           />
         </div>
       </CardHeader>
@@ -327,8 +330,7 @@ function StrategyCard({
           )}
 
           <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Account</Label>
+            <TerminalField label="Account">
               <Select
                 value={draft.account_id || UNBOUND}
                 onValueChange={(v) =>
@@ -338,7 +340,7 @@ function StrategyCard({
                   }))
                 }
               >
-                <SelectTrigger className="h-8">
+                <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
                 <SelectContent>
@@ -351,26 +353,21 @@ function StrategyCard({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
+            <TerminalField label={isSessionNode ? "Symbol" : "Universe"}>
               {isSessionNode ? (
-                <>
-                  <Label className="text-xs">Symbol</Label>
-                  <p className="text-sm text-muted-foreground">SPY</p>
-                </>
+                <p className="text-sm text-muted-foreground">SPY</p>
               ) : (
-                <>
-                  <Label className="text-xs">Universe</Label>
-                  <Select
-                    value={draft.universe}
-                    onValueChange={(v) =>
-                      updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
-                    }
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue placeholder="Select universe" />
-                    </SelectTrigger>
+                <Select
+                  value={draft.universe}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
+                  }
+                >
+                  <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
+                    <SelectValue placeholder="Select universe" />
+                  </SelectTrigger>
                     <SelectContent>
                       {/* Surface the stored value even if it's a legacy/active spec not
                           in the option list, so it never renders blank. */}
@@ -388,17 +385,14 @@ function StrategyCard({
                       ))}
                     </SelectContent>
                   </Select>
-                </>
               )}
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Notional ($)</Label>
-              <Input
+            <TerminalField label="Notional ($)">
+              <TerminalInput
                 type="number"
                 min={0}
                 step={50}
-                className="h-8"
                 value={notionalText}
                 onChange={(e) => {
                   const raw = e.target.value;
@@ -409,10 +403,9 @@ function StrategyCard({
                   }));
                 }}
               />
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Entry mode</Label>
+            <TerminalField label="Entry mode">
               {isSessionNode ? (
                 <p className="text-sm text-muted-foreground">
                   propose — entries are phone prompts
@@ -427,7 +420,7 @@ function StrategyCard({
                     }))
                   }
                 >
-                  <SelectTrigger className="h-8">
+                  <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -436,10 +429,9 @@ function StrategyCard({
                   </SelectContent>
                 </Select>
               )}
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Exit mode</Label>
+            <TerminalField label="Exit mode">
               {isSessionNode ? (
                 <p className="text-sm text-muted-foreground">
                   propose — exits are phone prompts
@@ -454,7 +446,7 @@ function StrategyCard({
                     }))
                   }
                 >
-                  <SelectTrigger className="h-8">
+                  <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -463,15 +455,13 @@ function StrategyCard({
                   </SelectContent>
                 </Select>
               )}
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Max positions</Label>
-              <Input
+            <TerminalField label="Max positions">
+              <TerminalInput
                 type="number"
                 min={0}
                 step={1}
-                className="h-8"
                 placeholder="No cap"
                 value={draft.max_concurrent_positions ?? ""}
                 onChange={(e) =>
@@ -484,15 +474,13 @@ function StrategyCard({
                   }))
                 }
               />
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Max deployed ($)</Label>
-              <Input
+            <TerminalField label="Max deployed ($)">
+              <TerminalInput
                 type="number"
                 min={0}
                 step={1000}
-                className="h-8"
                 placeholder="No cap"
                 value={draft.max_deployed_usd ?? ""}
                 onChange={(e) =>
@@ -503,16 +491,14 @@ function StrategyCard({
                   }))
                 }
               />
-            </div>
+            </TerminalField>
 
             {hasFarSupportMin && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Far support min (%)</Label>
-                <Input
+              <TerminalField label="Far support min (%)">
+                <TerminalInput
                   type="number"
                   min={0}
                   step={0.5}
-                  className="h-8"
                   value={farSupportText}
                   onChange={(e) => {
                     const raw = e.target.value;
@@ -526,7 +512,7 @@ function StrategyCard({
                     }));
                   }}
                 />
-              </div>
+              </TerminalField>
             )}
           </div>
 
@@ -571,15 +557,15 @@ function StrategyCard({
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <div className="flex justify-end">
-            <Button
+            <TerminalButton
               type="button"
-              size="sm"
+              variant="primary"
               disabled={!dirty || saving}
               onClick={() => void handleSave()}
             >
               {saving && <Loader2 className="mr-2 size-3.5 animate-spin" />}
               Save
-            </Button>
+            </TerminalButton>
           </div>
         </CardContent>
       )}

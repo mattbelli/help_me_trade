@@ -22,6 +22,7 @@ export type WorkspaceNotification = {
   action_url?: string | null;
   ref_type?: string | null;
   ref_id?: string | null;
+  data?: Record<string, unknown> | null;
   created_at: string;
   read: boolean;
   dismissed?: boolean;
@@ -54,6 +55,7 @@ export function mapServerNotification(
     action_url: row.action_url,
     ref_type: row.ref_type,
     ref_id: row.ref_id,
+    data: row.data,
     created_at: row.created_at,
     read: row.read,
     dismissed: row.dismissed,

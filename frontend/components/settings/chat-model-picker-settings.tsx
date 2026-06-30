@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { TerminalToggle } from "@/components/ui/terminal";
 import { fetchChatModels, type ChatModelOption } from "@/lib/ai-models";
 import {
   type AiProviderId,
@@ -133,27 +132,25 @@ export function ChatModelPickerSettings({
             ai.chat_enabled_models,
             catalog,
           );
-          const switchId = `chat-model-${providerId}-${model.id}`;
           return (
             <li
               key={model.id}
               className="flex items-start justify-between gap-3 rounded-md px-1 py-0.5"
             >
-              <Label
-                htmlFor={switchId}
-                className="min-w-0 cursor-pointer text-xs leading-snug font-normal"
-              >
-                <span className="font-medium">{model.label}</span>
-                <span className="text-muted-foreground mt-0.5 block font-mono text-[10px]">
+              <div className="min-w-0 leading-snug">
+                <span className="font-mono text-[11px] text-foreground">
+                  {model.label}
+                </span>
+                <span className="mt-0.5 block font-mono text-[10px] text-[var(--fg-faint)]">
                   {model.id}
                 </span>
-              </Label>
-              <Switch
-                id={switchId}
+              </div>
+              <TerminalToggle
                 checked={enabled}
                 onCheckedChange={(checked) =>
                   setModelEnabled(model.id, checked === true)
                 }
+                aria-label={model.label}
               />
             </li>
           );

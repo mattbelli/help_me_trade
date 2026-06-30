@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchRvolScanner, type RvolScannerResult } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
-import { useChannelStore } from "@/lib/workspace/use-channel-store";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
@@ -58,9 +58,8 @@ export function RvolScannerWidget({ config }: WidgetProps) {
   const [error, setError] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
-  const setChannelSymbol = useChannelStore((s) => s.setChannelSymbol);
   const channel: ChannelId = config.channel ?? "none";
-  const linked = channel !== "none";
+  const { publish, linked } = usePublishSymbol(channel);
 
   const load = useCallback(async () => {
     try {
@@ -85,14 +84,6 @@ export function RvolScannerWidget({ config }: WidgetProps) {
       clearInterval(timer);
     };
   }, [load]);
-
-  const publishSymbol = useCallback(
-    (symbol: string) => {
-      if (!linked) return;
-      setChannelSymbol(channel, symbol);
-    },
-    [channel, linked, setChannelSymbol],
-  );
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !data) {
@@ -154,7 +145,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
             <button
               key={row.symbol}
               type="button"
-              onClick={() => publishSymbol(row.symbol)}
+              onClick={() => publish(row.symbol)}
               className={cn(
                 "grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 text-left transition-colors",
                 linked
