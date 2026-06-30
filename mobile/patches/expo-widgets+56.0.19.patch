@@ -1,0 +1,18 @@
+diff --git a/node_modules/expo-widgets/ios/LiveActivityFactory.swift b/node_modules/expo-widgets/ios/LiveActivityFactory.swift
+index caf1e05..39473e1 100644
+--- a/node_modules/expo-widgets/ios/LiveActivityFactory.swift
++++ b/node_modules/expo-widgets/ios/LiveActivityFactory.swift
+@@ -43,7 +43,12 @@ final class LiveActivityFactory: SharedObject {
+     guard #available(iOS 16.1, *) else { throw LiveActivitiesNotSupportedException() }
+ 
+     return Activity<LiveActivityAttributes>.activities.map { activity in
+-      LiveActivity(id: activity.id, name: name)
++      let instance = LiveActivity(id: activity.id, name: name)
++      // Patch (help_me_trade): observe the per-activity push token for activities we
++      // did NOT start locally — e.g. push-STARTED ones (serv's push-to-start). Upstream
++      // only observes in start(), so getPushToken()/the token event never fire for them.
++      instance.observePushTokenUpdates(for: activity, pushNotificationsEnabled: LiveActivityFactory.pushNotificationsEnabled)
++      return instance
+     }
+   }
+ }
