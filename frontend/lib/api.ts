@@ -1,5 +1,5 @@
 import type { AiSettings } from "./ai-settings";
-import type { WorkspaceLayoutItem } from "./workspace/layout-persistence";
+import type { WorkspaceLayoutItem, WorkspacePagesState } from "./workspace/layout-persistence";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -913,6 +913,42 @@ export async function saveWorkspaceLayout(
     });
   } catch (err) {
     console.warn("[workspace] server layout save failed:", err);
+  }
+}
+
+export async function fetchWorkspacePages(): Promise<WorkspacePagesState | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/pages`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const state = data.pages_state;
+    if (
+      state &&
+      typeof state === "object" &&
+      state.pages &&
+      typeof state.activePageId === "string"
+    ) {
+      return state as WorkspacePagesState;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspacePages(
+  pagesState: WorkspacePagesState,
+): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/pages`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pages_state: pagesState }),
+    });
+  } catch (err) {
+    console.warn("[workspace] server pages save failed:", err);
   }
 }
 

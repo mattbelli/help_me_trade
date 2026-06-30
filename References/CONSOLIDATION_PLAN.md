@@ -49,6 +49,14 @@ drops into this. **Small polish to fold in:** make the console `/add <widget>` a
 directly (today `/add` only opens the picker; `/add notifications` returns "unknown") —
 `frontend/lib/workspace/use-workspace-commands.ts:143`, derive from `WIDGET_REGISTRY`.
 
+  Recon: `References/CONSOLIDATION_S2_RECON.md`. **Locked decisions (2026-06-30):** page switcher lives in the
+  **console-bar cluster** (extend the existing "default layout" pill; keep toolbar stats) · **compact tab strip**
+  (pills, cap 5) · **rename/delete via right-click context menu** · **per-page singletons** · keybinds
+  **`Alt+1–5`** (jump) + **`Alt+[ / ]`** (prev/next) — avoids the browser Ctrl/Cmd+number collision · backend is
+  **additive** (new `key='pages'` row, old `layout` row untouched, auto-migration wraps the existing layout into a
+  default "canvas" page). **Split:** *2a* = data layer (store→pages + persistence + backend + migration; NON-BREAKING,
+  no visible UI) → *2b* = UI (switcher + add/rename/delete + keybinds + `/add <widget>` polish). 2a in flight.
+
 **Stage 3 — Componentize the old pages → widgets.** Build the NOT-yet-widgetized surfaces as widgets: Performance
 (analytics), Research (input + streaming output), Rules (rule editor; scans widget already shows fires), + gaps
 (price-alert creation, automations overview entry-point). Redirect the already-covered routes (Overview, memories,

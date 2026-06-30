@@ -14,8 +14,11 @@ import { WorkspaceToolbar } from "@/components/workspace/workspace-toolbar";
 import { useConsoleStore } from "@/lib/workspace/use-console-store";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useIsMobile } from "@/lib/workspace/use-is-mobile";
+import { usePageHotkeys } from "@/lib/workspace/use-page-hotkeys";
 
 export default function WorkspacePage() {
+  usePageHotkeys();
+
   const isMobile = useIsMobile();
   const collapsedHeight = useConsoleStore((s) => s.collapsedHeight);
   const open = useCopilotStore((s) => s.open);

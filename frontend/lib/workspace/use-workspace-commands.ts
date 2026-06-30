@@ -15,6 +15,9 @@ import {
   type WorkspaceTheme,
 } from "@/lib/workspace/themes";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import {
+  WIDGET_REGISTRY,
+} from "@/lib/workspace/widget-registry";
 
 import { useWorkspaceToast } from "@/components/workspace/workspace-toast";
 
@@ -41,6 +44,7 @@ export function useWorkspaceCommands() {
   const { showToast } = useWorkspaceToast();
   const { theme, setTheme } = useTheme();
   const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
+  const addWidget = useWorkspaceStore((s) => s.addWidget);
   const clearScrollback = useConsoleStore((s) => s.clearScrollback);
   const aui = useAui();
 
@@ -140,9 +144,34 @@ export function useWorkspaceCommands() {
         case "/positions":
           showToast("/positions — coming soon");
           return { handled: true, output: "positions — coming soon" };
-        case "/add":
-          openWidgetPicker();
-          return { handled: true, output: "widget picker opened" };
+        case "/add": {
+          const arg = value.split(/\s+/).slice(1).join(" ").trim();
+          if (!arg) {
+            openWidgetPicker();
+            return { handled: true, output: "widget picker opened" };
+          }
+
+          const widget = WIDGET_REGISTRY.find(
+            (entry) => entry.id.toLowerCase() === arg.toLowerCase(),
+          );
+          if (!widget) {
+            const ids = WIDGET_REGISTRY.map((entry) => entry.id).join(", ");
+            return {
+              handled: true,
+              error: `unknown widget: ${arg} (valid: ${ids})`,
+            };
+          }
+
+          const added = addWidget(widget.id);
+          if (added) {
+            return { handled: true, output: `added ${widget.id}` };
+          }
+
+          return {
+            handled: true,
+            error: `${widget.id} is already on this page`,
+          };
+        }
         case "/clear":
           void aui.threads().switchToNewThread();
           clearScrollback();
@@ -155,7 +184,7 @@ export function useWorkspaceCommands() {
           };
       }
     },
-    [aui, clearScrollback, openWidgetPicker, setTheme, showToast, theme],
+    [addWidget, aui, clearScrollback, openWidgetPicker, setTheme, showToast, theme],
   );
 
   return { runCommand };

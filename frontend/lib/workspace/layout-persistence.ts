@@ -24,12 +24,26 @@ export type WorkspaceLayoutItem = {
   config?: WidgetInstanceConfig;
 };
 
+export type WorkspacePage = {
+  id: string;
+  name: string;
+  layout: WorkspaceLayoutItem[];
+};
+
+export type WorkspacePagesState = {
+  pages: Record<string, WorkspacePage>;
+  activePageId: string;
+};
+
 export interface LayoutPersistence {
   load(): WorkspaceLayoutItem[] | null;
   save(layout: WorkspaceLayoutItem[]): void;
 }
 
-const STORAGE_KEY = "hmt-workspace-layout-v2";
+const STORAGE_KEY_V2 = "hmt-workspace-layout-v2";
+const STORAGE_KEY_V3 = "hmt-workspace-v3";
+
+export const DEFAULT_CANVAS_PAGE_ID = "canvas";
 
 export const DEFAULT_WORKSPACE_LAYOUT: WorkspaceLayoutItem[] = [
   {
@@ -106,6 +120,25 @@ export const DEFAULT_WORKSPACE_LAYOUT: WorkspaceLayoutItem[] = [
   },
 ];
 
+export function wrapLayoutAsPagesState(
+  layout: WorkspaceLayoutItem[],
+): WorkspacePagesState {
+  return {
+    pages: {
+      [DEFAULT_CANVAS_PAGE_ID]: {
+        id: DEFAULT_CANVAS_PAGE_ID,
+        name: "Canvas",
+        layout,
+      },
+    },
+    activePageId: DEFAULT_CANVAS_PAGE_ID,
+  };
+}
+
+export const DEFAULT_PAGES_STATE: WorkspacePagesState = wrapLayoutAsPagesState(
+  DEFAULT_WORKSPACE_LAYOUT,
+);
+
 function isValidLayoutItem(item: unknown): item is WorkspaceLayoutItem {
   if (!item || typeof item !== "object") return false;
   const o = item as Record<string, unknown>;
@@ -119,22 +152,80 @@ function isValidLayoutItem(item: unknown): item is WorkspaceLayoutItem {
   );
 }
 
-export const localStorageLayoutPersistence: LayoutPersistence = {
-  load() {
+function isValidPagesState(raw: unknown): raw is WorkspacePagesState {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  const pages = o.pages;
+  const activePageId = o.activePageId;
+  if (!pages || typeof pages !== "object" || typeof activePageId !== "string") {
+    return false;
+  }
+  const pageEntries = Object.entries(pages as Record<string, unknown>);
+  if (pageEntries.length === 0) return false;
+
+  for (const [, page] of pageEntries) {
+    if (!page || typeof page !== "object") return false;
+    const p = page as Record<string, unknown>;
+    if (typeof p.id !== "string" || typeof p.name !== "string") return false;
+    if (!Array.isArray(p.layout)) return false;
+    if (!p.layout.every(isValidLayoutItem)) return false;
+  }
+
+  if (!(activePageId in (pages as Record<string, unknown>))) {
+    return false;
+  }
+  return true;
+}
+
+function normalizePagesState(state: WorkspacePagesState): WorkspacePagesState {
+  const activePageId =
+    state.activePageId in state.pages
+      ? state.activePageId
+      : Object.keys(state.pages)[0];
+  return { ...state, activePageId };
+}
+
+/** One-time fallback reader for the pre-multi-page localStorage key. */
+export function loadLegacyV2Layout(): WorkspaceLayoutItem[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY_V2);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const valid = parsed.filter(isValidLayoutItem);
+    return valid.length > 0 ? valid : null;
+  } catch {
+    return null;
+  }
+}
+
+export const localStoragePagesPersistence = {
+  load(): WorkspacePagesState | null {
     if (typeof window === "undefined") return null;
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw = window.localStorage.getItem(STORAGE_KEY_V3);
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as unknown[];
-      if (!Array.isArray(parsed) || parsed.length === 0) return null;
-      const valid = parsed.filter(isValidLayoutItem);
-      return valid.length > 0 ? valid : null;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!isValidPagesState(parsed)) return null;
+      return normalizePagesState(parsed);
     } catch {
       return null;
     }
   },
+  save(state: WorkspacePagesState): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(STORAGE_KEY_V3, JSON.stringify(state));
+  },
+};
+
+/** @deprecated Legacy v2 cache — kept for one-time client fallback only. */
+export const localStorageLayoutPersistence: LayoutPersistence = {
+  load() {
+    return loadLegacyV2Layout();
+  },
   save(layout) {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+    window.localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(layout));
   },
 };

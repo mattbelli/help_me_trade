@@ -21,7 +21,9 @@ type Props = {
 };
 
 export function WorkspaceWidgetPicker({ onClose }: Props) {
-  const layout = useWorkspaceStore((s) => s.layout);
+  const layout = useWorkspaceStore(
+    (s) => s.pages[s.activePageId]?.layout ?? [],
+  );
   const addWidget = useWorkspaceStore((s) => s.addWidget);
   const setPickerOpen = useWorkspaceStore((s) => s.setPickerOpen);
 

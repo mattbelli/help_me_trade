@@ -11,6 +11,7 @@ import {
 import { Lock, LockOpen, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
+import { PageSwitcher } from "@/components/workspace/page-switcher";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   useConsoleStore,
@@ -302,9 +303,7 @@ export function CommandConsole() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="hidden rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] md:inline">
-            default layout
-          </span>
+          <PageSwitcher />
           <button
             type="button"
             onClick={toggleLock}

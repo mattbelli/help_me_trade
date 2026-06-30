@@ -100,7 +100,13 @@ from db.sqlite import (
 )
 from db.strategies import init_strategy_tables, list_strategies, seed_default_strategies
 from db.trades import init_trade_tables
-from db.workspace import init_workspace_tables, load_workspace_layout, save_workspace_layout
+from db.workspace import (
+    init_workspace_tables,
+    load_workspace_layout,
+    load_workspace_pages,
+    save_workspace_layout,
+    save_workspace_pages,
+)
 from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.momentum import refresh_universe_bars
 from signals.regime import refresh_regime_macro
@@ -2252,6 +2258,53 @@ def api_put_workspace_layout(body: dict = Body(...)):
                 status_code=400,
             )
     save_workspace_layout(layout)
+    return {"ok": True}
+
+
+def _is_valid_workspace_page(page: object) -> bool:
+    if not isinstance(page, dict):
+        return False
+    layout = page.get("layout")
+    if not isinstance(page.get("id"), str) or not isinstance(page.get("name"), str):
+        return False
+    if not isinstance(layout, list):
+        return False
+    return all(_is_valid_layout_item(item) for item in layout)
+
+
+def _is_valid_pages_state(state: object) -> bool:
+    if not isinstance(state, dict):
+        return False
+    pages = state.get("pages")
+    active_page_id = state.get("activePageId")
+    if not isinstance(pages, dict) or not isinstance(active_page_id, str):
+        return False
+    if not pages:
+        return False
+    if active_page_id not in pages:
+        return False
+    return all(_is_valid_workspace_page(page) for page in pages.values())
+
+
+@app.get("/api/workspace/pages")
+def api_get_workspace_pages():
+    return {"pages_state": load_workspace_pages()}
+
+
+@app.put("/api/workspace/pages")
+def api_put_workspace_pages(body: dict = Body(...)):
+    pages_state = body.get("pages_state")
+    if not _is_valid_pages_state(pages_state):
+        return JSONResponse(
+            {
+                "error": (
+                    "pages_state must have pages map, activePageId, and each page "
+                    "must have string id, name and a layout array of valid items"
+                )
+            },
+            status_code=400,
+        )
+    save_workspace_pages(pages_state)
     return {"ok": True}
 
 

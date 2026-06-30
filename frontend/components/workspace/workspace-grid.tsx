@@ -435,8 +435,10 @@ type EdgeState = {
 };
 
 export function WorkspaceGrid() {
+  const layout = useWorkspaceStore(
+    (s) => s.pages[s.activePageId]?.layout ?? [],
+  );
   const {
-    layout,
     hydrated,
     hydrate,
     locked,
