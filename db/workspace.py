@@ -152,3 +152,63 @@ def save_workspace_pages(pages_state: dict, db_path: Path = DEFAULT_DB_PATH) -> 
             (value, now),
         )
         conn.commit()
+
+
+MAX_CUSTOM_THEMES = 24
+
+
+def _is_valid_custom_theme(theme: object) -> bool:
+    if not isinstance(theme, dict):
+        return False
+    if not isinstance(theme.get("id"), str) or not isinstance(theme.get("name"), str):
+        return False
+    variables = theme.get("vars")
+    if not isinstance(variables, dict):
+        return False
+    return all(
+        isinstance(k, str) and isinstance(v, str) for k, v in variables.items()
+    )
+
+
+def is_valid_custom_themes(themes: object) -> bool:
+    if not isinstance(themes, list):
+        return False
+    if len(themes) > MAX_CUSTOM_THEMES:
+        return False
+    return all(_is_valid_custom_theme(theme) for theme in themes)
+
+
+def load_custom_themes(db_path: Path = DEFAULT_DB_PATH) -> list:
+    """Return the stored custom themes list, or [] if absent/invalid (fail-soft)."""
+    try:
+        init_workspace_tables(db_path)
+        with _connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT value FROM workspace_state WHERE key = 'custom_themes'",
+            ).fetchone()
+        if row is None:
+            return []
+        parsed = json.loads(row[0])
+        if not is_valid_custom_themes(parsed):
+            return []
+        return parsed
+    except Exception:
+        return []
+
+
+def save_custom_themes(themes: list, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Upsert the custom themes list. Last-write-wins."""
+    init_workspace_tables(db_path)
+    now = datetime.now(UTC).isoformat()
+    value = json.dumps(themes)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO workspace_state (key, value, updated_at)
+            VALUES ('custom_themes', ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                           updated_at = excluded.updated_at
+            """,
+            (value, now),
+        )
+        conn.commit()

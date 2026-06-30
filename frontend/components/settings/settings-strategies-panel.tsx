@@ -89,9 +89,9 @@ const STRATEGY_DOCS: Record<string, StrategyDoc> = {
 function statusToneClasses(tone: StrategyDoc["status"]["tone"]): string {
   switch (tone) {
     case "good":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+      return "border-[var(--c-green)]/30 bg-[var(--c-green)]/10 text-[var(--c-green)]";
     case "warn":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+      return "border-[var(--c-amber)]/30 bg-[var(--c-amber)]/10 text-[var(--c-amber)]";
     case "danger":
       return "border-destructive/40 bg-destructive/10 text-destructive";
   }
@@ -267,7 +267,7 @@ function StrategyCard({
               />
               <span className="truncate text-sm font-semibold">{strategy.name}</span>
               {!expanded && dirty && (
-                <span className="shrink-0 text-[11px] text-amber-500">• unsaved</span>
+                <span className="shrink-0 text-[11px] text-[var(--c-amber)]">• unsaved</span>
               )}
               <span className="truncate text-xs text-muted-foreground">
                 {boundAccountLabel} · {collapsedMeta}
@@ -320,7 +320,7 @@ function StrategyCard({
           )}
 
           {unboundEnabled && !isSessionNode && (
-            <p className="text-xs text-amber-500">
+            <p className="text-xs text-[var(--c-amber)]">
               Enable has no effect until an account is bound — the scan skips
               unbound strategies.
             </p>

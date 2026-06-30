@@ -38,7 +38,7 @@ function validatedBadgeProps(validated: string | undefined): {
       return {
         label: "Strong · unverified",
         className:
-          "border-amber-500/35 text-amber-600 dark:text-amber-400",
+          "border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] text-[var(--c-amber)]",
       };
     case "exploratory":
       return {

@@ -102,8 +102,11 @@ from db.strategies import init_strategy_tables, list_strategies, seed_default_st
 from db.trades import init_trade_tables
 from db.workspace import (
     init_workspace_tables,
+    is_valid_custom_themes,
+    load_custom_themes,
     load_workspace_layout,
     load_workspace_pages,
+    save_custom_themes,
     save_workspace_layout,
     save_workspace_pages,
 )
@@ -2305,6 +2308,28 @@ def api_put_workspace_pages(body: dict = Body(...)):
             status_code=400,
         )
     save_workspace_pages(pages_state)
+    return {"ok": True}
+
+
+@app.get("/api/workspace/custom-themes")
+def api_get_custom_themes():
+    return {"custom_themes": load_custom_themes()}
+
+
+@app.put("/api/workspace/custom-themes")
+def api_put_custom_themes(body: dict = Body(...)):
+    themes = body.get("custom_themes")
+    if not is_valid_custom_themes(themes):
+        return JSONResponse(
+            {
+                "error": (
+                    "custom_themes must be a list (≤24) of objects with string "
+                    "id, name and a vars map of string→string"
+                )
+            },
+            status_code=400,
+        )
+    save_custom_themes(themes)
     return {"ok": True}
 
 

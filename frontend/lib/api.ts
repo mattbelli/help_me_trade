@@ -1,4 +1,5 @@
 import type { AiSettings } from "./ai-settings";
+import type { CustomTheme } from "./workspace/custom-themes";
 import type { WorkspaceLayoutItem, WorkspacePagesState } from "./workspace/layout-persistence";
 
 export const API_BASE =
@@ -949,6 +950,35 @@ export async function saveWorkspacePages(
     });
   } catch (err) {
     console.warn("[workspace] server pages save failed:", err);
+  }
+}
+
+// ── Custom themes (server-backed, mirrors workspace pages) ──────────────────────
+
+export async function fetchCustomThemes(): Promise<CustomTheme[] | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/custom-themes`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const list = data.custom_themes;
+    if (Array.isArray(list)) return list as CustomTheme[];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCustomThemes(themes: CustomTheme[]): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/custom-themes`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ custom_themes: themes }),
+    });
+  } catch (err) {
+    console.warn("[custom-themes] server save failed:", err);
   }
 }
 

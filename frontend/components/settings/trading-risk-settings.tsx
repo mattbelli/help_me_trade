@@ -89,7 +89,7 @@ export function TradingRiskSettings({ value, onChange }: Props) {
           </option>
         </select>
         {trading.execution_mode === "live" && (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
+          <p className="text-xs text-[var(--c-amber)]">
             Live execution is disabled. Switch to dry run or paper.
           </p>
         )}
@@ -129,7 +129,7 @@ export function TradingRiskSettings({ value, onChange }: Props) {
       <div
         className={`rounded-lg border p-3 ${
           trading.allow_short_selling
-            ? "border-amber-500/50 bg-amber-500/5"
+            ? "border-[var(--c-amber)]/50 bg-[var(--c-amber)]/5"
             : "border-border"
         }`}
       >
@@ -138,7 +138,7 @@ export function TradingRiskSettings({ value, onChange }: Props) {
             <ShieldAlertIcon
               className={`mt-0.5 size-4 shrink-0 ${
                 trading.allow_short_selling
-                  ? "text-amber-500"
+                  ? "text-[var(--c-amber)]"
                   : "text-muted-foreground"
               }`}
             />

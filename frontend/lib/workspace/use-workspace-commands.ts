@@ -14,6 +14,7 @@ import {
   WORKSPACE_THEMES,
   type WorkspaceTheme,
 } from "@/lib/workspace/themes";
+import { useCustomThemeStore } from "@/lib/workspace/use-custom-theme-store";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   WIDGET_REGISTRY,
@@ -46,6 +47,7 @@ export function useWorkspaceCommands() {
   const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
   const addWidget = useWorkspaceStore((s) => s.addWidget);
   const clearScrollback = useConsoleStore((s) => s.clearScrollback);
+  const customThemes = useCustomThemeStore((s) => s.themes);
   const aui = useAui();
 
   const runCommand = useCallback(
@@ -115,16 +117,30 @@ export function useWorkspaceCommands() {
       if (themeMatch) {
         const named = themeMatch[1]?.toLowerCase();
         if (named) {
-          if (!WORKSPACE_THEMES.includes(named as WorkspaceTheme)) {
-            return {
-              handled: true,
-              error: `unknown theme: ${named} (carbon, warm, oled, light)`,
-            };
+          if (WORKSPACE_THEMES.includes(named as WorkspaceTheme)) {
+            setTheme(named);
+            const label = WORKSPACE_THEME_LABELS[named as WorkspaceTheme];
+            showToast(`Theme: ${label}`);
+            return { handled: true, output: `theme → ${label.toLowerCase()}` };
           }
-          setTheme(named);
-          const label = WORKSPACE_THEME_LABELS[named as WorkspaceTheme];
-          showToast(`Theme: ${label}`);
-          return { handled: true, output: `theme → ${label.toLowerCase()}` };
+
+          const custom = customThemes.find(
+            (t) => t.name.toLowerCase() === named,
+          );
+          if (custom) {
+            setTheme(custom.id);
+            showToast(`Theme: ${custom.name}`);
+            return { handled: true, output: `theme → ${custom.name.toLowerCase()}` };
+          }
+
+          const customNames = customThemes.map((t) => t.name.toLowerCase());
+          const valid = ["carbon", "warm", "oled", "light", ...customNames].join(
+            ", ",
+          );
+          return {
+            handled: true,
+            error: `unknown theme: ${named} (${valid})`,
+          };
         }
 
         const current = WORKSPACE_THEMES.includes(theme as WorkspaceTheme)
@@ -184,7 +200,7 @@ export function useWorkspaceCommands() {
           };
       }
     },
-    [addWidget, aui, clearScrollback, openWidgetPicker, setTheme, showToast, theme],
+    [addWidget, aui, clearScrollback, customThemes, openWidgetPicker, setTheme, showToast, theme],
   );
 
   return { runCommand };

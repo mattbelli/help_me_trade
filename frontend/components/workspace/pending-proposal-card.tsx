@@ -109,7 +109,7 @@ export function PendingProposalCard({ proposal, onResolved }: Props) {
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm shadow-sm">
+    <div className="space-y-3 rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_30%,transparent)] bg-[color-mix(in_srgb,var(--c-amber)_5%,transparent)] p-3 text-sm shadow-sm">
       <div>
         <p className="font-medium text-foreground">{proposal.summary}</p>
         {countdown != null ? (

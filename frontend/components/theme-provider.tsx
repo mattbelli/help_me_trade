@@ -3,6 +3,12 @@
 import * as React from "react"
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes"
 
+import { WORKSPACE_THEMES } from "@/lib/workspace/themes"
+import {
+  injectCustomThemeStyles,
+} from "@/lib/workspace/custom-themes"
+import { useCustomThemeStore } from "@/lib/workspace/use-custom-theme-store"
+
 const THEME_STORAGE_KEY = "hmt-theme-carbon"
 
 const LEGACY_THEME_ALIASES: Record<string, string> = {
@@ -34,11 +40,29 @@ function ThemeProvider({
   children,
   ...props
 }: React.ComponentProps<typeof NextThemesProvider>) {
+  const customThemes = useCustomThemeStore((s) => s.themes)
+  const hydrate = useCustomThemeStore((s) => s.hydrate)
+
+  // Reconcile custom themes from server + (re)inject Layer-A styles on mount so
+  // the React side agrees with the anti-FOUC head script.
+  React.useEffect(() => {
+    void hydrate()
+  }, [hydrate])
+
+  React.useEffect(() => {
+    injectCustomThemeStyles(customThemes)
+  }, [customThemes])
+
+  const themes = React.useMemo(
+    () => [...WORKSPACE_THEMES, ...customThemes.map((t) => t.id)],
+    [customThemes],
+  )
+
   return (
     <NextThemesProvider
       attribute="data-theme"
       defaultTheme="carbon"
-      themes={["carbon", "warm", "oled", "light"]}
+      themes={themes}
       storageKey={THEME_STORAGE_KEY}
       disableTransitionOnChange
       enableSystem={false}

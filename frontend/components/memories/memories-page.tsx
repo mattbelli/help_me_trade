@@ -54,9 +54,9 @@ const EMPTY_FORM: MemoryFormState = {
 };
 
 function typeBadgeClass(type: MemoryType): string {
-  if (type === "preference") return "border-sky-500/30 bg-sky-500/10 text-sky-200";
-  if (type === "lesson") return "border-amber-500/30 bg-amber-500/10 text-amber-200";
-  return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+  if (type === "preference") return "border-[var(--c-blue)]/30 bg-[var(--c-blue)]/10 text-[var(--c-blue)]";
+  if (type === "lesson") return "border-[var(--c-amber)]/30 bg-[var(--c-amber)]/10 text-[var(--c-amber)]";
+  return "border-[var(--c-green)]/30 bg-[var(--c-green)]/10 text-[var(--c-green)]";
 }
 
 export function MemoriesPage() {

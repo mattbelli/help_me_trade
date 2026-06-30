@@ -54,7 +54,7 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 p-6 pt-[12vh]"
+      className="fixed inset-0 z-[60] flex items-start justify-center bg-[var(--scrim)] p-6 pt-[12vh]"
       onClick={close}
       onKeyDown={(e) => {
         if (e.key === "Escape") close();

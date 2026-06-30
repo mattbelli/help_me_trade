@@ -58,11 +58,11 @@ function ProposalStatusBanner({
       className={cn(
         "my-2 rounded-lg border p-3 text-sm",
         variant === "success" &&
-          "border-emerald-500/40 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100",
+          "border-[var(--c-green)]/40 bg-[var(--c-green)]/10 text-[var(--c-green)]",
         variant === "dry_run" &&
           "border-[var(--fg-dim)]/30 bg-[var(--bg-raised)] text-foreground",
         variant === "rejected" &&
-          "border-destructive/40 bg-destructive/10 text-destructive dark:text-red-200",
+          "border-destructive/40 bg-destructive/10 text-destructive",
         variant === "processing" &&
           "border-[var(--c-accent)]/40 bg-[var(--c-accent-soft)] text-foreground",
         className,

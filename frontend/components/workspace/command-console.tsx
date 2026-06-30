@@ -64,7 +64,7 @@ function ScrollbackLine({ entry }: { entry: ScrollbackEntry }) {
         "font-mono text-[12px] leading-relaxed whitespace-pre-wrap",
         entry.kind === "input" && "text-[var(--fg-dim)]",
         entry.kind === "output" && "text-[var(--fg-faint)]",
-        entry.kind === "error" && "text-[var(--c-danger,#ef4444)]",
+        entry.kind === "error" && "text-[var(--c-danger)]",
         entry.kind === "sent" && "text-[var(--c-accent)]",
       )}
     >

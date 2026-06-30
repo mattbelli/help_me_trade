@@ -493,7 +493,7 @@ export function TradesPage() {
                   </p>
                 )}
                 {preview.warnings.length > 0 && (
-                  <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  <p className="mt-2 text-xs text-[var(--c-amber)]">
                     {preview.warnings[0]}
                   </p>
                 )}
