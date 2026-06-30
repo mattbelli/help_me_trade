@@ -21,8 +21,31 @@ import {
   WORKSPACE_COMMANDS,
   useWorkspaceCommands,
 } from "@/lib/workspace/use-workspace-commands";
+import { WIDGET_REGISTRY } from "@/lib/workspace/widget-registry";
 
 const SCROLLBACK_MAX_HEIGHT = "min(50vh, 24rem)";
+
+function getCommandSuggestions(input: string): string[] {
+  const trimmed = input.trim();
+  const lower = trimmed.toLowerCase();
+
+  const addMatch = /^\/add(?:\s+(.*))?$/i.exec(trimmed);
+  if (addMatch) {
+    const partial = (addMatch[1] ?? "").trim().toLowerCase();
+    return WIDGET_REGISTRY.filter(
+      (entry) =>
+        partial === "" ||
+        entry.id.toLowerCase().includes(partial) ||
+        entry.title.toLowerCase().includes(partial),
+    ).map((entry) => `/add ${entry.id}`);
+  }
+
+  if (!trimmed.startsWith("/")) return [];
+
+  return WORKSPACE_COMMANDS.filter((cmd) => cmd.startsWith(lower)).map(
+    (cmd) => cmd,
+  );
+}
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -64,9 +87,7 @@ function CommandAutocomplete({
   filter: string;
   onSelect: (command: string) => void;
 }) {
-  const matches = WORKSPACE_COMMANDS.filter((cmd) =>
-    cmd.startsWith(filter.toLowerCase()),
-  );
+  const matches = getCommandSuggestions(filter);
 
   if (matches.length === 0) return null;
 
@@ -208,7 +229,9 @@ export function CommandConsole() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open, setOpen]);
 
-  const showAutocomplete = open && focused && inputValue === "/";
+  const suggestions = getCommandSuggestions(inputValue);
+  const showAutocomplete =
+    open && focused && inputValue.startsWith("/") && suggestions.length > 0;
   const hasOverlayContent =
     open && (scrollback.length > 0 || showAutocomplete);
 
@@ -240,6 +263,12 @@ export function CommandConsole() {
             <CommandAutocomplete
               filter={inputValue}
               onSelect={(cmd) => {
+                if (/^\/add\s+\S+$/i.test(cmd.trim())) {
+                  setInputValue("");
+                  void submitLine(cmd);
+                  inputRef.current?.focus();
+                  return;
+                }
                 setInputValue(`${cmd} `);
                 inputRef.current?.focus();
               }}

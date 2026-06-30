@@ -16,14 +16,16 @@ this file, append the old full version there as a new dated section.*
 > + `CONSOLIDATION_RECON.md` (current-state map).** Workspace is the UI; collapse the old page-nav routes into
 > widgets; multiple savable, hot-swappable **pages** (cap 5; "channels" = within-page symbol-link groups). Two
 > editable default pages: a Configure-your-AI setup page (config widgets) + the live canvas.
-> **Stage 1 ✅ DONE + deployed** (notifications inbox widget — `5bbd3a1`). **Stage 2 ✅ DONE — built + gate-green +
-> committed, ⏳ NOT deployed yet (awaiting founder deploy go-ahead).** Multi-page foundation: store migrated to
-> `pages: {id→{name,layout[]}}` + `activePageId` (non-breaking — the existing layout auto-wraps into a "Canvas"
-> page; legacy `layout` row/endpoints untouched; backend `key='pages'` additive, 8 new tests); page switcher in the
-> console cluster (tabs + add / right-click rename-delete, cap 5); `Alt+1–5` + `Alt+[ / ]` hot-swap (matched on
-> `event.code` so it works on Mac); `/add <widget>` direct-add polish landed. Recon: `CONSOLIDATION_S2_RECON.md`;
-> briefs `consolidation-s2{a,b}-*`. **NEXT = deploy Stage 2 (backend+frontend together — backend changed), then
-> Stage 3: componentize the old pages** (Performance / Research / Rules → widgets; redirect already-covered routes).
+> **Stage 1 ✅ DONE + deployed** (notifications inbox widget — `5bbd3a1`). **Stage 2 ✅ DONE + deployed + polished
+> (`a5bffbb` + polish).** Multi-page foundation: store migrated to `pages: {id→{name,layout[]}}` + `activePageId`
+> (non-breaking — existing layout auto-wraps into a default page; legacy `layout` row/endpoints untouched; backend
+> `key='pages'` additive, 8 new tests); page switcher in the console cluster (tabs + add / right-click+double-click
+> rename / delete, cap 5); `Alt+1–5` + `Alt+[ / ]` hot-swap (matched on `event.code` for Mac); `/add <widget>`
+> direct-add. **Polish round (founder feedback after eyeball):** default page name "Page 1" (not "Canvas");
+> **static page switching** (grid keyed by `activePageId` → remount, no morph/bleed); `/add` live-filters widgets as
+> you type; chart symbol dropdown no longer auto-opens on mount; **positions widget columns sortable** (mirrors
+> watchlist). Recon: `CONSOLIDATION_S2_RECON.md`. **NEXT = Stage 3: componentize the old pages** (Performance /
+> Research / Rules → widgets; redirect already-covered routes).
 >
 > **Notifications supervision backbone — Phase 1 SHIPPED + deployed live (2026-06-29):** 1a (inbox foundation,
 > `9ccbb99`) + 1b (all emits → `notify()`) + 1c (web unified consumer + server-backed bell). Detail below + in

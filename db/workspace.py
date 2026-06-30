@@ -69,7 +69,7 @@ def _wrap_layout_as_pages(layout: list) -> dict:
         "pages": {
             CANVAS_PAGE_ID: {
                 "id": CANVAS_PAGE_ID,
-                "name": "Canvas",
+                "name": "Page 1",
                 "layout": layout,
             }
         },

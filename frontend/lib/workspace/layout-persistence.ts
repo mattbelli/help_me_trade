@@ -127,7 +127,7 @@ export function wrapLayoutAsPagesState(
     pages: {
       [DEFAULT_CANVAS_PAGE_ID]: {
         id: DEFAULT_CANVAS_PAGE_ID,
-        name: "Canvas",
+        name: "Page 1",
         layout,
       },
     },

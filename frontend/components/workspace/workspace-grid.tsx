@@ -435,6 +435,7 @@ type EdgeState = {
 };
 
 export function WorkspaceGrid() {
+  const activePageId = useWorkspaceStore((s) => s.activePageId);
   const layout = useWorkspaceStore(
     (s) => s.pages[s.activePageId]?.layout ?? [],
   );
@@ -596,6 +597,7 @@ export function WorkspaceGrid() {
           {hydrated && colsMeasured ? (
             <div id="workspace-grid-root" className="relative" style={{ width }}>
               <ReactGridLayout
+                key={activePageId}
                 className="layout"
                 layout={gridLayout}
                 cols={cols}

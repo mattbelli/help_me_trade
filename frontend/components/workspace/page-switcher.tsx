@@ -134,7 +134,7 @@ function PagePill({
           ? "border-[var(--c-accent)] bg-[var(--c-accent-soft)] text-foreground"
           : "border-[var(--border)] text-[var(--fg-dim)] hover:border-[var(--border-strong)] hover:text-foreground",
       )}
-      title={name}
+      title={`${name} — double-click to rename`}
       aria-current={active ? "page" : undefined}
     >
       {name}

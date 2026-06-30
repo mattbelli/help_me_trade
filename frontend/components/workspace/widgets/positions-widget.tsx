@@ -1,5 +1,7 @@
 "use client";
 
+import { useCallback, useMemo, useState } from "react";
+
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, formatQty } from "@/lib/api";
@@ -7,12 +9,74 @@ import { cn } from "@/lib/utils";
 import {
   resolvePositions,
   useDashboardPrefs,
+  type TaggedPosition,
 } from "@/lib/workspace/use-dashboard-prefs";
+
+type SortKey =
+  | "symbol"
+  | "qty"
+  | "side"
+  | "current_price"
+  | "market_value"
+  | "unrealized_pl";
+
+const COLUMNS: {
+  label: string;
+  key: SortKey;
+  align: "left" | "right";
+}[] = [
+  { label: "Symbol", key: "symbol", align: "left" },
+  { label: "Qty", key: "qty", align: "right" },
+  { label: "Side", key: "side", align: "left" },
+  { label: "Price", key: "current_price", align: "right" },
+  { label: "Value", key: "market_value", align: "right" },
+  { label: "Unrealized", key: "unrealized_pl", align: "right" },
+];
+
+function sortPositions(
+  rows: TaggedPosition[],
+  sortState: { key: SortKey; dir: "asc" | "desc" } | null,
+): TaggedPosition[] {
+  if (!sortState) return rows;
+
+  const { key, dir } = sortState;
+  const mul = dir === "asc" ? 1 : -1;
+
+  return [...rows].sort((a, b) => {
+    const va = a[key];
+    const vb = b[key];
+
+    if (key === "symbol" || key === "side") {
+      return mul * String(va).localeCompare(String(vb));
+    }
+
+    return mul * ((va as number) - (vb as number));
+  });
+}
 
 export function PositionsWidget() {
   const { snapshot, loading } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
   const positions = resolvePositions(snapshot, selectedAccountId);
+  const [sortState, setSortState] = useState<{
+    key: SortKey;
+    dir: "asc" | "desc";
+  } | null>(null);
+
+  const sortedPositions = useMemo(
+    () => sortPositions(positions, sortState),
+    [positions, sortState],
+  );
+
+  const handleSortHeaderClick = useCallback((key: SortKey) => {
+    setSortState((prev) => {
+      if (prev?.key === key) {
+        if (prev.dir === "asc") return { key, dir: "desc" };
+        return null;
+      }
+      return { key, dir: "asc" };
+    });
+  }, []);
 
   if (loading && !snapshot) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
@@ -39,24 +103,35 @@ export function PositionsWidget() {
       <table className="w-full border-collapse font-mono text-[12px]">
         <thead>
           <tr>
-            {(
-              ["Symbol", "Qty", "Side", "Price", "Value", "Unrealized"] as const
-            ).map((h, idx) => (
+            {COLUMNS.map(({ label, key, align }) => (
               <th
-                key={h}
+                key={key}
                 className={cn(
                   "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
-                  idx === 0 ? "text-left" : "text-right",
-                  h === "Side" && "text-left",
+                  align === "left" ? "text-left" : "text-right",
                 )}
               >
-                {h}
+                <button
+                  type="button"
+                  onClick={() => handleSortHeaderClick(key)}
+                  className={cn(
+                    "w-full",
+                    align === "left" ? "text-left" : "text-right",
+                  )}
+                >
+                  {label}
+                  {sortState?.key === key ? (
+                    <span className="ml-0.5">
+                      {sortState.dir === "asc" ? "▲" : "▼"}
+                    </span>
+                  ) : null}
+                </button>
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {positions.map((p, idx) => (
+          {sortedPositions.map((p, idx) => (
             <tr
               key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
               className="transition-colors hover:bg-[var(--bg-hover)]"

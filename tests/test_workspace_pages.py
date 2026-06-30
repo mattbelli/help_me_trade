@@ -24,7 +24,7 @@ VALID_PAGES_STATE = {
     "pages": {
         CANVAS_PAGE_ID: {
             "id": CANVAS_PAGE_ID,
-            "name": "Canvas",
+            "name": "Page 1",
             "layout": [VALID_ITEM],
         }
     },
