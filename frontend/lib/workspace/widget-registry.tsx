@@ -7,11 +7,14 @@ import { AgentProposalsWidget } from "@/components/workspace/widgets/agent-propo
 import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
+import { PerformanceWidget } from "@/components/workspace/widgets/performance-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
 import { MemoryWidget } from "@/components/workspace/widgets/memory-widget";
 import { NotificationsWidget } from "@/components/workspace/widgets/notifications-widget";
 import { PriceAlertsWidget } from "@/components/workspace/widgets/price-alerts-widget";
 import { ReportsWidget } from "@/components/workspace/widgets/reports-widget";
+import { ResearchWidget } from "@/components/workspace/widgets/research-widget";
+import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
@@ -109,6 +112,27 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: "Armed signal rules and recent fires",
     component: ScansWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
+  },
+  {
+    id: "rules",
+    title: "rules",
+    description: "Create, arm, and manage signal rules with trigger log",
+    component: RulesWidget,
+    defaultSize: { w: 12, h: 10, minW: 6, minH: 6 },
+  },
+  {
+    id: "research",
+    title: "research",
+    description: "Deep research runs, artifact history, and report viewer",
+    component: ResearchWidget,
+    defaultSize: { w: 12, h: 10, minW: 6, minH: 5 },
+  },
+  {
+    id: "performance",
+    title: "performance",
+    description: "Trade analytics — P&L charts, calendar, win rate, and round-trips",
+    component: PerformanceWidget,
+    defaultSize: { w: 16, h: 12, minW: 8, minH: 6 },
   },
   {
     id: "memory",

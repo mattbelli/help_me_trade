@@ -24,8 +24,15 @@ this file, append the old full version there as a new dated section.*
 > direct-add. **Polish round (founder feedback after eyeball):** default page name "Page 1" (not "Canvas");
 > **static page switching** (grid keyed by `activePageId` → remount, no morph/bleed); `/add` live-filters widgets as
 > you type; chart symbol dropdown no longer auto-opens on mount; **positions widget columns sortable** (mirrors
-> watchlist). Recon: `CONSOLIDATION_S2_RECON.md`. **NEXT = Stage 3: componentize the old pages** (Performance /
-> Research / Rules → widgets; redirect already-covered routes).
+> watchlist). Recon: `CONSOLIDATION_S2_RECON.md`.
+> **Stage 3 ✅ built + gate-green + committed (deploy pending) — componentize old pages.** Three new widgets:
+> `rules` (`<RulesSection showCards={false}>` — full rule manager), `research` (wraps `ResearchPage`, Suspense for
+> its `useSearchParams`), `performance` (wraps `PerformancePage`). All are large-tile wrappers reusing the existing
+> page components (no logic rewrite); the `/research` + `/performance` routes stay alive. Addable via
+> `/add rules|research|performance`. Recon: `CONSOLIDATION_S3_RECON.md`. **DEFERRED from Stage 3:** the route
+> redirects (Overview/memories/agents → /workspace) — held to cleanup so we don't strand the founder before widgets
+> are placed; a launcher/modal refinement for research/performance is a later option. **NEXT = Stage 4: the
+> Configure-your-AI setup page** (config widgets: settings/accounts/import + net-new onboarding/charter/goals).
 >
 > **Notifications supervision backbone — Phase 1 SHIPPED + deployed live (2026-06-29):** 1a (inbox foundation,
 > `9ccbb99`) + 1b (all emits → `notify()`) + 1c (web unified consumer + server-backed bell). Detail below + in

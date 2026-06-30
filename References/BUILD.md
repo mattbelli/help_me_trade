@@ -518,10 +518,11 @@ The big UX pivot toward the "Hermes" vision. No desktop shell required yet. Deta
 into the workspace: everything becomes a widget; multiple savable, hot-swappable **pages** (cap 5; "channels" =
 the existing within-page symbol-link groups); a "Configure-your-AI" setup page + the live canvas, both editable
 defaults. 5-stage plan + current-state map: `References/CONSOLIDATION_PLAN.md` + `CONSOLIDATION_RECON.md`.
-**Stage 1 ✅ SHIPPED** (notifications inbox widget). **Stage 2 ✅ built + gate-green + committed (deploy pending)** —
-multi-page foundation: store→`pages` model (non-breaking auto-migration to a "Canvas" page), page switcher in the
-console cluster (tabs + add/rename/delete, cap 5), `Alt+1–5`/`Alt+[ ]` hot-swap, `/add <widget>` direct-add. Next:
-Stage 3 (componentize old pages → widgets).
+**Stage 1 ✅ SHIPPED** (notifications inbox widget). **Stage 2 ✅ SHIPPED + polished** — multi-page foundation:
+store→`pages` model (non-breaking auto-migration), page switcher (tabs + add/rename/delete, cap 5), `Alt+1–5`/
+`Alt+[ ]` hot-swap, static page-switch, `/add <widget>` direct-add. **Stage 3 ✅ built + committed (deploy pending)**
+— `rules` / `research` / `performance` widgets (wrap the existing page components into the grid; routes stay alive).
+Route redirects deferred to cleanup. Next: Stage 4 (Configure-your-AI setup page).
 
 **Noted future ideas (Phase 6/7):**
 - **Tabbed widgets (browser-style).** A `+` on a widget (esp. **chart**) to add multiple instances (e.g. 4–5 tickers) and tab between them in one tile — like browser tabs. Founder request 2026-06-20.
