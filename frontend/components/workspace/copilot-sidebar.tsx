@@ -78,7 +78,7 @@ export function CopilotSidebar() {
         className={cn(
           "absolute bottom-3 right-3 z-40 flex items-center gap-2 rounded-lg border border-[var(--border)]",
           "bg-[var(--bg-raised)]/85 px-3 py-2 shadow-lg backdrop-blur-md",
-          "font-sans text-[12px] font-medium text-[var(--fg-dim)] transition-colors",
+          "font-mono text-[12px] font-medium text-[var(--fg-dim)] transition-colors",
           "hover:bg-[var(--bg-hover)] hover:text-foreground",
         )}
         aria-label="Open copilot"
@@ -125,7 +125,7 @@ export function CopilotSidebar() {
         >
           <PanelLeftIcon className="size-4" />
         </Button>
-        <span className="font-sans text-[12px] font-medium text-foreground">
+        <span className="font-mono text-[12px] font-medium text-foreground">
           Copilot
         </span>
         <div className="flex-1" />
@@ -160,7 +160,7 @@ export function CopilotSidebar() {
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[var(--bg-inset)]">
-        <WorkspaceThread />
+        <WorkspaceThread mono />
 
         <AnimatePresence>
           {historyOpen ? (

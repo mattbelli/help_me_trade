@@ -87,6 +87,8 @@ export type ThreadProps = {
   components?: ThreadComponents | undefined;
   /** Hide composer and suggestions — messages-only viewport (workspace chat widget). */
   messagesOnly?: boolean;
+  /** Terminal font (JetBrains Mono) for copilot chat prose. */
+  mono?: boolean;
 };
 
 const EMPTY_COMPONENTS: ThreadComponents = {};
@@ -103,25 +105,34 @@ const isNewChatView = (s: AssistantState) =>
 export const Thread: FC<ThreadProps> = ({
   components = EMPTY_COMPONENTS,
   messagesOnly = false,
+  mono = false,
 }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <ThreadRoot isEmpty={isEmpty} messagesOnly={messagesOnly} />
+      <ThreadRoot isEmpty={isEmpty} messagesOnly={messagesOnly} mono={mono} />
     </ThreadComponentsContext.Provider>
   );
 };
 
-const ThreadRoot: FC<{ isEmpty: boolean; messagesOnly?: boolean }> = ({
+const ThreadRoot: FC<{
+  isEmpty: boolean;
+  messagesOnly?: boolean;
+  mono?: boolean;
+}> = ({
   isEmpty,
   messagesOnly = false,
+  mono = false,
 }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
+      className={cn(
+        "aui-root aui-thread-root bg-background @container flex h-full flex-col",
+        mono && "font-mono",
+      )}
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-padding" as string]: "8px",

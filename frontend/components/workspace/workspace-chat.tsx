@@ -39,10 +39,11 @@ export function WorkspaceChatProviders({ children }: { children: ReactNode }) {
   );
 }
 
-export function WorkspaceThread() {
+export function WorkspaceThread({ mono }: { mono?: boolean } = {}) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Thread
+        mono={mono}
         components={{
           Welcome: TradingWelcome,
           ComposerControls: TradingComposerControls,
