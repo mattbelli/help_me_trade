@@ -60,11 +60,11 @@ function ProposalStatusBanner({
         variant === "success" &&
           "border-emerald-500/40 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100",
         variant === "dry_run" &&
-          "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100",
+          "border-[var(--fg-dim)]/30 bg-[var(--bg-raised)] text-foreground",
         variant === "rejected" &&
           "border-destructive/40 bg-destructive/10 text-destructive dark:text-red-200",
         variant === "processing" &&
-          "border-amber-500/30 bg-amber-500/5 text-foreground",
+          "border-[var(--c-accent)]/40 bg-[var(--c-accent-soft)] text-foreground",
         className,
       )}
     >

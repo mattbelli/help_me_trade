@@ -135,9 +135,9 @@ function ToolGroupTrigger({
           <span
             aria-hidden
             data-slot="tool-group-trigger-shimmer"
-            className="aui-tool-group-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
+            className="aui-tool-group-trigger-shimmer pointer-events-none absolute inset-0 font-mono text-[11px] tracking-[0.1em] lowercase text-[var(--c-accent)] animate-pulse"
           >
-            {label}
+            {label}…
           </span>
         )}
       </span>

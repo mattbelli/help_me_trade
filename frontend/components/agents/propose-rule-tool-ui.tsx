@@ -63,7 +63,7 @@ function ProposalStatusBanner({
         variant === "rejected" &&
           "border-border/70 bg-muted/40 text-muted-foreground",
         variant === "processing" &&
-          "border-amber-500/30 bg-amber-500/5 text-foreground",
+          "border-[var(--c-accent)]/40 bg-[var(--c-accent-soft)] text-foreground",
         className,
       )}
     >
