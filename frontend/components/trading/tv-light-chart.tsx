@@ -802,7 +802,13 @@ export function TvLightChart({
             priorRange && priorRange.to > priorRange.from
               ? priorRange.to - priorRange.from
               : Math.min(count, DEFAULT_VISIBLE_BARS);
-          const to = count - 1 + RIGHT_MARGIN_FRAC * visibleBars;
+          const rightMargin = RIGHT_MARGIN_FRAC * visibleBars;
+          // rightOffset keeps the ~20% right margin PERSISTENT. The chart overhaul's
+          // extra panes/studies trigger resize refits that clobber a one-shot
+          // setVisibleLogicalRange, so the latest candle was snapping to the right edge;
+          // rightOffset is re-applied by the chart across those refits + new live bars.
+          timeScale.applyOptions({ rightOffset: rightMargin });
+          const to = count - 1 + rightMargin;
           timeScale.setVisibleLogicalRange({ from: to - visibleBars, to });
           // Refit the price axis to the new symbol (a $700→$50 switch rescales
           // vertically even though the time window is unchanged).
