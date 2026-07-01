@@ -1659,23 +1659,27 @@ def _schedule_profile_build(provider, symbol: str, *, session: str = "rth") -> N
 def _compute_rvol_field(
     symbol: str, intraday_bars: list[StockBar], *, session: str = "rth"
 ) -> dict | None:
-    profile = load_profile(symbol)
-    if profile is None or not intraday_bars:
+    try:
+        profile = load_profile(symbol)
+        if profile is None or not intraday_bars:
+            return None
+        result = rvol_now(profile, intraday_bars, session=session)
+        if result is None or result.value is None:
+            if result is not None:
+                return {"value": None, "state": result.state}
+            return None
+        state = result.state
+        if state == "settled":
+            latest_date = max(
+                datetime.fromisoformat(b.time.replace("Z", "+00:00")).astimezone(_ET).date()
+                for b in intraday_bars
+            )
+            if latest_date < datetime.now(_ET).date():
+                state = "overnight"
+        return {"value": result.value, "state": state}
+    except Exception as exc:  # RVOL is best-effort — one symbol must never 500 the watchlist
+        logger.warning("RVOL compute failed for %s: %s", symbol, exc)
         return None
-    result = rvol_now(profile, intraday_bars, session=session)
-    if result is None or result.value is None:
-        if result is not None:
-            return {"value": None, "state": result.state}
-        return None
-    state = result.state
-    if state == "settled":
-        latest_date = max(
-            datetime.fromisoformat(b.time.replace("Z", "+00:00")).astimezone(_ET).date()
-            for b in intraday_bars
-        )
-        if latest_date < datetime.now(_ET).date():
-            state = "overnight"
-    return {"value": result.value, "state": state}
 
 
 _SCANNER_CHUNK_SIZE = 250  # Schwab get_quotes accepts many symbols; chunk to stay safe

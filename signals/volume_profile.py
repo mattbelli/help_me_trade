@@ -180,6 +180,11 @@ def rvol_now(
     if last_bucket < (WARMUP_MIN // 5):
         return RvolResult(None, "warming")
 
+    if last_bucket >= len(profile.cumfrac):
+        # Session ran past the profile's bucket coverage (e.g. a Globex/futures
+        # session scored against an RTH-shaped profile) — don't fabricate; bail.
+        return None
+
     today_cum = sum(b.volume for b in session_bars)
     expected_cum = profile.median_daily_total * profile.cumfrac[last_bucket]
     if expected_cum <= 0:
