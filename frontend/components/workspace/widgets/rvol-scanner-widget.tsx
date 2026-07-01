@@ -180,7 +180,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
                       openTickerInfo(row.symbol);
                     }
                   }}
-                  className="shrink-0 cursor-pointer text-[var(--c-yellow)] opacity-80 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+                  className="shrink-0 cursor-pointer text-[var(--fg)] opacity-0 transition-opacity group-hover/sym:opacity-100 focus-visible:opacity-100"
                 >
                   <Info className="size-3.5" />
                 </span>
