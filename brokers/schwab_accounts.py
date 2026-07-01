@@ -211,6 +211,14 @@ def get_schwab_accounts_sync(force: bool = False) -> dict:
         data["authenticated"] = True
         data["fetched_at"] = now
         _cache.update(ts=now, data=data)
+        # Persist a daily equity/P&L snapshot (upsert today's ET row) so the
+        # accurate numbers accrue over time instead of vanishing at the next open.
+        try:
+            from db.schwab_history import record_schwab_daily
+
+            record_schwab_daily(data.get("accounts") or [])
+        except Exception:  # noqa: BLE001 — persistence must never break the read
+            pass
         return data
 
 

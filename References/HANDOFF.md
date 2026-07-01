@@ -54,6 +54,9 @@ this file, append the old full version there as a new dated section.*
 >   it) + made `my_trades` **real-only** (`_my_trade_events` excludes non-Schwab; optional `account_id`). GET-only, zero
 >   execution surface — re-verified Schwab exec is blocked at 3 layers (adapter `NotImplementedError`; `propose_order`
 >   chat tool rejects read-only accounts; `RiskEngine` fails `execution_capable=0`). `tests/test_perception_real_only.py`.
+> - **✅ Daily Schwab equity snapshots — DONE** (`db/schwab_history.py`, `schwab_account_daily`; piggyback on the
+>   accounts fetch + an EOD backstop loop; `GET /api/schwab/history`). Accurate day-P&L/equity persisted going forward,
+>   no FIFO. **⏭️ Natural next: SURFACE it** — a Schwab equity-curve / daily-P&L view (the data now accrues daily).
 > - **⏭️ NEXT — Phase 3** (`/performance`+journal UI account/broker filter — journal has none today) + **Stage B**
 >   (positions/orders widgets follow a real-account pick). Full recon in this session's two Explore agents. The
 >   `_poll_broker("schwab")` snapshot poll is still single-account (equity balances come from `/api/schwab/accounts`,

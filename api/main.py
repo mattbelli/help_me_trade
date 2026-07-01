@@ -162,6 +162,9 @@ SCHWAB_HEALTH_INTERVAL_SECONDS = max(
 _SCHWAB_HEALTH_ALERTS_ENABLED = (
     os.environ.get("SCHWAB_HEALTH_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
 )
+SCHWAB_SNAPSHOT_INTERVAL_SECONDS = max(
+    300, int(os.environ.get("SCHWAB_SNAPSHOT_INTERVAL_SECONDS", str(1800)))
+)
 EARNINGS_ALERT_INTERVAL_SECONDS = max(
     60, int(os.environ.get("EARNINGS_ALERT_INTERVAL_SECONDS", str(6 * 3600)))
 )
@@ -958,6 +961,39 @@ async def _schwab_health_loop() -> None:
             logger.exception("Schwab health loop iteration failed")
 
 
+_schwab_snapshot_last_date: dict = {}
+
+
+async def _schwab_snapshot_loop() -> None:
+    """Guarantee one end-of-day Schwab equity snapshot per trading day, even if no
+    client viewed the accounts. Read-only: the daily row is written inside the
+    fetch (``get_schwab_accounts`` → ``record_schwab_daily``); this loop just forces
+    one fresh fetch after the close so the accurate day P&L / equity is persisted."""
+    while True:
+        await asyncio.sleep(SCHWAB_SNAPSHOT_INTERVAL_SECONDS)
+        try:
+            now_et = datetime.now(_ET)
+            today = now_et.date()
+            if now_et.weekday() >= 5:  # weekend — no trading day
+                continue
+            after_close = now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 5)
+            if not after_close:
+                continue
+            if _schwab_snapshot_last_date.get("date") == today:
+                continue
+            from brokers.schwab_accounts import get_schwab_accounts
+            from brokers.schwab_auth import token_exists
+
+            if not token_exists():
+                continue
+            data = await get_schwab_accounts(force=True)
+            if data.get("authenticated"):
+                _schwab_snapshot_last_date["date"] = today
+                logger.info("Schwab EOD equity snapshot captured for %s", today)
+        except Exception:
+            logger.exception("Schwab snapshot loop iteration failed")
+
+
 def _morning_report_window(now_et: datetime, hour_et: int) -> bool:
     """True across a ~2-hour morning window from the scheduled hour (ET). Wide enough
     that the 15-min poll always lands inside it regardless of boot timing (a 14-min
@@ -1199,6 +1235,7 @@ async def lifespan(app: FastAPI):
     rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
     earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
     schwab_health_task = asyncio.create_task(_schwab_health_loop())
+    schwab_snapshot_task = asyncio.create_task(_schwab_snapshot_loop())
     morning_report_task = asyncio.create_task(_reports_scheduler_loop())
     bars_prewarm_task = asyncio.create_task(_bars_prewarm_loop())
     yield
@@ -1209,6 +1246,7 @@ async def lifespan(app: FastAPI):
     rvol_alert_task.cancel()
     earnings_alert_task.cancel()
     schwab_health_task.cancel()
+    schwab_snapshot_task.cancel()
     morning_report_task.cancel()
     bars_prewarm_task.cancel()
     sync_task.cancel()
