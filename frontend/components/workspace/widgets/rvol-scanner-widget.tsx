@@ -162,7 +162,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
               </span>
               {/* Symbol */}
               <span className="group/sym inline-flex min-w-0 items-center gap-0.5">
-                <span className="truncate font-medium text-[var(--c-accent)]">
+                <span className="truncate font-medium text-[var(--c-accent)] underline-offset-2 hover:underline">
                   {row.symbol}
                 </span>
                 <span
@@ -180,9 +180,9 @@ export function RvolScannerWidget({ config }: WidgetProps) {
                       openTickerInfo(row.symbol);
                     }
                   }}
-                  className="shrink-0 cursor-pointer text-[var(--fg-faint)] opacity-0 transition-opacity hover:text-[var(--c-accent)] group-hover/sym:opacity-100 focus-visible:opacity-100"
+                  className="shrink-0 cursor-pointer text-[var(--c-yellow)] opacity-80 transition-opacity hover:opacity-100 focus-visible:opacity-100"
                 >
-                  <Info className="size-3" />
+                  <Info className="size-3.5" />
                 </span>
               </span>
               {/* Price */}

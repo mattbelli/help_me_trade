@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Reorder, useDragControls } from "motion/react";
-import { Info } from "lucide-react";
 import { Sparkline } from "@/components/trading/sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
   fetchOvernightTradable,
   fetchWatchlists,
@@ -256,7 +255,6 @@ function WatchlistSymbolRow({
   onDragEnd: () => void;
 }) {
   const controls = useDragControls();
-  const { openTickerInfo } = useTickerInfo();
 
   const session = quote?.market_session;
   const extBadge =
@@ -315,9 +313,12 @@ function WatchlistSymbolRow({
               <span className="size-1.5 rounded-full bg-[var(--c-green)]" />
             ) : null}
           </span>
-          <span className="truncate font-medium text-[var(--c-accent)]">
-            {symbol}
-          </span>
+          <ClickableSymbol
+            symbol={symbol}
+            linked={linked}
+            onActivate={onPublish}
+            className="truncate font-medium"
+          />
           {showEarningsBadge && nextEarningsDate ? (
             <span
               className="shrink-0 rounded px-0.5 font-mono text-[9px] leading-none"
@@ -327,18 +328,6 @@ function WatchlistSymbolRow({
               {earningsBadgeLabel(earningsDays)}
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openTickerInfo(symbol);
-            }}
-            className="flex shrink-0 items-center justify-center rounded p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--c-accent)]"
-            aria-label={`Company info for ${symbol}`}
-            title={`Company info for ${symbol}`}
-          >
-            <Info className="size-3" />
-          </button>
           <button
             type="button"
             disabled={removing}

@@ -44,9 +44,9 @@ export function ClickableSymbol({
           openTickerInfo(symbol);
         }}
         aria-label={`${symbol} info`}
-        className="text-[var(--fg-faint)] opacity-0 transition-opacity hover:text-[var(--c-accent)] group-hover/sym:opacity-100 focus-visible:opacity-100"
+        className="text-[var(--c-yellow)] opacity-80 transition-opacity hover:opacity-100 focus-visible:opacity-100"
       >
-        <Info className="size-3" />
+        <Info className="size-3.5" />
       </button>
     </span>
   );
