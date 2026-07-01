@@ -36,16 +36,24 @@ this file, append the old full version there as a new dated section.*
 >   Roth (Joint) ••7397 / Roth (Personal) ••0348. **The 4th = a 2nd Roth (Personal) the app never had a row for.**
 > - **Live-verified: Real·Schwab $231,817.98 (4 accts) vs Paper·Alpaca $300,200.12 (3 accts), separate.** ruff + **1124
 >   pytest** + typecheck green; chokepoint untouched. Deployed both; armed poll resumed clean (19s post-restart).
-> - **⏭️ NEXT — Phase 2 auto-sync (founder GREENLIT):** wire the never-run `sync_schwab()` (Transactions API) for all 4
->   accounts. Must: fix the single-account attribution bug (`get_or_create_broker_account` → oldest row), build per-hash
->   `SchwabAdapter`s off the shared OAuth client, stamp each row's `broker_external_id` to its hash (mapping confirmed
->   above; **create the missing Roth-Personal ••0348 row**; relabel "Schwab Roth IRA"→"Roth (Joint)"), and sync
->   **incremental-from-last-known-date per account** to NOT double-count the 2023→2026-06 JSON import (API lookback 365d
->   + different dedup key = would re-import 2025-26 as dupes). Decouple from `brokers.schwab.enabled` (also triggers the
->   broken per-broker snapshot poll). `trading/sync.py` is read-only + outside the chokepoint blast radius → adversarial
->   review anyway. **Then Phase 3** (`/performance`+journal account/broker filter — journal has none today) + **Stage B**
->   (positions/orders follow a real pick). Full recon for both in this session's two Explore agents. Also still open:
->   **P&L calendar (P7)**, perf-split (P8), tmux-lite (P9); Russell-1000 scans + Globex RVOL; ★ R5.
+> - **✅ Phase 2 auto-sync — DONE + verified (committed local, deployed).** Rewrote `sync_schwab()` (Transactions API)
+>   for all 4 accounts: per-hash `SchwabAdapter`s off one shared OAuth client, attributed by `broker_external_id`
+>   (foundation migration created the Roth-Personal ••0348 row + stamped all 4 hashes + relabeled Joint/Roth). Cursor is
+>   **incremental + rolling** (`_schwab_sync_start`, pure/unit-tested): floored at `json_max+1` (never re-import the JSON
+>   boundary → no cross-source double-count) but re-fetches a 7-day window so same-day fills aren't dropped. Decoupled
+>   from `brokers.schwab.enabled` (runs on token presence; broken snapshot-poll stays off). Fixed 2 pre-existing latent
+>   bugs: the `Client.TransactionType` enum, and the parser (grabbed the cash `CURRENCY_USD` leg + summed fees → rewrote
+>   to key off the security leg, `netAmount` = fee-inclusive net cash; **futures/options net cash now captured**).
+>   Adversarial review caught a CRITICAL (naive `last+1` date cursor dropped same-day fills under the hourly loop) + 3
+>   MAJORs (exception isolation, backfill-gap-on-chunk-failure, pacing/concurrency) — all fixed. **10 new tests
+>   (`tests/test_schwab_sync.py`); 1134 suite green. Live: 56 events synced, 0 dupes; 2nd run 0-inserts/all-dupes
+>   (idempotent); zero API rows overlap the JSON boundary.** Files: `trading/sync.py`, `db/trades.py` (`latest_trade_date`
+>   gains a `source=` filter). ⚠️ **NOT pushed** (auto-mode classifier blocks agent pushes to `main` — a human pushes).
+> - **⏭️ NEXT — Phase 3** (`/performance`+journal account/broker filter — journal has none today) + **Stage B**
+>   (positions/orders widgets follow a real-account pick). Full recon in this session's two Explore agents. The
+>   `_poll_broker("schwab")` snapshot poll is still single-account (equity balances come from `/api/schwab/accounts`,
+>   so not urgent). Also still open: **P&L calendar (P7)**, perf-split (P8), tmux-lite (P9); Russell-1000 scans + Globex
+>   RVOL; ★ R5.
 >
 > ▶ **LATEST (2026-07-01, SESSION END) — big cockpit + journal + scanner + charts round. ALL shipped, deployed on
 > serv (:3001 / :8000), pushed; `origin/main` = `766462b`.** Everything below is live + green (full suite ~1124; chokepoint

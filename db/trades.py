@@ -7,6 +7,7 @@ import sqlite3
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -196,6 +197,37 @@ def create_trade_account(
         "broker": broker.strip().lower(),
         "created_at": created_at,
     }
+
+
+def latest_trade_date(
+    account_id: str,
+    *,
+    source: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> date | None:
+    """Most recent trade_date on record for an account, or None.
+
+    Used to sync brokers incrementally. Pass ``source`` to scope to one import
+    path (e.g. ``schwab_json_import`` vs ``schwab_api``) — the API sync uses the
+    JSON boundary to know where a file export ends (never re-pull those, since
+    the dedup key differs and would double-count) and its own ``schwab_api``
+    cursor to re-fetch a rolling recent window without dropping same-day fills.
+    """
+    init_trade_tables(db_path)
+    sql = "SELECT MAX(trade_date) FROM trade_events WHERE account_id = ?"
+    params: list[Any] = [account_id]
+    if source is not None:
+        sql += " AND source = ?"
+        params.append(source)
+    with _connect(db_path) as conn:
+        row = conn.execute(sql, tuple(params)).fetchone()
+    raw = row[0] if row else None
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        return None
 
 
 def get_trade_account(
