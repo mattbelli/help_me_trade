@@ -12,6 +12,21 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-07-01, later) — cockpit-hardening round + decision-journal record path (multi-agent; committed
+> LOCAL, NOT pushed).** Founder cockpit review (P1–P12). Shipped: notification row-click deep-links + symbol-resolution
+> fix + clickable proposal tickers (`85dd8bc`); copilot floating-dock padding fix + toolbar opener + `Ctrl/Cmd+J`
+> (`85dd8bc`); watchlist top-`+` add-row (in charts `f93f582`); mem0 delete-drift fix — deletes mirror to the vector
+> store (`85dd8bc`); **decision journal J0+J1** record path (`aa3c67a`, adversarial Sonnet review → 2 MAJORs fixed:
+> `close_position` fail-soft hole + ×100 options multiplier); **reports** LLM-authored briefs + in-app viewer
+> (`b0eeef9`); **scans** real universe screener over the cached-bars path (`d8f0e25`). Full suite **1079** green;
+> chokepoint untouched; BUILD.md hardened (§3/§4/§5 regenerated). Also flagged in Known-debt: mem0 `search()` treats
+> `{"results":[...]}` as a list → **mem0 semantic search is currently inert** (retrieval = local token-overlap).
+> ⚠️ **Not pushed** (origin/main = `f93f582`). ⚠️ **Deploy + in-browser check pending (founder)** — a build compiles
+> the whole tree; `cd frontend && npm run build && tools/serv-deploy.sh both`. **Next:** journal **J2** (perception
+> `journal` resource + per-turn chat injection + decision-journal widget) + **J3** (24h calibration-drift review →
+> lesson memories, surface-only); then §4.1 leftovers — Schwab activity widget (P6), P&L calendar widget (P7),
+> perf-widget split (P8), tmux-lite split (P9).
+>
 > ▶ **LATEST (2026-07-01) — charts overhaul (SHIPPED + deployed on serv :3001; committed).** 12 Composer briefs
 > across two rounds (one-at-a-time, each diff-reviewed). Pre-push green: `ruff check .` + `pytest` (1031) +
 > `npm run typecheck`/`build`.
