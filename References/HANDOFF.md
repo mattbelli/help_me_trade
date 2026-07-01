@@ -12,6 +12,19 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-07-01, latest) — decision journal J2 (surface) + J3 (calibration) SHIPPED + deployed + pushed.**
+> The agent can now SEE and learn from its own track record AND the user's. J2 (`aa858dc`): two perception resources
+> (`decision_journal` = AI's calls · `my_trades` = user's real Schwab history), opt-in per-turn chat injection, `/api/journal/*`,
+> and a journal widget with an **AI⇄Me toggle**. Founder-agreed architecture: **two stores, unified only at the read/view
+> layer** (NOT one table / a user-ai tag) — AI = calibration, user = behavior. J3 (`3115d5b`): a 24h **calibration review**
+> (predicted win% vs realized, per strategy + bucket, Wilson-CI + "insufficient data" honesty) → **surface-only** lesson-memories
+> on notable drift + a Calibration tab; NEVER retunes a strategy/scorer. Full suite **1107** green; deployed on serv :3001.
+> AI side is empty until proposals resolve; the Me side shows the real imported history (net-cash realized ≈$9k, 64.5% win).
+> **Data note:** user flagged 'phantom' GLD trades — investigated (read-only): NOT dupes/bug — it's real late-March GLD
+> day-trading (bought 340 / sold 340, net 0, across the 3 Schwab accounts) inside the real Schwab import; the only OPEN GLD is
+> 2 Alpaca paper shares. **Next:** the remaining §4.1 cockpit items — Schwab activity widget (P6), P&L calendar widget (P7),
+> perf-widget split (P8), tmux-lite split (P9); optional Globex futures-RVOL profile.
+>
 > ▶ **LATEST (2026-07-01, later) — cockpit-hardening round + decision-journal record path (multi-agent; committed
 > LOCAL, NOT pushed).** Founder cockpit review (P1–P12). Shipped: notification row-click deep-links + symbol-resolution
 > fix + clickable proposal tickers (`85dd8bc`); copilot floating-dock padding fix + toolbar opener + `Ctrl/Cmd+J`
