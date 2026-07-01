@@ -5,7 +5,7 @@ import { Reorder, useDragControls } from "motion/react";
 import { Info } from "lucide-react";
 import { Sparkline } from "@/components/trading/sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CompanyInfoModal } from "@/components/workspace/company-info-modal";
+import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
 import {
   fetchOvernightTradable,
   fetchWatchlists,
@@ -241,7 +241,6 @@ function WatchlistSymbolRow({
   linked,
   removing,
   onPublish,
-  onOpenInfo,
   onRemove,
   onDragStart,
   onDragEnd,
@@ -252,12 +251,12 @@ function WatchlistSymbolRow({
   linked: boolean;
   removing: boolean;
   onPublish: () => void;
-  onOpenInfo: () => void;
   onRemove: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
   const controls = useDragControls();
+  const { openTickerInfo } = useTickerInfo();
 
   const session = quote?.market_session;
   const extBadge =
@@ -332,7 +331,7 @@ function WatchlistSymbolRow({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onOpenInfo();
+              openTickerInfo(symbol);
             }}
             className="flex shrink-0 items-center justify-center rounded p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--c-accent)]"
             aria-label={`Company info for ${symbol}`}
@@ -428,7 +427,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [overnightSymbols, setOvernightSymbols] = useState<Set<string>>(
     new Set(),
   );
-  const [infoSymbol, setInfoSymbol] = useState<string | null>(null);
   const dragOrderRef = useRef<string[] | null>(null);
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
@@ -722,7 +720,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               linked={linked}
               removing={removing === symbol}
               onPublish={() => publish(symbol)}
-              onOpenInfo={() => setInfoSymbol(symbol)}
               onRemove={() => void removeSymbol(symbol)}
               onDragStart={() => setSortState(null)}
               onDragEnd={handleReorderEnd}
@@ -730,14 +727,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           ))}
         </Reorder.Group>
       </div>
-
-      <CompanyInfoModal
-        symbol={infoSymbol}
-        open={infoSymbol != null}
-        onClose={() => setInfoSymbol(null)}
-        linked={linked}
-        onPublish={publish}
-      />
     </div>
   );
 }

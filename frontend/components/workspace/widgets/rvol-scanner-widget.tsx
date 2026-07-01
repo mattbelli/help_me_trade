@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Info } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
 import { fetchRvolScanner, type RvolScannerResult } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -60,6 +62,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
 
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
+  const { openTickerInfo } = useTickerInfo();
 
   const load = useCallback(async () => {
     try {
@@ -158,8 +161,29 @@ export function RvolScannerWidget({ config }: WidgetProps) {
                 {idx + 1}
               </span>
               {/* Symbol */}
-              <span className="truncate font-medium text-[var(--c-accent)]">
-                {row.symbol}
+              <span className="group/sym inline-flex min-w-0 items-center gap-0.5">
+                <span className="truncate font-medium text-[var(--c-accent)]">
+                  {row.symbol}
+                </span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${row.symbol} info`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openTickerInfo(row.symbol);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openTickerInfo(row.symbol);
+                    }
+                  }}
+                  className="shrink-0 cursor-pointer text-[var(--fg-faint)] opacity-0 transition-opacity hover:text-[var(--c-accent)] group-hover/sym:opacity-100 focus-visible:opacity-100"
+                >
+                  <Info className="size-3" />
+                </span>
               </span>
               {/* Price */}
               <span className="text-right tabular-nums text-foreground">

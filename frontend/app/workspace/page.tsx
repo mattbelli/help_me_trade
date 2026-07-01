@@ -7,6 +7,7 @@ import { CommandConsole } from "@/components/workspace/command-console";
 import { CopilotSidebar } from "@/components/workspace/copilot-sidebar";
 import { MobileWorkspace } from "@/components/workspace/mobile-workspace";
 import { NotificationBanner } from "@/components/workspace/notification-banner";
+import { TickerInfoProvider } from "@/components/workspace/ticker-info-provider";
 import { WorkspaceChatProviders } from "@/components/workspace/workspace-chat";
 import { WorkspaceGrid } from "@/components/workspace/workspace-grid";
 import { WorkspaceToastProvider } from "@/components/workspace/workspace-toast";
@@ -59,7 +60,9 @@ export default function WorkspacePage() {
     return (
       <WorkspaceToastProvider>
         <WorkspaceChatProviders>
-          <MobileWorkspace />
+          <TickerInfoProvider>
+            <MobileWorkspace />
+          </TickerInfoProvider>
         </WorkspaceChatProviders>
       </WorkspaceToastProvider>
     );
@@ -76,18 +79,20 @@ export default function WorkspacePage() {
           style={{ paddingBottom: collapsedHeight }}
         >
           <WorkspaceChatProviders>
-            <div className="relative min-h-0 flex-1">
-              <motion.div
-                className="h-full min-h-0"
-                initial={false}
-                animate={{ paddingRight: dockedPadding }}
-                transition={{ type: "spring", stiffness: 420, damping: 36 }}
-              >
-                <WorkspaceGrid />
-              </motion.div>
-              <CopilotSidebar />
-            </div>
-            <CommandConsole />
+            <TickerInfoProvider>
+              <div className="relative min-h-0 flex-1">
+                <motion.div
+                  className="h-full min-h-0"
+                  initial={false}
+                  animate={{ paddingRight: dockedPadding }}
+                  transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                >
+                  <WorkspaceGrid />
+                </motion.div>
+                <CopilotSidebar />
+              </div>
+              <CommandConsole />
+            </TickerInfoProvider>
           </WorkspaceChatProviders>
         </div>
       </div>

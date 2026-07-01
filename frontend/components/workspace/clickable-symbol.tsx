@@ -1,5 +1,8 @@
 "use client";
 
+import { Info } from "lucide-react";
+
+import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
 import { cn } from "@/lib/utils";
 
 export function ClickableSymbol({
@@ -13,24 +16,38 @@ export function ClickableSymbol({
   onActivate: () => void;
   className?: string;
 }) {
-  if (!linked) {
-    return (
-      <span className={cn("text-[var(--c-accent)]", className)}>{symbol}</span>
-    );
-  }
+  const { openTickerInfo } = useTickerInfo();
+
   return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onActivate();
-      }}
-      className={cn(
-        "cursor-pointer text-[var(--c-accent)] underline-offset-2 transition-colors hover:underline",
-        className,
+    <span className="group/sym inline-flex items-center gap-0.5">
+      {linked ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onActivate();
+          }}
+          className={cn(
+            "cursor-pointer text-[var(--c-accent)] underline-offset-2 transition-colors hover:underline",
+            className,
+          )}
+        >
+          {symbol}
+        </button>
+      ) : (
+        <span className={cn("text-[var(--c-accent)]", className)}>{symbol}</span>
       )}
-    >
-      {symbol}
-    </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          openTickerInfo(symbol);
+        }}
+        aria-label={`${symbol} info`}
+        className="text-[var(--fg-faint)] opacity-0 transition-opacity hover:text-[var(--c-accent)] group-hover/sym:opacity-100 focus-visible:opacity-100"
+      >
+        <Info className="size-3" />
+      </button>
+    </span>
   );
 }
