@@ -18,6 +18,7 @@ single tuple entry.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -238,6 +239,9 @@ def _result_row(symbol: str, value: float, metrics: Metrics) -> dict[str, Any]:
     }
 
 
+_FETCH_CONCURRENCY = 6  # bounded parallel bar fetches — fast on a cold cache, never a Schwab burst
+
+
 async def run_scan(
     preset_id: str,
     universe: Sequence[str],
@@ -248,17 +252,25 @@ async def run_scan(
     """Screen ``universe`` against ``preset_id`` and return ranked matches.
 
     ``get_bars(symbol)`` returns that symbol's daily bars (or None) — injected by
-    the caller so the screener stays decoupled from the broker/cache layer. It is
-    awaited once per symbol; the universe is bounded by the caller, so this is a
-    bounded set of cache-first reads, never a live burst.
+    the caller so the screener stays decoupled from the broker/cache layer. Symbols
+    are fetched with BOUNDED CONCURRENCY (each fetched exactly once) so a cold cache
+    or one slow symbol can't serialize past the client's request timeout; the
+    universe is caller-bounded, so this stays a small cache-first read, not a burst.
     """
     preset = get_preset(preset_id)
     if preset is None:
         raise ValueError(f"Unknown scan preset {preset_id!r}")
 
+    sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
+
+    async def _fetch(symbol: str) -> tuple[str, Any]:
+        async with sem:
+            return symbol, await get_bars(symbol)
+
+    fetched = await asyncio.gather(*(_fetch(sym) for sym in universe))
+
     matches: list[tuple[float, dict[str, Any]]] = []
-    for symbol in universe:
-        bars = await get_bars(symbol)
+    for symbol, bars in fetched:
         if not bars:
             continue
         metrics = _metrics(bars)

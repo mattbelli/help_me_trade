@@ -50,9 +50,11 @@ export async function runScan(
     preset: presetId,
     limit: String(limit),
   });
-  const res = await apiFetch(`${API_BASE}/api/scan/run?${params}`, {
-    cache: "no-store",
-  });
+  const res = await apiFetch(
+    `${API_BASE}/api/scan/run?${params}`,
+    { cache: "no-store" },
+    45_000, // scans fan out over a (possibly cold) universe — give the bounded fetch headroom
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(
