@@ -121,7 +121,7 @@ function defaultConfigForType(type: string): WidgetInstanceConfig | undefined {
   if (type === "chart") {
     return {
       channel: "none",
-      timeframe: CHART_TIMEFRAMES[4].value,
+      timeframe: CHART_TIMEFRAMES[5].value,
       style: "candle",
     };
   }

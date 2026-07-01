@@ -8,8 +8,11 @@ export type WidgetInstanceConfig = {
   timeframe?: string;
   style?: "candle" | "line";
   watchlistId?: string;
+  /** Watchlist: header "+" toggles the inline add-symbol row at the top of the list. */
+  adding?: boolean;
   /** Chart studies toggled from the frame toolbar's Studies dropdown. */
   showSessionNodes?: boolean;
+  studies?: string[];
 };
 
 export type WorkspaceLayoutItem = {

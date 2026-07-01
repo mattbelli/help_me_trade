@@ -99,11 +99,13 @@ function earningsBadgeStyle(days: number): CSSProperties {
 function WatchlistAddRow({
   symbols,
   activeListId,
-  onUpdated,
+  onAdded,
+  onClose,
 }: {
   symbols: string[];
   activeListId: string;
-  onUpdated: (state: WatchlistsState) => void;
+  onAdded: (state: WatchlistsState) => void;
+  onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -144,13 +146,6 @@ function WatchlistAddRow({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
-  const reset = useCallback(() => {
-    setQuery("");
-    setSuggestions([]);
-    setOpen(false);
-    inputRef.current?.focus();
-  }, []);
-
   const addSymbol = useCallback(
     async (raw: string) => {
       const symbol = raw.trim().toUpperCase();
@@ -158,22 +153,23 @@ function WatchlistAddRow({
 
       const current = symbols.map((s) => s.toUpperCase());
       if (current.includes(symbol)) {
-        reset();
+        onClose();
         return;
       }
 
       setSubmitting(true);
       try {
+        // Pin the newly added symbol to the TOP of the user's order.
         const next = await updateWatchlist(activeListId, {
-          symbols: [...symbols, symbol],
+          symbols: [symbol, ...symbols],
         });
-        onUpdated(next);
-        reset();
+        onAdded(next);
+        onClose();
       } finally {
         setSubmitting(false);
       }
     },
-    [activeListId, onUpdated, reset, symbols],
+    [activeListId, onAdded, onClose, symbols],
   );
 
   return (
@@ -181,13 +177,14 @@ function WatchlistAddRow({
       ref={wrapRef}
       className="relative m-1.5 flex items-center gap-x-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 transition-colors focus-within:border-[var(--c-accent)]"
     >
-      <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--fg-faint)]">
+      <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--c-accent)]">
         +
       </span>
       <input
         ref={inputRef}
         type="text"
         value={query}
+        autoFocus
         disabled={submitting}
         placeholder="Add symbol"
         className="min-w-0 flex-1 bg-transparent font-mono text-[12px] uppercase text-foreground outline-none placeholder:text-[var(--fg-faint)]"
@@ -206,7 +203,7 @@ function WatchlistAddRow({
           }
           if (e.key === "Escape") {
             e.preventDefault();
-            reset();
+            onClose();
           }
         }}
         onFocus={() => {
@@ -214,10 +211,18 @@ function WatchlistAddRow({
         }}
       />
       {loading ? (
-        <span className="absolute top-1/2 right-2 -translate-y-1/2 font-mono text-[9px] text-[var(--fg-faint)]">
+        <span className="shrink-0 font-mono text-[9px] text-[var(--fg-faint)]">
           …
         </span>
       ) : null}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close add symbol"
+        className="shrink-0 rounded px-0.5 font-mono text-[12px] leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+      >
+        ×
+      </button>
       {open && suggestions.length > 0 ? (
         <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)]">
           {suggestions.map((sym) => (
@@ -648,7 +653,7 @@ function WatchlistSymbolRow({
   );
 }
 
-export function WatchlistWidget({ config }: WidgetProps) {
+export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -850,6 +855,14 @@ export function WatchlistWidget({ config }: WidgetProps) {
     if (reordered) void persistReorder(reordered);
   }, [persistReorder]);
 
+  // A freshly added symbol is pinned to the top of the persisted order — clear
+  // any active column sort / in-progress drag so it's visible at the top.
+  const handleSymbolAdded = useCallback((next: WatchlistsState) => {
+    setState(next);
+    setSortState(null);
+    setDragOrder(null);
+  }, []);
+
   if (loading && !state) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
@@ -923,6 +936,15 @@ export function WatchlistWidget({ config }: WidgetProps) {
           <span />
         </div>
 
+        {config.adding ? (
+          <WatchlistAddRow
+            symbols={symbols}
+            activeListId={displayList.id}
+            onAdded={handleSymbolAdded}
+            onClose={() => onConfigChange({ adding: false })}
+          />
+        ) : null}
+
         <Reorder.Group
           axis="y"
           values={sortedSymbols}
@@ -944,12 +966,6 @@ export function WatchlistWidget({ config }: WidgetProps) {
             />
           ))}
         </Reorder.Group>
-
-        <WatchlistAddRow
-          symbols={symbols}
-          activeListId={displayList.id}
-          onUpdated={setState}
-        />
       </div>
     </div>
   );

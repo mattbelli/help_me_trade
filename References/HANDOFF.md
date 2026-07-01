@@ -12,6 +12,35 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-07-01) — charts overhaul (SHIPPED + deployed on serv :3001; committed).** 12 Composer briefs
+> across two rounds (one-at-a-time, each diff-reviewed). Pre-push green: `ruff check .` + `pytest` (1031) +
+> `npm run typecheck`/`build`.
+> **Library decision: stayed on `lightweight-charts` (already v5.2.0).** v5 natively provides the two hard
+> asks — real **panes** + the **primitives/plugin API** (drawing *on* the canvas via its coordinate system, the
+> non-glitchy way). Re-platforming (KLineChart/D3) rejected as unnecessary; the only custom work is the
+> trendline/channel primitives (LWC has no built-in drawing *tools*). Shipped: (1) **big live price + day-change%
+> + live/stale dot** next to the ticker in `ChartHeaderControls` (reuses `useSymbolQuote`; surfaced `change_pct`).
+> (2) **Volume → its own real pane** (`addSeries(..., 1)`, draggable separators via `layout.panes`, stretch 4:1;
+> replaced the old scaleMargins hack). (3) **Studies** computed client-side in `frontend/lib/indicators.ts`
+> (SMA/EMA/RSI/MACD — formulas mirror `signals/indicators.py` so chart == scanner) + `frontend/lib/chart-studies.ts`
+> registry: overlays SMA 20/50/200 + EMA 20 on the price pane, oscillators RSI 14 + MACD in their own panes;
+> toggled in the Studies dropdown checklist, persisted in `WidgetInstanceConfig.studies` (string[]). (4) **Drawings**:
+> new `chart_drawings` table + `/api/drawings` CRUD + `api.ts` client (mirrors price_alerts); **horizontal levels,
+> trendlines, channels** created via the chart **right-click menu** (no floating toolbar — per the
+> `chart-ui-no-overlay-buttons` pref); trendline/channel are custom `ISeriesPrimitive`s in
+> `frontend/lib/chart-trendline.ts` (2-click / 3-click placement + live preview + hit-test remove); levels reuse
+> price lines; all persist per symbol; "Set alert" on a level unchanged (levels & alerts stay independent records).
+> **Round 2 (founder in-browser feedback):** volume **zero pegged to the bottom** (autoscaleInfoProvider
+> minValue 0); **clearer pane separators**; **4H/1W/1M timeframes** (Alpaca native; Schwab
+> `_aggregate_to_4hourly/_weekly/_monthly` from 30-min/daily — verified live 1W=53 / 1M=60 / 4H=746 bars); and the
+> **drawings rework** — unified `DrawingShape` primitive positioned by **logical index** (draw out to the chart
+> edges — fixes "only drags out so far"), channel = **2-click + default width**, and **click-to-edit**: select a
+> drawing → draggable **endpoint handles** (channel adds a mid **width handle**) → drag (chart pan suspended) →
+> release saves (`updateDrawing`, optimistic local update); Delete/Escape/click-off to deselect. Persistence
+> stores `{time,price}`; logical is derived per render (snap-to-bar in range, projected in whitespace).
+> Briefs: `chart-*` (12) in `tools/composer-bridge/briefs/`. **Deferred/optional:** Bollinger/VWAP overlays,
+> study-period customization, whole-line drag (endpoints only now), drawing stability across data-window changes.
+>
 > ▶ **LATEST (2026-06-30) — terminal-UI polish round (shipped + deployed).** Four-part pass via 8 Composer briefs
 > (one-at-a-time, each diff-reviewed): (1) **Settings → terminal UI** — new reusable primitives in
 > `frontend/components/ui/terminal/` (Field/Input/Select/Toggle/Button + SettingsSection; mono `[x] ON / [ ] OFF`

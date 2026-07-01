@@ -45,6 +45,18 @@ class SchwabMarketData:
 
     @staticmethod
     def _resolve_timeframe(timeframe: str) -> dict[str, Any]:
+        if timeframe in ("1Week", "1Month"):
+            return {
+                "period_type": Client.PriceHistory.PeriodType.YEAR,
+                "frequency_type": Client.PriceHistory.FrequencyType.DAILY,
+                "frequency": Client.PriceHistory.Frequency.DAILY,
+            }
+        if timeframe == "4Hour":
+            return {
+                "period_type": Client.PriceHistory.PeriodType.DAY,
+                "frequency_type": Client.PriceHistory.FrequencyType.MINUTE,
+                "frequency": Client.PriceHistory.Frequency.EVERY_THIRTY_MINUTES,
+            }
         if timeframe == "1Day":
             return {
                 "period_type": Client.PriceHistory.PeriodType.YEAR,
@@ -120,6 +132,86 @@ class SchwabMarketData:
             )
         return hourly
 
+    @staticmethod
+    def _aggregate_to_4hourly(bars: list[StockBar]) -> list[StockBar]:
+        if not bars:
+            return []
+
+        buckets: dict[int, list[StockBar]] = defaultdict(list)
+        for bar in bars:
+            dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
+            bucket_key = int(dt.timestamp()) // (4 * 3600)
+            buckets[bucket_key].append(bar)
+
+        four_hourly: list[StockBar] = []
+        for bucket_key in sorted(buckets):
+            group = buckets[bucket_key]
+            bucket_start = datetime.fromtimestamp(
+                bucket_key * 4 * 3600, tz=UTC
+            )
+            four_hourly.append(
+                StockBar(
+                    time=bucket_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    open=group[0].open,
+                    high=max(b.high for b in group),
+                    low=min(b.low for b in group),
+                    close=group[-1].close,
+                    volume=sum(b.volume for b in group),
+                )
+            )
+        return four_hourly
+
+    @staticmethod
+    def _aggregate_to_weekly(bars: list[StockBar]) -> list[StockBar]:
+        if not bars:
+            return []
+
+        buckets: dict[tuple[int, int], list[StockBar]] = defaultdict(list)
+        for bar in bars:
+            dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
+            iso_year, iso_week, _ = dt.isocalendar()
+            buckets[(iso_year, iso_week)].append(bar)
+
+        weekly: list[StockBar] = []
+        for bucket_key in sorted(buckets):
+            group = buckets[bucket_key]
+            weekly.append(
+                StockBar(
+                    time=group[0].time,
+                    open=group[0].open,
+                    high=max(b.high for b in group),
+                    low=min(b.low for b in group),
+                    close=group[-1].close,
+                    volume=sum(b.volume for b in group),
+                )
+            )
+        return weekly
+
+    @staticmethod
+    def _aggregate_to_monthly(bars: list[StockBar]) -> list[StockBar]:
+        if not bars:
+            return []
+
+        buckets: dict[tuple[int, int], list[StockBar]] = defaultdict(list)
+        for bar in bars:
+            dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
+            buckets[(dt.year, dt.month)].append(bar)
+
+        monthly: list[StockBar] = []
+        for bucket_key in sorted(buckets):
+            group = buckets[bucket_key]
+            monthly.append(
+                StockBar(
+                    time=group[0].time,
+                    open=group[0].open,
+                    high=max(b.high for b in group),
+                    low=min(b.low for b in group),
+                    close=group[-1].close,
+                    volume=sum(b.volume for b in group),
+                )
+            )
+        return monthly
+
     def _fetch_bars_sync(
         self,
         symbol: str,
@@ -166,6 +258,36 @@ class SchwabMarketData:
                 extended_hours=extended_hours,
             )
             return self._aggregate_to_hourly(bars)
+        if timeframe == "4Hour":
+            bars = await asyncio.to_thread(
+                self._fetch_bars_sync,
+                symbol,
+                timeframe="30Min",
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+            return self._aggregate_to_4hourly(bars)
+        if timeframe == "1Week":
+            bars = await asyncio.to_thread(
+                self._fetch_bars_sync,
+                symbol,
+                timeframe="1Day",
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+            return self._aggregate_to_weekly(bars)
+        if timeframe == "1Month":
+            bars = await asyncio.to_thread(
+                self._fetch_bars_sync,
+                symbol,
+                timeframe="1Day",
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+            return self._aggregate_to_monthly(bars)
         return await asyncio.to_thread(
             self._fetch_bars_sync,
             symbol,

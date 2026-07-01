@@ -746,6 +746,74 @@ export async function triggerPriceAlert(id: number): Promise<void> {
   if (!res.ok) throw new Error(`Trigger alert error ${res.status}`);
 }
 
+export type ChartDrawingKind = "level" | "trendline" | "channel";
+
+export type ChartDrawingData = {
+  price?: number;
+  points?: { time: number | null; price: number }[];
+  width?: number;
+  color?: string;
+};
+
+export type ChartDrawing = {
+  id: number;
+  symbol: string;
+  kind: ChartDrawingKind;
+  data: ChartDrawingData;
+  created_at: string;
+};
+
+export async function fetchDrawings(symbol?: string): Promise<ChartDrawing[]> {
+  const params = symbol
+    ? new URLSearchParams({ symbol })
+    : new URLSearchParams();
+  const res = await apiFetch(`${API_BASE}/api/drawings?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Drawings error ${res.status}`);
+  const data = await res.json();
+  return data.drawings ?? [];
+}
+
+export async function createDrawing(payload: {
+  symbol: string;
+  kind: ChartDrawingKind;
+  data: ChartDrawingData;
+}): Promise<ChartDrawing> {
+  const res = await apiFetch(`${API_BASE}/api/drawings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Create drawing error ${res.status}`);
+  return res.json();
+}
+
+export async function updateDrawing(
+  id: number,
+  payload: { data?: ChartDrawingData; kind?: ChartDrawingKind },
+): Promise<ChartDrawing> {
+  const res = await apiFetch(`${API_BASE}/api/drawings/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Update drawing error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function deleteDrawing(id: number): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/api/drawings/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Delete drawing error ${res.status}`);
+}
+
 export type ProposalScoreFactor = {
   name: string;
   direction: "bullish" | "bearish" | string;

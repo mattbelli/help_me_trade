@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from schwab.client import Client
 
-from brokers.alpaca import AlpacaAdapter
+from brokers.alpaca import AlpacaAdapter, StockBar
 from brokers.base import MarketDataProvider
 from brokers.errors import BrokerError
 from brokers.factory import get_market_data_provider
@@ -88,6 +88,19 @@ def test_resolve_timeframe_daily_and_minute() -> None:
         "frequency": Client.PriceHistory.Frequency.DAILY,
     }
 
+    weekly = SchwabMarketData._resolve_timeframe("1Week")
+    assert weekly == daily
+
+    monthly = SchwabMarketData._resolve_timeframe("1Month")
+    assert monthly == daily
+
+    four_hour = SchwabMarketData._resolve_timeframe("4Hour")
+    assert four_hour == {
+        "period_type": Client.PriceHistory.PeriodType.DAY,
+        "frequency_type": Client.PriceHistory.FrequencyType.MINUTE,
+        "frequency": Client.PriceHistory.Frequency.EVERY_THIRTY_MINUTES,
+    }
+
     minute = SchwabMarketData._resolve_timeframe("5Min")
     assert minute == {
         "period_type": Client.PriceHistory.PeriodType.DAY,
@@ -99,6 +112,44 @@ def test_resolve_timeframe_daily_and_minute() -> None:
 def test_resolve_timeframe_one_hour_raises() -> None:
     with pytest.raises(BrokerError, match="1Hour"):
         SchwabMarketData._resolve_timeframe("1Hour")
+
+
+def test_aggregate_to_weekly_buckets_three_weeks() -> None:
+    """Ten daily bars spanning three ISO weeks collapse to three weekly candles."""
+    bars = [
+        StockBar(time="2026-01-05T00:00:00Z", open=100, high=101, low=99, close=100.5, volume=1000),
+        StockBar(time="2026-01-06T00:00:00Z", open=100.5, high=102, low=100, close=101, volume=1100),
+        StockBar(time="2026-01-07T00:00:00Z", open=101, high=103, low=100.5, close=102, volume=1200),
+        StockBar(time="2026-01-08T00:00:00Z", open=102, high=104, low=101.5, close=103, volume=1300),
+        StockBar(time="2026-01-09T00:00:00Z", open=103, high=105, low=102.5, close=104, volume=1400),
+        StockBar(time="2026-01-12T00:00:00Z", open=104, high=106, low=103.5, close=105, volume=1500),
+        StockBar(time="2026-01-13T00:00:00Z", open=105, high=107, low=104.5, close=106, volume=1600),
+        StockBar(time="2026-01-14T00:00:00Z", open=106, high=108, low=105.5, close=107, volume=1700),
+        StockBar(time="2026-01-19T00:00:00Z", open=107, high=109, low=106.5, close=108, volume=1800),
+        StockBar(time="2026-01-20T00:00:00Z", open=108, high=110, low=107.5, close=109, volume=1900),
+    ]
+
+    weekly = SchwabMarketData._aggregate_to_weekly(bars)
+
+    assert len(weekly) == 3
+    assert weekly[0].time == "2026-01-05T00:00:00Z"
+    assert weekly[0].open == 100
+    assert weekly[0].high == 105
+    assert weekly[0].low == 99
+    assert weekly[0].close == 104
+    assert weekly[0].volume == 6000
+    assert weekly[1].time == "2026-01-12T00:00:00Z"
+    assert weekly[1].open == 104
+    assert weekly[1].high == 108
+    assert weekly[1].low == 103.5
+    assert weekly[1].close == 107
+    assert weekly[1].volume == 4800
+    assert weekly[2].time == "2026-01-19T00:00:00Z"
+    assert weekly[2].open == 107
+    assert weekly[2].high == 110
+    assert weekly[2].low == 106.5
+    assert weekly[2].close == 109
+    assert weekly[2].volume == 3700
 
 
 @pytest.mark.asyncio

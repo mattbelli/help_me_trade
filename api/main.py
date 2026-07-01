@@ -69,11 +69,15 @@ from db.accounts import (
 )
 from db.ai_tables import delete_rule, init_ai_tables
 from db.chart_features import (
+    create_chart_drawing,
     create_price_alert,
+    delete_chart_drawing,
     delete_price_alert,
     init_chart_features,
+    list_chart_drawings,
     list_price_alerts,
     mark_alert_triggered,
+    update_chart_drawing,
     update_price_alert,
 )
 from db.chat_sessions import init_chat_tables
@@ -2023,7 +2027,16 @@ async def api_generate_report(body: dict = Body(...), push: bool = False):
 # instead of waiting on a fresh Schwab per-symbol round-trip (the live price rides the
 # WS stream on the frontend, so a few-minutes-stale historical window is invisible).
 _BARS_CACHE: dict[tuple, tuple[float, dict]] = {}
-_BARS_CACHE_TTL = {"1Min": 60.0, "5Min": 180.0, "15Min": 300.0, "1Hour": 600.0, "1Day": 300.0}
+_BARS_CACHE_TTL = {
+    "1Min": 60.0,
+    "5Min": 180.0,
+    "15Min": 300.0,
+    "1Hour": 600.0,
+    "4Hour": 600.0,
+    "1Day": 300.0,
+    "1Week": 300.0,
+    "1Month": 300.0,
+}
 
 # Recency of chart-bar requests, used to keep the cache warm (prewarm loop below).
 # spec = (timeframe, days) the frontend actually requests — capturing it avoids
@@ -2406,6 +2419,63 @@ def api_trigger_alert(alert_id: int):
         return JSONResponse({"error": "Not found or already triggered"}, status_code=404)
     mark_alert_triggered(alert_id, repeat=bool(active[0].get("repeat")))
     return {"ok": True, "alert": active[0]}
+
+
+@app.get("/api/drawings")
+def api_list_drawings(symbol: str | None = None):
+    return {"drawings": list_chart_drawings(symbol=symbol)}
+
+
+@app.post("/api/drawings")
+def api_create_drawing(body: dict = Body(...)):
+    symbol = str(body.get("symbol", "")).strip()
+    kind = str(body.get("kind", "")).strip().lower()
+    data = body.get("data", {})
+    if not symbol or not kind:
+        return JSONResponse(
+            {"error": "symbol and kind are required"}, status_code=400
+        )
+    if kind not in ("level", "trendline", "channel"):
+        return JSONResponse(
+            {"error": "kind must be one of: level, trendline, channel"},
+            status_code=400,
+        )
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "data must be an object"}, status_code=400)
+    drawing = create_chart_drawing(symbol=symbol, kind=kind, data=data)
+    return drawing
+
+
+@app.put("/api/drawings/{drawing_id}")
+def api_update_drawing(drawing_id: int, body: dict = Body(...)):
+    kind_norm: str | None = None
+    if body.get("kind") is not None:
+        kind_norm = str(body["kind"]).strip().lower()
+        if kind_norm not in ("level", "trendline", "channel"):
+            return JSONResponse(
+                {"error": "kind must be one of: level, trendline, channel"},
+                status_code=400,
+            )
+    data_val: dict | None = None
+    if body.get("data") is not None:
+        if not isinstance(body["data"], dict):
+            return JSONResponse({"error": "data must be an object"}, status_code=400)
+        data_val = body["data"]
+    updated = update_chart_drawing(
+        drawing_id,
+        data=data_val,
+        kind=kind_norm,
+    )
+    if updated is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return updated
+
+
+@app.delete("/api/drawings/{drawing_id}")
+def api_delete_drawing(drawing_id: int):
+    if not delete_chart_drawing(drawing_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -15,21 +15,31 @@ export const CHART_TIMEFRAMES: ChartTimeframe[] = [
   { label: "5m", value: "5Min", days: 20, intraday: true },
   { label: "15m", value: "15Min", days: 60, intraday: true },
   { label: "1H", value: "1Hour", days: 180, intraday: true },
+  { label: "4H", value: "4Hour", days: 180, intraday: true },
   { label: "1D", value: "1Day", days: 365, intraday: false },
+  { label: "1W", value: "1Week", days: 365, intraday: false },
+  { label: "1M", value: "1Month", days: 1825, intraday: false },
 ];
 
 const ET = "America/New_York";
 
 export function isDailyTimeframe(tf: string) {
-  return tf === "1Day" || tf === "1D";
+  return (
+    tf === "1Day" ||
+    tf === "1D" ||
+    tf === "1Week" ||
+    tf === "1Month"
+  );
 }
 
 export function timeframeSeconds(tf: string): number {
-  const m = /^(\d+)(Min|Hour|Day)$/.exec(tf);
+  const m = /^(\d+)(Min|Hour|Day|Week|Month)$/.exec(tf);
   if (!m) return 0;
   const n = Number(m[1]);
   if (m[2] === "Min") return n * 60;
   if (m[2] === "Hour") return n * 3600;
+  if (m[2] === "Week") return n * 604800;
+  if (m[2] === "Month") return n * 2592000;
   return n * 86400; // Day
 }
 

@@ -12,7 +12,7 @@ import type { WidgetProps } from "@/lib/workspace/widget-registry";
 
 function resolveTimeframe(value?: string): ChartTimeframe {
   return (
-    CHART_TIMEFRAMES.find((tf) => tf.value === value) ?? CHART_TIMEFRAMES[4]
+    CHART_TIMEFRAMES.find((tf) => tf.value === value) ?? CHART_TIMEFRAMES[5]
   );
 }
 
@@ -40,6 +40,7 @@ export function ChartWidget({ config }: WidgetProps) {
             symbol={symbol}
             compact
             showLevels={Boolean(config.showSessionNodes)}
+            studies={config.studies}
             timeframe={timeframe}
             style={style}
             livePrice={livePrice}
