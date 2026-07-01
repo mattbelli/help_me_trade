@@ -79,8 +79,13 @@ def api_journal_calibration() -> Any:
 
 
 @router.get("/trades")
-def api_journal_trades(symbol: str | None = None, limit: int = 20) -> Any:
-    """The user's recent closed round-trips (FIFO-approximate P&L). Me side."""
+def api_journal_trades(
+    symbol: str | None = None, account_id: str | None = None, limit: int = 20
+) -> Any:
+    """The user's recent closed round-trips (FIFO-approximate P&L). Me side.
+
+    ``account_id`` scopes to one account; omitted = all REAL accounts (the paper
+    Alpaca sandbox is always excluded by the underlying reader)."""
     from ai.perception.resources import _read_my_trades
     from db.base import DEFAULT_DB_PATH
 
@@ -89,14 +94,17 @@ def api_journal_trades(symbol: str | None = None, limit: int = 20) -> Any:
             {"error": f"limit must be 1–{_MAX_LIMIT}"}, status_code=400
         )
     trades = _read_my_trades(
-        {"symbol": symbol, "limit": _clamp_limit(limit)}, db_path=DEFAULT_DB_PATH
+        {"symbol": symbol, "account_id": account_id, "limit": _clamp_limit(limit)},
+        db_path=DEFAULT_DB_PATH,
     )
     return {"count": len(trades), "trades": trades}
 
 
 @router.get("/trades/summary")
 def api_journal_trades_summary(
-    symbol: str | None = None, entry_style: bool = False
+    symbol: str | None = None,
+    account_id: str | None = None,
+    entry_style: bool = False,
 ) -> Any:
     """Behavioral profile + net-cash realized headline. Me side.
 
@@ -106,7 +114,9 @@ def api_journal_trades_summary(
     from ai.perception.resources import _summarize_my_trades
     from db.base import DEFAULT_DB_PATH
 
-    summary = _summarize_my_trades({"symbol": symbol}, db_path=DEFAULT_DB_PATH)
+    summary = _summarize_my_trades(
+        {"symbol": symbol, "account_id": account_id}, db_path=DEFAULT_DB_PATH
+    )
     if entry_style:
         summary["entry_style"] = _entry_style_block(symbol, db_path=DEFAULT_DB_PATH)
     return summary

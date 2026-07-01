@@ -21,8 +21,12 @@ def api_performance_dashboard(
     from_date: str | None = None,
     to_date: str | None = None,
 ) -> dict[str, Any]:
+    # No specific account => the user's REAL trading only (exclude the paper Alpaca
+    # sandbox). "my performance" never blends fake-money trades into the real total.
+    aggregate = account_id in (None, "", "all", "all_real")
     return performance_dashboard(
-        account_id=account_id,
+        account_id=None if aggregate else account_id,
+        real_only=aggregate,
         period=period,
         custom_from=from_date,
         custom_to=to_date,

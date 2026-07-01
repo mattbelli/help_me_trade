@@ -251,6 +251,7 @@ def list_trade_events(
     to_date: str | None = None,
     symbol: str | None = None,
     event_type: str | None = None,
+    real_only: bool = False,
     limit: int = 500,
     offset: int = 0,
     db_path: Path = DEFAULT_DB_PATH,
@@ -262,6 +263,12 @@ def list_trade_events(
     if account_id:
         clauses.append("account_id = ?")
         params.append(account_id)
+    if real_only:
+        # Firewall: exclude the paper Alpaca sandbox so real P&L is never blended
+        # with fake-money trades (mirrors the perception layer + the UI selector).
+        clauses.append(
+            "account_id NOT IN (SELECT id FROM trade_accounts WHERE broker = 'alpaca')"
+        )
     if from_date:
         clauses.append("trade_date >= ?")
         params.append(from_date)
@@ -462,12 +469,14 @@ def trade_summary_stats(
     account_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    real_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     events = list_trade_events(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
         limit=100_000,
         offset=0,
         db_path=db_path,
@@ -498,12 +507,14 @@ def daily_trade_stats(
     account_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    real_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     events = list_trade_events(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
         limit=100_000,
         offset=0,
         db_path=db_path,

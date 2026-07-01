@@ -451,6 +451,7 @@ def _round_trips_in_period(
 def performance_dashboard(
     *,
     account_id: str | None = None,
+    real_only: bool = False,
     period: str = "all",
     custom_from: str | None = None,
     custom_to: str | None = None,
@@ -462,12 +463,14 @@ def performance_dashboard(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
         limit=100_000,
     )
     # FIFO needs full history through to_date so sells match earlier buys.
     history_events = list_trade_events(
         account_id=account_id,
         to_date=to_date,
+        real_only=real_only,
         limit=100_000,
     )
     history_trades = _relevant_trade_events(history_events)
@@ -476,6 +479,7 @@ def performance_dashboard(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
     )
     round_trips_all = compute_round_trips(history_trades)
     round_trips_in_period = [
@@ -499,6 +503,7 @@ def performance_dashboard(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
     )
     daily_realized = daily_realized_stats(
         round_trips_all, from_date=from_date, to_date=to_date
