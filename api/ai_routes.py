@@ -332,7 +332,14 @@ def api_chat_context(body: dict = Body(...)):
     inject_memories = bool(
         body.get("injectMemories") or body.get("inject_memories")
     )
-    return build_turn_context(user_text, inject_memories=inject_memories)
+    inject_journal = bool(
+        body.get("injectJournal") or body.get("inject_journal")
+    )
+    return build_turn_context(
+        user_text,
+        inject_memories=inject_memories,
+        inject_journal=inject_journal,
+    )
 
 
 @router.post("/chat/tools/execute")

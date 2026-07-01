@@ -21,6 +21,7 @@ from ai.rules.engine import evaluate_on_snapshot
 from api.ai_routes import router as ai_router
 from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
 from api.device_routes import router as device_router
+from api.journal_routes import router as journal_router
 from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
 from api.performance_routes import router as performance_router
@@ -1247,6 +1248,7 @@ app.include_router(performance_router)
 app.include_router(strategy_router)
 app.include_router(notification_router)
 app.include_router(scan_router)
+app.include_router(journal_router)
 
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(

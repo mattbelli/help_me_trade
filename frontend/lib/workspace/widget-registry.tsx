@@ -6,6 +6,7 @@ import { AccountSummaryWidget } from "@/components/workspace/widgets/account-sum
 import { AgentProposalsWidget } from "@/components/workspace/widgets/agent-proposals-widget";
 import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
+import { JournalWidget } from "@/components/workspace/widgets/journal-widget";
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
 import { PerformanceWidget } from "@/components/workspace/widgets/performance-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
@@ -158,6 +159,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: AgentProposalsWidget,
     defaultSize: { w: 12, h: 6, minW: 5, minH: 3 },
+  },
+  {
+    id: "journal",
+    title: "decision journal",
+    description:
+      "The agent's own paper-call track record and your real trades — AI ⇄ Me toggle",
+    channelAware: true,
+    component: JournalWidget,
+    defaultSize: { w: 12, h: 8, minW: 5, minH: 4 },
   },
   {
     id: "rvol-scanner",
