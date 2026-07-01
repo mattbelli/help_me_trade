@@ -12,6 +12,7 @@ import {
   type ScanPreset,
   type ScanResultRow,
   type ScanRunResult,
+  type ScanUniverse,
 } from "@/lib/scans-api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -19,6 +20,15 @@ import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 25_000;
+
+// The volume preset needs per-bar volume, which the S&P 500 store lacks — so it
+// is greyed out on that universe (only the live Watchlist path carries volume).
+const VOLUME_ONLY_PRESET = "unusual_volume";
+
+const UNIVERSES: ReadonlyArray<{ id: ScanUniverse; label: string; title: string }> = [
+  { id: "watchlist", label: "Watchlist", title: "Your watchlist ∪ open positions (live)" },
+  { id: "sp500", label: "S&P 500", title: "S&P 500 — screened from stored daily bars" },
+];
 
 function formatPrice(v: number | null): string {
   if (v == null) return "—";
@@ -58,6 +68,8 @@ function changeColor(v: number | null): string {
 export function ScansWidget({ config }: WidgetProps) {
   const [presets, setPresets] = useState<ScanPreset[]>([]);
   const [selected, setSelected] = useState<string>("");
+  // Default to the broad S&P 500 scan — the founder wants the bigger screen.
+  const [universe, setUniverse] = useState<ScanUniverse>("sp500");
   const [data, setData] = useState<ScanRunResult | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,21 +103,24 @@ export function ScansWidget({ config }: WidgetProps) {
     };
   }, []);
 
-  const run = useCallback(async (presetId: string) => {
-    if (!presetId) return;
-    setRunning(true);
-    try {
-      const result = await runScan(presetId, 50);
-      if (cancelledRef.current) return;
-      setData(result);
-      setError(null);
-    } catch (err) {
-      if (cancelledRef.current) return;
-      setError(err instanceof Error ? err.message : "Scan failed");
-    } finally {
-      if (!cancelledRef.current) setRunning(false);
-    }
-  }, []);
+  const run = useCallback(
+    async (presetId: string) => {
+      if (!presetId) return;
+      setRunning(true);
+      try {
+        const result = await runScan(presetId, universe, 50);
+        if (cancelledRef.current) return;
+        setData(result);
+        setError(null);
+      } catch (err) {
+        if (cancelledRef.current) return;
+        setError(err instanceof Error ? err.message : "Scan failed");
+      } finally {
+        if (!cancelledRef.current) setRunning(false);
+      }
+    },
+    [universe],
+  );
 
   // Keep an already-run scan fresh (only while it matches the selected preset).
   useEffect(() => {
@@ -118,6 +133,18 @@ export function ScansWidget({ config }: WidgetProps) {
     setSelected(id);
     setData(null);
     setError(null);
+  };
+
+  const handleUniverseChange = (next: ScanUniverse) => {
+    if (next === universe) return;
+    setUniverse(next);
+    setData(null);
+    setError(null);
+    // The volume preset is disabled on S&P 500 — fall back to another preset.
+    if (next === "sp500" && selected === VOLUME_ONLY_PRESET) {
+      const fallback = presets.find((p) => p.id !== VOLUME_ONLY_PRESET);
+      if (fallback) setSelected(fallback.id);
+    }
   };
 
   if (presets.length === 0 && error) {
@@ -136,17 +163,49 @@ export function ScansWidget({ config }: WidgetProps) {
     <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
       {/* Controls */}
       <div className="flex items-center gap-1.5 border-b border-[var(--border)] px-2 py-1.5">
+        {/* Universe toggle: Watchlist ⇄ S&P 500 */}
+        <div className="inline-flex shrink-0 overflow-hidden rounded border border-[var(--border)]">
+          {UNIVERSES.map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => handleUniverseChange(u.id)}
+              title={u.title}
+              aria-pressed={universe === u.id}
+              className={cn(
+                "px-1.5 py-0.5 font-mono text-[9.5px] transition-colors",
+                universe === u.id
+                  ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
+                  : "text-[var(--fg-faint)] hover:bg-[var(--bg-hover)] hover:text-foreground",
+              )}
+            >
+              {u.label}
+            </button>
+          ))}
+        </div>
         <TerminalSelect
           value={selected}
           onChange={(e) => handlePresetChange(e.target.value)}
           className="flex-1"
           aria-label="Scan preset"
         >
-          {presets.map((p) => (
-            <option key={p.id} value={p.id} title={p.description}>
-              {p.label}
-            </option>
-          ))}
+          {presets.map((p) => {
+            const disabled =
+              universe === "sp500" && p.id === VOLUME_ONLY_PRESET;
+            return (
+              <option
+                key={p.id}
+                value={p.id}
+                disabled={disabled}
+                title={
+                  disabled ? "needs volume — switch to Watchlist" : p.description
+                }
+              >
+                {p.label}
+                {disabled ? " (Watchlist only)" : ""}
+              </option>
+            );
+          })}
         </TerminalSelect>
         <TerminalButton
           variant="primary"
@@ -157,10 +216,16 @@ export function ScansWidget({ config }: WidgetProps) {
         </TerminalButton>
         {showResults ? (
           <span className="tabular-nums text-[9.5px] text-[var(--fg-faint)]">
-            {formatAsOf(data.as_of)}
+            {data.universe_size} · {formatAsOf(data.as_of)}
           </span>
         ) : null}
       </div>
+
+      {showResults && data.note ? (
+        <p className="px-2 py-1 font-mono text-[10px] text-[var(--c-amber)]">
+          {data.note}
+        </p>
+      ) : null}
 
       {error && showResults ? (
         <p className="px-2 py-1 font-mono text-[10px] text-[var(--c-red)]">

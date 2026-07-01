@@ -218,9 +218,13 @@ def _metrics(bars: list[Bar]) -> Metrics:
     if dist_low is not None:
         out["dist_52w_low_pct"] = round(dist_low, 2)
 
-    rvol = volume_vs_avg(v, 20)
-    if rvol is not None:
-        out["rvol"] = round(rvol, 2)
+    # ``v`` is None for store-backed (S&P 500) bars, which keep only open/close;
+    # skip the volume metric rather than fabricate it, so volume presets naturally
+    # match nothing on that universe (the ``requires=("rvol",)`` gate drops them).
+    if v and all(x is not None for x in v):
+        rvol = volume_vs_avg(v, 20)
+        if rvol is not None:
+            out["rvol"] = round(rvol, 2)
 
     return out
 

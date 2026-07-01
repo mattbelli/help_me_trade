@@ -78,6 +78,18 @@ def test_metrics_skips_missing_when_short() -> None:
     assert "rvol" in m  # 20-day avg volume still computable
 
 
+def test_metrics_omits_rvol_when_volume_absent() -> None:
+    # Store-backed (S&P 500) bars keep only open/close → volume is None; the
+    # scan must skip the volume metric (never fabricate it), not crash.
+    bars: list[Bar] = [
+        {"o": 100.0, "h": 100.0, "l": 100.0, "c": 100.0, "v": None}  # type: ignore[typeddict-item]
+        for _ in range(40)
+    ]
+    m = _metrics(bars)
+    assert "rvol" not in m
+    assert "price" in m  # price/RSI-style metrics still computed from close
+
+
 # ---------------------------------------------------------------------------
 # preset registry
 # ---------------------------------------------------------------------------

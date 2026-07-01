@@ -18,14 +18,18 @@ export type ScanResultRow = {
   dist_52w_high_pct: number | null;
 };
 
+export type ScanUniverse = "watchlist" | "sp500";
+
 export type ScanRunResult = {
   preset_id: string;
   preset_label: string;
   metric_label: string;
+  universe: ScanUniverse;
   universe_size: number;
   count: number;
   results: ScanResultRow[];
   as_of: string;
+  note?: string;
 };
 
 export async function fetchScanPresets(): Promise<ScanPreset[]> {
@@ -44,10 +48,12 @@ export async function fetchScanPresets(): Promise<ScanPreset[]> {
 
 export async function runScan(
   presetId: string,
+  universe: ScanUniverse = "watchlist",
   limit = 50,
 ): Promise<ScanRunResult> {
   const params = new URLSearchParams({
     preset: presetId,
+    universe,
     limit: String(limit),
   });
   const res = await apiFetch(

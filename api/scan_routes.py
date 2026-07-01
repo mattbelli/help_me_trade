@@ -23,12 +23,22 @@ from trading.market_hours import _ET
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
 
-# Hard ceiling on how many symbols a single scan may touch. The universe is
-# already bounded to watchlist ∪ open positions; this is a belt-and-suspenders
-# cap so the screener can never fan out into a broker burst.
+# Hard ceiling on how many symbols a single scan may touch. The watchlist
+# universe is already bounded to watchlist ∪ open positions; this is a
+# belt-and-suspenders cap so the LIVE screener can never fan out into a broker
+# burst. It does NOT apply to the ``sp500`` universe, which reads a local store
+# (no broker) and is meant to span ~500 names.
 _MAX_UNIVERSE = 120
 _SCAN_BARS_TIMEFRAME = "1Day"
 _SCAN_BARS_DAYS = 365  # ~250 trading days — covers 200-DMA and the 52-week range
+
+# The universes a scan may screen. ``watchlist`` = live/cached bars (bounded);
+# ``sp500`` = the persisted momentum daily-bars store (read-only, no broker).
+_UNIVERSES: tuple[str, ...] = ("watchlist", "sp500")
+_SP500_VOLUME_NOTE = (
+    "Volume scans use the Watchlist universe — the S&P 500 store keeps only "
+    "open/close, so it has no volume to screen."
+)
 
 
 def _screen_universe() -> list[str]:
@@ -84,6 +94,44 @@ def _make_bars_getter():
     return _get
 
 
+def _sp500_universe() -> list[str]:
+    """The S&P 500 symbol list (from the shared strategy universe spec).
+
+    These are exactly the names a daily loop refreshes into the
+    ``momentum_daily_bars`` store, so an ``sp500`` scan reads that store and never
+    touches the broker.
+    """
+    from signals.strategy_universe import resolve_universe_spec  # lazy import
+
+    return resolve_universe_spec("sp500")
+
+
+def _make_store_bars_getter(symbols: list[str]):
+    """Return a ``get_bars`` backed by the persisted ``momentum_daily_bars`` store.
+
+    Reads every symbol's daily bars in a SINGLE SQLite query up front (read-only),
+    then serves each from memory — there is NO broker/Schwab call on this path, so
+    a ~500-name scan can't burst-request Schwab. The store keeps only open/close,
+    so high/low are APPROXIMATED by the close and volume is absent (``None``);
+    volume-based presets therefore match nothing here (see ``_metrics``' guard).
+    """
+    from db.momentum_bars import load_daily_bars  # lazy import
+
+    loaded = load_daily_bars(symbols)  # {symbol: (dates, closes, opens)}
+
+    async def _get(symbol: str) -> list[Bar] | None:
+        entry = loaded.get(symbol.strip().upper())
+        if not entry:
+            return None
+        _dates, close_list, open_list = entry
+        return [
+            {"o": open_, "h": close_, "l": close_, "c": close_, "v": None}
+            for open_, close_ in zip(open_list, close_list, strict=True)
+        ]
+
+    return _get
+
+
 @router.get("/presets")
 def api_scan_presets() -> dict[str, Any]:
     """List the available scan presets (id, label, description, metric label)."""
@@ -91,15 +139,34 @@ def api_scan_presets() -> dict[str, Any]:
 
 
 @router.get("/run")
-async def api_scan_run(preset: str, limit: int = 50) -> Any:
-    """Run a preset scan over the bounded universe → ranked matches."""
+async def api_scan_run(preset: str, limit: int = 50, universe: str = "watchlist") -> Any:
+    """Run a preset scan over a chosen universe → ranked matches.
+
+    ``universe="watchlist"`` (default) screens watchlist ∪ open positions from the
+    app's cached daily-bars path (live, bounded). ``universe="sp500"`` screens the
+    S&P 500 straight from the persisted ``momentum_daily_bars`` store — READ-ONLY,
+    no broker call — so it can span ~500 names without a Schwab burst.
+    """
     if get_preset(preset) is None:
         return JSONResponse({"error": f"Unknown scan preset {preset!r}"}, status_code=400)
     if limit < 1 or limit > 200:
         return JSONResponse({"error": "limit must be 1–200"}, status_code=400)
+    if universe not in _UNIVERSES:
+        return JSONResponse({"error": f"Unknown universe {universe!r}"}, status_code=400)
 
     as_of = datetime.now(_ET).isoformat(timespec="seconds")
-    universe = _screen_universe()
-    result = await run_scan(preset, universe, _make_bars_getter(), limit=limit)
+
+    if universe == "sp500":
+        symbols = _sp500_universe()
+        get_bars = _make_store_bars_getter(symbols)
+    else:
+        symbols = _screen_universe()
+        get_bars = _make_bars_getter()
+
+    result = await run_scan(preset, symbols, get_bars, limit=limit)
+    result["universe"] = universe
     result["as_of"] = as_of
+    # The store has no volume, so the volume preset is honestly empty here — say so.
+    if universe == "sp500" and preset == "unusual_volume":
+        result["note"] = _SP500_VOLUME_NOTE
     return result
