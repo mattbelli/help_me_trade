@@ -136,6 +136,19 @@ def _fetch_all() -> dict:
         except Exception:  # noqa: BLE001 — orders are best-effort; never fail the snapshot
             open_orders = []
 
+        liq = float(bal.get("liquidationValue") or bal.get("cashBalance") or 0)
+        init_liq = float((sec.get("initialBalances") or {}).get("liquidationValue") or 0)
+        # Day P&L from Schwab's OWN start-of-day liquidation value — this captures
+        # REALIZED closed trades AND unrealized open positions. Summing position
+        # currentDayProfitLoss alone reads 0 once the account is flat (a day-trader
+        # who round-trips out), silently dropping the day's realized gain. Fall
+        # back to the position-day sum only if Schwab omits initialBalances.
+        day_pl = (
+            round(liq - init_liq, 2)
+            if init_liq
+            else sum(p["day_pl"] for p in positions)
+        )
+
         accounts.append(
             {
                 "id": f"schwab_{last4}",
@@ -143,12 +156,10 @@ def _fetch_all() -> dict:
                 "label": labels.get(last4) or f"Schwab ••{last4}",
                 "account_type": str(sec.get("type") or ""),
                 "is_day_trader": bool(sec.get("isDayTrader")),
-                "liquidation_value": float(
-                    bal.get("liquidationValue") or bal.get("cashBalance") or 0
-                ),
+                "liquidation_value": liq,
                 "cash": float(bal.get("cashBalance") or 0),
                 "long_market_value": float(bal.get("longMarketValue") or 0),
-                "day_pl": sum(p["day_pl"] for p in positions),
+                "day_pl": day_pl,
                 "unrealized_pl": sum(p["unrealized_pl"] for p in positions),
                 "positions": positions,
                 "open_orders": open_orders,
