@@ -89,12 +89,14 @@ export type AllAccountsSummary = {
   portfolio_value: number;
   unrealized_pl: number;
   account_count: number;
+  money_type?: "paper" | "real";
 };
 
 export type Snapshot = {
   captured_at: string;
   broker?: string;
   primary_broker?: string;
+  money_type?: "paper" | "real";
   account: Account;
   position_count: number;
   positions: Position[];
@@ -115,6 +117,7 @@ export type BrokerSnapshot = {
   account_id?: string | null;
   account_label?: string | null;
   is_default?: boolean;
+  money_type?: "paper" | "real";
 };
 
 export type BrokerInfo = {
@@ -502,6 +505,74 @@ export async function fetchRvolScanner(
     const body = await res.json().catch(() => ({}));
     throw new Error(
       (body as { error?: string }).error ?? `RVOL scanner error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export interface SchwabPosition {
+  symbol: string;
+  asset_type: string;
+  qty: number;
+  market_value: number;
+  avg_price: number;
+  current_price: number;
+  unrealized_pl: number;
+  day_pl: number;
+}
+
+export interface SchwabOpenOrder {
+  order_id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  filled_qty: number;
+  order_type: string;
+  status: string;
+  limit_price: number | null;
+}
+
+export interface SchwabAccount {
+  id: string;
+  last4: string;
+  label: string;
+  account_type: string;
+  is_day_trader: boolean;
+  liquidation_value: number;
+  cash: number;
+  long_market_value: number;
+  day_pl: number;
+  unrealized_pl: number;
+  positions: SchwabPosition[];
+  open_orders: SchwabOpenOrder[];
+}
+
+export interface SchwabAccountsResult {
+  authenticated: boolean;
+  fetched_at?: number;
+  stale?: boolean;
+  error?: string;
+  message?: string;
+  accounts: SchwabAccount[];
+  totals: {
+    liquidation_value?: number;
+    cash?: number;
+    long_market_value?: number;
+    day_pl?: number;
+    unrealized_pl?: number;
+    account_count?: number;
+  };
+}
+
+export async function fetchSchwabAccounts(): Promise<SchwabAccountsResult> {
+  const res = await apiFetch(`${API_BASE}/api/schwab/accounts`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Schwab accounts error ${res.status}`,
     );
   }
   return res.json();

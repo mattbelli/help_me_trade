@@ -12,7 +12,7 @@ type PersistedPrefs = {
 };
 
 const DEFAULTS: PersistedPrefs = {
-  selectedAccountId: "all",
+  selectedAccountId: "overview",
   privacyMode: false,
 };
 
@@ -24,17 +24,37 @@ export type AccountView = {
   unrealized_pl: number;
 };
 
+export function isPaperAggregateScope(selectedAccountId: string): boolean {
+  return (
+    selectedAccountId === "all" ||
+    selectedAccountId === "all_paper" ||
+    selectedAccountId === "overview"
+  );
+}
+
+export function isRealScope(selectedAccountId: string): boolean {
+  return selectedAccountId === "all_real" || selectedAccountId.startsWith("schwab_");
+}
+
+function paperSnapshots(snapshot: Snapshot): NonNullable<Snapshot["snapshots"]> {
+  return (snapshot.snapshots ?? []).filter((s) => s.money_type !== "real");
+}
+
 function loadPrefs(): PersistedPrefs {
   if (typeof window === "undefined") return DEFAULTS;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULTS;
     const parsed = JSON.parse(raw) as Partial<PersistedPrefs>;
+    let selectedAccountId =
+      typeof parsed.selectedAccountId === "string"
+        ? parsed.selectedAccountId
+        : DEFAULTS.selectedAccountId;
+    if (selectedAccountId === "all") {
+      selectedAccountId = "overview";
+    }
     return {
-      selectedAccountId:
-        typeof parsed.selectedAccountId === "string"
-          ? parsed.selectedAccountId
-          : DEFAULTS.selectedAccountId,
+      selectedAccountId,
       privacyMode:
         typeof parsed.privacyMode === "boolean"
           ? parsed.privacyMode
@@ -59,8 +79,9 @@ export function resolveAccountView(
   selectedAccountId: string,
 ): AccountView | null {
   if (!snapshot) return null;
+  if (isRealScope(selectedAccountId)) return null;
 
-  if (selectedAccountId === "all") {
+  if (isPaperAggregateScope(selectedAccountId)) {
     const summary = snapshot.all_accounts_summary;
     if (summary) {
       return {
@@ -72,7 +93,7 @@ export function resolveAccountView(
       };
     }
   } else {
-    const entry = snapshot.snapshots?.find(
+    const entry = paperSnapshots(snapshot).find(
       (s) => s.account_id === selectedAccountId,
     );
     if (entry) {
@@ -93,7 +114,7 @@ export function resolveAccountView(
     (sum, p) => sum + p.unrealized_pl,
     0,
   );
-  const defaultEntry = snapshot.snapshots?.find((s) => s.is_default);
+  const defaultEntry = paperSnapshots(snapshot).find((s) => s.is_default);
   return {
     label: defaultEntry?.account_label ?? defaultEntry?.broker ?? "Account",
     cash: snapshot.account.cash,
@@ -111,8 +132,10 @@ export function resolvePositions(
   selectedAccountId: string,
 ): TaggedPosition[] {
   if (!snapshot) return [];
-  const accts = snapshot.snapshots ?? [];
-  if (selectedAccountId === "all") {
+  if (isRealScope(selectedAccountId)) return [];
+
+  const accts = paperSnapshots(snapshot);
+  if (isPaperAggregateScope(selectedAccountId)) {
     const multi = accts.length > 1;
     return accts.flatMap((s) =>
       (s.positions ?? []).map((p) => ({
@@ -130,8 +153,10 @@ export function resolveOpenOrders(
   selectedAccountId: string,
 ): TaggedOrder[] {
   if (!snapshot) return [];
-  const accts = snapshot.snapshots ?? [];
-  if (selectedAccountId === "all") {
+  if (isRealScope(selectedAccountId)) return [];
+
+  const accts = paperSnapshots(snapshot);
+  if (isPaperAggregateScope(selectedAccountId)) {
     const multi = accts.length > 1;
     return accts.flatMap((s) =>
       (s.open_orders ?? []).map((o) => ({

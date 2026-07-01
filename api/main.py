@@ -27,6 +27,7 @@ from api.notification_routes import router as notification_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
 from api.scan_routes import router as scan_router
+from api.schwab_routes import router as schwab_router
 from api.strategy_routes import router as strategy_router
 from api.ticker_routes import router as ticker_router
 from api.trade_routes import router as trade_router
@@ -1249,6 +1250,7 @@ app.include_router(performance_router)
 app.include_router(strategy_router)
 app.include_router(notification_router)
 app.include_router(scan_router)
+app.include_router(schwab_router)
 app.include_router(journal_router)
 app.include_router(ticker_router)
 
@@ -1310,10 +1312,32 @@ def api_broker():
     }
 
 
-def _aggregate_account_snapshots(snaps: list[dict]) -> dict:
-    """Sum cash / buying power / portfolio value / unrealized P&L across accounts."""
+def _account_money_type(broker: str) -> str:
+    """Real funded money vs paper sandbox — the firewall property.
+
+    Schwab = real funded accounts (read-only). Alpaca is the paper sandbox in this
+    app (the combined book is hard paper-fenced). Kept as one explicit derivation
+    so the paper/real boundary is a real property, never a broker-name guess
+    scattered across the UI. (Revisit if a live Alpaca endpoint is ever wired.)
+    """
+    return "real" if broker == "schwab" else "paper"
+
+
+def _aggregate_account_snapshots(snaps: list[dict], money_type: str = "paper") -> dict:
+    """Sum balances across accounts of a SINGLE money_type only.
+
+    Hard firewall: paper (Alpaca) and real (Schwab) balances are NEVER blended
+    into one figure. The caller picks one money_type; any snapshot of a different
+    money_type is skipped — belt-and-suspenders so a future change that starts
+    writing real accounts into poll_runs alongside paper ones can't silently
+    reintroduce a mixed total.
+    """
     cash = bp = pv = upl = 0.0
+    counted = 0
     for s in snaps:
+        if _account_money_type(str(s.get("broker") or "")) != money_type:
+            continue
+        counted += 1
         acct = s.get("account") or {}
         cash += float(acct.get("cash") or 0)
         bp += float(acct.get("buying_power") or 0)
@@ -1325,7 +1349,8 @@ def _aggregate_account_snapshots(snaps: list[dict]) -> dict:
         "buying_power": bp,
         "portfolio_value": pv,
         "unrealized_pl": upl,
-        "account_count": len(snaps),
+        "account_count": counted,
+        "money_type": money_type,
     }
 
 
@@ -1339,11 +1364,12 @@ def _combined_snapshot_response() -> dict | None:
     if labeled:
         all_snaps = labeled
 
-    # Attach a stable trade-account label + default flag to each account snapshot.
+    # Attach a stable trade-account label + default flag + money_type to each snap.
     for s in all_snaps:
         acct = get_account(str(s["account_id"])) if s.get("account_id") else None
         s["account_label"] = acct["label"] if acct else None
         s["is_default"] = bool(acct["is_default"]) if acct else False
+        s["money_type"] = _account_money_type(str(s.get("broker") or ""))
 
     primary = primary_broker()
     # Top-level summary is pinned to the DEFAULT account (deterministic) rather
@@ -1355,12 +1381,18 @@ def _combined_snapshot_response() -> dict | None:
         or all_snaps[0]
     )
 
+    primary_money_type = primary_snap.get("money_type") or _account_money_type(
+        str(primary_snap.get("broker") or "")
+    )
     return {
         **primary_snap,
         "primary_broker": primary,
         "broker": primary_snap["broker"],
+        "money_type": primary_money_type,
         "snapshots": all_snaps,
-        "all_accounts_summary": _aggregate_account_snapshots(all_snaps),
+        # Paper-only aggregate — Schwab (real) is summed separately on the client
+        # from GET /api/schwab/accounts; the two are never combined (the firewall).
+        "all_accounts_summary": _aggregate_account_snapshots(all_snaps, "paper"),
     }
 
 

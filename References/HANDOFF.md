@@ -12,6 +12,41 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-07-01, next session) — Real Schwab data + unified account selector w/ a paper↔real firewall (P6,
+> reworked) SHIPPED + deployed on serv; founder-accepted ("feels good"). Committed to `main` LOCAL (`8e04d9c`); push
+> pending — the auto-mode classifier blocks the agent from pushing to the default branch (a human pushes).** Founder ask:
+> "bring our Schwab account/trade data in" + "see all accounts from the toolbar (all / all-Schwab / all-Alpaca /
+> individual), with a paper vs real view — NEVER sum paper + real." Recon flipped the original plan: account-snapshot
+> polling was **fully off** (`brokers.schwab.enabled=false`; only the Schwab *market-data* path was live) and
+> single-account (`resolve_account_hash` **raises** — this token sees **4** linked accounts; app had **3** rows, all
+> `broker_external_id=None`). Shipped three coherent pieces:
+> - **(1) Read-only Schwab source**, deliberately independent of the Alpaca poll/`trade_accounts` execution machinery
+>   (a real funded account can't be comingled with a paper sandbox or made executable): `brokers/schwab_accounts.py`
+>   (TTL-cached 30s, **GET-only**, fail-soft) → `GET /api/schwab/accounts`. Hand-written for real-money-read safety.
+> - **(2) `money_type` firewall** — `_account_money_type` (schwab→real, alpaca→paper) stamped on each `/api/snapshot`
+>   snap + a hard guard so `_aggregate_account_snapshots` sums a **single money_type only**. Paper + real can NEVER
+>   blend into one figure (belt-and-suspenders for a future Schwab-in-poll_runs change). Hand-written (safety-critical).
+> - **(3) Unified `AccountSelector`** (Composer, 1 brief, diff-reviewed — **caught + hand-fixed a real bug**: the selector
+>   was gated on the paper `view`, so picking a real account hid the selector itself). Replaces two duplicated inline
+>   selectors; grouped **Real·Schwab / Paper·Alpaca**; scope model `overview|all_real|all_paper|<id>` in
+>   `use-dashboard-prefs` (legacy `"all"`→`overview`); REAL/PAPER/REAL+PAPER badge; **Account Summary Overview = two
+>   side-by-side totals, never one number**. Flip to Real·Schwab → real balances in the same tiles while paper-testing.
+>   The standalone `schwab-activity` widget (built first) was **removed** for the selector (grid degrades unknown ids).
+> - Labels founder-mapped → gitignored `data/schwab_account_labels.json`: Individual ••1025 / Joint ••3344 /
+>   Roth (Joint) ••7397 / Roth (Personal) ••0348. **The 4th = a 2nd Roth (Personal) the app never had a row for.**
+> - **Live-verified: Real·Schwab $231,817.98 (4 accts) vs Paper·Alpaca $300,200.12 (3 accts), separate.** ruff + **1124
+>   pytest** + typecheck green; chokepoint untouched. Deployed both; armed poll resumed clean (19s post-restart).
+> - **⏭️ NEXT — Phase 2 auto-sync (founder GREENLIT):** wire the never-run `sync_schwab()` (Transactions API) for all 4
+>   accounts. Must: fix the single-account attribution bug (`get_or_create_broker_account` → oldest row), build per-hash
+>   `SchwabAdapter`s off the shared OAuth client, stamp each row's `broker_external_id` to its hash (mapping confirmed
+>   above; **create the missing Roth-Personal ••0348 row**; relabel "Schwab Roth IRA"→"Roth (Joint)"), and sync
+>   **incremental-from-last-known-date per account** to NOT double-count the 2023→2026-06 JSON import (API lookback 365d
+>   + different dedup key = would re-import 2025-26 as dupes). Decouple from `brokers.schwab.enabled` (also triggers the
+>   broken per-broker snapshot poll). `trading/sync.py` is read-only + outside the chokepoint blast radius → adversarial
+>   review anyway. **Then Phase 3** (`/performance`+journal account/broker filter — journal has none today) + **Stage B**
+>   (positions/orders follow a real pick). Full recon for both in this session's two Explore agents. Also still open:
+>   **P&L calendar (P7)**, perf-split (P8), tmux-lite (P9); Russell-1000 scans + Globex RVOL; ★ R5.
+>
 > ▶ **LATEST (2026-07-01, SESSION END) — big cockpit + journal + scanner + charts round. ALL shipped, deployed on
 > serv (:3001 / :8000), pushed; `origin/main` = `766462b`.** Everything below is live + green (full suite ~1124; chokepoint
 > untouched throughout; every commit staged by explicit path, never `git add -A`). On top of the charts overhaul (`f93f582`)
