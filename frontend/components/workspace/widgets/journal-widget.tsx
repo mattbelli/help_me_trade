@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TerminalButton } from "@/components/ui/terminal/terminal-button";
 import {
@@ -17,6 +24,7 @@ import {
   type MyTrade,
   type MyTradesSummary,
 } from "@/lib/journal-api";
+import { fetchTradeAccounts, type TradeAccount } from "@/lib/trades-api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -82,6 +90,8 @@ function ToggleButton({
 
 export function JournalWidget({ config }: WidgetProps) {
   const [view, setView] = useState<View>("ai");
+  const [meAccountId, setMeAccountId] = useState<string>("all");
+  const [realAccounts, setRealAccounts] = useState<TradeAccount[]>([]);
   const [decisions, setDecisions] = useState<JournalDecision[] | null>(null);
   const [stats, setStats] = useState<DecisionStats | null>(null);
   const [calibration, setCalibration] = useState<CalibrationResult | null>(null);
@@ -101,6 +111,14 @@ export function JournalWidget({ config }: WidgetProps) {
     };
   }, []);
 
+  useEffect(() => {
+    void fetchTradeAccounts()
+      .then((accts) =>
+        setRealAccounts(accts.filter((a) => a.broker !== "alpaca")),
+      )
+      .catch(() => setRealAccounts([]));
+  }, []);
+
   const load = useCallback(async (which: View) => {
     setLoading(true);
     setError(null);
@@ -115,9 +133,11 @@ export function JournalWidget({ config }: WidgetProps) {
         setStats(res.stats);
         setCalibration(cal);
       } else {
+        const accountId =
+          meAccountId === "all" ? undefined : meAccountId;
         const [res, sum] = await Promise.all([
-          fetchMyTrades(undefined, 30),
-          fetchMyTradesSummary(),
+          fetchMyTrades(undefined, 30, accountId),
+          fetchMyTradesSummary(undefined, accountId),
         ]);
         if (cancelledRef.current) return;
         setTrades(res.trades);
@@ -129,7 +149,7 @@ export function JournalWidget({ config }: WidgetProps) {
     } finally {
       if (!cancelledRef.current) setLoading(false);
     }
-  }, []);
+  }, [meAccountId]);
 
   useEffect(() => {
     void load(view);
@@ -141,15 +161,38 @@ export function JournalWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
       {/* Header: AI ⇄ Me toggle + refresh */}
-      <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
-        <div className="flex overflow-hidden rounded border border-[var(--border)]">
-          <ToggleButton active={view === "ai"} onClick={() => setView("ai")}>
-            AI
-          </ToggleButton>
-          <span className="self-center text-[10px] text-[var(--fg-faint)]">⇄</span>
-          <ToggleButton active={view === "me"} onClick={() => setView("me")}>
-            Me
-          </ToggleButton>
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-2 py-1.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex shrink-0 overflow-hidden rounded border border-[var(--border)]">
+            <ToggleButton active={view === "ai"} onClick={() => setView("ai")}>
+              AI
+            </ToggleButton>
+            <span className="self-center text-[10px] text-[var(--fg-faint)]">⇄</span>
+            <ToggleButton active={view === "me"} onClick={() => setView("me")}>
+              Me
+            </ToggleButton>
+          </div>
+          {view === "me" ? (
+            <Select
+              value={meAccountId}
+              onValueChange={(v) => setMeAccountId(v ?? "all")}
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-6 min-w-[5.5rem] border-[var(--border)] bg-[var(--bg-inset)] px-1.5 font-mono text-[10px] text-foreground"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="font-mono text-[11px]">
+                <SelectItem value="all">All real</SelectItem>
+                {realAccounts.map((acct) => (
+                  <SelectItem key={acct.id} value={acct.id}>
+                    {acct.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
         </div>
         <TerminalButton onClick={() => void load(view)} disabled={loading}>
           {loading ? "…" : "↻"}

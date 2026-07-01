@@ -30,7 +30,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -210,6 +212,15 @@ export function PerformancePage() {
 
   const activeAccountId = accountId === "all" ? undefined : accountId;
 
+  const realAccounts = useMemo(
+    () => accounts.filter((a) => a.broker !== "alpaca"),
+    [accounts],
+  );
+  const paperAccounts = useMemo(
+    () => accounts.filter((a) => a.broker === "alpaca"),
+    [accounts],
+  );
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -375,12 +386,27 @@ export function PerformancePage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All accounts</SelectItem>
-              {accounts.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.label} ({a.broker})
-                </SelectItem>
-              ))}
+              <SelectItem value="all">All accounts (real)</SelectItem>
+              {realAccounts.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>Real · Schwab</SelectLabel>
+                  {realAccounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ) : null}
+              {paperAccounts.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>Paper · Alpaca</SelectLabel>
+                  {paperAccounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ) : null}
             </SelectContent>
           </Select>
         </div>

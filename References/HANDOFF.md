@@ -57,8 +57,11 @@ this file, append the old full version there as a new dated section.*
 > - **✅ Daily Schwab equity snapshots — DONE** (`db/schwab_history.py`, `schwab_account_daily`; piggyback on the
 >   accounts fetch + an EOD backstop loop; `GET /api/schwab/history`). Accurate day-P&L/equity persisted going forward,
 >   no FIFO. **⏭️ Natural next: SURFACE it** — a Schwab equity-curve / daily-P&L view (the data now accrues daily).
-> - **⏭️ NEXT — Phase 3** (`/performance`+journal UI account/broker filter — journal has none today) + **Stage B**
->   (positions/orders widgets follow a real-account pick). Full recon in this session's two Explore agents. The
+> - **✅ Phase 3 — DONE.** Real/paper firewall reaches the ledger views: `list_trade_events(real_only=)` +
+>   `/api/performance/dashboard` real-only-when-no-account + `/api/journal/trades(+summary)` `account_id`; `/performance`
+>   selector broker-grouped ("All accounts (real)") + journal Me-view account selector. Never blends paper+real.
+> - **⏭️ NEXT — Stage B** (positions/orders widgets follow a real-account pick — moot until Schwab positions held) +
+>   surface the Schwab equity curve (the daily snapshots now accrue). Full recon in this session's two Explore agents. The
 >   `_poll_broker("schwab")` snapshot poll is still single-account (equity balances come from `/api/schwab/accounts`,
 >   so not urgent). Also still open: **P&L calendar (P7)**, perf-split (P8), tmux-lite (P9); Russell-1000 scans + Globex
 >   RVOL; ★ R5.

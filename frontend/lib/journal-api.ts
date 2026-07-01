@@ -151,17 +151,21 @@ export async function fetchCalibration(): Promise<CalibrationResult> {
 export async function fetchMyTrades(
   symbol?: string,
   limit = 30,
+  accountId?: string,
 ): Promise<MyTradesResult> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (symbol) params.set("symbol", symbol);
+  if (accountId) params.set("account_id", accountId);
   return getJson(`${API_BASE}/api/journal/trades?${params}`, "Journal trades");
 }
 
 export async function fetchMyTradesSummary(
   symbol?: string,
+  accountId?: string,
 ): Promise<MyTradesSummary> {
   const params = new URLSearchParams();
   if (symbol) params.set("symbol", symbol);
+  if (accountId) params.set("account_id", accountId);
   const qs = params.toString();
   return getJson(
     `${API_BASE}/api/journal/trades/summary${qs ? `?${qs}` : ""}`,
