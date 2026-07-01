@@ -42,6 +42,7 @@ from brokers.factory import (
 from brokers.market_stream import AlpacaMarketStreamHub, BaseMarketHub
 from brokers.schwab_market_stream import SchwabMarketStreamHub
 from config.settings import (
+    SCHEDULABLE_REPORT_KINDS,
     add_watchlist_symbol,
     apply_settings_patch,
     broker_is_configured,
@@ -1012,22 +1013,123 @@ async def _morning_levels_report_once() -> None:
         )
 
 
-async def _morning_levels_report_loop() -> None:
-    """Poll every ~15 min; push morning levels during the configured ET hour window.
+def _report_push_body(report: dict) -> str:
+    """Plaintext push body: HTML briefs push their summary, not the raw markup."""
+    if report.get("format") == "html":
+        rj = report.get("payload", {}).get("report") or {}
+        summary = str(rj.get("summary") or "").strip()
+        return summary[:280] or str(report.get("title", "Report ready"))
+    return str(report.get("body", ""))
+
+
+async def _notify_report_ready(report: dict, *, push: bool | None = None) -> None:
+    from signals.notify import notify
+
+    kwargs: dict[str, bool] = {}
+    if push is not None:
+        kwargs["push"] = push
+    await notify(
+        kind="report_ready",
+        title=report["title"],
+        body=_report_push_body(report),
+        severity="info",
+        ref_type="report",
+        ref_id=report["id"],
+        action_url=f"/reports/{report['id']}",
+        data={"report_id": report["id"], "kind": report["kind"]},
+        **kwargs,
+    )
+
+
+async def _generate_report_by_kind(
+    kind: str,
+    *,
+    symbols: list[str] | None = None,
+    topic: str | None = None,
+    et_date: date | None = None,
+) -> dict | None:
+    """Dispatch a report kind to its generator (shared by scheduler + API)."""
+    from signals import reports as reports_mod
+
+    syms = symbols or None
+    if kind == "morning_levels":
+        sym = syms[0] if syms else MORNING_REPORT_SYMBOL
+        return await reports_mod.generate_morning_levels_report(sym, et_date=et_date)
+    if kind == "levels":
+        return await reports_mod.generate_levels_report(
+            syms or [MORNING_REPORT_SYMBOL], et_date=et_date
+        )
+    if kind == "morning_brief":
+        return await reports_mod.generate_morning_brief_report(syms, et_date=et_date)
+    if kind == "evening_brief":
+        return await reports_mod.generate_evening_brief_report(syms, et_date=et_date)
+    if kind == "on_request":
+        return await reports_mod.generate_on_request_report(
+            topic or "", syms, et_date=et_date
+        )
+    return None
+
+
+async def _run_scheduled_report(job: dict) -> None:
+    """Generate + push one configured report job, once per (kind, params, ET-day)."""
+    from db.reports import report_exists_for_day
+
+    kind = str(job.get("kind", "")).strip()
+    if not job.get("enabled") or kind not in SCHEDULABLE_REPORT_KINDS:
+        return
+
+    now_et = datetime.now(_ET)
+    if not _morning_report_window(now_et, int(job.get("hour_et", 8))):
+        return
+
+    today = now_et.date()
+    symbols = [
+        str(s).strip().upper() for s in (job.get("symbols") or []) if str(s).strip()
+    ]
+    dedup_key = ",".join(symbols) if kind == "levels" else kind
+    if report_exists_for_day(kind, today, dedup_key=dedup_key):
+        return
+
+    try:
+        report = await _generate_report_by_kind(kind, symbols=symbols, et_date=today)
+    except Exception:
+        logger.exception("Scheduled report generation failed: kind=%s", kind)
+        return
+    if report is None:
+        logger.info("Scheduled report produced nothing: kind=%s", kind)
+        return
+
+    try:
+        await _notify_report_ready(report)
+    except Exception:
+        logger.exception("Scheduled report push failed: id=%s", report["id"])
+    else:
+        logger.info("Scheduled report sent: kind=%s id=%s", kind, report["id"])
+
+
+async def _reports_scheduler_loop() -> None:
+    """Poll every ~15 min; run the legacy morning-levels job plus any configured
+    report jobs (morning/evening briefs, extra levels) during their ET windows.
 
     Env gates:
-      MORNING_REPORT_ENABLED              default "1"  (set to "0" to disable)
+      MORNING_REPORT_ENABLED              default "1"  (set to "0" to disable all)
       MORNING_REPORT_INTERVAL_SECONDS     default 900
       MORNING_REPORT_HOUR_ET              default 8 (settings hour_et also applies)
     """
     while True:
         await asyncio.sleep(MORNING_REPORT_INTERVAL_SECONDS)
-        if not _morning_report_enabled():
+        if not _MORNING_REPORT_ENV_ENABLED:
             continue
-        try:
-            await _morning_levels_report_once()
-        except Exception:
-            logger.exception("Morning levels report loop iteration failed")
+        if _morning_report_enabled():
+            try:
+                await _morning_levels_report_once()
+            except Exception:
+                logger.exception("Morning levels report loop iteration failed")
+        for job in reports_config().get("jobs", []):
+            try:
+                await _run_scheduled_report(job)
+            except Exception:
+                logger.exception("Scheduled report job failed: %s", job.get("kind"))
 
 
 @asynccontextmanager
@@ -1093,7 +1195,7 @@ async def lifespan(app: FastAPI):
     rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
     earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
     schwab_health_task = asyncio.create_task(_schwab_health_loop())
-    morning_report_task = asyncio.create_task(_morning_levels_report_loop())
+    morning_report_task = asyncio.create_task(_reports_scheduler_loop())
     bars_prewarm_task = asyncio.create_task(_bars_prewarm_loop())
     yield
     earnings_task.cancel()
@@ -1985,39 +2087,50 @@ def api_get_report(report_id: str):
     return report
 
 
+_GENERATABLE_REPORT_KINDS = ("morning_levels", "levels", "morning_brief", "evening_brief", "on_request")
+
+
 @app.post("/api/reports/generate")
 async def api_generate_report(body: dict = Body(...), push: bool = False):
-    from signals.notify import notify
-    from signals.reports import generate_morning_levels_report
-
-    kind = str(body.get("kind", "")).strip()
-    if kind != "morning_levels":
+    kind = str(body.get("kind", "")).strip() or "morning_levels"
+    if kind not in _GENERATABLE_REPORT_KINDS:
         return JSONResponse(
-            {"error": "Only kind 'morning_levels' is supported"},
+            {
+                "error": f"Unsupported kind '{kind}'",
+                "supported": list(_GENERATABLE_REPORT_KINDS),
+            },
             status_code=400,
         )
-    symbol = str(body.get("symbol", MORNING_REPORT_SYMBOL)).strip().upper()
-    if not symbol:
-        symbol = MORNING_REPORT_SYMBOL
+
+    # symbols: accept `symbols` (list) or legacy single `symbol`.
+    raw_symbols = body.get("symbols")
+    if isinstance(raw_symbols, list):
+        symbols = [str(s).strip().upper() for s in raw_symbols if str(s).strip()]
+    else:
+        one = str(body.get("symbol", "")).strip().upper()
+        symbols = [one] if one else []
+    if kind in ("morning_levels", "levels") and not symbols:
+        symbols = [MORNING_REPORT_SYMBOL]
+    topic = str(body.get("topic", "")).strip()
+    if kind == "on_request" and not topic:
+        return JSONResponse(
+            {"error": "kind 'on_request' requires a 'topic'"}, status_code=400
+        )
+
     try:
-        report = await generate_morning_levels_report(symbol)
+        report = await _generate_report_by_kind(
+            kind, symbols=symbols or None, topic=topic or None
+        )
     except Exception as exc:
         logger.exception("Manual report generate failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
     if report is None:
-        return JSONResponse({"error": "No session levels available"}, status_code=404)
-    try:
-        await notify(
-            kind="report_ready",
-            title=report["title"],
-            body=report["body"],
-            severity="info",
-            ref_type="report",
-            ref_id=report["id"],
-            action_url=f"/reports/{report['id']}",
-            data={"report_id": report["id"], "kind": "morning_levels"},
-            push=push,
+        return JSONResponse(
+            {"error": "No data available for this report"}, status_code=404
         )
+
+    try:
+        await _notify_report_ready(report, push=push)
     except Exception:
         logger.exception("Manual report notify failed for %s", report["id"])
     return report
