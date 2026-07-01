@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Reorder, useDragControls } from "motion/react";
+import { Info } from "lucide-react";
 import { Sparkline } from "@/components/trading/sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CompanyInfoModal } from "@/components/workspace/company-info-modal";
 import {
-  fetchEarningsHistory,
   fetchOvernightTradable,
   fetchWatchlists,
   searchSymbols,
   updateWatchlist,
-  type EarningsEvent,
   type WatchlistsState,
 } from "@/lib/api";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 const EMPTY_SYMBOLS: string[] = [];
 
 const ROW_GRID =
-  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem_1rem] items-center gap-x-1";
+  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
 
 function rvolColor(value: number): string {
   if (value >= 3) return "var(--c-red)";
@@ -43,19 +43,6 @@ function formatPrice(value: number): string {
   });
 }
 
-function formatMarketCap(value: number): string {
-  if (value >= 1_000_000_000_000) {
-    return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
-  }
-  if (value >= 1_000_000_000) {
-    return `$${(value / 1_000_000_000).toFixed(1)}B`;
-  }
-  if (value >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(0)}M`;
-  }
-  return `$${value.toLocaleString()}`;
-}
-
 function daysUntil(dateStr: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
   if (!match) return null;
@@ -67,12 +54,6 @@ function daysUntil(dateStr: string): number | null {
 
   const diffMs = target.getTime() - today.getTime();
   return Math.round(diffMs / (24 * 60 * 60 * 1000));
-}
-
-function earningsCountdownSuffix(days: number): string {
-  if (days === 0) return "today";
-  if (days === 1) return "1d";
-  return `${days}d`;
 }
 
 function earningsBadgeLabel(days: number): string {
@@ -253,221 +234,6 @@ const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
   overnight: { label: "24h", title: "Overnight (24/5)" },
 };
 
-const FUNDAMENTALS_GRID =
-  "grid grid-cols-3 gap-x-3 gap-y-1.5 px-2 py-2";
-
-function EarningsReactionsRow({ symbol }: { symbol: string }) {
-  const [events, setEvents] = useState<EarningsEvent[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchEarningsHistory(symbol, 6)
-      .then((res) => {
-        if (!cancelled) setEvents(res.events);
-      })
-      .catch(() => {
-        if (!cancelled) setEvents([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [symbol]);
-
-  return (
-    <div
-      style={{
-        borderTop: "1px solid var(--border)",
-        padding: "4px 8px 5px",
-        background: "var(--bg-inset)",
-      }}
-    >
-      <span
-        className="text-[9px] font-medium tracking-[0.04em] uppercase"
-        style={{ color: "var(--fg-faint)", display: "block", marginBottom: 3 }}
-      >
-        Earnings (EPS surprise)
-      </span>
-      {events === null ? (
-        <span
-          className="text-[10px] tabular-nums"
-          style={{ color: "var(--fg-faint)" }}
-        >
-          …
-        </span>
-      ) : events.length === 0 ? (
-        <span
-          className="text-[10px] tabular-nums"
-          style={{ color: "var(--fg-faint)" }}
-        >
-          no data
-        </span>
-      ) : (
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-          {events.map((ev) => {
-            const surprise = ev.surprise_pct;
-            const beat = surprise != null && surprise >= 0;
-            const color = surprise == null
-              ? "var(--fg-faint)"
-              : beat
-              ? "var(--c-green)"
-              : "var(--c-red)";
-            const surpriseStr =
-              surprise == null
-                ? "—"
-                : `${surprise >= 0 ? "+" : ""}${surprise.toFixed(1)}%`;
-            const tooltipParts: string[] = [];
-            if (ev.eps_actual != null)
-              tooltipParts.push(`actual $${ev.eps_actual.toFixed(2)}`);
-            if (ev.eps_estimate != null)
-              tooltipParts.push(`est $${ev.eps_estimate.toFixed(2)}`);
-            const tooltip = tooltipParts.length > 0 ? tooltipParts.join(" vs ") : undefined;
-            return (
-              <span
-                key={ev.period}
-                className="text-[10px] tabular-nums"
-                style={{ color: "var(--fg-faint)" }}
-                title={tooltip}
-              >
-                {ev.label}{" "}
-                <span style={{ color }}>{surpriseStr}</span>
-              </span>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExpandableFundamentalsPanel({
-  expanded,
-  symbol,
-  quote,
-}: {
-  expanded: boolean;
-  symbol: string;
-  quote: Quote | undefined;
-}) {
-  const [mounted, setMounted] = useState(false);
-  const [openRows, setOpenRows] = useState(false);
-
-  useEffect(() => {
-    if (expanded) setMounted(true);
-  }, [expanded]);
-
-  useEffect(() => {
-    if (mounted && expanded) {
-      const id = requestAnimationFrame(() => setOpenRows(true));
-      return () => cancelAnimationFrame(id);
-    }
-    setOpenRows(false);
-  }, [mounted, expanded]);
-
-  if (!mounted) return null;
-
-  return (
-    <div
-      className={cn(
-        "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
-        openRows && expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-      )}
-      onTransitionEnd={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.propertyName === "grid-template-rows" && !expanded) {
-          setMounted(false);
-        }
-      }}
-    >
-      <div className="min-h-0 overflow-hidden">
-        <FundamentalsPanel symbol={symbol} quote={quote} />
-      </div>
-    </div>
-  );
-}
-
-// A futures symbol starts with "/", e.g. /ES, /NQ, /CL, /ESU26.
-function isFuturesSymbol(symbol: string): boolean {
-  return symbol.startsWith("/");
-}
-
-function FundamentalsPanel({
-  symbol,
-  quote,
-}: {
-  symbol: string;
-  quote: Quote | undefined;
-}) {
-  const dash = "—";
-  const futures = isFuturesSymbol(symbol);
-
-  const peStr =
-    quote?.pe != null ? quote.pe.toFixed(1) : dash;
-  const mktCapStr =
-    quote?.market_cap != null ? formatMarketCap(quote.market_cap) : dash;
-  const epsStr =
-    quote?.eps != null ? `$${quote.eps.toFixed(2)}` : dash;
-  const divYieldStr =
-    quote?.div_yield != null ? `${quote.div_yield.toFixed(2)}%` : dash;
-  const lastEarningsStr = quote?.last_earnings ?? dash;
-
-  const nextEarningsDate = quote?.next_earnings ?? null;
-  const nextEarningsDays =
-    nextEarningsDate != null ? daysUntil(nextEarningsDate) : null;
-  const nextEarningsStr =
-    nextEarningsDate == null
-      ? dash
-      : nextEarningsDays != null &&
-          nextEarningsDays >= 0 &&
-          nextEarningsDays <= 14
-        ? `${nextEarningsDate} · ${earningsCountdownSuffix(nextEarningsDays)}`
-        : nextEarningsDate;
-  const nextEarningsColor =
-    nextEarningsDays != null &&
-    nextEarningsDays >= 0 &&
-    nextEarningsDays <= 14
-      ? earningsUrgencyColor(nextEarningsDays)
-      : "var(--fg-dim)";
-
-  const items: { label: string; value: string; color?: string }[] = [
-    { label: "P/E", value: peStr },
-    { label: "Mkt Cap", value: mktCapStr },
-    { label: "EPS", value: epsStr },
-    { label: "Div Yield", value: divYieldStr },
-    { label: "Last Earns", value: lastEarningsStr },
-    { label: "Next Earns", value: nextEarningsStr, color: nextEarningsColor },
-  ];
-
-  return (
-    <>
-      <div
-        className={FUNDAMENTALS_GRID}
-        style={{
-          borderTop: "1px solid var(--border)",
-          background: "var(--bg-inset)",
-        }}
-      >
-        {items.map(({ label, value, color }) => (
-          <div key={label} className="flex flex-col gap-px">
-            <span
-              className="text-[9px] font-medium tracking-[0.04em] uppercase"
-              style={{ color: "var(--fg-faint)" }}
-            >
-              {label}
-            </span>
-            <span
-              className="tabular-nums text-[11px]"
-              style={{ color: color ?? "var(--fg-dim)" }}
-            >
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
-      {!futures && <EarningsReactionsRow symbol={symbol} />}
-    </>
-  );
-}
-
 function WatchlistSymbolRow({
   symbol,
   quote,
@@ -475,6 +241,7 @@ function WatchlistSymbolRow({
   linked,
   removing,
   onPublish,
+  onOpenInfo,
   onRemove,
   onDragStart,
   onDragEnd,
@@ -485,12 +252,12 @@ function WatchlistSymbolRow({
   linked: boolean;
   removing: boolean;
   onPublish: () => void;
+  onOpenInfo: () => void;
   onRemove: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
   const controls = useDragControls();
-  const [expanded, setExpanded] = useState(false);
 
   const session = quote?.market_session;
   const extBadge =
@@ -563,6 +330,18 @@ function WatchlistSymbolRow({
           ) : null}
           <button
             type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenInfo();
+            }}
+            className="flex shrink-0 items-center justify-center rounded p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--c-accent)]"
+            aria-label={`Company info for ${symbol}`}
+            title={`Company info for ${symbol}`}
+          >
+            <Info className="size-3" />
+          </button>
+          <button
+            type="button"
             disabled={removing}
             onClick={(e) => {
               e.stopPropagation();
@@ -631,24 +410,7 @@ function WatchlistSymbolRow({
             }
           />
         </div>
-        <button
-          type="button"
-          aria-label={expanded ? `Collapse ${symbol} details` : `Expand ${symbol} details`}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-          className="flex items-center justify-center rounded text-[var(--fg-faint)] opacity-40 transition-all group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--fg-dim)]"
-          style={{ fontSize: "9px", lineHeight: 1, padding: "1px 2px" }}
-        >
-          {expanded ? "▲" : "▼"}
-        </button>
       </div>
-      <ExpandableFundamentalsPanel
-        expanded={expanded}
-        symbol={symbol}
-        quote={quote}
-      />
     </Reorder.Item>
   );
 }
@@ -666,6 +428,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [overnightSymbols, setOvernightSymbols] = useState<Set<string>>(
     new Set(),
   );
+  const [infoSymbol, setInfoSymbol] = useState<string | null>(null);
   const dragOrderRef = useRef<string[] | null>(null);
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
@@ -933,7 +696,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               </span>
             ),
           )}
-          <span />
         </div>
 
         {config.adding ? (
@@ -960,6 +722,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               linked={linked}
               removing={removing === symbol}
               onPublish={() => publish(symbol)}
+              onOpenInfo={() => setInfoSymbol(symbol)}
               onRemove={() => void removeSymbol(symbol)}
               onDragStart={() => setSortState(null)}
               onDragEnd={handleReorderEnd}
@@ -967,6 +730,14 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           ))}
         </Reorder.Group>
       </div>
+
+      <CompanyInfoModal
+        symbol={infoSymbol}
+        open={infoSymbol != null}
+        onClose={() => setInfoSymbol(null)}
+        linked={linked}
+        onPublish={publish}
+      />
     </div>
   );
 }
