@@ -47,6 +47,11 @@ def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             """
         )
         _add_column_if_missing(conn, "order_executions", "account_id", "TEXT")
+        # Fill economics (Decision Journal J0): the broker's realized fill price + filled
+        # qty, read off the order at reconcile time. Stored as TEXT (Decimal), matching the
+        # money rule. Advisory/audit only — never read by the RiskEngine or chokepoint.
+        _add_column_if_missing(conn, "order_executions", "avg_fill_price", "TEXT")
+        _add_column_if_missing(conn, "order_executions", "filled_qty", "TEXT")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_order_exec_account_created
@@ -74,6 +79,8 @@ def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "account_id": row["account_id"],
+        "avg_fill_price": row["avg_fill_price"] if "avg_fill_price" in row.keys() else None,
+        "filled_qty": row["filled_qty"] if "filled_qty" in row.keys() else None,
     }
 
 
@@ -146,6 +153,8 @@ def update_execution_status(
     broker_order_id: str | None = None,
     submitted_at: str | None = None,
     risk_checks_json: dict[str, Any] | str | None = None,
+    avg_fill_price: Decimal | str | None = None,
+    filled_qty: Decimal | str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any] | None:
     init_execution_tables(db_path)
@@ -158,6 +167,12 @@ def update_execution_status(
     if submitted_at is not None:
         fields.append("submitted_at = ?")
         values.append(submitted_at)
+    if avg_fill_price is not None:
+        fields.append("avg_fill_price = ?")
+        values.append(str(avg_fill_price))
+    if filled_qty is not None:
+        fields.append("filled_qty = ?")
+        values.append(str(filled_qty))
     if risk_checks_json is not None:
         checks_payload = (
             risk_checks_json

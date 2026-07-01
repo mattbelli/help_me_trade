@@ -78,6 +78,34 @@ def _close_reason(row: dict[str, Any]) -> str:
     return "closed_externally"
 
 
+def _exit_execution_id(row: dict[str, Any], *, db_path: Path) -> str | None:
+    """The SELL execution that closed this row, recovered from the pending-exit marker.
+
+    Auto exits go straight through ExecutionService, so the marker ``ref`` IS the exit
+    execution id. Propose exits store the proposal id; its execution id (set on approval)
+    is the closing execution. A closure with no marker (user sold externally) has none →
+    the journal records it as ``closed_incomplete`` (no exit price to source). Fail-soft.
+    """
+    try:
+        marker = (row.get("exit_context") or {}).get("pending_exit")
+        if not marker:
+            return None
+        ref = marker.get("ref")
+        if not ref:
+            return None
+        kind = marker.get("kind")
+        if kind == "auto":
+            return str(ref)
+        if kind == "propose":
+            pr = get_proposal(str(ref), db_path=db_path)
+            exec_id = (pr or {}).get("execution_id")
+            return str(exec_id) if exec_id else None
+        return None
+    except Exception:
+        logger.warning("failed to resolve exit execution id for %s", row.get("id"), exc_info=True)
+        return None
+
+
 def _exit_in_flight(
     row: dict[str, Any],
     *,
@@ -198,7 +226,13 @@ async def _process_managed_position(
                 "symbol": symbol,
             }
         reason = _close_reason(row)
-        close_position(position_id, reason=reason, db_path=db_path)
+        exit_execution_id = _exit_execution_id(row, db_path=db_path)
+        close_position(
+            position_id,
+            reason=reason,
+            exit_execution_id=exit_execution_id,
+            db_path=db_path,
+        )
         return {
             "action": "closed",
             "reason": reason,

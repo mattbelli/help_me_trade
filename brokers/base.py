@@ -46,6 +46,7 @@ class Order:
     status: str  # "new", "accepted", "filled", ...
     filled_qty: float
     limit_price: float | None
+    filled_avg_price: float | None = None
 
 
 @dataclass(frozen=True)

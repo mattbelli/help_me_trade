@@ -137,7 +137,19 @@ async def reconcile_open_executions(
             # guard a lingering partial would re-fire every tick.)
             continue
 
-        update_execution_status(execution_id, new_status, db_path=db_path)
+        # Persist the broker's realized fill economics alongside the status (Decision
+        # Journal J0). Only on a real fill — a canceled/expired order carries no meaningful
+        # avg price. None-valued fields are skipped by update_execution_status.
+        if new_status in {"filled", "partially_filled"}:
+            update_execution_status(
+                execution_id,
+                new_status,
+                avg_fill_price=order.filled_avg_price,
+                filled_qty=order.filled_qty,
+                db_path=db_path,
+            )
+        else:
+            update_execution_status(execution_id, new_status, db_path=db_path)
 
         # Record strategy attribution into the managed-position ledger so the exit
         # engine knows whose rules apply. Bookkeeping only — fail-closed inside.
@@ -145,6 +157,7 @@ async def reconcile_open_executions(
         record_strategy_fill(
             row_dict,
             filled_qty=order.filled_qty,
+            filled_avg_price=order.filled_avg_price,
             status=new_status,
             db_path=db_path,
         )

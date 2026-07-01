@@ -106,6 +106,7 @@ async def _size_candidate(
         "args": args,
         "broker": broker,
         "account_id": resolved_account_id,
+        "price": str(price),  # live ref price at propose (Decision Journal R basis)
     }
 
 
@@ -158,6 +159,8 @@ async def propose_trade(
             args,
             source=candidate.source,
             rule_id=candidate.rule_id,
+            thesis=candidate.rationale,
+            entry_ref_price=sized.get("price"),
             ttl_seconds=AGENT_PROPOSAL_TTL_SECONDS,
             db_path=db_path,
         )
