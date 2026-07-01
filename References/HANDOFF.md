@@ -48,7 +48,13 @@ this file, append the old full version there as a new dated section.*
 >   (`tests/test_schwab_sync.py`); 1134 suite green. Live: 56 events synced, 0 dupes; 2nd run 0-inserts/all-dupes
 >   (idempotent); zero API rows overlap the JSON boundary.** Files: `trading/sync.py`, `db/trades.py` (`latest_trade_date`
 >   gains a `source=` filter). **Committed + pushed** (`origin/main` = `063b2df`).
-> - **⏭️ NEXT — Phase 3** (`/performance`+journal account/broker filter — journal has none today) + **Stage B**
+> - **✅ Agent perception reads Schwab (read-only) — DONE.** The agent couldn't use the new data (live accounts not in
+>   perception; `my_trades` blended real Schwab + 19 Alpaca paper trades). Added a `schwab_accounts` perception resource
+>   (live balances/positions, `read_only`; new sync core `get_schwab_accounts_sync` shares the cache, async route wraps
+>   it) + made `my_trades` **real-only** (`_my_trade_events` excludes non-Schwab; optional `account_id`). GET-only, zero
+>   execution surface — re-verified Schwab exec is blocked at 3 layers (adapter `NotImplementedError`; `propose_order`
+>   chat tool rejects read-only accounts; `RiskEngine` fails `execution_capable=0`). `tests/test_perception_real_only.py`.
+> - **⏭️ NEXT — Phase 3** (`/performance`+journal UI account/broker filter — journal has none today) + **Stage B**
 >   (positions/orders widgets follow a real-account pick). Full recon in this session's two Explore agents. The
 >   `_poll_broker("schwab")` snapshot poll is still single-account (equity balances come from `/api/schwab/accounts`,
 >   so not urgent). Also still open: **P&L calendar (P7)**, perf-split (P8), tmux-lite (P9); Russell-1000 scans + Globex

@@ -286,11 +286,23 @@ def _compact_trade(rt: dict[str, Any]) -> dict[str, Any]:
 
 
 def _my_trade_events(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    from db.accounts import list_accounts
     from db.trades import list_trade_events
 
     symbol = filters.get("symbol")
     sym = str(symbol).strip().upper() if symbol else None
-    return list_trade_events(symbol=sym, limit=100_000, db_path=db_path)
+    account_id = filters.get("account_id")
+    if account_id:
+        return list_trade_events(
+            symbol=sym, account_id=str(account_id), limit=100_000, db_path=db_path
+        )
+    # Default = the user's REAL trading. EXCLUDE the paper Alpaca sandbox so the
+    # agent never blends fake-money trades into the real track record — mirrors the
+    # UI's paper↔real firewall. (Denylist, not allowlist: a real trade with an
+    # unrecognized/other broker still counts.)
+    paper_ids = {a["id"] for a in list_accounts(broker="alpaca", db_path=db_path)}
+    events = list_trade_events(symbol=sym, limit=100_000, db_path=db_path)
+    return [e for e in events if e.get("account_id") not in paper_ids]
 
 
 def _read_my_trades(
@@ -330,6 +342,64 @@ def _summarize_my_trades(
         "honesty": (
             "Net-cash realized is the source of truth; per-trade round-trip P&L is "
             "FIFO-approximate (unreliable on date-only exports)."
+        ),
+    }
+
+
+def _read_schwab_accounts(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    """Live balances + open positions for the user's REAL Schwab accounts.
+
+    READ-ONLY — surfaces what's held; the agent has no path to trade these."""
+    from brokers.schwab_accounts import get_schwab_accounts_sync
+
+    data = get_schwab_accounts_sync()
+    if not data.get("authenticated"):
+        return []
+    return [
+        {
+            "account": a.get("label"),
+            "type": a.get("account_type"),
+            "money_type": "real",
+            "read_only": True,
+            "portfolio_value": a.get("liquidation_value"),
+            "cash": a.get("cash"),
+            "long_market_value": a.get("long_market_value"),
+            "unrealized_pl": a.get("unrealized_pl"),
+            "positions": [
+                {
+                    "symbol": p.get("symbol"),
+                    "qty": p.get("qty"),
+                    "market_value": p.get("market_value"),
+                    "unrealized_pl": p.get("unrealized_pl"),
+                }
+                for p in a.get("positions", [])
+            ],
+        }
+        for a in data.get("accounts", [])
+    ]
+
+
+def _summarize_schwab_accounts(
+    filters: dict[str, Any], *, db_path: Path
+) -> dict[str, Any]:
+    from brokers.schwab_accounts import get_schwab_accounts_sync
+
+    data = get_schwab_accounts_sync()
+    if not data.get("authenticated"):
+        return {"authenticated": False, "note": "Schwab not connected."}
+    totals = data.get("totals", {})
+    return {
+        "money_type": "real",
+        "read_only": True,
+        "account_count": totals.get("account_count"),
+        "total_liquidation_value": totals.get("liquidation_value"),
+        "total_cash": totals.get("cash"),
+        "total_long_market_value": totals.get("long_market_value"),
+        "note": (
+            "Real funded Schwab accounts — READ-ONLY. The agent can see these "
+            "balances/positions but cannot place, cancel, or modify any order here."
         ),
     }
 
@@ -385,16 +455,28 @@ RESOURCES: dict[str, dict[str, Any]] = {
     },
     "my_trades": {
         "description": (
-            "The USER's real broker trade history — recent closed round-trips plus a "
-            "behavioral profile (cadence, concentration, asset mix) and the net-cash "
-            "realized P&L headline (source of truth; per-trade P&L is FIFO-approximate)."
+            "The USER's REAL broker trade history (the paper Alpaca sandbox is "
+            "excluded) — recent closed round-trips plus a behavioral profile "
+            "(cadence, concentration, asset mix) and the net-cash realized P&L "
+            "headline (source of truth; per-trade P&L is FIFO-approximate)."
         ),
         "filters": {
             "symbol": "optional — filter by ticker",
+            "account_id": "optional — one real account (default: all real/Schwab accounts)",
             "limit": "optional int — default 20, max 50",
         },
         "read": _read_my_trades,
         "summarize": _summarize_my_trades,
+    },
+    "schwab_accounts": {
+        "description": (
+            "The user's REAL Schwab accounts — live balances, cash, and open "
+            "positions (READ-ONLY: the agent can see them but CANNOT trade them). "
+            "Real money; kept separate from the paper Alpaca sandbox — never blend them."
+        ),
+        "filters": {},
+        "read": _read_schwab_accounts,
+        "summarize": _summarize_schwab_accounts,
     },
 }
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -27,7 +28,7 @@ _LABELS_PATH = ROOT / "data" / "schwab_account_labels.json"
 _CACHE_TTL = 30.0  # seconds
 
 _cache: dict = {"ts": 0.0, "data": None}
-_lock = asyncio.Lock()
+_lock = threading.Lock()  # threading (not asyncio) so sync callers can share the cache
 
 
 def _labels() -> dict:
@@ -168,12 +169,14 @@ def _fetch_all() -> dict:
     }
 
 
-async def get_schwab_accounts(force: bool = False) -> dict:
-    """TTL-cached read-only snapshot of all linked Schwab accounts.
+def get_schwab_accounts_sync(force: bool = False) -> dict:
+    """TTL-cached read-only snapshot of all linked Schwab accounts (blocking).
 
-    Fail-soft: on a fetch error, serve the last good snapshot (flagged
-    ``stale``) if we have one; otherwise return an ``error`` status. Never
-    raises into the caller.
+    Shared core for both the async API route and the sync perception reader — one
+    threading lock + one cache, so an agent read reuses whatever the frontend's
+    polling already fetched. Fail-soft: on a fetch error, serve the last good
+    snapshot (flagged ``stale``) if we have one; otherwise return an ``error``
+    status. Never raises into the caller.
     """
     if not token_exists():
         return {
@@ -184,13 +187,13 @@ async def get_schwab_accounts(force: bool = False) -> dict:
         }
 
     now = time.time()
-    async with _lock:
+    with _lock:
         cached = _cache["data"]
         if not force and cached is not None and (now - _cache["ts"]) < _CACHE_TTL:
             return cached
         try:
-            data = await asyncio.to_thread(_fetch_all)
-        except Exception as exc:  # noqa: BLE001 — read path must never raise into the API
+            data = _fetch_all()
+        except Exception as exc:  # noqa: BLE001 — read path must never raise into callers
             if cached is not None:
                 return {**cached, "stale": True, "error": str(exc)}
             return {"authenticated": True, "accounts": [], "totals": {}, "error": str(exc)}
@@ -198,3 +201,8 @@ async def get_schwab_accounts(force: bool = False) -> dict:
         data["fetched_at"] = now
         _cache.update(ts=now, data=data)
         return data
+
+
+async def get_schwab_accounts(force: bool = False) -> dict:
+    """Async wrapper over the sync core — offloads the blocking GETs off the loop."""
+    return await asyncio.to_thread(get_schwab_accounts_sync, force)

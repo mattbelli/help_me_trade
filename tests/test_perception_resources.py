@@ -64,6 +64,7 @@ def test_list_resources_catalog() -> None:
         "reports",
         "decision_journal",
         "my_trades",
+        "schwab_accounts",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]
