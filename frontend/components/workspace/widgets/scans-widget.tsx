@@ -1,279 +1,234 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { relativeTime } from "@/lib/relative-time";
+import { TerminalButton } from "@/components/ui/terminal/terminal-button";
+import { TerminalSelect } from "@/components/ui/terminal/terminal-select";
 import {
-  deleteRule,
-  listRuleEvents,
-  listRules,
-  updateRule,
-  type Rule,
-  type RuleConditions,
-  type RuleEvent,
-} from "@/lib/rules";
+  fetchScanPresets,
+  runScan,
+  type ScanPreset,
+  type ScanResultRow,
+  type ScanRunResult,
+} from "@/lib/scans-api";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 15_000;
+const POLL_MS = 25_000;
 
-const OPERATOR_SYMBOLS: Record<string, string> = {
-  equal: "=",
-  notEqual: "!=",
-  lessThan: "<",
-  lessThanInclusive: "≤",
-  greaterThan: ">",
-  greaterThanInclusive: "≥",
-  in: "in",
-  contains: "contains",
-};
-
-type LeafCondition = {
-  fact?: string;
-  operator?: string;
-  value?: unknown;
-};
-
-type GroupCondition = {
-  all?: unknown[];
-  any?: unknown[];
-  not?: unknown;
-};
-
-function isLeafCondition(value: unknown): value is LeafCondition {
-  return typeof value === "object" && value !== null && "fact" in value;
+function formatPrice(v: number | null): string {
+  if (v == null) return "—";
+  return v.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
-function isGroupCondition(value: unknown): value is GroupCondition {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    ("all" in value || "any" in value || "not" in value)
-  );
+function formatSigned(v: number | null): string {
+  if (v == null) return "—";
+  return `${v > 0 ? "+" : ""}${v.toFixed(2)}`;
 }
 
-function formatLeafCondition(leaf: LeafCondition): string {
-  const fact = leaf.fact ?? "fact";
-  const op = leaf.operator ?? "equal";
-  const value = leaf.value;
-
-  if (op === "equal" && value === true) return `${fact} = true`;
-  if (op === "equal" && value === false) return `${fact} = false`;
-
-  const symbol = OPERATOR_SYMBOLS[op] ?? op;
-  const valueStr =
-    value === undefined || value === null ? "—" : String(value);
-  return `${fact} ${symbol} ${valueStr}`;
+function formatNum(v: number): string {
+  return v.toFixed(2);
 }
 
-export function summarizeConditions(conditions: RuleConditions): string {
-  if (!conditions || typeof conditions !== "object") {
-    return conditions == null ? "—" : String(conditions);
-  }
-
-  if (isLeafCondition(conditions)) {
-    return formatLeafCondition(conditions);
-  }
-
-  if (isGroupCondition(conditions)) {
-    if (conditions.all?.length) {
-      return conditions.all
-        .map((child) => summarizeConditions(child as RuleConditions))
-        .join(" AND ");
-    }
-    if (conditions.any?.length) {
-      return conditions.any
-        .map((child) => summarizeConditions(child as RuleConditions))
-        .join(" OR ");
-    }
-    if (conditions.not) {
-      return `NOT (${summarizeConditions(conditions.not as RuleConditions)})`;
-    }
-  }
-
+function formatAsOf(iso: string): string {
   try {
-    return JSON.stringify(conditions);
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
   } catch {
     return "—";
   }
 }
 
-function buildLastFiredMap(events: RuleEvent[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const event of events) {
-    const prev = map.get(event.rule_id);
-    if (!prev || Date.parse(event.created_at) > Date.parse(prev)) {
-      map.set(event.rule_id, event.created_at);
-    }
-  }
-  return map;
+function changeColor(v: number | null): string {
+  if (v == null || v === 0) return "var(--fg-dim)";
+  return v > 0 ? "var(--c-green)" : "var(--c-red)";
 }
 
-export function ScansWidget({}: WidgetProps) {
-  const [rules, setRules] = useState<Rule[]>([]);
-  const [events, setEvents] = useState<RuleEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+export function ScansWidget({ config }: WidgetProps) {
+  const [presets, setPresets] = useState<ScanPreset[]>([]);
+  const [selected, setSelected] = useState<string>("");
+  const [data, setData] = useState<ScanRunResult | null>(null);
+  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cancelledRef = useRef(false);
 
-  const lastFired = useMemo(() => buildLastFiredMap(events), [events]);
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const [ruleItems, eventItems] = await Promise.all([
-          listRules(),
-          listRuleEvents(50),
-        ]);
-        if (cancelled) return;
-        setRules(ruleItems);
-        setEvents(eventItems);
-        setError(null);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load rules");
-        setRules([]);
-        setEvents([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void load();
-    const timer = setInterval(load, POLL_MS);
-
+    cancelledRef.current = false;
     return () => {
-      cancelled = true;
-      clearInterval(timer);
+      cancelledRef.current = true;
     };
   }, []);
 
-  const handleToggle = useCallback(async (rule: Rule, enabled: boolean) => {
-    setRules((prev) =>
-      prev.map((item) =>
-        item.id === rule.id ? { ...item, enabled } : item,
-      ),
-    );
-    try {
-      await updateRule(rule.id, { enabled });
-    } catch (err) {
-      setRules((prev) =>
-        prev.map((item) =>
-          item.id === rule.id ? { ...item, enabled: rule.enabled } : item,
-        ),
-      );
-      setError(err instanceof Error ? err.message : "Failed to update rule");
-    }
-  }, []);
-
-  const handleDelete = useCallback(async (rule: Rule) => {
-    setRules((prev) => prev.filter((item) => item.id !== rule.id));
-    try {
-      await deleteRule(rule.id);
-    } catch (err) {
-      setRules((prev) => {
-        if (prev.some((item) => item.id === rule.id)) return prev;
-        return [...prev, rule].sort((a, b) =>
-          a.name.localeCompare(b.name),
-        );
+  // Load the preset list once.
+  useEffect(() => {
+    let cancelled = false;
+    fetchScanPresets()
+      .then((items) => {
+        if (cancelled) return;
+        setPresets(items);
+        setSelected((prev) => prev || items[0]?.id || "");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load presets");
       });
-      setError(err instanceof Error ? err.message : "Failed to delete rule");
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const run = useCallback(async (presetId: string) => {
+    if (!presetId) return;
+    setRunning(true);
+    try {
+      const result = await runScan(presetId, 50);
+      if (cancelledRef.current) return;
+      setData(result);
+      setError(null);
+    } catch (err) {
+      if (cancelledRef.current) return;
+      setError(err instanceof Error ? err.message : "Scan failed");
+    } finally {
+      if (!cancelledRef.current) setRunning(false);
     }
   }, []);
 
-  if (loading && rules.length === 0) {
+  // Keep an already-run scan fresh (only while it matches the selected preset).
+  useEffect(() => {
+    if (!data || data.preset_id !== selected) return;
+    const timer = setInterval(() => void run(selected), POLL_MS);
+    return () => clearInterval(timer);
+  }, [data, selected, run]);
+
+  const handlePresetChange = (id: string) => {
+    setSelected(id);
+    setData(null);
+    setError(null);
+  };
+
+  if (presets.length === 0 && error) {
+    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+  }
+
+  if (presets.length === 0) {
     return <Skeleton className="m-3 h-full min-h-24 rounded-md" />;
   }
 
-  if (error && rules.length === 0) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>
-    );
-  }
-
-  if (rules.length === 0) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        No rules yet — ask the copilot to &apos;alert me when…&apos; to arm
-        one.
-      </p>
-    );
-  }
+  const showResults = data && data.preset_id === selected;
+  const metricLabel =
+    presets.find((p) => p.id === selected)?.metric_label ?? "Value";
 
   return (
-    <div className="h-full overflow-auto px-1.5 py-1">
-      {error ? (
-        <p className="mb-1 px-2 font-mono text-[10px] text-[var(--c-red)]">
+    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+      {/* Controls */}
+      <div className="flex items-center gap-1.5 border-b border-[var(--border)] px-2 py-1.5">
+        <TerminalSelect
+          value={selected}
+          onChange={(e) => handlePresetChange(e.target.value)}
+          className="flex-1"
+          aria-label="Scan preset"
+        >
+          {presets.map((p) => (
+            <option key={p.id} value={p.id} title={p.description}>
+              {p.label}
+            </option>
+          ))}
+        </TerminalSelect>
+        <TerminalButton
+          variant="primary"
+          onClick={() => void run(selected)}
+          disabled={running || !selected}
+        >
+          {running ? "…" : "Run"}
+        </TerminalButton>
+        {showResults ? (
+          <span className="tabular-nums text-[9.5px] text-[var(--fg-faint)]">
+            {formatAsOf(data.as_of)}
+          </span>
+        ) : null}
+      </div>
+
+      {error && showResults ? (
+        <p className="px-2 py-1 font-mono text-[10px] text-[var(--c-red)]">
           {error}
         </p>
       ) : null}
-      <table className="w-full border-collapse font-mono text-[12px]">
-        <thead>
-          <tr>
-            {(["Name", "Condition", "Armed", "Last fired", ""] as const).map(
-              (h, idx) => (
-                <th
-                  key={h || "actions"}
-                  className={cn(
-                    "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
-                    idx === 0 || idx === 1 ? "text-left" : "text-center",
-                    h === "" && "w-8",
-                  )}
-                >
-                  {h}
-                </th>
-              ),
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {rules.map((rule) => {
-            const firedAt = lastFired.get(rule.id);
-            return (
-              <tr
-                key={rule.id}
-                className="transition-colors hover:bg-[var(--bg-hover)]"
+
+      {/* Body */}
+      {!showResults ? (
+        <p className="p-3 text-[11px] text-[var(--fg-dim)]">
+          {error ?? "Pick a scan and Run."}
+        </p>
+      ) : data.count === 0 ? (
+        <p className="p-3 text-[11px] text-[var(--fg-dim)]">
+          No matches across {data.universe_size} screened symbols.
+        </p>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          {/* Column headers */}
+          <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5">
+            <span className="text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]">
+              #
+            </span>
+            {(["Sym", metricLabel, "Last", "1d %"] as const).map((h, idx) => (
+              <span
+                key={h}
+                className={cn(
+                  "truncate text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]",
+                  idx === 0 ? "text-left" : "text-right",
+                )}
               >
-                <td className="max-w-[8rem] truncate border-b border-[var(--border)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
-                  {rule.name}
-                </td>
-                <td
-                  className="max-w-[14rem] truncate border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-dim)]"
-                  title={summarizeConditions(rule.conditions)}
-                >
-                  {summarizeConditions(rule.conditions)}
-                </td>
-                <td className="border-b border-[var(--border)] px-2 py-1.5 text-center">
-                  <Switch
-                    size="sm"
-                    checked={rule.enabled}
-                    onCheckedChange={(checked) =>
-                      void handleToggle(rule, checked)
-                    }
-                    aria-label={`${rule.enabled ? "Disarm" : "Arm"} ${rule.name}`}
-                  />
-                </td>
-                <td className="border-b border-[var(--border)] px-2 py-1.5 text-center text-[11px] tabular-nums text-[var(--fg-faint)]">
-                  {firedAt ? relativeTime(firedAt) : "—"}
-                </td>
-                <td className="border-b border-[var(--border)] px-1 py-1.5 text-center">
-                  <button
-                    type="button"
-                    className="inline-flex size-5 items-center justify-center rounded text-[11px] text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
-                    aria-label={`Delete ${rule.name}`}
-                    onClick={() => void handleDelete(rule)}
-                  >
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                {h}
+              </span>
+            ))}
+          </div>
+
+          {/* Rows */}
+          {data.results.map((row: ScanResultRow, idx) => (
+            <div
+              key={row.symbol}
+              className="grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+            >
+              <span className="text-[10px] tabular-nums text-[var(--fg-faint)]">
+                {idx + 1}
+              </span>
+              <span className="truncate font-medium">
+                <ClickableSymbol
+                  symbol={row.symbol}
+                  linked={linked}
+                  onActivate={() => publish(row.symbol)}
+                />
+              </span>
+              <span className="text-right tabular-nums text-foreground">
+                {formatNum(row.value)}
+              </span>
+              <span className="text-right tabular-nums text-[var(--fg-dim)]">
+                {formatPrice(row.price)}
+              </span>
+              <span
+                className="text-right tabular-nums"
+                style={{ color: changeColor(row.change_pct) }}
+              >
+                {formatSigned(row.change_pct)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -111,7 +111,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   {
     id: "scans",
     title: "scans",
-    description: "Armed signal rules and recent fires",
+    description: "Universe screener — technical scan presets, ranked matches",
+    channelAware: true,
     component: ScansWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
   },

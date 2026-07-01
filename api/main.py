@@ -25,6 +25,7 @@ from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
+from api.scan_routes import router as scan_router
 from api.strategy_routes import router as strategy_router
 from api.trade_routes import router as trade_router
 from brokers.alpaca import AlpacaAdapter, StockBar
@@ -1245,6 +1246,7 @@ app.include_router(trade_router)
 app.include_router(performance_router)
 app.include_router(strategy_router)
 app.include_router(notification_router)
+app.include_router(scan_router)
 
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(
