@@ -62,6 +62,23 @@ async def test_on_equity_falls_back_to_mark_when_no_last() -> None:
 
 
 @pytest.mark.asyncio
+async def test_on_equity_drops_implausible_tick() -> None:
+    hub = SchwabMarketStreamHub()
+    # A good tick establishes the prior close (198) + last price (200.5).
+    hub._on_equity(_labeled_equity_msg())
+    assert hub._quotes["AAPL"].price == pytest.approx(200.5)
+
+    # A bad print far above the prior close (a ~$198 stock "printing" $750) is
+    # dropped — the last good price stays, so it can't spike a chart candle.
+    hub._on_equity({"content": [{"key": "AAPL", "LAST_PRICE": 750.0}]})
+    assert hub._quotes["AAPL"].price == pytest.approx(200.5)
+
+    # The reference (prior close) isn't poisoned, so the next good tick updates.
+    hub._on_equity({"content": [{"key": "AAPL", "LAST_PRICE": 201.25}]})
+    assert hub._quotes["AAPL"].price == pytest.approx(201.25)
+
+
+@pytest.mark.asyncio
 async def test_on_equity_skips_tick_with_no_price() -> None:
     """A partial tick (bid/ask only, no last/mark) is skipped — not a zero quote."""
     hub = SchwabMarketStreamHub()

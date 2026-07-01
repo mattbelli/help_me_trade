@@ -1089,6 +1089,14 @@ export function TvLightChart({
 
     const last = bars[bars.length - 1];
 
+    // Reject an implausible live tick (bad print / crossed quote): a value >3× or
+    // <1/3 of the last COMPLETED bar's close is never a real intraday move and would
+    // spike the forming candle's wick (e.g. a $52 stock printing $750). Reference the
+    // prior completed bar — not `last`, which live ticks mutate — so one bad tick
+    // can't poison the reference and freeze the chart.
+    const ref = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
+    if (ref > 0 && (livePrice > ref * 3 || livePrice * 3 < ref)) return;
+
     // Intraday: when the wall clock crosses into the next interval bucket, roll the
     // forming candle over to a NEW bar (the live tick has no timestamp, so bucket off
     // the client clock, aligned to the historical bars' own grid via last.time).
