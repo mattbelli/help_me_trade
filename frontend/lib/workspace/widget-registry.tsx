@@ -154,6 +154,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "agent-proposals",
     title: "agent proposals",
     description: "Pending AI order proposals with score — Approve / Reject",
+    channelAware: true,
     component: AgentProposalsWidget,
     defaultSize: { w: 12, h: 6, minW: 5, minH: 3 },
   },

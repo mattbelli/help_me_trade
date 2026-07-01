@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { ProposalScore } from "@/components/workspace/proposal-score";
 import { useWorkspaceToast } from "@/components/workspace/workspace-toast";
 import {
@@ -11,10 +12,13 @@ import {
   rejectProposal,
   type PendingProposal,
 } from "@/lib/api";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 
 type Props = {
   proposal: PendingProposal;
   onResolved: () => void;
+  channel?: ChannelId;
 };
 
 function formatCountdown(expiresAt: string, now: number): string {
@@ -26,8 +30,13 @@ function formatCountdown(expiresAt: string, now: number): string {
   return `${min}:${sec.toString().padStart(2, "0")}`;
 }
 
-export function PendingProposalCard({ proposal, onResolved }: Props) {
+export function PendingProposalCard({
+  proposal,
+  onResolved,
+  channel = "none",
+}: Props) {
   const { showToast } = useWorkspaceToast();
+  const { publish, linked } = usePublishSymbol(channel);
   const [pending, setPending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const expiredNotifiedRef = useRef(false);
@@ -122,7 +131,13 @@ export function PendingProposalCard({ proposal, onResolved }: Props) {
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
         <div>
           <dt className="text-muted-foreground">Symbol</dt>
-          <dd className="font-mono font-medium">{proposal.symbol}</dd>
+          <dd className="font-mono font-medium">
+            <ClickableSymbol
+              symbol={proposal.symbol}
+              linked={linked}
+              onActivate={() => publish(proposal.symbol)}
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Side</dt>

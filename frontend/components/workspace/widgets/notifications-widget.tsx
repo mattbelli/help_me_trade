@@ -59,7 +59,6 @@ export function NotificationsWidget({}: WidgetProps) {
   const notifications = useNotificationStore((s) => s.notifications);
   const hydrated = useNotificationStore((s) => s.hydrated);
   const hydrate = useNotificationStore((s) => s.hydrate);
-  const markRead = useNotificationStore((s) => s.markRead);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const dismiss = useNotificationStore((s) => s.dismiss);
   const activate = useNotificationActivate();
@@ -87,12 +86,9 @@ export function NotificationsWidget({}: WidgetProps) {
   );
 
   const handleRowClick = (n: WorkspaceNotification) => {
-    if (expandedId === n.id) {
-      setExpandedId(null);
-      return;
-    }
-    setExpandedId(n.id);
-    if (!n.read) markRead(n.id);
+    // Deep-link/focus the target (also marks read) and toggle the body preview.
+    activate(n);
+    setExpandedId((prev) => (prev === n.id ? null : n.id));
   };
 
   if (!hydrated) {

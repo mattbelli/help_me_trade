@@ -22,14 +22,35 @@ export default function WorkspacePage() {
   const isMobile = useIsMobile();
   const collapsedHeight = useConsoleStore((s) => s.collapsedHeight);
   const open = useCopilotStore((s) => s.open);
+  const pinned = useCopilotStore((s) => s.pinned);
   const width = useCopilotStore((s) => s.width);
   const hydrate = useCopilotStore((s) => s.hydrate);
+  const toggleCopilot = useCopilotStore((s) => s.toggle);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
 
-  const dockedPadding = open ? width : 0;
+  // Ctrl/Cmd+J toggles the copilot open/closed — doesn't collide with the
+  // command console's Ctrl/Cmd+K or the Alt+1-5 / Alt+[ / ] page hotkeys.
+  useEffect(() => {
+    if (isMobile) return;
+
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.defaultPrevented || event.repeat) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        toggleCopilot();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile, toggleCopilot]);
+
+  // Only a PINNED (docked) copilot should push the grid over — a floating
+  // copilot overlays the grid instead, so it must not reserve layout space.
+  const dockedPadding = open && pinned ? width : 0;
 
   // Phones get a purpose-built bottom-tab shell instead of the desktop widget
   // grid. It still lives inside the chat providers so the Agent tab's thread

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, MessageSquareIcon } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
@@ -25,6 +25,7 @@ import {
   type BrokerSnapshot,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useDayPnl } from "@/lib/workspace/use-day-pnl";
 import {
   maskMoney,
@@ -117,6 +118,8 @@ export function WorkspaceToolbar() {
   const { snapshot, brokerInfo, loading } = useSnapshot();
   const { dayPnl, loading: dayLoading } = useDayPnl();
   const clock = useEtClock();
+  const copilotOpen = useCopilotStore((s) => s.open);
+  const toggleCopilot = useCopilotStore((s) => s.toggle);
   const {
     selectedAccountId,
     privacyMode,
@@ -389,6 +392,21 @@ export function WorkspaceToolbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 md:gap-5">
+        <button
+          type="button"
+          onClick={toggleCopilot}
+          title={`${copilotOpen ? "Close" : "Open"} copilot (Ctrl/Cmd+J)`}
+          aria-label="Toggle copilot"
+          aria-pressed={copilotOpen}
+          className={cn(
+            "inline-flex cursor-pointer items-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]",
+            copilotOpen
+              ? "text-[var(--c-accent)]"
+              : "text-[var(--fg-faint)]",
+          )}
+        >
+          <MessageSquareIcon className="size-3.5" />
+        </button>
         <NotificationBell />
         <SettingsDialog collapsed />
         <ThemeSwitcher />

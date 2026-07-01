@@ -2,10 +2,12 @@
 
 import { PendingProposalCard } from "@/components/workspace/pending-proposal-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { ChannelId } from "@/lib/workspace/channels";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { usePendingProposals } from "@/lib/workspace/use-pending-proposals";
 
-export function AgentProposalsWidget({}: WidgetProps) {
+export function AgentProposalsWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
   const { proposals, loading, refetch } = usePendingProposals();
 
   if (loading && proposals.length === 0) {
@@ -34,6 +36,7 @@ export function AgentProposalsWidget({}: WidgetProps) {
               key={proposal.id}
               proposal={proposal}
               onResolved={refetch}
+              channel={channel}
             />
           ))}
         </div>
