@@ -13,8 +13,7 @@ this file, append the old full version there as a new dated section.*
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
 > ▶ **LATEST (2026-07-01, next session) — Real Schwab data + unified account selector w/ a paper↔real firewall (P6,
-> reworked) SHIPPED + deployed on serv; founder-accepted ("feels good"). Committed to `main` LOCAL (`8e04d9c`); push
-> pending — the auto-mode classifier blocks the agent from pushing to the default branch (a human pushes).** Founder ask:
+> reworked) SHIPPED + deployed on serv; founder-accepted ("feels good"). Committed + pushed (`4da9a66`).** Founder ask:
 > "bring our Schwab account/trade data in" + "see all accounts from the toolbar (all / all-Schwab / all-Alpaca /
 > individual), with a paper vs real view — NEVER sum paper + real." Recon flipped the original plan: account-snapshot
 > polling was **fully off** (`brokers.schwab.enabled=false`; only the Schwab *market-data* path was live) and
@@ -48,7 +47,7 @@ this file, append the old full version there as a new dated section.*
 >   MAJORs (exception isolation, backfill-gap-on-chunk-failure, pacing/concurrency) — all fixed. **10 new tests
 >   (`tests/test_schwab_sync.py`); 1134 suite green. Live: 56 events synced, 0 dupes; 2nd run 0-inserts/all-dupes
 >   (idempotent); zero API rows overlap the JSON boundary.** Files: `trading/sync.py`, `db/trades.py` (`latest_trade_date`
->   gains a `source=` filter). ⚠️ **NOT pushed** (auto-mode classifier blocks agent pushes to `main` — a human pushes).
+>   gains a `source=` filter). **Committed + pushed** (`origin/main` = `063b2df`).
 > - **⏭️ NEXT — Phase 3** (`/performance`+journal account/broker filter — journal has none today) + **Stage B**
 >   (positions/orders widgets follow a real-account pick). Full recon in this session's two Explore agents. The
 >   `_poll_broker("schwab")` snapshot poll is still single-account (equity balances come from `/api/schwab/accounts`,
