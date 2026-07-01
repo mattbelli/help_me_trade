@@ -150,7 +150,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
               type="button"
               onClick={() => publish(row.symbol)}
               className={cn(
-                "grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 text-left transition-colors",
+                "group/row grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 text-left transition-colors",
                 linked
                   ? "cursor-pointer hover:bg-[var(--bg-hover)]"
                   : "cursor-default hover:bg-[var(--bg-hover)]",
@@ -180,7 +180,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
                       openTickerInfo(row.symbol);
                     }
                   }}
-                  className="shrink-0 cursor-pointer text-[var(--fg)] opacity-0 transition-opacity group-hover/sym:opacity-100 focus-visible:opacity-100"
+                  className="shrink-0 cursor-pointer text-[var(--fg)] opacity-0 transition-opacity group-hover/sym:opacity-100 group-hover/row:opacity-100 focus-visible:opacity-100"
                 >
                   <Info className="size-3.5" />
                 </span>

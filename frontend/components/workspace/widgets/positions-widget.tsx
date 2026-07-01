@@ -140,7 +140,7 @@ export function PositionsWidget({ config }: WidgetProps) {
           {sortedPositions.map((p, idx) => (
             <tr
               key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
-              className="transition-colors hover:bg-[var(--bg-hover)]"
+              className="group/row transition-colors hover:bg-[var(--bg-hover)]"
             >
               <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
                 <span className="inline-flex items-center gap-1.5">

@@ -118,7 +118,7 @@ export function PendingProposalCard({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_30%,transparent)] bg-[color-mix(in_srgb,var(--c-amber)_5%,transparent)] p-3 text-sm shadow-sm">
+    <div className="group/row space-y-3 rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_30%,transparent)] bg-[color-mix(in_srgb,var(--c-amber)_5%,transparent)] p-3 text-sm shadow-sm">
       <div>
         <p className="font-medium text-foreground">{proposal.summary}</p>
         {countdown != null ? (

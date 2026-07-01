@@ -287,7 +287,7 @@ function WatchlistSymbolRow({
       <div
         className={cn(
           ROW_GRID,
-          "group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
+          "group/row group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
         )}
       >
         <button

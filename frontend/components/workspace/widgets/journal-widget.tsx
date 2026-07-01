@@ -390,7 +390,7 @@ function DecisionsView({
       {decisions.map((d) => (
         <div
           key={d.proposal_id ?? `${d.symbol}-${d.created_at}`}
-          className="border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+          className="group/row border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
         >
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium">
@@ -483,7 +483,7 @@ function MeView({
         trades.map((t, idx) => (
           <div
             key={`${t.symbol}-${t.close_date}-${idx}`}
-            className="grid grid-cols-[minmax(0,1fr)_3rem_5rem_2.5rem_2.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+            className="group/row grid grid-cols-[minmax(0,1fr)_3rem_5rem_2.5rem_2.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
           >
             <span className="truncate font-medium">
               {t.symbol ? (

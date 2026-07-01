@@ -91,7 +91,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
           {orders.map((order) => (
             <tr
               key={order.id}
-              className="transition-colors hover:bg-[var(--bg-hover)]"
+              className="group/row transition-colors hover:bg-[var(--bg-hover)]"
             >
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)]">
                 #{order.id.slice(-5)}
