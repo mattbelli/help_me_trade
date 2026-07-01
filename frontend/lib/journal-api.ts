@@ -48,6 +48,37 @@ export type JournalDecisionsResult = {
   stats: DecisionStats;
 };
 
+// --- Calibration: predicted vs realized win% (J3) -----------------------------
+
+export type CalibrationVerdict =
+  | "well_calibrated"
+  | "overconfident"
+  | "underconfident"
+  | "insufficient_data";
+
+export type CalibrationGroup = {
+  key: string;
+  label: string;
+  n: number;
+  wins: number;
+  losses: number;
+  scratches: number;
+  predicted_win: number;
+  realized_win: number;
+  ci_low: number;
+  ci_high: number;
+  drift: number;
+  avg_r_multiple: number | null;
+  verdict: CalibrationVerdict;
+};
+
+export type CalibrationResult = {
+  n_resolved: number;
+  min_samples: number;
+  by_strategy: CalibrationGroup[];
+  by_bucket: CalibrationGroup[];
+};
+
 // --- Me side: the user's real broker trades ----------------------------------
 
 export type MyTrade = {
@@ -111,6 +142,10 @@ export async function fetchDecisions(
     `${API_BASE}/api/journal/decisions?${params}`,
     "Journal decisions",
   );
+}
+
+export async function fetchCalibration(): Promise<CalibrationResult> {
+  return getJson(`${API_BASE}/api/journal/calibration`, "Journal calibration");
 }
 
 export async function fetchMyTrades(

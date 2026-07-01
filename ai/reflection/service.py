@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any
 
+from ai.journal_review import run_journal_review
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
@@ -59,8 +60,17 @@ def run_reflection() -> dict[str, Any]:
                 metadata={"source": "reflection"},
             )
 
+    # J3 — journal calibration review (surface-only, fail-soft): compare the agent's
+    # PREDICTED win% vs REALIZED outcomes and seed lesson-memories on notable drift.
+    # run_journal_review swallows its own errors, so it can never break reflection.
+    review = run_journal_review(memory=memory)
+
     run = save_reflection_run(summary=summary, lessons=lessons)
-    logger.info("Reflection run %s completed", run["id"])
+    logger.info(
+        "Reflection run %s completed (journal calibration lessons: %s)",
+        run["id"],
+        review.get("lessons_seeded", 0),
+    )
     return run
 
 

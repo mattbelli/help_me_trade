@@ -65,6 +65,19 @@ def api_journal_stats(strategy: str | None = None) -> Any:
     return _summarize_decision_journal({"strategy": strategy}, db_path=DEFAULT_DB_PATH)
 
 
+@router.get("/calibration")
+def api_journal_calibration() -> Any:
+    """Realized calibration — PREDICTED win% vs REALIZED, per strategy + per bucket. AI side.
+
+    Surface-only: reads ``decision_journal`` and grades the agent's own predictions with
+    sample counts + Wilson CIs + an honest ``insufficient_data`` verdict below the sample
+    bar. Mutates no strategy/scorer. Empty (``n_resolved=0``) until proposals resolve."""
+    from ai.journal_review import compute_calibration
+    from db.base import DEFAULT_DB_PATH
+
+    return compute_calibration(db_path=DEFAULT_DB_PATH)
+
+
 @router.get("/trades")
 def api_journal_trades(symbol: str | None = None, limit: int = 20) -> Any:
     """The user's recent closed round-trips (FIFO-approximate P&L). Me side."""

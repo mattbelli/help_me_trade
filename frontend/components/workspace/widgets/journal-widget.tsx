@@ -6,9 +6,12 @@ import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TerminalButton } from "@/components/ui/terminal/terminal-button";
 import {
+  fetchCalibration,
   fetchDecisions,
   fetchMyTrades,
   fetchMyTradesSummary,
+  type CalibrationGroup,
+  type CalibrationResult,
   type DecisionStats,
   type JournalDecision,
   type MyTrade,
@@ -81,6 +84,7 @@ export function JournalWidget({ config }: WidgetProps) {
   const [view, setView] = useState<View>("ai");
   const [decisions, setDecisions] = useState<JournalDecision[] | null>(null);
   const [stats, setStats] = useState<DecisionStats | null>(null);
+  const [calibration, setCalibration] = useState<CalibrationResult | null>(null);
   const [trades, setTrades] = useState<MyTrade[] | null>(null);
   const [summary, setSummary] = useState<MyTradesSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -102,10 +106,14 @@ export function JournalWidget({ config }: WidgetProps) {
     setError(null);
     try {
       if (which === "ai") {
-        const res = await fetchDecisions(undefined, 30);
+        const [res, cal] = await Promise.all([
+          fetchDecisions(undefined, 30),
+          fetchCalibration(),
+        ]);
         if (cancelledRef.current) return;
         setDecisions(res.decisions);
         setStats(res.stats);
+        setCalibration(cal);
       } else {
         const [res, sum] = await Promise.all([
           fetchMyTrades(undefined, 30),
@@ -158,6 +166,7 @@ export function JournalWidget({ config }: WidgetProps) {
         <AiView
           decisions={decisions ?? []}
           stats={stats}
+          calibration={calibration}
           linked={linked}
           publish={publish}
         />
@@ -175,7 +184,171 @@ export function JournalWidget({ config }: WidgetProps) {
 
 // --- AI view: the agent's own paper calls -----------------------------------
 
+type AiTab = "decisions" | "calibration";
+
+function verdictColor(verdict: string): string {
+  if (verdict === "well_calibrated") return "var(--c-green)";
+  if (verdict === "overconfident") return "var(--c-red)";
+  if (verdict === "underconfident") return "var(--c-amber)";
+  return "var(--fg-dim)"; // insufficient_data
+}
+
+function verdictLabel(verdict: string): string {
+  return verdict.replace(/_/g, " ");
+}
+
 function AiView({
+  decisions,
+  stats,
+  calibration,
+  linked,
+  publish,
+}: {
+  decisions: JournalDecision[];
+  stats: DecisionStats | null;
+  calibration: CalibrationResult | null;
+  linked: boolean;
+  publish: (s: string) => void;
+}) {
+  const [tab, setTab] = useState<AiTab>("decisions");
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* Decisions ⇄ Calibration sub-toggle */}
+      <div className="flex gap-1 border-b border-[var(--border)] px-2 py-1">
+        <ToggleButton
+          active={tab === "decisions"}
+          onClick={() => setTab("decisions")}
+        >
+          Decisions
+        </ToggleButton>
+        <ToggleButton
+          active={tab === "calibration"}
+          onClick={() => setTab("calibration")}
+        >
+          Calibration
+        </ToggleButton>
+      </div>
+      {tab === "decisions" ? (
+        <DecisionsView
+          decisions={decisions}
+          stats={stats}
+          linked={linked}
+          publish={publish}
+        />
+      ) : (
+        <CalibrationView calibration={calibration} />
+      )}
+    </div>
+  );
+}
+
+// --- Calibration: predicted vs realized win% (honest, CI-gated) -------------
+
+function CalibrationView({
+  calibration,
+}: {
+  calibration: CalibrationResult | null;
+}) {
+  if (!calibration || calibration.n_resolved === 0) {
+    return (
+      <div className="min-h-0 flex-1 overflow-auto p-3 text-[11px] text-[var(--fg-dim)]">
+        <p className="font-medium text-[var(--fg-dim)]">Insufficient data</p>
+        <p className="mt-1 text-[10px] text-[var(--fg-faint)]">
+          No resolved paper calls to grade yet. Calibration compares the agent&apos;s
+          predicted win% against what actually happened — it stays honestly empty until
+          enough proposals win/lose (≥{calibration?.min_samples ?? 10} per group).
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-0 flex-1 overflow-auto">
+      <CalibrationTable
+        title="By strategy"
+        groups={calibration.by_strategy}
+        minSamples={calibration.min_samples}
+      />
+      <CalibrationTable
+        title="By predicted-win% bucket"
+        groups={calibration.by_bucket}
+        minSamples={calibration.min_samples}
+      />
+    </div>
+  );
+}
+
+function CalibrationTable({
+  title,
+  groups,
+  minSamples,
+}: {
+  title: string;
+  groups: CalibrationGroup[];
+  minSamples: number;
+}) {
+  if (groups.length === 0) return null;
+  return (
+    <div className="border-b border-[var(--border)]">
+      <div className="px-2 pt-2 text-[10px] uppercase tracking-[0.06em] text-[var(--fg-faint)]">
+        {title}
+      </div>
+      {groups.map((g) => {
+        const insufficient = g.verdict === "insufficient_data";
+        return (
+          <div
+            key={g.key}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2 px-2 py-1.5"
+          >
+            <div className="min-w-0">
+              <span className="truncate font-medium">{g.label}</span>
+              <span className="ml-1 text-[10px] text-[var(--fg-faint)]">n{g.n}</span>
+            </div>
+            <div className="text-right text-[11px] tabular-nums">
+              {insufficient ? (
+                <span
+                  className="text-[10px] uppercase"
+                  style={{ color: "var(--fg-dim)" }}
+                  title={`Need ≥${minSamples} resolved trades to grade`}
+                >
+                  insufficient data
+                </span>
+              ) : (
+                <span
+                  className="text-[10px] uppercase"
+                  style={{ color: verdictColor(g.verdict) }}
+                >
+                  {verdictLabel(g.verdict)}
+                </span>
+              )}
+            </div>
+            <div className="col-span-2 text-[10px] text-[var(--fg-dim)] tabular-nums">
+              <span className="text-[var(--fg-faint)]">pred </span>
+              {pct(g.predicted_win)}
+              <span className="text-[var(--fg-faint)]"> vs real </span>
+              <span style={{ color: verdictColor(g.verdict) }}>
+                {pct(g.realized_win)}
+              </span>
+              <span className="text-[var(--fg-faint)]">
+                {" "}
+                (CI {pct(g.ci_low)}–{pct(g.ci_high)})
+              </span>
+              {g.avg_r_multiple != null ? (
+                <span className="text-[var(--fg-faint)]">
+                  {" "}
+                  · {rMultiple(g.avg_r_multiple)}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// --- Decisions list: the agent's own paper calls ----------------------------
+
+function DecisionsView({
   decisions,
   stats,
   linked,
