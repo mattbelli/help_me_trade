@@ -12,6 +12,53 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-07-01, SESSION END) — big cockpit + journal + scanner + charts round. ALL shipped, deployed on
+> serv (:3001 / :8000), pushed; `origin/main` = `766462b`.** Everything below is live + green (full suite ~1124; chokepoint
+> untouched throughout; every commit staged by explicit path, never `git add -A`). On top of the charts overhaul (`f93f582`)
+> and the earlier quick-wins/journal-J0-J3/reports/scans (`85dd8bc`→`01b8a84`, summarized in the entries beneath this one):
+> - **Watchlist RVOL 500 fix** (`10cb95d`): a futures (/ES) globex RVOL `IndexError` (globex bucket index past an
+>   RTH-shaped volume profile) was 500-ing the WHOLE `/api/watchlist/market`, so every row chart fell back to the flat
+>   "7-day" sparkline. Guarded `rvol_now` (bucket ≥ len(cumfrac) → None) + made `_compute_rvol_field` fail-soft. Futures
+>   charts DO work (/ES,/CL show intraday); futures RVOL stays blank until a globex-shaped profile exists (see NEXT).
+> - **Scans → a real market screener**: fixed a cold-cache 20s timeout via **bounded-concurrent** bar fetch (`8492742`)
+>   and added an **S&P 500 universe** (`167d871`) — a Watchlist ⇄ S&P 500 toggle that reads the already-refreshed
+>   `momentum_daily_bars` store (503 names, ~0.4s, ZERO broker calls, no Schwab burst). `unusual_volume` is Watchlist-only
+>   (that store keeps only open/close). `api/scan_routes.py`, `signals/screener.py`.
+> - **Bad-tick chart filter** (`f3e1cdf`): a bad Schwab print (e.g. $52→$750) set the forming candle's HIGH and also
+>   poisoned the watchlist price / alerts / the RiskEngine's live quote. Two guards drop ticks >3× or <1/3 of a STABLE
+>   reference — the chart (`tv-light-chart.tsx`, vs the last COMPLETED bar) and the Schwab hub (`schwab_market_stream.py`
+>   `_on_equity`/`_on_futures`, vs the official prior close). Safety-positive.
+> - **Company-info ⓘ everywhere** (`e49f5b7`→`96a8e9e`): a **ⓘ on every ticker in every widget** (white, revealed on
+>   ROW hover) opens ONE shared `CompanyInfoModal` (root-mounted behind `useTickerInfo()`, baked into `ClickableSymbol`)
+>   showing company profile + fundamentals (Finnhub `/stock/profile2` + `/stock/metric`, free-tier, TTL-cached) + our
+>   `get_context` facts + **recent news** (Finnhub `/company-news`). Backend: `signals/finnhub.py` fetchers +
+>   `api/ticker_routes.py` `GET /api/ticker/{symbol}`. The **watchlist ticker now renders via `ClickableSymbol`** too, so
+>   it matches positions (hover-underline, click-to-chart, shared ⓘ). ⓘ style iterated to founder taste (white, hover-on-row).
+> - **Chart ~80% right-margin anchor restored** (`766462b`): the overhaul's extra panes triggered resize refits that
+>   clobbered the one-shot `setVisibleLogicalRange` (latest candle snapped to the right edge) → fixed with a persistent
+>   time-scale `rightOffset` (0.2 × visibleBars).
+>
+> **⏭️ WHAT'S NEXT (queued — the founder's cockpit list, BUILD.md §4.1 + follow-ups):**
+> 1. **Schwab activity widget (P6)** — a live monitoring tile from the read-only Schwab snapshot (positions + unrealized
+>    P&L + open orders). The data is already synced (read-only, double-guarded) — this is a UI task.
+> 2. **P&L calendar widget (P7)** — rebuild `performance-page.tsx`'s flat day-chip `CalendarHeatmap` as a standalone
+>    month-grid widget (day-of-week columns, month nav, week/month rollups). Backend `daily_realized`/`daily_cash_flow` ready.
+> 3. **Split the performance widget (P8)** — decompose `performance-page.tsx` into ~5-6 registry widgets (cumulative P&L,
+>    per-symbol, day-of-week, win/loss, stat cards). No backend change; mirrors `account-summary-widget`.
+> 4. **tmux-lite widget split (P9)** — shrink a widget + auto-place a new one in the freed slot (existing
+>    `findPlacement`/`addWidget`); defer a true nested pane-tree.
+> 5. **Russell 1000 scans (~960)** — extend the daily bars refresh to the `russell1000.json` list (+ a first backfill),
+>    then add a 3rd universe option. Optionally extend `momentum_daily_bars` to full OHLCV (the refresh already fetches it)
+>    so `unusual_volume` works market-wide. Also: a **Globex futures-RVOL profile** for /ES,/CL to light up their RVOL.
+> 6. **Journal activation** — arm a disabled strategy (or `tools/fire_test_entry.py`) so the AI/Calibration side populates;
+>    flip `inject_journal` if you want the copilot to reference "my calls / your pattern" each turn.
+> 7. **★ Decision Engine edge (R5, THE headline value)** — the calibrated scorer is wired but *edgeless* (n=447);
+>    multi-signal fusion + LLM-reasoning-on-top + S/R scale-out ladders + honest EV/win% is the strategic frontier
+>    (BUILD.md ★ Decision Engine + engine-deepening roadmap).
+> - **Known-debt (BUILD.md §5):** mem0 `search()` treats `{"results":[...]}` as a list → **vector search is inert**
+>   (retrieval = local token-overlap); notification `kind` taxonomy not reconciled backend↔frontend; terminal-restyle
+>   stragglers (`research-page.tsx`).
+>
 > ▶ **LATEST (2026-07-01, latest) — decision journal J2 (surface) + J3 (calibration) SHIPPED + deployed + pushed.**
 > The agent can now SEE and learn from its own track record AND the user's. J2 (`aa858dc`): two perception resources
 > (`decision_journal` = AI's calls · `my_trades` = user's real Schwab history), opt-in per-turn chat injection, `/api/journal/*`,
