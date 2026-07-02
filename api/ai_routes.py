@@ -31,7 +31,7 @@ from ai.llm.models import list_chat_models, list_default_model_options
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.depth import RESEARCH_DEPTHS
-from ai.research.jobs import get_job, submit_research_job
+from ai.research.jobs import enqueue_research, get_job
 from ai.research.report import research_html_for_artifact
 from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
@@ -723,7 +723,12 @@ async def api_run_research(body: dict = Body(...)):
         )
     sym = str(symbol).strip().upper() if symbol else None
     try:
-        job_id = submit_research_job(topic=topic, symbol=sym, depth=depth)
+        # Await the async enqueue directly so _run_job is scheduled on the
+        # main event loop. The sync submit_research_job wrapper would run the
+        # enqueue in a throwaway asyncio.run loop that tears down immediately,
+        # cancelling the _run_job task (status tracking + completion notify)
+        # while the detached executor thread keeps running the research.
+        job_id = await enqueue_research(topic=topic, symbol=sym, depth=depth)
     except Exception as exc:
         logger.exception("Research enqueue failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
