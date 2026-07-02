@@ -165,11 +165,27 @@ def _client_from_token_basic(api_key: str, app_secret: str, path: Path):
     """
     raw = json.loads(path.read_text())
     token = raw.get("token", raw) if isinstance(raw, dict) else raw
+    creation_timestamp = (
+        int(raw.get("creation_timestamp", time.time()))
+        if isinstance(raw, dict)
+        else int(time.time())
+    )
 
     def _write(new_token, *args, **kwargs):
-        path.write_text(
-            json.dumps({"creation_timestamp": int(time.time()), "token": new_token})
-        )
+        # Preserve the refresh-token mint clock. Prefer the CURRENT on-disk value:
+        # if a cron re-mint replaced the file while this client was alive, keeping
+        # the fresh clock matters more than this instance's stale snapshot.
+        ts = creation_timestamp
+        try:
+            on_disk = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(on_disk, dict) and on_disk.get("creation_timestamp") is not None:
+                ts = int(on_disk["creation_timestamp"])
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+        payload = json.dumps({"creation_timestamp": ts, "token": new_token})
+        tmp_path = path.with_suffix(".tmp")
+        tmp_path.write_text(payload, encoding="utf-8")
+        os.replace(tmp_path, path)
 
     session = OAuth2Client(
         api_key,
@@ -182,12 +198,7 @@ def _client_from_token_basic(api_key: str, app_secret: str, path: Path):
     )
     # Populate token_metadata (schwab-py leaves it None when we build the session
     # ourselves) so StreamClient.login() can read token_metadata.token['access_token'].
-    creation_ts = (
-        int(raw.get("creation_timestamp", time.time()))
-        if isinstance(raw, dict)
-        else int(time.time())
-    )
-    token_metadata = auth.TokenMetadata(token, creation_ts, _write)
+    token_metadata = auth.TokenMetadata(token, creation_timestamp, _write)
     return Client(api_key, session, token_metadata=token_metadata)
 
 

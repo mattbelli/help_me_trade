@@ -1,0 +1,10 @@
+# Example crontab lines for help_me_trade on serv.
+# Apply manually on the server (`crontab -e`); these are not installed automatically.
+#
+# Paths assume repo at /home/mbelli/dev/help_me_trade and uv/venv at .venv/bin/python.
+
+# Nightly SQLite backup (see deploy/backup-db.sh)
+0 3 * * * /home/mbelli/dev/help_me_trade/deploy/backup-db.sh >> /home/mbelli/dev/help_me_trade/data/backup.log 2>&1
+
+# Daily Schwab OAuth re-mint — skips when token is <5 days old (--skip-if-fresh default)
+0 6 * * * cd /home/mbelli/dev/help_me_trade && /home/mbelli/dev/help_me_trade/.venv/bin/python -m scripts.schwab_reauth >> /home/mbelli/dev/help_me_trade/data/reauth.log 2>&1

@@ -903,7 +903,90 @@ async def _earnings_alert_loop() -> None:
 
 
 # Schwab health alert state: last-alert date (resets each ET day)
-_schwab_health_last_date: dict[str, date] = {}  # key: alert type ("expiring"/"offline")
+_schwab_health_last_date: dict[str, date] = {}  # key: alert type ("expiring"/"offline"/"probe_failed")
+_schwab_probe_failures = 0
+_SCHWAB_PROBE_FAILURE_THRESHOLD = 3
+
+
+async def _schwab_health_once() -> None:
+    """Single pass: auth bookkeeping checks + one SPY quote probe."""
+    global _schwab_probe_failures
+
+    from brokers.schwab_auth import auth_status
+    from signals.notify import notify
+
+    status = auth_status()
+    today_et = datetime.now(_ET).date()
+
+    if not status.get("authenticated"):
+        if _schwab_health_last_date.get("offline") != today_et:
+            await notify(
+                kind="schwab_health",
+                title="Schwab data offline",
+                body="Token invalid; re-auth needed. Run scripts.schwab_reauth or re-login.",
+                severity="critical",
+                group_key="schwab_health_offline",
+                data={"auth_status": "offline"},
+            )
+            _schwab_health_last_date["offline"] = today_et
+            logger.warning("Schwab health alert: token offline")
+    else:
+        days_left = status.get("estimated_days_until_reauth")
+        if days_left is not None and days_left <= 1.0:
+            if _schwab_health_last_date.get("expiring") != today_et:
+                await notify(
+                    kind="schwab_health",
+                    title="Schwab re-auth needed",
+                    body=(
+                        f"Token expires within ~{days_left:.1f} day(s). "
+                        "Run scripts.schwab_reauth or re-login."
+                    ),
+                    severity="warning",
+                    group_key="schwab_health_expiring",
+                    data={
+                        "auth_status": "expiring",
+                        "days_left": days_left,
+                    },
+                )
+                _schwab_health_last_date["expiring"] = today_et
+                logger.warning(
+                    "Schwab health alert: token expiring in %.2f days", days_left
+                )
+
+    # Probe only when the token *claims* to be fine — an offline token already
+    # paged above; probing it too would double-alert (alert fatigue).
+    if status.get("authenticated") and broker_is_configured("schwab"):
+        try:
+            provider = get_market_data_provider("schwab")
+            await provider.aget_quotes(["SPY"])
+            _schwab_probe_failures = 0
+        except Exception:
+            _schwab_probe_failures += 1
+            logger.exception(
+                "Schwab data probe failed (%d consecutive)",
+                _schwab_probe_failures,
+            )
+            if _schwab_probe_failures >= _SCHWAB_PROBE_FAILURE_THRESHOLD:
+                if _schwab_health_last_date.get("probe_failed") != today_et:
+                    await notify(
+                        kind="schwab_health",
+                        title="Schwab data probe failing",
+                        body=(
+                            f"Schwab data probe failing ({_SCHWAB_PROBE_FAILURE_THRESHOLD}x) — "
+                            "token or WAF problem; market data may be dead."
+                        ),
+                        severity="critical",
+                        group_key="schwab_health_probe_failed",
+                        data={
+                            "auth_status": "probe_failed",
+                            "consecutive_failures": _schwab_probe_failures,
+                        },
+                    )
+                    _schwab_health_last_date["probe_failed"] = today_et
+                    logger.warning(
+                        "Schwab health alert: data probe failed %d times",
+                        _schwab_probe_failures,
+                    )
 
 
 async def _schwab_health_loop() -> None:
@@ -918,46 +1001,7 @@ async def _schwab_health_loop() -> None:
         if not _SCHWAB_HEALTH_ALERTS_ENABLED:
             continue
         try:
-            from brokers.schwab_auth import auth_status
-            from signals.notify import notify
-
-            status = auth_status()
-            today_et = datetime.now(_ET).date()
-
-            if not status.get("authenticated"):
-                if _schwab_health_last_date.get("offline") != today_et:
-                    await notify(
-                        kind="schwab_health",
-                        title="Schwab data offline",
-                        body="Token invalid; re-auth needed. Run scripts.schwab_reauth or re-login.",
-                        severity="critical",
-                        group_key="schwab_health_offline",
-                        data={"auth_status": "offline"},
-                    )
-                    _schwab_health_last_date["offline"] = today_et
-                    logger.warning("Schwab health alert: token offline")
-            else:
-                days_left = status.get("estimated_days_until_reauth")
-                if days_left is not None and days_left <= 1.0:
-                    if _schwab_health_last_date.get("expiring") != today_et:
-                        await notify(
-                            kind="schwab_health",
-                            title="Schwab re-auth needed",
-                            body=(
-                                f"Token expires within ~{days_left:.1f} day(s). "
-                                "Run scripts.schwab_reauth or re-login."
-                            ),
-                            severity="warning",
-                            group_key="schwab_health_expiring",
-                            data={
-                                "auth_status": "expiring",
-                                "days_left": days_left,
-                            },
-                        )
-                        _schwab_health_last_date["expiring"] = today_et
-                        logger.warning(
-                            "Schwab health alert: token expiring in %.2f days", days_left
-                        )
+            await _schwab_health_once()
         except Exception:
             logger.exception("Schwab health loop iteration failed")
 
@@ -1161,16 +1205,22 @@ async def _reports_scheduler_loop() -> None:
         await asyncio.sleep(MORNING_REPORT_INTERVAL_SECONDS)
         if not _MORNING_REPORT_ENV_ENABLED:
             continue
-        if _morning_report_enabled():
-            try:
-                await _morning_levels_report_once()
-            except Exception:
-                logger.exception("Morning levels report loop iteration failed")
-        for job in reports_config().get("jobs", []):
-            try:
-                await _run_scheduled_report(job)
-            except Exception:
-                logger.exception("Scheduled report job failed: %s", job.get("kind"))
+        try:
+            if _morning_report_enabled():
+                try:
+                    await _morning_levels_report_once()
+                except Exception:
+                    logger.exception("Morning levels report loop iteration failed")
+            for job in reports_config().get("jobs", []):
+                try:
+                    await _run_scheduled_report(job)
+                except Exception:
+                    logger.exception(
+                        "Scheduled report job failed: %s", job.get("kind")
+                    )
+        except Exception:
+            # Guards the config reads too — this loop must never die (audit LOW-7).
+            logger.exception("Reports scheduler loop iteration failed")
 
 
 @asynccontextmanager
@@ -1270,6 +1320,7 @@ async def lifespan(app: FastAPI):
         rvol_alert_task,
         earnings_alert_task,
         schwab_health_task,
+        schwab_snapshot_task,
         morning_report_task,
         bars_prewarm_task,
     ):
