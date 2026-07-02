@@ -988,6 +988,21 @@ async def _schwab_health_once() -> None:
 
 
 _schwab_snapshot_last_date: dict = {}
+_db_retention_last_date: dict = {}
+
+
+async def _db_retention_once() -> None:
+    from db.retention import prune_poll_history
+
+    now_et = datetime.now(_ET)
+    if not (1 <= now_et.hour < 5):
+        return
+    today = now_et.date()
+    if _db_retention_last_date.get("date") == today:
+        return
+    counts = await asyncio.to_thread(prune_poll_history)
+    _db_retention_last_date["date"] = today
+    logger.info("DB retention complete: %s", counts)
 
 
 async def _schwab_snapshot_once() -> None:
@@ -1275,6 +1290,13 @@ def _register_background_jobs() -> None:
             name="schwab_snapshot",
             fn=_schwab_snapshot_once,
             interval_s=float(SCHWAB_SNAPSHOT_INTERVAL_SECONDS),
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="db_retention",
+            fn=_db_retention_once,
+            interval_s=3600.0,
         )
     )
     register_job(

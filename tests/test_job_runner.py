@@ -32,6 +32,7 @@ AUDIT_LOOP_NAMES = [
     "earnings_alert",
     "schwab_health",
     "schwab_snapshot",
+    "db_retention",
     "reports_scheduler",
     "bars_prewarm",
 ]
