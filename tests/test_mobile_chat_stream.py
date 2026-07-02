@@ -158,6 +158,70 @@ async def test_propose_order_failure_emits_error_and_still_completes(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_mobile_injects_journal_and_memory_blocks(monkeypatch):
+    captured_messages: list = []
+    monkeypatch.setattr(
+        "ai.chat.mobile_agent.plan_tools",
+        lambda _text, *, model=None, allow_propose_order=False: [],
+    )
+    monkeypatch.setattr(
+        "ai.chat.mobile_agent.turn_memory_context",
+        lambda _text, **_: [{"type": "preference", "content": "Risk cap", "score": 0.9}],
+    )
+    monkeypatch.setattr(
+        "ai.chat.mobile_agent.turn_journal_context",
+        lambda _text, **_: {
+            "decisions": [{"symbol": "AAPL", "decision": "buy", "outcome": "win"}],
+            "ai_stats": {"n": 1, "wins": 1, "losses": 0},
+        },
+    )
+
+    class FakeLLM:
+        def complete(self, messages, *, max_tokens=1200):
+            del max_tokens
+            captured_messages.extend(messages)
+            return "Context-aware answer."
+
+    monkeypatch.setattr("ai.chat.mobile_agent.get_llm", lambda *, model=None: FakeLLM())
+
+    messages = [{"role": "user", "content": "how am I doing?"}]
+    events, run = await _collect_events(messages)
+
+    assert events[-1]["type"] == "done"
+    assert run.assistant_text == "Context-aware answer."
+    assert captured_messages
+    system_content = captured_messages[0].content
+    assert "Relevant memories" in system_content
+    assert "Your track record for this turn" in system_content
+
+
+@pytest.mark.asyncio
+async def test_mobile_context_fetch_fail_soft(monkeypatch):
+    def boom(_text, **_):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(
+        "ai.chat.mobile_agent.plan_tools",
+        lambda _text, *, model=None, allow_propose_order=False: [],
+    )
+    monkeypatch.setattr("ai.chat.mobile_agent.turn_memory_context", boom)
+    monkeypatch.setattr("ai.chat.mobile_agent.turn_journal_context", boom)
+
+    class FakeLLM:
+        def complete(self, _messages, *, max_tokens=1200):
+            del max_tokens
+            return "Still works."
+
+    monkeypatch.setattr("ai.chat.mobile_agent.get_llm", lambda *, model=None: FakeLLM())
+
+    messages = [{"role": "user", "content": "hello"}]
+    events, run = await _collect_events(messages)
+
+    assert events[-1]["type"] == "done"
+    assert run.assistant_text == "Still works."
+
+
+@pytest.mark.asyncio
 async def test_empty_plan_greeting_has_no_tool_events(monkeypatch):
     monkeypatch.setattr(
         "ai.chat.mobile_agent.plan_tools",

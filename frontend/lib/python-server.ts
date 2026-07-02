@@ -41,13 +41,14 @@ export async function fetchLlmRuntime(model?: string): Promise<LlmRuntime> {
 export async function fetchChatContext(
   userText: string,
   injectMemories = false,
+  injectJournal = true,
 ): Promise<{
   system: string;
   memories: unknown[];
 }> {
   const res = await pythonFetch("/api/chat/context", {
     method: "POST",
-    body: JSON.stringify({ userText, injectMemories }),
+    body: JSON.stringify({ userText, injectMemories, injectJournal }),
   });
   if (!res.ok) {
     throw new Error(`Chat context error ${res.status}`);

@@ -122,6 +122,6 @@ def finalize_turn(
         model=model,
         run=run,
         assistant_message=assistant_message,
-        extract=False,
+        extract=should_learn_from_turn(mode=mode),
     )
     return {"ok": True, "memories_saved": run.memories_saved}

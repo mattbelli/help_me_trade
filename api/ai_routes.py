@@ -18,6 +18,7 @@ from ai.chat.brain import (
     llm_runtime_config,
     normalize_chat_mode,
     run_tool,
+    should_learn_from_turn,
     tool_catalog,
 )
 from ai.chat.memory_extract import extract_memories_from_turn
@@ -439,7 +440,7 @@ async def api_chat_stream(body: dict = Body(...)):
                     mode=mode,
                     model=chat_model,
                     run=run,
-                    extract=False,
+                    extract=should_learn_from_turn(mode=mode),
                 )
 
     return StreamingResponse(
@@ -500,7 +501,7 @@ async def api_chat(body: dict = Body(...)):
                     mode=mode,
                     model=chat_model,
                     run=run,
-                    extract=False,
+                    extract=should_learn_from_turn(mode=mode),
                 )
 
     return StreamingResponse(

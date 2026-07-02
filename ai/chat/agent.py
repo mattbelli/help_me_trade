@@ -142,6 +142,7 @@ def _build_final_messages(
     *,
     user_text: str,
     tool_results: list[dict[str, Any]],
+    extra_system_blocks: list[str] | None = None,
 ) -> list[LLMMessage]:
     context = ""
     if tool_results:
@@ -149,10 +150,13 @@ def _build_final_messages(
             "\n\nTool results for this turn:\n"
             + json.dumps(tool_results, indent=2, default=str)
         )
+    system_content = _system_prompt()
+    if extra_system_blocks:
+        system_content += "".join(block for block in extra_system_blocks if block)
     return [
         LLMMessage(
             role="system",
-            content=_system_prompt(),
+            content=system_content,
         ),
         *history,
         LLMMessage(

@@ -8,6 +8,12 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from ai.chat.agent import ChatRunResult, _build_final_messages
+from ai.chat.context import (
+    format_journal_context_block,
+    format_memory_context_block,
+    turn_journal_context,
+    turn_memory_context,
+)
 from ai.chat.messages import last_user_text, ui_messages_to_llm
 from ai.chat.tools import execute_tool, plan_tools
 from ai.llm.factory import get_llm
@@ -118,8 +124,23 @@ async def run_mobile_chat_stream(
         }
         tool_results.append({"tool": name, "result": tool_res})
 
+    extra_blocks: list[str] = []
+    try:
+        memories = await asyncio.to_thread(turn_memory_context, user_text)
+        extra_blocks.append(format_memory_context_block(memories))
+    except Exception:
+        pass
+    try:
+        journal = await asyncio.to_thread(turn_journal_context, user_text)
+        extra_blocks.append(format_journal_context_block(journal))
+    except Exception:
+        pass
+
     final_messages = _build_final_messages(
-        history, user_text=user_text, tool_results=tool_results
+        history,
+        user_text=user_text,
+        tool_results=tool_results,
+        extra_system_blocks=extra_blocks or None,
     )
     try:
         response = get_llm(model=model).complete(final_messages, max_tokens=1200)

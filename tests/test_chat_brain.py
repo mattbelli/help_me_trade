@@ -52,6 +52,27 @@ def test_build_turn_context_injects_memories_when_enabled(monkeypatch):
     assert len(ctx["memories"]) == 1
 
 
+def test_build_turn_context_injects_journal_when_enabled(monkeypatch):
+    monkeypatch.setattr(
+        "ai.chat.brain.turn_journal_context",
+        lambda _text, **_: {
+            "decisions": [
+                {
+                    "symbol": "NVDA",
+                    "decision": "buy",
+                    "outcome": "win",
+                    "r_multiple": 1.2,
+                }
+            ],
+            "ai_stats": {"n": 1, "wins": 1, "losses": 0, "avg_r": 1.2},
+            "user_profile": "5 trades",
+        },
+    )
+    ctx = build_turn_context("how did my NVDA trades go?", inject_journal=True)
+    assert "Your track record for this turn" in ctx["system"]
+    assert ctx["journal"]["decisions"]
+
+
 def test_tool_catalog_includes_propose_order():
     names = {item["name"] for item in tool_catalog()}
     assert "propose_order" in names
@@ -241,7 +262,7 @@ def test_finalize_turn_persists_assistant_tool_parts(tmp_path, monkeypatch):
     assert paper_orders_mod.list_paper_order_proposals(db_path=db) == []
 
 
-def test_finalize_turn_skips_memory_extract(monkeypatch):
+def test_finalize_turn_saved_extracts_memories(monkeypatch):
     captured: dict = {}
 
     def fake_finalize(**kwargs):
@@ -260,7 +281,46 @@ def test_finalize_turn_skips_memory_extract(monkeypatch):
         session_id="chat_test123",
         mode="saved",
     )
+    assert captured.get("extract") is True
+
+
+def test_finalize_turn_private_skips_extract(monkeypatch):
+    captured: dict = {}
+
+    def fake_finalize(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("ai.chat.brain.finalize_chat_turn", fake_finalize)
+    finalize_turn(
+        messages=[
+            {
+                "id": "user_1",
+                "role": "user",
+                "parts": [{"type": "text", "text": "secret preference"}],
+            },
+        ],
+        assistant_text="Understood.",
+        session_id="chat_private123",
+        mode="private",
+    )
     assert captured.get("extract") is False
+
+
+def test_finalize_turn_temporary_skips_extract(monkeypatch):
+    captured: dict = {}
+
+    def fake_finalize(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("ai.chat.brain.finalize_chat_turn", fake_finalize)
+    out = finalize_turn(
+        messages=[{"role": "user", "parts": [{"type": "text", "text": "hi"}]}],
+        assistant_text="hello",
+        session_id=None,
+        mode="temporary",
+    )
+    assert out["ok"] is True
+    assert captured == {}
 
 
 def test_finalize_turn_ephemeral_skips_persist(monkeypatch):

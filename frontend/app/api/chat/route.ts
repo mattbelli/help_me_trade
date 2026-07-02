@@ -146,7 +146,7 @@ export async function POST(req: Request) {
   let system = "";
   try {
     if (userText) {
-      const ctx = await fetchChatContext(userText, autoInjectMemories);
+      const ctx = await fetchChatContext(userText, autoInjectMemories, true);
       system = ctx.system;
     }
   } catch (err) {
