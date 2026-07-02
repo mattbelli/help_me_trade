@@ -257,6 +257,9 @@ def render_report_html(report: dict[str, Any], *, meta_label: str = "Deep resear
     :root {{
       --bg: #0f1115; --card: #171a21; --text: #e8eaed; --muted: #9aa0a6;
       --accent: #6ee7b7; --border: #2a2f3a; --hero: #1a2332;
+      --badge-bg: #243044; --summary-text: #c9cdd3;
+      --warn-bg: #3d2a14; --warn-border: #8b6914; --warn-text: #f5d78e;
+      --warn-strong: #ffe8a3;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -272,11 +275,11 @@ def render_report_html(report: dict[str, Any], *, meta_label: str = "Deep resear
     h1 {{ margin: 0 0 0.5rem; font-size: 1.75rem; letter-spacing: -0.02em; }}
     .meta {{ color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }}
     .badge {{
-      display: inline-block; background: #243044; color: var(--accent);
+      display: inline-block; background: var(--badge-bg); color: var(--accent);
       padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.75rem;
       margin-left: 0.5rem; vertical-align: middle;
     }}
-    .summary {{ font-size: 1.05rem; color: #c9cdd3; }}
+    .summary {{ font-size: 1.05rem; color: var(--summary-text); }}
     .metrics {{
       display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 0.75rem; margin: 1.5rem 0 2rem;
@@ -311,11 +314,12 @@ def render_report_html(report: dict[str, Any], *, meta_label: str = "Deep resear
       padding: 0.1rem 0.35rem; margin-right: 0.5rem;
     }}
     .web-warning {{
-      background: #3d2a14; border: 1px solid #8b6914; color: #f5d78e;
+      background: var(--warn-bg); border: 1px solid var(--warn-border);
+      color: var(--warn-text);
       border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem;
       font-size: 0.9rem;
     }}
-    .web-warning strong {{ color: #ffe8a3; }}
+    .web-warning strong {{ color: var(--warn-strong); }}
   </style>
 </head>
 <body>

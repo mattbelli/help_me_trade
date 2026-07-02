@@ -10,6 +10,10 @@ import {
   type GenerateKind,
   type ReportRow,
 } from "@/lib/reports-api";
+import {
+  captureThemeVars,
+  THEME_VARS_EVENT,
+} from "@/lib/workspace/custom-themes";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
@@ -66,14 +70,97 @@ function ReportListItem({
   );
 }
 
+/** Resolve a color-mix (or other) expression to a concrete computed color. */
+function resolveComputedColor(expression: string): string {
+  if (typeof document === "undefined") return expression;
+  const el = document.createElement("div");
+  el.style.position = "absolute";
+  el.style.visibility = "hidden";
+  el.style.backgroundColor = expression;
+  document.body.appendChild(el);
+  const resolved = getComputedStyle(el).backgroundColor;
+  document.body.removeChild(el);
+  return resolved || expression;
+}
+
+function buildReportThemeOverride(): Record<string, string> {
+  const app = captureThemeVars();
+  const card = app["--card"] ?? "";
+  const bgInset = app["--bg-inset"] ?? "";
+  const bgRaised = app["--bg-raised"] ?? "";
+  const cAmber = app["--c-amber"] ?? "";
+  const foreground = app["--foreground"] ?? "";
+
+  let warnBg = bgInset;
+  if (cAmber && card) {
+    warnBg = resolveComputedColor(
+      `color-mix(in srgb, ${cAmber} 12%, ${card})`,
+    );
+  }
+
+  return {
+    "--bg": app["--background"] ?? "",
+    "--card": card,
+    "--text": foreground,
+    "--muted": app["--muted-foreground"] ?? "",
+    "--accent": app["--c-accent"] ?? "",
+    "--border": app["--border"] ?? "",
+    "--hero": bgRaised,
+    "--badge-bg": bgInset || bgRaised,
+    "--summary-text": app["--fg-dim"] ?? "",
+    "--warn-bg": warnBg,
+    "--warn-border": cAmber || bgInset,
+    "--warn-text": foreground,
+    "--warn-strong": foreground,
+  };
+}
+
+function injectReportTheme(body: string, vars: Record<string, string>): string {
+  const decl = Object.entries(vars)
+    .filter(([, v]) => v)
+    .map(([name, value]) => `${name}:${value}`)
+    .join(";");
+  if (!decl) return body;
+  const style = `<style>:root{${decl}}</style>`;
+  const headClose = body.indexOf("</head>");
+  if (headClose !== -1) {
+    return `${body.slice(0, headClose)}${style}${body.slice(headClose)}`;
+  }
+  return `${style}${body}`;
+}
+
 function ReportViewer({ report }: { report: ReportRow }) {
+  const [themeNonce, setThemeNonce] = useState(0);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));
+    obs.observe(el, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class"],
+    });
+    const onVars = () => setThemeNonce((n) => n + 1);
+    window.addEventListener(THEME_VARS_EVENT, onVars);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener(THEME_VARS_EVENT, onVars);
+    };
+  }, []);
+
+  const themedSrcDoc = useMemo(() => {
+    if (report.format !== "html") return report.body;
+    if (typeof document === "undefined") return report.body;
+    return injectReportTheme(report.body, buildReportThemeOverride());
+  }, [report.body, report.format, themeNonce]);
+
   if (report.format === "html") {
     return (
       <iframe
         title={report.title}
-        srcDoc={report.body}
+        srcDoc={themedSrcDoc}
         sandbox="allow-popups allow-popups-to-escape-sandbox"
-        className="h-full w-full border-0 bg-white"
+        className="h-full w-full border-0"
       />
     );
   }
