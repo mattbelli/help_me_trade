@@ -432,20 +432,29 @@ def _recon_qty_delta(event: dict[str, Any]) -> Decimal:
     return Decimal("0")
 
 
-def _last_flat_cash_by_symbol(events: list[dict[str, Any]]) -> dict[str, Decimal]:
-    """Per-symbol cumulative net cash at the latest end-of-day flat through events."""
+def _last_flat_cash_by_symbol(
+    events: list[dict[str, Any]],
+) -> dict[tuple[str, str], Decimal]:
+    """Cumulative net cash at the latest end-of-day flat, per (account, symbol).
+
+    Keyed by ``(account_id, symbol)`` — the same ticker held in two accounts is
+    two independent positions with two cost bases, so an aggregate scope (all
+    real / all paper) must never merge them into one running position. For a
+    single-account scope the account_id is constant, so this reduces to
+    per-symbol tracking.
+    """
     if not events:
         return {}
 
     sorted_events = sorted(events, key=lambda e: e["trade_date"])
-    running_qty: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    running_cash: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    last_flat_cash: dict[str, Decimal] = {}
+    running_qty: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
+    running_cash: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
+    last_flat_cash: dict[tuple[str, str], Decimal] = {}
 
     def _snapshot_flat_symbols() -> None:
-        for symbol, qty in running_qty.items():
+        for key, qty in running_qty.items():
             if abs(qty) < _CLOSE_TOLERANCE:
-                last_flat_cash[symbol] = running_cash[symbol]
+                last_flat_cash[key] = running_cash[key]
 
     current_day: str | None = None
     for event in sorted_events:
@@ -460,9 +469,10 @@ def _last_flat_cash_by_symbol(events: list[dict[str, Any]]) -> dict[str, Decimal
         symbol = event.get("symbol")
         if not symbol:
             continue
+        key = (str(event.get("account_id") or ""), symbol)
 
-        running_cash[symbol] += parse_dollar(event.get("amount"))
-        running_qty[symbol] += _recon_qty_delta(event)
+        running_cash[key] += parse_dollar(event.get("amount"))
+        running_qty[key] += _recon_qty_delta(event)
 
     if current_day is not None:
         _snapshot_flat_symbols()
@@ -476,10 +486,10 @@ def _last_flat_period_delta(
 ) -> Decimal:
     end_flat = _last_flat_cash_by_symbol(end_events)
     start_flat = _last_flat_cash_by_symbol(start_events) if start_events else {}
-    symbols = set(end_flat) | set(start_flat)
+    keys = set(end_flat) | set(start_flat)
     total = Decimal("0")
-    for symbol in symbols:
-        total += end_flat.get(symbol, Decimal("0")) - start_flat.get(symbol, Decimal("0"))
+    for key in keys:
+        total += end_flat.get(key, Decimal("0")) - start_flat.get(key, Decimal("0"))
     return total
 
 
@@ -489,11 +499,11 @@ def _last_flat_win_rate(
 ) -> float | None:
     end_flat = _last_flat_cash_by_symbol(end_events)
     start_flat = _last_flat_cash_by_symbol(start_events) if start_events else {}
-    symbols = set(end_flat) | set(start_flat)
+    keys = set(end_flat) | set(start_flat)
     wins = 0
     count = 0
-    for symbol in symbols:
-        delta = end_flat.get(symbol, Decimal("0")) - start_flat.get(symbol, Decimal("0"))
+    for key in keys:
+        delta = end_flat.get(key, Decimal("0")) - start_flat.get(key, Decimal("0"))
         if delta == 0:
             continue
         count += 1

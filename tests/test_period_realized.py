@@ -312,6 +312,39 @@ def test_retraded_symbol_counts_in_period_win_rate() -> None:
     assert quiet["closed_win_rate"] is None
 
 
+def test_same_symbol_two_accounts_does_not_merge() -> None:
+    """An aggregate scope must track (account, symbol) separately — the same
+    ticker in two accounts is two positions with two cost bases; merging them
+    blends the last-flat basis and inflates realized (live all_real bug)."""
+
+    def _acct_event(acct: str, day: str, symbol: str, side: str, qty, amt, key):
+        e = _event(day, symbol, side, Decimal(qty), amount=Decimal(amt), key=key)
+        e["account_id"] = acct
+        return e
+
+    # Account A: TSLA round trip nets +$100 on 2026-06-29.
+    # Account B: TSLA round trip nets +$40 on 2026-06-29, different basis.
+    history = [
+        _acct_event("A", "2026-06-28", "TSLA", "buy", 100, -1000, "a-b"),
+        _acct_event("A", "2026-06-29", "TSLA", "sell", 100, 1100, "a-s"),
+        _acct_event("B", "2026-06-28", "TSLA", "buy", 50, -600, "b-b"),
+        _acct_event("B", "2026-06-29", "TSLA", "sell", 50, 640, "b-s"),
+    ]
+    a_only = [e for e in history if e["account_id"] == "A"]
+    b_only = [e for e in history if e["account_id"] == "B"]
+
+    day = ("2026-06-29", "2026-06-29")
+    a = parse_dollar(realized_between(a_only, *day)["realized_closed"])
+    b = parse_dollar(realized_between(b_only, *day)["realized_closed"])
+    agg = parse_dollar(realized_between(history, *day)["realized_closed"])
+
+    assert a == Decimal("100")
+    assert b == Decimal("40")
+    assert agg == a + b == Decimal("140")  # not blended into one TSLA bucket
+    # Two independent winning positions → two win observations.
+    assert realized_between(history, *day)["closed_win_rate"] == 1.0
+
+
 def test_never_flat_books_at_final_close_no_double_count() -> None:
     """Round trip on day D while still short never flat until final cover — no double count."""
     history = [
