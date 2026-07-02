@@ -6,5 +6,6 @@
 # Nightly SQLite backup (see deploy/backup-db.sh)
 0 3 * * * /home/mbelli/dev/help_me_trade/deploy/backup-db.sh >> /home/mbelli/dev/help_me_trade/data/backup.log 2>&1
 
-# Daily Schwab OAuth re-mint — skips when token is <5 days old (--skip-if-fresh default)
-0 6 * * * cd /home/mbelli/dev/help_me_trade && /home/mbelli/dev/help_me_trade/.venv/bin/python -m scripts.schwab_reauth >> /home/mbelli/dev/help_me_trade/data/reauth.log 2>&1
+# Daily Schwab OAuth re-mint — skips when token is <5 days old (--skip-if-fresh default).
+# xvfb-run + SCHWAB_REAUTH_HEADED=1 match the working serv setup (headless Playwright needs a display).
+0 6 * * * cd /home/mbelli/dev/help_me_trade && SCHWAB_REAUTH_HEADED=1 /usr/bin/xvfb-run -a /home/mbelli/dev/help_me_trade/.venv/bin/python -m scripts.schwab_reauth >> /home/mbelli/dev/help_me_trade/data/reauth.log 2>&1
