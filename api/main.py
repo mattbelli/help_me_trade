@@ -24,6 +24,7 @@ from api.device_routes import router as device_router
 from api.journal_routes import router as journal_router
 from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
+from api.orders_routes import router as orders_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
 from api.scan_routes import router as scan_router
@@ -1291,6 +1292,7 @@ app.include_router(scan_router)
 app.include_router(schwab_router)
 app.include_router(journal_router)
 app.include_router(ticker_router)
+app.include_router(orders_router)
 
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(

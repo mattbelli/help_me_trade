@@ -112,3 +112,25 @@ export async function fetchTickerInfo(symbol: string): Promise<TickerInfo> {
   }
   return res.json();
 }
+
+// News aggregated across the union of symbols in ALL watchlists.
+export type WatchlistNewsItem = TickerNewsItem & {
+  symbol: string;
+};
+
+export async function fetchWatchlistNews(
+  limit = 50,
+): Promise<WatchlistNewsItem[]> {
+  const res = await apiFetch(
+    `${API_BASE}/api/ticker/watchlist/news?limit=${encodeURIComponent(limit)}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Watchlist news error ${res.status}`,
+    );
+  }
+  const data = await res.json();
+  return data.news ?? [];
+}

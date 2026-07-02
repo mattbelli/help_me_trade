@@ -154,3 +154,35 @@ export async function runTradeRetrospective(params: {
   }
   return res.json();
 }
+
+export type SectorSlice = {
+  sector: string;
+  weight_pct: number;
+  market_value: string;
+  unrealized_pl: string;
+  realized_pnl: string;
+  position_count: number;
+  symbols: string[];
+};
+
+export type SectorBreakdown = {
+  as_of: string;
+  sectors: SectorSlice[];
+  unclassified: {
+    symbols: string[];
+    market_value: string;
+    realized_pnl: string;
+  };
+};
+
+export async function fetchPerformanceSectors(params: {
+  account_id?: string;
+  period?: PerformancePeriod;
+}): Promise<SectorBreakdown> {
+  const qs = new URLSearchParams();
+  if (params.account_id) qs.set("account_id", params.account_id);
+  if (params.period) qs.set("period", params.period);
+  const res = await apiFetch(`${API_BASE}/api/performance/sectors?${qs}`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}

@@ -332,6 +332,42 @@ def recent_open_sell_exists(
     return row is not None
 
 
+def list_executions(
+    *,
+    status: str | None = None,
+    account_id: str | None = None,
+    limit: int = 100,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Newest-first execution records for the read-only orders blotter.
+
+    Pure SELECT — no writes. Optionally filtered by ``status`` (e.g. "rejected")
+    and/or ``account_id``.
+    """
+    init_execution_tables(db_path)
+    clauses: list[str] = []
+    params: list[Any] = []
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if account_id:
+        clauses.append("account_id = ?")
+        params.append(account_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM order_executions
+            {where}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [_row_to_execution(row) for row in rows]
+
+
 def list_recent_auto_entries(
     account_id: str | None,
     strategy_id: str,

@@ -7,8 +7,10 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from ai.retrospective import generate_retrospective_report
+from db.account_scope import resolve_perf_scope
 from db.analytics import ai_performance_context, performance_dashboard
 from db.trades import daily_trade_stats, symbol_trade_stats
+from signals.sector_breakdown import sector_breakdown
 from trading.sync import sync_all_enabled_brokers
 
 router = APIRouter(prefix="/api/performance", tags=["performance"])
@@ -21,12 +23,11 @@ def api_performance_dashboard(
     from_date: str | None = None,
     to_date: str | None = None,
 ) -> dict[str, Any]:
-    # No specific account => the user's REAL trading only (exclude the paper Alpaca
-    # sandbox). "my performance" never blends fake-money trades into the real total.
-    aggregate = account_id in (None, "", "all", "all_real")
+    ledger_account_id, real_only, paper_only = resolve_perf_scope(account_id)
     return performance_dashboard(
-        account_id=None if aggregate else account_id,
-        real_only=aggregate,
+        account_id=ledger_account_id,
+        real_only=real_only,
+        paper_only=paper_only,
         period=period,
         custom_from=from_date,
         custom_to=to_date,
@@ -88,3 +89,11 @@ def api_performance_symbols(
     return {
         "symbols": symbol_trade_stats(account_id=account_id, from_date=f, to_date=t)
     }
+
+
+@router.get("/sectors")
+async def api_performance_sectors(
+    account_id: str | None = None,
+    period: str = Query(default="all"),
+) -> dict[str, Any]:
+    return await sector_breakdown(account_id=account_id, period=period)

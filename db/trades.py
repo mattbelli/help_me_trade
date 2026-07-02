@@ -252,6 +252,7 @@ def list_trade_events(
     symbol: str | None = None,
     event_type: str | None = None,
     real_only: bool = False,
+    paper_only: bool = False,
     limit: int = 500,
     offset: int = 0,
     db_path: Path = DEFAULT_DB_PATH,
@@ -268,6 +269,10 @@ def list_trade_events(
         # with fake-money trades (mirrors the perception layer + the UI selector).
         clauses.append(
             "account_id NOT IN (SELECT id FROM trade_accounts WHERE broker = 'alpaca')"
+        )
+    elif paper_only:
+        clauses.append(
+            "account_id IN (SELECT id FROM trade_accounts WHERE broker = 'alpaca')"
         )
     if from_date:
         clauses.append("trade_date >= ?")
@@ -470,6 +475,7 @@ def trade_summary_stats(
     from_date: str | None = None,
     to_date: str | None = None,
     real_only: bool = False,
+    paper_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     events = list_trade_events(
@@ -477,6 +483,7 @@ def trade_summary_stats(
         from_date=from_date,
         to_date=to_date,
         real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
         offset=0,
         db_path=db_path,
@@ -508,6 +515,7 @@ def daily_trade_stats(
     from_date: str | None = None,
     to_date: str | None = None,
     real_only: bool = False,
+    paper_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     events = list_trade_events(
@@ -515,6 +523,7 @@ def daily_trade_stats(
         from_date=from_date,
         to_date=to_date,
         real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
         offset=0,
         db_path=db_path,

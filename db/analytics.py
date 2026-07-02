@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from db.behavioral import behavioral_facts
 from db.fifo_round_trips import fifo_compute_open_lots, fifo_compute_round_trips
@@ -22,6 +23,11 @@ OVERTRADING_TRADES_PER_DAY = 8
 CONCENTRATION_PCT = 0.5
 REVENGE_DAYS = 1
 
+# Trading day boundaries follow US market time, not the server's UTC clock:
+# on a UTC host, date.today() rolls to "tomorrow" at 8pm ET, which made the
+# "Day" performance window jump to a future date with no trades (showing $0).
+_ET = ZoneInfo("America/New_York")
+
 
 def resolve_period(
     period: str,
@@ -29,7 +35,7 @@ def resolve_period(
     custom_from: str | None = None,
     custom_to: str | None = None,
 ) -> tuple[str | None, str | None]:
-    today = date.today()
+    today = datetime.now(_ET).date()
     p = period.strip().lower()
     if p == "custom":
         return custom_from, custom_to
@@ -452,6 +458,7 @@ def performance_dashboard(
     *,
     account_id: str | None = None,
     real_only: bool = False,
+    paper_only: bool = False,
     period: str = "all",
     custom_from: str | None = None,
     custom_to: str | None = None,
@@ -464,6 +471,7 @@ def performance_dashboard(
         from_date=from_date,
         to_date=to_date,
         real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
     )
     # FIFO needs full history through to_date so sells match earlier buys.
@@ -471,6 +479,7 @@ def performance_dashboard(
         account_id=account_id,
         to_date=to_date,
         real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
     )
     history_trades = _relevant_trade_events(history_events)
@@ -480,6 +489,7 @@ def performance_dashboard(
         from_date=from_date,
         to_date=to_date,
         real_only=real_only,
+        paper_only=paper_only,
     )
     round_trips_all = compute_round_trips(history_trades)
     round_trips_in_period = [
@@ -504,6 +514,7 @@ def performance_dashboard(
         from_date=from_date,
         to_date=to_date,
         real_only=real_only,
+        paper_only=paper_only,
     )
     daily_realized = daily_realized_stats(
         round_trips_all, from_date=from_date, to_date=to_date

@@ -19,6 +19,14 @@ import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
+import { PerformanceStatsWidget } from "@/components/workspace/widgets/performance-stats-widget";
+import { TradingCalendarWidget } from "@/components/workspace/widgets/trading-calendar-widget";
+import { OrdersWidget } from "@/components/workspace/widgets/orders-widget";
+import { SectorRadarWidget } from "@/components/workspace/widgets/sector-radar-widget";
+import { PnlScatterWidget } from "@/components/workspace/widgets/pnl-scatter-widget";
+import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcome-distribution-widget";
+import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
+import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
 
@@ -176,6 +184,64 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: RvolScannerWidget,
     defaultSize: { w: 8, h: 7, minW: 4, minH: 3 },
+  },
+  {
+    id: "performance-stats",
+    title: "performance",
+    description: "Realized/unrealized P&L, win rate, trades, fees",
+    component: PerformanceStatsWidget as WidgetDefinition["component"],
+    defaultSize: { w: 16, h: 3, minW: 8, minH: 2 },
+  },
+  {
+    id: "trade-calendar",
+    title: "trading calendar",
+    description: "Monthly P&L calendar with week & day-of-week rollups",
+    component: TradingCalendarWidget as WidgetDefinition["component"],
+    defaultSize: { w: 14, h: 9, minW: 9, minH: 6 },
+  },
+  {
+    id: "orders",
+    title: "orders",
+    description: "Trade blotter — filled / open / rejected",
+    component: OrdersWidget as WidgetDefinition["component"],
+    defaultSize: { w: 12, h: 6, minW: 6, minH: 4 },
+  },
+  {
+    id: "sector-radar",
+    title: "sector radar",
+    description: "Portfolio exposure & realized P&L by sector",
+    component: SectorRadarWidget as WidgetDefinition["component"],
+    defaultSize: { w: 10, h: 7, minW: 6, minH: 5 },
+  },
+  {
+    id: "pnl-scatter",
+    title: "hold time vs p&l",
+    description: "Each closed trade: holding period vs P&L",
+    component: PnlScatterWidget as WidgetDefinition["component"],
+    defaultSize: { w: 10, h: 6, minW: 6, minH: 4 },
+  },
+  {
+    id: "trade-distribution",
+    title: "trade distribution",
+    description: "Histogram of trade outcomes (edge shape)",
+    component: OutcomeDistributionWidget as WidgetDefinition["component"],
+    defaultSize: { w: 10, h: 5, minW: 6, minH: 4 },
+  },
+  {
+    id: "winrate-trend",
+    title: "win rate trend",
+    description: "Rolling win rate & expectancy over time",
+    component: WinrateTrendWidget as WidgetDefinition["component"],
+    defaultSize: { w: 12, h: 5, minW: 6, minH: 4 },
+  },
+  {
+    id: "company-info",
+    title: "company info",
+    description: "Profile, fundamentals, facts & news — follows a channel; all-watchlist news mode",
+    multiInstance: true,
+    channelAware: true,
+    component: CompanyInfoWidget,
+    defaultSize: { w: 12, h: 9, minW: 6, minH: 5 },
   },
 ];
 

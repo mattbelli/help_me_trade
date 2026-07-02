@@ -12,6 +12,38 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
 
+> ▶ **LATEST (2026-07-02) — Performance page broken into focused cockpit widgets + Company-Info widget +
+> workspace→ledger per-account slicing. SHIPPED, deployed on serv (:3001/:8000), 1163 tests green, chokepoint
+> untouched, committed + pushed.** Founder ask: split the monolithic `performance` tile into small tiles, fix
+> "Day realized = $0 after close", add a few new graphs, and turn the loved ticker-info popup into a widget.
+> - **Day-boundary fix** (`db/analytics.py resolve_period`): used UTC `date.today()` → on the UTC serv the "Day"
+>   window jumped to *tomorrow* at 8pm ET (empty → the founder's real $866 read $0). Now `datetime.now(ET).date()`
+>   — rolls at midnight ET (also fixes week/month/quarter/year). Verified live: 7/1 day = the real $866.13.
+> - **7 new perf widgets** (registry + `/add`): `performance-stats` (realized/unrealized/win/trades/fees; **defaults
+>   to Month** so it's never blank overnight — a Day default reads $0 after midnight, which confused at first),
+>   `trade-calendar` (Monday-start month grid, week-P&L column, **day-of-week rollup** folding in the old chart,
+>   month total; P7), `orders` (blotter: Filled=time&sales / Open / Rejected), `sector-radar` (exposure +
+>   realized-P&L by Finnhub industry, radar/bar toggle), `pnl-scatter` (hold-time vs P&L), `trade-distribution`
+>   (outcome histogram), `winrate-trend` (rolling win rate + expectancy). Recharts + terminal-styled (P8).
+> - **Company-Info widget** (`company-info`, channelAware+multiInstance): the ticker popup extracted into shared
+>   `company-info-sections.tsx` (modal + widget share it), **bigger price/change% + clearer fundamentals**, follows
+>   a channel's clicked symbol, and an "all-watchlists" **news RSS** mode (`GET /api/ticker/watchlist/news` unions
+>   Finnhub company-news across every watchlist symbol, bounded-concurrency + url-dedup, skips options/futures).
+> - **Per-account slicing (workspace→ledger bridge).** ⚠️ Workspace selector ids (`overview`/`all_real`/`all_paper`/
+>   `schwab_<last4>`/`acct_*`) DON'T match the ledger `trade_accounts.id` (`acct_<uuid>`) → passing them to the perf
+>   dashboard returned $0. `broker_external_id` is NULL, but `/api/schwab/accounts` `label` == `trade_accounts.label`
+>   EXACTLY → new read-only `db/account_scope.py resolve_perf_scope()` (label join, fail-soft to aggregate-real,
+>   **NO ledger writes**) + a `paper_only` filter (mirrors `real_only`), wired into `/dashboard`,`/sectors`,
+>   `/trades/events`. Live: `schwab_1025`→`acct_fe625350bf46`→$13,061; `all_real` $15,838; `all_paper` isolated
+>   (firewall intact). Adversarially reviewed (account model) — read-only, safe.
+> - **2 read-only endpoints**: `/api/performance/sectors` (positions+realized grouped by Finnhub industry) +
+>   `/api/orders/executions` (paper blotter from `order_executions`, curated fields). New tests: `test_account_scope`,
+>   `test_sector_breakdown`, `test_order_executions_list`, `test_watchlist_news`.
+> - **Known follow-ups:** perf-widget tickers are still plain text — wire `ClickableSymbol` per [[ticker-links-everywhere]];
+>   retire the old monolithic `performance` widget; a few pre-existing `set-state-in-effect` lint warnings; sector
+>   allocation is sparse on the (flat) real accounts — pick the **paper momentum account** for the ~86-name breakdown;
+>   the workspace→ledger resolver is label-based (would break if a Schwab account is relabeled — backfill `broker_external_id` for a stable key later).
+>
 > ▶ **LATEST (2026-07-01, next session) — Real Schwab data + unified account selector w/ a paper↔real firewall (P6,
 > reworked) SHIPPED + deployed on serv; founder-accepted ("feels good"). Committed + pushed (`4da9a66`).** Founder ask:
 > "bring our Schwab account/trade data in" + "see all accounts from the toolbar (all / all-Schwab / all-Alpaca /
