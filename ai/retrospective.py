@@ -23,6 +23,7 @@ from ai.llm.structured import (
 from ai.memories import get_memory_service
 from ai.perf_context import sanitize_perf_context
 from brokers.factory import get_broker
+from db.account_scope import resolve_perf_scope
 from db.analytics import ai_performance_context, resolve_period
 from signals.backtest import backtest_condition
 from signals.indicators import Bar
@@ -137,9 +138,12 @@ def generate_retrospective_report(
 ) -> dict[str, Any]:
     analysis_from, analysis_to = resolve_period(period)
     split = _compute_train_oos_split(analysis_from, analysis_to)
+    scope = resolve_perf_scope(account_id)
     if split.get("train"):
         train_ctx = ai_performance_context(
-            account_id=account_id,
+            account_id=scope.ledger_account_id,
+            real_only=scope.real_only,
+            paper_only=scope.paper_only,
             period=period,
             custom_from=split["train"]["from"],
             custom_to=split["train"]["to"],
@@ -147,7 +151,9 @@ def generate_retrospective_report(
         )
     else:
         train_ctx = ai_performance_context(
-            account_id=account_id,
+            account_id=scope.ledger_account_id,
+            real_only=scope.real_only,
+            paper_only=scope.paper_only,
             period=period,
             include_trade_context=True,
         )

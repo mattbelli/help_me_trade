@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from db.base import DEFAULT_DB_PATH
 from db.trades import get_trade_account, list_trade_accounts
@@ -23,22 +23,30 @@ logger = logging.getLogger(__name__)
 _AGGREGATE_REAL = frozenset({None, "", "overview", "all", "all_real"})
 
 
+class PerfScope(NamedTuple):
+    ledger_account_id: str | None
+    real_only: bool
+    paper_only: bool
+    fallback: bool
+
+
 def resolve_perf_scope(
     workspace_account_id: str | None,
     *,
     get_schwab_accounts: Callable[[], dict[str, Any]] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
-) -> tuple[str | None, bool, bool]:
-    """Resolve a workspace selector id to ``(ledger_account_id, real_only, paper_only)``.
+) -> PerfScope:
+    """Resolve a workspace selector id to scoped ledger query parameters.
 
-    Returns ``(None, True, False)`` for aggregate real scopes and as the safe
-    fallback when a Schwab or ``acct_*`` id cannot be resolved.
+    Returns aggregate real ``(None, True, False, False)`` for overview/all_real
+    scopes. ``fallback=True`` when a Schwab or ``acct_*`` id cannot be resolved
+    and the caller receives aggregate-real data instead.
     """
     if workspace_account_id in _AGGREGATE_REAL:
-        return None, True, False
+        return PerfScope(None, True, False, False)
 
     if workspace_account_id == "all_paper":
-        return None, False, True
+        return PerfScope(None, False, True, False)
 
     if workspace_account_id and str(workspace_account_id).startswith("schwab_"):
         return _resolve_schwab_scope(
@@ -49,19 +57,19 @@ def resolve_perf_scope(
 
     if workspace_account_id and str(workspace_account_id).startswith("acct_"):
         if get_trade_account(str(workspace_account_id), db_path=db_path):
-            return str(workspace_account_id), False, False
+            return PerfScope(str(workspace_account_id), False, False, False)
         logger.warning(
             "resolve_perf_scope: unknown acct id %r — falling back to aggregate real",
             workspace_account_id,
         )
-        return None, True, False
+        return PerfScope(None, True, False, True)
 
     logger.warning(
         "resolve_perf_scope: unrecognized workspace account id %r — "
         "falling back to aggregate real",
         workspace_account_id,
     )
-    return None, True, False
+    return PerfScope(None, True, False, True)
 
 
 def _resolve_schwab_scope(
@@ -69,7 +77,7 @@ def _resolve_schwab_scope(
     *,
     get_schwab_accounts: Callable[[], dict[str, Any]] | None,
     db_path: Path,
-) -> tuple[str | None, bool, bool]:
+) -> PerfScope:
     if get_schwab_accounts is None:
         from brokers.schwab_accounts import get_schwab_accounts_sync
 
@@ -84,7 +92,7 @@ def _resolve_schwab_scope(
             workspace_account_id,
             exc_info=True,
         )
-        return None, True, False
+        return PerfScope(None, True, False, True)
 
     accounts = data.get("accounts") or []
     last4 = workspace_account_id.removeprefix("schwab_")
@@ -102,7 +110,7 @@ def _resolve_schwab_scope(
             "falling back to aggregate real",
             workspace_account_id,
         )
-        return None, True, False
+        return PerfScope(None, True, False, True)
 
     label = schwab_acct.get("label")
     if not label:
@@ -111,7 +119,7 @@ def _resolve_schwab_scope(
             "falling back to aggregate real",
             workspace_account_id,
         )
-        return None, True, False
+        return PerfScope(None, True, False, True)
 
     ledger_row = next(
         (
@@ -128,6 +136,6 @@ def _resolve_schwab_scope(
             label,
             workspace_account_id,
         )
-        return None, True, False
+        return PerfScope(None, True, False, True)
 
-    return ledger_row["id"], False, False
+    return PerfScope(ledger_row["id"], False, False, False)

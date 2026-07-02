@@ -15,6 +15,7 @@ from ai.memories import get_memory_service
 from ai.perf_context import format_perf_insights_for_llm, sanitize_trade_history_stats
 from ai.research.jobs import submit_research_job
 from ai.utils.symbols import extract_symbol
+from db.account_scope import resolve_perf_scope
 from db.accounts import (
     account_is_execution_capable,
     default_execution_account,
@@ -540,39 +541,58 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         to_date = args.get("to_date")
         limit = min(int(args.get("limit", 50)), 200)
         account_id = args.get("account_id")
-        resolved_account_id = str(account_id) if account_id else None
+        scope = resolve_perf_scope(str(account_id) if account_id else None)
         events = list_trade_events(
             symbol=sym,
             from_date=str(from_date) if from_date else None,
             to_date=str(to_date) if to_date else None,
             limit=limit,
-            account_id=resolved_account_id,
+            account_id=scope.ledger_account_id,
+            real_only=scope.real_only,
+            paper_only=scope.paper_only,
         )
         stats = sanitize_trade_history_stats(
             trade_summary_stats(
                 from_date=str(from_date) if from_date else None,
                 to_date=str(to_date) if to_date else None,
-                account_id=resolved_account_id,
+                account_id=scope.ledger_account_id,
+                real_only=scope.real_only,
+                paper_only=scope.paper_only,
             )
         )
-        return {
+        result: dict[str, Any] = {
             "stats": stats,
             "events": events,
             "count": len(events),
             "symbol_filter": sym,
         }
+        if scope.fallback:
+            result["scope_note"] = (
+                "requested account could not be resolved; "
+                "showing aggregate real accounts"
+            )
+        return result
 
     if name == "get_performance_insights":
         period = str(args.get("period", "year")).strip().lower()
         if period not in ("day", "week", "month", "quarter", "year", "all"):
             period = "year"
         account_id = args.get("account_id")
+        scope = resolve_perf_scope(str(account_id) if account_id else None)
         ctx = ai_performance_context(
-            account_id=str(account_id) if account_id else None,
+            account_id=scope.ledger_account_id,
+            real_only=scope.real_only,
+            paper_only=scope.paper_only,
             period=period,
             include_trade_context=True,
         )
-        return format_perf_insights_for_llm(ctx)
+        formatted = format_perf_insights_for_llm(ctx)
+        if scope.fallback:
+            formatted["scope_note"] = (
+                "requested account could not be resolved; "
+                "showing aggregate real accounts"
+            )
+        return formatted
 
     if name == "web_search":
         from ai.research.sources import (

@@ -228,9 +228,9 @@ def test_ai_performance_context_includes_unrealized(
     from db import trades
 
     def _with_db(fn):
-        def wrapped(**kwargs):
+        def wrapped(*args, **kwargs):
             kwargs.setdefault("db_path", db_path)
-            return fn(**kwargs)
+            return fn(*args, **kwargs)
 
         return wrapped
 
@@ -251,8 +251,72 @@ def test_ai_performance_context_includes_unrealized(
         _with_db(trades.symbol_trade_stats),
     )
     monkeypatch.setattr(
+        "db.trades.get_trade_account",
+        _with_db(trades.get_trade_account),
+    )
+    monkeypatch.setattr(
         "db.sqlite.get_latest_snapshot",
-        lambda: {
+        lambda **kwargs: {
+            "positions": [
+                _position("AAPL", market_value=1100.0, unrealized_pl=100.0, qty=10.0),
+            ],
+        },
+    )
+
+    events = [
+        _parsed_trade("2026-01-01", "AAPL", "buy", Decimal("10"), Decimal("100"), key="a1"),
+    ]
+    account = create_trade_account("Test", "alpaca", db_path=db_path)
+    import_trade_events(
+        account["id"],
+        events,
+        source="test",
+        db_path=db_path,
+    )
+
+    context = ai_performance_context(account_id=account["id"], period="all")
+
+    assert "unrealized" in context
+    unrealized = context["unrealized"]
+    assert unrealized["by_symbol"]["AAPL"]["ledger_unrealized_pl"] == "100.0"
+    assert unrealized["by_symbol"]["AAPL"]["broker_unrealized_pl"] == "100.0"
+    assert unrealized["missing_price_symbols"] == []
+
+
+def test_ai_performance_context_real_scope_skips_alpaca_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "trades_real.db"
+    from db import trades
+
+    def _with_db(fn):
+        def wrapped(*args, **kwargs):
+            kwargs.setdefault("db_path", db_path)
+            return fn(*args, **kwargs)
+
+        return wrapped
+
+    monkeypatch.setattr("db.analytics.list_trade_events", _with_db(trades.list_trade_events))
+    monkeypatch.setattr(
+        "db.analytics.trade_summary_stats",
+        _with_db(trades.trade_summary_stats),
+    )
+    monkeypatch.setattr(
+        "db.analytics.daily_trade_stats",
+        _with_db(trades.daily_trade_stats),
+    )
+    monkeypatch.setattr(
+        "db.trades.symbol_trade_stats",
+        _with_db(trades.symbol_trade_stats),
+    )
+    monkeypatch.setattr(
+        "db.trades.get_trade_account",
+        _with_db(trades.get_trade_account),
+    )
+    monkeypatch.setattr(
+        "db.sqlite.get_latest_snapshot",
+        lambda **kwargs: {
             "positions": [
                 _position("AAPL", market_value=1100.0, unrealized_pl=100.0, qty=10.0),
             ],
@@ -270,10 +334,13 @@ def test_ai_performance_context_includes_unrealized(
         db_path=db_path,
     )
 
-    context = ai_performance_context(account_id=account["id"], period="all")
+    context = ai_performance_context(
+        account_id=account["id"],
+        real_only=False,
+        paper_only=False,
+        period="all",
+    )
 
-    assert "unrealized" in context
-    unrealized = context["unrealized"]
-    assert unrealized["by_symbol"]["AAPL"]["ledger_unrealized_pl"] == "100.0"
-    assert unrealized["by_symbol"]["AAPL"]["broker_unrealized_pl"] == "100.0"
-    assert unrealized["missing_price_symbols"] == []
+    assert context["unrealized"] == {
+        "unavailable": "no real-time broker snapshot for real accounts",
+    }

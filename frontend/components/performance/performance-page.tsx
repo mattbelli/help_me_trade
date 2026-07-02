@@ -378,6 +378,15 @@ export function PerformancePage() {
         </p>
       )}
 
+      {!loading && dashboard?.scope_fallback && accountId !== "all" && (
+        <p
+          role="alert"
+          className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+        >
+          Couldn&apos;t resolve this account — showing ALL real accounts instead.
+        </p>
+      )}
+
       <div className="mb-6 flex flex-wrap items-end gap-3">
         <div className="min-w-[160px]">
           <Label className="text-xs text-muted-foreground">Account</Label>

@@ -550,12 +550,16 @@ def symbol_trade_stats(
     account_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    real_only: bool = False,
+    paper_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     events = list_trade_events(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
         offset=0,
         db_path=db_path,

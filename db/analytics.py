@@ -438,10 +438,14 @@ def _round_trips_in_period(
     account_id: str | None,
     from_date: str | None,
     to_date: str | None,
+    real_only: bool = False,
+    paper_only: bool = False,
 ) -> list[dict[str, Any]]:
     history_events = list_trade_events(
         account_id=account_id,
         to_date=to_date,
+        real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
     )
     history_trades = _relevant_trade_events(history_events)
@@ -581,6 +585,8 @@ def performance_dashboard(
 def ai_performance_context(
     *,
     account_id: str | None = None,
+    real_only: bool = False,
+    paper_only: bool = False,
     period: str = "year",
     custom_from: str | None = None,
     custom_to: str | None = None,
@@ -588,13 +594,15 @@ def ai_performance_context(
 ) -> dict[str, Any]:
     """Compact structured context for agent tools and reflection."""
     from db.sqlite import get_latest_snapshot
-    from db.trades import symbol_trade_stats
+    from db.trades import get_trade_account, symbol_trade_stats
 
     effective_period = period
     if custom_from is not None and custom_to is not None:
         effective_period = "custom"
     dash = performance_dashboard(
         account_id=account_id,
+        real_only=real_only,
+        paper_only=paper_only,
         period=effective_period,
         custom_from=custom_from,
         custom_to=custom_to,
@@ -604,43 +612,66 @@ def ai_performance_context(
         account_id=account_id,
         from_date=dash["from_date"],
         to_date=dash["to_date"],
+        real_only=real_only,
+        paper_only=paper_only,
     )[:10]
 
     round_trips_in_period = _round_trips_in_period(
         account_id=account_id,
         from_date=dash["from_date"],
         to_date=dash["to_date"],
+        real_only=real_only,
+        paper_only=paper_only,
     )
 
-    history_events = list_trade_events(account_id=account_id, limit=100_000)
+    history_events = list_trade_events(
+        account_id=account_id,
+        real_only=real_only,
+        paper_only=paper_only,
+        limit=100_000,
+    )
     history_trades = _relevant_trade_events(history_events)
     period_events = list_trade_events(
         account_id=account_id,
         from_date=dash["from_date"],
         to_date=dash["to_date"],
+        real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
     )
     period_trades = _relevant_trade_events(period_events)
     open_lots = compute_open_lots(history_trades)
-    snap = get_latest_snapshot()
+
+    use_paper_snapshot = paper_only
+    if not use_paper_snapshot and account_id:
+        acct = get_trade_account(account_id)
+        if acct and acct.get("broker") == "alpaca":
+            use_paper_snapshot = True
+
     latest_prices: dict[str, Decimal] | None = None
-    if snap and snap.get("positions"):
-        latest_prices = {}
-        for pos in snap["positions"]:
-            symbol = pos.get("symbol")
-            if not symbol:
-                continue
-            price = pos.get("current_price")
-            if price is not None:
-                latest_prices[symbol] = Decimal(str(price))
+    if use_paper_snapshot:
+        snap = get_latest_snapshot(broker="alpaca")
+        if snap and snap.get("positions"):
+            latest_prices = {}
+            for pos in snap["positions"]:
+                symbol = pos.get("symbol")
+                if not symbol:
+                    continue
+                price = pos.get("current_price")
+                if price is not None:
+                    latest_prices[symbol] = Decimal(str(price))
+        unrealized = compute_unrealized(
+            open_lots,
+            snap["positions"] if snap else [],
+        )
+    else:
+        unrealized = {
+            "unavailable": "no real-time broker snapshot for real accounts",
+        }
 
     full_recon = realized_summary(history_trades, latest_prices=latest_prices)
     period_recon = realized_summary(period_trades, latest_prices=latest_prices)
     behavior = behavioral_facts(period_events)
-    unrealized = compute_unrealized(
-        open_lots,
-        snap["positions"] if snap else [],
-    )
 
     result: dict[str, Any] = {
         "period": period,

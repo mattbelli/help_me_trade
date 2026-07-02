@@ -148,7 +148,7 @@ async def sector_breakdown(
     """
     from_date, to_date = resolve_period(period)
     positions = _resolve_positions(account_id)
-    ledger_account_id, real_only, paper_only = resolve_perf_scope(
+    ledger_account_id, real_only, paper_only, _fallback = resolve_perf_scope(
         account_id, db_path=db_path
     )
     pos_by_symbol = _merge_positions(positions)

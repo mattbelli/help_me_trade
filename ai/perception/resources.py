@@ -293,6 +293,10 @@ def _my_trade_events(filters: dict[str, Any], *, db_path: Path) -> list[dict[str
     sym = str(symbol).strip().upper() if symbol else None
     account_id = filters.get("account_id")
     if account_id:
+        # my_trades promises REAL history — refuse a paper (alpaca) account id.
+        paper_ids = {a["id"] for a in list_accounts(broker="alpaca", db_path=db_path)}
+        if str(account_id) in paper_ids:
+            return []
         return list_trade_events(
             symbol=sym, account_id=str(account_id), limit=100_000, db_path=db_path
         )

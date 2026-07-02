@@ -14,6 +14,7 @@ from brokers.base import Account, Position
 from db import base as db_base
 from db import paper_orders as paper_orders_mod
 from db import sqlite as sqlite_mod
+from db.account_scope import resolve_perf_scope
 from db.accounts import get_default_account, list_accounts
 from db.earnings_calendar import upsert_earnings
 from db.managed_positions import init_managed_position_tables, record_open_position
@@ -241,6 +242,9 @@ async def test_get_trade_history_passes_account_id(
     db = _migrated_db(tmp_path, schwab_count=0)
     _patch_db(monkeypatch, db)
 
+    alpaca = get_default_account("alpaca", db_path=db)
+    assert alpaca is not None
+
     captured: dict[str, object] = {}
 
     def fake_list_trade_events(**kwargs: object) -> list[dict[str, object]]:
@@ -253,14 +257,24 @@ async def test_get_trade_history_passes_account_id(
 
     monkeypatch.setattr("ai.chat.tools.list_trade_events", fake_list_trade_events)
     monkeypatch.setattr("ai.chat.tools.trade_summary_stats", fake_trade_summary_stats)
-
-    await execute_tool(
-        "get_trade_history",
-        {"symbol": "AAPL", "account_id": "acct_test_123", "limit": 10},
+    monkeypatch.setattr(
+        "ai.chat.tools.resolve_perf_scope",
+        lambda workspace_account_id: resolve_perf_scope(
+            workspace_account_id,
+            db_path=db,
+        ),
     )
 
-    assert captured["events"]["account_id"] == "acct_test_123"
-    assert captured["stats"]["account_id"] == "acct_test_123"
+    result = await execute_tool(
+        "get_trade_history",
+        {"symbol": "AAPL", "account_id": alpaca["id"], "limit": 10},
+    )
+
+    assert captured["events"]["account_id"] == alpaca["id"]
+    assert captured["stats"]["account_id"] == alpaca["id"]
+    assert captured["events"]["real_only"] is False
+    assert captured["events"]["paper_only"] is False
+    assert "scope_note" not in result
 
 
 @pytest.mark.asyncio

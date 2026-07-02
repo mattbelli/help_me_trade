@@ -97,7 +97,10 @@ def turn_journal_context(
                 scope = sym
                 break
         window = [r for r in recent if r.get("symbol") == scope] if scope else recent
-        behavior = behavioral_facts(list_trade_events(limit=_PROFILE_EVENT_LIMIT))
+        # real_only: the "USER's pattern" line must never blend paper-sandbox fills.
+        behavior = behavioral_facts(
+            list_trade_events(real_only=True, limit=_PROFILE_EVENT_LIMIT)
+        )
         return {
             "scope": scope,
             "decisions": window[:decision_limit],

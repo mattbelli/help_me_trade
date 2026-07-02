@@ -57,6 +57,7 @@ export type PerformanceDashboard = {
   day_of_week_realized: DayOfWeekStat[];
   top_winners: RoundTrip[];
   top_losers: RoundTrip[];
+  scope_fallback?: boolean;
 };
 
 export type SyncResult = {
