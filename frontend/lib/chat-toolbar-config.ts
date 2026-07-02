@@ -21,9 +21,14 @@ export const CHAT_TOOL_OPTIONS = [
     description: "Quote, RVOL, session-node levels, technicals, earnings, score",
   },
   {
+    id: "list_capabilities",
+    label: "Capabilities",
+    description: "Perception manifest — readable scopes and resources",
+  },
+  {
     id: "query",
     label: "App data",
-    description: "List watchlists, strategies, alerts, proposals, reports",
+    description: "List watchlists, screener, regime, news, calibration, etc.",
   },
   {
     id: "search_memories",
@@ -61,9 +66,9 @@ export const CHAT_TOOL_OPTIONS = [
     description: "Paper trade approval card (no execution)",
   },
   {
-    id: "propose_rule",
-    label: "Propose alert",
-    description: "Signal/alert rule approval card",
+    id: "create_rule",
+    label: "Create alert rule",
+    description: "Arms a signal rule immediately (confirm first)",
   },
   {
     id: "create_price_alert",

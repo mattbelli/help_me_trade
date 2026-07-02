@@ -41,11 +41,12 @@ def alert_intent_prompt_block(user_text: str) -> str:
         return ""
     return (
         "\n\nALERT / SIGNAL REQUEST (this turn):\n"
-        "- Call propose_rule immediately with a validated spec: "
+        "- Call create_rule immediately with a validated spec (confirm parameters "
+        "first — it arms immediately): "
         "{name, condition, action?}.\n"
         "- Wrap the rule in spec: {spec: {name, condition, action?}}.\n"
         "- Do NOT narrate the tool or write fake calls like "
-        "[Calling propose_rule...] or \"Let me set up that alert\".\n"
+        "[Calling create_rule...] or \"Let me set up that alert\".\n"
         "- The approval card is the UI — minimal text before the tool call.\n"
         f"{_metric_vocabulary_block()}\n"
     )

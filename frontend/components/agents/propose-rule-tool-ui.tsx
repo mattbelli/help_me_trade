@@ -87,7 +87,7 @@ function ProposalStatusBanner({
 
 export const ProposeRuleToolUI = makeAssistantToolUI<ProposalArgs, ProposalResult>(
   {
-    toolName: "propose_rule",
+    toolName: "create_rule",
     display: "standalone",
     render: ({
       args,
@@ -144,7 +144,7 @@ export const ProposeRuleToolUI = makeAssistantToolUI<ProposalArgs, ProposalResul
             <ProposalStatusBanner
               variant="rejected"
               title="Could not arm alert rule"
-              description={result.error ?? "The propose_rule tool returned an error."}
+              description={result.error ?? "The create_rule tool returned an error."}
             />
           );
         }

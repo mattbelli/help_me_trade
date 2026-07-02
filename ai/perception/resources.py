@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
@@ -408,6 +409,144 @@ def _summarize_schwab_accounts(
     }
 
 
+# --- Screener (candidate generator — cached bars / RVOL scanner paths) ---------------------
+
+_SCREENER_MAX = 30
+_PRESET_IDS = (
+    "oversold",
+    "overbought",
+    "unusual_volume",
+    "below_200dma",
+    "above_200dma",
+    "near_52w_high",
+    "near_52w_low",
+    "big_movers",
+)
+
+
+def _compact_screener_row(row: dict[str, Any], *, reason: str) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "symbol": row.get("symbol"),
+        "price": row.get("price"),
+        "reason": reason,
+    }
+    if row.get("change_pct") is not None:
+        out["change_pct"] = row.get("change_pct")
+    if row.get("rvol") is not None:
+        out["rvol"] = row.get("rvol")
+    return out
+
+
+async def _read_screener(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    del db_path
+    limit = min(max(int(filters.get("limit") or 15), 1), _SCREENER_MAX)
+    use_rvol = bool(filters.get("rvol"))
+
+    if use_rvol:
+        from fastapi.responses import JSONResponse
+
+        from api.main import api_scanner_rvol
+
+        min_rvol = float(filters.get("min_rvol", 1.5))
+        payload = await api_scanner_rvol(min_rvol=min_rvol, limit=limit)
+        if isinstance(payload, JSONResponse):
+            return []
+        rows: list[dict[str, Any]] = []
+        for row in payload.get("results") or []:
+            rvol = row.get("rvol")
+            reason = f"RVOL {rvol}×" if rvol is not None else "unusual volume"
+            rows.append(_compact_screener_row(row, reason=reason))
+        return rows
+
+    from api.scan_routes import _make_bars_getter, _screen_universe
+    from signals.screener import get_preset, run_scan
+
+    preset_id = str(filters.get("preset") or "oversold").strip().lower()
+    preset = get_preset(preset_id)
+    if preset is None:
+        return []
+
+    symbols = _screen_universe()
+    get_bars = _make_bars_getter()
+    scan = await run_scan(preset_id, symbols, get_bars, limit=limit)
+    rows = []
+    for row in scan.get("results") or []:
+        metric_val = row.get("value")
+        reason = (
+            f"{preset.metric_label} {metric_val}"
+            if metric_val is not None
+            else preset.label
+        )
+        rows.append(_compact_screener_row(row, reason=reason))
+    return rows
+
+
+def _regime_label(term_spread: float, vix: float) -> str:
+    if term_spread > 0.5:
+        yc = "steep_yc"
+    elif term_spread > 0:
+        yc = "normal_yc"
+    elif term_spread > -0.25:
+        yc = "flat_yc"
+    else:
+        yc = "inverted_yc"
+    if vix >= 28:
+        vol = "elevated_vix"
+    elif vix >= 20:
+        vol = "moderate_vix"
+    else:
+        vol = "calm_vix"
+    return f"{yc}_{vol}"
+
+
+def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del filters
+    from db.regime import recent_observations
+    from signals.regime import market_regime, regime_is_fresh
+
+    regime = market_regime(db_path=db_path)
+    if regime is None:
+        return [{"unavailable": True, "fresh": False}]
+
+    fresh = regime_is_fresh(db_path=db_path)
+    term_spread = float(regime["term_spread"])
+    vix = float(regime["vix"])
+    row: dict[str, Any] = {
+        "as_of": regime.get("as_of"),
+        "term_spread": round(term_spread, 4),
+        "vix": round(vix, 2),
+        "regime_label": _regime_label(term_spread, vix),
+        "fresh": fresh,
+    }
+    vix_hist = recent_observations("VIXCLS", limit=252, db_path=db_path)
+    if vix_hist:
+        values = [val for _, val in vix_hist]
+        at_or_below = sum(1 for val in values if val <= vix)
+        row["vix_percentile"] = round(100 * at_or_below / len(values), 1)
+    return [row]
+
+
+async def _read_news(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path
+    from signals.finnhub import fetch_watchlist_news
+
+    limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
+    symbol = filters.get("symbol")
+    sym = str(symbol).strip().upper() if symbol else None
+    return await fetch_watchlist_news(limit=limit, symbol=sym)
+
+
+def _read_calibration(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    del filters
+    from ai.journal_review import compute_calibration
+
+    return [compute_calibration(db_path=db_path)]
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -482,6 +621,51 @@ RESOURCES: dict[str, dict[str, Any]] = {
         "read": _read_schwab_accounts,
         "summarize": _summarize_schwab_accounts,
     },
+    "screener": {
+        "description": (
+            "Preset technical scans over the cached S&P/watchlist universe — "
+            "the agent's candidate generator."
+        ),
+        "filters": {
+            "preset": (
+                "optional — one of: "
+                + ", ".join(_PRESET_IDS)
+                + " (default oversold; ignored when rvol=true)"
+            ),
+            "limit": "optional int — default 15, max 30",
+            "rvol": "optional bool — run the RVOL scan instead of a preset",
+            "min_rvol": "optional float — RVOL threshold when rvol=true (default 1.5)",
+        },
+        "read": _read_screener,
+    },
+    "market": {
+        "description": (
+            "Current market regime (yield-curve term spread + VIX) — condition "
+            "every trade idea on it."
+        ),
+        "filters": {},
+        "read": _read_market,
+    },
+    "news": {
+        "description": (
+            "Recent watchlist headlines (Finnhub company news, deduped by url). "
+            "Headlines only — no sentiment scores."
+        ),
+        "filters": {
+            "symbol": "optional — filter to one ticker",
+            "limit": "optional int — default 20, max 50",
+        },
+        "read": _read_news,
+    },
+    "calibration": {
+        "description": (
+            "How honest the agent's own predicted win% has been — per-bucket "
+            "predicted vs realized (Wilson CIs, verdicts, n). Quote this when "
+            "stating confidence."
+        ),
+        "filters": {},
+        "read": _read_calibration,
+    },
 }
 
 
@@ -511,9 +695,13 @@ async def query(
         }
 
     entry = RESOURCES[key]
-    reader: ReaderFn = entry["read"]
+    reader = entry["read"]
     try:
-        rows = reader(filters or {}, db_path=db_path)
+        result = reader(filters or {}, db_path=db_path)
+        if asyncio.iscoroutine(result):
+            rows = await result
+        else:
+            rows = result
     except Exception as exc:
         logger.debug("Resource read failed for %s", key, exc_info=True)
         return {"resource": key, "error": str(exc), "rows": []}

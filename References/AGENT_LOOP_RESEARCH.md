@@ -50,7 +50,7 @@
 
 **How it works:** the agentic LLM layer takes facts + memory + signals and reasons toward a decision, using tools for live data and structured output for actions.
 
-**Built:** `ai/llm/factory.py` (provider-agnostic: anthropic/openai/deepseek/openrouter/ollama/mock), `ai/llm/structured.py`, `ai/chat/agent.py` + `brain.py` (stream, tool planner, context), `ai/chat/tools.py` (TOOL_DEFINITIONS + dispatch: portfolio, memories, research, web_search, propose_order, propose_rule), `ai/memories/retrieval.py` (token-overlap), `ai/research/` (LangGraph-ish deep research jobs), `ai/insights.py`.
+**Built:** `ai/llm/factory.py` (provider-agnostic: anthropic/openai/deepseek/openrouter/ollama/mock), `ai/llm/structured.py`, `ai/chat/agent.py` + `brain.py` (stream, tool planner, context), `ai/chat/tools.py` (TOOL_DEFINITIONS + dispatch: portfolio, memories, research, web_search, propose_order, create_rule), `ai/memories/retrieval.py` (token-overlap), `ai/research/` (LangGraph-ish deep research jobs), `ai/insights.py`.
 
 **Gaps:** no durable multi-step agentic loop (single tool call/turn, manual chaining), no real vector RAG (token-overlap only), no prompt caching, no in-code guardrails on tool outputs.
 
@@ -87,7 +87,7 @@
 
 **How it works:** agent proposes an order → human approves/denies/modifies (from phone) → a fail-closed risk engine validates → broker executes. Later: bounded auto-execution inside a code-enforced envelope.
 
-**Built:** `db/paper_orders.py` (`record_paper_order_proposal`, status `recorded`), `propose_order`/`propose_rule` tools, rule approval endpoints. **Proposals only — nothing executes.**
+**Built:** `db/paper_orders.py` (`record_paper_order_proposal`, status `recorded`), `propose_order`/`create_rule` tools, rule approval endpoints. **Proposals only — nothing executes.**
 
 **Gaps (biggest in the whole system):** **no risk engine, no broker execution path, no kill switch, no order state machine, no reconciliation, no approval-execution binding.**
 

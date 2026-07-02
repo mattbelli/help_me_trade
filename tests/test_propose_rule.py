@@ -1,4 +1,4 @@
-"""Tests for propose_rule chat tool and alert intent detection."""
+"""Tests for create_rule chat tool and alert intent detection."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from ai.chat.tools import execute_tool
 
 
 @pytest.mark.asyncio
-async def test_propose_rule_valid_spec(monkeypatch, tmp_path) -> None:
+async def test_create_rule_valid_spec(monkeypatch, tmp_path) -> None:
     db = tmp_path / "rules.db"
     monkeypatch.setattr(ai_tables, "DEFAULT_DB_PATH", db)
 
@@ -25,7 +25,7 @@ async def test_propose_rule_valid_spec(monkeypatch, tmp_path) -> None:
         },
         "action": {"type": "alert", "message": "AAPL RSI dropped below 30"},
     }
-    result = await execute_tool("propose_rule", {"spec": spec})
+    result = await execute_tool("create_rule", {"spec": spec})
 
     assert result["status"] == "created"
     assert "rule_id" in result
@@ -40,7 +40,7 @@ async def test_propose_rule_valid_spec(monkeypatch, tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_propose_rule_invalid_spec_no_rule_created(monkeypatch, tmp_path) -> None:
+async def test_create_rule_invalid_spec_no_rule_created(monkeypatch, tmp_path) -> None:
     db = tmp_path / "rules.db"
     monkeypatch.setattr(ai_tables, "DEFAULT_DB_PATH", db)
 
@@ -53,7 +53,7 @@ async def test_propose_rule_invalid_spec_no_rule_created(monkeypatch, tmp_path) 
             "value": 30,
         },
     }
-    result = await execute_tool("propose_rule", {"spec": spec})
+    result = await execute_tool("create_rule", {"spec": spec})
 
     assert "error" in result
     assert ai_tables.list_rules(db_path=db) == []

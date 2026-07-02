@@ -65,6 +65,10 @@ def test_list_resources_catalog() -> None:
         "decision_journal",
         "my_trades",
         "schwab_accounts",
+        "screener",
+        "market",
+        "news",
+        "calibration",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]
@@ -168,3 +172,111 @@ async def test_query_fail_soft_on_reader_error(
     assert result["resource"] == "watchlists"
     assert "boom" in result["error"]
     assert result["rows"] == []
+
+
+@pytest.mark.asyncio
+async def test_query_screener_compact_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_run_scan(preset_id, universe, get_bars, *, limit=50):
+        del preset_id, universe, get_bars, limit
+        return {
+            "results": [
+                {
+                    "symbol": "NVDA",
+                    "price": 900.0,
+                    "change_pct": 2.5,
+                    "rvol": 1.8,
+                    "value": 28.0,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("signals.screener.run_scan", fake_run_scan)
+    monkeypatch.setattr(
+        "api.scan_routes._screen_universe",
+        lambda: ["NVDA"],
+    )
+    monkeypatch.setattr(
+        "api.scan_routes._make_bars_getter",
+        lambda: (lambda _sym: None),
+    )
+
+    result = await query("screener", {"preset": "oversold", "limit": 10})
+    assert result["resource"] == "screener"
+    assert result["count"] == 1
+    row = result["rows"][0]
+    assert row["symbol"] == "NVDA"
+    assert row["price"] == 900.0
+    assert row["change_pct"] == 2.5
+    assert row["rvol"] == 1.8
+    assert "RSI" in row["reason"]
+
+
+@pytest.mark.asyncio
+async def test_query_market_regime_fields(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from datetime import date
+
+    db = tmp_path / "market.db"
+    from db.regime import upsert_regime
+
+    today = date.today().isoformat()
+    upsert_regime(
+        [
+            ("DGS10", today, 4.41),
+            ("DGS2", today, 4.10),
+            ("VIXCLS", today, 18.92),
+        ],
+        db_path=db,
+    )
+    result = await query("market", db_path=db)
+    assert result["count"] == 1
+    row = result["rows"][0]
+    assert row["term_spread"] == pytest.approx(0.31)
+    assert row["vix"] == pytest.approx(18.92)
+    assert "regime_label" in row
+    assert row["fresh"] is True
+
+
+@pytest.mark.asyncio
+async def test_query_news_resource(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_fetch(*, limit=50, symbol=None):
+        del limit
+        if symbol == "AAPL":
+            return [
+                {
+                    "headline": "Apple news",
+                    "source": "Reuters",
+                    "datetime": "2026-06-24T12:00:00+00:00",
+                    "url": "https://example.com/aapl",
+                    "symbol": "AAPL",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(
+        "signals.finnhub.fetch_watchlist_news",
+        fake_fetch,
+    )
+    result = await query("news", {"symbol": "AAPL", "limit": 5})
+    assert result["count"] == 1
+    assert result["rows"][0]["headline"] == "Apple news"
+
+
+@pytest.mark.asyncio
+async def test_query_calibration_passthrough(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payload = {
+        "n_resolved": 3,
+        "min_samples": 5,
+        "by_strategy": [],
+        "by_bucket": [],
+    }
+    monkeypatch.setattr(
+        "ai.journal_review.compute_calibration",
+        lambda **_: payload,
+    )
+    result = await query("calibration", db_path=tmp_path / "cal.db")
+    assert result["count"] == 1
+    assert result["rows"][0]["n_resolved"] == 3

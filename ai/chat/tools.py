@@ -63,7 +63,8 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "description": (
             "Read everything the app knows about a symbol — quote, RVOL, session-node "
             "levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), "
-            "fundamentals, earnings, the calibrated decision score, and active alerts. "
+            "fundamentals, earnings, recent news headlines, strategy playbook signals, "
+            "the calibrated decision score, and active alerts. "
             "Use this FIRST for any question about a symbol's data/levels/signals — "
             "do NOT web_search for our own data."
         ),
@@ -78,9 +79,10 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "query": {
         "title": "App data query",
         "description": (
-            "List app data across resources: watchlists, strategies, price_alerts, "
-            "proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's "
-            "quote/levels/score use get_context instead."
+            "List app data across resources: watchlists, strategies, screener, "
+            "market regime, news, calibration, price_alerts, proposals, reports. "
+            "Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score "
+            "use get_context instead."
         ),
     },
     "search_memories": {
@@ -140,12 +142,13 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "narrate a fake tool call."
         ),
     },
-    "propose_rule": {
-        "title": "Propose alert rule",
+    "create_rule": {
+        "title": "Create alert rule",
         "description": (
-            "Propose a signal/alert rule (name, condition over a metric, action). "
-            "Shows an Approve/Reject card; on approval the rule is armed. "
-            "Call on alert/signal/watch/notify requests; never narrate a fake call."
+            "Creates AND ENABLES a trade rule immediately — confirm parameters "
+            "with the user before calling. Args: name, condition over a metric, "
+            "optional action. Call on alert/signal/watch/notify requests; never "
+            "narrate a fake call."
         ),
     },
     "create_price_alert": {
@@ -190,7 +193,7 @@ Available tools:
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
 - web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
 - get_option_quote — arguments: {"occ_symbol": string|null, "underlying": string|null, "expiration": string|null, "strike": number|null, "right": "C"|"P"|null}
-- propose_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
+- create_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
 - create_price_alert — arguments: {"symbol": string, "price": number, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
 - update_price_alert — arguments: {"id": number, "price": number|null, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
 - delete_price_alert — arguments: {"id": number}
@@ -200,12 +203,12 @@ Rules:
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
 - Only call start_research when the user explicitly asks for a deep research report or written report.
 - Use get_context FIRST for symbol prices, RVOL, session-node levels, technicals, fundamentals, earnings, decision scores, or active alerts — never web_search for our own app data.
-- Use query for watchlists, strategies, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
+- Use query for watchlists, strategies, screener, market regime, news, calibration, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
 - Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
-- When the user describes an alert/signal/rule, call propose_rule with a validated spec.
+- When the user describes an alert/signal/rule, call create_rule with a validated spec (confirm parameters first — it arms immediately).
 - When the user asks to set/create an alert, call create_price_alert directly (it's safe — a notification). If they reference a level (VAL/POC/VAH/PDH/PDL/200-DMA), call get_context first to get the price.
 - Use delete_price_alert / update_price_alert to remove or change an existing alert (get its id via query('price_alerts') or get_context).
 """
@@ -279,6 +282,19 @@ def _multi_account_context(
         if day_pl is not None:
             total_day_pl += float(day_pl)
 
+        open_orders = snap.get("open_orders") or []
+        compact_orders = [
+            {
+                "symbol": o.get("symbol"),
+                "side": o.get("side"),
+                "qty": o.get("qty"),
+                "type": o.get("order_type"),
+                "limit_price": o.get("limit_price"),
+                "status": o.get("status"),
+            }
+            for o in open_orders[:20]
+        ]
+
         accounts_out.append(
             {
                 "account_id": account_id,
@@ -293,6 +309,7 @@ def _multi_account_context(
                 "day_pl_pct": day_pl_pct,
                 "position_count": len(positions),
                 "positions": positions[:20],
+                "open_orders": compact_orders,
                 "captured_at": snap.get("captured_at"),
             }
         )
@@ -810,7 +827,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             "account_label": account_label,
         }
 
-    if name == "propose_rule":
+    if name == "create_rule":
         import uuid
 
         import db.ai_tables as ai_tables

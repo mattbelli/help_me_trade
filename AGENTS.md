@@ -82,7 +82,7 @@ node tools/composer-bridge/dispatch.mjs --brief <path-to-brief-file>
 ```
 One run at a time. Logs to `tools/composer-bridge/last-run.log`. Brief files live in `References/`. Only hand-edit for trivial one-liners or when Composer is inappropriate.
 
-**Never expose the `trading` toolset to the chat agent.** Order execution is a separate toolset gated behind RiskEngine (not built). The chat agent has: portfolio, memories, research, web_search, propose_order (card only), propose_rule.
+**Never expose the `trading` toolset to the chat agent.** Order execution is a separate toolset gated behind RiskEngine (not built). The chat agent has: portfolio, memories, research, web_search, propose_order (card only), create_rule (arms immediately).
 
 **LLM proposes; deterministic code disposes.** The LLM never holds account state. Hard risk limits live in deterministic code, not prompts.
 

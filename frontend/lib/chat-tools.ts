@@ -31,13 +31,19 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
     }),
     get_context: tool({
       description:
-        "Read everything the app knows about a symbol — quote, RVOL, session-node levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), fundamentals, earnings, the calibrated decision score, and active alerts. Use this FIRST for any question about a symbol's data, levels, or signals — never web_search for our own data.",
+        "Read everything the app knows about a symbol — quote, RVOL, session-node levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), fundamentals, earnings, recent news, strategy playbook signals, the calibrated decision score, and active alerts. Use this FIRST for any question about a symbol's data, levels, or signals — never web_search for our own data.",
       inputSchema: z.object({ symbol: z.string() }),
       execute: async (input) => executePythonTool("get_context", input),
     }),
+    list_capabilities: tool({
+      description:
+        "List what app data the agent can read (context scopes, resources, write actions). Call when unsure whether the app has some data.",
+      inputSchema: z.object({}),
+      execute: async () => executePythonTool("list_capabilities", {}),
+    }),
     query: tool({
       description:
-        "List app data across resources: watchlists, strategies, price_alerts, proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score use get_context instead.",
+        "List app data across resources: watchlists, strategies, screener, market regime, news, calibration, price_alerts, proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score use get_context instead.",
       inputSchema: z.object({
         resource: z.string(),
         filters: z.record(z.string(), z.any()).optional(),
@@ -128,9 +134,9 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       needsApproval: true,
       execute: async (input) => executePythonTool("propose_order", input),
     }),
-    propose_rule: tool({
+    create_rule: tool({
       description:
-        "Propose a signal/alert rule (name, condition, action). Shows Approve/Reject card; on approval the rule is armed. Call on alert/signal/watch requests — do not narrate or fake [Calling propose_rule...].",
+        "Creates AND ENABLES a signal/alert rule immediately — confirm parameters with the user before calling. Call on alert/signal/watch requests — do not narrate or fake [Calling create_rule...].",
       inputSchema: z.object({
         spec: z.object({
           name: z.string(),
@@ -146,7 +152,7 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
         }),
       }),
       needsApproval: true,
-      execute: async (input) => executePythonTool("propose_rule", input),
+      execute: async (input) => executePythonTool("create_rule", input),
     }),
     create_price_alert: tool({
       description:

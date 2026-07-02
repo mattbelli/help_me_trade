@@ -7,6 +7,7 @@ the whole universe's quarter. Free tier is 60 req/min — a daily refresh uses o
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -436,6 +437,80 @@ async def afetch_company_news(
     if items:
         _cache_set("news", sym, items)
     return items[:limit]
+
+
+async def fetch_watchlist_news(
+    *,
+    limit: int = 50,
+    symbol: str | None = None,
+) -> list[dict[str, Any]]:
+    """Recent headlines across watchlist symbols (or one symbol), deduped by url.
+
+    Same aggregation ``/api/ticker/watchlist/news`` uses — bounded concurrency,
+    fail-soft per symbol, Finnhub cache reused via ``afetch_company_news``.
+    """
+    from config.settings import get_watchlists_state
+
+    if symbol:
+        sym = symbol.strip().upper()
+        if " " in sym or sym.startswith("/"):
+            return []
+        items = await afetch_company_news(sym, days=7, limit=min(limit, 15))
+        return [
+            {
+                "headline": item.get("headline"),
+                "source": item.get("source"),
+                "datetime": item.get("datetime"),
+                "url": item.get("url"),
+                "symbol": sym,
+            }
+            for item in items
+        ]
+
+    state = get_watchlists_state()
+    symbols: set[str] = set()
+    for lst in state.get("lists", []):
+        for s in lst.get("symbols", []):
+            if isinstance(s, str) and s.strip():
+                symbols.add(s.strip().upper())
+
+    eligible = sorted(s for s in symbols if " " not in s and not s.startswith("/"))
+    if not eligible:
+        return []
+
+    sem = asyncio.Semaphore(8)
+
+    async def _fetch(sym: str) -> list[dict[str, Any]]:
+        async with sem:
+            try:
+                items = await afetch_company_news(sym, days=7, limit=8)
+            except Exception:  # noqa: BLE001 — fail-soft per symbol
+                logger.warning("Watchlist news fetch failed for %s", sym, exc_info=True)
+                return []
+            return [{**item, "symbol": sym} for item in items]
+
+    results = await asyncio.gather(*(_fetch(sym) for sym in eligible))
+
+    seen_urls: set[str] = set()
+    all_items: list[dict[str, Any]] = []
+    for items in results:
+        for item in items:
+            url = item.get("url")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            all_items.append(
+                {
+                    "headline": item.get("headline"),
+                    "source": item.get("source"),
+                    "datetime": item.get("datetime"),
+                    "url": url,
+                    "symbol": item.get("symbol"),
+                }
+            )
+
+    all_items.sort(key=lambda item: item.get("datetime") or "", reverse=True)
+    return all_items[:limit]
 
 
 def finnhub_is_configured() -> bool:

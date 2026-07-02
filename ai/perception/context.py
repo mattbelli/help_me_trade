@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ _SYMBOL_FIELD_GROUPS = (
     "technicals",
     "fundamentals",
     "earnings",
+    "news",
+    "strategy_signals",
     "decision_score",
     "active_alerts",
 )
@@ -40,6 +43,13 @@ def list_capabilities() -> dict[str, Any]:
         "context_scopes": {"symbol": list(_SYMBOL_FIELD_GROUPS)},
         "resources": list_resources(),
         "write_actions": {
+            "propose_order": (
+                "Propose a paper trade for phone approval (does not execute directly)"
+            ),
+            "create_rule": (
+                "Create AND enable a signal/alert rule immediately — confirm "
+                "parameters with the user before calling"
+            ),
             "create_price_alert": (
                 "Create a price alert (notification, not an order)"
             ),
@@ -48,9 +58,10 @@ def list_capabilities() -> dict[str, Any]:
         },
         "notes": (
             "Use get_context for a single symbol snapshot; use query(resource, filters) "
-            "for watchlists, strategies, price alerts, proposals, and reports. Prefer "
-            "get_context over web_search for prices, RVOL, session-node levels, "
-            "technicals, earnings, decision scores, and active alerts."
+            "for watchlists, strategies, screener, market regime, news, calibration, "
+            "price alerts, proposals, and reports. Prefer get_context over web_search "
+            "for prices, RVOL, session-node levels, technicals, earnings, news, "
+            "strategy signals, decision scores, and active alerts."
         ),
     }
 
@@ -199,6 +210,113 @@ def _compact_alerts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _compact_news_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "headline": item.get("headline"),
+            "source": item.get("source"),
+            "datetime": item.get("datetime"),
+            "url": item.get("url"),
+        }
+        for item in items[:5]
+        if item.get("headline") and item.get("url")
+    ]
+
+
+def _entry_params_for_kind(kind: str, *, db_path: Path) -> dict[str, Any]:
+    from db.strategies import list_strategies
+    from signals.strategy_kinds import STRATEGY_KINDS, filter_entry_params, strategy_kind
+
+    spec = STRATEGY_KINDS[kind]
+    for strategy in list_strategies(db_path=db_path):
+        if strategy_kind(strategy["id"]) == kind:
+            return filter_entry_params(spec, strategy.get("params") or {})
+    return {}
+
+
+# SPY bars back every strategy_signals check; cache briefly so report loops
+# (up to 8 get_context calls back-to-back) cost ONE SPY fetch, not eight —
+# the Schwab WAF punishes bursts.
+_SPY_BARS_TTL_S = 600.0
+_spy_bars_cache: tuple[float, list[StockBar]] | None = None
+
+
+async def _get_spy_bars(provider: Any) -> list[StockBar]:
+    global _spy_bars_cache
+    from signals.strategy_scan import SPY_SYMBOL
+
+    now = time.monotonic()
+    if _spy_bars_cache is not None and now - _spy_bars_cache[0] < _SPY_BARS_TTL_S:
+        return _spy_bars_cache[1]
+    bars_by_symbol = await provider.aget_stock_bars_batch([SPY_SYMBOL], days=420)
+    bars = bars_by_symbol.get(SPY_SYMBOL, [])
+    if bars:
+        _spy_bars_cache = (now, bars)
+    return bars
+
+
+async def _build_strategy_signals(
+    symbol: str,
+    provider: Any,
+    *,
+    db_path: Path,
+    sym_raw: list[StockBar],
+) -> list[dict[str, Any]] | None:
+    from signals.strategy_kinds import STRATEGY_KINDS, EntryContext
+    from signals.strategy_scan import _stock_bars_to_dated
+    from signals.trade_context import MIN_BARS_FOR_CONTEXT
+
+    sym = symbol.strip().upper()
+    spy_raw = await _get_spy_bars(provider)
+    if len(sym_raw) < MIN_BARS_FOR_CONTEXT or len(spy_raw) < MIN_BARS_FOR_CONTEXT:
+        return None
+
+    sym_bars = _stock_bars_to_dated(sym_raw)
+    spy_bars = _stock_bars_to_dated(spy_raw)
+    sym_idx = len(sym_bars) - 1
+    spy_idx = len(spy_bars) - 1
+    if sym_bars[sym_idx]["d"] != spy_bars[spy_idx]["d"]:
+        return None
+
+    signals_out: list[dict[str, Any]] = []
+    for kind, spec in STRATEGY_KINDS.items():
+        try:
+            params = _entry_params_for_kind(kind, db_path=db_path)
+            ctx = EntryContext(
+                sym=sym,
+                sym_bars=sym_bars,
+                idx=sym_idx,
+                spy_bars=spy_bars,
+                spy_idx=spy_idx,
+                params=params,
+                db_path=db_path,
+            )
+            would_fire = spec.check_entry(ctx)
+            rationale = spec.build_rationale(ctx, kind)
+            signals_out.append(
+                {
+                    "strategy": kind,
+                    "would_fire": would_fire,
+                    "rationale": rationale,
+                }
+            )
+        except Exception:
+            logger.debug(
+                "Strategy signal check failed for %s kind=%s",
+                sym,
+                kind,
+                exc_info=True,
+            )
+            signals_out.append(
+                {
+                    "strategy": kind,
+                    "would_fire": False,
+                    "rationale": "unavailable",
+                }
+            )
+    return signals_out
+
+
 async def _fetch_ext_quotes(provider: Any, symbol: str) -> dict[str, Any]:
     fetch = getattr(provider, "aget_quotes", None)
     if not callable(fetch):
@@ -284,12 +402,17 @@ async def build_symbol_context(
     except Exception:
         logger.debug("Session nodes block failed for %s", sym, exc_info=True)
 
+    # Fetched once, shared by technicals + strategy_signals (Schwab WAF: no re-fetch).
+    daily_bars_long: list[StockBar] = []
     if provider is not None:
         try:
-            # ~400 calendar days ≈ 275 trading days — enough for a 200-day SMA
-            # (250 calendar days is only ~172 trading days → sma200 came back null).
-            daily_bars = await provider.aget_stock_bars(sym, timeframe="1Day", days=400)
-            technicals = _compute_technicals(daily_bars)
+            # ~420 calendar days ≈ 289 trading days — enough for a 200-day SMA
+            # (250 calendar days is only ~172 trading days → sma200 came back null)
+            # and for the 252-bar strategy-signal minimum.
+            daily_bars_long = await provider.aget_stock_bars(
+                sym, timeframe="1Day", days=420
+            )
+            technicals = _compute_technicals(daily_bars_long)
             if technicals is not None:
                 ctx["technicals"] = technicals
         except Exception:
@@ -350,6 +473,26 @@ async def build_symbol_context(
     except Exception:
         logger.debug("Active alerts block failed for %s", sym, exc_info=True)
         ctx["active_alerts"] = []
+
+    try:
+        from signals.finnhub import afetch_company_news
+
+        news_items = await afetch_company_news(sym, days=7, limit=5)
+        compact = _compact_news_items(news_items)
+        ctx["news"] = compact if compact else []
+    except Exception:
+        logger.debug("News block failed for %s", sym, exc_info=True)
+        ctx["news"] = {"unavailable": True}
+
+    if provider is not None and daily_bars_long:
+        try:
+            strategy_signals = await _build_strategy_signals(
+                sym, provider, db_path=db_path, sym_raw=daily_bars_long
+            )
+            if strategy_signals is not None:
+                ctx["strategy_signals"] = strategy_signals
+        except Exception:
+            logger.debug("Strategy signals block failed for %s", sym, exc_info=True)
 
     if "decision_score" not in ctx:
         ctx["decision_score"] = None

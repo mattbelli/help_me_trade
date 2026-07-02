@@ -10,7 +10,7 @@ import pytest
 
 from ai.chat.tools import execute_tool
 from brokers.alpaca import PortfolioHistoryPoint
-from brokers.base import Account, Position
+from brokers.base import Account, Order, Position
 from db import base as db_base
 from db import paper_orders as paper_orders_mod
 from db import sqlite as sqlite_mod
@@ -174,6 +174,50 @@ async def test_get_portfolio_snapshot_all_accounts(
     assert result["aggregate"]["total_day_pl"] == 150.0
     assert "note" in result
     assert "CUMULATIVE" in result["note"]
+
+
+@pytest.mark.asyncio
+async def test_get_portfolio_snapshot_open_orders(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    db = _migrated_db(tmp_path, schwab_count=0)
+    _patch_db(monkeypatch, db)
+
+    alpaca = get_default_account("alpaca", db_path=db)
+    assert alpaca is not None
+
+    sqlite_mod.save_snapshot(
+        _account(cash=5_000.0, account_id=alpaca["id"]),
+        [_position()],
+        [
+            Order(
+                id="ord-1",
+                symbol="MSFT",
+                qty=5.0,
+                side="buy",
+                order_type="limit",
+                status="working",
+                filled_qty=0.0,
+                limit_price=420.0,
+            )
+        ],
+        broker="alpaca",
+        account_id=alpaca["id"],
+        db_path=db,
+    )
+
+    _patch_day_pl_broker(monkeypatch)
+
+    result = await execute_tool("get_portfolio_snapshot", {})
+    by_id = {a["account_id"]: a for a in result["accounts"]}
+    orders = by_id[alpaca["id"]]["open_orders"]
+    assert len(orders) == 1
+    assert orders[0]["symbol"] == "MSFT"
+    assert orders[0]["side"] == "buy"
+    assert orders[0]["qty"] == 5.0
+    assert orders[0]["type"] == "limit"
+    assert orders[0]["limit_price"] == 420.0
+    assert orders[0]["status"] == "working"
 
 
 @pytest.mark.asyncio
