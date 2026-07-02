@@ -58,6 +58,28 @@ function colorSchemeForBase(
   return themes.find((t) => t.id === base)?.colorScheme ?? "dark";
 }
 
+// Backward-compat migration: older saved themes predate the chart-bg token —
+// backfill it from the app background so they render a real color (not black).
+function backfillChartBg(
+  themes: CustomTheme[],
+): { themes: CustomTheme[]; changed: boolean } {
+  let changed = false;
+  const migrated = themes.map((t) => {
+    const chartBg = t.tokens.chartBg ?? t.tokens.bg;
+    const chartBgVar = t.vars["--chart-background"] ?? t.vars["--background"];
+    if (t.tokens.chartBg === chartBg && t.vars["--chart-background"] === chartBgVar) {
+      return t;
+    }
+    changed = true;
+    return {
+      ...t,
+      tokens: { ...t.tokens, chartBg },
+      vars: { ...t.vars, "--chart-background": chartBgVar },
+    };
+  });
+  return { themes: migrated, changed };
+}
+
 export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
   // Seed synchronously from localStorage so the next-themes `themes` prop knows
   // custom ids on first client render.
@@ -73,14 +95,19 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     }
 
     if (serverThemes && serverThemes.length > 0) {
-      saveLocalCustomThemes(serverThemes);
-      set({ themes: serverThemes, hydrated: true });
-      injectCustomThemeStyles(serverThemes);
+      const { themes: migrated, changed } = backfillChartBg(serverThemes);
+      saveLocalCustomThemes(migrated);
+      set({ themes: migrated, hydrated: true });
+      injectCustomThemeStyles(migrated);
+      if (changed) scheduleServerSave(migrated);
       return;
     }
 
-    const local = loadLocalCustomThemes();
+    const { themes: local, changed: localChanged } = backfillChartBg(
+      loadLocalCustomThemes(),
+    );
     if (local.length > 0) {
+      if (localChanged) saveLocalCustomThemes(local);
       scheduleServerSave(local);
       set({ themes: local, hydrated: true });
       injectCustomThemeStyles(local);

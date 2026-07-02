@@ -56,6 +56,7 @@ import {
   toChartColor,
   withAlpha,
 } from "@/lib/chart-colors";
+import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
 import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { DrawingShape, type LPoint } from "@/lib/chart-trendline";
 import { macdSeries, rsiSeries } from "@/lib/indicators";
@@ -239,7 +240,12 @@ export function TvLightChart({
     const el = document.documentElement;
     const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));
     obs.observe(el, { attributes: true, attributeFilter: ["data-theme", "class"] });
-    return () => obs.disconnect();
+    const onVars = () => setThemeNonce((n) => n + 1);
+    window.addEventListener(THEME_VARS_EVENT, onVars);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener(THEME_VARS_EVENT, onVars);
+    };
   }, []);
 
   useEffect(() => {
@@ -521,7 +527,10 @@ export function TvLightChart({
     const el = containerRef.current;
     if (!el) return;
 
-    const background = resolveCssColor("--background", "#131519");
+    const background = resolveCssColor(
+      "--chart-background",
+      resolveCssColor("--background", "#131519"),
+    );
     const text = resolveCssColor("--fg-dim", "#9aa1ab");
     const border = toChartColor(
       resolveCssColor("--border", "rgba(255,255,255,0.09)"),

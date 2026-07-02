@@ -58,6 +58,7 @@
 :root {
     color-scheme: dark;
     --background: #131519;
+    --chart-background: var(--background);
     --foreground: #e9e7e3;
     --card: #181b21;
     --card-foreground: #e9e7e3;
@@ -120,6 +121,7 @@
 [data-theme="carbon"] {
     color-scheme: dark;
     --background: #131519;
+    --chart-background: #131519;
     --foreground: #e9e7e3;
     --card: #181b21;
     --card-foreground: #e9e7e3;
@@ -182,6 +184,7 @@
 [data-theme="warm"] {
     color-scheme: dark;
     --background: #1a1816;
+    --chart-background: #1a1816;
     --foreground: #ece9e3;
     --card: #221f1d;
     --card-foreground: #ece9e3;
@@ -244,6 +247,7 @@
 [data-theme="oled"] {
     color-scheme: dark;
     --background: #000000;
+    --chart-background: #000000;
     --foreground: #e9e7e3;
     --card: #0d0d0f;
     --card-foreground: #e9e7e3;
@@ -306,6 +310,7 @@
 [data-theme="light"] {
     color-scheme: light;
     --background: #f5f6f8;
+    --chart-background: #f5f6f8;
     --foreground: #1b1f24;
     --card: #ffffff;
     --card-foreground: #1b1f24;

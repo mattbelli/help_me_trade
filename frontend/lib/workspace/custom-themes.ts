@@ -13,6 +13,7 @@ export type EditableToken =
   | "accent"
   | "green"
   | "red"
+  | "chartBg"
   | "chartAccent";
 
 export type CustomTheme = {
@@ -84,6 +85,7 @@ export const EDITABLE_TOKENS: {
       "--c-danger",
     ],
   },
+  { token: "chartBg", label: "Chart bg", vars: ["--chart-background"] },
   { token: "chartAccent", label: "Chart line", vars: ["--chart-accent"] },
 ];
 
@@ -102,6 +104,7 @@ const PREVIEW_VARS: string[] = [
 
 export const KNOWN_THEME_VARS: string[] = [
   "--background",
+  "--chart-background",
   "--foreground",
   "--card",
   "--card-foreground",
@@ -212,7 +215,9 @@ export function mergeTokensIntoVars(
 ): Record<string, string> {
   const vars: Record<string, string> = { ...baseVars };
   for (const { token, vars: targets } of EDITABLE_TOKENS) {
-    const hex = normalizeHex(tokens[token]);
+    const raw = (tokens[token] ?? "").trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(raw)) continue;
+    const hex = normalizeHex(raw);
     for (const v of targets) vars[v] = hex;
   }
   vars["--c-accent-soft"] =
@@ -238,6 +243,9 @@ export function buildCustomThemeCss(themes: CustomTheme[]): string {
 
 export const CUSTOM_STYLE_ID = "hmt-custom-themes";
 
+/** Fired whenever theme CSS vars change at runtime (custom-theme inject / live preview / clear), so canvas consumers (charts) can re-read colors. */
+export const THEME_VARS_EVENT = "hmt-theme-vars";
+
 /** Layer A: create/update the persistent <style> rule per saved custom theme. */
 export function injectCustomThemeStyles(themes: CustomTheme[]): void {
   if (typeof document === "undefined") return;
@@ -248,6 +256,7 @@ export function injectCustomThemeStyles(themes: CustomTheme[]): void {
     document.head.appendChild(el);
   }
   el.textContent = buildCustomThemeCss(themes);
+  window.dispatchEvent(new Event(THEME_VARS_EVENT));
 }
 
 /** Layer B: transient inline overlay on <html> (live editing only). */
@@ -257,12 +266,14 @@ export function applyInlinePreview(vars: Record<string, string>): void {
   for (const name of PREVIEW_VARS) {
     if (vars[name] != null) style.setProperty(name, vars[name]);
   }
+  window.dispatchEvent(new Event(THEME_VARS_EVENT));
 }
 
 export function clearInlinePreview(): void {
   if (typeof document === "undefined") return;
   const style = document.documentElement.style;
   for (const name of PREVIEW_VARS) style.removeProperty(name);
+  window.dispatchEvent(new Event(THEME_VARS_EVENT));
 }
 
 // ── localStorage ─────────────────────────────────────────────────────────────
