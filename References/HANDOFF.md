@@ -12,7 +12,18 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Fable-audit fix rounds (Decision Engine Phase 0/0.5) (2026-07-02)
 
-> ▶ **LATEST (2026-07-02 late night) — Round 11: aggregate realized keyed by (account, symbol) (a494601).** Round
+> ▶ **LATEST (2026-07-02 late night) — Rounds 12–13: five UI bugs + deep-research delivery & web-search fixed
+> (643b8d5 → cb118d8 + config).** Round 12: sector-radar green-dot, widget-overlap-on-nav (hydrate race),
+> custom-theme dark-leaks/hover, reports iframe palette — all shipped. Round 13: deep-research reports were
+> unreachable (memory click dead, no notification, dark viewer) AND web-blind (SEARXNG_URL pointed at :8080 =
+> monitoring dashboard; real SearXNG is container `odysseus-searxng-1` on **:8585** — see [[searxng-port]] memory).
+> Fixed both: completion notification + memory-click routing + themed viewer (committed), and SEARXNG_URL→:8585 in
+> .env+settings.json (backend restarted, live web_search verified). Kicked a fresh SLB research job to confirm
+> end-to-end. Open follow-ups: `web_search_status()` needs a real reachability probe (Settings shows dead URL as
+> fine); research CONTENT quality now unblocked (was starved). Tasks #16 (options expirations), #17 (nightly
+> ledger-vs-broker recon), #14 (data_suspect flag) still pending.
+>
+> Round 11: aggregate realized keyed by (account, symbol) (a494601). Round
 > 10's last-flat merged the same ticker across accounts in all_real/all_paper (TSLA in Individual+Joint on 6/29 →
 > phantom +$4,735). Now keyed by (account_id, symbol); all_real == Σ per-account to the cent, deployed + live
 > verified. Adversarial-reviewed (300 randomized multi-account trials). Open UI bug backlog filed as tasks #18–21
