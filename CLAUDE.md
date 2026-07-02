@@ -54,8 +54,9 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
 ## Safety — non-negotiable (this trades real money)
 - **The execution chokepoint is sacred.** `trading/execution_service.submit()` is the ONLY path to a broker;
   `RiskEngine.validate()` gates every order; kill-switch-first; deny-by-default; **paper before live**; LIVE
-  stays hard-blocked until the typed double-gate (Increment 3). **Adversarially review (Sonnet) any change to
-  `trading/` or `db/order_executions` before committing** — it's caught ~16 real safety bugs so far.
+  stays hard-blocked until the typed double-gate (Increment 3). **Adversarially review any change to
+  `trading/` or `db/order_executions` before committing** — spawn the `trading-safety-adversary` agent
+  (`.claude/agents/`, Sonnet, codified checklist); this ritual has caught ~16 real safety bugs so far.
 - **Decimal-only in `trading/`** for money/qty (float→Decimal seam at the propose_order boundary). Ledger +
   executions store money as TEXT/Decimal.
 - **Never expose the Alpaca `trading` toolset to the chat agent.** Agent proposes → human approves → the
@@ -74,6 +75,10 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
   fabricated.** Active founder+orchestrator deep-research effort — do not treat as a someday-footnote.
 - `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
   `References/SERVER_SETUP.md` (the home Linux server this now runs on).
+- **Research rigor:** backtesting a strategy idea → use the `/edge-hunt` skill (the validation gauntlet:
+  ledger → honest sim → excess-over-SPY → cuts → verdict in `References/EDGE_HUNT_FINDINGS.md`); before
+  trusting any backtest number or after research-pipeline changes → spawn the `quant-reviewer` agent.
+  Deep audit corpus: `research/fable/` (repo-wide + research-branch deep-dive) — read before re-auditing.
 - **Git ⇄ serv ⇄ main:** `References/GIT_WORKFLOW.md` — **never self-merge to `main`** (user authorizes only;
   a serv request isn't authorization), merge `main` into research branches ~weekly (don't drift 100+ behind),
   deliver to serv via small PRs / force-added artifacts.
