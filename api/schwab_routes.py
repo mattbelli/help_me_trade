@@ -21,3 +21,17 @@ def schwab_history(account_id: str | None = None, limit: int = 400) -> dict:
     from db.schwab_history import list_schwab_daily
 
     return {"snapshots": list_schwab_daily(account_id, limit=limit)}
+
+
+@router.get("/equity-curve")
+def schwab_equity(account_id: str | None = None, days: int = 30) -> dict:
+    """Daily equity curve for a real Schwab account (schwab_<last4>) or all real
+    (omitted / all_real). Exact points on flat all-cash days; hold days are gaps."""
+    from signals.schwab_equity import schwab_equity_curve
+
+    scope = (
+        None
+        if account_id in (None, "", "all", "all_real", "overview")
+        else account_id
+    )
+    return schwab_equity_curve(scope, days=max(1, min(days, 90)))

@@ -60,11 +60,15 @@ this file, append the old full version there as a new dated section.*
 > - **✅ Phase 3 — DONE.** Real/paper firewall reaches the ledger views: `list_trade_events(real_only=)` +
 >   `/api/performance/dashboard` real-only-when-no-account + `/api/journal/trades(+summary)` `account_id`; `/performance`
 >   selector broker-grouped ("All accounts (real)") + journal Me-view account selector. Never blends paper+real.
-> - **⏭️ NEXT — Stage B** (positions/orders widgets follow a real-account pick — moot until Schwab positions held) +
->   surface the Schwab equity curve (the daily snapshots now accrue). Full recon in this session's two Explore agents. The
->   `_poll_broker("schwab")` snapshot poll is still single-account (equity balances come from `/api/schwab/accounts`,
->   so not urgent). Also still open: **P&L calendar (P7)**, perf-split (P8), tmux-lite (P9); Russell-1000 scans + Globex
->   RVOL; ★ R5.
+> - **✅ Equity-curve widget — DONE.** Now follows the toolbar scope (overview/all_real/all_paper/account), REAL/PAPER
+>   toggle on overview (no blend); real Schwab curve = `signals/schwab_equity.py` → `GET /api/schwab/equity-curve`,
+>   anchored to live liquidation + walked back through all cash flows, **flat-days-only** (exact cash-EOD points,
+>   hold days = honest gaps). Daily dots + tooltip. **⏭️ Deferred: full mark-to-market** (value held positions via
+>   Schwab price history + futures/options multipliers) — would fill the gap days; the honest bigger build.
+> - **⏭️ NEXT — Stage B** (positions/orders widgets follow a real-account pick — moot until Schwab positions held).
+>   Full recon in this session's two Explore agents. The `_poll_broker("schwab")` snapshot poll is still single-account
+>   (equity balances come from `/api/schwab/accounts`, so not urgent). Also still open: **P&L calendar (P7)**, perf-split
+>   (P8), tmux-lite (P9); Russell-1000 scans + Globex RVOL; ★ R5.
 >
 > ▶ **LATEST (2026-07-01, SESSION END) — big cockpit + journal + scanner + charts round. ALL shipped, deployed on
 > serv (:3001 / :8000), pushed; `origin/main` = `766462b`.** Everything below is live + green (full suite ~1124; chokepoint

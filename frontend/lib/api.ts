@@ -578,6 +578,38 @@ export async function fetchSchwabAccounts(): Promise<SchwabAccountsResult> {
   return res.json();
 }
 
+export type SchwabEquityPoint = {
+  date: string;
+  equity: number;
+};
+
+export type SchwabEquityCurve = {
+  authenticated: boolean;
+  current_liquidation?: number;
+  skipped_held_days?: number;
+  points: SchwabEquityPoint[];
+};
+
+export async function fetchSchwabEquityCurve(
+  accountId?: string,
+  days = 30,
+): Promise<SchwabEquityCurve> {
+  const params = new URLSearchParams({ days: String(days) });
+  if (accountId) params.set("account_id", accountId);
+  const res = await apiFetch(
+    `${API_BASE}/api/schwab/equity-curve?${params}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Schwab equity curve error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export async function removeWatchlistSymbol(symbol: string): Promise<string[]> {
   const res = await apiFetch(
     `${API_BASE}/api/watchlist/${encodeURIComponent(symbol)}`,
