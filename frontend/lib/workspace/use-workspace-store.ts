@@ -137,12 +137,39 @@ function filterKnownLayout(
   return items.filter((item) => getWidgetDefinition(item.type));
 }
 
+function resolveLayoutOverlaps(
+  layout: WorkspaceLayoutItem[],
+): WorkspaceLayoutItem[] {
+  if (layout.length <= 1) return layout;
+
+  const sorted = [...layout].sort((a, b) => {
+    if (a.y !== b.y) return a.y - b.y;
+    if (a.x !== b.x) return a.x - b.x;
+    return a.i.localeCompare(b.i);
+  });
+
+  const placed: WorkspaceLayoutItem[] = [];
+  for (const item of sorted) {
+    let candidate = { ...item };
+    while (placed.some((p) => rectsOverlap(candidate, p))) {
+      const overlapping = placed.filter((p) => rectsOverlap(candidate, p));
+      const nextY = Math.max(...overlapping.map((p) => p.y + p.h));
+      candidate = { ...candidate, y: nextY };
+    }
+    placed.push(candidate);
+  }
+
+  const byId = new Map(placed.map((p) => [p.i, p]));
+  return layout.map((item) => byId.get(item.i) ?? item);
+}
+
 function sanitizePagesState(state: WorkspacePagesState): WorkspacePagesState {
   const pages: Record<string, WorkspacePage> = {};
   for (const [key, page] of Object.entries(state.pages)) {
     const known = filterKnownLayout(page.layout);
-    const layout =
+    const filtered =
       known.length > 0 ? known : page.layout.length === 0 ? [] : known;
+    const layout = resolveLayoutOverlaps(filtered);
     pages[key] = { ...page, id: page.id || key, layout };
   }
 
@@ -176,21 +203,58 @@ function nextPageId(pages: Record<string, WorkspacePage>): string {
 
 // ── Debounced server save ──────────────────────────────────────────────────────
 let _serverSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingPagesState: WorkspacePagesState | null = null;
+let _hasPendingServerSave = false;
 const SERVER_SAVE_DEBOUNCE_MS = 500;
 
+function flushPendingServerSave(): void {
+  if (!_pendingPagesState) return;
+  const state = _pendingPagesState;
+  _pendingPagesState = null;
+  void saveWorkspacePages(state)
+    .catch((err) => {
+      console.warn("[workspace] server save error (swallowed):", err);
+    })
+    .finally(() => {
+      if (!_pendingPagesState) _hasPendingServerSave = false;
+    });
+}
+
 function scheduleServerSave(pagesState: WorkspacePagesState): void {
+  _pendingPagesState = pagesState;
+  _hasPendingServerSave = true;
   if (_serverSaveTimer !== null) clearTimeout(_serverSaveTimer);
   _serverSaveTimer = setTimeout(() => {
     _serverSaveTimer = null;
-    saveWorkspacePages(pagesState).catch((err) => {
-      console.warn("[workspace] server save error (swallowed):", err);
-    });
+    flushPendingServerSave();
   }, SERVER_SAVE_DEBOUNCE_MS);
+}
+
+if (typeof window !== "undefined") {
+  const flushOnHide = () => {
+    if (document.visibilityState !== "hidden") return;
+    if (_serverSaveTimer !== null) {
+      clearTimeout(_serverSaveTimer);
+      _serverSaveTimer = null;
+    }
+    flushPendingServerSave();
+  };
+  document.addEventListener("visibilitychange", flushOnHide);
+  window.addEventListener("pagehide", flushOnHide);
 }
 
 function persistPages(pagesState: WorkspacePagesState): void {
   localStoragePagesPersistence.save(pagesState);
   scheduleServerSave(pagesState);
+}
+
+/** Flush any debounced layout save (e.g. on workspace unmount). */
+export function flushWorkspaceLayoutSave(): void {
+  if (_serverSaveTimer !== null) {
+    clearTimeout(_serverSaveTimer);
+    _serverSaveTimer = null;
+  }
+  flushPendingServerSave();
 }
 // ── Store ──────────────────────────────────────────────────────────────────────
 
@@ -213,6 +277,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   hydrate: async () => {
+    if (get().hydrated && _hasPendingServerSave) return;
+
     let serverPages: WorkspacePagesState | null = null;
     try {
       serverPages = await fetchWorkspacePages();
@@ -274,9 +340,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const { pages, activePageId } = get();
     const page = pages[activePageId];
     if (!page) return;
+    const resolved = resolveLayoutOverlaps(layout);
     const nextPages = {
       ...pages,
-      [activePageId]: { ...page, layout },
+      [activePageId]: { ...page, layout: resolved },
     };
     set({ pages: nextPages });
     persistPages({ pages: nextPages, activePageId });

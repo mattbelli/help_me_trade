@@ -259,6 +259,17 @@ export function SectorRadarWidget() {
         ) : (
           <div className="flex h-full flex-col gap-2">
             <div className="min-h-0 flex-1">
+              {mode === "allocation" && totalMarketValue <= 0 ? (
+                <div className="flex h-full min-h-24 items-center justify-center px-4 text-center">
+                  <p className="font-mono text-xs text-[var(--fg-dim)]">
+                    No open positions — allocation unavailable
+                    <br />
+                    <span className="text-[var(--fg-faint)]">
+                      Switch to P&amp;L for realized sector performance
+                    </span>
+                  </p>
+                </div>
+              ) : (
               <ChartContainer config={{}} className="h-full w-full aspect-auto">
                 {mode === "pnl" ? (
                   <BarChart
@@ -353,6 +364,7 @@ export function SectorRadarWidget() {
                   </RadarChart>
                 )}
               </ChartContainer>
+              )}
             </div>
 
             <div className="max-h-[42%] shrink-0 space-y-1 overflow-y-auto border-t border-[var(--border)] pt-1">

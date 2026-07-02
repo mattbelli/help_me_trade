@@ -41,7 +41,7 @@ import type {
   WidgetInstanceConfig,
   WorkspaceLayoutItem,
 } from "@/lib/workspace/layout-persistence";
-import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import { flushWorkspaceLayoutSave, useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
@@ -631,6 +631,7 @@ export function WorkspaceGrid() {
 
   useEffect(() => {
     void hydrate();
+    return () => flushWorkspaceLayoutSave();
   }, [hydrate]);
 
   // Stable ref so the ResizeObserver closure always reads the latest layout

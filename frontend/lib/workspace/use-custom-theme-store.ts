@@ -6,6 +6,7 @@ import { fetchCustomThemes, saveCustomThemes } from "@/lib/api";
 
 import {
   captureThemeVars,
+  colorSchemeFromBackground,
   deriveTokensFromVars,
   injectCustomThemeStyles,
   loadLocalCustomThemes,
@@ -48,14 +49,8 @@ function persist(themes: CustomTheme[]): void {
   injectCustomThemeStyles(themes);
 }
 
-function colorSchemeForBase(
-  base: string,
-  themes: CustomTheme[],
-): "dark" | "light" {
-  if (isBuiltinTheme(base)) {
-    return base === "light" ? "light" : "dark";
-  }
-  return themes.find((t) => t.id === base)?.colorScheme ?? "dark";
+function resolvedColorScheme(vars: Record<string, string>): "dark" | "light" {
+  return colorSchemeFromBackground(vars["--background"] ?? "#000000");
 }
 
 // Backward-compat migration: older saved themes predate the chart-bg token —
@@ -129,7 +124,7 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
       id,
       name: name.trim() || "Custom",
       base: isBuiltinTheme(base) ? (base as WorkspaceTheme) : base,
-      colorScheme: colorSchemeForBase(base, get().themes),
+      colorScheme: resolvedColorScheme(vars),
       tokens,
       vars,
       createdAt: now,
@@ -145,10 +140,12 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     const next = get().themes.map((t) => {
       if (t.id !== id) return t;
       const tokens = { ...t.tokens, [token]: normalizeHex(hex) };
+      const vars = mergeTokensIntoVars(t.vars, tokens);
       return {
         ...t,
         tokens,
-        vars: mergeTokensIntoVars(t.vars, tokens),
+        vars,
+        colorScheme: resolvedColorScheme(vars),
         updatedAt: new Date().toISOString(),
       };
     });

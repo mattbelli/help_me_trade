@@ -40,12 +40,24 @@ export const EDITABLE_TOKENS: {
   {
     token: "surface",
     label: "Surface",
-    vars: ["--panel", "--card", "--popover", "--bg-raised"],
+    vars: [
+      "--panel",
+      "--card",
+      "--popover",
+      "--bg-raised",
+      "--bg-hover",
+      "--bg-inset",
+      "--muted",
+      "--secondary",
+      "--accent",
+      "--sidebar",
+      "--sidebar-accent",
+    ],
   },
   {
     token: "border",
     label: "Border",
-    vars: ["--border", "--input", "--sidebar-border"],
+    vars: ["--border", "--input", "--sidebar-border", "--border-strong"],
   },
   {
     token: "fg",
@@ -61,7 +73,11 @@ export const EDITABLE_TOKENS: {
       "--sidebar-accent-foreground",
     ],
   },
-  { token: "fgDim", label: "Text dim", vars: ["--fg-dim", "--muted-foreground"] },
+  {
+    token: "fgDim",
+    label: "Text dim",
+    vars: ["--fg-dim", "--muted-foreground", "--fg-faint"],
+  },
   {
     token: "accent",
     label: "Accent",
@@ -183,6 +199,39 @@ export function normalizeHex(value: string): string {
     return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`;
   }
   return "#000000";
+}
+
+function parseColorToRgb(color: string): [number, number, number] | null {
+  const v = (color ?? "").trim();
+  if (/^#[0-9a-f]{3,6}$/i.test(v)) {
+    const hex = normalizeHex(v);
+    return [
+      Number.parseInt(hex.slice(1, 3), 16),
+      Number.parseInt(hex.slice(3, 5), 16),
+      Number.parseInt(hex.slice(5, 7), 16),
+    ];
+  }
+  const rgbMatch = v.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+  if (rgbMatch) {
+    return [
+      Number.parseFloat(rgbMatch[1]),
+      Number.parseFloat(rgbMatch[2]),
+      Number.parseFloat(rgbMatch[3]),
+    ];
+  }
+  return null;
+}
+
+/** Derive color-scheme from background luminance (WCAG relative luminance). */
+export function colorSchemeFromBackground(background: string): "dark" | "light" {
+  const rgb = parseColorToRgb(background);
+  if (!rgb) return "dark";
+  const [r, g, b] = rgb.map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.5 ? "light" : "dark";
 }
 
 /** Read the current resolved theme vars off <html>. */
