@@ -33,7 +33,7 @@ def evaluate_dip_exit(
     if entry_price <= 0 or not math.isfinite(entry_price):
         return ExitDecision("hold", "hold", detail={"error": "bad_entry_price"})
 
-    stop_pct_mag = abs(params.get("stop_pct", -3.0))
+    stop_pct = params.get("stop_pct", -3.0)
     first_target_pct = params.get("first_target_pct", 3.0)
     trail_pct = params.get("trail_pct", 11.0)
     max_holding = int(params.get("max_holding_days", 20))
@@ -66,18 +66,20 @@ def evaluate_dip_exit(
         )
 
     if not first_target_hit:
-        if low_ret <= -stop_pct_mag:
-            return ExitDecision(
-                "exit",
-                "stop",
-                exit_fraction=1.0,
-                detail={
-                    **base_detail,
-                    "stop_pct_mag": stop_pct_mag,
-                    "stop_threshold_ret": -stop_pct_mag,
-                },
-            )
-        if high_ret >= first_target_pct:
+        if stop_pct is not None:
+            stop_pct_mag = abs(stop_pct)
+            if low_ret <= -stop_pct_mag:
+                return ExitDecision(
+                    "exit",
+                    "stop",
+                    exit_fraction=1.0,
+                    detail={
+                        **base_detail,
+                        "stop_pct_mag": stop_pct_mag,
+                        "stop_threshold_ret": -stop_pct_mag,
+                    },
+                )
+        if first_target_pct is not None and high_ret >= first_target_pct:
             return ExitDecision(
                 "scale",
                 "first_target",
@@ -93,6 +95,16 @@ def evaluate_dip_exit(
         return ExitDecision("hold", "hold", detail=base_detail)
 
     hwm = high_water_mark if high_water_mark is not None else bar_high
+
+    if trail_pct is None:
+        new_hwm = max(hwm, bar_high)
+        return ExitDecision(
+            "hold",
+            "hold",
+            new_high_water_mark=new_hwm if new_hwm > hwm else None,
+            detail={**base_detail, "high_water_mark": hwm},
+        )
+
     trail_stop = hwm * (1 - trail_pct / 100)
     effective_stop = max(breakeven_price, trail_stop)
 
@@ -170,3 +182,37 @@ def evaluate_earnings_exit(
     if td is not None:
         detail["td_to_earnings"] = td
     return ExitDecision("hold", "hold", detail=detail)
+
+
+def evaluate_vix_exit(
+    *,
+    current_vix: float | None,
+    holding_days: int,
+    params: dict[str, Any],
+) -> ExitDecision:
+    """SPY vix-spike sleeve: exit on VIX reversion (< vix_exit_below) or a max trading-day hold.
+
+    Exit precedence: the time cap is checked FIRST and fires UNCONDITIONALLY (even with no VIX
+    data) — the hard backstop against an open-forever position during a FRED outage. Below the
+    cap, missing VIX ⇒ HOLD (never sell the reversion leg on absent/stale data)."""
+    max_holding = int(params.get("max_holding_days", 60))
+    vix_exit_below = params.get("vix_exit_below", 20.0)
+    base_detail = {"current_vix": current_vix, "holding_days": holding_days}
+
+    if holding_days >= max_holding:
+        return ExitDecision(
+            "exit",
+            "time_cap",
+            exit_fraction=1.0,
+            detail={**base_detail, "max_holding_days": max_holding},
+        )
+    if current_vix is None:
+        return ExitDecision("hold", "hold", detail={**base_detail, "error": "no_vix"})
+    if vix_exit_below is not None and current_vix < float(vix_exit_below):
+        return ExitDecision(
+            "exit",
+            "vix_reversion",
+            exit_fraction=1.0,
+            detail={**base_detail, "vix_exit_below": vix_exit_below},
+        )
+    return ExitDecision("hold", "hold", detail=base_detail)

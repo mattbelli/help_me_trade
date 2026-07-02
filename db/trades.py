@@ -7,6 +7,7 @@ import sqlite3
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,37 @@ def create_trade_account(
     }
 
 
+def latest_trade_date(
+    account_id: str,
+    *,
+    source: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> date | None:
+    """Most recent trade_date on record for an account, or None.
+
+    Used to sync brokers incrementally. Pass ``source`` to scope to one import
+    path (e.g. ``schwab_json_import`` vs ``schwab_api``) — the API sync uses the
+    JSON boundary to know where a file export ends (never re-pull those, since
+    the dedup key differs and would double-count) and its own ``schwab_api``
+    cursor to re-fetch a rolling recent window without dropping same-day fills.
+    """
+    init_trade_tables(db_path)
+    sql = "SELECT MAX(trade_date) FROM trade_events WHERE account_id = ?"
+    params: list[Any] = [account_id]
+    if source is not None:
+        sql += " AND source = ?"
+        params.append(source)
+    with _connect(db_path) as conn:
+        row = conn.execute(sql, tuple(params)).fetchone()
+    raw = row[0] if row else None
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        return None
+
+
 def get_trade_account(
     account_id: str,
     *,
@@ -219,6 +251,8 @@ def list_trade_events(
     to_date: str | None = None,
     symbol: str | None = None,
     event_type: str | None = None,
+    real_only: bool = False,
+    paper_only: bool = False,
     limit: int = 500,
     offset: int = 0,
     db_path: Path = DEFAULT_DB_PATH,
@@ -230,6 +264,16 @@ def list_trade_events(
     if account_id:
         clauses.append("account_id = ?")
         params.append(account_id)
+    if real_only:
+        # Firewall: exclude the paper Alpaca sandbox so real P&L is never blended
+        # with fake-money trades (mirrors the perception layer + the UI selector).
+        clauses.append(
+            "account_id NOT IN (SELECT id FROM trade_accounts WHERE broker = 'alpaca')"
+        )
+    elif paper_only:
+        clauses.append(
+            "account_id IN (SELECT id FROM trade_accounts WHERE broker = 'alpaca')"
+        )
     if from_date:
         clauses.append("trade_date >= ?")
         params.append(from_date)
@@ -430,12 +474,16 @@ def trade_summary_stats(
     account_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    real_only: bool = False,
+    paper_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     events = list_trade_events(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
         offset=0,
         db_path=db_path,
@@ -466,12 +514,16 @@ def daily_trade_stats(
     account_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    real_only: bool = False,
+    paper_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     events = list_trade_events(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
         offset=0,
         db_path=db_path,

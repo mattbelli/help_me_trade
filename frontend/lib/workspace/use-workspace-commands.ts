@@ -14,7 +14,11 @@ import {
   WORKSPACE_THEMES,
   type WorkspaceTheme,
 } from "@/lib/workspace/themes";
+import { useCustomThemeStore } from "@/lib/workspace/use-custom-theme-store";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import {
+  WIDGET_REGISTRY,
+} from "@/lib/workspace/widget-registry";
 
 import { useWorkspaceToast } from "@/components/workspace/workspace-toast";
 
@@ -41,7 +45,9 @@ export function useWorkspaceCommands() {
   const { showToast } = useWorkspaceToast();
   const { theme, setTheme } = useTheme();
   const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
+  const addWidget = useWorkspaceStore((s) => s.addWidget);
   const clearScrollback = useConsoleStore((s) => s.clearScrollback);
+  const customThemes = useCustomThemeStore((s) => s.themes);
   const aui = useAui();
 
   const runCommand = useCallback(
@@ -111,16 +117,30 @@ export function useWorkspaceCommands() {
       if (themeMatch) {
         const named = themeMatch[1]?.toLowerCase();
         if (named) {
-          if (!WORKSPACE_THEMES.includes(named as WorkspaceTheme)) {
-            return {
-              handled: true,
-              error: `unknown theme: ${named} (carbon, ember, paper)`,
-            };
+          if (WORKSPACE_THEMES.includes(named as WorkspaceTheme)) {
+            setTheme(named);
+            const label = WORKSPACE_THEME_LABELS[named as WorkspaceTheme];
+            showToast(`Theme: ${label}`);
+            return { handled: true, output: `theme → ${label.toLowerCase()}` };
           }
-          setTheme(named);
-          const label = WORKSPACE_THEME_LABELS[named as WorkspaceTheme];
-          showToast(`Theme: ${label}`);
-          return { handled: true, output: `theme → ${label.toLowerCase()}` };
+
+          const custom = customThemes.find(
+            (t) => t.name.toLowerCase() === named,
+          );
+          if (custom) {
+            setTheme(custom.id);
+            showToast(`Theme: ${custom.name}`);
+            return { handled: true, output: `theme → ${custom.name.toLowerCase()}` };
+          }
+
+          const customNames = customThemes.map((t) => t.name.toLowerCase());
+          const valid = ["carbon", "warm", "oled", "light", ...customNames].join(
+            ", ",
+          );
+          return {
+            handled: true,
+            error: `unknown theme: ${named} (${valid})`,
+          };
         }
 
         const current = WORKSPACE_THEMES.includes(theme as WorkspaceTheme)
@@ -140,9 +160,34 @@ export function useWorkspaceCommands() {
         case "/positions":
           showToast("/positions — coming soon");
           return { handled: true, output: "positions — coming soon" };
-        case "/add":
-          openWidgetPicker();
-          return { handled: true, output: "widget picker opened" };
+        case "/add": {
+          const arg = value.split(/\s+/).slice(1).join(" ").trim();
+          if (!arg) {
+            openWidgetPicker();
+            return { handled: true, output: "widget picker opened" };
+          }
+
+          const widget = WIDGET_REGISTRY.find(
+            (entry) => entry.id.toLowerCase() === arg.toLowerCase(),
+          );
+          if (!widget) {
+            const ids = WIDGET_REGISTRY.map((entry) => entry.id).join(", ");
+            return {
+              handled: true,
+              error: `unknown widget: ${arg} (valid: ${ids})`,
+            };
+          }
+
+          const added = addWidget(widget.id);
+          if (added) {
+            return { handled: true, output: `added ${widget.id}` };
+          }
+
+          return {
+            handled: true,
+            error: `${widget.id} is already on this page`,
+          };
+        }
         case "/clear":
           void aui.threads().switchToNewThread();
           clearScrollback();
@@ -155,7 +200,7 @@ export function useWorkspaceCommands() {
           };
       }
     },
-    [aui, clearScrollback, openWidgetPicker, setTheme, showToast, theme],
+    [addWidget, aui, clearScrollback, customThemes, openWidgetPicker, setTheme, showToast, theme],
   );
 
   return { runCommand };

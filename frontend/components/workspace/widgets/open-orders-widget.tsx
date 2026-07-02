@@ -1,8 +1,12 @@
 "use client";
 
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, type Order } from "@/lib/api";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 import {
   resolveOpenOrders,
@@ -33,7 +37,9 @@ function formatQty(order: Order): string {
   return String(order.qty);
 }
 
-export function OpenOrdersWidget() {
+export function OpenOrdersWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
   const { snapshot, loading } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
   const orders = resolveOpenOrders(snapshot, selectedAccountId);
@@ -85,14 +91,18 @@ export function OpenOrdersWidget() {
           {orders.map((order) => (
             <tr
               key={order.id}
-              className="transition-colors hover:bg-[var(--bg-hover)]"
+              className="group/row transition-colors hover:bg-[var(--bg-hover)]"
             >
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)]">
                 #{order.id.slice(-5)}
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
                 <span className="inline-flex items-center gap-1.5">
-                  {order.symbol}
+                  <ClickableSymbol
+                    symbol={order.symbol}
+                    linked={linked}
+                    onActivate={() => publish(order.symbol)}
+                  />
                   {order.accountLabel ? (
                     <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
                       {order.accountLabel}

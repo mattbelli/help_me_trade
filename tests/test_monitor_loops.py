@@ -6,7 +6,13 @@ the loop iteration helpers, without exercising network or APNs plumbing.
 
 from __future__ import annotations
 
-from datetime import date
+import asyncio
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+import pytest
+
+_ET = ZoneInfo("America/New_York")
 
 # ---------------------------------------------------------------------------
 # RVOL dedup helpers  (_should_rvol_alert / _mark_rvol_alerted)
@@ -73,6 +79,83 @@ def test_multiple_symbols_dedup_independently():
     assert _should_rvol_alert("SYM_A", today) is False
     # SYM_B untouched — should allow.
     assert _should_rvol_alert("SYM_B", today) is True
+
+
+@pytest.mark.asyncio
+async def test_rvol_alert_loop_calls_notify_with_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RVOL spike path emits through notify() with kind=rvol and push enabled."""
+    from api.main import _rvol_alert_last_date, _rvol_alert_loop
+
+    _rvol_alert_last_date.pop("AAPL", None)
+
+    notify_calls: list[dict] = []
+
+    async def _fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "rvol-test"}
+
+    class _FakeProvider:
+        async def aget_quotes(self, symbols):
+            return {
+                "AAPL": {
+                    "total_volume": 300_000.0,
+                    "regular_last": 150.25,
+                }
+            }
+
+    from brokers.schwab_market_data import SchwabMarketData
+
+    provider = object.__new__(SchwabMarketData)
+    provider.aget_quotes = _FakeProvider().aget_quotes  # type: ignore[method-assign]
+
+    sleep_calls = 0
+
+    async def _fake_sleep(_seconds: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls > 1:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr("api.main.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("api.main._RVOL_ALERTS_ENABLED", True)
+    monkeypatch.setattr("api.main._market_session", lambda: "regular")
+    monkeypatch.setattr("api.main._rvol_bucket_now", lambda: 38)
+    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["AAPL"])
+    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(
+        "api.main.load_profile",
+        lambda sym: {
+            "avg_volume_by_bucket": [10_000.0] * 78,
+        },
+    )
+    monkeypatch.setattr(
+        "api.main._compute_rvol_from_total_volume",
+        lambda profile, total_volume, bucket: 4.0,
+    )
+    monkeypatch.setattr(
+        "api.main.datetime",
+        type(
+            "FixedDatetime",
+            (),
+            {
+                "now": staticmethod(
+                    lambda tz=None: datetime(2026, 6, 24, 11, 0, tzinfo=_ET)
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr("signals.notify.notify", _fake_notify)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _rvol_alert_loop()
+
+    assert len(notify_calls) == 1
+    call = notify_calls[0]
+    assert call["kind"] == "rvol"
+    assert call.get("push", True) is True
+    assert call["data"]["symbol"] == "AAPL"
+    assert call["data"]["rvol"] == pytest.approx(4.0)
+    assert call["data"]["price"] == pytest.approx(150.25)
 
 
 # ---------------------------------------------------------------------------

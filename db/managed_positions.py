@@ -15,6 +15,7 @@ here is a source of truth for money — it's bookkeeping for *which rules apply*
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,9 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.schema_helpers import _add_column_if_missing
+
+logger = logging.getLogger(__name__)
 
 
 def init_managed_position_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -59,6 +63,9 @@ def init_managed_position_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 WHERE status = 'open';
             """
         )
+        # Decision Journal J0: link the SELL execution that closed this position, so the
+        # journal can source the exit fill price (and grade the round-trip P&L).
+        _add_column_if_missing(conn, "managed_positions", "exit_execution_id", "TEXT")
         conn.commit()
 
 
@@ -194,13 +201,77 @@ def close_position(
     position_id: str,
     *,
     reason: str,
+    exit_execution_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     now = _now()
     with _connect(db_path) as conn:
         conn.execute(
             "UPDATE managed_positions SET status = 'closed', closed_at = ?, "
-            "close_reason = ?, updated_at = ? WHERE id = ?",
-            (now, reason, now, position_id),
+            "close_reason = ?, exit_execution_id = ?, updated_at = ? WHERE id = ?",
+            (now, reason, exit_execution_id, now, position_id),
         )
         conn.commit()
+    # Decision Journal final OUTCOME (J1) — strictly observational and fail-soft: nothing
+    # past the committed UPDATE above (the row re-fetch, the journal write) may EVER surface
+    # into the position-close / exit path. The close has already happened.
+    _record_close_outcome(
+        position_id, exit_execution_id=exit_execution_id, reason=reason,
+        closed_at=now, db_path=db_path,
+    )
+
+
+def _record_close_outcome(
+    position_id: str,
+    *,
+    exit_execution_id: str | None,
+    reason: str,
+    closed_at: str,
+    db_path: Path,
+) -> None:
+    """Resolve the decision-journal OUTCOME row for a just-closed position. Never raises.
+
+    Re-fetches the closed row (inside this try, so even the SELECT can't escape), recovers
+    the ENTRY proposal via the entry execution, sources the exit fill price from the linked
+    SELL execution (null for a reconcile-closure with no agent sell → the journal records
+    outcome='closed_incomplete'), and delegates the P&L/R computation to
+    ``decision_journal.resolve_outcome``.
+    """
+    try:
+        with _connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM managed_positions WHERE id = ?", (position_id,)
+            ).fetchone()
+        if row is None:
+            return
+        from db.decision_journal import resolve_outcome
+        from db.order_executions import get_execution
+
+        entry_exec_id = row["entry_execution_id"]
+        if not entry_exec_id:
+            return
+        entry_exec = get_execution(str(entry_exec_id), db_path=db_path)
+        proposal_id = (entry_exec or {}).get("proposal_id")
+        if not proposal_id:
+            return
+
+        exit_fill_price = None
+        if exit_execution_id:
+            exit_exec = get_execution(str(exit_execution_id), db_path=db_path)
+            exit_fill_price = (exit_exec or {}).get("avg_fill_price")
+
+        resolve_outcome(
+            str(proposal_id),
+            exit_execution_id=exit_execution_id,
+            exit_fill_price=exit_fill_price,
+            close_reason=reason,
+            entry_time=row["entry_date"],
+            close_time=closed_at,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.warning(
+            "decision_journal close-outcome hook failed for %s",
+            position_id,
+            exc_info=True,
+        )

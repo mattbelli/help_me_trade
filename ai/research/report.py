@@ -173,7 +173,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
-def render_report_html(report: dict[str, Any]) -> str:
+def render_report_html(report: dict[str, Any], *, meta_label: str = "Deep research") -> str:
     title = html.escape(str(report.get("title", "Research Report")))
     summary = html.escape(str(report.get("summary", "")))
     symbol = report.get("symbol")
@@ -237,6 +237,15 @@ def render_report_html(report: dict[str, Any]) -> str:
           <span class="source-type">{stype}</span>
           {link}
         </li>"""
+    sources_section = (
+        f"""
+    <section class="sources panel">
+      <h2>Sources analyzed</h2>
+      <ul>{sources_html}</ul>
+    </section>"""
+        if sources_html
+        else ""
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -314,7 +323,7 @@ def render_report_html(report: dict[str, Any]) -> str:
     {warning_html}
     <header class="hero">
       <h1>{title}{sym_badge}</h1>
-      <div class="meta">Deep research · {generated}</div>
+      <div class="meta">{html.escape(meta_label)} · {generated}</div>
       <p class="summary">{summary}</p>
     </header>
     <div class="metrics">{metrics_html}</div>
@@ -329,10 +338,7 @@ def render_report_html(report: dict[str, Any]) -> str:
         <ul>{steps_html or "<li>Monitor and revisit</li>"}</ul>
       </div>
     </div>
-    <section class="sources panel">
-      <h2>Sources analyzed</h2>
-      <ul>{sources_html}</ul>
-    </section>
+    {sources_section}
   </div>
 </body>
 </html>"""

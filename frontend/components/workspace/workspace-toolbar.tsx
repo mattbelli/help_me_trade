@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, MessageSquareIcon } from "lucide-react";
 
+import { AccountSelector } from "@/components/workspace/account-selector";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
 import {
@@ -11,26 +12,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   fetchBroker,
   fetchSettings,
   formatMoney,
   type BrokerInfo,
-  type BrokerSnapshot,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useDayPnl } from "@/lib/workspace/use-day-pnl";
 import {
+  isRealScope,
   maskMoney,
   resolveAccountView,
   useDashboardPrefs,
 } from "@/lib/workspace/use-dashboard-prefs";
+import { useRealAccounts } from "@/lib/workspace/use-real-accounts";
 import { useEtClock } from "@/lib/workspace/use-et-clock";
 import { ThemeSwitcher } from "./theme-switcher";
 import { NotificationBell } from "./notification-bell";
@@ -47,9 +43,55 @@ function formatSignedPnl(value: number): string {
   return `${prefix}${formatMoney(value)}`;
 }
 
-function accountSelectLabel(entry: BrokerSnapshot): string {
-  const base = entry.account_label ?? entry.broker;
-  return entry.is_default ? `${base} (default)` : base;
+function moneyTypeBadgeKind(
+  selectedAccountId: string,
+): "real" | "paper" | "both" {
+  if (selectedAccountId === "overview") return "both";
+  if (isRealScope(selectedAccountId)) return "real";
+  return "paper";
+}
+
+function MoneyTypeBadge({
+  kind,
+  className,
+}: {
+  kind: "real" | "paper" | "both";
+  className?: string;
+}) {
+  if (kind === "both") {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[9px] tracking-wide text-[var(--fg-dim)] uppercase",
+          className,
+        )}
+      >
+        Real + Paper
+      </span>
+    );
+  }
+  if (kind === "real") {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[9px] tracking-wide text-[var(--c-amber)] uppercase",
+          className,
+        )}
+      >
+        Real
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[9px] tracking-wide text-[var(--c-blue)] uppercase",
+        className,
+      )}
+    >
+      Paper
+    </span>
+  );
 }
 
 function ToolbarTile({
@@ -117,6 +159,8 @@ export function WorkspaceToolbar() {
   const { snapshot, brokerInfo, loading } = useSnapshot();
   const { dayPnl, loading: dayLoading } = useDayPnl();
   const clock = useEtClock();
+  const copilotOpen = useCopilotStore((s) => s.open);
+  const toggleCopilot = useCopilotStore((s) => s.toggle);
   const {
     selectedAccountId,
     privacyMode,
@@ -124,9 +168,38 @@ export function WorkspaceToolbar() {
     togglePrivacy,
   } = useDashboardPrefs();
 
+  const { realAccounts, realSummary } = useRealAccounts();
+
   const view = resolveAccountView(snapshot, selectedAccountId);
-  const accountSnapshots = snapshot?.snapshots ?? [];
-  const showAccountSelect = accountSnapshots.length > 1;
+  // Real (Schwab) balances for the toolbar tiles when a real scope is selected —
+  // resolveAccountView returns null for real scopes (the paper/real firewall), so
+  // the tiles must read from the Schwab source here instead.
+  const realView = isRealScope(selectedAccountId)
+    ? selectedAccountId === "all_real"
+      ? {
+          portfolio_value: realSummary.liquidation_value ?? 0,
+          cash: realSummary.cash ?? 0,
+          unrealized_pl: realSummary.unrealized_pl ?? 0,
+          day_pl: realSummary.day_pl ?? 0,
+        }
+      : (() => {
+          const acct = realAccounts.find((a) => a.id === selectedAccountId);
+          return acct
+            ? {
+                portfolio_value: acct.liquidation_value,
+                cash: acct.cash,
+                unrealized_pl: acct.unrealized_pl,
+                day_pl: acct.day_pl,
+              }
+            : null;
+        })()
+    : null;
+  const paperSnapshots = (snapshot?.snapshots ?? []).filter(
+    (s) => s.money_type !== "real",
+  );
+  const showAccountSelect =
+    paperSnapshots.length > 1 || realAccounts.length > 0;
+  const badgeKind = moneyTypeBadgeKind(selectedAccountId);
 
   const [brokerOpen, setBrokerOpen] = useState(false);
   const [brokerDetails, setBrokerDetails] = useState<BrokerInfo | null>(null);
@@ -293,39 +366,18 @@ export function WorkspaceToolbar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {isPaper ? (
-          <span className="hidden items-center rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] text-[var(--c-blue)] sm:inline-flex">
-            paper
-          </span>
-        ) : null}
+        <MoneyTypeBadge kind={badgeKind} className="hidden sm:inline-flex" />
       </div>
 
       <div className="absolute left-1/2 hidden -translate-x-1/2 items-center lg:flex">
         <div className="flex items-center gap-1.5 text-[var(--fg-dim)]">
-          {loading && !snapshot ? null : snapshot && view ? (
+          {loading && !snapshot ? null : (
             <>
               {showAccountSelect ? (
-                <Select
+                <AccountSelector
                   value={selectedAccountId}
-                  onValueChange={(v) => setSelectedAccountId(v ?? "all")}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="h-7 min-w-[7rem] border-[var(--border)] bg-[var(--bg-inset)] px-2 font-mono text-[10.5px] text-foreground"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="font-mono text-[11px]">
-                    <SelectItem value="all">All accounts</SelectItem>
-                    {accountSnapshots.map((s) =>
-                      s.account_id ? (
-                        <SelectItem key={s.account_id} value={s.account_id}>
-                          {accountSelectLabel(s)}
-                        </SelectItem>
-                      ) : null,
-                    )}
-                  </SelectContent>
-                </Select>
+                  onChange={setSelectedAccountId}
+                />
               ) : null}
               <button
                 type="button"
@@ -339,56 +391,144 @@ export function WorkspaceToolbar() {
                   <Eye className="size-3.5" />
                 )}
               </button>
-              <ToolbarTile
-                label="PORT"
-                value={maskMoney(
-                  view.portfolio_value,
-                  privacyMode,
-                  formatCompactMoney,
-                )}
-              />
-              <ToolbarTile
-                label="BP"
-                value={maskMoney(
-                  view.buying_power,
-                  privacyMode,
-                  formatCompactMoney,
-                )}
-              />
-              <ToolbarTile
-                label="DAY"
-                value={
-                  dayLoading && dayPnl == null
-                    ? "—"
-                    : dayPnl != null
-                      ? maskMoney(dayPnl, privacyMode, formatSignedPnl)
-                      : "—"
-                }
-                valueClassName={
-                  !privacyMode && dayPnl != null
-                    ? dayPnl >= 0
-                      ? "text-[var(--c-green)]"
-                      : "text-[var(--c-red)]"
-                    : undefined
-                }
-              />
-              <ToolbarTile
-                label="UPL"
-                value={maskMoney(view.unrealized_pl, privacyMode, formatSignedPnl)}
-                valueClassName={
-                  !privacyMode
-                    ? view.unrealized_pl >= 0
-                      ? "text-[var(--c-green)]"
-                      : "text-[var(--c-red)]"
-                    : undefined
-                }
-              />
+              {selectedAccountId === "overview" ? (
+                // Firewall: two separate portfolio totals, never one blended figure.
+                <>
+                  <ToolbarTile
+                    label="REAL"
+                    value={maskMoney(
+                      realSummary.liquidation_value ?? 0,
+                      privacyMode,
+                      formatCompactMoney,
+                    )}
+                  />
+                  <ToolbarTile
+                    label="PAPER"
+                    value={maskMoney(
+                      snapshot?.all_accounts_summary?.portfolio_value ?? 0,
+                      privacyMode,
+                      formatCompactMoney,
+                    )}
+                  />
+                </>
+              ) : realView ? (
+                <>
+                  <ToolbarTile
+                    label="PORT"
+                    value={maskMoney(
+                      realView.portfolio_value,
+                      privacyMode,
+                      formatCompactMoney,
+                    )}
+                  />
+                  <ToolbarTile
+                    label="CASH"
+                    value={maskMoney(
+                      realView.cash,
+                      privacyMode,
+                      formatCompactMoney,
+                    )}
+                  />
+                  <ToolbarTile
+                    label="DAY"
+                    value={maskMoney(
+                      realView.day_pl,
+                      privacyMode,
+                      formatSignedPnl,
+                    )}
+                    valueClassName={
+                      !privacyMode && realView.day_pl !== 0
+                        ? realView.day_pl >= 0
+                          ? "text-[var(--c-green)]"
+                          : "text-[var(--c-red)]"
+                        : undefined
+                    }
+                  />
+                  <ToolbarTile
+                    label="UPL"
+                    value={maskMoney(
+                      realView.unrealized_pl,
+                      privacyMode,
+                      formatSignedPnl,
+                    )}
+                    valueClassName={
+                      !privacyMode
+                        ? realView.unrealized_pl >= 0
+                          ? "text-[var(--c-green)]"
+                          : "text-[var(--c-red)]"
+                        : undefined
+                    }
+                  />
+                </>
+              ) : view ? (
+                <>
+                  <ToolbarTile
+                    label="PORT"
+                    value={maskMoney(
+                      view.portfolio_value,
+                      privacyMode,
+                      formatCompactMoney,
+                    )}
+                  />
+                  <ToolbarTile
+                    label="BP"
+                    value={maskMoney(
+                      view.buying_power,
+                      privacyMode,
+                      formatCompactMoney,
+                    )}
+                  />
+                  <ToolbarTile
+                    label="DAY"
+                    value={
+                      dayLoading && dayPnl == null
+                        ? "—"
+                        : dayPnl != null
+                          ? maskMoney(dayPnl, privacyMode, formatSignedPnl)
+                          : "—"
+                    }
+                    valueClassName={
+                      !privacyMode && dayPnl != null
+                        ? dayPnl >= 0
+                          ? "text-[var(--c-green)]"
+                          : "text-[var(--c-red)]"
+                        : undefined
+                    }
+                  />
+                  <ToolbarTile
+                    label="UPL"
+                    value={maskMoney(view.unrealized_pl, privacyMode, formatSignedPnl)}
+                    valueClassName={
+                      !privacyMode
+                        ? view.unrealized_pl >= 0
+                          ? "text-[var(--c-green)]"
+                          : "text-[var(--c-red)]"
+                        : undefined
+                    }
+                  />
+                </>
+              ) : null}
             </>
-          ) : null}
+          )}
         </div>
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 md:gap-5">
+        <button
+          type="button"
+          onClick={toggleCopilot}
+          title={`${copilotOpen ? "Close" : "Open"} copilot (Ctrl/Cmd+J)`}
+          aria-label="Toggle copilot"
+          aria-pressed={copilotOpen}
+          className={cn(
+            "inline-flex cursor-pointer items-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]",
+            copilotOpen
+              ? "text-[var(--c-accent)]"
+              : "text-[var(--fg-faint)]",
+          )}
+        >
+          <MessageSquareIcon className="size-3.5" />
+        </button>
         <NotificationBell />
         <SettingsDialog collapsed />
         <ThemeSwitcher />

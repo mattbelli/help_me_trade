@@ -4,25 +4,24 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Reorder, useDragControls } from "motion/react";
 import { Sparkline } from "@/components/trading/sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
-  fetchEarningsHistory,
   fetchOvernightTradable,
   fetchWatchlists,
   searchSymbols,
   updateWatchlist,
-  type EarningsEvent,
   type WatchlistsState,
 } from "@/lib/api";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
 import type { ChannelId } from "@/lib/workspace/channels";
-import { useChannelStore } from "@/lib/workspace/use-channel-store";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
 
 const ROW_GRID =
-  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem_1rem] items-center gap-x-1";
+  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
 
 function rvolColor(value: number): string {
   if (value >= 3) return "var(--c-red)";
@@ -43,19 +42,6 @@ function formatPrice(value: number): string {
   });
 }
 
-function formatMarketCap(value: number): string {
-  if (value >= 1_000_000_000_000) {
-    return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
-  }
-  if (value >= 1_000_000_000) {
-    return `$${(value / 1_000_000_000).toFixed(1)}B`;
-  }
-  if (value >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(0)}M`;
-  }
-  return `$${value.toLocaleString()}`;
-}
-
 function daysUntil(dateStr: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
   if (!match) return null;
@@ -67,12 +53,6 @@ function daysUntil(dateStr: string): number | null {
 
   const diffMs = target.getTime() - today.getTime();
   return Math.round(diffMs / (24 * 60 * 60 * 1000));
-}
-
-function earningsCountdownSuffix(days: number): string {
-  if (days === 0) return "today";
-  if (days === 1) return "1d";
-  return `${days}d`;
 }
 
 function earningsBadgeLabel(days: number): string {
@@ -99,11 +79,13 @@ function earningsBadgeStyle(days: number): CSSProperties {
 function WatchlistAddRow({
   symbols,
   activeListId,
-  onUpdated,
+  onAdded,
+  onClose,
 }: {
   symbols: string[];
   activeListId: string;
-  onUpdated: (state: WatchlistsState) => void;
+  onAdded: (state: WatchlistsState) => void;
+  onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -144,13 +126,6 @@ function WatchlistAddRow({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
-  const reset = useCallback(() => {
-    setQuery("");
-    setSuggestions([]);
-    setOpen(false);
-    inputRef.current?.focus();
-  }, []);
-
   const addSymbol = useCallback(
     async (raw: string) => {
       const symbol = raw.trim().toUpperCase();
@@ -158,36 +133,38 @@ function WatchlistAddRow({
 
       const current = symbols.map((s) => s.toUpperCase());
       if (current.includes(symbol)) {
-        reset();
+        onClose();
         return;
       }
 
       setSubmitting(true);
       try {
+        // Pin the newly added symbol to the TOP of the user's order.
         const next = await updateWatchlist(activeListId, {
-          symbols: [...symbols, symbol],
+          symbols: [symbol, ...symbols],
         });
-        onUpdated(next);
-        reset();
+        onAdded(next);
+        onClose();
       } finally {
         setSubmitting(false);
       }
     },
-    [activeListId, onUpdated, reset, symbols],
+    [activeListId, onAdded, onClose, symbols],
   );
 
   return (
     <div
       ref={wrapRef}
-      className="relative flex items-center gap-x-1 border-b border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5"
+      className="relative m-1.5 flex items-center gap-x-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 transition-colors focus-within:border-[var(--c-accent)]"
     >
-      <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--fg-faint)]">
+      <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--c-accent)]">
         +
       </span>
       <input
         ref={inputRef}
         type="text"
         value={query}
+        autoFocus
         disabled={submitting}
         placeholder="Add symbol"
         className="min-w-0 flex-1 bg-transparent font-mono text-[12px] uppercase text-foreground outline-none placeholder:text-[var(--fg-faint)]"
@@ -206,7 +183,7 @@ function WatchlistAddRow({
           }
           if (e.key === "Escape") {
             e.preventDefault();
-            reset();
+            onClose();
           }
         }}
         onFocus={() => {
@@ -214,10 +191,18 @@ function WatchlistAddRow({
         }}
       />
       {loading ? (
-        <span className="absolute top-1/2 right-2 -translate-y-1/2 font-mono text-[9px] text-[var(--fg-faint)]">
+        <span className="shrink-0 font-mono text-[9px] text-[var(--fg-faint)]">
           …
         </span>
       ) : null}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close add symbol"
+        className="shrink-0 rounded px-0.5 font-mono text-[12px] leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+      >
+        ×
+      </button>
       {open && suggestions.length > 0 ? (
         <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)]">
           {suggestions.map((sym) => (
@@ -248,215 +233,6 @@ const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
   overnight: { label: "24h", title: "Overnight (24/5)" },
 };
 
-const FUNDAMENTALS_GRID =
-  "grid grid-cols-3 gap-x-3 gap-y-1.5 px-2 py-2";
-
-function EarningsReactionsRow({ symbol }: { symbol: string }) {
-  const [events, setEvents] = useState<EarningsEvent[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchEarningsHistory(symbol, 6)
-      .then((res) => {
-        if (!cancelled) setEvents(res.events);
-      })
-      .catch(() => {
-        if (!cancelled) setEvents([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [symbol]);
-
-  return (
-    <div
-      style={{
-        borderTop: "1px solid var(--border)",
-        padding: "4px 8px 5px",
-        background: "var(--bg-inset)",
-      }}
-    >
-      <span
-        className="text-[9px] font-medium tracking-[0.04em] uppercase"
-        style={{ color: "var(--fg-faint)", display: "block", marginBottom: 3 }}
-      >
-        Earnings (EPS surprise)
-      </span>
-      {events === null ? (
-        <span
-          className="text-[10px] tabular-nums"
-          style={{ color: "var(--fg-faint)" }}
-        >
-          …
-        </span>
-      ) : events.length === 0 ? (
-        <span
-          className="text-[10px] tabular-nums"
-          style={{ color: "var(--fg-faint)" }}
-        >
-          no data
-        </span>
-      ) : (
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-          {events.map((ev) => {
-            const surprise = ev.surprise_pct;
-            const beat = surprise != null && surprise >= 0;
-            const color = surprise == null
-              ? "var(--fg-faint)"
-              : beat
-              ? "var(--c-green)"
-              : "var(--c-red)";
-            const surpriseStr =
-              surprise == null
-                ? "—"
-                : `${surprise >= 0 ? "+" : ""}${surprise.toFixed(1)}%`;
-            const tooltipParts: string[] = [];
-            if (ev.eps_actual != null)
-              tooltipParts.push(`actual $${ev.eps_actual.toFixed(2)}`);
-            if (ev.eps_estimate != null)
-              tooltipParts.push(`est $${ev.eps_estimate.toFixed(2)}`);
-            const tooltip = tooltipParts.length > 0 ? tooltipParts.join(" vs ") : undefined;
-            return (
-              <span
-                key={ev.period}
-                className="text-[10px] tabular-nums"
-                style={{ color: "var(--fg-faint)" }}
-                title={tooltip}
-              >
-                {ev.label}{" "}
-                <span style={{ color }}>{surpriseStr}</span>
-              </span>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExpandableFundamentalsPanel({
-  expanded,
-  symbol,
-  quote,
-}: {
-  expanded: boolean;
-  symbol: string;
-  quote: Quote | undefined;
-}) {
-  const [mounted, setMounted] = useState(false);
-  const [openRows, setOpenRows] = useState(false);
-
-  useEffect(() => {
-    if (expanded) setMounted(true);
-  }, [expanded]);
-
-  useEffect(() => {
-    if (mounted && expanded) {
-      const id = requestAnimationFrame(() => setOpenRows(true));
-      return () => cancelAnimationFrame(id);
-    }
-    setOpenRows(false);
-  }, [mounted, expanded]);
-
-  if (!mounted) return null;
-
-  return (
-    <div
-      className={cn(
-        "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
-        openRows && expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-      )}
-      onTransitionEnd={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.propertyName === "grid-template-rows" && !expanded) {
-          setMounted(false);
-        }
-      }}
-    >
-      <div className="min-h-0 overflow-hidden">
-        <FundamentalsPanel symbol={symbol} quote={quote} />
-      </div>
-    </div>
-  );
-}
-
-function FundamentalsPanel({
-  symbol,
-  quote,
-}: {
-  symbol: string;
-  quote: Quote | undefined;
-}) {
-  const dash = "—";
-
-  const peStr =
-    quote?.pe != null ? quote.pe.toFixed(1) : dash;
-  const mktCapStr =
-    quote?.market_cap != null ? formatMarketCap(quote.market_cap) : dash;
-  const epsStr =
-    quote?.eps != null ? `$${quote.eps.toFixed(2)}` : dash;
-  const divYieldStr =
-    quote?.div_yield != null ? `${quote.div_yield.toFixed(2)}%` : dash;
-  const lastEarningsStr = quote?.last_earnings ?? dash;
-
-  const nextEarningsDate = quote?.next_earnings ?? null;
-  const nextEarningsDays =
-    nextEarningsDate != null ? daysUntil(nextEarningsDate) : null;
-  const nextEarningsStr =
-    nextEarningsDate == null
-      ? dash
-      : nextEarningsDays != null &&
-          nextEarningsDays >= 0 &&
-          nextEarningsDays <= 14
-        ? `${nextEarningsDate} · ${earningsCountdownSuffix(nextEarningsDays)}`
-        : nextEarningsDate;
-  const nextEarningsColor =
-    nextEarningsDays != null &&
-    nextEarningsDays >= 0 &&
-    nextEarningsDays <= 14
-      ? earningsUrgencyColor(nextEarningsDays)
-      : "var(--fg-dim)";
-
-  const items: { label: string; value: string; color?: string }[] = [
-    { label: "P/E", value: peStr },
-    { label: "Mkt Cap", value: mktCapStr },
-    { label: "EPS", value: epsStr },
-    { label: "Div Yield", value: divYieldStr },
-    { label: "Last Earns", value: lastEarningsStr },
-    { label: "Next Earns", value: nextEarningsStr, color: nextEarningsColor },
-  ];
-
-  return (
-    <>
-      <div
-        className={FUNDAMENTALS_GRID}
-        style={{
-          borderTop: "1px solid var(--border)",
-          background: "var(--bg-inset)",
-        }}
-      >
-        {items.map(({ label, value, color }) => (
-          <div key={label} className="flex flex-col gap-px">
-            <span
-              className="text-[9px] font-medium tracking-[0.04em] uppercase"
-              style={{ color: "var(--fg-faint)" }}
-            >
-              {label}
-            </span>
-            <span
-              className="tabular-nums text-[11px]"
-              style={{ color: color ?? "var(--fg-dim)" }}
-            >
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
-      <EarningsReactionsRow symbol={symbol} />
-    </>
-  );
-}
-
 function WatchlistSymbolRow({
   symbol,
   quote,
@@ -479,7 +255,6 @@ function WatchlistSymbolRow({
   onDragEnd: () => void;
 }) {
   const controls = useDragControls();
-  const [expanded, setExpanded] = useState(false);
 
   const session = quote?.market_session;
   const extBadge =
@@ -512,7 +287,7 @@ function WatchlistSymbolRow({
       <div
         className={cn(
           ROW_GRID,
-          "group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
+          "group/row group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
         )}
       >
         <button
@@ -538,9 +313,12 @@ function WatchlistSymbolRow({
               <span className="size-1.5 rounded-full bg-[var(--c-green)]" />
             ) : null}
           </span>
-          <span className="truncate font-medium text-[var(--c-accent)]">
-            {symbol}
-          </span>
+          <ClickableSymbol
+            symbol={symbol}
+            linked={linked}
+            onActivate={onPublish}
+            className="truncate font-medium"
+          />
           {showEarningsBadge && nextEarningsDate ? (
             <span
               className="shrink-0 rounded px-0.5 font-mono text-[9px] leading-none"
@@ -606,7 +384,9 @@ function WatchlistSymbolRow({
         )}
         <div className="flex justify-end">
           <Sparkline
-            values={quote?.intraday ?? quote?.sparkline ?? []}
+            values={
+              (quote?.intraday?.length ? quote.intraday : quote?.sparkline) ?? []
+            }
             width={48}
             height={18}
             className={
@@ -618,29 +398,12 @@ function WatchlistSymbolRow({
             }
           />
         </div>
-        <button
-          type="button"
-          aria-label={expanded ? `Collapse ${symbol} details` : `Expand ${symbol} details`}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-          className="flex items-center justify-center rounded text-[var(--fg-faint)] opacity-40 transition-all group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--fg-dim)]"
-          style={{ fontSize: "9px", lineHeight: 1, padding: "1px 2px" }}
-        >
-          {expanded ? "▲" : "▼"}
-        </button>
       </div>
-      <ExpandableFundamentalsPanel
-        expanded={expanded}
-        symbol={symbol}
-        quote={quote}
-      />
     </Reorder.Item>
   );
 }
 
-export function WatchlistWidget({ config }: WidgetProps) {
+export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -654,9 +417,8 @@ export function WatchlistWidget({ config }: WidgetProps) {
     new Set(),
   );
   const dragOrderRef = useRef<string[] | null>(null);
-  const setChannelSymbol = useChannelStore((s) => s.setChannelSymbol);
   const channel: ChannelId = config.channel ?? "none";
-  const linked = channel !== "none";
+  const { publish, linked } = usePublishSymbol(channel);
 
   useEffect(() => {
     dragOrderRef.current = dragOrder;
@@ -843,13 +605,13 @@ export function WatchlistWidget({ config }: WidgetProps) {
     if (reordered) void persistReorder(reordered);
   }, [persistReorder]);
 
-  const publishSymbol = useCallback(
-    (symbol: string) => {
-      if (!linked) return;
-      setChannelSymbol(channel, symbol);
-    },
-    [channel, linked, setChannelSymbol],
-  );
+  // A freshly added symbol is pinned to the top of the persisted order — clear
+  // any active column sort / in-progress drag so it's visible at the top.
+  const handleSymbolAdded = useCallback((next: WatchlistsState) => {
+    setState(next);
+    setSortState(null);
+    setDragOrder(null);
+  }, []);
 
   if (loading && !state) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
@@ -921,8 +683,16 @@ export function WatchlistWidget({ config }: WidgetProps) {
               </span>
             ),
           )}
-          <span />
         </div>
+
+        {config.adding ? (
+          <WatchlistAddRow
+            symbols={symbols}
+            activeListId={displayList.id}
+            onAdded={handleSymbolAdded}
+            onClose={() => onConfigChange({ adding: false })}
+          />
+        ) : null}
 
         <Reorder.Group
           axis="y"
@@ -938,19 +708,13 @@ export function WatchlistWidget({ config }: WidgetProps) {
               isOvernight={overnightSymbols.has(symbol.toUpperCase())}
               linked={linked}
               removing={removing === symbol}
-              onPublish={() => publishSymbol(symbol)}
+              onPublish={() => publish(symbol)}
               onRemove={() => void removeSymbol(symbol)}
               onDragStart={() => setSortState(null)}
               onDragEnd={handleReorderEnd}
             />
           ))}
         </Reorder.Group>
-
-        <WatchlistAddRow
-          symbols={symbols}
-          activeListId={displayList.id}
-          onUpdated={setState}
-        />
       </div>
     </div>
   );

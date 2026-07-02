@@ -101,20 +101,75 @@ async def test_reconcile_updates_filled_and_broadcasts(
         "trading.fill_tracker.get_broker",
         lambda _name: StubAdapter(),
     )
-    broadcast = AsyncMock()
-    monkeypatch.setattr("trading.fill_tracker.market_hub.broadcast_alert", broadcast)
+    notify = AsyncMock(return_value={"id": "notif_fill"})
+    monkeypatch.setattr("trading.fill_tracker.notify", notify)
 
     await reconcile_open_executions("alpaca", db_path=db)
 
     row = order_executions_mod.get_execution("exec_fill1", db_path=db)
     assert row is not None
     assert row["status"] == "filled"
-    broadcast.assert_awaited_once()
-    payload = broadcast.await_args.args[0]
-    assert payload["type"] == "fill"
-    assert payload["execution_id"] == "exec_fill1"
-    assert payload["status"] == "filled"
-    assert payload["filled_qty"] == 10.0
+    notify.assert_awaited_once()
+    call = notify.await_args.kwargs
+    assert call["kind"] == "fill"
+    assert call["push"] is False
+    assert call["data"]["execution_id"] == "exec_fill1"
+    assert call["data"]["status"] == "filled"
+    assert call["data"]["filled_qty"] == 10.0
+
+
+def _seed_partial(db_path: Path, *, execution_id: str, broker_order_id: str) -> None:
+    order_executions_mod.create_execution_record(
+        execution_id=execution_id, proposal_id="prop1", session_id=None, symbol="AAPL",
+        side="buy", qty=Decimal("10"), order_type="market", limit_price=None,
+        execution_mode="paper", status="partially_filled", broker="alpaca",
+        broker_order_id=broker_order_id, submitted_at="2026-01-01T12:00:00+00:00", db_path=db_path,
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_promotes_partially_filled_to_filled(monkeypatch, tmp_path: Path) -> None:
+    """A partially_filled order stays in the reconcile pool and settles to filled.
+
+    Regression: it used to exit the pool the moment it was stamped partially_filled,
+    so the row never re-polled the broker and stuck there forever (momentum's 86-order
+    rebalance left 40 stuck despite being fully filled at the broker).
+    """
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_partial(db, execution_id="exec_pf", broker_order_id="broker-ord-pf")
+
+    stub_order = Order(id="broker-ord-pf", symbol="AAPL", qty=10.0, side="buy",
+                       order_type="market", status="filled", filled_qty=10.0, limit_price=None)
+    monkeypatch.setattr("trading.fill_tracker.get_broker",
+                        lambda _n: type("S", (), {"aget_order": AsyncMock(return_value=stub_order)})())
+    notify = AsyncMock(return_value={"id": "notif_fill"})
+    monkeypatch.setattr("trading.fill_tracker.notify", notify)
+
+    await reconcile_open_executions("alpaca", db_path=db)
+
+    assert order_executions_mod.get_execution("exec_pf", db_path=db)["status"] == "filled"
+    notify.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_skips_unchanged_partially_filled(monkeypatch, tmp_path: Path) -> None:
+    """A still-partial order is not re-written or re-broadcast (gate on status change)."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_partial(db, execution_id="exec_pf2", broker_order_id="broker-ord-pf2")
+
+    stub_order = Order(id="broker-ord-pf2", symbol="AAPL", qty=10.0, side="buy",
+                       order_type="market", status="partially_filled", filled_qty=4.0, limit_price=None)
+    monkeypatch.setattr("trading.fill_tracker.get_broker",
+                        lambda _n: type("S", (), {"aget_order": AsyncMock(return_value=stub_order)})())
+    notify = AsyncMock(return_value={"id": "notif_fill"})
+    monkeypatch.setattr("trading.fill_tracker.notify", notify)
+
+    await reconcile_open_executions("alpaca", db_path=db)
+
+    assert order_executions_mod.get_execution("exec_pf2", db_path=db)["status"] == "partially_filled"
+    notify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -149,8 +204,8 @@ async def test_reconcile_continues_after_lookup_error(
         lambda _name: StubAdapter(),
     )
     monkeypatch.setattr(
-        "trading.fill_tracker.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.fill_tracker.notify",
+        AsyncMock(return_value={"id": "notif_fill"}),
     )
 
     await reconcile_open_executions("alpaca", db_path=db)
@@ -448,8 +503,8 @@ async def test_reconcile_open_uses_account_adapter_and_scope(
         "trading.fill_tracker.get_broker_for_account", fake_get_broker_for_account
     )
     monkeypatch.setattr(
-        "trading.fill_tracker.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.fill_tracker.notify",
+        AsyncMock(return_value={"id": "notif_fill"}),
     )
 
     await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)

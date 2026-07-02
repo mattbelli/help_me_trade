@@ -35,6 +35,7 @@ export function SymbolSearchInput({
   const [loading, setLoading] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const focusedRef = useRef(false);
 
   useEffect(() => {
     const q = value.trim();
@@ -50,7 +51,7 @@ export function SymbolSearchInput({
       searchSymbols(q)
         .then((results) => {
           setSuggestions(results);
-          setOpen(results.length > 0);
+          setOpen(focusedRef.current && results.length > 0);
           setHighlightIndex(-1);
         })
         .catch(() => {
@@ -121,12 +122,14 @@ export function SymbolSearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value.toUpperCase())}
         onBlur={() => {
+          focusedRef.current = false;
           setOpen(false);
           setHighlightIndex(-1);
           onCommit();
         }}
         onKeyDown={handleKeyDown}
         onFocus={() => {
+          focusedRef.current = true;
           if (suggestions.length > 0) setOpen(true);
         }}
         {...dragSafeControlProps}

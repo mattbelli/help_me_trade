@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from schwab.client import Client
 
-from brokers.alpaca import AlpacaAdapter
+from brokers.alpaca import AlpacaAdapter, StockBar
 from brokers.base import MarketDataProvider
 from brokers.errors import BrokerError
 from brokers.factory import get_market_data_provider
@@ -88,6 +88,19 @@ def test_resolve_timeframe_daily_and_minute() -> None:
         "frequency": Client.PriceHistory.Frequency.DAILY,
     }
 
+    weekly = SchwabMarketData._resolve_timeframe("1Week")
+    assert weekly == daily
+
+    monthly = SchwabMarketData._resolve_timeframe("1Month")
+    assert monthly == daily
+
+    four_hour = SchwabMarketData._resolve_timeframe("4Hour")
+    assert four_hour == {
+        "period_type": Client.PriceHistory.PeriodType.DAY,
+        "frequency_type": Client.PriceHistory.FrequencyType.MINUTE,
+        "frequency": Client.PriceHistory.Frequency.EVERY_THIRTY_MINUTES,
+    }
+
     minute = SchwabMarketData._resolve_timeframe("5Min")
     assert minute == {
         "period_type": Client.PriceHistory.PeriodType.DAY,
@@ -99,6 +112,44 @@ def test_resolve_timeframe_daily_and_minute() -> None:
 def test_resolve_timeframe_one_hour_raises() -> None:
     with pytest.raises(BrokerError, match="1Hour"):
         SchwabMarketData._resolve_timeframe("1Hour")
+
+
+def test_aggregate_to_weekly_buckets_three_weeks() -> None:
+    """Ten daily bars spanning three ISO weeks collapse to three weekly candles."""
+    bars = [
+        StockBar(time="2026-01-05T00:00:00Z", open=100, high=101, low=99, close=100.5, volume=1000),
+        StockBar(time="2026-01-06T00:00:00Z", open=100.5, high=102, low=100, close=101, volume=1100),
+        StockBar(time="2026-01-07T00:00:00Z", open=101, high=103, low=100.5, close=102, volume=1200),
+        StockBar(time="2026-01-08T00:00:00Z", open=102, high=104, low=101.5, close=103, volume=1300),
+        StockBar(time="2026-01-09T00:00:00Z", open=103, high=105, low=102.5, close=104, volume=1400),
+        StockBar(time="2026-01-12T00:00:00Z", open=104, high=106, low=103.5, close=105, volume=1500),
+        StockBar(time="2026-01-13T00:00:00Z", open=105, high=107, low=104.5, close=106, volume=1600),
+        StockBar(time="2026-01-14T00:00:00Z", open=106, high=108, low=105.5, close=107, volume=1700),
+        StockBar(time="2026-01-19T00:00:00Z", open=107, high=109, low=106.5, close=108, volume=1800),
+        StockBar(time="2026-01-20T00:00:00Z", open=108, high=110, low=107.5, close=109, volume=1900),
+    ]
+
+    weekly = SchwabMarketData._aggregate_to_weekly(bars)
+
+    assert len(weekly) == 3
+    assert weekly[0].time == "2026-01-05T00:00:00Z"
+    assert weekly[0].open == 100
+    assert weekly[0].high == 105
+    assert weekly[0].low == 99
+    assert weekly[0].close == 104
+    assert weekly[0].volume == 6000
+    assert weekly[1].time == "2026-01-12T00:00:00Z"
+    assert weekly[1].open == 104
+    assert weekly[1].high == 108
+    assert weekly[1].low == 103.5
+    assert weekly[1].close == 107
+    assert weekly[1].volume == 4800
+    assert weekly[2].time == "2026-01-19T00:00:00Z"
+    assert weekly[2].open == 107
+    assert weekly[2].high == 110
+    assert weekly[2].low == 106.5
+    assert weekly[2].close == 109
+    assert weekly[2].volume == 3700
 
 
 @pytest.mark.asyncio
@@ -313,8 +364,11 @@ async def test_aget_stock_bars_uses_days_window() -> None:
 
 _QUOTES_PAYLOAD = {
     "SPY": {
+        # quote.lastPrice = live consolidated last (post-market 593.1); the regular block
+        # holds the 16:00 close (592.5); the `extended` block is STALE (590.0) and must be
+        # ignored in favour of quote.lastPrice.
         "quote": {
-            "lastPrice": 592.5,
+            "lastPrice": 593.1,
             "closePrice": 589.0,
             "netPercentChangeInDouble": 0.59,
             "totalVolume": 85_432_100,
@@ -324,8 +378,8 @@ _QUOTES_PAYLOAD = {
             "regularMarketPercentChange": 0.59,
         },
         "extended": {
-            "lastPrice": 593.1,
-            "mark": 593.0,
+            "lastPrice": 590.0,
+            "mark": 590.0,
         },
     },
     "AAPL": {
@@ -347,9 +401,9 @@ async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
     assert set(result.keys()) == {"SPY", "AAPL"}
 
     spy = result["SPY"]
-    assert spy["regular_last"] == 592.5
+    assert spy["regular_last"] == 592.5  # regular block's 16:00 close
     assert spy["regular_change_pct"] == 0.59
-    assert spy["ext_last"] == 593.1
+    assert spy["ext_last"] == 593.1  # quote.lastPrice, NOT the stale extended block (590.0)
     assert spy["prev_close"] == 589.0
     # ext_change_pct: no postMarketPercentChange in this fixture, so it's computed vs
     # today's regular close (regular_last) — correct for pre/post/overnight.
@@ -360,13 +414,107 @@ async def test_aget_quotes_parses_regular_and_extended_fields() -> None:
     assert spy["total_volume"] == 85_432_100.0
 
     aapl = result["AAPL"]
-    # empty regular/extended blocks → falls back to quote block where possible
+    # empty regular/extended blocks → both reg_last and ext_last fall back to quote.lastPrice
+    # (the consolidated last trade; ext shows flat-at-last when there's no extended print).
     assert aapl["regular_last"] == 211.0
-    assert aapl["ext_last"] is None
-    assert aapl["ext_change_pct"] is None
+    assert aapl["ext_last"] == 211.0
+    assert aapl["ext_change_pct"] == 0.0
     assert aapl["prev_close"] == 210.0
     # AAPL fixture has no totalVolume → None
     assert aapl["total_volume"] is None
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_ignores_stale_extended_block() -> None:
+    """Regression (TSLA post-market): the `extended` block held a ~15h-old pre-market print
+    (371.09) while quote.lastPrice (377.93) was the live post-market last. Freshest-by-tradeTime
+    picks the live quote block."""
+    payload = {
+        "TSLA": {
+            "quote": {
+                "lastPrice": 377.93,
+                "tradeTime": 2_000_000_000_000,  # fresh
+                "closePrice": 375.12,
+                "postMarketPercentChange": -0.4687788,
+            },
+            "regular": {"regularMarketLastPrice": 379.71},
+            "extended": {"lastPrice": 371.09, "tradeTime": 1_999_946_000_000},  # ~15h older
+        }
+    }
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(payload)
+    provider = _provider(client)
+
+    tsla = (await provider.aget_quotes(["TSLA"]))["TSLA"]
+
+    assert tsla["ext_last"] == 377.93  # fresh quote block, not the stale extended 371.09
+    assert tsla["regular_last"] == 379.71
+    assert tsla["ext_change_pct"] == -0.47  # (377.93-379.71)/379.71, agrees with ext_last
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_picks_fresh_extended_overnight() -> None:
+    """Regression (SPY Sunday overnight): the consolidated `quote` block is FROZEN at Friday's
+    last trade (731.20) while the `extended` block is live (733.3). Freshest-by-tradeTime must
+    pick the live extended price — the inverse of the TSLA post-market case."""
+    payload = {
+        "SPY": {
+            "quote": {
+                "lastPrice": 731.20,
+                "tradeTime": 1_999_000_000_000,  # Friday, stale
+                "closePrice": 728.99,
+            },
+            "regular": {"regularMarketLastPrice": 728.99},
+            # live now — a real overnight session carries a bid/ask + volume
+            "extended": {
+                "lastPrice": 733.3,
+                "tradeTime": 2_000_000_000_000,
+                "bidPrice": 733.2,
+                "askPrice": 733.4,
+                "totalVolume": 1_500_000,
+            },
+        }
+    }
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(payload)
+    spy = (await _provider(client).aget_quotes(["SPY"]))["SPY"]
+
+    assert spy["ext_last"] == 733.3  # live extended, not the frozen quote-block 731.20
+    assert spy["ext_change_pct"] == round((733.3 - 728.99) / 728.99 * 100, 2)  # agrees w/ price
+
+
+@pytest.mark.asyncio
+async def test_aget_quotes_ignores_empty_extended_with_recent_tradetime() -> None:
+    """Regression (SPY pre-market phantom price): Schwab left a STALE `extended` block —
+    bid/ask/volume all 0 — carrying a tradeTime MORE recent than the genuinely-traded
+    `quote` block. Freshest-by-tradeTime alone would pick the stale 720 and fire phantom
+    price alerts (real last was ~737). Liveness must exclude the empty block."""
+    payload = {
+        "SPY": {
+            "quote": {
+                "lastPrice": 737.35,
+                "tradeTime": 2_000_000_000_000,  # older than the stale extended below
+                "closePrice": 728.99,
+                "bidPrice": 737.33,
+                "askPrice": 737.35,
+                "totalVolume": 639_969,
+            },
+            "regular": {"regularMarketLastPrice": 728.99},
+            # stale placeholder: a recent tradeTime but NO market (bid/ask/volume all 0)
+            "extended": {
+                "lastPrice": 720.0,
+                "tradeTime": 2_000_000_500_000,  # newer than quote — would win by time alone
+                "bidPrice": 0.0,
+                "askPrice": 0.0,
+                "totalVolume": 0,
+            },
+        }
+    }
+    client = MagicMock()
+    client.get_quotes.return_value = _FakeResponse(payload)
+    spy = (await _provider(client).aget_quotes(["SPY"]))["SPY"]
+
+    assert spy["ext_last"] == 737.35  # live quote, NOT the empty extended's stale 720
 
 
 @pytest.mark.asyncio

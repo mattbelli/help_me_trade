@@ -11,6 +11,7 @@ import {
 import { Lock, LockOpen, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
+import { PageSwitcher } from "@/components/workspace/page-switcher";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   useConsoleStore,
@@ -20,8 +21,31 @@ import {
   WORKSPACE_COMMANDS,
   useWorkspaceCommands,
 } from "@/lib/workspace/use-workspace-commands";
+import { WIDGET_REGISTRY } from "@/lib/workspace/widget-registry";
 
 const SCROLLBACK_MAX_HEIGHT = "min(50vh, 24rem)";
+
+function getCommandSuggestions(input: string): string[] {
+  const trimmed = input.trim();
+  const lower = trimmed.toLowerCase();
+
+  const addMatch = /^\/add(?:\s+(.*))?$/i.exec(trimmed);
+  if (addMatch) {
+    const partial = (addMatch[1] ?? "").trim().toLowerCase();
+    return WIDGET_REGISTRY.filter(
+      (entry) =>
+        partial === "" ||
+        entry.id.toLowerCase().includes(partial) ||
+        entry.title.toLowerCase().includes(partial),
+    ).map((entry) => `/add ${entry.id}`);
+  }
+
+  if (!trimmed.startsWith("/")) return [];
+
+  return WORKSPACE_COMMANDS.filter((cmd) => cmd.startsWith(lower)).map(
+    (cmd) => cmd,
+  );
+}
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -40,7 +64,7 @@ function ScrollbackLine({ entry }: { entry: ScrollbackEntry }) {
         "font-mono text-[12px] leading-relaxed whitespace-pre-wrap",
         entry.kind === "input" && "text-[var(--fg-dim)]",
         entry.kind === "output" && "text-[var(--fg-faint)]",
-        entry.kind === "error" && "text-[var(--c-danger,#ef4444)]",
+        entry.kind === "error" && "text-[var(--c-danger)]",
         entry.kind === "sent" && "text-[var(--c-accent)]",
       )}
     >
@@ -63,9 +87,7 @@ function CommandAutocomplete({
   filter: string;
   onSelect: (command: string) => void;
 }) {
-  const matches = WORKSPACE_COMMANDS.filter((cmd) =>
-    cmd.startsWith(filter.toLowerCase()),
-  );
+  const matches = getCommandSuggestions(filter);
 
   if (matches.length === 0) return null;
 
@@ -207,7 +229,9 @@ export function CommandConsole() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open, setOpen]);
 
-  const showAutocomplete = open && focused && inputValue === "/";
+  const suggestions = getCommandSuggestions(inputValue);
+  const showAutocomplete =
+    open && focused && inputValue.startsWith("/") && suggestions.length > 0;
   const hasOverlayContent =
     open && (scrollback.length > 0 || showAutocomplete);
 
@@ -239,6 +263,12 @@ export function CommandConsole() {
             <CommandAutocomplete
               filter={inputValue}
               onSelect={(cmd) => {
+                if (/^\/add\s+\S+$/i.test(cmd.trim())) {
+                  setInputValue("");
+                  void submitLine(cmd);
+                  inputRef.current?.focus();
+                  return;
+                }
                 setInputValue(`${cmd} `);
                 inputRef.current?.focus();
               }}
@@ -302,9 +332,7 @@ export function CommandConsole() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="hidden rounded-full border border-[var(--border)] px-2 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] md:inline">
-            default layout
-          </span>
+          <PageSwitcher />
           <button
             type="button"
             onClick={toggleLock}

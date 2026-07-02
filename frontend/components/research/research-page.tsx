@@ -174,17 +174,17 @@ export function ResearchPage() {
 
       {researchConfig?.uses_mock_web && (
         <div
-          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+          className="rounded-lg border border-[var(--c-amber)]/40 bg-[var(--c-amber)]/10 px-4 py-3 text-sm text-[var(--c-amber)]"
           role="alert"
         >
-          <strong className="font-medium text-amber-100">Mock web search active.</strong>{" "}
+          <strong className="font-medium text-[var(--foreground)]">Mock web search active.</strong>{" "}
           {researchConfig.warning ??
             "Configure SearXNG in Settings or set SEARXNG_URL — reports will use placeholder snippets until then."}
         </div>
       )}
 
       {streamWarning && !researchConfig?.uses_mock_web && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+        <div className="rounded-lg border border-[var(--c-amber)]/40 bg-[var(--c-amber)]/10 px-4 py-3 text-sm text-[var(--c-amber)]">
           {streamWarning}
         </div>
       )}
@@ -328,7 +328,7 @@ export function ResearchPage() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {selected.depth} depth · {selected.sources?.length ?? 0} sources
                   {selected.report?.web_search_warning ? (
-                    <span className="text-amber-400"> · mock web sources</span>
+                    <span className="text-[var(--c-amber)]"> · mock web sources</span>
                   ) : null}
                 </p>
               )}
@@ -367,7 +367,7 @@ export function ResearchPage() {
               <iframe
                 title={selected.topic}
                 src={researchHtmlUrl(selected.id)}
-                className="h-[560px] w-full border-0 bg-[#0f1115]"
+                className="h-[560px] w-full border-0 bg-[var(--bg-inset)]"
                 sandbox="allow-same-origin"
               />
             )}

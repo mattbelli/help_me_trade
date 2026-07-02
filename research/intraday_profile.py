@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -44,6 +44,61 @@ def segment_rth_sessions(
         if not is_rth(bar["t"]):
             continue
         session_date = to_ny(bar["t"]).date()
+        sessions.setdefault(session_date, []).append(bar)
+    return sessions
+
+
+# --- CME Globex (futures) sessions -------------------------------------------
+# Index futures (/ES, /NQ, /RTY, /YM) trade ~23h: the session for date D runs
+# 18:00 ET (D-1) -> 17:00 ET (D), with a daily maintenance break 17:00-18:00 ET
+# that belongs to no session. The RTH helpers above would discard the overnight
+# ~14.5h — wrong for futures, so futures consumers use these instead.
+
+_GLOBEX_OPEN = time(18, 0)
+_GLOBEX_CLOSE = time(17, 0)
+GLOBEX_N_BUCKETS = 276  # 23h * 60 / 5min
+_GLOBEX_OPEN_MIN = 18 * 60
+
+
+def globex_session_date(et: datetime) -> date | None:
+    """CME Globex session date for a tz-aware America/New_York datetime.
+
+    Session D runs 18:00 ET (D-1) -> 17:00 ET (D). Returns None inside the daily
+    17:00-18:00 ET maintenance break (those bars belong to no session).
+    """
+    local = et.timetz().replace(tzinfo=None)
+    if _GLOBEX_CLOSE <= local < _GLOBEX_OPEN:
+        return None
+    if local >= _GLOBEX_OPEN:
+        return (et + timedelta(days=1)).date()
+    return et.date()
+
+
+def globex_bucket_index(et: datetime) -> int | None:
+    """5-min bucket [0, GLOBEX_N_BUCKETS) within the Globex session.
+
+    Bucket 0 = 18:00 ET (session open). Returns None inside the 17:00-18:00 ET
+    maintenance break. The futures analogue of volume_profile's RTH _bucket_index.
+    """
+    minutes_into = ((et.hour * 60 + et.minute) - _GLOBEX_OPEN_MIN) % (24 * 60)
+    if minutes_into >= GLOBEX_N_BUCKETS * 5:
+        return None
+    return minutes_into // 5
+
+
+def segment_globex_sessions(
+    bars: list[IntradayBar],
+) -> dict[date, list[IntradayBar]]:
+    """Group futures bars by Globex session date, each session sorted ascending.
+
+    The futures analogue of ``segment_rth_sessions`` — keeps the full ~23h
+    session (overnight Globex included), dropping only the maintenance break.
+    """
+    sessions: dict[date, list[IntradayBar]] = {}
+    for bar in sorted(bars, key=lambda item: item["t"]):
+        session_date = globex_session_date(to_ny(bar["t"]))
+        if session_date is None:
+            continue
         sessions.setdefault(session_date, []).append(bar)
     return sessions
 

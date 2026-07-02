@@ -45,6 +45,18 @@ class SchwabMarketData:
 
     @staticmethod
     def _resolve_timeframe(timeframe: str) -> dict[str, Any]:
+        if timeframe in ("1Week", "1Month"):
+            return {
+                "period_type": Client.PriceHistory.PeriodType.YEAR,
+                "frequency_type": Client.PriceHistory.FrequencyType.DAILY,
+                "frequency": Client.PriceHistory.Frequency.DAILY,
+            }
+        if timeframe == "4Hour":
+            return {
+                "period_type": Client.PriceHistory.PeriodType.DAY,
+                "frequency_type": Client.PriceHistory.FrequencyType.MINUTE,
+                "frequency": Client.PriceHistory.Frequency.EVERY_THIRTY_MINUTES,
+            }
         if timeframe == "1Day":
             return {
                 "period_type": Client.PriceHistory.PeriodType.YEAR,
@@ -120,6 +132,86 @@ class SchwabMarketData:
             )
         return hourly
 
+    @staticmethod
+    def _aggregate_to_4hourly(bars: list[StockBar]) -> list[StockBar]:
+        if not bars:
+            return []
+
+        buckets: dict[int, list[StockBar]] = defaultdict(list)
+        for bar in bars:
+            dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
+            bucket_key = int(dt.timestamp()) // (4 * 3600)
+            buckets[bucket_key].append(bar)
+
+        four_hourly: list[StockBar] = []
+        for bucket_key in sorted(buckets):
+            group = buckets[bucket_key]
+            bucket_start = datetime.fromtimestamp(
+                bucket_key * 4 * 3600, tz=UTC
+            )
+            four_hourly.append(
+                StockBar(
+                    time=bucket_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    open=group[0].open,
+                    high=max(b.high for b in group),
+                    low=min(b.low for b in group),
+                    close=group[-1].close,
+                    volume=sum(b.volume for b in group),
+                )
+            )
+        return four_hourly
+
+    @staticmethod
+    def _aggregate_to_weekly(bars: list[StockBar]) -> list[StockBar]:
+        if not bars:
+            return []
+
+        buckets: dict[tuple[int, int], list[StockBar]] = defaultdict(list)
+        for bar in bars:
+            dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
+            iso_year, iso_week, _ = dt.isocalendar()
+            buckets[(iso_year, iso_week)].append(bar)
+
+        weekly: list[StockBar] = []
+        for bucket_key in sorted(buckets):
+            group = buckets[bucket_key]
+            weekly.append(
+                StockBar(
+                    time=group[0].time,
+                    open=group[0].open,
+                    high=max(b.high for b in group),
+                    low=min(b.low for b in group),
+                    close=group[-1].close,
+                    volume=sum(b.volume for b in group),
+                )
+            )
+        return weekly
+
+    @staticmethod
+    def _aggregate_to_monthly(bars: list[StockBar]) -> list[StockBar]:
+        if not bars:
+            return []
+
+        buckets: dict[tuple[int, int], list[StockBar]] = defaultdict(list)
+        for bar in bars:
+            dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
+            buckets[(dt.year, dt.month)].append(bar)
+
+        monthly: list[StockBar] = []
+        for bucket_key in sorted(buckets):
+            group = buckets[bucket_key]
+            monthly.append(
+                StockBar(
+                    time=group[0].time,
+                    open=group[0].open,
+                    high=max(b.high for b in group),
+                    low=min(b.low for b in group),
+                    close=group[-1].close,
+                    volume=sum(b.volume for b in group),
+                )
+            )
+        return monthly
+
     def _fetch_bars_sync(
         self,
         symbol: str,
@@ -166,6 +258,36 @@ class SchwabMarketData:
                 extended_hours=extended_hours,
             )
             return self._aggregate_to_hourly(bars)
+        if timeframe == "4Hour":
+            bars = await asyncio.to_thread(
+                self._fetch_bars_sync,
+                symbol,
+                timeframe="30Min",
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+            return self._aggregate_to_4hourly(bars)
+        if timeframe == "1Week":
+            bars = await asyncio.to_thread(
+                self._fetch_bars_sync,
+                symbol,
+                timeframe="1Day",
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+            return self._aggregate_to_weekly(bars)
+        if timeframe == "1Month":
+            bars = await asyncio.to_thread(
+                self._fetch_bars_sync,
+                symbol,
+                timeframe="1Day",
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+            return self._aggregate_to_monthly(bars)
         return await asyncio.to_thread(
             self._fetch_bars_sync,
             symbol,
@@ -240,8 +362,6 @@ class SchwabMarketData:
             reg_change_pct_raw = regular.get("regularMarketPercentChange") or quote.get(
                 "netPercentChangeInDouble"
             )
-            # Extended-hours price: extended block's lastPrice (or mark as fallback)
-            ext_last_raw = extended.get("lastPrice") or extended.get("mark")
             prev_close_raw = quote.get("closePrice")
             # Schwab's own post/overnight % move (vs today's regular close, like ToS)
             post_pct_raw = quote.get("postMarketPercentChange")
@@ -254,18 +374,47 @@ class SchwabMarketData:
 
             reg_last = _f(reg_last_raw)
             reg_change_pct = _f(reg_change_pct_raw)
-            ext_last = _f(ext_last_raw)
             prev_close = _f(prev_close_raw)
             post_pct = _f(post_pct_raw)
 
-            # Extended/overnight % move: prefer Schwab's own postMarketPercentChange
-            # (vs today's regular close, matching thinkorswim); else compute vs today's
-            # regular close (correct for pre/post/overnight); else vs prior-day close.
+            # Extended/overnight last trade: take whichever of the consolidated `quote` block
+            # or the `extended` block has the more RECENT tradeTime. Schwab keeps one live and
+            # freezes the other depending on session — weekday post-market the `quote` block is
+            # live while `extended` goes stale (TSLA: extended 15h old, quote fresh); weekend/
+            # overnight the reverse (SPY Sun-night: quote frozen at Friday, extended live 733.3).
+            # Freshest-by-time is correct for both; fall back to any value if a tradeTime is absent.
+            # A block only counts as a live price if it actually has a market
+            # (non-zero bid/ask or volume). Schwab leaves a STALE `extended` block
+            # — bid/ask/volume all 0 — carrying a misleadingly recent tradeTime
+            # during weekday pre/post-market; trusting its tradeTime fed a phantom
+            # price (e.g. an old 720 while the real last is 737) into the watchlist
+            # AND price alerts. Require liveness so the genuinely-traded block wins.
+            _e_live = bool(
+                _f(extended.get("bidPrice"))
+                or _f(extended.get("askPrice"))
+                or _f(extended.get("totalVolume"))
+            )
+            _q_last, _q_time = _f(quote.get("lastPrice")), _f(quote.get("tradeTime"))
+            _e_last = _f(extended.get("lastPrice")) or _f(extended.get("mark"))
+            _e_time = _f(extended.get("tradeTime"))
+            _cands = []
+            if _q_last is not None and _q_time is not None:
+                _cands.append((_q_time, _q_last))
+            if _e_last is not None and _e_time is not None and _e_live:
+                _cands.append((_e_time, _e_last))
+            if _cands:
+                ext_last = max(_cands, key=lambda c: c[0])[1]
+            else:
+                ext_last = _q_last if _q_last is not None else _e_last
+
+            # Compute the move vs today's regular close FIRST so the % always agrees with the
+            # freshest ext_last above (Schwab's postMarketPercentChange can be stale overnight).
+            # This equals postMarketPercentChange in the normal weekday post-market case.
             ext_change_pct: float | None = None
-            if post_pct is not None:
-                ext_change_pct = round(post_pct, 2)
-            elif ext_last is not None and reg_last and reg_last != 0:
+            if ext_last is not None and reg_last and reg_last != 0:
                 ext_change_pct = round((ext_last - reg_last) / reg_last * 100, 2)
+            elif post_pct is not None:
+                ext_change_pct = round(post_pct, 2)
             elif ext_last is not None and prev_close and prev_close != 0:
                 ext_change_pct = round((ext_last - prev_close) / prev_close * 100, 2)
 

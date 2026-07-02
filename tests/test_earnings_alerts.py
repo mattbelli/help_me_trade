@@ -82,7 +82,7 @@ async def test_t14_fires_once_and_dedups_same_day(
     assert call.kwargs["data"]["milestone"] == "t14"
     assert call.kwargs["data"]["symbol"] == "MU"
     assert call.kwargs["data"]["earnings_date"] == "2026-07-08"
-    assert "2 weeks" in call.kwargs["body"]
+    assert "2 weeks" in call.args[1]
 
     push_mock.reset_mock()
     await _earnings_alert_once()
@@ -109,7 +109,7 @@ async def test_t1_fires_one_day_before(
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
     assert push_mock.await_args.kwargs["data"]["milestone"] == "t1"
-    assert ", AMC" in push_mock.await_args.kwargs["body"]
+    assert ", AMC" in push_mock.await_args.args[1]
 
 
 @pytest.mark.asyncio
@@ -136,8 +136,8 @@ async def test_t0_fires_day_of_with_hour(
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
     assert push_mock.await_args.kwargs["data"]["milestone"] == "t0"
-    assert "TODAY" in push_mock.await_args.kwargs["body"]
-    assert "before open" in push_mock.await_args.kwargs["body"]
+    assert "TODAY" in push_mock.await_args.args[1]
+    assert "before open" in push_mock.await_args.args[1]
 
 
 @pytest.mark.asyncio

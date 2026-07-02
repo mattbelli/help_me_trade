@@ -6,6 +6,7 @@ import { CheckIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProposalScore } from "@/components/workspace/proposal-score";
 import { fetchProposalScore, type ProposalScore as ProposalScoreData } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 type ProposalInput = {
   symbol?: string;
@@ -91,10 +92,24 @@ export function OrderProposalCard({
         : (input.option_right ?? "—");
 
   return (
-    <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm shadow-sm">
+    <div className="space-y-3 rounded-[16px] border border-[var(--c-accent)] bg-[var(--c-accent-soft)] p-3 text-sm">
       <div>
+        <p className="mb-1 font-mono text-[11px] tracking-[0.1em] lowercase text-[var(--c-accent)]">
+          proposal ready
+        </p>
         <p className="font-medium text-foreground">
-          {isOption ? "Paper option order" : "Paper order"} — your approval needed
+          {isOption ? "Paper option order" : "Paper order"}
+          <span
+            className={cn(
+              "ml-2 inline-flex items-center rounded-full px-2 py-0.5 font-mono text-xs lowercase",
+              isSell
+                ? "bg-[var(--c-red)]/15 text-[var(--c-red)]"
+                : "bg-[var(--c-green)]/15 text-[var(--c-green)]",
+            )}
+          >
+            {side.toLowerCase()}
+          </span>
+          {" — your approval needed"}
         </p>
         <p className="text-xs text-muted-foreground">
           {isSell
@@ -155,7 +170,7 @@ export function OrderProposalCard({
               <dd className="font-mono text-[11px] font-medium">{input.occ_symbol}</dd>
             </div>
           ) : null}
-          <div className="col-span-2 border-t border-amber-500/20 pt-2">
+          <div className="col-span-2 border-t border-[var(--border)] pt-2">
             <dt className="text-muted-foreground">Total cost (max loss)</dt>
             <dd className="text-sm font-semibold text-foreground">
               ${formatMoney(totalCost)}

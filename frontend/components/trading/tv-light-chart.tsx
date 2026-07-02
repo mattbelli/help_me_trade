@@ -18,14 +18,21 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type Logical,
   type Time,
+  type AutoscaleInfoProvider,
 } from "lightweight-charts";
 
 import {
+  createDrawing,
   createPriceAlert,
+  deleteDrawing,
   fetchBars,
+  fetchDrawings,
   fetchPriceAlerts,
   fetchSessionLevels,
+  updateDrawing,
+  type ChartDrawing,
   type PriceAlert,
   type SessionLevel,
   type StockBar,
@@ -49,6 +56,10 @@ import {
   toChartColor,
   withAlpha,
 } from "@/lib/chart-colors";
+import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
+import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
+import { DrawingShape, type LPoint } from "@/lib/chart-trendline";
+import { macdSeries, rsiSeries } from "@/lib/indicators";
 
 type Ohlcv = {
   time: Time;
@@ -62,6 +73,51 @@ type Ohlcv = {
 const ALERT_DIRECTIONS = ["above", "below", "cross"] as const;
 type AlertDirection = (typeof ALERT_DIRECTIONS)[number];
 const ALERTS_POLL_MS = 20_000;
+const LEVEL_HIT_PX = 6;
+const HANDLE_HIT_PX = 9;
+const TREND_COLOR_VAR = "--c-accent";
+
+function timeToLogical(time: number, bars: Ohlcv[], interval: number): number {
+  if (bars.length === 0) return 0;
+  for (let i = 0; i < bars.length; i++) if ((bars[i].time as number) === time) return i;
+  const first = bars[0].time as number;
+  const last = bars[bars.length - 1].time as number;
+  if (time <= first) return interval > 0 ? (time - first) / interval : 0;
+  if (time >= last) return bars.length - 1 + (interval > 0 ? (time - last) / interval : 0);
+  let best = 0, bd = Infinity;
+  for (let i = 0; i < bars.length; i++) {
+    const d = Math.abs((bars[i].time as number) - time);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+function logicalToTime(logical: number, bars: Ohlcv[], interval: number): number {
+  if (bars.length === 0) return 0;
+  const r = Math.round(logical);
+  if (r >= 0 && r < bars.length) return bars[r].time as number;
+  const last = bars.length - 1;
+  if (r < 0) return (bars[0].time as number) + r * interval;
+  return (bars[last].time as number) + (r - last) * interval;
+}
+
+function distToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = x1 + t * dx;
+  const cy = y1 + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
 
 function defaultAlertDirection(
   clickedPrice: number,
@@ -76,16 +132,17 @@ function defaultAlertDirection(
 function sessionLevelColor(kind: SessionLevel["kind"]): string {
   switch (kind) {
     case "support":
-      return "#3d8f7a";
+      return resolveCssColor("--c-green", "#5bc98a");
     case "resistance":
-      return "#9f2f2d";
+      return resolveCssColor("--c-red", "#ef6f6c");
     case "poc":
-      return "#c9922a";
+      return resolveCssColor("--c-amber", "#e0975b");
     case "prior_high":
+      return resolveCssColor("--c-blue", "#6cb0ff");
     case "prior_low":
-      return "#7a7a78";
+      return resolveCssColor("--fg-faint", "#616873");
     default:
-      return "#7a7a78";
+      return resolveCssColor("--fg-faint", "#616873");
   }
 }
 
@@ -99,6 +156,7 @@ type Props = {
   compact?: boolean;
   /** Controlled session-node levels toggle (driven by the frame's Studies dropdown). */
   showLevels?: boolean;
+  studies?: string[];
 };
 
 export function TvLightChart({
@@ -108,13 +166,17 @@ export function TvLightChart({
   livePrice,
   compact = false,
   showLevels: showLevelsProp,
+  studies,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const mainRef = useRef<ISeriesApi<"Candlestick" | "Line"> | null>(null);
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const levelLinesRef = useRef<IPriceLine[]>([]);
   const sessionLevelLinesRef = useRef<IPriceLine[]>([]);
+  const studySeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  const oscSeriesRef = useRef<ISeriesApi<"Line" | "Histogram">[]>([]);
   const barsRef = useRef<Ohlcv[]>([]);
   // True right after the chart is (re)created — i.e. on timeframe/style change.
   // A symbol change reuses the same chart instance, so this stays false and we
@@ -124,7 +186,7 @@ export function TvLightChart({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [internalTimeframe, setInternalTimeframe] = useState<ChartTimeframe>(
-    CHART_TIMEFRAMES[4],
+    CHART_TIMEFRAMES[5],
   );
   const [internalStyle, setInternalStyle] = useState<"candle" | "line">("candle");
   const timeframe = timeframeProp ?? internalTimeframe;
@@ -133,10 +195,24 @@ export function TvLightChart({
   const isControlledStyle = styleProp != null;
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [alertsRefreshKey, setAlertsRefreshKey] = useState(0);
+  const [levels, setLevels] = useState<ChartDrawing[]>([]);
+  const [levelsRefreshKey, setLevelsRefreshKey] = useState(0);
+  const [shapes, setShapes] = useState<ChartDrawing[]>([]);
+  const [drawTool, setDrawTool] = useState<null | "trendline" | "channel">(null);
+  const drawToolRef = useRef(drawTool);
+  const symbolRef = useRef(symbol);
+  const pendingPointsRef = useRef<LPoint[]>([]);
+  const previewRef = useRef<DrawingShape | null>(null);
+  const shapePrimitivesRef = useRef<Map<number, DrawingShape>>(new Map());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const editingIdRef = useRef<number | null>(null);
+  const draggingRef = useRef<{ id: number; handleIdx: number } | null>(null);
   const [alertMenu, setAlertMenu] = useState<{
     x: number;
     y: number;
     price: number;
+    level?: ChartDrawing | null;
+    shape?: ChartDrawing | null;
   } | null>(null);
   const [pendingAlert, setPendingAlert] = useState<{
     price: number;
@@ -157,6 +233,20 @@ export function TvLightChart({
   const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([]);
   const [legend, setLegend] = useState<string>("");
   const [session, setSession] = useState(sessionLabel());
+  const [themeNonce, setThemeNonce] = useState(0);
+  const [barsVersion, setBarsVersion] = useState(0);
+
+  useEffect(() => {
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));
+    obs.observe(el, { attributes: true, attributeFilter: ["data-theme", "class"] });
+    const onVars = () => setThemeNonce((n) => n + 1);
+    window.addEventListener(THEME_VARS_EVENT, onVars);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener(THEME_VARS_EVENT, onVars);
+    };
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setSession(sessionLabel()), 60_000);
@@ -168,6 +258,54 @@ export function TvLightChart({
   }, [livePrice]);
 
   useEffect(() => {
+    drawToolRef.current = drawTool;
+  }, [drawTool]);
+
+  useEffect(() => {
+    editingIdRef.current = editingId;
+  }, [editingId]);
+
+  useEffect(() => {
+    symbolRef.current = symbol;
+  }, [symbol]);
+
+  const shapePixelPoints = (prim: DrawingShape) => {
+    const chart = chartRef.current;
+    const series = mainRef.current;
+    if (!chart || !series) return null;
+    const ts = chart.timeScale();
+    const px = (lp: LPoint) => ({
+      x: ts.logicalToCoordinate(lp.logical as Logical),
+      y: series.priceToCoordinate(lp.price),
+    });
+    return { p1: px(prim.p1), p2: px(prim.p2), handles: prim.handlePoints().map(px) };
+  };
+
+  const drawingHitId = (x: number, y: number): number | null => {
+    let best: number | null = null;
+    let bd = HANDLE_HIT_PX + 1;
+    for (const [id, prim] of shapePrimitivesRef.current) {
+      const g = shapePixelPoints(prim);
+      if (!g || g.p1.x == null || g.p1.y == null || g.p2.x == null || g.p2.y == null) continue;
+      const segs: Array<[number, number, number, number]> = [[g.p1.x, g.p1.y, g.p2.x, g.p2.y]];
+      if (prim.kind === "channel") {
+        const s = mainRef.current!;
+        const oy1 = s.priceToCoordinate(prim.p1.price + prim.width);
+        const oy2 = s.priceToCoordinate(prim.p2.price + prim.width);
+        if (oy1 != null && oy2 != null) segs.push([g.p1.x, oy1, g.p2.x, oy2]);
+      }
+      for (const [x1, y1, x2, y2] of segs) {
+        const d = distToSegment(x, y, x1, y1, x2, y2);
+        if (d <= HANDLE_HIT_PX && d < bd) {
+          bd = d;
+          best = id;
+        }
+      }
+    }
+    return best;
+  };
+
+  useEffect(() => {
     const id = setInterval(
       () => setAlertsRefreshKey((key) => key + 1),
       ALERTS_POLL_MS,
@@ -176,12 +314,38 @@ export function TvLightChart({
   }, []);
 
   useEffect(() => {
-    if (!alertMenu && !pendingAlert) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setAlertMenu(null);
-      setPendingAlert(null);
-      setAlertError(null);
+      if (event.key === "Escape") {
+        setAlertMenu(null);
+        setPendingAlert(null);
+        setAlertError(null);
+        setEditingId(null);
+        if (drawToolRef.current) {
+          setDrawTool(null);
+          pendingPointsRef.current = [];
+          if (previewRef.current) {
+            try {
+              mainRef.current?.detachPrimitive(previewRef.current);
+            } catch {
+              /* chart removed */
+            }
+            previewRef.current = null;
+          }
+        }
+        return;
+      }
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        editingIdRef.current != null &&
+        !pendingAlert &&
+        !alertMenu
+      ) {
+        const id = editingIdRef.current;
+        void deleteDrawing(id).then(() => {
+          setEditingId(null);
+          setLevelsRefreshKey((k) => k + 1);
+        });
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -207,6 +371,7 @@ export function TvLightChart({
     event.preventDefault();
     const container = containerRef.current;
     const series = mainRef.current;
+    const chart = chartRef.current;
     if (!container || !series) return;
     const rect = container.getBoundingClientRect();
     const xRel = event.clientX - rect.left;
@@ -214,23 +379,123 @@ export function TvLightChart({
     const raw = series.coordinateToPrice(yRel);
     if (raw == null) return;
     const price = Math.round(raw * 100) / 100;
+
+    let hitLevel: ChartDrawing | null = null;
+    let hitShape: ChartDrawing | null = null;
+    let bestLevelDist = LEVEL_HIT_PX + 1;
+    let bestShapeDist = LEVEL_HIT_PX + 1;
+    for (const lvl of levels) {
+      const lvlPrice = lvl.data.price;
+      if (lvlPrice == null) continue;
+      const ly = series.priceToCoordinate(lvlPrice);
+      if (ly == null) continue;
+      const dist = Math.abs(ly - yRel);
+      if (dist <= LEVEL_HIT_PX && dist < bestLevelDist) {
+        bestLevelDist = dist;
+        hitLevel = lvl;
+      }
+    }
+
+    if (chart) {
+      const ts = chart.timeScale();
+      for (const [id, primitive] of shapePrimitivesRef.current) {
+        const x1 = ts.logicalToCoordinate(primitive.p1.logical as Logical);
+        const y1 = series.priceToCoordinate(primitive.p1.price);
+        const x2 = ts.logicalToCoordinate(primitive.p2.logical as Logical);
+        const y2 = series.priceToCoordinate(primitive.p2.price);
+        if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
+        const distBase = distToSegment(xRel, yRel, x1, y1, x2, y2);
+        let dist = distBase;
+        if (primitive.kind === "channel") {
+          const y1o = series.priceToCoordinate(primitive.p1.price + primitive.width);
+          const y2o = series.priceToCoordinate(primitive.p2.price + primitive.width);
+          if (y1o != null && y2o != null) {
+            dist = Math.min(distBase, distToSegment(xRel, yRel, x1, y1o, x2, y2o));
+          }
+        }
+        if (dist <= LEVEL_HIT_PX && dist < bestShapeDist) {
+          bestShapeDist = dist;
+          hitShape = shapes.find((s) => s.id === id) ?? null;
+        }
+      }
+    }
+    if (hitLevel) hitShape = null;
+
     setPendingAlert(null);
-    setAlertMenu({ x: xRel, y: yRel, price });
+    setAlertMenu({
+      x: xRel,
+      y: yRel,
+      price,
+      level: hitLevel ?? null,
+      shape: hitShape ?? null,
+    });
   }
 
   function handleSetAlertFromMenu() {
     if (!alertMenu) return;
+    const seedPrice = alertMenu.level?.data.price ?? alertMenu.price;
     const currentPrice =
       livePriceRef.current ?? barsRef.current.at(-1)?.close;
-    setAlertPrice(String(alertMenu.price));
-    setAlertDirection(defaultAlertDirection(alertMenu.price, currentPrice));
+    setAlertPrice(String(seedPrice));
+    setAlertDirection(defaultAlertDirection(seedPrice, currentPrice));
     setAlertRepeat(false);
     setAlertError(null);
     setPendingAlert({
-      price: alertMenu.price,
+      price: seedPrice,
       x: alertMenu.x,
       y: alertMenu.y,
     });
+    setAlertMenu(null);
+  }
+
+  async function handleAddLevel() {
+    if (!alertMenu) return;
+    try {
+      await createDrawing({
+        symbol,
+        kind: "level",
+        data: { price: alertMenu.price },
+      });
+      setLevelsRefreshKey((key) => key + 1);
+      setAlertMenu(null);
+    } catch {
+      /* ignore — menu stays open for retry */
+    }
+  }
+
+  async function handleRemoveLevel() {
+    if (!alertMenu?.level) return;
+    try {
+      await deleteDrawing(alertMenu.level.id);
+      setLevelsRefreshKey((key) => key + 1);
+      setAlertMenu(null);
+    } catch {
+      /* ignore — menu stays open for retry */
+    }
+  }
+
+  async function handleRemoveShape() {
+    if (!alertMenu?.shape) return;
+    const id = alertMenu.shape.id;
+    try {
+      await deleteDrawing(id);
+      if (editingIdRef.current === id) setEditingId(null);
+      setLevelsRefreshKey((key) => key + 1);
+      setAlertMenu(null);
+    } catch {
+      /* ignore — menu stays open for retry */
+    }
+  }
+
+  function handleDrawTrendline() {
+    setDrawTool("trendline");
+    pendingPointsRef.current = [];
+    setAlertMenu(null);
+  }
+
+  function handleDrawChannel() {
+    setDrawTool("channel");
+    pendingPointsRef.current = [];
     setAlertMenu(null);
   }
 
@@ -262,20 +527,37 @@ export function TvLightChart({
     const el = containerRef.current;
     if (!el) return;
 
-    const text = resolveCssColor("--foreground", "#c8c6c3");
+    const background = resolveCssColor(
+      "--chart-background",
+      resolveCssColor("--background", "#131519"),
+    );
+    const text = resolveCssColor("--fg-dim", "#9aa1ab");
     const border = toChartColor(
       resolveCssColor("--border", "rgba(255,255,255,0.09)"),
       "rgba(255,255,255,0.09)",
     );
-    const accent = resolveCssColor("--chart-accent", "#3d8f7a");
-    const down = "#9f2f2d";
+    const crosshairLine = toChartColor(
+      resolveCssColor("--fg-faint", "#616873"),
+      "#616873",
+    );
+    const crosshairLabel = toChartColor(
+      resolveCssColor("--border-strong", "#333a44"),
+      "#333a44",
+    );
+    const accent = resolveCssColor("--chart-accent", "#5ad1be");
+    const down = resolveCssColor("--chart-down", "#ef6f6c");
     const intraday = !isDailyTimeframe(timeframe.value);
 
     const chart = createChart(el, {
       layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
+        background: { type: ColorType.Solid, color: background },
         textColor: text,
         fontFamily: "var(--font-sans), system-ui, sans-serif",
+        panes: {
+          separatorColor: crosshairLabel,
+          separatorHoverColor: accent,
+          enableResize: true,
+        },
       },
       grid: {
         vertLines: { color: border },
@@ -283,7 +565,7 @@ export function TvLightChart({
       },
       rightPriceScale: {
         borderColor: border,
-        scaleMargins: { top: 0.08, bottom: 0.28 },
+        scaleMargins: { top: 0.08, bottom: 0.06 },
       },
       timeScale: {
         borderColor: border,
@@ -292,7 +574,17 @@ export function TvLightChart({
         tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) =>
           formatTickMark(time as number, tickMarkType),
       },
-      crosshair: { mode: CrosshairMode.Normal },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: crosshairLine,
+          labelBackgroundColor: crosshairLabel,
+        },
+        horzLine: {
+          color: crosshairLine,
+          labelBackgroundColor: crosshairLabel,
+        },
+      },
       localization: {
         timeFormatter: (time: number) =>
           formatCrosshairTime(time, intraday),
@@ -315,13 +607,26 @@ export function TvLightChart({
             lineWidth: 2,
           });
 
-    const volumeSeries = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: "volume" },
-      priceScaleId: "",
-    });
+    const volumeSeries = chart.addSeries(
+      HistogramSeries,
+      {
+        priceFormat: { type: "volume" },
+        autoscaleInfoProvider: ((original) => {
+          const res = original();
+          if (res && res.priceRange) res.priceRange.minValue = 0;
+          return res;
+        }) satisfies AutoscaleInfoProvider,
+      },
+      1,
+    );
     volumeSeries.priceScale().applyOptions({
-      scaleMargins: { top: 0.78, bottom: 0 },
+      scaleMargins: { top: 0.15, bottom: 0 },
+      borderColor: border,
     });
+
+    const panes = chart.panes();
+    panes[0]?.setStretchFactor(4);
+    panes[1]?.setStretchFactor(1);
 
     chartRef.current = chart;
     mainRef.current = mainSeries;
@@ -345,19 +650,88 @@ export function TvLightChart({
       );
     });
 
+    const drawColor = resolveCssColor(TREND_COLOR_VAR, "#5ad1be");
+
+    chart.subscribeClick((param) => {
+      if (!param.point) return;
+      const tool = drawToolRef.current;
+      if (!tool) {
+        setEditingId(drawingHitId(param.point.x, param.point.y));
+        return;
+      }
+      const s = mainRef.current;
+      if (!s) return;
+      const logical = chart.timeScale().coordinateToLogical(param.point.x);
+      const price = s.coordinateToPrice(param.point.y);
+      if (logical == null || price == null) return;
+      const pts = [...pendingPointsRef.current, { logical: logical as number, price }];
+      pendingPointsRef.current = pts;
+      if (pts.length >= 2) {
+        const bars = barsRef.current;
+        const interval = timeframeSeconds(timeframe.value);
+        const toTimePoint = (p: LPoint) => ({ time: logicalToTime(p.logical, bars, interval), price: p.price });
+        const data =
+          tool === "channel"
+            ? { points: [toTimePoint(pts[0]), toTimePoint(pts[1])], width: pts[0].price * 0.02, color: drawColor }
+            : { points: [toTimePoint(pts[0]), toTimePoint(pts[1])], color: drawColor };
+        void createDrawing({ symbol: symbolRef.current, kind: tool, data }).then(() => setLevelsRefreshKey((k) => k + 1));
+        if (previewRef.current) {
+          try { mainRef.current?.detachPrimitive(previewRef.current); } catch { /* chart removed */ }
+          previewRef.current = null;
+        }
+        pendingPointsRef.current = [];
+        setDrawTool(null);
+      }
+    });
+
+    chart.subscribeCrosshairMove((param) => {
+      if (!drawToolRef.current || pendingPointsRef.current.length !== 1 || !param.point) return;
+      const s = mainRef.current;
+      if (!s) return;
+      const logical = chart.timeScale().coordinateToLogical(param.point.x);
+      const price = s.coordinateToPrice(param.point.y);
+      if (logical == null || price == null) return;
+      const p1 = pendingPointsRef.current[0];
+      const kind = drawToolRef.current;
+      const width = kind === "channel" ? p1.price * 0.02 : 0;
+      if (!previewRef.current) {
+        previewRef.current = new DrawingShape(-1, kind, p1, { logical: logical as number, price }, width, drawColor);
+        s.attachPrimitive(previewRef.current);
+      } else {
+        previewRef.current.p2 = { logical: logical as number, price };
+        previewRef.current.width = width;
+        previewRef.current.requestUpdate();
+      }
+    });
+
     return () => {
+      pendingPointsRef.current = [];
+      previewRef.current = null;
+      setDrawTool(null);
       chart.remove();
       chartRef.current = null;
       mainRef.current = null;
       volumeRef.current = null;
     };
-  }, [timeframe.value, style]);
+  }, [timeframe.value, style, themeNonce]);
 
   useEffect(() => {
     fetchPriceAlerts(symbol)
       .then(setAlerts)
       .catch(() => setAlerts([]));
   }, [symbol, alertsRefreshKey]);
+
+  useEffect(() => {
+    fetchDrawings(symbol)
+      .then((list) => {
+        setLevels(list.filter((d) => d.kind === "level"));
+        setShapes(list.filter((d) => d.kind === "trendline" || d.kind === "channel"));
+      })
+      .catch(() => {
+        setLevels([]);
+        setShapes([]);
+      });
+  }, [symbol, levelsRefreshKey]);
 
   useEffect(() => {
     if (!showLevels) {
@@ -391,8 +765,8 @@ export function TvLightChart({
     fetchBars(symbol, { timeframe: timeframe.value, days: timeframe.days })
       .then((data) => {
         if (cancelled) return;
-        const accent = resolveCssColor("--chart-accent", "#3d8f7a");
-        const down = "#9f2f2d";
+        const accent = resolveCssColor("--chart-accent", "#5ad1be");
+        const down = resolveCssColor("--chart-down", "#ef6f6c");
 
         const ohlcv: Ohlcv[] = data.bars.map((b: StockBar) => ({
           time: toChartTime(b.time, data.timeframe) as Time,
@@ -437,13 +811,20 @@ export function TvLightChart({
             priorRange && priorRange.to > priorRange.from
               ? priorRange.to - priorRange.from
               : Math.min(count, DEFAULT_VISIBLE_BARS);
-          const to = count - 1 + RIGHT_MARGIN_FRAC * visibleBars;
+          const rightMargin = RIGHT_MARGIN_FRAC * visibleBars;
+          // rightOffset keeps the ~20% right margin PERSISTENT. The chart overhaul's
+          // extra panes/studies trigger resize refits that clobber a one-shot
+          // setVisibleLogicalRange, so the latest candle was snapping to the right edge;
+          // rightOffset is re-applied by the chart across those refits + new live bars.
+          timeScale.applyOptions({ rightOffset: rightMargin });
+          const to = count - 1 + rightMargin;
           timeScale.setVisibleLogicalRange({ from: to - visibleBars, to });
           // Refit the price axis to the new symbol (a $700→$50 switch rescales
           // vertically even though the time window is unchanged).
           mainRef.current?.priceScale().applyOptions({ autoScale: true });
         }
         freshChartRef.current = false;
+        setBarsVersion((v) => v + 1);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -451,6 +832,7 @@ export function TvLightChart({
         mainRef.current?.setData([]);
         volumeRef.current?.setData([]);
         barsRef.current = [];
+        setBarsVersion((v) => v + 1);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -459,7 +841,7 @@ export function TvLightChart({
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe, style]);
+  }, [symbol, timeframe, style, themeNonce]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -467,17 +849,41 @@ export function TvLightChart({
     for (const line of priceLinesRef.current) {
       series.removePriceLine(line);
     }
+    const alertUp = resolveCssColor("--c-green", "#5bc98a");
+    const alertDown = resolveCssColor("--c-red", "#ef6f6c");
     priceLinesRef.current = alerts.map((alert) =>
       series.createPriceLine({
         price: alert.price,
-        color: alert.direction === "below" ? "#9f2f2d" : "#3d8f7a",
+        color: alert.direction === "below" ? alertDown : alertUp,
         lineWidth: 2,
         lineStyle: 2,
         axisLabelVisible: true,
         title: `Alert ${alert.price.toFixed(2)}`,
       }),
     );
-  }, [alerts, loading]);
+  }, [alerts, loading, themeNonce]);
+
+  useEffect(() => {
+    const series = mainRef.current;
+    if (!series) return;
+    for (const line of levelLinesRef.current) {
+      series.removePriceLine(line);
+    }
+    const neutral = resolveCssColor("--fg-dim", "#9aa1ab");
+    levelLinesRef.current = levels
+      .filter((lvl) => lvl.data.price != null)
+      .map((lvl) => {
+        const p = lvl.data.price!;
+        return series.createPriceLine({
+          price: p,
+          color: neutral,
+          lineWidth: 1,
+          lineStyle: 0,
+          axisLabelVisible: true,
+          title: `⊹ ${p.toFixed(2)}`,
+        });
+      });
+  }, [levels, loading, themeNonce]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -508,7 +914,186 @@ export function TvLightChart({
     );
 
     return removeSessionLevelLines;
-  }, [showLevels, sessionLevels, loading, timeframe.value, style]);
+  }, [showLevels, sessionLevels, loading, timeframe.value, style, themeNonce]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const bars = barsRef.current;
+    if (!chart || bars.length === 0) return;
+    const closes = bars.map((b) => b.close);
+    const enabled = studies ?? [];
+    const created: ISeriesApi<"Line">[] = [];
+    for (const def of OVERLAY_STUDIES) {
+      if (!enabled.includes(def.id)) continue;
+      const values = def.compute(closes);
+      const data = values
+        .map((v, i) => (v == null ? null : { time: bars[i].time, value: v }))
+        .filter((p): p is { time: Time; value: number } => p !== null);
+      const line = chart.addSeries(LineSeries, {
+        color: def.color,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      line.setData(data);
+      created.push(line);
+    }
+    studySeriesRef.current = created;
+    return () => {
+      for (const s of created) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          /* chart already removed on recreate */
+        }
+      }
+      studySeriesRef.current = [];
+    };
+  }, [barsVersion, (studies ?? []).join(","), themeNonce]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const bars = barsRef.current;
+    if (!chart || bars.length === 0) return;
+    const enabledOsc = (studies ?? []).filter((id) =>
+      OSCILLATOR_STUDIES.some((s) => s.id === id),
+    );
+    if (enabledOsc.length === 0) return;
+
+    const closes = bars.map((b) => b.close);
+    const border = toChartColor(
+      resolveCssColor("--border", "rgba(255,255,255,0.09)"),
+      "rgba(255,255,255,0.09)",
+    );
+    const accent = resolveCssColor("--chart-accent", "#5ad1be");
+    const down = resolveCssColor("--chart-down", "#ef6f6c");
+    const created: ISeriesApi<"Line" | "Histogram">[] = [];
+    let paneIndex = 2; // 0 = price, 1 = volume
+
+    for (const def of OSCILLATOR_STUDIES) {
+      if (!enabledOsc.includes(def.id)) continue;
+
+      if (def.id === "rsi") {
+        const values = rsiSeries(closes, 14);
+        const data = values
+          .map((v, i) => (v == null ? null : { time: bars[i].time, value: v }))
+          .filter((p): p is { time: Time; value: number } => p !== null);
+        const line = chart.addSeries(
+          LineSeries,
+          {
+            color: "#c792ea",
+            lineWidth: 1,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
+          },
+          paneIndex,
+        );
+        line.setData(data);
+        line.priceScale().applyOptions({ borderColor: border });
+        line.createPriceLine({ price: 70, color: border, lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+        line.createPriceLine({ price: 30, color: border, lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+        created.push(line);
+        chart.panes()[paneIndex]?.setStretchFactor(1);
+        paneIndex++;
+      } else if (def.id === "macd") {
+        const { macd, signal, histogram } = macdSeries(closes);
+        const toData = (arr: (number | null)[]) =>
+          arr
+            .map((v, i) => (v == null ? null : { time: bars[i].time, value: v }))
+            .filter((p): p is { time: Time; value: number } => p !== null);
+        const histData = histogram
+          .map((v, i) =>
+            v == null
+              ? null
+              : { time: bars[i].time, value: v, color: withAlpha(v >= 0 ? accent : down, 0.5) },
+          )
+          .filter((p): p is { time: Time; value: number; color: string } => p !== null);
+
+        const hist = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, paneIndex);
+        hist.setData(histData);
+        const macdLine = chart.addSeries(
+          LineSeries,
+          { color: "#4d9de0", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false },
+          paneIndex,
+        );
+        macdLine.setData(toData(macd));
+        const signalLine = chart.addSeries(
+          LineSeries,
+          { color: "#e0b040", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false },
+          paneIndex,
+        );
+        signalLine.setData(toData(signal));
+        macdLine.priceScale().applyOptions({ borderColor: border });
+        created.push(hist, macdLine, signalLine);
+        chart.panes()[paneIndex]?.setStretchFactor(1);
+        paneIndex++;
+      }
+    }
+
+    oscSeriesRef.current = created;
+    return () => {
+      for (const s of created) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          /* chart already removed */
+        }
+      }
+      oscSeriesRef.current = [];
+      try {
+        for (let i = chart.panes().length - 1; i >= 2; i--) {
+          try {
+            chart.removePane(i);
+          } catch {
+            /* already gone */
+          }
+        }
+      } catch {
+        /* chart removed */
+      }
+    };
+  }, [
+    barsVersion,
+    (studies ?? []).filter((id) => OSCILLATOR_STUDIES.some((s) => s.id === id)).join(","),
+    themeNonce,
+  ]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = mainRef.current;
+    if (!chart || !series) return;
+    const bars = barsRef.current;
+    const interval = timeframeSeconds(timeframe.value);
+    const drawColorResolved = resolveCssColor(TREND_COLOR_VAR, "#5ad1be");
+    const map = new Map<number, DrawingShape>();
+    for (const shape of shapes) {
+      const pts = shape.data.points;
+      if (!pts || pts.length < 2) continue;
+      const toL = (p: { time: number | null; price: number }): LPoint => ({
+        logical: timeToLogical((p.time as number) ?? 0, bars, interval),
+        price: p.price,
+      });
+      const d = new DrawingShape(
+        shape.id,
+        shape.kind === "channel" ? "channel" : "trendline",
+        toL(pts[0]), toL(pts[1]),
+        shape.data.width ?? 0,
+        shape.data.color ?? drawColorResolved,
+      );
+      d.selected = shape.id === editingId;
+      series.attachPrimitive(d);
+      map.set(shape.id, d);
+    }
+    shapePrimitivesRef.current = map;
+    return () => {
+      for (const d of map.values()) {
+        try { series.detachPrimitive(d); } catch { /* series removed */ }
+      }
+      shapePrimitivesRef.current = new Map();
+    };
+  }, [shapes, barsVersion, timeframe.value, style, themeNonce, editingId]);
 
   useEffect(() => {
     if (livePrice == null || loading) return;
@@ -518,6 +1103,14 @@ export function TvLightChart({
     if (!series) return;
 
     const last = bars[bars.length - 1];
+
+    // Reject an implausible live tick (bad print / crossed quote): a value >3× or
+    // <1/3 of the last COMPLETED bar's close is never a real intraday move and would
+    // spike the forming candle's wick (e.g. a $52 stock printing $750). Reference the
+    // prior completed bar — not `last`, which live ticks mutate — so one bad tick
+    // can't poison the reference and freeze the chart.
+    const ref = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
+    if (ref > 0 && (livePrice > ref * 3 || livePrice * 3 < ref)) return;
 
     // Intraday: when the wall clock crosses into the next interval bucket, roll the
     // forming candle over to a NEW bar (the live tick has no timestamp, so bucket off
@@ -618,8 +1211,84 @@ export function TvLightChart({
       )}
 
       <div
-        className="relative min-h-0 flex-1"
+        className={cn(
+          "relative min-h-0 flex-1",
+          drawTool && "cursor-crosshair",
+        )}
         onContextMenu={handleChartContextMenu}
+        onPointerDownCapture={(e) => {
+          if (editingIdRef.current == null) return;
+          const prim = shapePrimitivesRef.current.get(editingIdRef.current);
+          const chart = chartRef.current;
+          const container = containerRef.current;
+          if (!prim || !chart || !container) return;
+          const rect = container.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const g = shapePixelPoints(prim);
+          if (!g) return;
+          let idx = -1;
+          g.handles.forEach((h, i) => {
+            if (idx === -1 && h.x != null && h.y != null && Math.hypot(h.x - x, h.y - y) <= HANDLE_HIT_PX) {
+              idx = i;
+            }
+          });
+          if (idx === -1) return;
+          e.stopPropagation();
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          draggingRef.current = { id: editingIdRef.current, handleIdx: idx };
+          chart.applyOptions({ handleScroll: false, handleScale: false });
+        }}
+        onPointerMove={(e) => {
+          const drag = draggingRef.current;
+          const chart = chartRef.current;
+          const series = mainRef.current;
+          const container = containerRef.current;
+          if (!drag || !chart || !series || !container) return;
+          const prim = shapePrimitivesRef.current.get(drag.id);
+          if (!prim) return;
+          const rect = container.getBoundingClientRect();
+          const logical = chart.timeScale().coordinateToLogical(e.clientX - rect.left);
+          const price = series.coordinateToPrice(e.clientY - rect.top);
+          if (logical == null || price == null) return;
+          if (prim.kind === "channel" && drag.handleIdx === 2) {
+            prim.width = price - (prim.p1.price + prim.p2.price) / 2;
+          } else if (drag.handleIdx === 0) {
+            prim.p1 = { logical: logical as number, price };
+          } else {
+            prim.p2 = { logical: logical as number, price };
+          }
+          prim.requestUpdate();
+        }}
+        onPointerUp={(e) => {
+          const drag = draggingRef.current;
+          draggingRef.current = null;
+          const chart = chartRef.current;
+          if (chart) chart.applyOptions({ handleScroll: true, handleScale: true });
+          try {
+            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+          } catch {
+            /* not captured */
+          }
+          if (!drag) return;
+          const prim = shapePrimitivesRef.current.get(drag.id);
+          if (!prim) return;
+          const bars = barsRef.current;
+          const interval = timeframeSeconds(timeframe.value);
+          const data: ChartDrawing["data"] = {
+            points: [
+              { time: logicalToTime(prim.p1.logical, bars, interval), price: prim.p1.price },
+              { time: logicalToTime(prim.p2.logical, bars, interval), price: prim.p2.price },
+            ],
+            color: prim.color,
+            ...(prim.kind === "channel" ? { width: prim.width } : {}),
+          };
+          setShapes((prev) =>
+            prev.map((s) => (s.id === drag.id ? { ...s, data: { ...s.data, ...data } } : s)),
+          );
+          void updateDrawing(drag.id, { data }).catch(() => {});
+        }}
       >
         {loading && (
           <Skeleton className="absolute inset-0 z-10 rounded-none" />
@@ -631,8 +1300,15 @@ export function TvLightChart({
             x={alertMenu.x}
             y={alertMenu.y}
             price={alertMenu.price}
+            level={alertMenu.level ?? null}
+            shape={alertMenu.shape ?? null}
             containerRef={containerRef}
-            onSelect={handleSetAlertFromMenu}
+            onAddLevel={() => void handleAddLevel()}
+            onRemoveLevel={() => void handleRemoveLevel()}
+            onRemoveShape={() => void handleRemoveShape()}
+            onDrawTrendline={handleDrawTrendline}
+            onDrawChannel={handleDrawChannel}
+            onSetAlert={handleSetAlertFromMenu}
           />
         )}
         {pendingAlert && (
@@ -677,8 +1353,15 @@ type ChartAlertContextMenuProps = {
   x: number;
   y: number;
   price: number;
+  level?: ChartDrawing | null;
+  shape?: ChartDrawing | null;
   containerRef: RefObject<HTMLDivElement | null>;
-  onSelect: () => void;
+  onAddLevel: () => void;
+  onRemoveLevel: () => void;
+  onRemoveShape: () => void;
+  onDrawTrendline: () => void;
+  onDrawChannel: () => void;
+  onSetAlert: () => void;
 };
 
 function ChartAlertContextMenu({
@@ -686,10 +1369,18 @@ function ChartAlertContextMenu({
   x,
   y,
   price,
+  level,
+  shape,
   containerRef,
-  onSelect,
+  onAddLevel,
+  onRemoveLevel,
+  onRemoveShape,
+  onDrawTrendline,
+  onDrawChannel,
+  onSetAlert,
 }: ChartAlertContextMenuProps) {
   const [position, setPosition] = useState({ left: x, top: y });
+  const alertPrice = level?.data.price ?? price;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -713,6 +1404,9 @@ function ChartAlertContextMenu({
     });
   }, [x, y, containerRef, menuRef]);
 
+  const buttonClass =
+    "w-full px-2.5 py-1.5 text-left text-[11px] text-foreground transition-colors hover:bg-secondary/80";
+
   return (
     <div
       ref={menuRef}
@@ -721,12 +1415,29 @@ function ChartAlertContextMenu({
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
-      <button
-        type="button"
-        className="w-full px-2.5 py-1.5 text-left text-[11px] text-foreground transition-colors hover:bg-secondary/80"
-        onClick={onSelect}
-      >
-        Set alert at {price.toFixed(2)}
+      {level ? (
+        <button type="button" className={buttonClass} onClick={onRemoveLevel}>
+          Remove level
+        </button>
+      ) : shape ? (
+        <button type="button" className={buttonClass} onClick={onRemoveShape}>
+          Remove {shape.kind}
+        </button>
+      ) : (
+        <>
+          <button type="button" className={buttonClass} onClick={onAddLevel}>
+            Add level at {price.toFixed(2)}
+          </button>
+          <button type="button" className={buttonClass} onClick={onDrawTrendline}>
+            Draw trendline
+          </button>
+          <button type="button" className={buttonClass} onClick={onDrawChannel}>
+            Draw channel
+          </button>
+        </>
+      )}
+      <button type="button" className={buttonClass} onClick={onSetAlert}>
+        Set alert at {alertPrice.toFixed(2)}
       </button>
     </div>
   );

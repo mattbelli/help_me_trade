@@ -21,10 +21,16 @@ from ai.rules.engine import evaluate_on_snapshot
 from api.ai_routes import router as ai_router
 from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
 from api.device_routes import router as device_router
+from api.journal_routes import router as journal_router
 from api.middleware import SecurityMiddleware
+from api.notification_routes import router as notification_router
+from api.orders_routes import router as orders_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
+from api.scan_routes import router as scan_router
+from api.schwab_routes import router as schwab_router
 from api.strategy_routes import router as strategy_router
+from api.ticker_routes import router as ticker_router
 from api.trade_routes import router as trade_router
 from brokers.alpaca import AlpacaAdapter, StockBar
 from brokers.errors import BrokerError
@@ -41,6 +47,7 @@ from brokers.factory import (
 from brokers.market_stream import AlpacaMarketStreamHub, BaseMarketHub
 from brokers.schwab_market_stream import SchwabMarketStreamHub
 from config.settings import (
+    SCHEDULABLE_REPORT_KINDS,
     add_watchlist_symbol,
     apply_settings_patch,
     broker_is_configured,
@@ -68,11 +75,15 @@ from db.accounts import (
 )
 from db.ai_tables import delete_rule, init_ai_tables
 from db.chart_features import (
+    create_chart_drawing,
     create_price_alert,
+    delete_chart_drawing,
     delete_price_alert,
     init_chart_features,
+    list_chart_drawings,
     list_price_alerts,
     mark_alert_triggered,
+    update_chart_drawing,
     update_price_alert,
 )
 from db.chat_sessions import init_chat_tables
@@ -81,6 +92,7 @@ from db.earnings_alerts import init_earnings_alert_tables
 from db.earnings_calendar import earnings_hour, last_earnings_date, next_earnings_date
 from db.live_activities import init_live_activity_tables
 from db.multi_account import migrate_multi_account
+from db.notifications import init_notifications_tables
 from db.order_executions import (
     count_pending_paper_executions,
     count_submitted_executions,
@@ -98,8 +110,19 @@ from db.sqlite import (
 )
 from db.strategies import init_strategy_tables, list_strategies, seed_default_strategies
 from db.trades import init_trade_tables
-from db.workspace import init_workspace_tables, load_workspace_layout, save_workspace_layout
+from db.workspace import (
+    init_workspace_tables,
+    is_valid_custom_themes,
+    load_custom_themes,
+    load_workspace_layout,
+    load_workspace_pages,
+    save_custom_themes,
+    save_workspace_layout,
+    save_workspace_pages,
+)
 from signals.earnings_refresh import arefresh_earnings_calendar
+from signals.momentum import refresh_universe_bars
+from signals.regime import refresh_regime_macro
 from signals.scan import run_signal_scan
 from signals.session_node_strategy import compute_session_levels, run_session_node_scan
 from signals.strategy_kinds import strategy_kind
@@ -126,6 +149,8 @@ SESSION_NODE_SCAN_INTERVAL_SECONDS = max(
     20, int(os.environ.get("SESSION_NODE_SCAN_INTERVAL_SECONDS", "60"))
 )
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
+REGIME_REFRESH_INTERVAL_SECONDS = 24 * 3600
+MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
 RVOL_ALERT_INTERVAL_SECONDS = max(
     60, int(os.environ.get("RVOL_ALERT_INTERVAL_SECONDS", "300"))
@@ -137,6 +162,9 @@ SCHWAB_HEALTH_INTERVAL_SECONDS = max(
 )
 _SCHWAB_HEALTH_ALERTS_ENABLED = (
     os.environ.get("SCHWAB_HEALTH_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+)
+SCHWAB_SNAPSHOT_INTERVAL_SECONDS = max(
+    300, int(os.environ.get("SCHWAB_SNAPSHOT_INTERVAL_SECONDS", str(1800)))
 )
 EARNINGS_ALERT_INTERVAL_SECONDS = max(
     60, int(os.environ.get("EARNINGS_ALERT_INTERVAL_SECONDS", str(6 * 3600)))
@@ -169,6 +197,13 @@ market_hub: BaseMarketHub = (
     if market_data_provider_name() == "schwab"
     else AlpacaMarketStreamHub()
 )
+
+# The trading path (execution_service/fill_tracker/exit_engine/proposals) imports
+# `brokers.market_stream.market_hub` to broadcast alerts. Point that alias at THIS live hub
+# so execution/fill/exit alerts reach connected WS clients (cockpit notifications).
+from brokers import market_stream as _market_stream  # noqa: E402
+
+_market_stream.market_hub.bind(market_hub)
 
 
 async def _poll_account(account: dict) -> bool:
@@ -252,15 +287,24 @@ async def _poll_account(account: dict) -> bool:
                     account_id,
                     [t["rule_id"] for t in triggered],
                 )
+                from signals.notify import notify
+
                 for item in triggered:
-                    await market_hub.broadcast_alert(
-                        {
-                            "source": "rule",
+                    await notify(
+                        kind="rule_triggered",
+                        title=f"{item['rule_name']} triggered — {item['action'].get('type', '?')}",
+                        body=str(item["action"]),
+                        severity="info",
+                        ref_type="rule",
+                        ref_id=item["rule_id"],
+                        action_url="/alerts",
+                        data={
                             "rule_id": item["rule_id"],
                             "rule_name": item["rule_name"],
                             "action": item["action"],
                             "broker": broker_name,
-                        }
+                        },
+                        push=False,
                     )
         return True
     except Exception:
@@ -309,15 +353,24 @@ async def _poll_broker(broker_name: str) -> bool:
                     broker_name,
                     [t["rule_id"] for t in triggered],
                 )
+                from signals.notify import notify
+
                 for item in triggered:
-                    await market_hub.broadcast_alert(
-                        {
-                            "source": "rule",
+                    await notify(
+                        kind="rule_triggered",
+                        title=f"{item['rule_name']} triggered — {item['action'].get('type', '?')}",
+                        body=str(item["action"]),
+                        severity="info",
+                        ref_type="rule",
+                        ref_id=item["rule_id"],
+                        action_url="/alerts",
+                        data={
                             "rule_id": item["rule_id"],
                             "rule_name": item["rule_name"],
                             "action": item["action"],
                             "broker": broker_name,
-                        }
+                        },
+                        push=False,
                     )
         return True
     except Exception:
@@ -391,13 +444,22 @@ async def _signal_scan_loop() -> None:
                             item.get("rule_id"),
                         )
                 else:
-                    await market_hub.broadcast_alert(
-                        {
-                            "source": "signal_scan",
+                    from signals.notify import notify
+
+                    await notify(
+                        kind="rule_triggered",
+                        title=f"{item['rule_name']} — signal",
+                        body=str(item["action"]),
+                        severity="info",
+                        ref_type="rule",
+                        ref_id=item["rule_id"],
+                        action_url="/alerts",
+                        data={
                             "rule_id": item["rule_id"],
                             "rule_name": item["rule_name"],
                             "action": item["action"],
-                        }
+                        },
+                        push=False,
                     )
             try:
                 await run_strategy_scan()
@@ -447,6 +509,41 @@ async def _earnings_refresh_loop() -> None:
         except Exception:
             logger.exception("Earnings refresh loop iteration failed")
         await asyncio.sleep(EARNINGS_REFRESH_INTERVAL_SECONDS)
+
+
+async def _regime_refresh_loop() -> None:
+    while True:
+        try:
+            n = await refresh_regime_macro()
+            if n:
+                logger.info("Regime macro refresh upserted %d rows", n)
+        except Exception:
+            logger.exception("Regime refresh loop iteration failed")
+        await asyncio.sleep(REGIME_REFRESH_INTERVAL_SECONDS)
+
+
+def _momentum_strategy_enabled() -> bool:
+    return any(
+        s.get("enabled") and str(s.get("id", "")).startswith("momentum")
+        for s in list_strategies()
+    )
+
+
+async def _momentum_bars_refresh_once() -> int:
+    if not _momentum_strategy_enabled():
+        return 0
+    return await refresh_universe_bars()
+
+
+async def _momentum_bars_refresh_loop() -> None:
+    while True:
+        try:
+            n = await _momentum_bars_refresh_once()
+            if n:
+                logger.info("Momentum daily bars refresh upserted %d rows", n)
+        except Exception:
+            logger.exception("Momentum bars refresh loop iteration failed")
+        await asyncio.sleep(MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS)
 
 
 def _all_watchlist_symbols() -> list[str]:
@@ -543,9 +640,53 @@ async def _alert_symbol_loop() -> None:
                 for a in list_price_alerts(active_only=True)
             }
             await market_hub.ensure_symbols(symbols)
+            # Outside regular hours the Schwab equity stream is silent, so alerts
+            # would never fire overnight. Poll extended quotes server-side for the
+            # alert symbols and push them through apply_extended (which evaluates
+            # the alerts) — independent of whether any client has the watchlist open.
+            if symbols and _market_session() in ("pre", "post", "overnight"):
+                await _poll_ext_quotes_for_alerts(symbols)
         except Exception:
             logger.exception("Alert symbol loop iteration failed")
         await asyncio.sleep(30)
+
+
+async def _poll_ext_quotes_for_alerts(symbols: set[str]) -> None:
+    """Fetch extended-hours quotes for alert symbols and feed apply_extended.
+
+    Server-side so off-hours price alerts fire even with no browser/phone polling
+    the watchlist (the only other apply_extended caller). Schwab-only (ext quotes);
+    fail-soft — a quote miss just skips the symbol this cycle.
+    """
+    try:
+        provider = get_market_data_provider()
+    except BrokerError:
+        return
+    from brokers.schwab_market_data import SchwabMarketData
+
+    if not isinstance(provider, SchwabMarketData):
+        return
+    session = _market_session()
+    try:
+        ext_quotes = await provider.aget_quotes(sorted(symbols))
+    except Exception:
+        logger.debug("Alert ext-quote poll failed", exc_info=True)
+        return
+    for sym in symbols:
+        eq = ext_quotes.get(sym, {})
+        ext_price = eq.get("ext_last")
+        if ext_price is None:
+            continue
+        try:
+            await market_hub.apply_extended(
+                sym,
+                ext_price=ext_price,
+                ext_change_pct=eq.get("ext_change_pct"),
+                market_session=session,
+                broadcast=True,
+            )
+        except Exception:
+            logger.debug("apply_extended (alert poll) failed for %s", sym, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -609,7 +750,7 @@ async def _rvol_alert_loop() -> None:
 
             today_et = datetime.now(_ET).date()
 
-            from signals.push import send_alert_push
+            from signals.notify import notify
 
             for sym in symbols:
                 try:
@@ -629,9 +770,17 @@ async def _rvol_alert_loop() -> None:
                         continue
                     price = q.get("regular_last") or q.get("ext_last")
                     price_str = f"${price:.2f}" if price else "n/a"
-                    await send_alert_push(
-                        title="Unusual volume",
+                    await notify(
+                        kind="rvol",
+                        title=f"Unusual volume: {sym}",
                         body=f"{sym} {rvol_val:.1f}× normal volume ({price_str})",
+                        severity="info",
+                        action_url=f"/watchlist/{sym}",
+                        data={
+                            "symbol": sym,
+                            "rvol": round(rvol_val, 2),
+                            "price": price,
+                        },
                     )
                     _mark_rvol_alerted(sym, today_et)
                     logger.info("RVOL alert sent: %s rvol=%.2f", sym, rvol_val)
@@ -668,7 +817,7 @@ def _earnings_hour_suffix(hour: str | None, *, day_of: bool) -> str:
 async def _earnings_alert_once() -> None:
     """Check watchlist symbols and push earnings milestone alerts (t14/t1/t0)."""
     from db.earnings_alerts import mark_sent, was_sent
-    from signals.push import send_alert_push
+    from signals.notify import notify
 
     today = datetime.now(_ET).date()
     today_iso = today.isoformat()
@@ -713,11 +862,13 @@ async def _earnings_alert_once() -> None:
                 key = f"{sym}:{earnings_date_str}:{milestone}"
                 if was_sent(key):
                     continue
-                await send_alert_push(
-                    title="Earnings",
+                await notify(
+                    kind="earnings",
+                    title=f"Earnings: {sym} — {milestone}",
                     body=body,
+                    severity="info",
+                    action_url=f"/watchlist/{sym}",
                     data={
-                        "type": "earnings",
                         "symbol": sym,
                         "earnings_date": earnings_date_str,
                         "milestone": milestone,
@@ -768,16 +919,20 @@ async def _schwab_health_loop() -> None:
             continue
         try:
             from brokers.schwab_auth import auth_status
-            from signals.push import send_alert_push
+            from signals.notify import notify
 
             status = auth_status()
             today_et = datetime.now(_ET).date()
 
             if not status.get("authenticated"):
                 if _schwab_health_last_date.get("offline") != today_et:
-                    await send_alert_push(
+                    await notify(
+                        kind="schwab_health",
                         title="Schwab data offline",
                         body="Token invalid; re-auth needed. Run scripts.schwab_reauth or re-login.",
+                        severity="critical",
+                        group_key="schwab_health_offline",
+                        data={"auth_status": "offline"},
                     )
                     _schwab_health_last_date["offline"] = today_et
                     logger.warning("Schwab health alert: token offline")
@@ -785,12 +940,19 @@ async def _schwab_health_loop() -> None:
                 days_left = status.get("estimated_days_until_reauth")
                 if days_left is not None and days_left <= 1.0:
                     if _schwab_health_last_date.get("expiring") != today_et:
-                        await send_alert_push(
+                        await notify(
+                            kind="schwab_health",
                             title="Schwab re-auth needed",
                             body=(
                                 f"Token expires within ~{days_left:.1f} day(s). "
                                 "Run scripts.schwab_reauth or re-login."
                             ),
+                            severity="warning",
+                            group_key="schwab_health_expiring",
+                            data={
+                                "auth_status": "expiring",
+                                "days_left": days_left,
+                            },
                         )
                         _schwab_health_last_date["expiring"] = today_et
                         logger.warning(
@@ -798,6 +960,39 @@ async def _schwab_health_loop() -> None:
                         )
         except Exception:
             logger.exception("Schwab health loop iteration failed")
+
+
+_schwab_snapshot_last_date: dict = {}
+
+
+async def _schwab_snapshot_loop() -> None:
+    """Guarantee one end-of-day Schwab equity snapshot per trading day, even if no
+    client viewed the accounts. Read-only: the daily row is written inside the
+    fetch (``get_schwab_accounts`` → ``record_schwab_daily``); this loop just forces
+    one fresh fetch after the close so the accurate day P&L / equity is persisted."""
+    while True:
+        await asyncio.sleep(SCHWAB_SNAPSHOT_INTERVAL_SECONDS)
+        try:
+            now_et = datetime.now(_ET)
+            today = now_et.date()
+            if now_et.weekday() >= 5:  # weekend — no trading day
+                continue
+            after_close = now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 5)
+            if not after_close:
+                continue
+            if _schwab_snapshot_last_date.get("date") == today:
+                continue
+            from brokers.schwab_accounts import get_schwab_accounts
+            from brokers.schwab_auth import token_exists
+
+            if not token_exists():
+                continue
+            data = await get_schwab_accounts(force=True)
+            if data.get("authenticated"):
+                _schwab_snapshot_last_date["date"] = today
+                logger.info("Schwab EOD equity snapshot captured for %s", today)
+        except Exception:
+            logger.exception("Schwab snapshot loop iteration failed")
 
 
 def _morning_report_window(now_et: datetime, hour_et: int) -> bool:
@@ -815,7 +1010,7 @@ def _morning_report_enabled() -> bool:
 async def _morning_levels_report_once() -> None:
     """Generate and push the SPY morning levels report once per ET day."""
     from db.reports import morning_levels_exists_for_day
-    from signals.push import send_alert_push
+    from signals.notify import notify
     from signals.reports import generate_morning_levels_report
 
     now_et = datetime.now(_ET)
@@ -838,14 +1033,15 @@ async def _morning_levels_report_once() -> None:
         return
 
     try:
-        await send_alert_push(
+        await notify(
+            kind="report_ready",
             title=report["title"],
             body=report["body"],
-            data={
-                "type": "report",
-                "report_id": report["id"],
-                "kind": "morning_levels",
-            },
+            severity="info",
+            ref_type="report",
+            ref_id=report["id"],
+            action_url=f"/reports/{report['id']}",
+            data={"report_id": report["id"], "kind": "morning_levels"},
         )
     except Exception:
         logger.exception("Morning levels report: push failed for %s", report["id"])
@@ -858,22 +1054,123 @@ async def _morning_levels_report_once() -> None:
         )
 
 
-async def _morning_levels_report_loop() -> None:
-    """Poll every ~15 min; push morning levels during the configured ET hour window.
+def _report_push_body(report: dict) -> str:
+    """Plaintext push body: HTML briefs push their summary, not the raw markup."""
+    if report.get("format") == "html":
+        rj = report.get("payload", {}).get("report") or {}
+        summary = str(rj.get("summary") or "").strip()
+        return summary[:280] or str(report.get("title", "Report ready"))
+    return str(report.get("body", ""))
+
+
+async def _notify_report_ready(report: dict, *, push: bool | None = None) -> None:
+    from signals.notify import notify
+
+    kwargs: dict[str, bool] = {}
+    if push is not None:
+        kwargs["push"] = push
+    await notify(
+        kind="report_ready",
+        title=report["title"],
+        body=_report_push_body(report),
+        severity="info",
+        ref_type="report",
+        ref_id=report["id"],
+        action_url=f"/reports/{report['id']}",
+        data={"report_id": report["id"], "kind": report["kind"]},
+        **kwargs,
+    )
+
+
+async def _generate_report_by_kind(
+    kind: str,
+    *,
+    symbols: list[str] | None = None,
+    topic: str | None = None,
+    et_date: date | None = None,
+) -> dict | None:
+    """Dispatch a report kind to its generator (shared by scheduler + API)."""
+    from signals import reports as reports_mod
+
+    syms = symbols or None
+    if kind == "morning_levels":
+        sym = syms[0] if syms else MORNING_REPORT_SYMBOL
+        return await reports_mod.generate_morning_levels_report(sym, et_date=et_date)
+    if kind == "levels":
+        return await reports_mod.generate_levels_report(
+            syms or [MORNING_REPORT_SYMBOL], et_date=et_date
+        )
+    if kind == "morning_brief":
+        return await reports_mod.generate_morning_brief_report(syms, et_date=et_date)
+    if kind == "evening_brief":
+        return await reports_mod.generate_evening_brief_report(syms, et_date=et_date)
+    if kind == "on_request":
+        return await reports_mod.generate_on_request_report(
+            topic or "", syms, et_date=et_date
+        )
+    return None
+
+
+async def _run_scheduled_report(job: dict) -> None:
+    """Generate + push one configured report job, once per (kind, params, ET-day)."""
+    from db.reports import report_exists_for_day
+
+    kind = str(job.get("kind", "")).strip()
+    if not job.get("enabled") or kind not in SCHEDULABLE_REPORT_KINDS:
+        return
+
+    now_et = datetime.now(_ET)
+    if not _morning_report_window(now_et, int(job.get("hour_et", 8))):
+        return
+
+    today = now_et.date()
+    symbols = [
+        str(s).strip().upper() for s in (job.get("symbols") or []) if str(s).strip()
+    ]
+    dedup_key = ",".join(symbols) if kind == "levels" else kind
+    if report_exists_for_day(kind, today, dedup_key=dedup_key):
+        return
+
+    try:
+        report = await _generate_report_by_kind(kind, symbols=symbols, et_date=today)
+    except Exception:
+        logger.exception("Scheduled report generation failed: kind=%s", kind)
+        return
+    if report is None:
+        logger.info("Scheduled report produced nothing: kind=%s", kind)
+        return
+
+    try:
+        await _notify_report_ready(report)
+    except Exception:
+        logger.exception("Scheduled report push failed: id=%s", report["id"])
+    else:
+        logger.info("Scheduled report sent: kind=%s id=%s", kind, report["id"])
+
+
+async def _reports_scheduler_loop() -> None:
+    """Poll every ~15 min; run the legacy morning-levels job plus any configured
+    report jobs (morning/evening briefs, extra levels) during their ET windows.
 
     Env gates:
-      MORNING_REPORT_ENABLED              default "1"  (set to "0" to disable)
+      MORNING_REPORT_ENABLED              default "1"  (set to "0" to disable all)
       MORNING_REPORT_INTERVAL_SECONDS     default 900
       MORNING_REPORT_HOUR_ET              default 8 (settings hour_et also applies)
     """
     while True:
         await asyncio.sleep(MORNING_REPORT_INTERVAL_SECONDS)
-        if not _morning_report_enabled():
+        if not _MORNING_REPORT_ENV_ENABLED:
             continue
-        try:
-            await _morning_levels_report_once()
-        except Exception:
-            logger.exception("Morning levels report loop iteration failed")
+        if _morning_report_enabled():
+            try:
+                await _morning_levels_report_once()
+            except Exception:
+                logger.exception("Morning levels report loop iteration failed")
+        for job in reports_config().get("jobs", []):
+            try:
+                await _run_scheduled_report(job)
+            except Exception:
+                logger.exception("Scheduled report job failed: %s", job.get("kind"))
 
 
 @asynccontextmanager
@@ -890,6 +1187,7 @@ async def lifespan(app: FastAPI):
     init_session_node_tables()
     init_earnings_alert_tables()
     init_reports_tables()
+    init_notifications_tables()
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
@@ -932,18 +1230,24 @@ async def lifespan(app: FastAPI):
     reflection_task = asyncio.create_task(reflection_loop())
     sync_task = asyncio.create_task(_trade_sync_loop())
     earnings_task = asyncio.create_task(_earnings_refresh_loop())
+    regime_task = asyncio.create_task(_regime_refresh_loop())
+    momentum_bars_task = asyncio.create_task(_momentum_bars_refresh_loop())
     volume_profile_task = asyncio.create_task(_volume_profile_refresh_loop())
     rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
     earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
     schwab_health_task = asyncio.create_task(_schwab_health_loop())
-    morning_report_task = asyncio.create_task(_morning_levels_report_loop())
+    schwab_snapshot_task = asyncio.create_task(_schwab_snapshot_loop())
+    morning_report_task = asyncio.create_task(_reports_scheduler_loop())
     bars_prewarm_task = asyncio.create_task(_bars_prewarm_loop())
     yield
     earnings_task.cancel()
+    regime_task.cancel()
+    momentum_bars_task.cancel()
     volume_profile_task.cancel()
     rvol_alert_task.cancel()
     earnings_alert_task.cancel()
     schwab_health_task.cancel()
+    schwab_snapshot_task.cancel()
     morning_report_task.cancel()
     bars_prewarm_task.cancel()
     sync_task.cancel()
@@ -960,6 +1264,8 @@ async def lifespan(app: FastAPI):
         reflection_task,
         sync_task,
         earnings_task,
+        regime_task,
+        momentum_bars_task,
         volume_profile_task,
         rvol_alert_task,
         earnings_alert_task,
@@ -981,6 +1287,12 @@ app.include_router(device_router)
 app.include_router(trade_router)
 app.include_router(performance_router)
 app.include_router(strategy_router)
+app.include_router(notification_router)
+app.include_router(scan_router)
+app.include_router(schwab_router)
+app.include_router(journal_router)
+app.include_router(ticker_router)
+app.include_router(orders_router)
 
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(
@@ -1040,10 +1352,32 @@ def api_broker():
     }
 
 
-def _aggregate_account_snapshots(snaps: list[dict]) -> dict:
-    """Sum cash / buying power / portfolio value / unrealized P&L across accounts."""
+def _account_money_type(broker: str) -> str:
+    """Real funded money vs paper sandbox — the firewall property.
+
+    Schwab = real funded accounts (read-only). Alpaca is the paper sandbox in this
+    app (the combined book is hard paper-fenced). Kept as one explicit derivation
+    so the paper/real boundary is a real property, never a broker-name guess
+    scattered across the UI. (Revisit if a live Alpaca endpoint is ever wired.)
+    """
+    return "real" if broker == "schwab" else "paper"
+
+
+def _aggregate_account_snapshots(snaps: list[dict], money_type: str = "paper") -> dict:
+    """Sum balances across accounts of a SINGLE money_type only.
+
+    Hard firewall: paper (Alpaca) and real (Schwab) balances are NEVER blended
+    into one figure. The caller picks one money_type; any snapshot of a different
+    money_type is skipped — belt-and-suspenders so a future change that starts
+    writing real accounts into poll_runs alongside paper ones can't silently
+    reintroduce a mixed total.
+    """
     cash = bp = pv = upl = 0.0
+    counted = 0
     for s in snaps:
+        if _account_money_type(str(s.get("broker") or "")) != money_type:
+            continue
+        counted += 1
         acct = s.get("account") or {}
         cash += float(acct.get("cash") or 0)
         bp += float(acct.get("buying_power") or 0)
@@ -1055,7 +1389,8 @@ def _aggregate_account_snapshots(snaps: list[dict]) -> dict:
         "buying_power": bp,
         "portfolio_value": pv,
         "unrealized_pl": upl,
-        "account_count": len(snaps),
+        "account_count": counted,
+        "money_type": money_type,
     }
 
 
@@ -1069,11 +1404,12 @@ def _combined_snapshot_response() -> dict | None:
     if labeled:
         all_snaps = labeled
 
-    # Attach a stable trade-account label + default flag to each account snapshot.
+    # Attach a stable trade-account label + default flag + money_type to each snap.
     for s in all_snaps:
         acct = get_account(str(s["account_id"])) if s.get("account_id") else None
         s["account_label"] = acct["label"] if acct else None
         s["is_default"] = bool(acct["is_default"]) if acct else False
+        s["money_type"] = _account_money_type(str(s.get("broker") or ""))
 
     primary = primary_broker()
     # Top-level summary is pinned to the DEFAULT account (deterministic) rather
@@ -1085,12 +1421,18 @@ def _combined_snapshot_response() -> dict | None:
         or all_snaps[0]
     )
 
+    primary_money_type = primary_snap.get("money_type") or _account_money_type(
+        str(primary_snap.get("broker") or "")
+    )
     return {
         **primary_snap,
         "primary_broker": primary,
         "broker": primary_snap["broker"],
+        "money_type": primary_money_type,
         "snapshots": all_snaps,
-        "all_accounts_summary": _aggregate_account_snapshots(all_snaps),
+        # Paper-only aggregate — Schwab (real) is summed separately on the client
+        # from GET /api/schwab/accounts; the two are never combined (the firewall).
+        "all_accounts_summary": _aggregate_account_snapshots(all_snaps, "paper"),
     }
 
 
@@ -1231,7 +1573,8 @@ async def api_watchlist_market(symbols: str = ""):
     # nightly-precomputed watchlist. It populates within a poll cycle.
     for sym in symbol_list:
         if load_profile(sym) is None:
-            _schedule_profile_build(provider, sym)
+            session_type = "globex" if sym.startswith("/") else "rth"
+            _schedule_profile_build(provider, sym, session=session_type)
 
     try:
         bars_by_symbol = await provider.aget_stock_bars_batch(symbol_list, days=12)
@@ -1269,7 +1612,38 @@ async def api_watchlist_market(symbols: str = ""):
         price = closes[-1]
         prev = closes[-2] if len(closes) >= 2 else price
         change_pct = ((price - prev) / prev * 100) if prev else 0.0
-        intraday = _session_intraday_closes(intraday_by_symbol.get(sym, []))
+        intraday = _session_intraday_closes(
+            intraday_by_symbol.get(sym, []), futures=sym.startswith("/")
+        )
+
+        # Futures symbols (e.g. /ES, /NQ) have no fundamentals, extended session,
+        # volume profile, or earnings — skip all equity-only enrichment.
+        is_future = sym.startswith("/")
+
+        if is_future:
+            quotes[sym] = {
+                "price": price,
+                "change_pct": round(change_pct, 2),
+                "sparkline": [round(c, 4) for c in closes[-7:]],
+                "prev_close": prev,
+                "volume": float(latest.volume),
+                "day_high": float(latest.high),
+                "day_low": float(latest.low),
+                "intraday": intraday,
+                "market_session": session,
+                "ext_price": None,
+                "ext_change_pct": None,
+                "pe": None,
+                "eps": None,
+                "div_yield": None,
+                "market_cap": None,
+                "last_earnings": None,
+                "next_earnings": None,
+                "rvol": _compute_rvol_field(
+                    sym, intraday_by_symbol.get(sym, []), session="globex"
+                ),
+            }
+            continue
 
         eq = ext_quotes.get(sym, {})
 
@@ -1338,11 +1712,12 @@ _profile_build_attempts: dict[str, float] = {}
 _PROFILE_BUILD_COOLDOWN_S = 600  # don't re-attempt a symbol's profile more than once / 10 min
 
 
-def _schedule_profile_build(provider, symbol: str) -> None:
+def _schedule_profile_build(provider, symbol: str, *, session: str = "rth") -> None:
     """Fire-and-forget a volume-profile build for one symbol, deduped by cooldown.
 
     Guards against hammering Schwab when a symbol can't form a profile (illiquid →
-    compute returns None → no file saved → would otherwise retry every poll)."""
+    compute returns None → no file saved → would otherwise retry every poll).
+    Pass ``session="globex"`` for futures symbols."""
     now = time.time()
     if now - _profile_build_attempts.get(symbol, 0.0) < _PROFILE_BUILD_COOLDOWN_S:
         return
@@ -1350,31 +1725,37 @@ def _schedule_profile_build(provider, symbol: str) -> None:
 
     async def _run() -> None:
         try:
-            await build_profile(provider, symbol)
+            await build_profile(provider, symbol, session=session)
         except Exception:
             logger.exception("On-demand volume-profile build failed for %s", symbol)
 
     asyncio.create_task(_run())
 
 
-def _compute_rvol_field(symbol: str, intraday_bars: list[StockBar]) -> dict | None:
-    profile = load_profile(symbol)
-    if profile is None or not intraday_bars:
+def _compute_rvol_field(
+    symbol: str, intraday_bars: list[StockBar], *, session: str = "rth"
+) -> dict | None:
+    try:
+        profile = load_profile(symbol)
+        if profile is None or not intraday_bars:
+            return None
+        result = rvol_now(profile, intraday_bars, session=session)
+        if result is None or result.value is None:
+            if result is not None:
+                return {"value": None, "state": result.state}
+            return None
+        state = result.state
+        if state == "settled":
+            latest_date = max(
+                datetime.fromisoformat(b.time.replace("Z", "+00:00")).astimezone(_ET).date()
+                for b in intraday_bars
+            )
+            if latest_date < datetime.now(_ET).date():
+                state = "overnight"
+        return {"value": result.value, "state": state}
+    except Exception as exc:  # RVOL is best-effort — one symbol must never 500 the watchlist
+        logger.warning("RVOL compute failed for %s: %s", symbol, exc)
         return None
-    result = rvol_now(profile, intraday_bars)
-    if result is None or result.value is None:
-        if result is not None:
-            return {"value": None, "state": result.state}
-        return None
-    state = result.state
-    if state == "settled":
-        latest_date = max(
-            datetime.fromisoformat(b.time.replace("Z", "+00:00")).astimezone(_ET).date()
-            for b in intraday_bars
-        )
-        if latest_date < datetime.now(_ET).date():
-            state = "overnight"
-    return {"value": result.value, "state": state}
 
 
 _SCANNER_CHUNK_SIZE = 250  # Schwab get_quotes accepts many symbols; chunk to stay safe
@@ -1555,12 +1936,30 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     }
 
 
-def _session_intraday_closes(bars: list[StockBar]) -> list[float]:
+def _session_intraday_closes(
+    bars: list[StockBar], *, futures: bool = False
+) -> list[float]:
     if not bars:
         return []
 
     def _bar_et(bar: StockBar) -> datetime:
         return datetime.fromisoformat(bar.time.replace("Z", "+00:00")).astimezone(_ET)
+
+    # Futures trade ~23h on Globex with no RTH window — group by Globex session
+    # (18:00 ET prev day -> 17:00 ET) and return the latest session's closes. The
+    # RTH path below would return [] off-RTH, which the sparkline can't fall back from.
+    if futures:
+        from research.intraday_profile import globex_session_date
+
+        sessions = [
+            (sd, bar)
+            for bar in bars
+            if (sd := globex_session_date(_bar_et(bar))) is not None
+        ]
+        if not sessions:
+            return []
+        latest = max(sd for sd, _ in sessions)
+        return [round(bar.close, 4) for sd, bar in sessions if sd == latest]
 
     session_date = _bar_et(bars[-1]).date()
     open_minutes = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
@@ -1770,40 +2169,52 @@ def api_get_report(report_id: str):
     return report
 
 
+_GENERATABLE_REPORT_KINDS = ("morning_levels", "levels", "morning_brief", "evening_brief", "on_request")
+
+
 @app.post("/api/reports/generate")
 async def api_generate_report(body: dict = Body(...), push: bool = False):
-    from signals.push import send_alert_push
-    from signals.reports import generate_morning_levels_report
-
-    kind = str(body.get("kind", "")).strip()
-    if kind != "morning_levels":
+    kind = str(body.get("kind", "")).strip() or "morning_levels"
+    if kind not in _GENERATABLE_REPORT_KINDS:
         return JSONResponse(
-            {"error": "Only kind 'morning_levels' is supported"},
+            {
+                "error": f"Unsupported kind '{kind}'",
+                "supported": list(_GENERATABLE_REPORT_KINDS),
+            },
             status_code=400,
         )
-    symbol = str(body.get("symbol", MORNING_REPORT_SYMBOL)).strip().upper()
-    if not symbol:
-        symbol = MORNING_REPORT_SYMBOL
+
+    # symbols: accept `symbols` (list) or legacy single `symbol`.
+    raw_symbols = body.get("symbols")
+    if isinstance(raw_symbols, list):
+        symbols = [str(s).strip().upper() for s in raw_symbols if str(s).strip()]
+    else:
+        one = str(body.get("symbol", "")).strip().upper()
+        symbols = [one] if one else []
+    if kind in ("morning_levels", "levels") and not symbols:
+        symbols = [MORNING_REPORT_SYMBOL]
+    topic = str(body.get("topic", "")).strip()
+    if kind == "on_request" and not topic:
+        return JSONResponse(
+            {"error": "kind 'on_request' requires a 'topic'"}, status_code=400
+        )
+
     try:
-        report = await generate_morning_levels_report(symbol)
+        report = await _generate_report_by_kind(
+            kind, symbols=symbols or None, topic=topic or None
+        )
     except Exception as exc:
         logger.exception("Manual report generate failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
     if report is None:
-        return JSONResponse({"error": "No session levels available"}, status_code=404)
-    if push:
-        try:
-            await send_alert_push(
-                title=report["title"],
-                body=report["body"],
-                data={
-                    "type": "report",
-                    "report_id": report["id"],
-                    "kind": "morning_levels",
-                },
-            )
-        except Exception:
-            logger.exception("Manual report push failed for %s", report["id"])
+        return JSONResponse(
+            {"error": "No data available for this report"}, status_code=404
+        )
+
+    try:
+        await _notify_report_ready(report, push=push)
+    except Exception:
+        logger.exception("Manual report notify failed for %s", report["id"])
     return report
 
 
@@ -1811,7 +2222,16 @@ async def api_generate_report(body: dict = Body(...), push: bool = False):
 # instead of waiting on a fresh Schwab per-symbol round-trip (the live price rides the
 # WS stream on the frontend, so a few-minutes-stale historical window is invisible).
 _BARS_CACHE: dict[tuple, tuple[float, dict]] = {}
-_BARS_CACHE_TTL = {"1Min": 60.0, "5Min": 180.0, "15Min": 300.0, "1Hour": 600.0, "1Day": 300.0}
+_BARS_CACHE_TTL = {
+    "1Min": 60.0,
+    "5Min": 180.0,
+    "15Min": 300.0,
+    "1Hour": 600.0,
+    "4Hour": 600.0,
+    "1Day": 300.0,
+    "1Week": 300.0,
+    "1Month": 300.0,
+}
 
 # Recency of chart-bar requests, used to keep the cache warm (prewarm loop below).
 # spec = (timeframe, days) the frontend actually requests — capturing it avoids
@@ -1947,6 +2367,17 @@ async def _bars_prewarm_loop() -> None:
         await asyncio.sleep(_BARS_PREWARM_INTERVAL)
 
 
+def _earnings_quarter_label(fiscal_quarter: int, period_iso: str) -> str:
+    """Label an earnings report by the company's own fiscal quarter NUMBER, but with the
+    CALENDAR year of the period (not the fiscal year). Offset-fiscal names (NVDA, AAPL)
+    report e.g. "Q1 fiscal 2027" for a quarter that lands in calendar 2026 — Finnhub's raw
+    fiscal year gives the confusing forward "Q1'27", so use the period's calendar year →
+    "Q1'26" (matches how the company + news refer to the quarter). Calendar-fiscal names
+    are unaffected (fiscal quarter == calendar quarter)."""
+    year = date.fromisoformat(period_iso[:10]).year
+    return f"Q{fiscal_quarter}'{year % 100:02d}"
+
+
 @app.get("/api/fundamentals/earnings-history")
 async def api_earnings_history(symbol: str = "", n: int = 6):
     """Past earnings EPS surprise by quarter.
@@ -1988,9 +2419,7 @@ async def api_earnings_history(symbol: str = "", n: int = 6):
     events: list[dict] = []
     for item in raw:
         try:
-            year: int = item["year"]
-            quarter: int = item["quarter"]
-            label = f"Q{quarter}'{year % 100:02d}"
+            label = _earnings_quarter_label(int(item["quarter"]), str(item["period"]))
             events.append(
                 {
                     "period": item["period"],
@@ -2040,6 +2469,75 @@ def api_put_workspace_layout(body: dict = Body(...)):
                 status_code=400,
             )
     save_workspace_layout(layout)
+    return {"ok": True}
+
+
+def _is_valid_workspace_page(page: object) -> bool:
+    if not isinstance(page, dict):
+        return False
+    layout = page.get("layout")
+    if not isinstance(page.get("id"), str) or not isinstance(page.get("name"), str):
+        return False
+    if not isinstance(layout, list):
+        return False
+    return all(_is_valid_layout_item(item) for item in layout)
+
+
+def _is_valid_pages_state(state: object) -> bool:
+    if not isinstance(state, dict):
+        return False
+    pages = state.get("pages")
+    active_page_id = state.get("activePageId")
+    if not isinstance(pages, dict) or not isinstance(active_page_id, str):
+        return False
+    if not pages:
+        return False
+    if active_page_id not in pages:
+        return False
+    return all(_is_valid_workspace_page(page) for page in pages.values())
+
+
+@app.get("/api/workspace/pages")
+def api_get_workspace_pages():
+    return {"pages_state": load_workspace_pages()}
+
+
+@app.put("/api/workspace/pages")
+def api_put_workspace_pages(body: dict = Body(...)):
+    pages_state = body.get("pages_state")
+    if not _is_valid_pages_state(pages_state):
+        return JSONResponse(
+            {
+                "error": (
+                    "pages_state must have pages map, activePageId, and each page "
+                    "must have string id, name and a layout array of valid items"
+                )
+            },
+            status_code=400,
+        )
+    save_workspace_pages(pages_state)
+    return {"ok": True}
+
+
+@app.get("/api/workspace/custom-themes")
+def api_get_custom_themes():
+    return {"custom_themes": load_custom_themes()}
+
+
+@app.put("/api/workspace/custom-themes")
+def api_put_custom_themes(body: dict = Body(...)):
+    themes = body.get("custom_themes")
+    if not is_valid_custom_themes(themes):
+        return JSONResponse(
+            {
+                "error": (
+                    "custom_themes must be a list (≤24) of objects with string "
+                    "id, name and a vars map of string→string"
+                )
+            },
+            status_code=400,
+        )
+    save_custom_themes(themes)
     return {"ok": True}
 
 
@@ -2116,6 +2614,63 @@ def api_trigger_alert(alert_id: int):
         return JSONResponse({"error": "Not found or already triggered"}, status_code=404)
     mark_alert_triggered(alert_id, repeat=bool(active[0].get("repeat")))
     return {"ok": True, "alert": active[0]}
+
+
+@app.get("/api/drawings")
+def api_list_drawings(symbol: str | None = None):
+    return {"drawings": list_chart_drawings(symbol=symbol)}
+
+
+@app.post("/api/drawings")
+def api_create_drawing(body: dict = Body(...)):
+    symbol = str(body.get("symbol", "")).strip()
+    kind = str(body.get("kind", "")).strip().lower()
+    data = body.get("data", {})
+    if not symbol or not kind:
+        return JSONResponse(
+            {"error": "symbol and kind are required"}, status_code=400
+        )
+    if kind not in ("level", "trendline", "channel"):
+        return JSONResponse(
+            {"error": "kind must be one of: level, trendline, channel"},
+            status_code=400,
+        )
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "data must be an object"}, status_code=400)
+    drawing = create_chart_drawing(symbol=symbol, kind=kind, data=data)
+    return drawing
+
+
+@app.put("/api/drawings/{drawing_id}")
+def api_update_drawing(drawing_id: int, body: dict = Body(...)):
+    kind_norm: str | None = None
+    if body.get("kind") is not None:
+        kind_norm = str(body["kind"]).strip().lower()
+        if kind_norm not in ("level", "trendline", "channel"):
+            return JSONResponse(
+                {"error": "kind must be one of: level, trendline, channel"},
+                status_code=400,
+            )
+    data_val: dict | None = None
+    if body.get("data") is not None:
+        if not isinstance(body["data"], dict):
+            return JSONResponse({"error": "data must be an object"}, status_code=400)
+        data_val = body["data"]
+    updated = update_chart_drawing(
+        drawing_id,
+        data=data_val,
+        kind=kind_norm,
+    )
+    if updated is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return updated
+
+
+@app.delete("/api/drawings/{drawing_id}")
+def api_delete_drawing(drawing_id: int):
+    if not delete_chart_drawing(drawing_id):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -8,12 +8,15 @@ from typing import Any, Callable
 
 from db.base import DEFAULT_DB_PATH
 from db.earnings_calendar import earnings_dates_for
+from db.regime import recent_observations
 from research.strategy_features import (
     compute_market_context,
     is_earnings_drift_entry,
     is_strategy_entry,
+    is_vix_spike_entry,
 )
 from signals.indicators import closes, pct_change
+from signals.regime import market_regime, regime_is_fresh
 from signals.trade_context import DatedBar
 
 
@@ -37,13 +40,23 @@ class StrategyKind:
 
 
 def _dip_check(ctx: EntryContext) -> bool:
-    return is_strategy_entry(
+    yc_min = ctx.params.get("yc_min_spread")
+    entry_params = {k: v for k, v in ctx.params.items() if k != "yc_min_spread"}
+    if not is_strategy_entry(
         ctx.sym_bars,
         ctx.idx,
         spy_bars=ctx.spy_bars,
         spy_idx=ctx.spy_idx,
-        **ctx.params,
-    )
+        **entry_params,
+    ):
+        return False
+    if yc_min is not None:
+        if not regime_is_fresh():
+            return False
+        regime = market_regime()
+        if regime is None or regime["term_spread"] <= float(yc_min):
+            return False
+    return True
 
 
 def _dip_rationale(ctx: EntryContext, strategy_name: str) -> str:
@@ -74,12 +87,37 @@ def _earnings_rationale(ctx: EntryContext, strategy_name: str) -> str:
     return f"{strategy_name}: {ctx.sym} pre-earnings drift, next earnings {next_str}"
 
 
+def _vix_spike_check(ctx: EntryContext) -> bool:
+    # SPY-only, regime-driven. FAIL-CLOSED: no fresh regime / not enough VIX history ⇒ don't fire.
+    if not regime_is_fresh(db_path=ctx.db_path):
+        return False
+    lookback = int(ctx.params.get("vix_calm_lookback", 12))
+    obs = recent_observations("VIXCLS", limit=lookback + 1, db_path=ctx.db_path)
+    if len(obs) < lookback + 1:
+        return False
+    return is_vix_spike_entry(
+        obs[0][1],  # newest VIX = today
+        [v for _, v in obs[1:]],  # the prior closes (newest-first; count-only)
+        vix_spike_min=float(ctx.params.get("vix_spike_min", 28.0)),
+        vix_calm_max=float(ctx.params.get("vix_calm_max", 22.0)),
+        vix_calm_lookback=lookback,
+        vix_calm_min_days=int(ctx.params.get("vix_calm_min_days", 8)),
+    )
+
+
+def _vix_spike_rationale(ctx: EntryContext, strategy_name: str) -> str:
+    obs = recent_observations("VIXCLS", limit=1, db_path=ctx.db_path)
+    vix_str = f"{obs[0][1]:.1f}" if obs else "?"
+    return f"{strategy_name}: VIX spike {vix_str} from calm — buy-fear {ctx.sym} long"
+
+
 DIP_ENTRY_PARAM_KEYS = (
     "healthy_required",
     "oversold_3d_max",
     "mkt_down_3d_max",
     "side",
     "far_support_min",
+    "yc_min_spread",
 )
 EARNINGS_ENTRY_PARAM_KEYS = (
     "blowout_pct",
@@ -87,6 +125,12 @@ EARNINGS_ENTRY_PARAM_KEYS = (
     "exit_lead_td",
     "min_gap_td",
     "max_gap_td",
+)
+VIX_SPIKE_ENTRY_PARAM_KEYS = (
+    "vix_spike_min",
+    "vix_calm_max",
+    "vix_calm_lookback",
+    "vix_calm_min_days",
 )
 
 STRATEGY_KINDS: dict[str, StrategyKind] = {
@@ -96,17 +140,30 @@ STRATEGY_KINDS: dict[str, StrategyKind] = {
     "earnings": StrategyKind(
         "earnings", EARNINGS_ENTRY_PARAM_KEYS, _earnings_check, _earnings_rationale
     ),
+    "vix_spike": StrategyKind(
+        "vix_spike", VIX_SPIKE_ENTRY_PARAM_KEYS, _vix_spike_check, _vix_spike_rationale
+    ),
 }
 
 
 def strategy_kind(strategy_id: str) -> str | None:
-    """Infer kind from id. Mirrors trading/exit_engine._strategy_kind (keep them consistent)."""
+    """Infer kind from id. NOTE: trading/exit_engine._strategy_kind covers only dip/earnings
+    (it's reached only AFTER is_portfolio_kind filters momentum out) — they diverge by design."""
     sid = (strategy_id or "").lower()
+    if sid.startswith("momentum"):
+        return "momentum"
+    if "vix" in sid:
+        return "vix_spike"
     if "earnings" in sid:
         return "earnings"
     if "dip" in sid:
         return "dip"
     return None
+
+
+def is_portfolio_kind(strategy_id: str) -> bool:
+    """True for portfolio-rebalance strategies (rank → diff vs holdings)."""
+    return strategy_kind(strategy_id) == "momentum"
 
 
 def kind_spec(strategy_id: str) -> StrategyKind | None:

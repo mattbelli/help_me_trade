@@ -340,6 +340,21 @@ def test_rvol_now_settled() -> None:
     assert result.value == pytest.approx(round(today_total / daily_total, 2))
 
 
+def test_rvol_now_bucket_beyond_profile_returns_none() -> None:
+    # Regression: a session that runs past the profile's bucket coverage (e.g. a
+    # Globex/futures session scored against an RTH-shaped profile) must NOT raise
+    # IndexError — it returns None. This is what 500'd /api/watchlist/market.
+    short = 10
+    profile = Profile(
+        symbol="/ES",
+        cumfrac=[(i + 1) / short for i in range(short)],
+        median_daily_total=1_000_000,
+        n_days=10,
+    )
+    today_bars = _partial_day_bars("2026-06-30", last_bucket=20, daily_total=1_000_000)
+    assert rvol_now(profile, today_bars) is None
+
+
 def test_profile_store_round_trip_and_staleness(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("VOLUME_PROFILE_DIR", str(tmp_path))
     profile = Profile(

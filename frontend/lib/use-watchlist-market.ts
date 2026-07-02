@@ -8,7 +8,11 @@ import {
   type WatchlistQuote,
 } from "@/lib/api";
 
-const SPARKLINE_REFRESH_MS = 5 * 60_000;
+// Full REST refresh cadence. The WS carries live prices (incl. extended/overnight ext_*
+// fields), so this is the floor for when no broadcasts are flowing (e.g. web is the only
+// client overnight). 5 min was far too long — the displayed ext_price went stale until a
+// manual reload. 20 s steady polling matches the phone and is well under any burst limit.
+const MARKET_REFRESH_MS = 20_000;
 const RECONNECT_MS = 3_000;
 
 function symbolsFromKey(key: string): string[] {
@@ -52,6 +56,12 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
           price: patch.price ?? prev[symbol]?.price ?? 0,
           change_pct: patch.change_pct ?? prev[symbol]?.change_pct ?? 0,
           sparkline: patch.sparkline ?? prev[symbol]?.sparkline ?? [],
+          // Carry the extended/overnight fields through — the displayed price uses these
+          // when the market_session is pre/post/overnight. Dropping them was why the web
+          // froze at the last REST refresh while the phone (which polls fast) stayed live.
+          ext_price: patch.ext_price ?? prev[symbol]?.ext_price ?? null,
+          ext_change_pct: patch.ext_change_pct ?? prev[symbol]?.ext_change_pct ?? null,
+          market_session: patch.market_session ?? prev[symbol]?.market_session,
         },
       }));
     }
@@ -60,7 +70,7 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
       setQuotes((prev) => ({ ...prev, ...next }));
     }
 
-    async function loadSparklines() {
+    async function refreshMarket() {
       try {
         const data = await fetchWatchlistMarket(symbolList);
         if (!cancelled) mergeQuotes(data);
@@ -92,6 +102,9 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
             price?: number;
             change_pct?: number;
             sparkline?: number[];
+            ext_price?: number | null;
+            ext_change_pct?: number | null;
+            market_session?: WatchlistQuote["market_session"];
             live?: boolean;
           };
           if (msg.type === "quotes" && msg.quotes) {
@@ -104,6 +117,9 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
               price: msg.price,
               change_pct: msg.change_pct,
               sparkline: msg.sparkline,
+              ext_price: msg.ext_price,
+              ext_change_pct: msg.ext_change_pct,
+              market_session: msg.market_session,
             });
             setLive(true);
             setLoading(false);
@@ -125,9 +141,9 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
     }
 
     setLoading(true);
-    loadSparklines();
+    refreshMarket();
     connect();
-    sparkTimer = setInterval(loadSparklines, SPARKLINE_REFRESH_MS);
+    sparkTimer = setInterval(refreshMarket, MARKET_REFRESH_MS);
 
     return () => {
       cancelled = true;

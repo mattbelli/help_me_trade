@@ -124,8 +124,11 @@ export function RuleProposalCard({
   const actionType = (action.type ?? "alert").toUpperCase();
 
   return (
-    <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm shadow-sm">
+    <div className="space-y-3 rounded-[16px] border border-[var(--c-accent)] bg-[var(--c-accent-soft)] p-3 text-sm">
       <div>
+        <p className="mb-1 font-mono text-[11px] tracking-[0.1em] lowercase text-[var(--c-accent)]">
+          proposal ready
+        </p>
         <p className="font-medium text-foreground">Alert rule — your approval needed</p>
         <p className="text-xs text-muted-foreground">
           Review below, then approve or reject. On approve the rule is saved and

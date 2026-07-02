@@ -8,8 +8,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { TerminalField, TerminalInput } from "@/components/ui/terminal";
 import { DefaultModelSelect } from "@/components/settings/default-model-select";
 import { ChatModelPickerSettings } from "@/components/settings/chat-model-picker-settings";
 import {
@@ -71,9 +70,8 @@ function ProviderAccordion({
         ) : null}
 
         {fields.keyField ? (
-          <div className="space-y-1.5">
-            <Label htmlFor={`${providerId}-key`}>API key</Label>
-            <Input
+          <TerminalField label="API key" htmlFor={`${providerId}-key`}>
+            <TerminalInput
               id={`${providerId}-key`}
               type="password"
               value={
@@ -88,12 +86,11 @@ function ProviderAccordion({
               }
               onChange={(e) => patch(fields.keyField!, e.target.value)}
             />
-          </div>
+          </TerminalField>
         ) : null}
 
-        <div className="space-y-1.5">
-          <Label htmlFor={`${providerId}-base`}>API base URL</Label>
-          <Input
+        <TerminalField label="API base URL" htmlFor={`${providerId}-base`}>
+          <TerminalInput
             id={`${providerId}-base`}
             value={String(ai[fields.baseUrlField] || "")}
             placeholder={String(
@@ -101,7 +98,7 @@ function ProviderAccordion({
             )}
             onChange={(e) => patch(fields.baseUrlField, e.target.value)}
           />
-        </div>
+        </TerminalField>
 
         <ChatModelPickerSettings
           providerId={providerId}

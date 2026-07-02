@@ -88,3 +88,56 @@ def strategy_conviction(
         "source": data.get("source"),
         "as_of": s.get("as_of") or data.get("as_of"),
     }
+
+
+def strategy_plan(strategy_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
+    """The strategy's VALIDATED exit plan, expressed as rules, from its live params + kind.
+
+    Honest by construction: this is the backtested exit logic (the same params
+    `signals.exit_evaluators` runs), NOT an unvalidated S/R scale-out ladder. Rules are
+    percentages/time (no entry price needed — strategy entries are market orders).
+    Returns None for kinds without a defined price/time plan (e.g. exploratory).
+    """
+    from db.base import DEFAULT_DB_PATH
+    from db.strategies import get_strategy
+    from signals.strategy_kinds import strategy_kind
+
+    strat = get_strategy(strategy_id, db_path=db_path or DEFAULT_DB_PATH)
+    if strat is None:
+        return None
+    params = strat.get("params") or {}
+    kind = strategy_kind(strategy_id)
+
+    if kind == "dip":
+        stop = abs(float(params.get("stop_pct", -3.0)))
+        target = float(params.get("first_target_pct", 3.0))
+        trail = float(params.get("trail_pct", 11.0))
+        cap = int(params.get("max_holding_days", 20))
+        return {
+            "kind": "dip",
+            "exit_basis": "price",
+            "stop_pct": -stop,
+            "first_target_pct": target,
+            "trail_pct": trail,
+            "max_holding_days": cap,
+            "rules": [
+                f"Stop −{stop:g}%",
+                f"Take +{target:g}% (sell half → stop to breakeven)",
+                f"Trail {trail:g}%",
+                f"Time cap {cap} trading days",
+            ],
+        }
+    if kind == "earnings":
+        lead = int(params.get("exit_lead_td", 1))
+        cap = int(params.get("max_holding_days", 15))
+        return {
+            "kind": "earnings",
+            "exit_basis": "time",
+            "exit_lead_td": lead,
+            "max_holding_days": cap,
+            "rules": [
+                f"Exit ~{lead} trading day{'s' if lead != 1 else ''} before next earnings",
+                f"Max hold {cap} trading days",
+            ],
+        }
+    return None

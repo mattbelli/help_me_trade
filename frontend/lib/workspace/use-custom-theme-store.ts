@@ -1,0 +1,181 @@
+"use client";
+
+import { create } from "zustand";
+
+import { fetchCustomThemes, saveCustomThemes } from "@/lib/api";
+
+import {
+  captureThemeVars,
+  deriveTokensFromVars,
+  injectCustomThemeStyles,
+  loadLocalCustomThemes,
+  mergeTokensIntoVars,
+  newCustomThemeId,
+  normalizeHex,
+  saveLocalCustomThemes,
+  type CustomTheme,
+  type EditableToken,
+} from "./custom-themes";
+import { isBuiltinTheme, WORKSPACE_THEMES, type WorkspaceTheme } from "./themes";
+
+type CustomThemeState = {
+  themes: CustomTheme[];
+  hydrated: boolean;
+  hydrate: () => Promise<void>;
+  createFromCurrent: (name: string, base: string) => string;
+  updateTokens: (id: string, token: EditableToken, hex: string) => void;
+  rename: (id: string, name: string) => void;
+  remove: (id: string) => void;
+};
+
+// ── Debounced server save ────────────────────────────────────────────────────
+let _serverSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const SERVER_SAVE_DEBOUNCE_MS = 500;
+
+function scheduleServerSave(themes: CustomTheme[]): void {
+  if (_serverSaveTimer !== null) clearTimeout(_serverSaveTimer);
+  _serverSaveTimer = setTimeout(() => {
+    _serverSaveTimer = null;
+    saveCustomThemes(themes).catch((err) => {
+      console.warn("[custom-themes] server save error (swallowed):", err);
+    });
+  }, SERVER_SAVE_DEBOUNCE_MS);
+}
+
+function persist(themes: CustomTheme[]): void {
+  saveLocalCustomThemes(themes);
+  scheduleServerSave(themes);
+  injectCustomThemeStyles(themes);
+}
+
+function colorSchemeForBase(
+  base: string,
+  themes: CustomTheme[],
+): "dark" | "light" {
+  if (isBuiltinTheme(base)) {
+    return base === "light" ? "light" : "dark";
+  }
+  return themes.find((t) => t.id === base)?.colorScheme ?? "dark";
+}
+
+// Backward-compat migration: older saved themes predate the chart-bg token —
+// backfill it from the app background so they render a real color (not black).
+function backfillChartBg(
+  themes: CustomTheme[],
+): { themes: CustomTheme[]; changed: boolean } {
+  let changed = false;
+  const migrated = themes.map((t) => {
+    const chartBg = t.tokens.chartBg ?? t.tokens.bg;
+    const chartBgVar = t.vars["--chart-background"] ?? t.vars["--background"];
+    if (t.tokens.chartBg === chartBg && t.vars["--chart-background"] === chartBgVar) {
+      return t;
+    }
+    changed = true;
+    return {
+      ...t,
+      tokens: { ...t.tokens, chartBg },
+      vars: { ...t.vars, "--chart-background": chartBgVar },
+    };
+  });
+  return { themes: migrated, changed };
+}
+
+export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
+  // Seed synchronously from localStorage so the next-themes `themes` prop knows
+  // custom ids on first client render.
+  themes: loadLocalCustomThemes(),
+  hydrated: false,
+
+  hydrate: async () => {
+    let serverThemes: CustomTheme[] | null = null;
+    try {
+      serverThemes = await fetchCustomThemes();
+    } catch {
+      // server unreachable — fall back to local
+    }
+
+    if (serverThemes && serverThemes.length > 0) {
+      const { themes: migrated, changed } = backfillChartBg(serverThemes);
+      saveLocalCustomThemes(migrated);
+      set({ themes: migrated, hydrated: true });
+      injectCustomThemeStyles(migrated);
+      if (changed) scheduleServerSave(migrated);
+      return;
+    }
+
+    const { themes: local, changed: localChanged } = backfillChartBg(
+      loadLocalCustomThemes(),
+    );
+    if (local.length > 0) {
+      if (localChanged) saveLocalCustomThemes(local);
+      scheduleServerSave(local);
+      set({ themes: local, hydrated: true });
+      injectCustomThemeStyles(local);
+      return;
+    }
+
+    set({ themes: serverThemes ?? [], hydrated: true });
+    injectCustomThemeStyles(get().themes);
+  },
+
+  createFromCurrent: (name, base) => {
+    // Captures the CURRENT resolved vars off <html>. When the editor is open it
+    // has applied an inline preview, so live edits are captured automatically.
+    const vars = captureThemeVars();
+    const tokens = deriveTokensFromVars(vars);
+    const id = newCustomThemeId();
+    const now = new Date().toISOString();
+    const theme: CustomTheme = {
+      id,
+      name: name.trim() || "Custom",
+      base: isBuiltinTheme(base) ? (base as WorkspaceTheme) : base,
+      colorScheme: colorSchemeForBase(base, get().themes),
+      tokens,
+      vars,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const next = [...get().themes, theme];
+    set({ themes: next });
+    persist(next);
+    return id;
+  },
+
+  updateTokens: (id, token, hex) => {
+    const next = get().themes.map((t) => {
+      if (t.id !== id) return t;
+      const tokens = { ...t.tokens, [token]: normalizeHex(hex) };
+      return {
+        ...t,
+        tokens,
+        vars: mergeTokensIntoVars(t.vars, tokens),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    set({ themes: next });
+    persist(next);
+  },
+
+  rename: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const next = get().themes.map((t) =>
+      t.id === id ? { ...t, name: trimmed, updatedAt: new Date().toISOString() } : t,
+    );
+    set({ themes: next });
+    persist(next);
+  },
+
+  remove: (id) => {
+    const next = get().themes.filter((t) => t.id !== id);
+    if (next.length === get().themes.length) return;
+    set({ themes: next });
+    persist(next);
+  },
+}));
+
+export function customThemeIds(themes: CustomTheme[]): string[] {
+  return themes.map((t) => t.id);
+}
+
+export { WORKSPACE_THEMES };

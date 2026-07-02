@@ -1,5 +1,6 @@
 import type { AiSettings } from "./ai-settings";
-import type { WorkspaceLayoutItem } from "./workspace/layout-persistence";
+import type { CustomTheme } from "./workspace/custom-themes";
+import type { WorkspaceLayoutItem, WorkspacePagesState } from "./workspace/layout-persistence";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -88,12 +89,14 @@ export type AllAccountsSummary = {
   portfolio_value: number;
   unrealized_pl: number;
   account_count: number;
+  money_type?: "paper" | "real";
 };
 
 export type Snapshot = {
   captured_at: string;
   broker?: string;
   primary_broker?: string;
+  money_type?: "paper" | "real";
   account: Account;
   position_count: number;
   positions: Position[];
@@ -114,6 +117,7 @@ export type BrokerSnapshot = {
   account_id?: string | null;
   account_label?: string | null;
   is_default?: boolean;
+  money_type?: "paper" | "real";
 };
 
 export type BrokerInfo = {
@@ -167,6 +171,16 @@ export function formatMoney(value: number): string {
     currency: "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+  });
+}
+
+// Share quantity: whole shares show clean (48), fractional caps at 3 decimals
+// (0.871166 -> 0.871) with trailing zeros dropped. Display only — full precision
+// stays in the data.
+export function formatQty(value: number): string {
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+    useGrouping: false,
   });
 }
 
@@ -496,6 +510,106 @@ export async function fetchRvolScanner(
   return res.json();
 }
 
+export interface SchwabPosition {
+  symbol: string;
+  asset_type: string;
+  qty: number;
+  market_value: number;
+  avg_price: number;
+  current_price: number;
+  unrealized_pl: number;
+  day_pl: number;
+}
+
+export interface SchwabOpenOrder {
+  order_id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  filled_qty: number;
+  order_type: string;
+  status: string;
+  limit_price: number | null;
+}
+
+export interface SchwabAccount {
+  id: string;
+  last4: string;
+  label: string;
+  account_type: string;
+  is_day_trader: boolean;
+  liquidation_value: number;
+  cash: number;
+  long_market_value: number;
+  day_pl: number;
+  unrealized_pl: number;
+  positions: SchwabPosition[];
+  open_orders: SchwabOpenOrder[];
+}
+
+export interface SchwabAccountsResult {
+  authenticated: boolean;
+  fetched_at?: number;
+  stale?: boolean;
+  error?: string;
+  message?: string;
+  accounts: SchwabAccount[];
+  totals: {
+    liquidation_value?: number;
+    cash?: number;
+    long_market_value?: number;
+    day_pl?: number;
+    unrealized_pl?: number;
+    account_count?: number;
+  };
+}
+
+export async function fetchSchwabAccounts(): Promise<SchwabAccountsResult> {
+  const res = await apiFetch(`${API_BASE}/api/schwab/accounts`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Schwab accounts error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export type SchwabEquityPoint = {
+  date: string;
+  equity: number;
+};
+
+export type SchwabEquityCurve = {
+  authenticated: boolean;
+  current_liquidation?: number;
+  skipped_held_days?: number;
+  points: SchwabEquityPoint[];
+};
+
+export async function fetchSchwabEquityCurve(
+  accountId?: string,
+  days = 30,
+): Promise<SchwabEquityCurve> {
+  const params = new URLSearchParams({ days: String(days) });
+  if (accountId) params.set("account_id", accountId);
+  const res = await apiFetch(
+    `${API_BASE}/api/schwab/equity-curve?${params}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ??
+        `Schwab equity curve error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export async function removeWatchlistSymbol(symbol: string): Promise<string[]> {
   const res = await apiFetch(
     `${API_BASE}/api/watchlist/${encodeURIComponent(symbol)}`,
@@ -735,6 +849,74 @@ export async function triggerPriceAlert(id: number): Promise<void> {
   if (!res.ok) throw new Error(`Trigger alert error ${res.status}`);
 }
 
+export type ChartDrawingKind = "level" | "trendline" | "channel";
+
+export type ChartDrawingData = {
+  price?: number;
+  points?: { time: number | null; price: number }[];
+  width?: number;
+  color?: string;
+};
+
+export type ChartDrawing = {
+  id: number;
+  symbol: string;
+  kind: ChartDrawingKind;
+  data: ChartDrawingData;
+  created_at: string;
+};
+
+export async function fetchDrawings(symbol?: string): Promise<ChartDrawing[]> {
+  const params = symbol
+    ? new URLSearchParams({ symbol })
+    : new URLSearchParams();
+  const res = await apiFetch(`${API_BASE}/api/drawings?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Drawings error ${res.status}`);
+  const data = await res.json();
+  return data.drawings ?? [];
+}
+
+export async function createDrawing(payload: {
+  symbol: string;
+  kind: ChartDrawingKind;
+  data: ChartDrawingData;
+}): Promise<ChartDrawing> {
+  const res = await apiFetch(`${API_BASE}/api/drawings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Create drawing error ${res.status}`);
+  return res.json();
+}
+
+export async function updateDrawing(
+  id: number,
+  payload: { data?: ChartDrawingData; kind?: ChartDrawingKind },
+): Promise<ChartDrawing> {
+  const res = await apiFetch(`${API_BASE}/api/drawings/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Update drawing error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function deleteDrawing(id: number): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/api/drawings/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Delete drawing error ${res.status}`);
+}
+
 export type ProposalScoreFactor = {
   name: string;
   direction: "bullish" | "bearish" | string;
@@ -744,14 +926,33 @@ export type ProposalScoreFactor = {
 export type ProposalScore = {
   win_prob: number;
   ev_pct: number;
-  ci_low: number;
-  ci_high: number;
-  sufficient: boolean;
-  low_confidence: boolean;
-  base_rate: number;
-  brier: number;
-  n_samples: number;
-  top_factors: ProposalScoreFactor[];
+  // generic-scorer fields (optional — absent on strategy-backtest scores)
+  ci_low?: number;
+  ci_high?: number;
+  sufficient?: boolean;
+  low_confidence?: boolean;
+  base_rate?: number;
+  brier?: number;
+  n_samples?: number;
+  top_factors?: ProposalScoreFactor[];
+  // strategy-backtest fields (optional — present when basis === "strategy_backtest")
+  basis?: string;
+  strategy_id?: string;
+  label?: string;
+  win_rate?: number;
+  ev_ci_pct?: [number, number] | null;
+  n_setups?: number;
+  per_year_positive?: string | null;
+  validated?: string;
+  method?: string | null;
+  note?: string;
+  source?: string;
+  as_of?: string;
+  plan?: {
+    kind?: string;
+    exit_basis?: string;
+    rules?: string[];
+  } | null;
 };
 
 export type PendingProposal = {
@@ -885,4 +1086,150 @@ export async function saveWorkspaceLayout(
   } catch (err) {
     console.warn("[workspace] server layout save failed:", err);
   }
+}
+
+export async function fetchWorkspacePages(): Promise<WorkspacePagesState | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/pages`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const state = data.pages_state;
+    if (
+      state &&
+      typeof state === "object" &&
+      state.pages &&
+      typeof state.activePageId === "string"
+    ) {
+      return state as WorkspacePagesState;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspacePages(
+  pagesState: WorkspacePagesState,
+): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/pages`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pages_state: pagesState }),
+    });
+  } catch (err) {
+    console.warn("[workspace] server pages save failed:", err);
+  }
+}
+
+// ── Custom themes (server-backed, mirrors workspace pages) ──────────────────────
+
+export async function fetchCustomThemes(): Promise<CustomTheme[] | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/custom-themes`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const list = data.custom_themes;
+    if (Array.isArray(list)) return list as CustomTheme[];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCustomThemes(themes: CustomTheme[]): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/custom-themes`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ custom_themes: themes }),
+    });
+  } catch (err) {
+    console.warn("[custom-themes] server save failed:", err);
+  }
+}
+
+// ── Notifications (server-backed inbox) ─────────────────────────────────────────
+
+export type NotificationSeverity = "info" | "success" | "warning" | "critical";
+
+export type ServerNotification = {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  severity: NotificationSeverity;
+  account_id: string | null;
+  strategy_id: string | null;
+  ref_type: string | null;
+  ref_id: string | null;
+  action_url: string | null;
+  group_key: string | null;
+  data: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+  dismissed_at: string | null;
+  read: boolean;
+  dismissed: boolean;
+};
+
+export type NotificationsResponse = {
+  notifications: ServerNotification[];
+  unread: number;
+};
+
+export async function fetchNotifications(params?: {
+  limit?: number;
+  before?: string;
+  include_dismissed?: boolean;
+}): Promise<NotificationsResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit != null) search.set("limit", String(params.limit));
+  if (params?.before) search.set("before", params.before);
+  if (params?.include_dismissed) search.set("include_dismissed", "true");
+  const qs = search.toString();
+  const res = await apiFetch(
+    `${API_BASE}/api/notifications${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Notifications error ${res.status}`);
+  return res.json();
+}
+
+export async function markNotificationRead(
+  id: string,
+): Promise<{ notification: ServerNotification }> {
+  const res = await apiFetch(
+    `${API_BASE}/api/notifications/${encodeURIComponent(id)}/read`,
+    { method: "POST" },
+  );
+  if (!res.ok) throw new Error(`Mark read error ${res.status}`);
+  return res.json();
+}
+
+export async function markAllNotificationsRead(
+  accountId?: string,
+): Promise<{ updated: number }> {
+  const res = await apiFetch(`${API_BASE}/api/notifications/read-all`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(accountId ? { account_id: accountId } : {}),
+  });
+  if (!res.ok) throw new Error(`Mark all read error ${res.status}`);
+  return res.json();
+}
+
+export async function dismissNotification(
+  id: string,
+): Promise<{ notification: ServerNotification }> {
+  const res = await apiFetch(
+    `${API_BASE}/api/notifications/${encodeURIComponent(id)}/dismiss`,
+    { method: "POST" },
+  );
+  if (!res.ok) throw new Error(`Dismiss error ${res.status}`);
+  return res.json();
 }

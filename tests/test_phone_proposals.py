@@ -91,12 +91,12 @@ def _patch_passing_env(monkeypatch, db_path: Path) -> None:
         },
     )
     monkeypatch.setattr(
-        "trading.execution_service.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.execution_service.notify",
+        AsyncMock(return_value={}),
     )
     monkeypatch.setattr(
-        "trading.proposals.market_hub.broadcast_alert",
-        AsyncMock(),
+        "trading.proposals.notify",
+        AsyncMock(return_value={}),
     )
 
 

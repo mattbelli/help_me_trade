@@ -19,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@/lib/chart-time";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
+import { useSymbolQuote } from "@/lib/use-symbol-quote";
 import { cn } from "@/lib/utils";
 import {
   colsForLayout,
@@ -40,6 +42,7 @@ import type {
   WorkspaceLayoutItem,
 } from "@/lib/workspace/layout-persistence";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
 import { ChannelSelector } from "./channel-selector";
@@ -56,7 +59,7 @@ const CHART_STYLES = [
 
 function resolveChartTimeframe(value?: string): ChartTimeframe {
   return (
-    CHART_TIMEFRAMES.find((tf) => tf.value === value) ?? CHART_TIMEFRAMES[4]
+    CHART_TIMEFRAMES.find((tf) => tf.value === value) ?? CHART_TIMEFRAMES[5]
   );
 }
 
@@ -84,6 +87,10 @@ function ChartHeaderControls({
       : (config.symbol ?? "SPY");
   const styleLabel =
     CHART_STYLES.find((s) => s.value === style)?.label ?? "Candles";
+  const { price, live, changePct } = useSymbolQuote({ symbol });
+  const hasPrice = price != null;
+  const hasChange = changePct != null;
+  const isPositive = (changePct ?? 0) >= 0;
 
   // Local draft so the symbol box is freely editable (you can clear it and retype) —
   // we only COMMIT (and refetch the chart) on Enter/blur, not on every keystroke.
@@ -118,6 +125,49 @@ function ChartHeaderControls({
           {symbol}
         </span>
       )}
+      <span
+        {...dragSafeControlProps}
+        className="workspace-no-drag inline-flex items-center gap-1"
+      >
+        <span
+          className={cn(
+            "font-mono text-[15px] font-semibold tabular-nums",
+            hasChange
+              ? isPositive
+                ? "text-[var(--c-green)]"
+                : "text-[var(--c-red)]"
+              : hasPrice
+                ? "text-foreground"
+                : "text-[var(--fg-dim)]",
+          )}
+        >
+          {hasPrice ? price.toFixed(2) : "—"}
+        </span>
+        {hasChange ? (
+          <span
+            className={cn(
+              "font-mono text-[10px] tabular-nums",
+              isPositive ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+            )}
+          >
+            {`${changePct > 0 ? "+" : ""}${changePct.toFixed(2)}%`}
+          </span>
+        ) : null}
+        <span
+          className="flex size-1.5 shrink-0 items-center justify-center"
+          title={live ? "Live quote" : "Stale quote"}
+          aria-hidden
+        >
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              live
+                ? "bg-[var(--c-green)]"
+                : "border border-[var(--fg-dim)] bg-transparent",
+            )}
+          />
+        </span>
+      </span>
       <DropdownMenu>
         <DropdownMenuTrigger
           type="button"
@@ -187,7 +237,55 @@ function ChartHeaderControls({
           align="start"
           className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
         >
+          {OVERLAY_STUDIES.map((s) => {
+            const enabled = (config.studies ?? []).includes(s.id);
+            return (
+              <DropdownMenuItem
+                key={s.id}
+                onSelect={(e) => e.preventDefault()}
+                onClick={() => {
+                  const cur = config.studies ?? [];
+                  const next = enabled
+                    ? cur.filter((x) => x !== s.id)
+                    : [...cur, s.id];
+                  onConfigChange({ studies: next });
+                }}
+                className={cn(
+                  "flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]",
+                  enabled ? "text-foreground" : "text-[var(--fg-dim)]",
+                )}
+              >
+                {s.label}
+                {enabled ? <Check className="size-3" /> : null}
+              </DropdownMenuItem>
+            );
+          })}
+          <DropdownMenuSeparator />
+          {OSCILLATOR_STUDIES.map((s) => {
+            const enabled = (config.studies ?? []).includes(s.id);
+            return (
+              <DropdownMenuItem
+                key={s.id}
+                onSelect={(e) => e.preventDefault()}
+                onClick={() => {
+                  const cur = config.studies ?? [];
+                  const next = enabled
+                    ? cur.filter((x) => x !== s.id)
+                    : [...cur, s.id];
+                  onConfigChange({ studies: next });
+                }}
+                className={cn(
+                  "flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]",
+                  enabled ? "text-foreground" : "text-[var(--fg-dim)]",
+                )}
+              >
+                {s.label}
+                {enabled ? <Check className="size-3" /> : null}
+              </DropdownMenuItem>
+            );
+          })}
           <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
             onClick={() =>
               onConfigChange({ showSessionNodes: !config.showSessionNodes })
             }
@@ -323,10 +421,32 @@ function WidgetHeader({
         </span>
       )}
       {widgetType === "watchlist" && onWatchlistChange ? (
-        <WatchlistListSelector
-          watchlistId={watchlistId}
-          onSelect={onWatchlistChange}
-        />
+        <>
+          <WatchlistListSelector
+            watchlistId={watchlistId}
+            onSelect={onWatchlistChange}
+          />
+          {config && onConfigChange ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfigChange({ adding: !config.adding });
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label={config.adding ? "Close add symbol" : "Add symbol"}
+              aria-pressed={config.adding ?? false}
+              className={cn(
+                "workspace-no-drag inline-flex size-4 items-center justify-center rounded font-mono text-[13px] leading-none outline-none hover:bg-[var(--bg-hover)]",
+                config.adding
+                  ? "text-[var(--c-accent)]"
+                  : "text-[var(--fg-dim)] hover:text-foreground",
+              )}
+            >
+              +
+            </button>
+          ) : null}
+        </>
       ) : null}
       {meta ? (
         <span className="font-mono text-[10px] text-[var(--fg-faint)]">
@@ -359,6 +479,7 @@ const WidgetCard = forwardRef<
     item: WorkspaceLayoutItem;
     locked: boolean;
     static?: boolean;
+    flashing?: boolean;
     onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
     onRemove: () => void;
   } & HTMLAttributes<HTMLDivElement>
@@ -367,6 +488,7 @@ const WidgetCard = forwardRef<
     item,
     locked,
     static: isStatic,
+    flashing,
     onConfigChange,
     onRemove,
     className,
@@ -388,6 +510,8 @@ const WidgetCard = forwardRef<
       className={cn(
         "group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)]",
         isStatic && "h-full",
+        flashing &&
+          "ring-2 ring-[var(--c-accent)] ring-offset-1 ring-offset-[var(--panel)]",
         className,
       )}
       style={style}
@@ -435,8 +559,12 @@ type EdgeState = {
 };
 
 export function WorkspaceGrid() {
+  const activePageId = useWorkspaceStore((s) => s.activePageId);
+  const layout = useWorkspaceStore(
+    (s) => s.pages[s.activePageId]?.layout ?? [],
+  );
+  const focusRequest = useWorkspaceStore((s) => s.focusRequest);
   const {
-    layout,
     hydrated,
     hydrate,
     locked,
@@ -450,6 +578,27 @@ export function WorkspaceGrid() {
 
   const [width, setWidth] = useState(() => gridPixelWidth(GRID_DEFAULT_COLS));
   const [cols, setCols] = useState(GRID_DEFAULT_COLS);
+  // Tracks whether cols/width have been measured from the real container width.
+  // The grid must NOT render until this is true, or RGL will clamp widgets that
+  // sit beyond the default 24-col boundary (causing the "chart jumps left" bug).
+  const [colsMeasured, setColsMeasured] = useState(false);
+  const [flashingId, setFlashingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const { instanceId } = focusRequest;
+    const raf = requestAnimationFrame(() => {
+      document
+        .getElementById(`widget-${instanceId}`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      setFlashingId(instanceId);
+    });
+    const t = setTimeout(() => setFlashingId(null), 1200);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [focusRequest]);
 
   // Four-edge scroll indicators: show subtle gradient overlays when there is
   // more content in that direction (right/bottom are the important ones for
@@ -503,6 +652,7 @@ export function WorkspaceGrid() {
       setCols(nextCols);
       setGridCols(nextCols);
       setWidth(gridPixelWidth(nextCols));
+      setColsMeasured(true);
       measureEdges();
     }
 
@@ -586,9 +736,10 @@ export function WorkspaceGrid() {
                 }
           }
         >
-          {hydrated ? (
+          {hydrated && colsMeasured ? (
             <div id="workspace-grid-root" className="relative" style={{ width }}>
               <ReactGridLayout
+                key={activePageId}
                 className="layout"
                 layout={gridLayout}
                 cols={cols}
@@ -612,6 +763,7 @@ export function WorkspaceGrid() {
                     key={item.i}
                     item={item}
                     locked={locked}
+                    flashing={item.i === flashingId}
                     onConfigChange={(patch) =>
                       updateWidgetConfig(item.i, patch)
                     }

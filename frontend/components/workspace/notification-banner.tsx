@@ -10,6 +10,7 @@ import {
   type WorkspaceNotification,
   useNotificationStore,
 } from "@/lib/workspace/use-notification-store";
+import { useNotificationActivate } from "@/lib/workspace/use-notification-activate";
 
 const AUTO_DISMISS_MS = 6_000;
 const MAX_BANNERS = 3;
@@ -18,6 +19,7 @@ type ActiveBanner = WorkspaceNotification & { key: string };
 
 export function NotificationBanner() {
   const markRead = useNotificationStore((s) => s.markRead);
+  const activate = useNotificationActivate();
   const [active, setActive] = useState<ActiveBanner[]>([]);
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
@@ -78,7 +80,7 @@ export function NotificationBanner() {
   }, []);
 
   const handleClick = (banner: ActiveBanner) => {
-    markRead(banner.id);
+    activate(banner);
     dismiss(banner.id);
   };
 
@@ -104,7 +106,7 @@ export function NotificationBanner() {
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--c-amber)]" />
                 <span className="min-w-0 font-mono text-[11px]">
                   <span className="block truncate font-semibold text-foreground">
-                    {banner.ruleName}
+                    {banner.title}
                   </span>
                   <span className="mt-0.5 block truncate text-[var(--fg-dim)]">
                     {notificationLabel(banner)}

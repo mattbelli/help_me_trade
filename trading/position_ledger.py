@@ -30,11 +30,42 @@ def _strategy_id_from_source(source: str | None) -> str | None:
     return strategy_id or None
 
 
+def _journal_entry_fill(
+    proposal_id: str,
+    execution_row: dict[str, Any],
+    *,
+    filled_qty: float | None,
+    filled_avg_price: float | None,
+    db_path: Path,
+) -> None:
+    """Fail-soft entry-OUTCOME journal link. NEVER raises into fill reconciliation.
+
+    No-op when the proposal has no journal row (e.g. synthetic auto_entry ids, which are
+    never journaled at propose)."""
+    try:
+        from db.decision_journal import set_entry_fill
+
+        set_entry_fill(
+            proposal_id,
+            entry_execution_id=str(execution_row.get("id") or "") or None,
+            entry_fill_price=(
+                str(filled_avg_price) if filled_avg_price is not None else None
+            ),
+            qty_filled=str(filled_qty) if filled_qty is not None else None,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.warning(
+            "decision_journal entry-fill hook failed for %s", proposal_id, exc_info=True
+        )
+
+
 def record_strategy_fill(
     execution_row: dict[str, Any],
     *,
     filled_qty: float | None,
     status: str,
+    filled_avg_price: float | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> str | None:
     """If a strategy BUY filled, open a managed-position row. Returns its id or None.
@@ -52,12 +83,28 @@ def record_strategy_fill(
         proposal_id = execution_row.get("proposal_id")
         if not proposal_id:
             return None
-        proposal = get_proposal(str(proposal_id), db_path=db_path)
-        if proposal is None:
-            return None
-        strategy_id = _strategy_id_from_source(proposal.get("source"))
+        proposal_id = str(proposal_id)
+
+        # Decision Journal entry OUTCOME — link the fill to the proposal's journal row.
+        # Fail-soft + wrapped so it can never abort managed-position recording below.
+        _journal_entry_fill(
+            proposal_id,
+            execution_row,
+            filled_qty=filled_qty,
+            filled_avg_price=filled_avg_price,
+            db_path=db_path,
+        )
+
+        if proposal_id.startswith("auto_entry|"):
+            parts = proposal_id.split("|")
+            strategy_id = parts[1] if len(parts) >= 2 else None
+        else:
+            proposal = get_proposal(proposal_id, db_path=db_path)
+            if proposal is None:
+                return None
+            strategy_id = _strategy_id_from_source(proposal.get("source"))
         if strategy_id is None:
-            return None  # not a strategy-originated fill (manual/rule/etc.)
+            return None
 
         strategy = get_strategy(strategy_id, db_path=db_path)
         if strategy is None:

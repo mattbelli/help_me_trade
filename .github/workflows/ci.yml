@@ -5,6 +5,12 @@ on:
     branches: [main, master]
   pull_request:
 
+# Cancel an in-progress run when a newer commit lands on the same ref, so a busy merge day
+# doesn't run every superseded push/PR-sync to completion (saves Actions minutes).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
@@ -36,11 +42,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      # npm install (not ci) — no lockfile is committed yet; track one + switch to `npm ci` later
+      # Deterministic install from the committed lockfile (verified in-sync with package.json).
       - name: Install frontend deps
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Typecheck (tsc --noEmit)
         working-directory: frontend

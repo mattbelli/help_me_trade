@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 
+import { ExecutionMonitor } from "@/components/trading/execution-monitor";
 import { PriceAlertMonitor } from "@/components/trading/price-alert-monitor";
 import { SnapshotProvider } from "@/components/providers/snapshot-provider";
 
@@ -31,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
       <PriceAlertMonitor />
+      <ExecutionMonitor />
     </SnapshotProvider>
   );
 }

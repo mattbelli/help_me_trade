@@ -71,8 +71,18 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         ],
     },
     "reports": {
+        # Legacy SPY morning-levels job (kept as its own path — the Settings /
+        # Automations UI toggles these two fields).
         "morning_levels_enabled": True,
         "hour_et": 8,
+        # Additional scheduled report jobs (the LLM-authored kinds + extra
+        # levels). Each: {kind, hour_et (ET), symbols, enabled}. Opt-in —
+        # briefs cost LLM tokens, so they ship disabled and the founder arms
+        # them.
+        "jobs": [
+            {"kind": "morning_brief", "hour_et": 8, "symbols": [], "enabled": False},
+            {"kind": "evening_brief", "hour_et": 17, "symbols": [], "enabled": False},
+        ],
     },
     "trading": {
         "execution_mode": "dry_run",
@@ -353,6 +363,8 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
             current["reports"]["hour_et"] = max(
                 0, min(23, int(reports_patch["hour_et"]))
             )
+        if "jobs" in reports_patch:
+            current["reports"]["jobs"] = _normalize_report_jobs(reports_patch["jobs"])
 
     if "trading" in patch and isinstance(patch["trading"], dict):
         if "trading" not in current or not isinstance(current.get("trading"), dict):
@@ -774,6 +786,41 @@ def trading_config() -> dict[str, Any]:
     }
 
 
+# Report kinds the background scheduler can run as configured jobs. The legacy
+# SPY ``morning_levels`` keeps its own dedicated path, so it is not listed here.
+SCHEDULABLE_REPORT_KINDS = ("levels", "morning_brief", "evening_brief")
+
+
+def _normalize_report_jobs(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return copy.deepcopy(DEFAULT_SETTINGS["reports"]["jobs"])
+    jobs: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind", "")).strip()
+        if kind not in SCHEDULABLE_REPORT_KINDS:
+            continue
+        try:
+            hour_et = max(0, min(23, int(item.get("hour_et", 8))))
+        except (TypeError, ValueError):
+            hour_et = 8
+        symbols = [
+            str(s).strip().upper()
+            for s in (item.get("symbols") or [])
+            if str(s).strip()
+        ]
+        jobs.append(
+            {
+                "kind": kind,
+                "hour_et": hour_et,
+                "symbols": symbols,
+                "enabled": bool(item.get("enabled", False)),
+            }
+        )
+    return jobs
+
+
 def reports_config() -> dict[str, Any]:
     """Effective scheduled-report settings (env overrides hour when set)."""
     with _settings_lock:
@@ -795,6 +842,7 @@ def reports_config() -> dict[str, Any]:
                 cfg.get("morning_levels_enabled", defaults["morning_levels_enabled"])
             ),
             "hour_et": hour_et,
+            "jobs": _normalize_report_jobs(cfg.get("jobs", defaults["jobs"])),
         }
 
 
@@ -840,6 +888,15 @@ def broker_is_configured(name: str) -> bool:
 def finnhub_api_key() -> str:
     """Finnhub API key for the earnings-calendar feed (provider-agnostic, .env)."""
     return os.environ.get("FINNHUB_API_KEY", "").strip()
+
+
+def fred_api_key() -> str:
+    """FRED API key for macro regime series (yield curve, VIX)."""
+    return os.environ.get("FRED_API_KEY", "").strip()
+
+
+def fred_is_configured() -> bool:
+    return bool(fred_api_key())
 
 
 def alphavantage_api_key() -> str:

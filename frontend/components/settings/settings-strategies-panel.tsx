@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import {
+  TerminalButton,
+  TerminalField,
+  TerminalInput,
+  TerminalToggle,
+} from "@/components/ui/terminal";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import {
   fetchStrategies,
   fetchStrategyAccounts,
@@ -89,9 +91,9 @@ const STRATEGY_DOCS: Record<string, StrategyDoc> = {
 function statusToneClasses(tone: StrategyDoc["status"]["tone"]): string {
   switch (tone) {
     case "good":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+      return "border-[var(--c-green)]/30 bg-[var(--c-green)]/10 text-[var(--c-green)]";
     case "warn":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+      return "border-[var(--c-amber)]/30 bg-[var(--c-amber)]/10 text-[var(--c-amber)]";
     case "danger":
       return "border-destructive/40 bg-destructive/10 text-destructive";
   }
@@ -101,6 +103,7 @@ type StrategyDraft = {
   enabled: boolean;
   account_id: string;
   notional_usd: number;
+  entry_mode: "auto" | "propose";
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
   universe: string;
@@ -112,6 +115,7 @@ type StrategyCardState = {
   draft: StrategyDraft;
   dirty: boolean;
   saving: boolean;
+  toggling: boolean;
   error: string | null;
 };
 
@@ -120,6 +124,7 @@ function strategyToDraft(strategy: Strategy): StrategyDraft {
     enabled: strategy.enabled,
     account_id: strategy.account_id ?? "",
     notional_usd: strategy.notional_usd,
+    entry_mode: strategy.entry_mode ?? "propose",
     exit_mode: strategy.exit_mode,
     params: { ...strategy.params },
     universe: strategy.universe,
@@ -140,6 +145,7 @@ function buildPatch(
   if (draft.notional_usd !== original.notional_usd) {
     patch.notional_usd = draft.notional_usd;
   }
+  if (draft.entry_mode !== original.entry_mode) patch.entry_mode = draft.entry_mode;
   if (draft.exit_mode !== original.exit_mode) patch.exit_mode = draft.exit_mode;
   if (draft.universe !== original.universe) patch.universe = draft.universe;
   if (draft.max_concurrent_positions !== original.max_concurrent_positions) {
@@ -184,6 +190,7 @@ function StrategyCard({
     draft: original,
     dirty: false,
     saving: false,
+    toggling: false,
     error: null,
   }));
 
@@ -215,7 +222,30 @@ function StrategyCard({
     }
   }
 
-  const { draft, dirty, saving, error } = state;
+  async function handleToggle(checked: boolean) {
+    // Optimistic: flip the local draft immediately so the Switch feels instant.
+    setState((prev) => ({
+      ...prev,
+      draft: { ...prev.draft, enabled: checked },
+      toggling: true,
+      error: null,
+    }));
+    try {
+      const updated = await updateStrategy(strategy.id, { enabled: checked });
+      // onSaved updates the parent list and re-keys this card, resetting state.
+      onSaved(updated);
+    } catch (err) {
+      // Revert optimistic update.
+      setState((prev) => ({
+        ...prev,
+        draft: { ...prev.draft, enabled: !checked },
+        toggling: false,
+        error: err instanceof Error ? err.message : "Failed to update strategy",
+      }));
+    }
+  }
+
+  const { draft, dirty, saving, toggling, error } = state;
   const doc = STRATEGY_DOCS[strategy.id];
   const isSessionNode = strategy.id === "session_node_spy";
   const unboundEnabled = draft.enabled && !draft.account_id;
@@ -239,18 +269,18 @@ function StrategyCard({
               />
               <span className="truncate text-sm font-semibold">{strategy.name}</span>
               {!expanded && dirty && (
-                <span className="shrink-0 text-[11px] text-amber-500">• unsaved</span>
+                <span className="shrink-0 text-[11px] text-[var(--c-amber)]">• unsaved</span>
               )}
               <span className="truncate text-xs text-muted-foreground">
                 {boundAccountLabel} · {collapsedMeta}
               </span>
             </button>
           </div>
-          <Switch
+          <TerminalToggle
             checked={draft.enabled}
-            onCheckedChange={(checked) =>
-              updateDraft((d) => ({ ...d, enabled: checked }))
-            }
+            disabled={toggling}
+            onCheckedChange={(checked) => void handleToggle(checked)}
+            aria-label={`Enable ${strategy.name}`}
           />
         </div>
       </CardHeader>
@@ -293,15 +323,14 @@ function StrategyCard({
           )}
 
           {unboundEnabled && !isSessionNode && (
-            <p className="text-xs text-amber-500">
+            <p className="text-xs text-[var(--c-amber)]">
               Enable has no effect until an account is bound — the scan skips
               unbound strategies.
             </p>
           )}
 
           <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Account</Label>
+            <TerminalField label="Account">
               <Select
                 value={draft.account_id || UNBOUND}
                 onValueChange={(v) =>
@@ -311,7 +340,7 @@ function StrategyCard({
                   }))
                 }
               >
-                <SelectTrigger className="h-8">
+                <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
                 <SelectContent>
@@ -324,26 +353,21 @@ function StrategyCard({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
+            <TerminalField label={isSessionNode ? "Symbol" : "Universe"}>
               {isSessionNode ? (
-                <>
-                  <Label className="text-xs">Symbol</Label>
-                  <p className="text-sm text-muted-foreground">SPY</p>
-                </>
+                <p className="text-sm text-muted-foreground">SPY</p>
               ) : (
-                <>
-                  <Label className="text-xs">Universe</Label>
-                  <Select
-                    value={draft.universe}
-                    onValueChange={(v) =>
-                      updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
-                    }
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue placeholder="Select universe" />
-                    </SelectTrigger>
+                <Select
+                  value={draft.universe}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({ ...d, universe: v ?? "sp500" }))
+                  }
+                >
+                  <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
+                    <SelectValue placeholder="Select universe" />
+                  </SelectTrigger>
                     <SelectContent>
                       {/* Surface the stored value even if it's a legacy/active spec not
                           in the option list, so it never renders blank. */}
@@ -361,17 +385,14 @@ function StrategyCard({
                       ))}
                     </SelectContent>
                   </Select>
-                </>
               )}
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Notional ($)</Label>
-              <Input
+            <TerminalField label="Notional ($)">
+              <TerminalInput
                 type="number"
                 min={0}
                 step={50}
-                className="h-8"
                 value={notionalText}
                 onChange={(e) => {
                   const raw = e.target.value;
@@ -382,10 +403,35 @@ function StrategyCard({
                   }));
                 }}
               />
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Exit mode</Label>
+            <TerminalField label="Entry mode">
+              {isSessionNode ? (
+                <p className="text-sm text-muted-foreground">
+                  propose — entries are phone prompts
+                </p>
+              ) : (
+                <Select
+                  value={draft.entry_mode}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({
+                      ...d,
+                      entry_mode: (v ?? "propose") as "auto" | "propose",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">auto</SelectItem>
+                    <SelectItem value="propose">propose</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </TerminalField>
+
+            <TerminalField label="Exit mode">
               {isSessionNode ? (
                 <p className="text-sm text-muted-foreground">
                   propose — exits are phone prompts
@@ -400,7 +446,7 @@ function StrategyCard({
                     }))
                   }
                 >
-                  <SelectTrigger className="h-8">
+                  <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -409,15 +455,13 @@ function StrategyCard({
                   </SelectContent>
                 </Select>
               )}
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Max positions</Label>
-              <Input
+            <TerminalField label="Max positions">
+              <TerminalInput
                 type="number"
                 min={0}
                 step={1}
-                className="h-8"
                 placeholder="No cap"
                 value={draft.max_concurrent_positions ?? ""}
                 onChange={(e) =>
@@ -430,15 +474,13 @@ function StrategyCard({
                   }))
                 }
               />
-            </div>
+            </TerminalField>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Max deployed ($)</Label>
-              <Input
+            <TerminalField label="Max deployed ($)">
+              <TerminalInput
                 type="number"
                 min={0}
                 step={1000}
-                className="h-8"
                 placeholder="No cap"
                 value={draft.max_deployed_usd ?? ""}
                 onChange={(e) =>
@@ -449,16 +491,14 @@ function StrategyCard({
                   }))
                 }
               />
-            </div>
+            </TerminalField>
 
             {hasFarSupportMin && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Far support min (%)</Label>
-                <Input
+              <TerminalField label="Far support min (%)">
+                <TerminalInput
                   type="number"
                   min={0}
                   step={0.5}
-                  className="h-8"
                   value={farSupportText}
                   onChange={(e) => {
                     const raw = e.target.value;
@@ -472,7 +512,7 @@ function StrategyCard({
                     }));
                   }}
                 />
-              </div>
+              </TerminalField>
             )}
           </div>
 
@@ -483,9 +523,10 @@ function StrategyCard({
           </p>
 
           <p className="text-[11px] text-muted-foreground">
-            auto = the agent sells through the execution chokepoint when an exit
-            rule triggers; propose = it pings your phone to approve each sell.
-            You&apos;re notified either way.
+            Entry auto = the agent buys through the execution chokepoint when a
+            signal fires (paper/dry-run only); propose = phone approval for each
+            buy. Exit auto = same for sells when an exit rule triggers; propose =
+            phone approval for each sell. You&apos;re notified either way.
           </p>
 
           <p className="text-[11px] text-muted-foreground">
@@ -516,15 +557,15 @@ function StrategyCard({
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <div className="flex justify-end">
-            <Button
+            <TerminalButton
               type="button"
-              size="sm"
+              variant="primary"
               disabled={!dirty || saving}
               onClick={() => void handleSave()}
             >
               {saving && <Loader2 className="mr-2 size-3.5 animate-spin" />}
               Save
-            </Button>
+            </TerminalButton>
           </div>
         </CardContent>
       )}

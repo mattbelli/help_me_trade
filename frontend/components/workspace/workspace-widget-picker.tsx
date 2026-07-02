@@ -1,15 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { X } from "lucide-react";
 
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   getWidgetDefinition,
@@ -21,9 +14,13 @@ type Props = {
 };
 
 export function WorkspaceWidgetPicker({ onClose }: Props) {
-  const layout = useWorkspaceStore((s) => s.layout);
+  const layout = useWorkspaceStore(
+    (s) => s.pages[s.activePageId]?.layout ?? [],
+  );
   const addWidget = useWorkspaceStore((s) => s.addWidget);
   const setPickerOpen = useWorkspaceStore((s) => s.setPickerOpen);
+
+  const [query, setQuery] = useState("");
 
   const singletonTypesOnBoard = new Set(
     layout
@@ -34,6 +31,16 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
   const available = WIDGET_REGISTRY.filter(
     (w) => w.multiInstance || !singletonTypesOnBoard.has(w.id),
   );
+
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? available.filter(
+        (w) =>
+          w.id.toLowerCase().includes(q) ||
+          w.title.toLowerCase().includes(q) ||
+          (w.description ?? "").toLowerCase().includes(q),
+      )
+    : available;
 
   function close() {
     setPickerOpen(false);
@@ -47,7 +54,7 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 p-6 pt-[12vh]"
+      className="fixed inset-0 z-[60] flex items-start justify-center bg-[var(--scrim)] p-6 pt-[12vh]"
       onClick={close}
       onKeyDown={(e) => {
         if (e.key === "Escape") close();
@@ -74,34 +81,41 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
             <X className="size-3.5" />
           </button>
         </div>
-        <Command className="rounded-none border-0 bg-transparent">
-          <CommandInput
+        <div className="border-b border-[var(--border)] px-3 py-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             placeholder="Search widgets…"
-            className="font-mono text-xs"
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
+            className="w-full bg-transparent font-mono text-xs text-foreground outline-none placeholder:text-[var(--fg-faint)]"
           />
-          <CommandList className="max-h-72">
-            <CommandEmpty>No widgets available.</CommandEmpty>
-            <CommandGroup>
-              {available.map((widget) => (
-                <CommandItem
-                  key={widget.id}
-                  value={`${widget.id} ${widget.title} ${widget.description ?? ""}`}
-                  onSelect={() => select(widget.id)}
-                  className="flex flex-col items-start gap-0.5 py-2"
-                >
-                  <span className="font-mono text-[12px] font-semibold text-foreground">
-                    {widget.title}
-                  </span>
-                  {widget.description ? (
-                    <span className="font-mono text-[10.5px] text-[var(--fg-dim)]">
-                      {widget.description}
-                    </span>
-                  ) : null}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+        </div>
+        <div className="max-h-72 overflow-y-auto p-1">
+          {shown.length === 0 ? (
+            <p className="px-2 py-6 text-center font-mono text-xs text-[var(--fg-dim)]">
+              No widgets.
+            </p>
+          ) : null}
+          {shown.map((widget) => (
+            <button
+              key={widget.id}
+              type="button"
+              onClick={() => select(widget.id)}
+              className="flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]"
+            >
+              <span className="font-mono text-[12px] font-semibold text-foreground">
+                {widget.title}
+              </span>
+              {widget.description ? (
+                <span className="font-mono text-[10.5px] text-[var(--fg-dim)]">
+                  {widget.description}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -3,14 +3,20 @@
 import { create } from "zustand";
 
 import { CHART_TIMEFRAMES } from "@/lib/chart-time";
-import { fetchWorkspaceLayout, saveWorkspaceLayout } from "@/lib/api";
+import { fetchWorkspacePages, saveWorkspacePages } from "@/lib/api";
 
 import {
+  DEFAULT_PAGES_STATE,
   DEFAULT_WORKSPACE_LAYOUT,
-  localStorageLayoutPersistence, // role: fast local cache + offline fallback
+  loadLegacyV2Layout,
+  localStoragePagesPersistence,
+  wrapLayoutAsPagesState,
   type WidgetInstanceConfig,
   type WorkspaceLayoutItem,
+  type WorkspacePage,
+  type WorkspacePagesState,
 } from "./layout-persistence";
+import { useChannelStore } from "./use-channel-store";
 import { GRID_DEFAULT_COLS } from "./grid-metrics";
 import {
   getWidgetDefinition,
@@ -18,14 +24,18 @@ import {
 } from "./widget-registry";
 
 const LOCKED_STORAGE_KEY = "hmt-workspace-locked";
+const MAX_PAGES = 5;
 
 type WorkspaceState = {
-  layout: WorkspaceLayoutItem[];
+  pages: Record<string, WorkspacePage>;
+  activePageId: string;
   hydrated: boolean;
   locked: boolean;
   pickerOpen: boolean;
   gridCols: number;
+  focusRequest: { instanceId: string; nonce: number } | null;
   hydrate: () => Promise<void>;
+  getActiveLayout: () => WorkspaceLayoutItem[];
   setGridCols: (cols: number) => void;
   updateLayout: (layout: WorkspaceLayoutItem[]) => void;
   addWidget: (type: string) => boolean;
@@ -34,9 +44,15 @@ type WorkspaceState = {
     patch: Partial<WidgetInstanceConfig>,
   ) => void;
   removeWidget: (id: string) => void;
+  addPage: (name?: string) => string | null;
+  renamePage: (id: string, name: string) => void;
+  deletePage: (id: string) => boolean;
+  setActivePage: (id: string) => void;
   toggleLock: () => void;
   setPickerOpen: (open: boolean) => void;
   openPicker: () => void;
+  focusWidget: (type: string) => boolean;
+  focusSymbol: (symbol: string) => boolean;
 };
 
 function loadLocked(): boolean {
@@ -105,7 +121,7 @@ function defaultConfigForType(type: string): WidgetInstanceConfig | undefined {
   if (type === "chart") {
     return {
       channel: "none",
-      timeframe: CHART_TIMEFRAMES[4].value,
+      timeframe: CHART_TIMEFRAMES[5].value,
       style: "candle",
     };
   }
@@ -115,99 +131,165 @@ function defaultConfigForType(type: string): WidgetInstanceConfig | undefined {
   return undefined;
 }
 
+function filterKnownLayout(
+  items: WorkspaceLayoutItem[],
+): WorkspaceLayoutItem[] {
+  return items.filter((item) => getWidgetDefinition(item.type));
+}
+
+function sanitizePagesState(state: WorkspacePagesState): WorkspacePagesState {
+  const pages: Record<string, WorkspacePage> = {};
+  for (const [key, page] of Object.entries(state.pages)) {
+    const known = filterKnownLayout(page.layout);
+    const layout =
+      known.length > 0 ? known : page.layout.length === 0 ? [] : known;
+    pages[key] = { ...page, id: page.id || key, layout };
+  }
+
+  const activePageId =
+    state.activePageId in pages
+      ? state.activePageId
+      : Object.keys(pages)[0];
+
+  const activeLayout = pages[activePageId]?.layout ?? [];
+  if (activeLayout.length === 0 && Object.keys(pages).length === 1) {
+    const canvasId = activePageId;
+    pages[canvasId] = {
+      ...pages[canvasId],
+      layout: DEFAULT_WORKSPACE_LAYOUT,
+    };
+  }
+
+  return { pages, activePageId };
+}
+
+function nextPageId(pages: Record<string, WorkspacePage>): string {
+  let n = Object.keys(pages).length + 1;
+  let id = `page-${n}`;
+  while (pages[id]) {
+    n += 1;
+    id = `page-${n}`;
+  }
+  return id;
+}
+
+
 // ── Debounced server save ──────────────────────────────────────────────────────
-// Single module-level timer; last-write-wins is correct for a single user.
 let _serverSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const SERVER_SAVE_DEBOUNCE_MS = 500;
 
-function scheduleServerSave(layout: WorkspaceLayoutItem[]): void {
+function scheduleServerSave(pagesState: WorkspacePagesState): void {
   if (_serverSaveTimer !== null) clearTimeout(_serverSaveTimer);
   _serverSaveTimer = setTimeout(() => {
     _serverSaveTimer = null;
-    saveWorkspaceLayout(layout).catch((err) => {
+    saveWorkspacePages(pagesState).catch((err) => {
       console.warn("[workspace] server save error (swallowed):", err);
     });
   }, SERVER_SAVE_DEBOUNCE_MS);
 }
 
-// Persist to both local cache (instant) and server (debounced).
-function persistLayout(layout: WorkspaceLayoutItem[]): void {
-  localStorageLayoutPersistence.save(layout); // immediate cache
-  scheduleServerSave(layout); // debounced server write
+function persistPages(pagesState: WorkspacePagesState): void {
+  localStoragePagesPersistence.save(pagesState);
+  scheduleServerSave(pagesState);
 }
-
 // ── Store ──────────────────────────────────────────────────────────────────────
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
-  layout: DEFAULT_WORKSPACE_LAYOUT,
+  pages: DEFAULT_PAGES_STATE.pages,
+  activePageId: DEFAULT_PAGES_STATE.activePageId,
   hydrated: false,
   locked: false,
   pickerOpen: false,
   gridCols: GRID_DEFAULT_COLS,
+  focusRequest: null,
+
+  getActiveLayout: () => {
+    const { pages, activePageId } = get();
+    return pages[activePageId]?.layout ?? [];
+  },
+
   setGridCols: (gridCols) => {
     if (get().gridCols !== gridCols) set({ gridCols });
   },
 
   hydrate: async () => {
-    // Fail-soft: if the server call throws we fall back to localStorage, then
-    // DEFAULT_WORKSPACE_LAYOUT. hydrated=true is set in all branches so the
-    // UI never hangs.
-    let serverLayout: WorkspaceLayoutItem[] | null = null;
+    let serverPages: WorkspacePagesState | null = null;
     try {
-      serverLayout = await fetchWorkspaceLayout();
+      serverPages = await fetchWorkspacePages();
     } catch {
       // server unreachable — silently fall back
     }
 
-    // Drop unknown widget types (same logic as before) and verify it's non-empty.
-    function filterKnown(
-      items: WorkspaceLayoutItem[],
-    ): WorkspaceLayoutItem[] {
-      return items.filter((item) => getWidgetDefinition(item.type));
-    }
-
-    if (serverLayout && serverLayout.length > 0) {
-      const known = filterKnown(serverLayout);
-      const layout = known.length > 0 ? known : DEFAULT_WORKSPACE_LAYOUT;
-      // Sync local cache to match server (so offline opens see latest state).
-      localStorageLayoutPersistence.save(layout);
-      set({ layout, hydrated: true, locked: loadLocked() });
+    if (serverPages && Object.keys(serverPages.pages).length > 0) {
+      const sanitized = sanitizePagesState(serverPages);
+      localStoragePagesPersistence.save(sanitized);
+      set({
+        pages: sanitized.pages,
+        activePageId: sanitized.activePageId,
+        hydrated: true,
+        locked: loadLocked(),
+      });
       return;
     }
 
-    // No server layout — try localStorage cache.
-    const cached = localStorageLayoutPersistence.load();
-    if (cached && cached.length > 0) {
-      const known = filterKnown(cached);
-      const layout = known.length > 0 ? known : DEFAULT_WORKSPACE_LAYOUT;
-      if (known.length !== cached.length) {
-        localStorageLayoutPersistence.save(layout);
-      }
-      // Seed the (empty) server from this device's existing local layout so it
-      // propagates to other devices/tabs on their next open.
-      scheduleServerSave(layout);
-      set({ layout, hydrated: true, locked: loadLocked() });
+    const cached = localStoragePagesPersistence.load();
+    if (cached && Object.keys(cached.pages).length > 0) {
+      const sanitized = sanitizePagesState(cached);
+      localStoragePagesPersistence.save(sanitized);
+      scheduleServerSave(sanitized);
+      set({
+        pages: sanitized.pages,
+        activePageId: sanitized.activePageId,
+        hydrated: true,
+        locked: loadLocked(),
+      });
       return;
     }
 
-    // Nothing stored anywhere — use the built-in default.
+    const legacyLayout = loadLegacyV2Layout();
+    if (legacyLayout && legacyLayout.length > 0) {
+      const known = filterKnownLayout(legacyLayout);
+      const layout = known.length > 0 ? known : DEFAULT_WORKSPACE_LAYOUT;
+      const wrapped = wrapLayoutAsPagesState(layout);
+      localStoragePagesPersistence.save(wrapped);
+      scheduleServerSave(wrapped);
+      set({
+        pages: wrapped.pages,
+        activePageId: wrapped.activePageId,
+        hydrated: true,
+        locked: loadLocked(),
+      });
+      return;
+    }
+
     set({
-      layout: DEFAULT_WORKSPACE_LAYOUT,
+      pages: DEFAULT_PAGES_STATE.pages,
+      activePageId: DEFAULT_PAGES_STATE.activePageId,
       hydrated: true,
       locked: loadLocked(),
     });
   },
 
   updateLayout: (layout) => {
-    set({ layout });
-    persistLayout(layout);
+    const { pages, activePageId } = get();
+    const page = pages[activePageId];
+    if (!page) return;
+    const nextPages = {
+      ...pages,
+      [activePageId]: { ...page, layout },
+    };
+    set({ pages: nextPages });
+    persistPages({ pages: nextPages, activePageId });
   },
 
   addWidget: (type) => {
     const def = getWidgetDefinition(type);
     if (!def) return false;
 
-    const { layout, gridCols } = get();
+    const { pages, activePageId, gridCols } = get();
+    const page = pages[activePageId];
+    if (!page) return false;
+    const layout = page.layout;
 
     if (!def.multiInstance) {
       if (layout.some((item) => item.type === type)) return false;
@@ -231,28 +313,97 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     };
 
     const merged = [...layout, next];
-    set({ layout: merged, pickerOpen: false });
-    persistLayout(merged);
+    const nextPages = {
+      ...pages,
+      [activePageId]: { ...page, layout: merged },
+    };
+    set({ pages: nextPages, pickerOpen: false });
+    persistPages({ pages: nextPages, activePageId });
     return true;
   },
 
   updateWidgetConfig: (instanceId, patch) => {
-    const { layout } = get();
-    const next = layout.map((item) =>
+    const { pages, activePageId } = get();
+    const page = pages[activePageId];
+    if (!page) return;
+    const nextLayout = page.layout.map((item) =>
       item.i === instanceId
         ? { ...item, config: { ...item.config, ...patch } }
         : item,
     );
-    set({ layout: next });
-    persistLayout(next);
+    const nextPages = {
+      ...pages,
+      [activePageId]: { ...page, layout: nextLayout },
+    };
+    set({ pages: nextPages });
+    persistPages({ pages: nextPages, activePageId });
   },
 
   removeWidget: (id) => {
-    const { layout } = get();
-    const next = layout.filter((item) => item.i !== id);
-    if (next.length === layout.length) return;
-    set({ layout: next });
-    persistLayout(next);
+    const { pages, activePageId } = get();
+    const page = pages[activePageId];
+    if (!page) return;
+    const nextLayout = page.layout.filter((item) => item.i !== id);
+    if (nextLayout.length === page.layout.length) return;
+    const nextPages = {
+      ...pages,
+      [activePageId]: { ...page, layout: nextLayout },
+    };
+    set({ pages: nextPages });
+    persistPages({ pages: nextPages, activePageId });
+  },
+
+  addPage: (name) => {
+    const { pages } = get();
+    if (Object.keys(pages).length >= MAX_PAGES) return null;
+
+    const id = nextPageId(pages);
+    const pageNumber = Object.keys(pages).length + 1;
+    const pageName = name?.trim() || `Page ${pageNumber}`;
+    const newPage: WorkspacePage = { id, name: pageName, layout: [] };
+    const nextPages = { ...pages, [id]: newPage };
+    set({ pages: nextPages, activePageId: id });
+    persistPages({ pages: nextPages, activePageId: id });
+    return id;
+  },
+
+  renamePage: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { pages, activePageId } = get();
+    const page = pages[id];
+    if (!page) return;
+    const nextPages = {
+      ...pages,
+      [id]: { ...page, name: trimmed },
+    };
+    set({ pages: nextPages });
+    persistPages({ pages: nextPages, activePageId });
+  },
+
+  deletePage: (id) => {
+    const { pages, activePageId } = get();
+    if (Object.keys(pages).length <= 1) return false;
+    if (!pages[id]) return false;
+
+    const nextPages = { ...pages };
+    delete nextPages[id];
+
+    let nextActivePageId = activePageId;
+    if (activePageId === id) {
+      nextActivePageId = Object.keys(nextPages)[0];
+    }
+
+    set({ pages: nextPages, activePageId: nextActivePageId });
+    persistPages({ pages: nextPages, activePageId: nextActivePageId });
+    return true;
+  },
+
+  setActivePage: (id) => {
+    const { pages, activePageId } = get();
+    if (!pages[id] || activePageId === id) return;
+    set({ activePageId: id });
+    persistPages({ pages, activePageId: id });
   },
 
   toggleLock: () => {
@@ -262,4 +413,52 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   setPickerOpen: (pickerOpen) => set({ pickerOpen }),
   openPicker: () => set({ pickerOpen: true }),
+
+  focusWidget: (type) => {
+    const { pages, activePageId } = get();
+    let found = pages[activePageId]?.layout.find((it) => it.type === type);
+    let pageId = activePageId;
+    if (!found) {
+      for (const [pid, page] of Object.entries(pages)) {
+        const hit = page.layout.find((it) => it.type === type);
+        if (hit) {
+          found = hit;
+          pageId = pid;
+          break;
+        }
+      }
+    }
+    if (!found) return false;
+    if (pageId !== activePageId) get().setActivePage(pageId);
+    set({ focusRequest: { instanceId: found.i, nonce: Date.now() } });
+    return true;
+  },
+
+  focusSymbol: (symbol) => {
+    const sym = symbol.trim().toUpperCase();
+    if (!sym) return false;
+    const { pages, activePageId } = get();
+    let chart = pages[activePageId]?.layout.find((it) => it.type === "chart");
+    let pageId = activePageId;
+    if (!chart) {
+      for (const [pid, page] of Object.entries(pages)) {
+        const hit = page.layout.find((it) => it.type === "chart");
+        if (hit) {
+          chart = hit;
+          pageId = pid;
+          break;
+        }
+      }
+    }
+    if (!chart) return false;
+    if (pageId !== activePageId) get().setActivePage(pageId);
+    const channel = chart.config?.channel ?? "none";
+    if (channel !== "none") {
+      useChannelStore.getState().setChannelSymbol(channel, sym);
+    } else {
+      get().updateWidgetConfig(chart.i, { symbol: sym });
+    }
+    set({ focusRequest: { instanceId: chart.i, nonce: Date.now() } });
+    return true;
+  },
 }));

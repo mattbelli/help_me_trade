@@ -10,6 +10,7 @@ from signals.strategy_kinds import (
     STRATEGY_KINDS,
     EntryContext,
     filter_entry_params,
+    is_portfolio_kind,
     kind_spec,
     strategy_kind,
 )
@@ -107,8 +108,19 @@ def _earnings_setup(
 def test_strategy_kind_inference() -> None:
     assert strategy_kind("dip_buy") == "dip"
     assert strategy_kind("dip_refined") == "dip"
+    assert strategy_kind("steepyc_dip") == "dip"
+    assert strategy_kind("vix_spike") == "vix_spike"
     assert strategy_kind("earnings_drift") == "earnings"
+    assert strategy_kind("momentum_sp500") == "momentum"
+    assert strategy_kind("momentum_residual") == "momentum"
     assert strategy_kind("manual_x") is None
+
+
+def test_is_portfolio_kind() -> None:
+    assert is_portfolio_kind("momentum_sp500") is True
+    assert is_portfolio_kind("momentum_residual") is True
+    assert is_portfolio_kind("dip_buy") is False
+    assert is_portfolio_kind("earnings_drift") is False
 
 
 def test_kind_spec_entry_param_keys() -> None:
@@ -143,6 +155,79 @@ def test_dip_check_entry_fails_when_market_up() -> None:
         params={},
     )
     assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
+
+
+def _dip_ctx_with_yc(*, yc_min_spread: float | None = 0.5) -> EntryContext:
+    sym_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+    params: dict = {}
+    if yc_min_spread is not None:
+        params["yc_min_spread"] = yc_min_spread
+    return EntryContext(
+        sym="AAPL",
+        sym_bars=sym_bars,
+        idx=idx,
+        spy_bars=spy_bars,
+        spy_idx=spy_idx,
+        params=params,
+    )
+
+
+def test_dip_check_yc_gate_passes_when_steep_and_fresh(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.market_regime",
+        lambda **_: {"term_spread": 0.75, "as_of": "2026-06-25"},
+    )
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is True
+
+
+def test_dip_check_yc_gate_fails_when_spread_too_low(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.market_regime",
+        lambda **_: {"term_spread": 0.5, "as_of": "2026-06-25"},
+    )
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
+
+
+def test_dip_check_yc_gate_fail_closed_when_stale(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: False)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.market_regime",
+        lambda **_: {"term_spread": 1.0, "as_of": "2026-06-25"},
+    )
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
+
+
+def test_dip_check_yc_gate_fail_closed_when_regime_missing(monkeypatch) -> None:
+    ctx = _dip_ctx_with_yc(yc_min_spread=0.5)
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr("signals.strategy_kinds.market_regime", lambda **_: None)
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is False
+
+
+def test_dip_check_without_yc_param_ignores_regime(monkeypatch) -> None:
+    sym_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+    ctx = EntryContext(
+        sym="AAPL",
+        sym_bars=sym_bars,
+        idx=idx,
+        spy_bars=spy_bars,
+        spy_idx=spy_idx,
+        params={},
+    )
+
+    def _fail_if_called(**_kwargs):
+        raise AssertionError("market_regime should not be called without yc_min_spread")
+
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", _fail_if_called)
+    monkeypatch.setattr("signals.strategy_kinds.market_regime", _fail_if_called)
+    assert STRATEGY_KINDS["dip"].check_entry(ctx) is True
 
 
 def test_earnings_check_entry_passes(monkeypatch) -> None:
@@ -187,11 +272,94 @@ def test_filter_entry_params_drops_unknown_keys() -> None:
         spec,
         {
             "oversold_3d_max": -5.0,
+            "yc_min_spread": 0.5,
             "stop_pct": -3.0,
             "unknown_key": 99,
         },
     )
-    assert filtered == {"oversold_3d_max": -5.0}
+    assert filtered == {"oversold_3d_max": -5.0, "yc_min_spread": 0.5}
     assert "stop_pct" not in filtered
     assert "unknown_key" not in filtered
     assert set(DIP_ENTRY_PARAM_KEYS) >= set(filtered)
+
+
+def _vix_obs(*, today: float, prior: list[float]) -> list[tuple[str, float]]:
+    obs: list[tuple[str, float]] = [("2026-06-24", today)]
+    for i, v in enumerate(prior, start=1):
+        obs.append((f"2026-06-{24 - i:02d}", v))
+    return obs
+
+
+def _vix_ctx() -> EntryContext:
+    sym_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
+    spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
+    return EntryContext(
+        sym="SPY",
+        sym_bars=sym_bars,
+        idx=idx,
+        spy_bars=spy_bars,
+        spy_idx=spy_idx,
+        params={},
+    )
+
+
+def test_vix_spike_check_fires_on_spike_from_calm(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is True
+
+
+def test_vix_spike_check_no_fire_when_today_not_above_threshold(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=28.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_no_fire_when_too_few_calm_days(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    prior = [18.0] * 7 + [25.0] * 5
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=prior),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_fail_closed_when_stale(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: False)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_fail_closed_when_history_short(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 10),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_boundary_exactly_eight_calm(monkeypatch) -> None:
+    ctx = _vix_ctx()
+    prior = [18.0] * 8 + [25.0] * 4
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=prior),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is True

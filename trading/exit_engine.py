@@ -14,7 +14,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from brokers.market_stream import market_hub
 from db.accounts import get_account
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.earnings_calendar import earnings_dates_for
@@ -24,7 +23,15 @@ from db.paper_orders import get_proposal
 from db.sqlite import get_latest_snapshot
 from db.strategies import get_strategy
 from research.strategy_features import _trading_days_until
-from signals.exit_evaluators import ExitDecision, evaluate_dip_exit, evaluate_earnings_exit
+from signals.exit_evaluators import (
+    ExitDecision,
+    evaluate_dip_exit,
+    evaluate_earnings_exit,
+    evaluate_vix_exit,
+)
+from signals.notify import notify
+from signals.regime import market_regime, regime_is_fresh
+from signals.strategy_kinds import is_portfolio_kind
 from trading.execution_service import ExecutionService
 from trading.models import OrderIntent, RiskRejectedError
 from trading.proposals import create_phone_proposal
@@ -69,6 +76,34 @@ def _close_reason(row: dict[str, Any]) -> str:
     if marker and marker.get("reason"):
         return str(marker["reason"])
     return "closed_externally"
+
+
+def _exit_execution_id(row: dict[str, Any], *, db_path: Path) -> str | None:
+    """The SELL execution that closed this row, recovered from the pending-exit marker.
+
+    Auto exits go straight through ExecutionService, so the marker ``ref`` IS the exit
+    execution id. Propose exits store the proposal id; its execution id (set on approval)
+    is the closing execution. A closure with no marker (user sold externally) has none →
+    the journal records it as ``closed_incomplete`` (no exit price to source). Fail-soft.
+    """
+    try:
+        marker = (row.get("exit_context") or {}).get("pending_exit")
+        if not marker:
+            return None
+        ref = marker.get("ref")
+        if not ref:
+            return None
+        kind = marker.get("kind")
+        if kind == "auto":
+            return str(ref)
+        if kind == "propose":
+            pr = get_proposal(str(ref), db_path=db_path)
+            exec_id = (pr or {}).get("execution_id")
+            return str(exec_id) if exec_id else None
+        return None
+    except Exception:
+        logger.warning("failed to resolve exit execution id for %s", row.get("id"), exc_info=True)
+        return None
 
 
 def _exit_in_flight(
@@ -137,6 +172,10 @@ def _set_pending_marker(
 
 def _strategy_kind(strategy_id: str) -> str | None:
     sid = strategy_id.lower()
+    # Order matches signals.strategy_kinds.strategy_kind (vix before earnings/dip) so the
+    # entry kind and the exit evaluator never diverge for a mixed-substring id.
+    if "vix" in sid:
+        return "vix_spike"
     if "earnings" in sid:
         return "earnings"
     if "dip" in sid:
@@ -154,6 +193,18 @@ async def _process_managed_position(
 ) -> dict[str, Any]:
     position_id = row["id"]
     symbol = row["symbol"]
+
+    # Portfolio-rebalance positions are managed ENTIRELY by the monthly rebalance (entry,
+    # hold, and exit by dropping out of the target set). The exit engine must NEVER touch
+    # them — otherwise it would stop/target/time-exit a momentum name mid-month and the next
+    # rebalance would re-buy it (churn). The rebalance opens AND closes their managed rows.
+    if is_portfolio_kind(row["strategy_id"]):
+        return {
+            "action": "skip",
+            "reason": "portfolio_rebalance_managed",
+            "position_id": position_id,
+            "symbol": symbol,
+        }
 
     # (A) Closure reconcile — position gone ⇒ close the row.
     if snapshot is None:
@@ -175,7 +226,13 @@ async def _process_managed_position(
                 "symbol": symbol,
             }
         reason = _close_reason(row)
-        close_position(position_id, reason=reason, db_path=db_path)
+        exit_execution_id = _exit_execution_id(row, db_path=db_path)
+        close_position(
+            position_id,
+            reason=reason,
+            exit_execution_id=exit_execution_id,
+            db_path=db_path,
+        )
         return {
             "action": "closed",
             "reason": reason,
@@ -211,6 +268,13 @@ async def _process_managed_position(
             bar_low=None,
             high_water_mark=hwm,
             first_target_hit=row["first_target_hit"],
+            holding_days=holding_days,
+            params=row["params"],
+        )
+    elif kind == "vix_spike":
+        regime = market_regime(db_path=db_path) if regime_is_fresh(db_path=db_path) else None
+        decision = evaluate_vix_exit(
+            current_vix=(regime.get("vix") if regime else None),
             holding_days=holding_days,
             params=row["params"],
         )
@@ -386,22 +450,27 @@ async def _process_managed_position(
 
     # (H) Notify the user — ALWAYS after successful dispatch.
     try:
-        await market_hub.broadcast_alert(
-            {
-                "type": "alert",
-                "source": "exit_engine",
-                "rule_name": f"Exit: {row['strategy_id']}",
-                "action": {
-                    "type": "exit",
-                    "mode": exit_mode,
-                    "decision": decision.action,
-                    "symbol": symbol,
-                    "reason": decision.reason,
-                    "qty": exit_qty,
-                    "strategy_id": row["strategy_id"],
-                    "detail": decision.detail,
-                },
-            }
+        await notify(
+            kind="exit",
+            title=f"Exit: {symbol} — {decision.action} [{exit_mode}]",
+            body=f"SELL {exit_qty} {symbol} — {decision.reason}",
+            severity="success" if exit_mode == "auto" else "info",
+            strategy_id=row["strategy_id"],
+            ref_type="position",
+            ref_id=str(position_id),
+            action_url=f"/positions/{position_id}",
+            data={
+                "symbol": symbol,
+                "decision": decision.action,
+                "exit_mode": exit_mode,
+                "reason": decision.reason,
+                "qty": exit_qty,
+                "strategy_id": row["strategy_id"],
+                "detail": decision.detail,
+                "execution_id": ref if exit_mode == "auto" else None,
+            },
+            push=exit_mode == "auto",
+            db_path=db_path,
         )
     except Exception:
         logger.exception("failed to broadcast exit alert")

@@ -113,6 +113,42 @@ def test_put_updates_strategy(strategy_api_client: TestClient) -> None:
     assert updated["params"]["oversold_3d_max"] == -4.0
 
 
+def test_put_updates_entry_mode(strategy_api_client: TestClient) -> None:
+    response = strategy_api_client.put(
+        "/api/strategies/dip_buy",
+        json={"entry_mode": "auto"},
+    )
+    assert response.status_code == 200
+    assert response.json()["strategy"]["entry_mode"] == "auto"
+
+
+def test_put_updates_alert_style(strategy_api_client: TestClient) -> None:
+    response = strategy_api_client.put(
+        "/api/strategies/dip_buy",
+        json={"alert_style": "summary"},
+    )
+    assert response.status_code == 200
+    assert response.json()["strategy"]["alert_style"] == "summary"
+
+
+def test_put_rejects_invalid_alert_style(strategy_api_client: TestClient) -> None:
+    response = strategy_api_client.put(
+        "/api/strategies/dip_buy",
+        json={"alert_style": "invalid"},
+    )
+    assert response.status_code == 400
+    assert "alert_style" in response.json()["detail"]
+
+
+def test_put_rejects_session_node_auto_entry(strategy_api_client: TestClient) -> None:
+    response = strategy_api_client.put(
+        "/api/strategies/session_node_spy",
+        json={"entry_mode": "auto"},
+    )
+    assert response.status_code == 400
+    assert "propose-only" in response.json()["detail"]
+
+
 def test_put_round_trips_risk_caps(strategy_api_client: TestClient) -> None:
     resp = strategy_api_client.put(
         "/api/strategies/dip_refined",
@@ -178,3 +214,17 @@ def test_put_rejects_invalid_account(
         )
     assert response.status_code == 400
     assert "execution-capable" in response.json()["detail"]
+
+
+def test_portfolio_strategy_rejects_shared_account(strategy_api_client: TestClient) -> None:
+    """A portfolio (momentum) strategy can't bind to an account another strategy already uses."""
+    by_id = {s["id"]: s for s in strategy_api_client.get("/api/strategies").json()["strategies"]}
+    shared = by_id["dip_buy"]["account_id"]
+    assert shared, "dip_buy should be bound by default"
+
+    resp = strategy_api_client.put(
+        "/api/strategies/momentum_sp500",
+        json={"account_id": shared},
+    )
+    assert resp.status_code == 400
+    assert "DEDICATED" in resp.json()["detail"]

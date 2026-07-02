@@ -210,6 +210,17 @@ Rules:
 """
 
 
+# Appended to the planner prompt ONLY when allow_propose_order=True (the mobile copilot).
+# The mobile path intercepts propose_order into a PENDING phone proposal — it never executes.
+_PROPOSE_ORDER_PLANNER_ADDENDUM = """
+- propose_order — arguments: {"symbol": string, "side": "buy"|"sell", "qty": number, "order_type": "market"|"limit", "limit_price": number|null, "account_id": string|null}
+Rules for propose_order:
+- When the user asks to BUY or SELL a stock, call propose_order. It creates a PENDING proposal the user approves on their phone (Face ID) — it does NOT execute directly.
+- Long-only: a sell only reduces a held long (no shorting). Default order_type "market".
+- Only on an explicit buy/sell instruction — never for opinions, analysis, or "should I".
+"""
+
+
 class PlannedToolCall(BaseModel):
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -219,6 +230,10 @@ class ToolPlan(BaseModel):
     tools: list[PlannedToolCall] = Field(default_factory=list)
 
 
+# Includes `propose_order`. The base planner prompt omits it (so a plan_tools→execute_tool
+# caller can never auto-EXECUTE a trade); it's offered only when plan_tools is called with
+# allow_propose_order=True (the mobile path), which intercepts it into a PENDING phone
+# proposal via create_phone_proposal — never execute_tool.
 _ALLOWED_TOOLS = frozenset(TOOL_DEFINITIONS.keys())
 
 _MULTI_ACCOUNT_NOTE = (
@@ -304,15 +319,30 @@ def _account_label_map(*, db_path: Path | None = None) -> dict[str, str]:
     }
 
 
-def plan_tools(user_text: str, *, model: str | None = None) -> list[tuple[str, dict[str, Any]]]:
-    """LLM JSON planner — replaces keyword matching."""
+def plan_tools(
+    user_text: str,
+    *,
+    model: str | None = None,
+    allow_propose_order: bool = False,
+) -> list[tuple[str, dict[str, Any]]]:
+    """LLM JSON planner — replaces keyword matching.
+
+    `allow_propose_order` adds `propose_order` to the planner's menu. Default False so
+    the planner can NEVER plan a trade for any caller that routes its output through
+    `execute_tool` (which would EXECUTE). Only the mobile path sets it True — and that
+    path intercepts `propose_order` into a PENDING phone proposal, never execute_tool.
+    """
     text = user_text.strip()
     if not text:
         return []
 
+    system_prompt = _TOOL_PLANNER_PROMPT
+    if allow_propose_order:
+        system_prompt += _PROPOSE_ORDER_PLANNER_ADDENDUM
+
     llm = get_llm(model=model)
     messages = [
-        LLMMessage(role="system", content=_TOOL_PLANNER_PROMPT),
+        LLMMessage(role="system", content=system_prompt),
         LLMMessage(role="user", content=text),
     ]
     try:

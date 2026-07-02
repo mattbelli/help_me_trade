@@ -265,6 +265,7 @@ class AlpacaAdapter:
     @staticmethod
     def _parse_order_item(item: dict) -> Order:
         limit = item.get("limit_price")
+        filled_avg = item.get("filled_avg_price")
         return Order(
             id=str(item["id"]),
             symbol=str(item["symbol"]),
@@ -274,6 +275,7 @@ class AlpacaAdapter:
             status=str(item.get("status", "")),
             filled_qty=float(item.get("filled_qty", 0)),
             limit_price=float(limit) if limit not in (None, "") else None,
+            filled_avg_price=float(filled_avg) if filled_avg not in (None, "") else None,
         )
 
     @staticmethod

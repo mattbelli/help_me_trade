@@ -19,7 +19,7 @@ from db.multi_account import migrate_multi_account
 from db.paper_orders import init_paper_order_tables
 from db.sqlite import init_db
 from db.strategies import init_strategy_tables, seed_default_strategies, update_strategy
-from trading.exit_engine import run_exit_engine
+from trading.exit_engine import _process_managed_position, run_exit_engine
 
 
 def _db(tmp_path: Path) -> Path:
@@ -124,11 +124,12 @@ def _open_managed(
 def exit_stubs(monkeypatch: pytest.MonkeyPatch):
     submit_calls: list = []
     proposal_calls: list = []
-    broadcast_calls: list = []
+    notify_calls: list = []
 
     class _SubmitResult:
         execution_id = "exec_x"
         status = "submitted"
+        execution_mode = "paper"
 
     async def _submit(intent, *, db_path):
         submit_calls.append({"intent": intent, "db_path": db_path})
@@ -140,17 +141,18 @@ def exit_stubs(monkeypatch: pytest.MonkeyPatch):
         )
         return {"status": "pending_phone", "id": "prop_x"}
 
-    async def _broadcast(payload):
-        broadcast_calls.append(payload)
+    async def _notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "notif_x"}
 
     monkeypatch.setattr("trading.exit_engine.ExecutionService.submit", _submit)
     monkeypatch.setattr("trading.exit_engine.create_phone_proposal", _proposal)
-    monkeypatch.setattr("trading.exit_engine.market_hub.broadcast_alert", _broadcast)
+    monkeypatch.setattr("trading.exit_engine.notify", _notify)
 
     return {
         "submit_calls": submit_calls,
         "proposal_calls": proposal_calls,
-        "broadcast_calls": broadcast_calls,
+        "notify_calls": notify_calls,
     }
 
 
@@ -181,8 +183,12 @@ async def test_dip_stop_auto_dispatches_sell(
     row = list_open_positions(db_path=db)[0]
     assert row["exit_context"]["pending_exit"]["kind"] == "auto"
     assert row["exit_context"]["pending_exit"]["ref"] == "exec_x"
-    assert len(exit_stubs["broadcast_calls"]) == 1
-    assert exit_stubs["broadcast_calls"][0]["source"] == "exit_engine"
+    assert len(exit_stubs["notify_calls"]) == 1
+    notify = exit_stubs["notify_calls"][0]
+    assert notify["kind"] == "exit"
+    assert notify["push"] is True
+    assert notify["data"]["exit_mode"] == "auto"
+    assert notify["data"]["execution_id"] == "exec_x"
 
 
 @pytest.mark.asyncio
@@ -285,7 +291,49 @@ async def test_propose_mode_uses_phone_proposal(
     assert exit_stubs["submit_calls"] == []
     row = list_open_positions(db_path=db)[0]
     assert row["exit_context"]["pending_exit"]["kind"] == "propose"
-    assert len(exit_stubs["broadcast_calls"]) == 1
+    assert len(exit_stubs["notify_calls"]) == 1
+    assert exit_stubs["notify_calls"][0]["push"] is False
+    assert exit_stubs["notify_calls"][0]["data"]["exit_mode"] == "propose"
+
+
+@pytest.mark.asyncio
+async def test_exit_notify_push_flag_auto_vs_propose(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Auto-exit pushes via notify(); propose-exit does not (proposal push is separate)."""
+    db = _db(tmp_path)
+    _seed_account(db)
+
+    # Auto path: push=True, single notify.
+    _save_snapshot(
+        db,
+        positions=[_position(avg_entry_price=100.0, current_price=96.0, qty=10.0)],
+    )
+    _open_managed(db, params={"stop_pct": -3.0})
+    await run_exit_engine(db_path=db)
+    assert len(exit_stubs["notify_calls"]) == 1
+    assert exit_stubs["notify_calls"][0]["push"] is True
+
+    exit_stubs["notify_calls"].clear()
+    exit_stubs["submit_calls"].clear()
+
+    # Propose path: push=False only — no second mobile push from exit notify.
+    update_strategy("dip_buy", exit_mode="propose", db_path=db)
+    pid = _open_managed(
+        db,
+        exit_mode="propose",
+        params={"stop_pct": -3.0},
+    )
+    update_exit_state(pid, exit_context={}, db_path=db)
+    _save_snapshot(
+        db,
+        positions=[_position(avg_entry_price=100.0, current_price=96.0, qty=10.0)],
+    )
+    await run_exit_engine(db_path=db)
+    assert len(exit_stubs["notify_calls"]) == 1
+    assert exit_stubs["notify_calls"][0]["push"] is False
+    assert exit_stubs["notify_calls"][0]["data"]["exit_mode"] == "propose"
+    assert exit_stubs["notify_calls"][0]["data"]["execution_id"] is None
 
 
 @pytest.mark.asyncio
@@ -477,3 +525,86 @@ async def test_wrong_account_snapshot_is_rejected(
     assert outcomes[0]["reason"] == "no_snapshot"
     assert len(list_open_positions(db_path=db)) == 1  # NOT closed by a foreign snapshot
     assert exit_stubs["submit_calls"] == []
+
+
+@pytest.mark.asyncio
+async def test_vix_spike_exits_on_reversion_when_regime_fresh(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _db(tmp_path)
+    _seed_account(db)
+    update_strategy("vix_spike", exit_mode="auto", db_path=db)
+    monkeypatch.setattr("trading.exit_engine.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "trading.exit_engine.market_regime",
+        lambda **_: {"vix": 19.0, "as_of": "2026-06-25"},
+    )
+    _save_snapshot(
+        db,
+        positions=[_position(symbol="SPY", avg_entry_price=400.0, current_price=410.0, qty=10.0)],
+    )
+    record_open_position(
+        account_id="acct_1",
+        symbol="SPY",
+        strategy_id="vix_spike",
+        qty="10",
+        exit_mode="auto",
+        params={"vix_exit_below": 20.0, "max_holding_days": 60},
+        db_path=db,
+    )
+
+    outcomes = await run_exit_engine(db_path=db)
+
+    assert outcomes[0]["action"] == "exit"
+    assert outcomes[0]["reason"] == "vix_reversion"
+    assert len(exit_stubs["submit_calls"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_vix_spike_holds_when_regime_stale(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _db(tmp_path)
+    _seed_account(db)
+    update_strategy("vix_spike", exit_mode="auto", db_path=db)
+    monkeypatch.setattr("trading.exit_engine.regime_is_fresh", lambda **_: False)
+    monkeypatch.setattr(
+        "trading.exit_engine.market_regime",
+        lambda **_: {"vix": 19.0, "as_of": "2026-06-25"},
+    )
+    _save_snapshot(
+        db,
+        positions=[_position(symbol="SPY", avg_entry_price=400.0, current_price=410.0, qty=10.0)],
+    )
+    record_open_position(
+        account_id="acct_1",
+        symbol="SPY",
+        strategy_id="vix_spike",
+        qty="10",
+        exit_mode="auto",
+        params={"vix_exit_below": 20.0, "max_holding_days": 60},
+        db_path=db,
+    )
+
+    outcomes = await run_exit_engine(db_path=db)
+
+    assert outcomes[0]["action"] == "hold"
+    assert exit_stubs["submit_calls"] == []
+
+
+@pytest.mark.asyncio
+async def test_portfolio_position_skipped_entirely(tmp_path: Path) -> None:
+    """Portfolio-kind (momentum) positions are skipped by the exit engine — no stop/target/
+    time exit, no closure reconcile. The monthly rebalance owns their full lifecycle."""
+    db = tmp_path / "exit_portfolio.db"
+    _open_managed(db, strategy_id="momentum_sp500", symbol="AAPL")
+    row = list_open_positions(db_path=db)[0]
+    res = await _process_managed_position(
+        row,
+        broker_name="alpaca",
+        positions_by_symbol={},
+        snapshot=None,
+        db_path=db,
+    )
+    assert res["action"] == "skip"
+    assert res["reason"] == "portfolio_rebalance_managed"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 
 import {
@@ -14,6 +14,7 @@ import {
   unreadCount,
   useNotificationStore,
 } from "@/lib/workspace/use-notification-store";
+import { useNotificationActivate } from "@/lib/workspace/use-notification-activate";
 
 function formatRelativeTime(iso: string): string {
   const ms = Date.now() - Date.parse(iso);
@@ -29,11 +30,12 @@ function formatRelativeTime(iso: string): string {
 }
 
 export function NotificationBell() {
+  const [open, setOpen] = useState(false);
   const notifications = useNotificationStore((s) => s.notifications);
   const hydrated = useNotificationStore((s) => s.hydrated);
   const hydrate = useNotificationStore((s) => s.hydrate);
-  const markRead = useNotificationStore((s) => s.markRead);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
+  const activate = useNotificationActivate();
 
   const unread = unreadCount(notifications);
 
@@ -42,7 +44,7 @@ export function NotificationBell() {
   }, [hydrate]);
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         className="relative inline-flex cursor-pointer items-center rounded p-1 text-[var(--fg-faint)] outline-none transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
         aria-label={
@@ -54,8 +56,7 @@ export function NotificationBell() {
         <Bell className="size-3.5" />
         {unread > 0 ? (
           <span
-            className="absolute -top-0.5 -right-0.5 grid min-w-[14px] place-items-center rounded-full px-0.5 text-[9px] font-bold leading-none text-[var(--c-on-accent)]"
-            style={{ backgroundColor: "var(--c-red)" }}
+            className="absolute -top-0.5 -right-0.5 grid min-w-[14px] place-items-center rounded-full bg-[var(--c-red)] px-0.5 text-[9px] font-bold leading-none text-[var(--c-on-accent)]"
           >
             {unread > 9 ? "9+" : unread}
           </span>
@@ -97,7 +98,10 @@ export function NotificationBell() {
                 <li key={n.id}>
                   <button
                     type="button"
-                    onClick={() => markRead(n.id)}
+                    onClick={() => {
+                      activate(n);
+                      setOpen(false);
+                    }}
                     className="flex w-full gap-2 border-b border-[var(--border)] px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[var(--bg-hover)]"
                   >
                     <span
@@ -110,13 +114,13 @@ export function NotificationBell() {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-foreground">
-                        {n.ruleName}
+                        {n.title}
                       </span>
                       <span className="mt-0.5 block truncate text-[var(--fg-dim)]">
                         {notificationLabel(n)}
                       </span>
                       <span className="mt-1 block text-[9.5px] text-[var(--fg-faint)]">
-                        {formatRelativeTime(n.ts)}
+                        {formatRelativeTime(n.created_at)}
                       </span>
                     </span>
                   </button>

@@ -1,4 +1,4 @@
-# Handoff — "you are here" (2026-06-25)
+# Handoff — "you are here" (2026-06-27)
 
 *Bootstrap for a fresh session. Read this first, then `CLAUDE.md` (mission + working agreements, auto-loaded),
 `AGENTS.md` (codebase map), and per-topic refs: `MULTI_ACCOUNT_PLAN.md`, `BUILD.md` (roadmap + dated history),
@@ -58,7 +58,454 @@ backup only — **do all work on `serv`**. **Access from any tailnet device:** h
 
 ---
 
-## CURRENT FOCUS — Web UI consolidation + the supervision backbone (2026-06-25)
+## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
+
+> ▶ **LATEST (2026-07-02) — Performance page broken into focused cockpit widgets + Company-Info widget +
+> workspace→ledger per-account slicing. SHIPPED, deployed on serv (:3001/:8000), 1163 tests green, chokepoint
+> untouched, committed + pushed.** Founder ask: split the monolithic `performance` tile into small tiles, fix
+> "Day realized = $0 after close", add a few new graphs, and turn the loved ticker-info popup into a widget.
+> - **Day-boundary fix** (`db/analytics.py resolve_period`): used UTC `date.today()` → on the UTC serv the "Day"
+>   window jumped to *tomorrow* at 8pm ET (empty → the founder's real $866 read $0). Now `datetime.now(ET).date()`
+>   — rolls at midnight ET (also fixes week/month/quarter/year). Verified live: 7/1 day = the real $866.13.
+> - **7 new perf widgets** (registry + `/add`): `performance-stats` (realized/unrealized/win/trades/fees; **defaults
+>   to Month** so it's never blank overnight — a Day default reads $0 after midnight, which confused at first),
+>   `trade-calendar` (Monday-start month grid, week-P&L column, **day-of-week rollup** folding in the old chart,
+>   month total; P7), `orders` (blotter: Filled=time&sales / Open / Rejected), `sector-radar` (exposure +
+>   realized-P&L by Finnhub industry, radar/bar toggle), `pnl-scatter` (hold-time vs P&L), `trade-distribution`
+>   (outcome histogram), `winrate-trend` (rolling win rate + expectancy). Recharts + terminal-styled (P8).
+> - **Company-Info widget** (`company-info`, channelAware+multiInstance): the ticker popup extracted into shared
+>   `company-info-sections.tsx` (modal + widget share it), **bigger price/change% + clearer fundamentals**, follows
+>   a channel's clicked symbol, and an "all-watchlists" **news RSS** mode (`GET /api/ticker/watchlist/news` unions
+>   Finnhub company-news across every watchlist symbol, bounded-concurrency + url-dedup, skips options/futures).
+> - **Per-account slicing (workspace→ledger bridge).** ⚠️ Workspace selector ids (`overview`/`all_real`/`all_paper`/
+>   `schwab_<last4>`/`acct_*`) DON'T match the ledger `trade_accounts.id` (`acct_<uuid>`) → passing them to the perf
+>   dashboard returned $0. `broker_external_id` is NULL, but `/api/schwab/accounts` `label` == `trade_accounts.label`
+>   EXACTLY → new read-only `db/account_scope.py resolve_perf_scope()` (label join, fail-soft to aggregate-real,
+>   **NO ledger writes**) + a `paper_only` filter (mirrors `real_only`), wired into `/dashboard`,`/sectors`,
+>   `/trades/events`. Live: `schwab_1025`→`acct_fe625350bf46`→$13,061; `all_real` $15,838; `all_paper` isolated
+>   (firewall intact). Adversarially reviewed (account model) — read-only, safe.
+> - **2 read-only endpoints**: `/api/performance/sectors` (positions+realized grouped by Finnhub industry) +
+>   `/api/orders/executions` (paper blotter from `order_executions`, curated fields). New tests: `test_account_scope`,
+>   `test_sector_breakdown`, `test_order_executions_list`, `test_watchlist_news`.
+> - **Known follow-ups:** perf-widget tickers are still plain text — wire `ClickableSymbol` per [[ticker-links-everywhere]];
+>   retire the old monolithic `performance` widget; a few pre-existing `set-state-in-effect` lint warnings; sector
+>   allocation is sparse on the (flat) real accounts — pick the **paper momentum account** for the ~86-name breakdown;
+>   the workspace→ledger resolver is label-based (would break if a Schwab account is relabeled — backfill `broker_external_id` for a stable key later).
+>
+> ▶ **LATEST (2026-07-01, next session) — Real Schwab data + unified account selector w/ a paper↔real firewall (P6,
+> reworked) SHIPPED + deployed on serv; founder-accepted ("feels good"). Committed + pushed (`4da9a66`).** Founder ask:
+> "bring our Schwab account/trade data in" + "see all accounts from the toolbar (all / all-Schwab / all-Alpaca /
+> individual), with a paper vs real view — NEVER sum paper + real." Recon flipped the original plan: account-snapshot
+> polling was **fully off** (`brokers.schwab.enabled=false`; only the Schwab *market-data* path was live) and
+> single-account (`resolve_account_hash` **raises** — this token sees **4** linked accounts; app had **3** rows, all
+> `broker_external_id=None`). Shipped three coherent pieces:
+> - **(1) Read-only Schwab source**, deliberately independent of the Alpaca poll/`trade_accounts` execution machinery
+>   (a real funded account can't be comingled with a paper sandbox or made executable): `brokers/schwab_accounts.py`
+>   (TTL-cached 30s, **GET-only**, fail-soft) → `GET /api/schwab/accounts`. Hand-written for real-money-read safety.
+> - **(2) `money_type` firewall** — `_account_money_type` (schwab→real, alpaca→paper) stamped on each `/api/snapshot`
+>   snap + a hard guard so `_aggregate_account_snapshots` sums a **single money_type only**. Paper + real can NEVER
+>   blend into one figure (belt-and-suspenders for a future Schwab-in-poll_runs change). Hand-written (safety-critical).
+> - **(3) Unified `AccountSelector`** (Composer, 1 brief, diff-reviewed — **caught + hand-fixed a real bug**: the selector
+>   was gated on the paper `view`, so picking a real account hid the selector itself). Replaces two duplicated inline
+>   selectors; grouped **Real·Schwab / Paper·Alpaca**; scope model `overview|all_real|all_paper|<id>` in
+>   `use-dashboard-prefs` (legacy `"all"`→`overview`); REAL/PAPER/REAL+PAPER badge; **Account Summary Overview = two
+>   side-by-side totals, never one number**. Flip to Real·Schwab → real balances in the same tiles while paper-testing.
+>   The standalone `schwab-activity` widget (built first) was **removed** for the selector (grid degrades unknown ids).
+> - Labels founder-mapped → gitignored `data/schwab_account_labels.json`: Individual ••1025 / Joint ••3344 /
+>   Roth (Joint) ••7397 / Roth (Personal) ••0348. **The 4th = a 2nd Roth (Personal) the app never had a row for.**
+> - **Live-verified: Real·Schwab $231,817.98 (4 accts) vs Paper·Alpaca $300,200.12 (3 accts), separate.** ruff + **1124
+>   pytest** + typecheck green; chokepoint untouched. Deployed both; armed poll resumed clean (19s post-restart).
+> - **✅ Phase 2 auto-sync — DONE + verified (committed local, deployed).** Rewrote `sync_schwab()` (Transactions API)
+>   for all 4 accounts: per-hash `SchwabAdapter`s off one shared OAuth client, attributed by `broker_external_id`
+>   (foundation migration created the Roth-Personal ••0348 row + stamped all 4 hashes + relabeled Joint/Roth). Cursor is
+>   **incremental + rolling** (`_schwab_sync_start`, pure/unit-tested): floored at `json_max+1` (never re-import the JSON
+>   boundary → no cross-source double-count) but re-fetches a 7-day window so same-day fills aren't dropped. Decoupled
+>   from `brokers.schwab.enabled` (runs on token presence; broken snapshot-poll stays off). Fixed 2 pre-existing latent
+>   bugs: the `Client.TransactionType` enum, and the parser (grabbed the cash `CURRENCY_USD` leg + summed fees → rewrote
+>   to key off the security leg, `netAmount` = fee-inclusive net cash; **futures/options net cash now captured**).
+>   Adversarial review caught a CRITICAL (naive `last+1` date cursor dropped same-day fills under the hourly loop) + 3
+>   MAJORs (exception isolation, backfill-gap-on-chunk-failure, pacing/concurrency) — all fixed. **10 new tests
+>   (`tests/test_schwab_sync.py`); 1134 suite green. Live: 56 events synced, 0 dupes; 2nd run 0-inserts/all-dupes
+>   (idempotent); zero API rows overlap the JSON boundary.** Files: `trading/sync.py`, `db/trades.py` (`latest_trade_date`
+>   gains a `source=` filter). **Committed + pushed** (`origin/main` = `063b2df`).
+> - **✅ Agent perception reads Schwab (read-only) — DONE.** The agent couldn't use the new data (live accounts not in
+>   perception; `my_trades` blended real Schwab + 19 Alpaca paper trades). Added a `schwab_accounts` perception resource
+>   (live balances/positions, `read_only`; new sync core `get_schwab_accounts_sync` shares the cache, async route wraps
+>   it) + made `my_trades` **real-only** (`_my_trade_events` excludes non-Schwab; optional `account_id`). GET-only, zero
+>   execution surface — re-verified Schwab exec is blocked at 3 layers (adapter `NotImplementedError`; `propose_order`
+>   chat tool rejects read-only accounts; `RiskEngine` fails `execution_capable=0`). `tests/test_perception_real_only.py`.
+> - **✅ Daily Schwab equity snapshots — DONE** (`db/schwab_history.py`, `schwab_account_daily`; piggyback on the
+>   accounts fetch + an EOD backstop loop; `GET /api/schwab/history`). Accurate day-P&L/equity persisted going forward,
+>   no FIFO. **⏭️ Natural next: SURFACE it** — a Schwab equity-curve / daily-P&L view (the data now accrues daily).
+> - **✅ Phase 3 — DONE.** Real/paper firewall reaches the ledger views: `list_trade_events(real_only=)` +
+>   `/api/performance/dashboard` real-only-when-no-account + `/api/journal/trades(+summary)` `account_id`; `/performance`
+>   selector broker-grouped ("All accounts (real)") + journal Me-view account selector. Never blends paper+real.
+> - **✅ Equity-curve widget — DONE.** Now follows the toolbar scope (overview/all_real/all_paper/account), REAL/PAPER
+>   toggle on overview (no blend); real Schwab curve = `signals/schwab_equity.py` → `GET /api/schwab/equity-curve`,
+>   anchored to live liquidation + walked back through all cash flows, **flat-days-only** (exact cash-EOD points,
+>   hold days = honest gaps). Daily dots + tooltip. **⏭️ Deferred: full mark-to-market** (value held positions via
+>   Schwab price history + futures/options multipliers) — would fill the gap days; the honest bigger build.
+> - **⏭️ NEXT — Stage B** (positions/orders widgets follow a real-account pick — moot until Schwab positions held).
+>   Full recon in this session's two Explore agents. The `_poll_broker("schwab")` snapshot poll is still single-account
+>   (equity balances come from `/api/schwab/accounts`, so not urgent). Also still open: **P&L calendar (P7)**, perf-split
+>   (P8), tmux-lite (P9); Russell-1000 scans + Globex RVOL; ★ R5.
+>
+> ▶ **LATEST (2026-07-01, SESSION END) — big cockpit + journal + scanner + charts round. ALL shipped, deployed on
+> serv (:3001 / :8000), pushed; `origin/main` = `766462b`.** Everything below is live + green (full suite ~1124; chokepoint
+> untouched throughout; every commit staged by explicit path, never `git add -A`). On top of the charts overhaul (`f93f582`)
+> and the earlier quick-wins/journal-J0-J3/reports/scans (`85dd8bc`→`01b8a84`, summarized in the entries beneath this one):
+> - **Watchlist RVOL 500 fix** (`10cb95d`): a futures (/ES) globex RVOL `IndexError` (globex bucket index past an
+>   RTH-shaped volume profile) was 500-ing the WHOLE `/api/watchlist/market`, so every row chart fell back to the flat
+>   "7-day" sparkline. Guarded `rvol_now` (bucket ≥ len(cumfrac) → None) + made `_compute_rvol_field` fail-soft. Futures
+>   charts DO work (/ES,/CL show intraday); futures RVOL stays blank until a globex-shaped profile exists (see NEXT).
+> - **Scans → a real market screener**: fixed a cold-cache 20s timeout via **bounded-concurrent** bar fetch (`8492742`)
+>   and added an **S&P 500 universe** (`167d871`) — a Watchlist ⇄ S&P 500 toggle that reads the already-refreshed
+>   `momentum_daily_bars` store (503 names, ~0.4s, ZERO broker calls, no Schwab burst). `unusual_volume` is Watchlist-only
+>   (that store keeps only open/close). `api/scan_routes.py`, `signals/screener.py`.
+> - **Bad-tick chart filter** (`f3e1cdf`): a bad Schwab print (e.g. $52→$750) set the forming candle's HIGH and also
+>   poisoned the watchlist price / alerts / the RiskEngine's live quote. Two guards drop ticks >3× or <1/3 of a STABLE
+>   reference — the chart (`tv-light-chart.tsx`, vs the last COMPLETED bar) and the Schwab hub (`schwab_market_stream.py`
+>   `_on_equity`/`_on_futures`, vs the official prior close). Safety-positive.
+> - **Company-info ⓘ everywhere** (`e49f5b7`→`96a8e9e`): a **ⓘ on every ticker in every widget** (white, revealed on
+>   ROW hover) opens ONE shared `CompanyInfoModal` (root-mounted behind `useTickerInfo()`, baked into `ClickableSymbol`)
+>   showing company profile + fundamentals (Finnhub `/stock/profile2` + `/stock/metric`, free-tier, TTL-cached) + our
+>   `get_context` facts + **recent news** (Finnhub `/company-news`). Backend: `signals/finnhub.py` fetchers +
+>   `api/ticker_routes.py` `GET /api/ticker/{symbol}`. The **watchlist ticker now renders via `ClickableSymbol`** too, so
+>   it matches positions (hover-underline, click-to-chart, shared ⓘ). ⓘ style iterated to founder taste (white, hover-on-row).
+> - **Chart ~80% right-margin anchor restored** (`766462b`): the overhaul's extra panes triggered resize refits that
+>   clobbered the one-shot `setVisibleLogicalRange` (latest candle snapped to the right edge) → fixed with a persistent
+>   time-scale `rightOffset` (0.2 × visibleBars).
+>
+> **⏭️ WHAT'S NEXT (queued — the founder's cockpit list, BUILD.md §4.1 + follow-ups):**
+> 1. **Schwab activity widget (P6)** — a live monitoring tile from the read-only Schwab snapshot (positions + unrealized
+>    P&L + open orders). The data is already synced (read-only, double-guarded) — this is a UI task.
+> 2. **P&L calendar widget (P7)** — rebuild `performance-page.tsx`'s flat day-chip `CalendarHeatmap` as a standalone
+>    month-grid widget (day-of-week columns, month nav, week/month rollups). Backend `daily_realized`/`daily_cash_flow` ready.
+> 3. **Split the performance widget (P8)** — decompose `performance-page.tsx` into ~5-6 registry widgets (cumulative P&L,
+>    per-symbol, day-of-week, win/loss, stat cards). No backend change; mirrors `account-summary-widget`.
+> 4. **tmux-lite widget split (P9)** — shrink a widget + auto-place a new one in the freed slot (existing
+>    `findPlacement`/`addWidget`); defer a true nested pane-tree.
+> 5. **Russell 1000 scans (~960)** — extend the daily bars refresh to the `russell1000.json` list (+ a first backfill),
+>    then add a 3rd universe option. Optionally extend `momentum_daily_bars` to full OHLCV (the refresh already fetches it)
+>    so `unusual_volume` works market-wide. Also: a **Globex futures-RVOL profile** for /ES,/CL to light up their RVOL.
+> 6. **Journal activation** — arm a disabled strategy (or `tools/fire_test_entry.py`) so the AI/Calibration side populates;
+>    flip `inject_journal` if you want the copilot to reference "my calls / your pattern" each turn.
+> 7. **★ Decision Engine edge (R5, THE headline value)** — the calibrated scorer is wired but *edgeless* (n=447);
+>    multi-signal fusion + LLM-reasoning-on-top + S/R scale-out ladders + honest EV/win% is the strategic frontier
+>    (BUILD.md ★ Decision Engine + engine-deepening roadmap).
+> - **Known-debt (BUILD.md §5):** mem0 `search()` treats `{"results":[...]}` as a list → **vector search is inert**
+>   (retrieval = local token-overlap); notification `kind` taxonomy not reconciled backend↔frontend; terminal-restyle
+>   stragglers (`research-page.tsx`).
+>
+> ▶ **LATEST (2026-07-01, latest) — decision journal J2 (surface) + J3 (calibration) SHIPPED + deployed + pushed.**
+> The agent can now SEE and learn from its own track record AND the user's. J2 (`aa858dc`): two perception resources
+> (`decision_journal` = AI's calls · `my_trades` = user's real Schwab history), opt-in per-turn chat injection, `/api/journal/*`,
+> and a journal widget with an **AI⇄Me toggle**. Founder-agreed architecture: **two stores, unified only at the read/view
+> layer** (NOT one table / a user-ai tag) — AI = calibration, user = behavior. J3 (`3115d5b`): a 24h **calibration review**
+> (predicted win% vs realized, per strategy + bucket, Wilson-CI + "insufficient data" honesty) → **surface-only** lesson-memories
+> on notable drift + a Calibration tab; NEVER retunes a strategy/scorer. Full suite **1107** green; deployed on serv :3001.
+> AI side is empty until proposals resolve; the Me side shows the real imported history (net-cash realized ≈$9k, 64.5% win).
+> **Data note:** user flagged 'phantom' GLD trades — investigated (read-only): NOT dupes/bug — it's real late-March GLD
+> day-trading (bought 340 / sold 340, net 0, across the 3 Schwab accounts) inside the real Schwab import; the only OPEN GLD is
+> 2 Alpaca paper shares. **Next:** the remaining §4.1 cockpit items — Schwab activity widget (P6), P&L calendar widget (P7),
+> perf-widget split (P8), tmux-lite split (P9); optional Globex futures-RVOL profile.
+>
+> ▶ **LATEST (2026-07-01, later) — cockpit-hardening round + decision-journal record path (multi-agent; committed
+> LOCAL, NOT pushed).** Founder cockpit review (P1–P12). Shipped: notification row-click deep-links + symbol-resolution
+> fix + clickable proposal tickers (`85dd8bc`); copilot floating-dock padding fix + toolbar opener + `Ctrl/Cmd+J`
+> (`85dd8bc`); watchlist top-`+` add-row (in charts `f93f582`); mem0 delete-drift fix — deletes mirror to the vector
+> store (`85dd8bc`); **decision journal J0+J1** record path (`aa3c67a`, adversarial Sonnet review → 2 MAJORs fixed:
+> `close_position` fail-soft hole + ×100 options multiplier); **reports** LLM-authored briefs + in-app viewer
+> (`b0eeef9`); **scans** real universe screener over the cached-bars path (`d8f0e25`). Full suite **1079** green;
+> chokepoint untouched; BUILD.md hardened (§3/§4/§5 regenerated). Also flagged in Known-debt: mem0 `search()` treats
+> `{"results":[...]}` as a list → **mem0 semantic search is currently inert** (retrieval = local token-overlap).
+> ⚠️ **Not pushed** (origin/main = `f93f582`). ⚠️ **Deploy + in-browser check pending (founder)** — a build compiles
+> the whole tree; `cd frontend && npm run build && tools/serv-deploy.sh both`. **Next:** journal **J2** (perception
+> `journal` resource + per-turn chat injection + decision-journal widget) + **J3** (24h calibration-drift review →
+> lesson memories, surface-only); then §4.1 leftovers — Schwab activity widget (P6), P&L calendar widget (P7),
+> perf-widget split (P8), tmux-lite split (P9).
+>
+> ▶ **LATEST (2026-07-01) — charts overhaul (SHIPPED + deployed on serv :3001; committed).** 12 Composer briefs
+> across two rounds (one-at-a-time, each diff-reviewed). Pre-push green: `ruff check .` + `pytest` (1031) +
+> `npm run typecheck`/`build`.
+> **Library decision: stayed on `lightweight-charts` (already v5.2.0).** v5 natively provides the two hard
+> asks — real **panes** + the **primitives/plugin API** (drawing *on* the canvas via its coordinate system, the
+> non-glitchy way). Re-platforming (KLineChart/D3) rejected as unnecessary; the only custom work is the
+> trendline/channel primitives (LWC has no built-in drawing *tools*). Shipped: (1) **big live price + day-change%
+> + live/stale dot** next to the ticker in `ChartHeaderControls` (reuses `useSymbolQuote`; surfaced `change_pct`).
+> (2) **Volume → its own real pane** (`addSeries(..., 1)`, draggable separators via `layout.panes`, stretch 4:1;
+> replaced the old scaleMargins hack). (3) **Studies** computed client-side in `frontend/lib/indicators.ts`
+> (SMA/EMA/RSI/MACD — formulas mirror `signals/indicators.py` so chart == scanner) + `frontend/lib/chart-studies.ts`
+> registry: overlays SMA 20/50/200 + EMA 20 on the price pane, oscillators RSI 14 + MACD in their own panes;
+> toggled in the Studies dropdown checklist, persisted in `WidgetInstanceConfig.studies` (string[]). (4) **Drawings**:
+> new `chart_drawings` table + `/api/drawings` CRUD + `api.ts` client (mirrors price_alerts); **horizontal levels,
+> trendlines, channels** created via the chart **right-click menu** (no floating toolbar — per the
+> `chart-ui-no-overlay-buttons` pref); trendline/channel are custom `ISeriesPrimitive`s in
+> `frontend/lib/chart-trendline.ts` (2-click / 3-click placement + live preview + hit-test remove); levels reuse
+> price lines; all persist per symbol; "Set alert" on a level unchanged (levels & alerts stay independent records).
+> **Round 2 (founder in-browser feedback):** volume **zero pegged to the bottom** (autoscaleInfoProvider
+> minValue 0); **clearer pane separators**; **4H/1W/1M timeframes** (Alpaca native; Schwab
+> `_aggregate_to_4hourly/_weekly/_monthly` from 30-min/daily — verified live 1W=53 / 1M=60 / 4H=746 bars); and the
+> **drawings rework** — unified `DrawingShape` primitive positioned by **logical index** (draw out to the chart
+> edges — fixes "only drags out so far"), channel = **2-click + default width**, and **click-to-edit**: select a
+> drawing → draggable **endpoint handles** (channel adds a mid **width handle**) → drag (chart pan suspended) →
+> release saves (`updateDrawing`, optimistic local update); Delete/Escape/click-off to deselect. Persistence
+> stores `{time,price}`; logical is derived per render (snap-to-bar in range, projected in whitespace).
+> Briefs: `chart-*` (12) in `tools/composer-bridge/briefs/`. **Deferred/optional:** Bollinger/VWAP overlays,
+> study-period customization, whole-line drag (endpoints only now), drawing stability across data-window changes.
+>
+> ▶ **LATEST (2026-06-30) — terminal-UI polish round (shipped + deployed).** Four-part pass via 8 Composer briefs
+> (one-at-a-time, each diff-reviewed): (1) **Settings → terminal UI** — new reusable primitives in
+> `frontend/components/ui/terminal/` (Field/Input/Select/Toggle/Button + SettingsSection; mono `[x] ON / [ ] OFF`
+> toggle); every section converted; **kill-switch confirm flow untouched** (restyle-only, Sonnet-reviewed). (2)
+> **Clickable tickers** in Positions + Open-Orders (flipped `channelAware`) via a shared `usePublishSymbol` hook +
+> `ClickableSymbol` (accent "ticker type" shared with watchlist/rvol) + a publish confirmation toast. (3)
+> **Notifications deep-link** = in-workspace focus, NO route nav: `notification-target.ts` → `focusWidget`/
+> `focusSymbol` on the workspace store + a flash ring on the `widget-${i}` anchor; wired into bell/banner/inbox. (4)
+> **Per-theme accents** in `globals.css` so each theme has its own identity: oled = electric violet `#9b6bff` on
+> neutralized flat-black greys (no teal), warm = off-white `#efe7d6` tickers (no longer all-orange), light = royal
+> blue `#2563eb`; carbon unchanged; candle `--chart-accent` kept green/teal everywhere (guardrail). Frontend-only;
+> deployed via the no-sudo `kill + systemd Restart=always` rebuild on serv (port 3001). Side-note: normalized the
+> anomalous `default-model-select.tsx` from CRLF→LF (big diff, 2-line real change). Deferred (optional): restyle the
+> theme-editor dialog with the same primitives.
+>
+> ▶ **LATEST (2026-06-30) — workspace polish + new features phase.** Consolidation Stages 1–3 are shipped + deployed
+> (notifications widget; multi-page foundation; rules/research/performance widgets). Since then, a rapid polish burst
+> (all shipped + deployed): **widget-picker fix** (cmdk filter was dropping registered widgets → plain-list render,
+> `93ed48a`); **chat restyle** to the mobile look (`7b20197`) + **terminal mono font** on the copilot (`3fd1ed8`);
+> **theme port** then a **full theme OVERHAUL via an ultracode multi-agent workflow** (`2f7fc4b`): 28 hardcoded-color
+> offenders app-wide wired to theme vars (+ new `--scrim`); palettes redesigned (warm=warm grey, oled near-black
+> panels on true black, light redone clean, carbon kept); the **chart now rethemes live** (MutationObserver on
+> `data-theme` → `themeNonce` in `tv-light-chart` effects, no more "one theme behind"); and a **THEME BUILDER**
+> shipped (`theme ▾ → + Custom theme`: clone→live-edit→save; customs persist via additive
+> `/api/workspace/custom-themes` KV + localStorage + anti-FOUC script; `theme-editor-dialog.tsx`,
+> `use-custom-theme-store.ts`, `custom-themes.ts`). Recon: `THEME_OVERHAUL_RECON.md`. Open follow-up: the darker
+> `--scrim` dialog backdrop is a deliberate change — revert if disliked. **QUEUED, recon-done, ready to build:**
+> (1) **save pages + workspaces** — founder-confirmed SNAPSHOT semantics; `References/SAVE_LAYOUTS_RECON.md`
+> (additive KV `saved_pages`/`saved_workspaces`, page-template right-click menu + a console-bar workspace switcher,
+> `workspaceDirty` confirm). (2) **performance breakup** — split the whole-page `performance` widget into 5 focused
+> tiles; `References/PERF_SPLIT_RECON.md` (research needs the same trim). Still open: consolidation **Stage 4** (the
+> Configure-your-AI setup page) + **Stage 5** (retire old routes). Briefs live in `tools/composer-bridge/briefs/`.
+>
+> ▶ **START HERE: workspace consolidation — read `References/CONSOLIDATION_PLAN.md` (5-stage plan, founder-agreed)
+> + `CONSOLIDATION_RECON.md` (current-state map).** Workspace is the UI; collapse the old page-nav routes into
+> widgets; multiple savable, hot-swappable **pages** (cap 5; "channels" = within-page symbol-link groups). Two
+> editable default pages: a Configure-your-AI setup page (config widgets) + the live canvas.
+> **Stage 1 ✅ DONE + deployed** (notifications inbox widget — `5bbd3a1`). **Stage 2 ✅ DONE + deployed + polished
+> (`a5bffbb` + polish).** Multi-page foundation: store migrated to `pages: {id→{name,layout[]}}` + `activePageId`
+> (non-breaking — existing layout auto-wraps into a default page; legacy `layout` row/endpoints untouched; backend
+> `key='pages'` additive, 8 new tests); page switcher in the console cluster (tabs + add / right-click+double-click
+> rename / delete, cap 5); `Alt+1–5` + `Alt+[ / ]` hot-swap (matched on `event.code` for Mac); `/add <widget>`
+> direct-add. **Polish round (founder feedback after eyeball):** default page name "Page 1" (not "Canvas");
+> **static page switching** (grid keyed by `activePageId` → remount, no morph/bleed); `/add` live-filters widgets as
+> you type; chart symbol dropdown no longer auto-opens on mount; **positions widget columns sortable** (mirrors
+> watchlist). Recon: `CONSOLIDATION_S2_RECON.md`.
+> **Stage 3 ✅ built + gate-green + committed (deploy pending) — componentize old pages.** Three new widgets:
+> `rules` (`<RulesSection showCards={false}>` — full rule manager), `research` (wraps `ResearchPage`, Suspense for
+> its `useSearchParams`), `performance` (wraps `PerformancePage`). All are large-tile wrappers reusing the existing
+> page components (no logic rewrite); the `/research` + `/performance` routes stay alive. Addable via
+> `/add rules|research|performance`. Recon: `CONSOLIDATION_S3_RECON.md`. **DEFERRED from Stage 3:** the route
+> redirects (Overview/memories/agents → /workspace) — held to cleanup so we don't strand the founder before widgets
+> are placed; a launcher/modal refinement for research/performance is a later option. **NEXT = Stage 4: the
+> Configure-your-AI setup page** (config widgets: settings/accounts/import + net-new onboarding/charter/goals).
+>
+> **Notifications supervision backbone — Phase 1 SHIPPED + deployed live (2026-06-29):** 1a (inbox foundation,
+> `9ccbb99`) + 1b (all emits → `notify()`) + 1c (web unified consumer + server-backed bell). Detail below + in
+> `NOTIFICATIONS_FOUNDATION.md`. Remaining: Phase 2 (Web Push + sound), click-through deep-links, Telegram/Discord.
+
+The agent now runs many strategies (combined book **ARMED** + dip/earnings/session-node) across 3 accounts. The
+next build is the **unified notifications + artifacts + scheduled-tasks foundation** so the founder can SEE +
+TRUST what the agent does, on every device. **Full design (founder-agreed): `References/NOTIFICATIONS_FOUNDATION.md`
+— read it** (principles, data model, the emit-site recon table, the absorb map, the 4 phases).
+
+**Why:** emit sites are fragmented today — rule-triggers/fills are WEB-only (bell), RVOL/earnings/Schwab-health/
+exit-prompts/auto-entry/rebalance are MOBILE-only (APNs), only price-alerts/proposals/exits hit both; read-state
+lives in browser localStorage (never syncs). The unified `notify()` (persist → WS + APNs from one row, server-side
+`read_at`) fixes all of it at the root.
+
+### Status
+- ✅ **Phase 1a — inbox foundation** — COMMITTED (`9ccbb99`), **inert + NOT deployed** (nothing calls `notify()`
+  yet → zero behavior change; held so Phase 1 goes live as one unit). `db/notifications.py` (table: kind/title/
+  body/severity + account_id/strategy_id/group_key + ref_type/ref_id/action_url + data_json + server-side
+  read_at/dismissed_at; CRUD) + `signals/notify.py` (`notify()` persist-first then best-effort WS + APNs, both
+  guarded; `notify_soon()`; `broadcast_notification_update`) + `api/notification_routes.py` (list+unread,
+  unread-count, read, read-all, dismiss). 972 green.
+- ✅ **Phase 1b — reroute all emit sites through `notify()`** (2026-06-29) — BUILT + reviewed + adversarially-
+  reviewed clean, gate-green (ruff + 1010 pytest). **In the working tree, NOT committed (waits for 1c), NOT
+  deployed.** Worklist + full detail: `References/PHASE_1B_EMIT_RECON.md` (16 logical events / 21 call sites,
+  "★ LOCKED DECISIONS" block, post-build status). Governing rule: route ALL through `notify()` for persist+WS
+  parity, **preserve each site's CURRENT mobile-push profile** (`push=True` iff it pushes today; proposal keeps
+  its interactive `send_proposal_push` + Live Activity; exit `push=(exit_mode=="auto")`). Also **hardened
+  `notify()` to never raise into its caller** (persist wrapped → `return {}`). Briefs: `tools/composer-bridge/
+  briefs/phase1b-notify-{nontrading,trading}.md`. Adversarial Sonnet review of the 7 `trading/` sites: SAFE — all
+  execution-safety invariants clean; one MINOR fixed (`proposals.py` `ref_id=str(...)`).
+- ✅ **Phase 1c — frontend: unified `type:"notification"` consumer + server-backed inbox** (2026-06-29) — BUILT,
+  typecheck + build green, **in the working tree, NOT committed, NOT deployed**. Recon + decisions:
+  `References/PHASE_1C_FRONTEND_RECON.md`; brief: `tools/composer-bridge/briefs/phase1c-notification-frontend.md`.
+  Collapsed the 2 notification-feeding consumers into ONE `frontend/lib/workspace/use-notification-stream.ts`
+  (handles `type:"notification"` all kinds + `type:"notification_update"` for cross-tab read-sync), mounted
+  app-wide; **deleted** `use-alert-stream.ts` + `use-execution-monitor.ts`. Store (`use-notification-store.ts`)
+  rewritten: `hydrate()`→`GET /api/notifications`, **localStorage dropped (server = source of truth)**, optimistic
+  `markRead`/`markAllRead`/`dismiss` → POST endpoints. `api.ts` gained `ServerNotification` + 4 fns. Bell/banner/
+  mobile field renames (`ruleName→title`, `ts→created_at`, severity `info|success|warning|critical`).
+  `use-price-alert-monitor.ts`: removed only its dead `type:"alert"` WS handler (kept client-side cross-detection
+  + toast). **Locked decisions:** click = mark-read only (NO deep-link nav in 1c — `action_url` targets mostly
+  don't exist in the workspace-only UI → 404; field carried for a later nav pass); `/api/alerts/recent` kept but
+  unused (remove later). **NEXT: in-browser eyeball → deploy 1b+1c TOGETHER → update BUILD.md → commit.**
+  (Mobile APNs push unaffected throughout.)
+- ◻️ **Phase 2** web push (service worker + VAPID) + sound · **Phase 3** artifacts + Markdown viewer (extend
+  `db.reports` with a `format` column) · **Phase 4** AI scheduled generative tasks (the "8am macro report"). Design doc has all.
+
+**Principles (founder's "no compromise" bar):** server store = single source of truth; push = transport; ONE
+emit path (`notify()`); Markdown-canonical artifacts (PDF export later, skip MDX); absorb existing reports/
+Automations/bell/push (don't duplicate); design for the whole, build in phases.
+
+---
+
+## ALSO SHIPPED (2026-06-29) — Futures data, alert/price correctness, momentum fractional sizing (on `main`, deployed)
+All gate-green (ruff + ~1007 pytest + typecheck), deployed live. The MOMENTUM changes touched `trading/`
+(`risk_engine`, `fill_tracker`) and were adversarially reviewed clean; the futures/alert work did not touch `trading/`.
+- ✅ **Futures on the main watchlist** — type `/ES` (`/`-prefixed) and it adds + persists with the slash; live
+  price (bars + Schwab futures stream) + working sparkline; equity-only columns (RVOL/PE/EPS/div/mkt-cap/
+  earnings) blank. Backend skips equity-only enrichment for `/`-symbols in `/api/watchlist/market`; frontend
+  add-input already preserved the slash. **Data depth = Level-1 (top-of-book) + 1-min bars only — NO DOM/MBO/
+  time-and-sales** (Schwab has no futures book service); a real ladder needs a CME-entitled vendor.
+- ✅ **Globex session primitive** (`research/intraday_profile.py`): `globex_session_date`/`globex_bucket_index`/
+  `segment_globex_sessions` (session = 18:00 ET prev day → 17:00 ET, daily 17:00–18:00 break excluded, 276
+  5-min buckets). The shared correctness core for the two below. 9 boundary tests.
+- ✅ **Futures RVOL** (`signals/volume_profile.py`): Globex expected-volume profile (parameterized `session=`
+  "rth"|"globex"; equity path byte-identical). ⚠️ **caught a bug via live probe** — `compute_profile`/`rvol_now`
+  grouped by **calendar date**, which splits a Globex session across midnight; fixed to group by
+  `globex_session_date` (discriminating regression test). Futures profiles stored under `data/volume_profiles/
+  futures/<sym>.json` (the bare `/ES` path resolved to FS-root + collided with equity ES). RVOL builds lazily on
+  first watchlist poll.
+- ✅ **Globex session nodes** (`signals/session_node_strategy.py`): `_fetch_rth_sessions` branches `/`-symbols
+  onto `segment_globex_sessions` (10-day lookback) so `/ES` POC/VAH/VAL + prior-day H/L use the full ~23h
+  session, not RTH-only (which was materially wrong — dropped ~14.5h of overnight).
+- ✅ **Overnight/extended price alerts** (`brokers/market_stream.py` + `api/main.py`): `apply_extended` now drives
+  `_check_price_alerts`, and a server-side `_poll_ext_quotes_for_alerts` (off-hours, in `_alert_symbol_loop`)
+  evaluates alerts for ALL alert symbols even with no client open — so chart alerts fire overnight, any symbol.
+- ⚠️ **Schwab price-source fix — was firing PHANTOM alerts** (`brokers/schwab_market_data.py`). The quote parser
+  picked the block with the freshest `tradeTime`, but a STALE/empty `extended` block (bid/ask/volume all 0) can
+  carry a recent tradeTime and beat the genuinely-traded `quote` block → a phantom price (e.g. 720 while real
+  last was 737) flowed into the watchlist AND the new alerts → "SPY cross 731.27 — now 720" when SPY never went
+  there. **Fix:** a block only counts as a live price if it has a non-zero bid/ask or volume. Two regression
+  tests. (Founder caught this; my "real cross / thin pre-market" first read was wrong.)
+- ⚠️ **Phantom alert part 2 — the STREAM feed** (`brokers/schwab_market_stream.py`). The parser fix corrected the
+  REST/ext path, but alerts kept firing "SPY cross 731.27 — now 728.99": the equity stream's `LAST_PRICE` is the
+  FROZEN regular-session last pre/post-market (728.99), and as it flickered against the live extended price it
+  phantom-crossed. **Fix:** `_post_tick` only fires equity stream-alerts during RTH (`is_market_open()`); off-hours
+  equity alerts come from the REST ext poll (true current price); FUTURES (`/`-prefixed, ~23h single live last)
+  always fire. Regression test in `test_schwab_stream_handler.py`. Deployed.
+- ✅ **Watchlist sparkline fix for futures** (`api/main.py`): `_session_intraday_closes` was RTH-filtered →
+  empty for futures off-RTH → frontend drew no-data dashes (`intraday ?? sparkline` doesn't fall through on `[]`).
+  Now futures use the latest Globex session's closes; frontend also falls back to the daily sparkline on empty.
+
+### Momentum portfolio — fractional sizing + execution fixes (strat2, paper)
+Founder checked in on momentum after its first rebalance (this morning, 86 buys); two real issues surfaced + fixed:
+- ✅ **Stuck `partially_filled` orders** (`db/order_executions.py` + `trading/fill_tracker.py`, commit `5660d6a`).
+  The reconcile pool queried `status='submitted'` only → an order stamped `partially_filled` left the pool and
+  never re-polled the broker → stuck forever (the 86-order rebalance left 40 stuck despite being fully filled).
+  Now `partially_filled` stays in the pool until terminal; side-effects gated on an actual status change.
+  Adversarially reviewed: clean (`record_open_position` is idempotent — no dup managed rows).
+- ✅ **Dollar-weighted FRACTIONAL sizing** (`signals/momentum.py` + `trading/risk_engine.py`, commit `3dac6b4`).
+  Was whole-share floor + dropped every name priced > per-name budget → ~24% cash drag + missed NVDA/META/AVGO.
+  Now buys = `per_name/price` fractional (ROUND_FLOOR 6dp), sells = the full held fraction. **RiskEngine permits
+  fractional ONLY for `rebalance=True`** (momentum-exclusive — confirmed); every other path keeps the whole-share
+  invariant. Chokepoint change adversarially reviewed: safe (gate contained, fractional sells degrade safely —
+  reject not short). Takes effect automatically at each rebalance.
+- ✅ **Forced one-off re-rebalance** (founder-approved override of the 2 monthly guards — `rebalance_runs`=complete
+  + `last_rebalanced_month`; done in RTH). Deployed **$53.2k→$61.2k** (76%→87.5%): 18 fractional buys + 8 sells,
+  0 rejected; the 40 stuck orders settled to `filled`. Remaining ~$8.8k cash = whole-share rounding on the 86
+  ORIGINAL positions (a diff-rebalance buys entrants / sells dropouts but does NOT re-weight held names).
+  **July's rebalance = the first fully-clean, fully-deployed fractional month** (treat June as a warmup/partial).
+- ✅ **Position qty display capped at 3 decimals** (`frontend/lib/api.ts` `formatQty`, commit `769fe5f`) — fractional
+  positions read clean (`0.871` not `0.871166`); whole shares unchanged. Applied to the workspace widget + dashboard table.
+- ◻️ **OPEN — Area 4: strat2 has NO account-level equity snapshot** (`position_snapshots` exist but no
+  `account_snapshots.portfolio_value`), so account-level P&L isn't visible for strat2. Recon was inconclusive
+  (candidates: `compute_and_save_snapshot_analytics` skipped for non-default accounts at `api/main.py:245`;
+  `_latest_run_id` not account-scoped → cross-account race in `db/sqlite.py`; or a `broker_external_id` mismatch
+  skipping the save). **Needs its own focused pass.** Monitoring gap, NOT a trading-safety issue.
+- ✅ **Personal status line on serv** (`~/.claude/statusline.js` + `~/.claude/settings.json`) — model + context% +
+  5h/7d usage bars. Not in the repo (user-level config).
+
+## ALSO SHIPPED THIS SESSION (2026-06-27, all on `main`)
+- ✅ **Mobile copilot endpoint `POST /api/chat/stream`** (`6ff24db`+`962bba9`, LIVE + curl-verified). Single-pass
+  `plan_tools → execute_tool → answer` reusing the web copilot's Python tool layer → **mobile inherits the
+  perception layer** (ask anything about app data). Trade requests create a **PENDING** proposal via
+  `create_phone_proposal` (Face-ID approve later) — **never executes** (`ExecutionService.submit` unreachable;
+  adversarially reviewed; verified live: buy AAPL → proposal + pending row, zero executions). Mac handoff:
+  `References/SERV_chat_stream_DONE.md` (flip `EXPO_PUBLIC_CHAT_STUB=0`). See [[mobile-chat-architecture]].
+  Cross-platform chat history works via shared `chat_sessions` (`GET /api/chat/sessions` + `/{id}`); saved-only.
+- ✅ **Data-correctness fixes** (deployed live): TSLA after-hours price used a STALE Schwab `extended` block →
+  now `quote.lastPrice` (`brokers/schwab_market_data.py`); NVDA earnings label "Q1'27"→"Q1'26" (keep the
+  company's fiscal quarter NUMBER, use the period's CALENDAR year — `_earnings_quarter_label` in `api/main.py`).
+- ✅ **UI fixes** (deployed): workspace chart no longer jumps left on reload (gate RGL render on `colsMeasured`);
+  Settings→Strategies enable toggle persists immediately (optimistic; safe — scan skips unbound strategies).
+
+---
+
+## Combined book — COMPLETE + **ARMED** (paper forward-test, 2026-06-27)
+
+The "combined book" = 3 strategies sized 70/20/10: **residual-momentum** (alpha) + **steep-YC dip** +
+**VIX-spike** (the two tactical sleeves = downside protection, drawdown ~24%→16.5%). All behind the sacred
+chokepoint, **auto + paper-fenced**. Spec: `MOMENTUM_PORTFOLIO_SPEC.md` + `TACTICAL_SLEEVES_SPEC.md`.
+**Founder ARMED it 2026-06-27** (momentum in its own dedicated account; the two sleeves can share — the bind API
+hard-blocks momentum onto a shared account). NEXT: watch the first RTH rebalance + the one summary push, and the
+first exit round-trips; **2–3 monthly paper cycles vs the backtest before any trust.**
+
+### Status
+- ✅ **Momentum (Phase 3, 70%)** — MERGED to `main` (Inc-1 data/ranking → Inc-2 read-only dispatch → Inc-3a
+  residual sanity gate → Inc-3b rank→diff→**bulk-rebalance**). Gate-1 validated **bit-exact** vs the PC's golden
+  targets. Seeded DISABLED + unbound. **Market-hours-gated** (month ticks at midnight ET → only fires in RTH).
+  **Dedicated-account guard** in `api_update_strategy`. Two independent adversarial passes on the bulk path.
+  Key memory: [[momentum-inc3-data-gate]] (residual thresholds +12 hard/+8 soft, dedicated-account precondition).
+- ✅ **FRED/regime pipeline** — live. `db/regime` + `signals/regime` (`market_regime`, fail-closed
+  `regime_is_fresh`) + a daily `_regime_refresh_loop`. `FRED_API_KEY` in `.env`. Verified term_spread +0.31 / VIX 18.9.
+- ✅ **Phase 1 — `steepyc_dip` (20%)** — BUILT + reviewed + gate-green, committed (brief:
+  `tools/composer-bridge/briefs/phase1-steepyc-dip.md`). The dip edge gated to `term_spread > 0.5`
+  (fail-closed on stale/missing regime) + a 10-day fixed hold; seeded **disabled + unbound**, `exit_mode=auto`,
+  notional $15k, kind `dip`. Mechanism: `yc_min_spread` param added to `DIP_ENTRY_PARAM_KEYS` so it round-trips
+  into `ctx.params` but `_dip_check` strips it before `is_strategy_entry` and applies the regime gate after;
+  `evaluate_dip_exit` now treats an explicit `None` stop/target/trail leg as DISABLED (→ pure max-holding exit).
+  **Adversarial review done:** `dip_buy`/`dip_refined` are BYTE-IDENTICAL — they have no `yc` param (gate skipped)
+  and real stop/target/trail numbers (every new `is not None` guard transparently true). The trail-`None` phase-2
+  branch is unreachable for `steepyc_dip` (scale never fires when `first_target_pct` is None). 931 tests green,
+  ruff clean. Honest framing in `strategy_stats.json`: tactical/high-beta, standalone alpha +0.47%/trade NOT
+  significant — credit as tactical exposure, not alpha.
+- ✅ **Phase 2 — `vix_spike` (10%)** — BUILT + reviewed + gate-green + **golden-fixture bit-exact**, committed.
+  THE BOOK IS COMPLETE (momentum 70% + steepyc_dip 20% + vix_spike 10%). SPY-only "buy fear": new `vix_spike`
+  kind (VIX>28 AND ≥8 of prior 12 closes <22, fail-closed on stale/short regime) + new pure `evaluate_vix_exit`
+  (time-cap precedence: 60td OR VIX<20; HOLDS on missing VIX) wired into `exit_engine` (`_strategy_kind` + a
+  `vix_spike` branch reading `market_regime` only when fresh). SPY-only universe via new `signals/universes/spy.json`
+  (`universe="spy"`); re-entry blocked by the existing held-symbol skip. Seeded **disabled+unbound**, auto,
+  $7.5k notional, per_trade. Pure entry seam `research/strategy_features.is_vix_spike_entry` is shared by the live
+  scan AND the validation. **Golden fixtures (PC PR #27, merged):** `tests/test_tactical_fixtures.py` runs the
+  REAL entry+exit logic over the PC's 9210-row FRED series and reproduces **all 14 VIX episodes + 5705 steep-YC
+  days + 142 gate transitions bit-exact** (momentum-Gate-1 discipline). Confirmed the YC gate must use unrounded
+  `DGS10−DGS2` (the rounded field missed 2 boundary days). Honest framing: thin pilot (n small, paper-forward is
+  the gate). ⚠️ Live `holding_days` uses holiday-naive `_trading_days_until` (same as dip's 20d cap) → the 60d cap
+  may fire a few td early; the VIX<20 reversion exit (9/14 episodes) is day-count-independent.
+- ℹ️ **YC-gate flicker is EXPECTED (PC note):** the curve hovers right at +0.5 in 2026, so `steepyc_dip`'s gate
+  flips OPEN/CLOSE within days. Not a bug (hard threshold near the live spread); daily gate check handles it. Add
+  hysteresis later only if the flicker is operationally annoying. Fail-closed on stale FRED still applies.
+
+### How to arm momentum (DELIBERATELY, when the founder says so)
+Bind to a DEDICATED paper account (strat2 is reserved for it — dip/dip_refined/earnings/session-node are all on
+strat1) + enable, **DURING MARKET HOURS** (after-hours = every order rejects on no-quote), watch the first
+rebalance + the one summary push. **2–3 monthly paper cycles vs the backtest before any trust.** It's DISABLED
+now — do NOT arm casually (arming = it rebalances on the next RTH scan). An accidental UI-arming (2026-06-26)
+fired 80 paper orders into strat2 after-hours (79 correctly rejected) — cleaned up; it surfaced the market-hours
+gate + the dedicated-account guard.
+
+### CI / ops
+`main` is green; `ci.yml` has `concurrency: cancel-in-progress`. ⚠️ Founder is **OUT of GitHub Actions minutes**
+(CI paused until monthly reset — push fixes; they sit green until then). `serv-deploy.sh` does NOT rebuild the
+frontend — `cd frontend && npm run build` FIRST (see [[serv-runtime]]).
+
+---
+
+## PRIOR FOCUS — Web UI consolidation + the supervision backbone (2026-06-25)
 
 **Read `PLATFORM_PARITY.md` too** (web-vs-phone feature tracker; update it every change — agreed discipline).
 
@@ -247,7 +694,13 @@ The live-quote hub follows `MARKET_DATA_PROVIDER` (=schwab), NOT the execution b
   from a real run (Security Code field by label, #acceptTerms + #agree-modal-btn-, account-link #submit-btn,
   final "Done" by role). OTP is generated JUST before entry (waits for next 30s window if <8s left) so it's
   never stale. Crontab: every 6 days at 06:00 → `data/reauth.log`. Day-6 APNs fallback (`_schwab_health_loop`)
-  pings the phone if a run ever fails silently. **The 7-day cliff is dead.**
+  pings the phone if a run ever fails silently.
+  ⚠️ **CORRECTION (2026-06-29): the CRON was silently broken** — it ran `python -m scripts.schwab_reauth` but
+  cron's CWD is `/home/mbelli`, so `scripts` wasn't importable (`No module named 'scripts'` every run). The
+  SCRIPT works (manual runs from the project root minted real tokens — that's what kept the token alive). Fixed
+  by prepending `cd /home/mbelli/dev/help_me_trade &&` to the cron line. ALSO learned the hard way: **never
+  burst-request Schwab while debugging — Akamai WAF-blocks the serv IP (`403 Access Denied` on everything,
+  incl. quotes); normal ~10-20s polling is fine, bursts are not.** See [[schwab-data-ops]].
 - ✅ **Past-earnings performance — DONE as EPS beat/miss + surprise %** (`611ef2f`). Finnhub free
   `/calendar/earnings` has no history AND the EDGAR path needs an unbuilt CIK cache, so the 1-day *price
   reaction* was dropped (needs paid announce dates; `research/earnings.py::compute_reaction_pct` kept for

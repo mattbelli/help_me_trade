@@ -25,6 +25,7 @@ _NEW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("source", "TEXT"),
     ("rule_id", "TEXT"),
     ("score_json", "TEXT"),
+    ("thesis", "TEXT"),
 )
 
 
@@ -156,6 +157,7 @@ def create_pending_proposal(
     source: str | None = None,
     rule_id: str | None = None,
     score: dict[str, Any] | None = None,
+    thesis: str | None = None,
     account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
@@ -183,8 +185,8 @@ def create_pending_proposal(
             INSERT INTO paper_order_proposals (
                 id, session_id, symbol, side, qty, order_type, limit_price,
                 status, proposal_json, created_at, expires_at, payload_hash, delivery,
-                source, rule_id, score_json, account_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source, rule_id, score_json, thesis, account_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pid,
@@ -203,6 +205,7 @@ def create_pending_proposal(
                 source,
                 rule_id,
                 json.dumps(score) if score is not None else None,
+                thesis,
                 account_id,
             ),
         )

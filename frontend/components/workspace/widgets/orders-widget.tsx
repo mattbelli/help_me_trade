@@ -1,0 +1,436 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { useSnapshot } from "@/components/providers/snapshot-provider";
+import { Skeleton } from "@/components/ui/skeleton";
+import { formatMoney } from "@/lib/api";
+import {
+  fetchOrderExecutions,
+  fetchTradeEvents,
+  formatTradeMoney,
+  parseMoney,
+  type OrderExecution,
+  type TradeEvent,
+} from "@/lib/trades-api";
+import { cn } from "@/lib/utils";
+import {
+  resolveOpenOrders,
+  useDashboardPrefs,
+  type TaggedOrder,
+} from "@/lib/workspace/use-dashboard-prefs";
+
+type TabId = "filled" | "open" | "rejected";
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: "filled", label: "Filled" },
+  { id: "open", label: "Open" },
+  { id: "rejected", label: "Rejected" },
+];
+
+const TH =
+  "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase";
+const TD = "border-b border-[var(--border)] px-2 py-1.5";
+const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
+
+function statusClass(status: string): string {
+  const s = status.toLowerCase();
+  if (s.includes("fill")) return "text-[var(--c-green)]";
+  if (s.includes("partial")) return "text-[var(--c-amber)]";
+  if (s.includes("cancel") || s.includes("reject")) return "text-[var(--c-red)]";
+  if (s.includes("new") || s.includes("accept") || s.includes("pending"))
+    return "text-[var(--c-blue)]";
+  return "text-[var(--fg-dim)]";
+}
+
+function sideClass(side: string | null | undefined): string {
+  const s = (side ?? "").toLowerCase();
+  if (s === "buy") return "text-[var(--c-green)]";
+  if (s === "sell") return "text-[var(--c-red)]";
+  return "text-[var(--fg-dim)]";
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function FilledTab({
+  events,
+  loading,
+  error,
+}: {
+  events: TradeEvent[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading && events.length === 0) {
+    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+  }
+  if (error) {
+    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+  }
+  if (events.length === 0) {
+    return (
+      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+        No trade history
+      </p>
+    );
+  }
+
+  return (
+    <div className="px-1.5 py-1">
+      <table className="w-full border-collapse font-mono text-[12px]">
+        <thead>
+          <tr>
+            <th className={cn(TH, "text-left")}>Date</th>
+            <th className={cn(TH, "text-left")}>Symbol</th>
+            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-right")}>Qty</th>
+            <th className={cn(TH, "text-right")}>Price</th>
+            <th className={cn(TH, "text-right")}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e) => {
+            const amount = parseMoney(e.amount);
+            return (
+              <tr key={e.id} className={ROW}>
+                <td className={cn(TD, "text-[var(--fg-dim)]")}>{e.trade_date}</td>
+                <td className={cn(TD, "font-medium", sideClass(e.side))}>
+                  {e.symbol ?? "—"}
+                </td>
+                <td
+                  className={cn(
+                    TD,
+                    "text-[11px] tracking-wide uppercase",
+                    sideClass(e.side),
+                  )}
+                >
+                  {e.side ?? "—"}
+                </td>
+                <td
+                  className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}
+                >
+                  {e.quantity ?? "—"}
+                </td>
+                <td
+                  className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}
+                >
+                  {e.price != null ? formatTradeMoney(e.price) : "—"}
+                </td>
+                <td
+                  className={cn(
+                    TD,
+                    "text-right tabular-nums",
+                    amount >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+                  )}
+                >
+                  {amount >= 0 ? "+" : ""}
+                  {formatTradeMoney(e.amount)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function OpenTab({
+  orders,
+  snapshotLoading,
+  hasSnapshot,
+}: {
+  orders: TaggedOrder[];
+  snapshotLoading: boolean;
+  hasSnapshot: boolean;
+}) {
+  if (snapshotLoading && !hasSnapshot) {
+    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+  }
+  if (!hasSnapshot) {
+    return (
+      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+        Waiting for orders…
+      </p>
+    );
+  }
+  if (orders.length === 0) {
+    return (
+      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+        No open orders
+      </p>
+    );
+  }
+
+  return (
+    <div className="px-1.5 py-1">
+      <table className="w-full border-collapse font-mono text-[12px]">
+        <thead>
+          <tr>
+            <th className={cn(TH, "text-left")}>Symbol</th>
+            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-right")}>Qty</th>
+            <th className={cn(TH, "text-right")}>Filled</th>
+            <th className={cn(TH, "text-left")}>Type</th>
+            <th className={cn(TH, "text-left")}>Status</th>
+            <th className={cn(TH, "text-right")}>Limit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => (
+            <tr key={o.id} className={ROW}>
+              <td className={cn(TD, "font-medium text-[var(--c-accent)]")}>
+                <span className="inline-flex items-center gap-1.5">
+                  {o.symbol}
+                  {o.accountLabel ? (
+                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+                      {o.accountLabel}
+                    </span>
+                  ) : null}
+                </span>
+              </td>
+              <td
+                className={cn(
+                  TD,
+                  "text-[11px] tracking-wide uppercase",
+                  sideClass(o.side),
+                )}
+              >
+                {o.side}
+              </td>
+              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
+                {o.qty}
+              </td>
+              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
+                {o.filled_qty}
+              </td>
+              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+                {o.order_type}
+              </td>
+              <td className={cn(TD, "text-[11px] uppercase", statusClass(o.status))}>
+                {o.status.replace(/_/g, " ")}
+              </td>
+              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
+                {o.limit_price != null ? formatMoney(o.limit_price) : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RejectedTab({
+  executions,
+  loading,
+  error,
+}: {
+  executions: OrderExecution[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading && executions.length === 0) {
+    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+  }
+  if (error) {
+    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+  }
+  if (executions.length === 0) {
+    return (
+      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+        No rejected orders
+      </p>
+    );
+  }
+
+  return (
+    <div className="px-1.5 py-1">
+      <table className="w-full border-collapse font-mono text-[12px]">
+        <thead>
+          <tr>
+            <th className={cn(TH, "text-left")}>Time</th>
+            <th className={cn(TH, "text-left")}>Symbol</th>
+            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-right")}>Qty</th>
+            <th className={cn(TH, "text-left")}>Type</th>
+            <th className={cn(TH, "text-left")}>Mode</th>
+            <th className={cn(TH, "text-left")}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {executions.map((x) => (
+            <tr key={x.id} className={ROW}>
+              <td className={cn(TD, "text-[var(--fg-dim)]")}>
+                {formatDateTime(x.created_at)}
+              </td>
+              <td className={cn(TD, "font-medium", sideClass(x.side))}>
+                {x.symbol}
+              </td>
+              <td
+                className={cn(
+                  TD,
+                  "text-[11px] tracking-wide uppercase",
+                  sideClass(x.side),
+                )}
+              >
+                {x.side}
+              </td>
+              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
+                {x.qty}
+              </td>
+              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+                {x.order_type}
+              </td>
+              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+                {x.execution_mode}
+              </td>
+              <td className={cn(TD, "text-[11px] uppercase", statusClass(x.status))}>
+                {x.status.replace(/_/g, " ")}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function OrdersWidget() {
+  const { snapshot, loading: snapshotLoading } = useSnapshot();
+  const { selectedAccountId } = useDashboardPrefs();
+
+  const [tab, setTab] = useState<TabId>("filled");
+
+  const [filledEvents, setFilledEvents] = useState<TradeEvent[]>([]);
+  const [filledLoading, setFilledLoading] = useState(true);
+  const [filledError, setFilledError] = useState<string | null>(null);
+
+  const [rejectedExecutions, setRejectedExecutions] = useState<
+    OrderExecution[]
+  >([]);
+  const [rejectedLoading, setRejectedLoading] = useState(false);
+  const [rejectedError, setRejectedError] = useState<string | null>(null);
+  const [rejectedFetchedFor, setRejectedFetchedFor] = useState<string | null>(
+    null,
+  );
+
+  const openOrders = resolveOpenOrders(snapshot, selectedAccountId);
+
+  // Filled — the star tab: fetch on mount. The backend doesn't (yet) filter by
+  // event_type over this endpoint, so trim to actual trade fills client-side
+  // (drops dividends/fees/etc rows).
+  useEffect(() => {
+    let cancelled = false;
+    setFilledLoading(true);
+    setFilledError(null);
+    fetchTradeEvents({ account_id: selectedAccountId, limit: 200 })
+      .then((events) => {
+        if (cancelled) return;
+        setFilledEvents(events.filter((e) => e.event_type === "trade"));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setFilledError(
+          err instanceof Error ? err.message : "Failed to load trades",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setFilledLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccountId]);
+
+  // Rejected — lazy: only fetch once the tab is first shown.
+  useEffect(() => {
+    if (tab !== "rejected") return;
+    const key = "__all__";
+    if (rejectedFetchedFor === key) return;
+
+    let cancelled = false;
+    setRejectedLoading(true);
+    setRejectedError(null);
+    // this endpoint isn't resolver-wired; rejects are a paper audit list, so
+    // keep showing all regardless of the workspace account selection.
+    fetchOrderExecutions({
+      status: "rejected",
+      account_id: undefined,
+      limit: 100,
+    })
+      .then((data) => {
+        if (cancelled) return;
+        setRejectedExecutions(data.executions);
+        setRejectedFetchedFor(key);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRejectedError(
+          err instanceof Error ? err.message : "Failed to load rejected orders",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setRejectedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, rejectedFetchedFor]);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--border)] px-3 py-1.5">
+        {TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={cn(
+              "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+              tab === id
+                ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
+                : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        {tab === "filled" ? (
+          <FilledTab
+            events={filledEvents}
+            loading={filledLoading}
+            error={filledError}
+          />
+        ) : null}
+        {tab === "open" ? (
+          <OpenTab
+            orders={openOrders}
+            snapshotLoading={snapshotLoading}
+            hasSnapshot={!!snapshot}
+          />
+        ) : null}
+        {tab === "rejected" ? (
+          <RejectedTab
+            executions={rejectedExecutions}
+            loading={rejectedLoading}
+            error={rejectedError}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}

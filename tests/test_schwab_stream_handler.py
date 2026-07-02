@@ -62,6 +62,23 @@ async def test_on_equity_falls_back_to_mark_when_no_last() -> None:
 
 
 @pytest.mark.asyncio
+async def test_on_equity_drops_implausible_tick() -> None:
+    hub = SchwabMarketStreamHub()
+    # A good tick establishes the prior close (198) + last price (200.5).
+    hub._on_equity(_labeled_equity_msg())
+    assert hub._quotes["AAPL"].price == pytest.approx(200.5)
+
+    # A bad print far above the prior close (a ~$198 stock "printing" $750) is
+    # dropped — the last good price stays, so it can't spike a chart candle.
+    hub._on_equity({"content": [{"key": "AAPL", "LAST_PRICE": 750.0}]})
+    assert hub._quotes["AAPL"].price == pytest.approx(200.5)
+
+    # The reference (prior close) isn't poisoned, so the next good tick updates.
+    hub._on_equity({"content": [{"key": "AAPL", "LAST_PRICE": 201.25}]})
+    assert hub._quotes["AAPL"].price == pytest.approx(201.25)
+
+
+@pytest.mark.asyncio
 async def test_on_equity_skips_tick_with_no_price() -> None:
     """A partial tick (bid/ask only, no last/mark) is skipped — not a zero quote."""
     hub = SchwabMarketStreamHub()
@@ -90,3 +107,34 @@ async def test_on_futures_reads_labeled_keys() -> None:
     assert state.price == pytest.approx(5500.25)
     assert state.change_pct == pytest.approx(-0.42)
     assert state.prev_close == pytest.approx(5523.5)
+
+
+@pytest.mark.asyncio
+async def test_post_tick_gates_equity_alerts_to_rth(monkeypatch) -> None:
+    """Equity stream alerts fire only during RTH — pre/post the stream's LAST_PRICE is
+    the frozen regular-session last, which phantom-crosses against the live extended
+    price. Off-hours equity alerts come from the REST ext poll instead. Futures trade
+    ~23h with a single live last, so their stream alerts always apply."""
+    hub = SchwabMarketStreamHub()
+    calls: list[tuple[str, float, float]] = []
+
+    async def _fake_check(sym, prev, current):
+        calls.append((sym, prev, current))
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(hub, "_check_price_alerts", _fake_check)
+    monkeypatch.setattr(hub, "_broadcast_quote", _noop)
+
+    # Off-hours: equity alert suppressed; futures alert still fires.
+    monkeypatch.setattr("brokers.schwab_market_stream.is_market_open", lambda: False)
+    await hub._post_tick("SPY", 733.0, 728.99)
+    await hub._post_tick("/ES", 7400.0, 7380.0)
+    assert calls == [("/ES", 7400.0, 7380.0)]
+
+    # RTH: equity alert fires.
+    calls.clear()
+    monkeypatch.setattr("brokers.schwab_market_stream.is_market_open", lambda: True)
+    await hub._post_tick("SPY", 733.0, 728.99)
+    assert calls == [("SPY", 733.0, 728.99)]

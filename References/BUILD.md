@@ -31,10 +31,10 @@ The product crystallized: from "personal trading copilot" (a manual cockpit, a r
 |---|---|---|
 | PERCEIVE | ~85% | fundamentals, news/sentiment, options |
 | REASON | ~75% | durable multi-step agent loop, real RAG, guardrails |
-| DECIDE | ~60% | position sizing, stops, risk model, backtest framework |
-| ACT | ~30% | **risk engine + execution — the bottleneck** |
-| DELIVER | ~50% | phone push / mobile |
-| LEARN | ~70% | decision journal, closed feedback loop, eval |
+| DECIDE | ~65% | sizing/stops/kill-switch done; calibrated scorer wired but **edgeless** — validated multi-signal fusion + S/R ladder = the frontier |
+| ACT | ~80% | chokepoint + phone-approval **SHIPPED** (paper, verified on device); auto-entry/exit engines; LIVE hard-gated (Increment 3); bounded-auto next |
+| DELIVER | ~70% | native RN app **merged to main**; Live Activity approve/reject **verified end-to-end on device** (real proposals drive it); copilot live on `/api/chat/stream`. Open: chat `proposal` SSE event + LA `failed`-path |
+| LEARN | ~55% | retrospective→lessons→(disabled) rule proposals live; **decision journal + vector memory NOT built** (R4) |
 
 **Six load-bearing principles** (research-derived — non-negotiable):
 1. **LLM proposes; deterministic code disposes** — the LLM never holds account state and can only make a trade *smaller or absent* within rails, never larger or outside limits.
@@ -56,7 +56,7 @@ The product crystallized: from "personal trading copilot" (a manual cockpit, a r
   - **R1e ✅ SHIPPED — deterministic entry-style profile.** `signals/trade_context.py` — per-trade market context from bars (prior 1/3/5d move, vs SMA50/200, dist-from-52w-high, gap) + an `entry_style` profile (pullback/dip/breakout/momentum split, mean-reversion-vs-momentum lean, fights-trend %, avg prior move). **No LLM → reliable regardless of model.** Wired into `ai_performance_context(include_trade_context=True)`. 221 tests. **Verified on real data: confirmed mean-reversion dip-buyer** — 64.5% of contextualized buys below the 200-day, avg entry after −2.7%. Caveat: only **31.6% bar coverage** (warmup/symbol gaps) → improve fetch later. News/earnings context = a later scoped add (Finnhub, salient-trades-only); options deferred.
   - **R1f — onboarding capstone (NEXT).** First-run flow: import → deterministic-first **edge-revealing feedback** (summary + entry-style + patterns, always reliable) + LLM narrative on top → proposed strategy. "Analyze later" entry point (the existing Run Trade Review button) covers users who import after onboarding. The Phase-6 first-run-onboarding item, realized as R1's capstone. Then **R2** (risk engine / ACT — the forward agent).
 - **R2 — ACT: the safety spine** *(unblocks the agent acting).* `Decimal` money correctness; **RiskEngine** = single fail-closed chokepoint + guardrails (per-trade risk, heat, daily-loss, drawdown, concentration) + **kill switch**; **ExecutionService** (sole order path) → Alpaca behind the gate; proposal object (TTL + idempotency key = `proposal_id` + payload hash + **TOCTOU re-validation at execution**). Staged: **DRY_RUN → paper → live ramp (25/50/100%) → bounded auto inside a code envelope**. First job: **position-risk-guardian**.
-- **R3 — DELIVER: phone.** One Next.js codebase → **Capacitor** shell; **self-hosted APNs** (`aioapns`); interactive **Approve/Deny/Modify** notification categories (foreground actions; Modify deep-links to the order form); **SSE** dashboard + idempotent REST actions; biometric tiered confirm. (Web push can't do lock-screen buttons; Live Activities deferred.)
+- **R3 — DELIVER: phone. ◐ LANDED on main** (the `feat/mobile-app` app, merged 2026-06-30; Mac/RN agent owns `mobile/`, serv owns the backend slice). A **native Expo React Native app** (`mobile/` — Expo SDK 56 / RN 0.85, `expo-router`, `expo-widgets`, FlashList) — a deliberate pivot from the originally-planned Capacitor-wrap-the-web. **Working phone client:** watchlist (live WS pricing + extended-hours `sessionView` + RVOL), **candlestick charts** (vendored TradingView lightweight-charts in a WebView; inline + full-screen with interval selector + crosshair), ticker detail + company/EPS disclosure, alerts **inbox** (push deep-links, persisted clear-read), Instagram-style tab bar, runtime **theme switcher** matching the web. **★ Live Activity / Dynamic Island Approve/Reject — the phone-approval unlock — VERIFIED END-TO-END on a real device (`3742b91`):** START→`pending` → UPDATE→`approved` → END→`executed` all passed; serv's `_la_wire_content_state` (`signals/push.py`) sends the double-encoded `{name, props}` envelope expo-widgets needs; **wired into `trading/proposals.py` so real proposals drive the card automatically**; `tests/test_live_activity.py` (17). **Mobile copilot LIVE** on serv's `POST /api/chat/stream` (SSE over `expo/fetch`); per the mission, **chat never approves** — a `proposal` event hands off to the existing Face-ID Approvals inbox. **Open items:** the chat endpoint doesn't yet emit the structured `proposal` SSE event, so the in-chat hand-off card can't render (`References/SERV_chat_stream_proposal_event_GAP.md`); LA `failed`-path deferred (same envelope — verify on first RiskEngine block); saved chat-history mode; ongoing native polish. *(The original plan — self-hosted APNs `aioapns`, interactive Approve/Deny/Modify categories, biometric tiered confirm — is substantially realized; the chokepoint stays the sole executor, fired only by the phone's Approve.)* **NB:** distinct from the Phase-6 web "mobile shell" (the responsive `/workspace` breakpoint) — this is the dedicated native app.
 - **R4 — LEARN: close the loop.** Append-only **decision journal** (reasoning recorded *before* outcome; dual human+structured); approve/reject/modify → **user-editable rules** (promote/demote, ExpeL-style GC); **sqlite-vec** memory + `recall_memory` tool; **Langfuse** self-host eval + golden suite.
 - **R5 — deepen PERCEIVE/REASON** *(as the agent's job demands).* Fundamentals/news/calendars (Finnhub/FRED/SEC, own-LLM sentiment); **Pydantic AI + DBOS** durable agent loop; sqlite-vec RAG + rerank; `talipp` live incremental indicators.
 
@@ -72,6 +72,17 @@ genuinely good, the app has little value.** Founder's explicit direction (2026-0
 once R3's proposal pipe exists, and a dedicated founder+orchestrator **deep-research effort** will design it.
 (Reinforces CLAUDE.md: *"the hard part is decision quality + risk + trust, not automation plumbing."*) **All
 future agents: treat this as the headline value-driver, not a someday-R5 footnote.**
+
+**Where it actually stands (2026-07-01) — build honestly splits the *infra* from the *edge*:**
+- **Code-real today:** the single `propose_trade` intake seam → phone proposal; a **calibrated scorer**
+  (`signals/decision_scorer.py` — Platt scaling + Wilson-CI EV buckets + honesty metadata) **wired into** perception
+  (`get_context`), the chat tools, and proposals; per-strategy backtest stats; and S/R **levels** detection + the
+  prior-session volume profile (`signals/session_node_strategy.py`).
+- **Still the frontier (the value):** the generic scorer is **edgeless by its own metadata** (n=447, Brier≈base-rate)
+  — the real conviction shown to the user today comes from per-strategy *validated* backtests, not this scorer.
+  Multi-signal **fusion**, the **LLM-reasoning-on-top** layer, the **S/R scale-out ladder** as a plan output, and
+  honest **calibrated win%/EV** across thousands of backtested instances are **built next** — each factor a
+  hypothesis gated by backtest→paper. This is where the app becomes worth using.
 
 The agent must produce **ranked, explained, fully-planned trade ideas** by fusing many signals the way a sharp
 discretionary trader does — but tireless and data-complete.
@@ -205,6 +216,25 @@ save-per-card, with a no-fabrication honesty caption on the refined variant. Set
 ⚠️ Its "+1.6%→+3%/trade" backtest gain is **recent-excess, NOT block-bootstrap-validated** like the base dip —
 a forward-test candidate only. 510 tests green; UI typecheck/lint clean; **UI pending on-phone visual check.**
 
+**Update (2026-06-26) — Per-strategy paper AUTO-ENTRY (`feat/strategy-auto-entry`, PR-pending).** The entry-side
+mirror of auto-exit: a strategy can be toggled `entry_mode="auto"` to auto-execute its entries through the
+existing chokepoint (`ExecutionService.submit` → `RiskEngine.validate` — unchanged), **paper-fenced** (honored
+only in `dry_run`/`paper`; reverts to `propose` under `live`; `session_node_spy` blocked), with a "Trade
+executed" phone push on every fill (entry AND auto-exit). `record_strategy_fill` recovers the strategy from a
+synthetic `auto_entry|<id>|<ts>` proposal_id so the auto-entered position is tracked + managed/exited normally.
+Sizing is a shared helper refactored out of `propose_trade` (identical buying-power cap + risk path). Adversarial
+review (standing rule) caught + fixed a double-submit window — new `recent_open_buy_exists` in-flight guard
+(15-min) is the entry-side analog of the exit engine's pending marker; `auto_execute_entry` is also self-fencing
+(re-asserts paper-only + refuses non-`strategy:` sources). Default `entry_mode='propose'` → **zero behavior
+change until a founder flips a toggle.** 879 tests; ruff + typecheck clean. PR for the founder to merge; then
+flip `dip_buy`/`dip_refined`/`earnings_drift` to paper-auto.
+⚠️ **Alert design (founder/PC, 2026-06-26):** per-trade pushes are correct for these tactical sleeves (rare,
+each fill worth knowing), but the future **momentum/rebalance book** (Sharpe-1.42, separate later promotion) can
+fire 40+ fills/hour → alert fatigue → user ignores pushes → misses the one that matters. Build a per-strategy
+`alert_style` (`per_trade` | `summary`, mirroring `entry_mode`) and emit ONE summary push for bulk-rebalance
+strategies AT THAT PROMOTION (not now — no bulk strategy is live). Today's mitigation: `max_concurrent_positions`
+caps bound any burst.
+
 **1. Support/Resistance + trade-PLAN outputs (completes the "fully-planned idea").**
 - *Features:* distance to nearest support/resistance, room-to-run to next level, level-test counts (from bars:
   swing pivots, volume-by-price, prior highs/lows, round numbers).
@@ -294,40 +324,220 @@ Brokers (Alpaca, Schwab) ──► db/ (SQLite) ──► api/ (FastAPI)
 
 ---
 
-## 3. Current state (as of 2026-06-16)
+## 3. Current state — snapshot (2026-07-01)
 
-### ✅ Shipped and working
+> **Regenerate this table, don't patch it.** The prior version drifted badly (dated 2026-06-16, hand-patched
+> inline) — most of June's shipped work lived only in the §11 history log. This is the first thing a returning
+> agent reads for status; if it's stale it's worse than absent. The shipped-state *record* is §11; this is the
+> *current* rollup. Grounded in a full-codebase survey (2026-07-01).
+> Maturity: **stub** (placeholder) · **partial** (happy-path works, real gaps) · **working** (does its job) ·
+> **polished** (does its job well) · **mixed** (parts of each).
 
-| Area | What exists |
-|------|-------------|
-| **Brokers** | Alpaca + Schwab adapters; settings-driven enable; paper primary |
-| **Polling** | Multi-broker poll; resilient loops + `poll_health`; WAL SQLite |
-| **Auth** | `API_TOKEN` on API/WS; Host-header check; frontend `X-API-Token` |
-| **Market** | Shared WebSocket hub; price alerts; chart grid |
-| **Trade ledger** | Schwab JSON import; Alpaca/Schwab API sync on connect + hourly; dedup by `external_key` |
-| **Performance** | `/performance` — periods, FIFO round-trips, calendar w/ $ labels, realized vs cash-flow toggle, charts |
-| **AI tools** | `get_portfolio_snapshot`, `search_memories`, `start_research` (async job), `get_trade_history`, `get_performance_insights` |
-| **LLM hygiene** | Shared `parse_json_object`; JSON planner for tools (not keyword-only); research job queue |
-| **Chat** | Next.js `app/api/chat/route.ts` + AI SDK `streamText`; **assistant-ui** Thread (`useTradingChatRuntime`); Python brain (`/api/chat/context`, tools, finalize); Saved + Temporary modes; `propose_order` Approve/Reject UI |
-| **Memory loop** | `POST /api/memory/extract`; client `onFinish` is the single extraction trigger (server finalize + legacy `/api/chat` use `extract=False`); inline **“Learned from this chat”** chips (Edit/Discard) under assistant turns |
-| **Tests** | pytest: 74 tests — auth, db/WAL, poll health, tools, portfolio + intelligence P1 + chat brain + memory extract |
+### The autonomous-agent spine (the mission)
 
-### ◐ Partial / known gaps
+| Subsystem | Maturity | Reality |
+|---|---|---|
+| **Execution chokepoint** — `trading/execution_service.py`, `risk_engine.py` | **working** | Single fail-closed path: 10 numbered checks, Decimal money, audit-before-validate, kill switch. Modes: `dry_run` (default) · `paper` (real Alpaca paper orders) · `live` **hard-blocked** (Increment 3). Options long-only/limit-only; short-selling paper-only toggle (default off). |
+| **Phone approval** — `trading/proposals.py`, `signals/push.py` | **working** | `create_phone_proposal → APNs push + Live Activity → approve → same chokepoint` (atomic claim, TTL, TOCTOU re-validation). **Verified on a real device** (START→approved→executed). The mission's headline unlock. |
+| **Strategies** — `db/strategies.py`, `signals/*_strategy.py` | **working** | 7 registered, **all seeded DISABLED** + mostly unbound: `dip_buy`, `dip_refined`, `steepyc_dip`, `vix_spike`, `earnings_drift`, `session_node_spy`, `momentum_sp500`. Per-strategy `entry_mode` (propose/auto, paper-fenced) + `exit_mode`; auto-entry/auto-exit engines are real and self-defending. |
+| **Decision engine** — `signals/decision_scorer.py` | **partial** | Calibrated scorer (Platt + Wilson-CI EV buckets + honesty metadata) is **code-real and wired** into perception/chat/proposals — but **edgeless** by its own metadata (n=447, Brier≈base-rate). Real conviction rides per-strategy *validated* backtest stats, not this generic scorer. Multi-signal fusion + LLM-reasoning layer + S/R scale-out ladder = **still the frontier** (see ★ Decision Engine). |
+| **Data / PERCEIVE** | **working** | All OHLCV from Schwab (consolidated volume, extended-hours); Alpaca = execution + paper equity + bars fallback. RVOL (vol-vs-expected-for-time-of-day), session-node levels, earnings calendar (AlphaVantage forward + Finnhub past), technicals vs 50/200-DMA. Gaps: fundamentals depth, news/sentiment, options data. |
+| **LEARN loop** — `ai/retrospective.py`, `ai/reflection/` | **partial** | Retrospective: realized P&L → LLM narrative → auto-saved "lesson" memories + backtest-gated **disabled** rule proposals; 24h reflection loop. **NOT built:** decision journal (proposal outcome → durable record → scoring feedback) and vector/`sqlite-vec` memory + `recall_memory`. Retrieval is regex token-overlap only. |
 
-| Area | Status |
-|------|--------|
-| **Chat** | ✅ Native tool-calling works — fixed the `enabledTools: []` default that left the model with no tools (it fabricated); all tools on by default. Anthropic routed through the native path. **Learned chips rehydrate** on reopening a saved thread (C4) + Copilot **thread-history** switcher (pin / rename / delete). Legacy Python SSE proxy now only for `mock`. |
-| **Research** | Mock web clearly labeled + UI banner when `SEARXNG_URL` unset; article `content` fed to findings; SearXNG failures no longer silently mock |
-| **Insights** | `portfolio/analytics.py` on poll + relevant memories injected each refresh |
-| **Memories** | Token-ranked retrieval on chat/insight/research turns; visible turn curation UI shipped; Mem0 when available; dual store drift remains; chip state not rehydrated on reload |
-| **Rules** | Rich facts; `trigger_on: transition` + cooldown; WS `alert` events on fire |
-| **Money** | Still `float` in broker types and ledger (Decimal planned) |
-| **Secrets** | Masked on API; **plaintext on disk** (encryption not done) |
-| **Execution** | Read-only — no `RiskEngine`, no `place_order` |
+### The cockpit (web workspace)
+
+| Subsystem | Maturity | Reality |
+|---|---|---|
+| **Workspace grid** — `use-workspace-store.ts`, `workspace-grid.tsx` | **polished** | react-grid-layout; multi-page (cap 5, `Alt+1–5`/`Alt+[ ]`); drag + 4-corner resize; lock; `preventCollision`; growing canvas; **12px gutters**; row height 48px; server + localStorage persistence. **16 registered widgets.** |
+| **Notifications** — `signals/notify.py`, `notifications-widget.tsx` | **mixed** | Unified `notify()` emit (11 call sites) → persist → WS → APNs; server-side read sync; inbox widget (expand/filter/dismiss); bell + banner (their row-click *does* deep-link). **Broken:** the inbox-widget **row-click only expands** — deep-link is a hidden hover icon (= the "click does nothing" complaint); `notification-target.ts` mis-resolves the real price-alert symbol and maps only 6 of 11 kinds. See §5. |
+| **Ticker linking / channels** — `clickable-symbol.tsx`, `usePublishSymbol` | **partial** | Channel infra solid; **Positions + Open-Orders + Watchlist + RVOL** publish; **Chart** consumes. **Not linked:** agent-proposals (renders symbol as dead text), scans/research/reports/memory widgets, chat output. |
+| **Watchlist** — `watchlist-widget.tsx` | **working** | Sortable Sym/Last/Δ%/RVOL + sparkline, drag-reorder, channel publish. Add-symbol is a **bottom-pinned input**; the founder wants the phone's top-toolbar `+` pattern (**already built in `mobile/`** — port it). |
+| **Charts** — `tv-light-chart.tsx` | **working** | lightweight-charts v5; header **price+Δ%**; volume + **RSI/MACD in their own panes** + **SMA/EMA overlays** (client-side `indicators.ts`, mirrors the scanner); **8 timeframes** 1m–1M (Schwab-aggregated 4H/1W/1M); extended-hours; session-node Levels; **right-click alerts** (no-overlay rule); **drawings** — levels/trendlines/channels (`chart-trendline.ts` primitives, logical-coord, **click-to-edit handles**, `/api/drawings` persistence); live candle rollover; theme-reactive. Tabbed/multi-symbol tiles unbuilt. **Overhaul shipped 2026-07-01.** |
+| **Copilot** — `copilot-sidebar.tsx` | **partial** | One canonical sidebar mount; persisted open/pin/width; resize handle; terminal-mono restyle (partial — `copilot-thread-history.tsx` still `font-sans`). **Broken:** the floating box still reserves the **full docked width** (`dockedPadding = open ? width : 0` ignores `pinned`); the only opener is a tiny corner pill; `command-console` text input dead-ends instead of routing to chat. |
+| **Reports** — `signals/reports.py`, `db/reports.py`, `reports-widget.tsx` | **partial** | One **deterministic template**: "Morning Levels" (SPY only, ~8am, deduped/day) → `reports` table → `report_ready` notification → focuses the widget. **No LLM-authored content, no scheduler beyond one kind, no in-app rich viewer.** Widget still old-styled (shadcn). |
+| **Scans / research / rules** | **mixed** | Rules engine works end-to-end; **RVOL scanner is a real working screener**; deep-research pipeline works. **The `scans` widget is a redundant re-render of the rules data** (same two API calls) — this is the "sounds like an alert" confusion. Research page/widget still old-styled. |
+| **Performance / Schwab / calendar** | **mixed** | Schwab sync is **read-only, double-guarded** (adapter `NotImplementedError` + `execution_capable=0`); pulls balances/positions/orders + transactions into the shared ledger; account-scoped analytics (net-cash realized is truth, FIFO demoted/unreliable). A P&L **calendar exists but is a flat day-chip list trapped in `performance-page.tsx`** (no month grid, not a widget). Performance is one monolithic embedded page, not small widgets. |
+| **Mobile app** — `mobile/` | **working** | Native Expo RN (merged to main): watchlist + candlestick charts + alerts inbox + Live Activity approve/reject (verified) + live copilot on `/api/chat/stream`. Separate 4-tab UI, not the desktop grid. |
 
 ---
 
-## 4. Guiding principles
+## 4. Active roadmap
+
+One roadmap now. The **strategic arc is the R1–R5 agent loop** (above) — this section is the **tactical backlog**
+that advances it. The legacy *Phase 0–8* plan is **retired**: everything it tracked is either shipped (see §3 +
+§11) or folded into the items below. Effort: **XS** <½d · **S** ½–2d · **M** 3–5d · **L** 1–2w. Tags `P1–P12`
+trace to the founder's 2026-07-01 cockpit review.
+
+**✅ Shipped 2026-07-01 (this round):** notification row-click deep-links + symbol-resolution fix + clickable
+proposal tickers (P1/P2, `85dd8bc`) · copilot floating-dock padding fix + toolbar opener + `Ctrl/Cmd+J` (P10) ·
+watchlist top-`+` add-row (P12, in `f93f582`) · mem0 delete-drift fix (P4) · **decision journal J0-J3** — record path → copilot/widget
+surface → calibration review (P4, `aa3c67a`/`aa858dc`/`3115d5b`) · **LLM-authored reports + in-app viewer** (P3, `b0eeef9`, closes P5-reports) · **real scans
+screener** (P5, `d8f0e25`). Full suite 1079 green; chokepoint untouched. Items below are still open. ⚠️ **Local
+commits, not pushed; deploy + in-browser check pending (founder).**
+
+### 4.1 Cockpit hardening — the founder's current focus (July 2026)
+
+The app *works*; daily use surfaced friction. These make it feel finished. Ordered quick-wins-first.
+
+**Notifications & ticker linking (P1, P2)**
+- **[XS] Notification row-click should act, not just expand.** `notifications-widget.tsx` `handleRowClick` only
+  toggles expand + marks-read; the deep-link (`activate()`) is bound to a *hidden hover icon*. Call `activate()`
+  from the row body. **This is the literal "I click it and nothing happens".**
+- **[S] Fix notification deep-link resolution.** `notification-target.ts`: (a) prefer `data.symbol` over `ref_id`
+  (today the alert's row-id shadows the ticker → the chart jumps to a garbage symbol); (b) add the `rule_triggered`
+  case (the rule-engine alert kind isn't matched at all); (c) map the unmapped kinds (execution/fill/rebalance/
+  schwab_health) or at least show a toast instead of a silent no-op.
+- **[S] Link every ticker (P2).** Wire `ClickableSymbol` + `usePublishSymbol` into `pending-proposal-card.tsx` /
+  agent-proposals (the agent's core deliverable currently renders the symbol as dead text), then scans/research/
+  reports/memory widgets and chat output. Founder rule: **any ticker on screen opens/links the chart.**
+
+**Watchlist (P12)**
+- **[S] Top-toolbar `+` add-symbol.** Replace the bottom-pinned input with a `+` in the widget header (the
+  `WidgetHeader` already has a watchlist-only control slot) that inserts an add row at the **top** and pins new
+  symbols to the top — the pattern already ships in `mobile/` (`watchlist-screen.tsx`). Port it.
+
+**Copilot window (P10)**
+- **[S] Stop the floating copilot reserving full width.** `workspace/page.tsx` `dockedPadding = open ? width : 0`
+  ignores `pinned`, so the small floating box still pushes the grid over by the full panel width. Gate on `pinned`.
+- **[S] A real opener.** The only way to open the copilot is a tiny corner pill — add a toolbar button + hotkey.
+- **[M] Finish the overhaul.** Drag/reposition or snap-zone float; route `command-console`'s plain-text input into
+  the copilot (today it dead-ends in a redirect message); unify `copilot-thread-history.tsx` to the mono font.
+
+**Widgets & layout (P5, P8, P9)**
+- **[XS–S] Terminal-restyle sweep (P5).** `reports-widget.tsx` (shadcn Button/Skeleton) and `research-page.tsx`
+  are the known stragglers; do a completeness pass over all 16 widgets (memory / price-alerts / agent-proposals
+  were never checked).
+- **[S *or* L — needs a decision] Scans widget (P5).** Today it's a *duplicate render of the rules data* — hence
+  "sounds like an alert". Either **relabel/retire it** (S) or **build a real universe screener** generalizing
+  `rvol-scanner-widget.tsx` (L). **Open decision — §4.4.**
+- **✅ Split performance into widgets (P8) — SHIPPED (2026-07-02).** Decomposed into 7 registry widgets:
+  `performance-stats` (realized/unrealized/win/trades/fees), `trade-calendar`, `orders` (blotter), + 4 graphs
+  (`sector-radar`, `pnl-scatter`, `trade-distribution`, `winrate-trend`). All account-sliced via the new resolver.
+  Old monolithic `performance` widget still registered — retire it in a follow-up.
+- **[S] "Split a widget" interaction (tmux-lite, P9).** Shrink the widget + auto-place a new one in the freed slot
+  via the existing `findPlacement`/`addWidget`. Defer a true nested pane-tree unless this proves insufficient.
+
+**Reports (P3)**
+- **[M–L] Real briefs, in-app viewer.** Generalize `signals/reports.py` beyond the one hardcoded SPY levels
+  template: multiple kinds/symbols/times; swap the deterministic body for **LLM-authored** content (reuse
+  `ai/research/report.py`'s JSON→HTML machinery); build an **in-app report viewer** route so the `report_ready`
+  notification deep-links straight into the rendered brief (morning/evening briefs, on-request levels). The
+  founder's core reports vision. Cost/cadence is an open decision (§4.4).
+
+**Schwab monitoring & calendar (P6, P7)**
+- **✅ Real Schwab data + unified account selector w/ paper↔real firewall (P6, reworked) — SHIPPED + deployed
+  (2026-07-01).** The "data already synced, just a UI task" assumption was wrong: account-snapshot polling was
+  **fully off** and single-account (`resolve_account_hash` *raises* — this token sees **4** linked accounts).
+  Shipped a **dedicated read-only** Schwab source (`brokers/schwab_accounts.py` → `GET /api/schwab/accounts`,
+  TTL-cached, GET-only, independent of the Alpaca execution machinery) + an explicit **`money_type` firewall**
+  (schwab→real, alpaca→paper; `_aggregate_account_snapshots` sums one money_type only — paper+real never blend) +
+  a **unified `AccountSelector`** (grouped Real·Schwab / Paper·Alpaca; scopes `overview|all_real|all_paper|<id>`;
+  REAL/PAPER badge; Account Summary Overview = two side-by-side totals). The founder's use case works: flip to
+  Real·Schwab and watch real balances in the same tiles while paper-testing. A standalone `schwab-activity` widget
+  was built first then **removed** for the selector (founder feedback). Live: Real $231,817.98 (4) vs Paper
+  $300,200.12 (3). **Follow-ups:** Phase 2 auto-sync (below), Phase 3 `/performance`+journal account/broker filter,
+  Stage B (positions/orders follow a real pick), equity-curve history storage.
+- **✅ Schwab trade auto-sync — all 4 accounts (P6 Phase 2) — SHIPPED + verified (2026-07-01).** Rewrote the
+  never-run `sync_schwab()` (Transactions API): per-hash `SchwabAdapter`s off ONE shared OAuth client (works with the
+  4 linked accounts `from_settings` can't), attributing each trade to the right row by `broker_external_id` (mapped in
+  the foundation step below). Sync is **incremental + rolling per account** (`_schwab_sync_start`, pure + unit-tested):
+  never re-imports the JSON boundary (its dedup key differs → would double-count), re-fetches a 7-day rolling window so
+  same-day fills aren't dropped. Decoupled from `brokers.schwab.enabled` (runs on token presence, so the broken
+  per-broker snapshot poll stays off). **Also fixed two pre-existing latent bugs the sync never hit:**
+  `Client.TransactionType.TRADE` (doesn't exist → `Client.Transactions.TransactionType.TRADE`) and the parser (it
+  grabbed the cash `CURRENCY_USD` leg + summed fees into amounts — rewrote to key off the security leg: symbol from
+  the EQUITY/OPTION/FUTURE leg, signed `amount`=side/qty, `price`, and the transaction `netAmount` as fee-inclusive net
+  cash matching the JSON export; futures/options net cash now captured too). **Adversarial Sonnet review** found a
+  CRITICAL (the naive `last+1` date cursor silently dropped same-day fills under the hourly loop) + 3 MAJORs (no
+  per-account/-item exception isolation; a failed backfill chunk left a permanent gap; no pacing / concurrency guard)
+  — all fixed (rolling cursor, per-account try/except, don't-advance-on-failure, chunk pacing + a non-blocking lock);
+  read-only/attribution/gating confirmed clean. 10 new tests (`tests/test_schwab_sync.py`); 1134 suite green.
+  **Verified live: 56 events across the 4 accounts, 0 dupes; a 2nd run = 0 inserts / all-duplicates (idempotent); zero
+  API rows overlap the JSON boundary.** The foundation (create the missing Roth-Personal ••0348 row, stamp all 4
+  `broker_external_id`s to their hashes, relabel Joint/Roth) was a one-time DB migration. **Follow-ups:** the
+  `_poll_broker("schwab")` snapshot poll is still single-account (out of scope; equity balances come from the separate
+  read-only `/api/schwab/accounts`); Phase 3 = `/performance`+journal account/broker filtering.
+- **✅ P&L calendar widget (P7) — SHIPPED (2026-07-02).** `trade-calendar` widget: Monday-start month grid, month
+  nav + month total in the toolbar, per-week P&L column on the right, and a day-of-week rollup strip along the
+  bottom (folds in the old day-of-week chart). Reads `daily_realized` per displayed month; account-sliced.
+
+### 4.2 The Decision Engine + LEARN — the headline value (P4)
+
+*The app's #1 value-driver (CLAUDE.md, ★ Decision Engine below). The plumbing is built; the **edge** and the
+**memory that makes it feel like a co-pilot** are the work.*
+- **[XS] Fix mem0 delete-drift.** `MemoryService.delete()` never mirrors to `self._mem0.delete()`, so a deleted
+  memory/preference silently resurfaces via `mem0.search()` — an active correctness bug squarely under the
+  founder's "how does it store/act on what I tell it" trust concern. Patch first.
+- **[L — design pass first] Decision journal.** The "acts on what it learns" half is *undesigned*, not just unbuilt:
+  proposal approve/reject/modify outcome → a durable, queryable record → feeds future scoring/sizing. Scope the
+  schema + retrieval as a founder-facing design pass before a Composer brief. **The single most important item.**
+- **[M] Vector memory.** `sqlite-vec` + a `recall_memory` tool to replace regex token-overlap retrieval (R4).
+- **[deep-research → build] The edge.** The calibrated scorer is wired but edgeless (n=447). Multi-signal fusion,
+  LLM-reasoning-on-top, S/R scale-out ladders, per-strategy validated backtests → honest EV/win%. See ★ Decision
+  Engine + the engine-deepening roadmap; each factor is a hypothesis gated by backtest→paper (never fabricated).
+
+### 4.3 Workspace consolidation — finish it (`References/CONSOLIDATION_PLAN.md`)
+
+Stages 1–3 shipped (notifications inbox widget → multi-page → rules/research/performance widgets). Remaining:
+- **[L] Stage 4 — "Configure-your-AI" default page:** a page of config widgets (the 7 Settings tabs, account
+  connect, trade import, reports/alerts setup) **plus** net-new first-run onboarding, **agent charter/name/persona**,
+  goals/style free-text, memory settings, notification routing.
+- **[M] Stage 5 — deprecate the old page-nav routes** once everything's widgetized; finalize the two editable
+  default pages (Setup + Canvas).
+
+### 4.4 Open product decisions (resolve before briefing)
+- **Scans widget:** retire/relabel (S) vs. build a real universe screener (L)? ~10× apart in effort.
+- **"Hermes" agent (P4):** purely the backend memory/decision-journal work, or also a **product-identity** call —
+  a named persona + a distinct co-pilot surface/mode? Scope the product question before engineering.
+- **Reports (P3):** LLM-authored scheduled briefs carry a per-run token/latency/retry cost — decide cadence + budget.
+- **Charts (P11):** the overhaul is **owned by a separate agent/thread** — the main loop must not re-scope or rebuild it.
+
+---
+
+## 5. Known debt & cross-cutting issues
+
+A durable registry so survey findings don't evaporate between sessions. Fix opportunistically; add a regression
+test with each fix. (No reader checked CI pass-state after the June churn — run `ruff` + `pytest` + frontend
+`typecheck` before leaning on green.)
+
+**Correctness bugs (found 2026-07-01, root-caused)**
+- **Notification deep-link mis-resolves the symbol.** `notification-target.ts` does `ref_id ?? data.symbol`; the
+  chart price-alert path sets `ref_id` to the alert's row-id, so the chart jumps to a bogus ticker. Prefer `data.symbol`.
+- **Notification kinds unmapped.** ~5 of 11 `notify()` kinds (execution / fill / rebalance / `rule_triggered` /
+  schwab_health) have no `notification-target.ts` case → clicking the deep-link icon is a silent no-op.
+  `rule_triggered` (the rule-engine alert) not matching the `price_alert` case is the sharpest instance.
+- **Inbox row-click is inert.** The deep-link lives on a hover-only icon; the row body only expands (= founder P1).
+- **Copilot float reserves full width.** `dockedPadding = open ? width : 0` ignores `pinned` (`app/workspace/page.tsx`).
+- **mem0 delete-drift — FIXED 2026-07-01** (`ai/memories/__init__.py`): `delete()` now mirrors to mem0 and
+  `add()` tags `local_id` so entries are findable. **BUT adjacent + still-open:** `MemoryService.search()` treats
+  mem0's `{"results": [...]}` return as a plain list, so the **mem0 semantic branch never returns hits — retrieval
+  silently falls through to local token-overlap.** Net: mem0's vector search is currently *inert*; fixing it is part
+  of the P4 vector-memory work (§4.2).
+
+**Conflations / taxonomy**
+- **`scans` ≈ `rules`.** The scans widget re-renders the rules data (same two API calls); BUILD.md's own historical
+  use of "scan" to mean rule-evaluation seeded the confusion. Resolve the product decision (§4.4), then dedup.
+- **Notification `kind` taxonomy** is not reconciled backend↔frontend (raw strings like `schwab_health` surface in
+  the filter chips).
+
+**Style / consistency**
+- **Terminal-restyle is incomplete.** Confirmed old-style: `research-page.tsx`, `reports-widget.tsx`,
+  `copilot-thread-history.tsx` (`font-sans` seam inside a mono panel). Unaudited: memory / price-alerts /
+  agent-proposals widgets.
+- **Three parallel symbol-search implementations**; `ClickableSymbol` is not literally reused by watchlist/rvol
+  (behaviourally fine, drift risk). Consolidate when touched.
+
+**Data honesty**
+- **FIFO is unreliable** on the real Schwab export — net-cash realized is the source of truth (CLAUDE.md). Wherever
+  FIFO round-trips appear in Performance, say so.
+
+**Mobile parity (unaudited)**
+- Whether the phone app shares the notification-click / ticker-linking / copilot-dock issues was **not surveyed** —
+  check before assuming the fixes are web-only.
+
+---
+
+## 6. Guiding principles
 
 1. **Safety before speed** — No live `place_order` until `RiskEngine` + audit log + auth exist.
 2. **Ground before generate** — LLM sees analytics + memories + trade performance, not raw JSON dumps.
@@ -338,230 +548,43 @@ Brokers (Alpaca, Schwab) ──► db/ (SQLite) ──► api/ (FastAPI)
 
 ---
 
-## 5. Roadmap
-
-Phases are ordered by dependency. Effort: **XS** &lt;1d · **S** 1–2d · **M** 3–5d · **L** 1–2w.
-
-### Phase 0 — Platform hardening (mostly done)
-
-| Item | Status | Notes |
-|------|--------|-------|
-| Poll/alert loops never die silently | ✅ | `try/except` in `_poll_loop`, `_alert_symbol_loop`, `_trade_sync_loop` |
-| SQLite WAL + busy timeout | ✅ | `db/base.py` |
-| `/health` poll staleness | ✅ | `poll_health` |
-| API token + Host + CORS | ✅ | `api/auth.py`, `SecurityMiddleware` |
-| Centralized JSON parsing | ✅ | `ai/llm/structured.py` |
-| LLM tool planner (not keywords) | ✅ | `plan_tools()` in `ai/chat/tools.py` |
-| `start_research` async job | ✅ | `ai/research/jobs.py` |
-| Core pytest | ✅ | 8 test modules |
-
-**Remaining from Phase 0–1:**
-
-| Item | Status | Effort | Files |
-|------|--------|--------|-------|
-| Atomic settings writes + lock | ✅ | S | `config/settings.py` |
-| Settings + broker adapter cache | ✅ | S | `config/settings.py`, `brokers/factory.py` |
-| Persistent `httpx` client on Alpaca | ✅ | S | `brokers/alpaca.py` |
-| GitHub Actions CI (ruff + pytest) | ✅ | S | `.github/workflows/ci.yml` |
-| Offload remaining sync broker I/O (`to_thread` / async) | ✅ | S | `api/main.py`, `brokers/market_stream.py` — poll-loop DB writes + market-stream alert check wrapped in `asyncio.to_thread` |
-| Encrypt secrets at rest | ◐ | M | `config/secrets.py`, `brokers/schwab_auth.py` |
-
----
-
-### Phase 1 — Trade history & performance (mostly done)
-
-| Item | Status |
-|------|--------|
-| `trade_events` ledger + import + dedup | ✅ |
-| Schwab JSON parser | ✅ |
-| Alpaca/Schwab sync | ✅ |
-| FIFO round-trips, daily stats | ✅ |
-| `/performance` UI + API | ✅ |
-| Realized vs cash-flow toggle | ✅ |
-| `get_trade_history` + `get_performance_insights` tools | ✅ |
-
-**Remaining:**
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| Mark-to-market unrealized (open lots vs snapshot) | M | ✅ shipped — `compute_open_lots` / `compute_unrealized` in the AI bundle |
-| Profit factor, hold time, behavioral flags for AI | M | ✅ shipped — `db/analytics.py` enrichment (profit factor, hold time, win/loss streaks, behavioral flags) in the AI bundle |
-| Decimal in ledger (align w/ Phase 2) | M | See Phase 2 |
-| Multi-account merge UX | S | "All accounts" vs per-broker |
-
----
-
-### Phase 2 — Intelligence layer (P0 for “feels real”)
-
-The gap across insights, research, chat, and rules: **raw or fake data in, nothing feeds back.**
-
-```
-Data adapters → Intelligence layer → Insights · Chat · Research · Rules
-                      │
-                      ├─ portfolio analytics (exposure, day P&L, flags)
-                      ├─ trade performance bundle (done — extend)
-                      ├─ semantic memory retrieval
-                      └─ rich fact catalog for rules
-```
-
-| Priority | Item | Status | Effort |
-|----------|------|--------|--------|
-| **P0** | `portfolio/analytics.py` — compute on poll; feed insights + chat context | ✅ core | M |
-| **P0** | Stop silent mock research; loud “no real source” UI; wire SearXNG or news API | ✅ labeled + banner; SearXNG wiring unchanged | S |
-| **P0** | Pass fetched `content` into findings (not just snippets) | ✅ | S–M |
-| **P0** | Semantic memory top-k on **every** chat/insight/research turn | ✅ token-ranked; embeddings later | M |
-| **P1** | Snapshot diff / time-series (“exposure up vs last week”) | ✅ 1d/7d drift + equity series | M |
-| **P1** | Programmatic citations from findings→source map | ✅ | S |
-| **P1** | Expand rule facts (per-symbol, day P&L, quotes) | ✅ | M |
-| **P1** | Rule `trigger_on: transition` + cooldown; unify alert bus → WS | ✅ | M |
-
----
-
-### Phase 3 — Chat copilot rebuild
-
-**Decision:** Next.js `app/api/chat/route.ts` + AI SDK `streamText` + **assistant-ui** (AI-SDK runtime adapter). See §2 for the assistant-ui / mem0 / stockbroker decision.
-
-| Step | Item | Status | Effort |
-|------|------|--------|--------|
-| A | Error visibility + don’t silently fall back to ephemeral mode | ✅ | XS |
-| B1 | Route handler + `toUIMessageStreamResponse` | ✅ | M |
-| B2 | Provider/key fetched from Python per request (single secret store) | ✅ | S |
-| B3 | Tools call Python HTTP; legacy `UIMessageStream` kept for mock/anthropic fallback only | ◐ | M |
-| B4 | Modes → **Saved** + **Temporary** (saved turns extract via client `onFinish`) | ✅ | S |
-| B5 | **assistant-ui** Thread UI; Approve/Reject for `propose_order` (no execution); legacy `agent-chat.tsx` removed | ✅ | M |
-| C1 | `POST /api/memory/extract`; client-only extraction (`extract=False` on finalize + legacy `/api/chat`) | ✅ | S |
-| C2 | Visible **“Learned from this chat”** chips under assistant turns (Edit/Discard) | ✅ | M |
-| C3 | Python-backed context on turns (`/api/chat/context`, finalize) | ✅ | M |
-| C4 | Rehydrate learned chips when reopening a saved thread | ✅ | S |
-
-**Feedback loop (Phase 3–4):**
-
-- `strategy` memory type from brainstorming
-- Visible “Learned from this chat” curation after turns (in-session; reload persistence in C4)
-- Agent proposes rules (confirm-to-save)
-- Reflection ties outcomes back into chat
-
----
-
-### Phase 4 — Money & safety (before live trading)
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| `Decimal` on broker types + parse boundary | M | `brokers/base.py`, adapters |
-| Store money as TEXT in SQLite | M | snapshots + ledger |
-| JSON API serializes decimals as strings | S | `api/serialize.py` |
-| **`RiskEngine` + `OrderIntent` + audit log** | L | `trading/risk.py`, `trading/audit.py` |
-| **`ExecutionService.submit()`** — sole order path | L | `trading/service.py` |
-| `place_order` on Alpaca only, behind gate | M | `brokers/alpaca.py` |
-| `trading_mode` paper/live + UI banner | S | settings + frontend |
-| Agent `place_order` tool → ExecutionService only | M | never broker directly |
-| **Light up Phase 3 Approve/Reject card** → `propose_order` renders card; approve → gated `ExecutionService` (stockbroker pattern, fully realized) | M | depends on RiskEngine above |
-
-```
-UI/Agent → OrderIntent → RiskEngine.validate() → approve | reject | needs_confirmation
-                              → BrokerAdapter.place_order() (if approved)
-                              → AuditLog
-```
-
-**Do not** wire a buy button until this phase is complete.
-
----
-
-### Phase 5 — Product polish & scale
-
-| Item | Effort |
-|------|--------|
-| Split `api/main.py` into routers | M |
-| Pydantic request models on all routes | M |
-| Versioned DB migrations (`schema_version`) | M |
-| Market-hours-aware polling | S |
-| Remove legacy HTML dashboard at `/` | XS |
-| SSRF guard on `fetch_url` ✅ | S |
-| Mem0/SQLite → one memory store + embeddings | M |
-| Backtesting harness (bars + metrics) | L |
-| True `astream` for insights/reflection | S–M |
-
----
-
-### Phase 6 — Shell & dashboard reimagining (web-first)
-
-The big UX pivot toward the "Hermes" vision. No desktop shell required yet. Detail + rationale: [`IDEA_BANK.md`](IDEA_BANK.md) §1, §3, §9 Tier 1.
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| Bottom command console v1 | M | Port `References/hermes-console-draft.html` into Next; `/` commands + natural-language ask; pages reachable as console views |
-| Theme system + config themes | M | Design tokens + shipped themes + user theme **config file** (Warp/Ghostty matte) |
-| Widget dashboard v1 | L | Widget catalog, drag/move/resize grid, default template, **per-user JSON layout file** |
-| **Mobile shell (bottom-tab app)** | M | ✅ **v1 SHIPPED** — `/workspace` on phones (`<768px`) renders a dedicated `MobileWorkspace` (bottom floating **pill** tab bar: Watch / Portfolio / Agent / Activity) instead of the desktop grid, reusing existing widgets + the copilot thread + notification store. Desktop keeps the drag grid. Founder reaction: "good first pass." **Deferred refinements:** (1) richer per-tab layouts / curated content; (2) brief desktop-layout flash before the mobile breakpoint resolves (SSR `useIsMobile` starts false); (3) Activity tab → R3 phone-approval home. |
-| First-run onboarding + agent charter | M | Name the agent; write charter `.md`; seed memory (§2.1) |
-
-**Noted future ideas (Phase 6/7):**
-- **Tabbed widgets (browser-style).** A `+` on a widget (esp. **chart**) to add multiple instances (e.g. 4–5 tickers) and tab between them in one tile — like browser tabs. Founder request 2026-06-20.
-- **No-overlap is a hard rule.** Widgets must never sit on top of each other. (A 2026-06-20 regression — lowering the grid column floor to fit narrow desktops clamped widgets into collisions — was reverted: the floor stays at `GRID_DEFAULT_COLS` since phones now use the mobile shell, so the desktop grid never narrows enough to clamp.)
-
-### Phase 7 — Proactive agent, tasks, notifications & gateway
-
-The agent comes alive and becomes reachable. Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §2, §4, §7.6, §9 Tier 2.
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| Headless core + gateway + auth | L | Deployable service; gateway auth (tokens/TLS/device pairing); assume remote clients |
-| Secrets-at-rest encryption | M | Graduates from Phase 0 — required once reachable beyond localhost |
-| Proactive engine + Tasks scheduler | L | Background watch loop; scheduled prompts (7AM/4PM); event triggers |
-| Notifications (in-app + Telegram/Discord interactive) | M | ✅ **in-app SHIPPED** — fired rule/scan `{type:"alert"}` frames over `/ws/market` now surface as a top-right slide-in **banner** + a top-bar **bell** with unread counter + dropdown history (backend ring-buffer `/api/alerts/recent` so a fresh tab shows recent fires). OS notification when tab unfocused. Telegram/Discord interactive + per-channel config still pending. |
-| Chart-level monitoring | M | Draw-on-chart + plain-language → watchable conditions |
-| Source scripts (X/Reddit via LLM search) | M | Crafted-search ingestion; prototype reliability first (no paid APIs to start) |
-
-**Signal & Automation Engine (the substrate — build first within Phase 7).** Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §7.10–7.12. Most of this is backend / **pytest-verifiable** (remote-friendly); node-UI + chart drawing need visual review.
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| Indicator/feature layer | M | ✅ **SHIPPED** (#13 `signals/indicators.py` + #14 `signals/features.py` facts-builder). The vocabulary; extends the existing rules engine's facts. |
-| Declarative node-graph rule model + validator | M | ✅ **SHIPPED** (#16 `signals/rule_schema.py` — validated structured rules that **compile to the existing engine's condition dict**, never `exec`'d code). |
-| Evaluator: streaming + scheduled scan | M | ✅ **scheduled scan SHIPPED** — `signals/scan.py` + `_signal_scan_loop` (watchlist ∪ positions → daily bars → indicator+portfolio facts merged → `evaluate_rules` → `broadcast_alert`; **verified firing live** off real Alpaca data). Per-tick **streaming** evaluation still pending. |
-| Backtest runner | M | ✅ **SHIPPED** (#15 `signals/backtest.py` — replay a rule over history → fire events). |
-| AI confirm-to-save authoring (`propose_rule`) | M | ✅ **SHIPPED** — copilot turns NL ("alert me when NVDA crosses its 200-day") into a validated `RuleSpec` → Approve/Reject card → on approve, armed via `create_rule`. Mirrors `propose_order`; registered in both the agents page + workspace copilot. A rule is **not** a memory — alert-intent turns skip learned-memory extraction. |
-| Node-based visual builder | L | Langflow/n8n-style canvas — visual editor over the same graph (UI; needs eyes) |
-| Default presets (clearable) + AI playbook | S | Seed rules/scans as data; power user clears |
-| Chart overlay model + Lightweight-Charts expansion | M–L | Decoupled overlay model (drawings/alert-lines/studies/markers); LWC renders; bidirectional draw↔rule (§7.11) |
-
-Declarative-not-code is the locked safety call (no AI-generated `exec`); sandboxed scripting only as a far-future, gated escalation.
-
-### Phase 8 — Desktop shell (Tauri) & multi-window
-
-Detail: [`IDEA_BANK.md`](IDEA_BANK.md) §7.1, §7.6, §9 Tier 3.
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| Tauri shell as thin client of the core | L | Bundle Next + Python sidecars; window → gateway |
-| Multi-window pop-outs | M | Chat / watchlist / chart in separate windows |
-| OS integration | S–M | Native notifications, sound, tray, autostart |
-
----
-
-## 6. What to build next (recommended order)
-
-**Superseded by the Realignment sequence (R1–R5) near the top of this doc** — the loop-centric plan is now the source of truth for ordering. **Start with R1 (import → retrospective LEARN):** zero execution risk, immediately valuable, and it bootstraps the agent's model of the user from years of real Schwab data.
-
-Mapping the legacy phases onto the loop: R2 = old **Phase 4** (Money & safety / RiskEngine + ExecutionService); R3 = old **Phase 7** notifications, extended to phone; R4 = the feedback half of Phases 3/7; R5 = data depth (Phase 2) + the durable agent loop. The Tier 0 "door-open seams" (route all orders through the execution gate; backend as headless core; storage behind `db/`; feed-agnostic strategy boundary; design-token themes) are still honored continuously. The legacy Tier/Phase detail below is retained for historical context and the shipped-state record.
-
----
-
 ## 7. Key modules (quick reference)
 
+**Backend — the spine**
+
 | Concern | Path |
-|---------|------|
-| App entry | `api/main.py` |
-| Trade ledger | `db/trades.py`, `imports/`, `trading/sync.py` |
-| Performance analytics | `db/analytics.py`, `api/performance_routes.py` |
-| Portfolio analytics | `portfolio/analytics.py`, `db/sqlite.py` (`snapshot_analytics`) |
-| Chat | `frontend/app/api/chat/route.ts`, `frontend/lib/use-trading-chat-runtime.ts`, `frontend/components/assistant-ui/thread.tsx`, `ai/chat/brain.py` |
-| Memory extract + curation | `api/ai_routes.py` (`POST /api/memory/extract`), `frontend/lib/memories.ts`, `frontend/lib/learned-memories-context.tsx`, `frontend/components/agents/turn-learned-memories.tsx` |
-| Tools | `ai/chat/tools.py` |
-| Research | `ai/research/citations.py`, `ai/research/deep_graph.py`, `ai/research/sources.py` |
-| Rules | `ai/rules/engine.py`, `brokers/market_stream.py`, `frontend/lib/rules.ts` |
-| Settings / brokers | `config/settings.py`, `brokers/factory.py` |
-| Frontend API client | `frontend/lib/api.ts`, `frontend/lib/performance-api.ts` |
+|---|---|
+| App entry / background loops | `api/main.py` |
+| Execution chokepoint | `trading/execution_service.py`, `trading/risk_engine.py`, `trading/models.py` |
+| Phone proposals / approval | `trading/proposals.py`, `trading/order_proposal.py`, `signals/push.py`, `db/live_activities.py` |
+| Auto entry / exit / fills | `trading/proposal_intake.py`, `trading/exit_engine.py`, `trading/fill_tracker.py` |
+| Strategies | `db/strategies.py`, `signals/strategy_scan.py`, `signals/session_node_strategy.py`, `signals/momentum.py` |
+| Decision scorer (calibrated) | `signals/decision_scorer.py`, `research/artifacts/` (weights · calibration · EV tables) |
+| Signals / PERCEIVE | `signals/indicators.py`, `signals/features.py`, `signals/volume_profile.py`, `signals/regime.py`, `signals/earnings_refresh.py` |
+| Rules engine | `ai/rules/engine.py`, `signals/rule_schema.py`, `signals/scan.py`, `brokers/market_stream.py` |
+| Notifications | `signals/notify.py`, `db/notifications.py` |
+| Reports | `signals/reports.py`, `db/reports.py`, `ai/research/report.py` |
+| Ledger / performance | `db/trades.py`, `db/realized_pnl.py`, `db/behavioral.py`, `db/analytics.py`, `trading/sync.py`, `imports/` |
+| Multi-account | `db/multi_account.py`, `db/accounts.py` (`execution_capable` guard) |
+| Memory / LEARN | `ai/memories/retrieval.py`, `ai/chat/memory_extract.py`, `db/ai_tables.py`, `ai/retrospective.py`, `ai/reflection/` |
+| Perception layer | `ai/perception/context.py` (`get_context`), `ai/perception/resources.py` (`query`) |
+| Chat brain / tools | `ai/chat/brain.py`, `ai/chat/context.py`, `ai/chat/tools.py`, `ai/chat/mobile_stream.py` |
+| Brokers | `brokers/alpaca.py` (execution + bars), `brokers/schwab.py` + `brokers/schwab_market_data.py` (data, read-only), `brokers/factory.py` |
+
+**Frontend — the cockpit**
+
+| Concern | Path |
+|---|---|
+| Workspace store / grid | `frontend/lib/workspace/use-workspace-store.ts`, `components/workspace/workspace-grid.tsx`, `lib/workspace/grid-metrics.ts` |
+| Widget registry (16) | `frontend/lib/workspace/widget-registry.tsx`, `components/workspace/widgets/*` |
+| Notifications | `frontend/lib/workspace/{use-notification-store,use-notification-stream,use-notification-activate,notification-target}.ts`, `components/workspace/{notification-bell,notification-banner}.tsx` |
+| Channels / ticker linking | `frontend/components/workspace/{clickable-symbol,channel-selector}.tsx` (`usePublishSymbol` / `useChannelSymbol`) |
+| Copilot | `frontend/components/workspace/{copilot-sidebar,workspace-chat,copilot-thread-history,command-console}.tsx`, `lib/use-trading-chat-runtime.ts`, `components/assistant-ui/thread.tsx`, `app/api/chat/route.ts` |
+| Charts | `frontend/components/trading/tv-light-chart.tsx`, `components/workspace/widgets/chart-widget.tsx`, `lib/chart-time.ts` |
+| Performance | `frontend/components/performance/performance-page.tsx`, `lib/performance-api.ts` |
+| API client | `frontend/lib/api.ts` |
+
+**Mobile** — `mobile/` (Expo RN; feature code under `mobile/src/features/*`).
 
 ---
 
@@ -600,21 +623,36 @@ Mapping the legacy phases onto the loop: R2 = old **Phase 4** (Money & safety / 
 
 ---
 
-## 10. Local dev
+## 10. Local dev & deploy (Linux `serv`)
 
-```powershell
-# API
-cd help_me_trade
-.\.venv\Scripts\Activate.ps1
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+The app runs on the always-on home Linux box **`serv`** (Ubuntu, user `mbelli`, repo `~/dev/help_me_trade`).
+Windows is backup-only. Full setup: `References/SERVER_SETUP.md` + `References/STARTUP.md`; the non-obvious runtime
+bits live in the `serv-runtime` project memory.
 
-# Frontend
-cd frontend
-bun run dev   # port 3001
-```
+**Python (uv-managed, not system).** The `.venv` is a uv-fetched **CPython 3.12** (matches CI; Ubuntu 26.04 has no
+apt `python3.12`). Run tools as `.venv/bin/{ruff,pytest,uvicorn}`. Rebuild:
+`uv venv --seed --python 3.12 .venv && uv pip install -r requirements.txt ruff`.
 
-Match `API_TOKEN` in `.env` and `NEXT_PUBLIC_API_TOKEN` in `frontend/.env.local`.  
-If port 8000 is in use: `netstat -ano | findstr ":8000"` then `taskkill /PID <pid> /F`.
+**Node (split).** Interactive/SSH shells get **Node 22** via nvm (the Composer bridge needs `engines >=22.13`); the
+systemd frontend runs system **Node 20** (`next start`). Don't assume a non-login shell's `node -v` is 22.
+
+**Services (systemd, both enabled).** `hmt-backend` (uvicorn `0.0.0.0:8000`) + `hmt-frontend` (`npm run start`, 3001).
+Deploy **without sudo**: `tools/serv-deploy.sh {backend|frontend|both}` (kills MainPID; `Restart=always` relaunches).
+⚠️ **`serv-deploy.sh` does NOT rebuild the frontend** — for any frontend change you MUST `cd frontend && npm run build`
+FIRST, then `serv-deploy.sh frontend`, or it restarts into a stale `.next` (verify with
+`grep -rl "<new-UI-string>" frontend/.next/`). Backend changes are picked up by the restart alone.
+
+**Networking.** Tailscale-only (name `serv.tail78aab8.ts.net`). **Never port-forward** — the real ledger + broker
+keys live here. Secrets in gitignored `.env` (+ `frontend/.env.local`); `data/` (real ledger + financial exports)
+is gitignored — never commit it.
+
+**Before pushing:** `.venv/bin/ruff check .` (whole repo) + `.venv/bin/python -m pytest -q` +
+`cd frontend && npm run typecheck`.
+
+**Coding cadence (CLAUDE.md).** Delegate code to Composer: precise brief → `node tools/composer-bridge/dispatch.mjs
+--brief tools/composer-bridge/briefs/<x>.md` (backgrounded, **one run at a time**) → review the real `git diff` +
+lint/tests yourself before committing. **Adversarially (Sonnet) review any change to `trading/` or
+`db/order_executions` before committing.**
 
 ---
 
@@ -622,6 +660,22 @@ If port 8000 is in use: `netstat -ano | findstr ":8000"` then `taskkill /PID <pi
 
 | Date | Change |
 |------|--------|
+| 2026-07-02 | **Performance page → focused cockpit widgets + Company-Info widget + workspace→ledger per-account slicing (P7/P8).** Split the monolithic `performance` tile into 7 `/add`-able registry widgets: `performance-stats` (realized/unrealized/win/trades/fees; defaults to Month so it's never blank overnight), `trade-calendar` (Monday-start month grid + week-P&L column + day-of-week rollup + month total, folds in the old day-of-week chart, P7), `orders` (blotter: Filled=time&sales / Open / Rejected), plus 4 founder-picked graphs — `sector-radar` (exposure + realized-P&L by Finnhub industry, radar/bar toggle), `pnl-scatter` (hold-time vs P&L), `trade-distribution` (outcome histogram), `winrate-trend` (rolling win rate + expectancy). **Day-boundary fix** (`db/analytics.py resolve_period`): UTC `date.today()` made "Day" jump to *tomorrow* at 8pm ET (empty → the founder's real $866 read $0); now `datetime.now(ET).date()` rolls at midnight ET (also fixes week/month/quarter/year). **Company-Info widget** (`company-info`, channelAware): the loved ticker popup extracted into shared `company-info-sections.tsx` (modal + widget), bigger price/change% + clearer fundamentals, follows a channel's clicked symbol, + an all-watchlists **news RSS** mode (`GET /api/ticker/watchlist/news` unions Finnhub company-news across every watchlist symbol, bounded-concurrency + url-dedup, skips options/futures). **Per-account slicing**: workspace selector ids (`overview`/`all_real`/`all_paper`/`schwab_<last4>`/`acct_*`) don't match ledger `trade_accounts.id` (`acct_<uuid>`) → new **read-only** `db/account_scope.py resolve_perf_scope()` label-joins Schwab (`/api/schwab/accounts` label == `trade_accounts.label`; `broker_external_id` is NULL) → `acct_`, + a `paper_only` filter (mirrors `real_only`), wired into `/dashboard`,`/sectors`,`/trades/events`; fail-soft to aggregate-real, **NO ledger writes** (adversarially reviewed — account model). 2 new read-only endpoints (`/performance/sectors`, `/orders/executions`). Live: `schwab_1025`→`acct_fe625350bf46`→$13,061; `all_real` $15,838; `all_paper` isolated (firewall intact). New tests: `test_account_scope`/`test_sector_breakdown`/`test_order_executions_list`/`test_watchlist_news`; **1163 suite green, ruff + typecheck clean, chokepoint untouched.** Deployed on serv. Follow-ups: wire `ClickableSymbol` into the perf tiles ([[ticker-links-everywhere]]); retire the old monolithic `performance` widget; resolver is label-based (backfill `broker_external_id` for a stable key later). |
+| 2026-07-02 | **Theme editor: chart background split into its own token (independent of the app background).** Founder wanted to color the chart canvas separately from the app `--background`. Added a `chartBg` editable token → new `--chart-background` var, auto-surfaced as a "Chart bg" swatch in the custom-theme editor (the editor is `EDITABLE_TOKENS`-driven, so no dialog change); each built-in theme declares it explicitly (= its own bg), `:root` falls back to `var(--background)`, and pre-existing saved custom themes backfill on hydrate (`use-custom-theme-store.ts`). **Two follow-on bugs found + fixed on the founder's real custom-light theme:** (1) the chart read `--chart-background` once at mount — before the runtime custom-theme `<style>` is injected (React child-before-parent effect order) — and never re-read (its `data-theme` MutationObserver never fired), so it stuck on the dark `:root` value; fixed with a `hmt-theme-vars` event dispatched from inject/preview/clear that the chart listens for, which also gives live chart-bg preview while dragging the swatch. (2) `mergeTokensIntoVars` now skips missing/non-hex token values instead of fanning `#000000` across surfaces (the "black boxes" mechanism). Frontend-only (`globals.css`, `custom-themes.ts`, `use-custom-theme-store.ts`, `tv-light-chart.tsx`); typecheck clean; production `.next` rebuilt + service restarted on serv, verified live. |
+| 2026-07-02 | **Equity-curve widget — account-aware + a real Schwab curve (was Alpaca-paper-only, ignored the selector).** Founder: the curve "doesn't match" — it was hardwired to `/api/portfolio/history` (Alpaca) and ignored the toolbar account selector. Rebuilt it to follow the SAME `selectedAccountId` scope (overview / all_real / all_paper / a specific account) with a REAL/PAPER toggle on overview (never blends). **Real Schwab curve** = `signals/schwab_equity.py` → `GET /api/schwab/equity-curve`: Schwab has no historical-balance API, so it anchors at the live liquidation value and walks backward through EVERY cash flow (trades + deposits/withdrawals + dividends/interest from the Transactions API). **Founder-chosen "flat-days-only":** a day is plotted only if the account ended fully in cash (cash == account value → exact); overnight-hold days are skipped as honest gaps (a naive cash-walk showed −$120k on a margin-hold day — pure `_reconstruct_flat_days`, position walk-back anchored to the current live holdings so it doesn't depend on incomplete pre-window history). Daily dots + `formatMoney` tooltip + current-value/badge header. Verified: Individual 30d → 22 exact flat-day points ($62,527→$71,838, ends at the real balance), 9 hold days skipped, zero absurd values. 3 new tests. Frontend via Composer (1 brief, diff-reviewed). Full mark-to-market (value held positions via Schwab price history + multipliers) deferred — the honest bigger build. |
+| 2026-07-01 | **Phase 3 — slice performance & journal by account/broker (firewall reaches the ledger views).** The last place paper + real could blend: `/performance` summed ALL `trade_accounts` when no account was chosen, and the journal Me endpoints had no account filter. Backend: `list_trade_events` gains `real_only=` (excludes the paper Alpaca sandbox via an `account_id NOT IN (schwab-broker)` subquery), threaded through `trade_summary_stats`/`daily_trade_stats`/`performance_dashboard`; `/api/performance/dashboard` with no account_id ⇒ real-only; `/api/journal/trades`+`/trades/summary` gain `account_id` (the perception reader already excludes paper). Frontend (Composer, 1 brief, diff-reviewed): the `/performance` account selector is now broker-grouped (Real·Schwab / Paper·Alpaca) with "All accounts (real)"; the journal Me view got a compact account selector that refetches per real account. Never a blended paper+real total. Verified: real-only 507 Schwab vs 526 blended (19 paper excluded); 2 new tests; 1140 suite green. **Stage B (positions/orders widgets follow a real pick) remains** — moot until Schwab positions are held. |
+| 2026-07-01 | **Daily Schwab equity/P&L snapshots — accurate tracking going forward, no FIFO.** Founder wants durable, accurate P&L (FIFO was only unreliable because of INCOMPLETE historical data — a non-issue going forward now that every trade auto-syncs, so net-cash realized is exact for complete round-trips). Added `db/schwab_history.py` (`schwab_account_daily` table: one upserted row per account per ET trading day — liquidation/cash/day_pl, straight from Schwab's own numbers, zero cost-basis matching) + `record_schwab_daily`/`list_schwab_daily`. Captured two ways: **piggyback** on every fresh `/api/schwab/accounts` fetch (`get_schwab_accounts_sync` upserts today's row, fail-soft) + a scheduled **EOD backstop** loop (`_schwab_snapshot_loop`, once/weekday after 16:05 ET) so a daily record exists even if nobody viewed the workspace. `GET /api/schwab/history` reads the series. 4 new tests. Verified: today's rows persisted (Individual liq $71,838.72 / day_pl +$866.13). This is the durable equity-curve/daily-P&L foundation (surfacing = next). |
+| 2026-07-01 | **Fix: Schwab account DAY P&L missed realized gains (read +0 when flat).** The account view computed `day_pl` as `sum(position.currentDayProfitLoss)`, which is 0 once a day-trader round-trips out — silently dropping the day's REALIZED gain (founder flagged a closed +$868.25 NVDA day-trade reading +0). Now `day_pl = currentBalances.liquidationValue − initialBalances.liquidationValue` (Schwab's own start-of-day baseline), capturing realized-closed + unrealized-open, with the position-sum as fallback. `brokers/schwab_accounts.py`. Verified: Individual ••1025 day_pl 0 → +866.13 (= the founder's +$868.25 gross less $2.12 SEC/TAF fees; matches the synced ledger net-cash). |
+| 2026-07-01 | **Agent perception now reads the Schwab data (read-only) + the paper↔real firewall reaches the agent.** After bringing the account/trade data in, the AGENT couldn't use most of it: the live `/api/schwab/accounts` wasn't in the perception layer, and `my_trades` read `trade_events` globally — blending the real Schwab history with the 19 Alpaca **paper** trades. Added a **`schwab_accounts`** perception resource (live balances/cash/positions, tagged `read_only`, via a new sync core `get_schwab_accounts_sync` sharing the 30s cache; the async API route now wraps it) and made **`my_trades` real-only** (`_my_trade_events` excludes non-Schwab accounts by default; optional `account_id`). **Safety re-verified before wiring:** Schwab execution is blocked at 3 independent layers — `SchwabAdapter.aplace_order/cancel/get` all `raise NotImplementedError`, the `propose_order` chat tool rejects non-execution-capable accounts ("read-only … pick a paper account"), and `RiskEngine.validate` fails any order to a `execution_capable=0` account (all 4 Schwab rows). The perception adds are GET-only, zero execution surface. 1 new test (`tests/test_perception_real_only.py`). Live: agent reads 4 accts/$231,817.98 (read-only) + real-only my_trades = 507 trades, net-cash $15,838.05 (paper excluded). |
+| 2026-07-01 | **Schwab trade auto-sync — all 4 accounts (P6 Phase 2).** Rewrote the never-run `sync_schwab()` (Transactions API) into a per-hash, per-account, read-only pull: one shared OAuth client → a `SchwabAdapter` per account, each trade attributed to the right `trade_accounts` row by `broker_external_id`. Incremental + rolling cursor (`_schwab_sync_start`, pure/unit-tested): never re-imports the JSON boundary (different dedup key → would double-count), re-fetches a 7-day window so same-day fills aren't dropped. Decoupled from `brokers.schwab.enabled` (runs on token presence). Fixed 2 pre-existing latent bugs (wrong `Client.TransactionType` enum; parser grabbed the cash leg + summed fees — rewrote to key off the security leg, using `netAmount` as fee-inclusive net cash; futures/options net cash now captured). Adversarial Sonnet review caught a CRITICAL same-day-drop cursor bug + 3 MAJORs (exception isolation, backfill-gap, pacing/concurrency) — all fixed; read-only/attribution/gating confirmed. Foundation: created the missing Roth-Personal ••0348 row, stamped all 4 hashes, relabeled Joint/Roth (one-time DB migration). 10 new tests; **1134 suite green. Live-verified: 56 events, 0 dupes, idempotent 2nd run, zero JSON-boundary overlap.** Committed + pushed (`063b2df`); deployed for the hourly loop. |
+| 2026-07-01 | **Real Schwab account data into the cockpit + unified account selector w/ a paper↔real firewall (P6, reworked).** Founder ask: "bring our Schwab account/trade data in" + "see all accounts from the toolbar — all/all-Schwab/all-Alpaca/individual — with a paper vs real view; never sum paper+real." Discovery flipped the original P6 plan: account-snapshot polling was **fully disabled** (`brokers.schwab.enabled=false`; only the *market-data* path was live) and `resolve_account_hash` **raises** on this token — it sees **4** linked Schwab accounts (app had 3 rows, all `broker_external_id=None`). Shipped: **(1)** a dedicated **read-only** Schwab source kept out of the Alpaca poll/`trade_accounts` execution machinery — `brokers/schwab_accounts.py` (TTL-cached 30s, GET-only: `get_account_numbers` + per-account `get_account`/`get_orders_for_account`, masked #s, fail-soft, never raises) → `GET /api/schwab/accounts`. **(2)** An explicit **`money_type` (paper|real)** firewall: `_account_money_type` (schwab→real, alpaca→paper) stamped on `/api/snapshot` snaps + a hard guard so `_aggregate_account_snapshots` sums a **single money_type only** (paper+real can never blend). **(3)** A **unified `AccountSelector`** (replaces two duplicated inline selectors) grouped Real·Schwab / Paper·Alpaca, scope model `overview|all_real|all_paper|<id>` in `use-dashboard-prefs` (legacy `"all"`→`overview`), a REAL/PAPER/REAL+PAPER badge, and Account Summary rendering **Overview = two side-by-side totals, never one figure**; flip to Real·Schwab to watch real balances in the same tiles while paper-testing. Backend firewall hand-written; frontend via Composer (1 brief) — **caught + hand-fixed a real bug** (selector was gated on the paper `view`, so picking a real account hid the selector). The **standalone `schwab-activity` widget was built first, then removed** in favor of the selector per founder feedback (grid degrades unknown widgets gracefully). Labels founder-mapped → gitignored `data/schwab_account_labels.json`. **Live-verified: Real·Schwab $231,817.98 (4 accts) vs Paper·Alpaca $300,200.12 (3 accts), separate.** ruff + 1124 pytest + typecheck green; chokepoint untouched. Deployed on serv, armed poll resumed clean. **Next (queued):** Phase 2 auto-sync all 4 Schwab accounts via the Transactions API (multi-account attribution fix + incremental-from-last-known to avoid double-counting the 2023→ JSON import); Phase 3 account/broker filtering on `/performance` + journal; Stage B (positions/orders follow a real-account pick). |
+| 2026-07-01 | **Cockpit + scanner + charts polish round (session end).** Watchlist RVOL 500 fix — a futures globex RVOL `IndexError` was 500-ing `/api/watchlist/market`, so all row charts fell back to the flat sparkline (`10cb95d`). Scans → real market screener: cold-cache 20s timeout fixed (bounded-concurrent fetch, `8492742`) + an **S&P 500 universe** toggle reading the `momentum_daily_bars` store (503 names, zero broker calls, `167d871`). **Bad-tick chart filter** — drop ticks >3× / <⅓ of a stable reference at both the chart and the Schwab hub (killed the $52→$750 candle spikes; also protects the watchlist / alerts / RiskEngine live-quote, `f3e1cdf`). **Company-info ⓘ on every ticker** — one shared `CompanyInfoModal` (company profile + fundamentals + our `get_context` facts + Finnhub `/company-news`) via `ClickableSymbol` + a root `useTickerInfo()` provider; the watchlist ticker was unified onto `ClickableSymbol`; `api/ticker_routes.py` + `signals/finnhub.py` profile/metrics/news fetchers (`e49f5b7`→`96a8e9e`). **Chart ~80% right-margin** restored via a persistent time-scale `rightOffset` (the overhaul's panes were clobbering the one-shot range, `766462b`). All deployed on serv + pushed (origin/main = `766462b`); full suite ~1124 green; chokepoint untouched. **Next:** §4.1 leftovers — Schwab activity widget (P6), P&L calendar widget (P7), perf-widget split (P8), tmux-lite (P9); Russell-1000 scans + Globex futures-RVOL profile; ★ Decision Engine edge (R5). |
+| 2026-07-01 | **Decision journal J2 (surface) + J3 (calibration) — the Hermes read/learn layer.** J2 (`aa858dc`): two perception resources — `decision_journal` (the agent's own calls) + `my_trades` (the user's real Schwab history: net-cash P&L + behavioral + FIFO-flagged round-trips) — plus bounded fail-soft per-turn chat injection ("my calls" / "your pattern", opt-in), `GET /api/journal/*`, and a **journal widget with an AI⇄Me toggle**. Founder-agreed architecture: **two stores, unified only at the read/view layer** (NOT one table or a user/ai tag) — AI decisions = *calibration*, user trades = *behavior*. J3 (`3115d5b`): a 24h **calibration review** — predicted win% (stored `score_json`) vs realized outcome, per strategy + per bucket, Wilson-CI-grounded verdicts + "insufficient data" honesty; seeds ≤3 **surface-only** lesson-memories on notable drift (never retunes a strategy/scorer); `GET /api/journal/calibration` + a Calibration tab. Full suite **1107** green; deployed on serv. AI side is empty until proposals resolve (Me side shows the real imported history). |
+| 2026-07-01 | **Cockpit-hardening round + decision-journal record path (multi-agent).** From the founder's cockpit review: notification inbox row-click now deep-links (+ fixed symbol resolution / added the `rule_triggered` mapping) + clickable proposal tickers (P1/P2, `85dd8bc`); copilot floating dock no longer reserves the full width + toolbar opener + `Ctrl/Cmd+J` (P10); watchlist top-`+` add-row ported from mobile (P12, in `f93f582`); mem0 delete-drift fixed — deletes now mirror to the vector store (P4). **Decision journal J0+J1** (`aa3c67a`): immutable per-proposal record (context→decision→outcome) computed in the paper world; fill-price/exit-link/thesis plumbing; adversarial Sonnet review caught + fixed a `close_position` fail-soft hole + a ×100 options-multiplier bug (both regression-tested). **Reports** (`b0eeef9`): LLM-authored morning/evening/on-request briefs + `levels`, fail-soft, disabled-by-default, terminal-styled in-app HTML viewer (P3, closes P5-reports). **Scans** (`d8f0e25`): real universe screener — 8 presets over watchlist∪positions via the cached-bars path (no Schwab burst), replacing the alert-lookalike (P5). Full suite 1079 green; chokepoint untouched. **Next:** journal J2 (perception/chat surface + widget) + J3 (calibration review). ⚠️ Local commits (origin/main = `f93f582`); deploy + in-browser check pending. |
+| 2026-07-01 | **BUILD.md hardened + reformatted (12-agent codebase survey).** Regenerated the Current-state snapshot (§3); retired the legacy Phase 0–8 roadmap into a single **Active roadmap** (§4) mapping the founder's 2026-07-01 cockpit review (P1–P12: notification click/linking, ticker-links-everywhere, real LLM reports + in-app viewer, memory/decision-journal 'Hermes' core, terminal-restyle stragglers, Schwab monitor widget, P&L calendar widget, perf-widget split, tmux-lite split, copilot dock/pin, charts-owned-separately, watchlist top-`+`); added a **Known-debt** registry (§5) of root-caused bugs (notification symbol-resolution + unmapped kinds + inert row-click, copilot `dockedPadding` ignores `pinned`, mem0 delete-drift, scans≈rules); split the ★ Decision Engine into *infra-real vs edge-frontier*; rewrote Local dev for the Linux `serv` runtime. Late-June shipped work (workspace-consolidation S1–S3, theme overhaul, perf-split, notifications foundation, native mobile app) now rolls up in §3 — detail stays in the `CONSOLIDATION_*`/`THEME_*`/`PERF_SPLIT_RECON`/`NOTIFICATIONS_FOUNDATION` recon docs + git log. |
+| 2026-06-26 | **Mobile theme switcher (4 palettes + Auto) + chat composer polish.** Turned the single-palette `theme/colors.ts` into a runtime theme system on `feat/mobile-app`: `theme/make-colors.ts` (builder: ~18 raw tokens → full `Colors`, washes derived), `theme/themes.ts` (**carbon** default, **warm carbon** — leads with orange so it's distinct from Carbon, **oled** true-black, **light**), `theme/theme-context.tsx` (`ThemeProvider` swaps the live `colors` object via `applyColors` + remounts only the routed subtree — Auth/react-query sit above it, so switching is instant with no re-login/refetch; persists to AsyncStorage; **Auto** mode follows the OS scheme). Picker in **Settings → appearance**; status bar adapts. Fixed the 3 module-scope color maps (button/text/feedback) that would otherwise snapshot Carbon. Tab pill is now theme-aware (light glass + theme-accent capsule in light/warm; was a hardcoded dark blur). Chat: composer lifted clear of the nav pill + the three founder suggestion prompts. Logo direction LOCKED (flat horizontal candle-bars, scattered/`D`; chunky weight for the favicon) — PageHeader build next. tsc + eslint clean; verified on device (light mode + warm-orange + persisted pick). Known light-mode cosmetics deferred: candle-chart grid lines + a watchlist grip dot (both white). |
+| 2026-06-26 | **Mobile chat copilot — LIVE on real data (stub flipped) + one serv gap flagged.** serv shipped `POST /api/chat/stream` (`References/SERV_chat_stream_DONE.md`); flipped the mobile client live: `CHAT_STUB` default → off (`mobile/src/config.ts`), and switched the request to `mode: "temporary"` (saved mode 400s without a sessionId; the history screen + saved mode are the follow-up). Verified live: Q&A streams real portfolio data + inherits the perception tools (`get_context`/`query`) for free. **Gap found (serv):** on a trade request the endpoint creates the PENDING proposal (lands in `/api/proposals/pending`, never executes) but does NOT emit the structured `proposal` SSE event — it only names it in the assistant text — so the in-chat hand-off card can't render. Client is ready; serv just needs to emit the event. Repro + fix in `References/SERV_chat_stream_proposal_event_GAP.md`. |
+| 2026-06-26 | **Mobile chat copilot — RN client built + verified on-device (the Chat tab is real now).** Replaced the "coming soon" placeholder with a full streaming copilot on `feat/mobile-app`: `mobile/src/api/chat-stream.ts` (`streamChat()` async-gen — SSE over **`expo/fetch`**, which on Expo 56 exposes a real `ReadableStream` body, de-risking the RN-streaming concern the brief flagged; parses one typed JSON event per `data:` line), `mobile/src/features/chat/{use-chat.ts,chat-bubbles.tsx,chat-screen.tsx}` (growing assistant bubble, typing/tool-hint affordances, empty-state suggestions, keyboard-avoiding composer lifted clear of the floating tab pill, send↔stop). **Mission rule honored:** chat NEVER approves — a `proposal` event renders a hand-off card → `useNav().openInbox()` → the existing Face-ID Approvals flow (`proposal-card.tsx`); the pending proposal is already in `GET /api/proposals/pending`. Pure JS, no new native deps → Metro Fast-Refresh, no rebuild. tsc + eslint clean (new files). Founder verified on device ("it works, I love the UI"). **Runs on a local stub** (`mobile/src/config.ts` → `CHAT_STUB`) because serv's `POST /api/chat/stream` is **404 — not built**; go-live is the one-line `EXPO_PUBLIC_CHAT_STUB=0` flip once it ships. **Handed to serv:** `References/SERV_BRIEF_chat_stream.md` — build the route emitting the SIMPLE typed events (reuse `run_chat_stream`/`finalize_chat_turn`); ⚠️ safety-critical: the existing `propose_order` tool (`ai/chat/tools.py:~675`) records the proposal AND immediately calls `ExecutionService.submit()` — the mobile endpoint must create a PENDING proposal and STOP (execution only on the phone's Face-ID approve), with adversarial Sonnet review. Contract = `References/MOBILE_CHAT_BRIEF.md`. |
 | 2026-06-25 | **★ Agent perception layer (phases 1–3) — the copilot can now see ALL our data + act on a few safe things.** Prompted by the copilot web-searching when asked to "set alerts at our volume-profile levels" — it was blind to our own signals. Founder direction: don't add a specialty tool per question; build a GENERAL read layer + a NARROW curated write surface (`References/PERCEPTION_LAYER.md`, memory `agent-perception-layer`). Built in `ai/perception/`: **(1) `get_context(symbol)`** — one normalized facts object from existing sources (quote, RVOL, session-node levels, technicals incl. vs-200-DMA, fundamentals, earnings, the calibrated `decision_scorer` win%/EV, active alerts); **(2) `query(resource, filters)`** over a one-entry-per-resource registry (watchlists/strategies/price_alerts/proposals/reports) + a `list_capabilities()` manifest; **(3) curated WRITE tools** — `create/update/delete_price_alert` (notifications, not orders → execute directly, no approval card; chokepoint untouched). Each tool registered in BOTH surfaces (Python `ai/chat/tools.py` + live-chat frontend `chat-tools.ts`/`chat-toolbar-config.ts` — a phase-1 gotcha now documented). **Maintenance contract** (code+doc+memory): new per-symbol signal → add to `get_context`; new entity → one `RESOURCES` entry; never a specialty tool. Verified live: copilot answered NVDA's session-node levels from us (not web search); `query` returned the enabled strategies; create→query→delete alert round-trip through `/api/chat/tools/execute`. Same facts object is the Decision Engine's PERCEIVE half — build once, two consumers. 866 tests, ruff+typecheck+build clean; backend+frontend redeployed. |
 | 2026-06-25 | **Price alerts: manage in the widget + set them by clicking the chart (founder items 2 + 4).** Alert plumbing already existed (the `price_alerts` table has `direction` above/below/cross + a `repeat` persistence flag; the chart already DREW alert lines; chart/widget/phone all read one shared table) — what was missing was the create/edit/manage surface. Added: (1) **backend edit** — `update_price_alert` (`db/chart_features.py`, editing re-arms `triggered=0`) + `PUT /api/price-alerts/{id}` (validates direction; 404 on missing); (2) **price-alerts widget CRUD** — a **＋ Alert** button → inline create form (symbol·price·direction-segmented·persistent·note), per-row **edit/delete** on hover, refreshes immediately; new `updatePriceAlert` API client; (3) **chart click-to-create** (`tv-light-chart.tsx`) — a floating **＋ Alert** button arms a mode; clicking a price level opens a clamped popover (price prefilled via `coordinateToPrice`, direction defaulted by clicked-vs-current price, persistent toggle) → `createPriceAlert` → the dashed line draws immediately; stale-closure-safe via refs. **Cross-surface sync:** the chart's alert fetch now keys on a refresh counter bumped on create + a 20s poll, so alerts made in the widget/phone appear on the chart and vice-versa (all via the one shared table); the phone still gets the APNs push when an alert fires. Verified live end-to-end (create→list→edit→delete via the API; PUT round-trip). Frontend typecheck+build clean, 850 backend tests, ruff clean; backend + frontend redeployed. **Still pending (broader, HANDOFF #1):** the persistent notification STORE + clickable bell + phone alert *inbox*. |
 | 2026-06-25 | **Forward earnings calendar → Alpha Vantage (fixes blank mega-cap next-earnings, e.g. AAPL).** Finnhub's free tier silently omits mega-caps' forward earnings (AAPL/MSFT/GOOGL/AMZN/META returned nothing — verified across a 582-row uncapped window), so `next_earnings` was blank for them in the watchlist/company-info UI and absent from the `earnings_drift` universe. Schwab has no `nextEarningsDate` field; Yahoo now needs an auth crumb. Added **Alpha Vantage** (`signals/alphavantage.py`, `ALPHAVANTAGE_API_KEY`) whose `EARNINGS_CALENDAR` returns the WHOLE forward calendar in ONE call (~10k rows incl. mega-caps) — more robust AND simpler than Finnhub's chunked ≤30-day-window/1500-row-cap dance. AV is now the **primary forward** source; Finnhub stays for PAST dates (last-earnings) + the EPS-surprise history graph (untouched). `earnings_refresh._fetch_calendar_rows` runs both (fail-soft — one source failing doesn't break the other), filters to universe, upserts into the same `earnings_calendar` table; refresh guard now proceeds if EITHER key is set. Free tier (25/day) is ample — the refresh is ~1 call/day. Verified live: AAPL → 2026-07-30, NVDA → 2026-08-26, etc.; `/api/watchlist/market` serves AAPL `next_earnings: 2026-07-30`. 850 tests, ruff clean; backend redeployed. (TA-indicator overlap was why AV-over-FMP for now; FMP reserved for when the Decision Engine needs its paid fundamental depth — transcripts/analyst/institutional.) |

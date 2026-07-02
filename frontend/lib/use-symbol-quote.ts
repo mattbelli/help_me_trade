@@ -14,6 +14,7 @@ type Options = {
 export function useSymbolQuote({ symbol, enabled = true }: Options) {
   const [price, setPrice] = useState<number | undefined>();
   const [live, setLive] = useState(false);
+  const [changePct, setChangePct] = useState<number | undefined>();
 
   const normalized = symbol.trim().toUpperCase();
 
@@ -47,6 +48,7 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
           };
           if (msg.type === "quotes" && msg.quotes?.[normalized]) {
             setPrice(msg.quotes[normalized].price);
+            setChangePct(msg.quotes[normalized].change_pct);
             setLive(Boolean(msg.live));
           }
           if (msg.type === "quote" && msg.symbol === normalized) {
@@ -78,5 +80,5 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
     };
   }, [enabled, normalized]);
 
-  return { price, live };
+  return { price, live, changePct };
 }

@@ -27,7 +27,7 @@ from db.sqlite import get_latest_snapshot
 from db.strategies import get_strategy
 from research.bars import RESEARCH_DATA_DIR
 from research.intraday_bars import IntradayBar
-from research.intraday_profile import segment_rth_sessions, to_ny
+from research.intraday_profile import segment_globex_sessions, segment_rth_sessions, to_ny
 from research.session_node_signal import (
     OpenPosition,
     ReferenceNodes,
@@ -47,6 +47,7 @@ SYMBOL = "SPY"
 SESSION_NODE_NOTIONAL_USD = 500.0
 LOG_PATH = RESEARCH_DATA_DIR / "session_node_log.csv"
 _BAR_DAYS = 5
+_FUTURES_BAR_DAYS = 10  # ~3 Globex sessions in 5 calendar days; 10 gives a comfortable buffer
 _BUYING_POWER_BUFFER = Decimal("0.95")
 _STRUCTURE_TAG = "structure-reaction · low-confidence · human-discretion"
 
@@ -295,7 +296,7 @@ async def _push_exit_prompts(
     all_bars: list[IntradayBar],
     db_path: Path,
 ) -> list[dict[str, Any]]:
-    from signals.push import send_alert_push
+    from signals.notify import notify
 
     acted: list[dict[str, Any]] = []
     open_rows = [
@@ -322,11 +323,15 @@ async def _push_exit_prompts(
             if not claim(dedup_key, "exit_prompt", db_path=db_path):
                 continue
             try:
-                await send_alert_push(
-                    title=f"SPY exit prompt ({prompt.kind})",
+                await notify(
+                    kind="exit",
+                    title=f"SPY exit prompt: {prompt.kind}",
                     body=prompt.message,
+                    severity="warning",
+                    ref_type="position",
+                    ref_id=str(row["id"]),
+                    action_url=f"/positions/{row['id']}",
                     data={
-                        "type": "exit_prompt",
                         "symbol": SYMBOL,
                         "position_id": row["id"],
                         "kind": prompt.kind,
@@ -370,22 +375,32 @@ async def _fetch_rth_sessions(
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> tuple[list[IntradayBar], dict[date, list[IntradayBar]]] | None:
-    """Fetch 1-min bars and segment into RTH sessions. Returns (all_bars, sessions)."""
+    """Fetch 1-min bars and segment into sessions.  Returns (all_bars, sessions).
+
+    For futures symbols (starting with '/') uses the full CME Globex session (~23h)
+    via ``segment_globex_sessions``; for equities keeps the RTH window (09:30–16:00 ET)
+    via ``segment_rth_sessions`` — behaviour is byte-identical to before for equities.
+    Futures look back 10 calendar days (vs 5) so there is always a complete prior session
+    even accounting for the Sunday 18:00 ET open and weekend gaps.
+    """
     del db_path  # reserved for future DB-backed bar sources
     sym = symbol.strip().upper()
     if not sym:
         return None
 
+    is_futures = sym.startswith("/")
+    bar_days = _FUTURES_BAR_DAYS if is_futures else _BAR_DAYS
+
     provider = get_market_data_provider()
     bars_by_symbol = await provider.aget_stock_bars_batch(
-        [sym], timeframe="1Min", days=_BAR_DAYS
+        [sym], timeframe="1Min", days=bar_days
     )
     raw = bars_by_symbol.get(sym, [])
     if not raw:
         return None
 
     all_bars = [_stockbar_to_intraday(bar) for bar in raw]
-    sessions = segment_rth_sessions(all_bars)
+    sessions = segment_globex_sessions(all_bars) if is_futures else segment_rth_sessions(all_bars)
     if not sessions:
         return None
     return all_bars, sessions

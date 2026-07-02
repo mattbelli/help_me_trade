@@ -43,7 +43,7 @@ export function usePendingProposals() {
 
   useEffect(() => {
     const proposalAlertCount = notifications.filter(
-      (n) => n.source === "proposal",
+      (n) => n.kind === "proposal",
     ).length;
     if (proposalAlertCount > prevProposalAlertCountRef.current) {
       refetch();

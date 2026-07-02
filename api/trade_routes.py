@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ai.llm.factory import get_llm
+from db.account_scope import resolve_perf_scope
 from db.trades import (
     create_trade_account,
     daily_trade_stats,
@@ -78,12 +79,15 @@ def api_list_trade_events(
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
+    ledger_account_id, real_only, paper_only = resolve_perf_scope(account_id)
     events = list_trade_events(
-        account_id=account_id,
+        account_id=ledger_account_id,
         from_date=from_date,
         to_date=to_date,
         symbol=symbol,
         event_type=event_type,
+        real_only=real_only,
+        paper_only=paper_only,
         limit=limit,
         offset=offset,
     )

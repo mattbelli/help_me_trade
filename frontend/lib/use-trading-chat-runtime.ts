@@ -21,10 +21,9 @@ import { extractTurnMemories, listSessionMemories } from "@/lib/memories";
 import { usePythonThreadListAdapter } from "@/lib/python-thread-adapter";
 
 const SUGGESTIONS = [
-  { prompt: "What can you help me with?" },
-  { prompt: "What do you remember about my trading preferences?" },
-  { prompt: "Walk me through how to use the research tool" },
-  { prompt: "Explain the difference between realized P&L and cash flow" },
+  { prompt: "How is my portfolio doing today?" },
+  { prompt: "What are you watching and why?" },
+  { prompt: "What's my biggest risk right now?" },
 ];
 
 function messageText(m: UIMessage): string {

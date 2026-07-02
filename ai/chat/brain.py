@@ -6,7 +6,12 @@ from typing import Any
 
 from ai.chat.agent import ChatRunResult, chat_system_prompt, finalize_chat_turn
 from ai.chat.alert_intent import alert_intent_prompt_block
-from ai.chat.context import format_memory_context_block, turn_memory_context
+from ai.chat.context import (
+    format_journal_context_block,
+    format_memory_context_block,
+    turn_journal_context,
+    turn_memory_context,
+)
 from ai.chat.intent import order_intent_prompt_block
 from ai.chat.messages import last_user_text
 from ai.chat.tools import TOOL_DEFINITIONS, execute_tool
@@ -43,17 +48,21 @@ def build_turn_context(
     user_text: str,
     *,
     inject_memories: bool = False,
+    inject_journal: bool = False,
 ) -> dict[str, Any]:
     memories = turn_memory_context(user_text) if inject_memories else []
+    journal = turn_journal_context(user_text) if inject_journal else {}
     system = (
         chat_system_prompt()
         + order_intent_prompt_block(user_text)
         + alert_intent_prompt_block(user_text)
         + format_memory_context_block(memories)
+        + format_journal_context_block(journal)
     )
     return {
         "system": system,
         "memories": memories,
+        "journal": journal,
     }
 
 

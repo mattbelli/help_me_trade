@@ -54,7 +54,7 @@ class MemoryService:
                 self._mem0.add(
                     content,
                     user_id=USER_ID,
-                    metadata={"category": memory_type, **meta},
+                    metadata={"category": memory_type, **meta, "local_id": record["id"]},
                 )
             except Exception as exc:
                 logger.warning("Mem0 add failed (local copy saved): %s", exc)
@@ -137,7 +137,20 @@ class MemoryService:
         return record
 
     def delete(self, memory_id: int) -> bool:
-        return delete_memory(memory_id)
+        deleted = delete_memory(memory_id)
+        if deleted and self._mem0 is not None:
+            try:
+                found = self._mem0.get_all(
+                    filters={"user_id": USER_ID, "local_id": memory_id}
+                )
+                items = found.get("results", []) if isinstance(found, dict) else found or []
+                for item in items:
+                    item_id = item.get("id") if isinstance(item, dict) else None
+                    if item_id:
+                        self._mem0.delete(item_id)
+            except Exception as exc:
+                logger.warning("Mem0 delete failed (local delete succeeded): %s", exc)
+        return deleted
 
 
 _memory_service: MemoryService | None = None

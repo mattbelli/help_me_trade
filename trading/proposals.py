@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from brokers.market_stream import market_hub
 from db.accounts import account_is_execution_capable
 from db.base import DEFAULT_DB_PATH
 from db.paper_orders import (
@@ -16,6 +16,7 @@ from db.paper_orders import (
     get_proposal,
     transition_proposal_status,
 )
+from signals.notify import notify
 from trading.execution_service import ExecutionService
 from trading.models import RiskRejectedError
 from trading.order_proposal import (
@@ -26,6 +27,39 @@ from trading.order_proposal import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROPOSAL_TTL_SECONDS = 300
+
+
+def _strategy_id_from_source(source: str | None) -> str | None:
+    """Parse the strategy id out of a ``strategy:<id>`` / ``exit:<id>`` proposal source."""
+    if not source:
+        return None
+    for prefix in ("strategy:", "exit:"):
+        if source.startswith(prefix):
+            return source[len(prefix) :].strip() or None
+    return None
+
+
+def _journal_decision(
+    proposal_id: str,
+    *,
+    decision: str,
+    decided_by: str | None = None,
+    db_path: Path,
+) -> None:
+    """Fail-soft DECISION-stage journal write. NEVER raises into the approve/reject path."""
+    try:
+        from db.decision_journal import set_decision
+
+        set_decision(
+            proposal_id, decision=decision, decided_by=decided_by, db_path=db_path
+        )
+    except Exception:
+        logger.warning(
+            "decision_journal DECISION hook failed for %s (%s)",
+            proposal_id,
+            decision,
+            exc_info=True,
+        )
 
 
 def _proposal_summary(intent_fields: dict[str, Any]) -> str:
@@ -88,6 +122,7 @@ async def approve_proposal(
     proposal_id: str,
     *,
     expected_hash: str | None = None,
+    decided_by: str = "phone",
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     row = get_proposal(proposal_id, db_path=db_path)
@@ -105,6 +140,7 @@ async def approve_proposal(
             to="expired",
             db_path=db_path,
         )
+        _journal_decision(proposal_id, decision="expired", decided_by="system", db_path=db_path)
         await _try_end_proposal_live_activity(
             proposal_id, status="expired", proposal=row, db_path=db_path
         )
@@ -121,6 +157,7 @@ async def approve_proposal(
         transition_proposal_status(
             proposal_id, expect="pending_phone", to="expired", db_path=db_path
         )
+        _journal_decision(proposal_id, decision="expired", decided_by="system", db_path=db_path)
         await _try_end_proposal_live_activity(
             proposal_id, status="expired", proposal=row, db_path=db_path
         )
@@ -129,6 +166,10 @@ async def approve_proposal(
         return {"status": "not_found"}
     if claim != "claimed":
         return {"status": "already_decided"}
+
+    # The user approved (atomic claim won). Record the DECISION before we touch the
+    # chokepoint — fail-soft, so a journal hiccup can never block the order.
+    _journal_decision(proposal_id, decision="approved", decided_by=decided_by, db_path=db_path)
 
     stored = row.get("proposal") or {}
     intent = order_intent_from_fields(
@@ -238,6 +279,7 @@ async def approve_proposal(
 async def reject_proposal(
     proposal_id: str,
     *,
+    decided_by: str = "phone",
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     row = get_proposal(proposal_id, db_path=db_path)
@@ -255,6 +297,10 @@ async def reject_proposal(
     ):
         return {"status": "already_decided"}
 
+    # Journal the decline (outcome='never_filled' set inside) — the richest learning
+    # signal per the founder decision. Fail-soft.
+    _journal_decision(proposal_id, decision="rejected", decided_by=decided_by, db_path=db_path)
+
     await _try_end_proposal_live_activity(
         proposal_id, status="rejected", proposal=row, db_path=db_path
     )
@@ -268,6 +314,8 @@ async def create_phone_proposal(
     source: str | None = None,
     rule_id: str | None = None,
     score: bool = True,
+    thesis: str | None = None,
+    entry_ref_price: str | None = None,
     ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
@@ -280,29 +328,34 @@ async def create_phone_proposal(
     summary = _proposal_summary(intent_fields)
 
     score_result = None
-    # A validated strategy's backtested stats are the HONEST conviction; prefer them over
-    # the generic per-symbol scorer (calibrated but edgeless). Display/context only — not
-    # read by RiskEngine or the execution chokepoint.
-    if rule_id:
-        try:
-            from signals.strategy_stats import strategy_conviction
+    if score:
+        # A validated strategy's backtested stats are the HONEST conviction; prefer them
+        # over the generic per-symbol scorer (calibrated but edgeless). Display/context
+        # only — not read by RiskEngine or the execution chokepoint.
+        if rule_id:
+            try:
+                from signals.strategy_stats import strategy_conviction, strategy_plan
 
-            score_result = strategy_conviction(rule_id)
-        except Exception:
-            logger.exception("Failed to load strategy stats for %s", rule_id)
-    if score_result is None and score:
-        try:
-            from signals.decision_scorer import score_symbol
+                score_result = strategy_conviction(rule_id)
+                if score_result is not None:
+                    plan = strategy_plan(rule_id, db_path=db_path)
+                    if plan is not None:
+                        score_result["plan"] = plan
+            except Exception:
+                logger.exception("Failed to load strategy stats for %s", rule_id)
+        if score_result is None:
+            try:
+                from signals.decision_scorer import score_symbol
 
-            score_result = score_symbol(
-                intent_fields["symbol"],
-                side=intent_fields["side"],
-                db_path=db_path,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to score proposal for %s", intent_fields.get("symbol")
-            )
+                score_result = score_symbol(
+                    intent_fields["symbol"],
+                    side=intent_fields["side"],
+                    db_path=db_path,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to score proposal for %s", intent_fields.get("symbol")
+                )
 
     account_id = intent_fields.get("account_id")
     row = create_pending_proposal(
@@ -314,24 +367,65 @@ async def create_phone_proposal(
         source=source,
         rule_id=rule_id,
         score=score_result,
+        thesis=thesis,
         account_id=account_id,
         db_path=db_path,
     )
 
+    # Decision Journal CONTEXT (write-once, immutable) — the reasoning captured BEFORE the
+    # outcome is known. Fail-soft: a journal write must never break proposal creation.
     try:
-        await market_hub.broadcast_alert(
-            {
-                "type": "alert",
-                "source": "proposal",
-                "rule_name": "Order proposal",
+        from db.decision_journal import record_decision
+
+        plan = score_result.get("plan") if isinstance(score_result, dict) else None
+        limit_raw = intent_fields.get("limit_price")
+        mult_raw = intent_fields.get("multiplier")
+        record_decision(
+            proposal_id=str(row["id"]),
+            symbol=str(intent_fields["symbol"]),
+            side=str(intent_fields["side"]),
+            qty=str(intent_fields["qty"]),
+            order_type=str(intent_fields["order_type"]),
+            limit_price=str(limit_raw) if limit_raw is not None else None,
+            source=source,
+            strategy_id=_strategy_id_from_source(source),
+            rule_id=rule_id,
+            entry_ref_price=str(entry_ref_price) if entry_ref_price is not None else None,
+            thesis=thesis,
+            score_json=json.dumps(score_result) if score_result is not None else None,
+            plan_json=json.dumps(plan) if plan is not None else None,
+            expires_at=row.get("expires_at"),
+            # Options economics: us_option carries multiplier=100 so realized P&L is correct.
+            asset_class=intent_fields.get("asset_class"),
+            multiplier=str(mult_raw) if mult_raw is not None else None,
+            created_at=row.get("created_at"),
+            db_path=db_path,
+        )
+    except Exception:
+        logger.warning(
+            "decision_journal CONTEXT hook failed for %s", row.get("id"), exc_info=True
+        )
+
+    side = str(intent_fields["side"]).upper()
+    qty = intent_fields["qty"]
+    symbol = intent_fields["symbol"]
+    try:
+        await notify(
+            kind="proposal",
+            title=f"Trade proposal: {side} {qty} {symbol}",
+            body=summary,
+            severity="info",
+            account_id=account_id,
+            ref_type="proposal",
+            ref_id=str(row["id"]),
+            action_url=f"/approvals/{row['id']}",
+            data={
                 "proposal_id": row["id"],
-                "action": {
-                    "type": "order_proposal",
-                    "proposal_id": row["id"],
-                    "summary": summary,
-                    "expires_at": row["expires_at"],
-                },
-            }
+                "summary": summary,
+                "expires_at": row["expires_at"],
+            },
+            push=False,
+            db_path=db_path,
         )
     except Exception:
         logger.exception("Failed to broadcast phone proposal alert")

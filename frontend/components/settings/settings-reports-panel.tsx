@@ -1,7 +1,10 @@
 "use client";
 
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import {
+  TerminalField,
+  TerminalInput,
+  TerminalToggle,
+} from "@/components/ui/terminal";
 import type { ReportsSettings } from "@/lib/api";
 
 export const DEFAULT_REPORTS: ReportsSettings = {
@@ -39,22 +42,26 @@ export function SettingsReportsPanel({ value, onChange }: Props) {
               trading day before the open.
             </p>
           </div>
-          <Switch
+          <TerminalToggle
             checked={reports.morning_levels_enabled}
             onCheckedChange={(checked) =>
               patch({ morning_levels_enabled: checked })
             }
+            aria-label="Morning levels report"
           />
         </div>
 
-        <div className="grid max-w-[8rem] gap-1.5">
-          <Label htmlFor="morning-report-hour">Hour (ET)</Label>
-          <input
+        <TerminalField
+          label="Hour (ET)"
+          htmlFor="morning-report-hour"
+          className="max-w-[8rem]"
+          hint="Default 8:00am ET. Push fires once during the first 15 minutes of this hour."
+        >
+          <TerminalInput
             id="morning-report-hour"
             type="number"
             min={0}
             max={23}
-            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
             value={reports.hour_et}
             onChange={(e) => {
               const parsed = Number.parseInt(e.target.value, 10);
@@ -62,11 +69,7 @@ export function SettingsReportsPanel({ value, onChange }: Props) {
               patch({ hour_et: Math.max(0, Math.min(23, parsed)) });
             }}
           />
-          <p className="text-[11px] text-muted-foreground">
-            Default 8:00am ET. Push fires once during the first 15 minutes of this
-            hour.
-          </p>
-        </div>
+        </TerminalField>
       </div>
     </div>
   );

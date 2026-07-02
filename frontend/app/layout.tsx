@@ -35,6 +35,15 @@ export default function RootLayout({
         plexSans.variable,
       )}
     >
+      <head>
+        {/* Anti-FOUC: inject saved custom-theme rules before next-themes (body)
+            applies data-theme, so a custom theme renders without a flash. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var raw=localStorage.getItem("hmt-custom-themes-v1");if(!raw)return;var themes=JSON.parse(raw);if(!Array.isArray(themes))return;var css=themes.map(function(t){if(!t||!t.id||!t.vars)return"";var decls=Object.keys(t.vars).map(function(k){return k+":"+t.vars[k]+";"}).join("");return '[data-theme="'+t.id+'"]{color-scheme:'+(t.colorScheme||"dark")+";"+decls+"}"}).join("\\n");var el=document.getElementById("hmt-custom-themes");if(!el){el=document.createElement("style");el.id="hmt-custom-themes";document.head.appendChild(el)}el.textContent=css}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body>
         <ThemeProvider>
           <TooltipProvider>

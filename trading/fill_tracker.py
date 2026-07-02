@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from brokers.factory import get_broker, get_broker_for_account
-from brokers.market_stream import market_hub
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import (
     list_stale_pending_paper_executions,
     list_submitted_executions,
     update_execution_status,
 )
+from signals.notify import notify
 from trading.position_ledger import record_session_node_managed_fill, record_strategy_fill
 
 logger = logging.getLogger(__name__)
@@ -130,10 +130,26 @@ async def reconcile_open_executions(
             continue
 
         new_status = _map_broker_status(order.status)
-        if new_status is None:
+        if new_status is None or new_status == row.get("status"):
+            # Unchanged since last reconcile — don't re-write the row, re-record the
+            # managed fill, or re-broadcast a "fill" event. (partially_filled now stays
+            # in the reconcile pool until it reaches a terminal status, so without this
+            # guard a lingering partial would re-fire every tick.)
             continue
 
-        update_execution_status(execution_id, new_status, db_path=db_path)
+        # Persist the broker's realized fill economics alongside the status (Decision
+        # Journal J0). Only on a real fill — a canceled/expired order carries no meaningful
+        # avg price. None-valued fields are skipped by update_execution_status.
+        if new_status in {"filled", "partially_filled"}:
+            update_execution_status(
+                execution_id,
+                new_status,
+                avg_fill_price=order.filled_avg_price,
+                filled_qty=order.filled_qty,
+                db_path=db_path,
+            )
+        else:
+            update_execution_status(execution_id, new_status, db_path=db_path)
 
         # Record strategy attribution into the managed-position ledger so the exit
         # engine knows whose rules apply. Bookkeeping only — fail-closed inside.
@@ -141,6 +157,7 @@ async def reconcile_open_executions(
         record_strategy_fill(
             row_dict,
             filled_qty=order.filled_qty,
+            filled_avg_price=order.filled_avg_price,
             status=new_status,
             db_path=db_path,
         )
@@ -152,16 +169,29 @@ async def reconcile_open_executions(
         )
 
         try:
-            payload: dict[str, object] = {
-                "type": "fill",
+            data: dict[str, object] = {
                 "execution_id": execution_id,
                 "status": new_status,
                 "symbol": row["symbol"],
                 "filled_qty": order.filled_qty,
             }
             if account_id is not None:
-                payload["account_id"] = account_id
-            await market_hub.broadcast_alert(payload)
+                data["account_id"] = account_id
+            await notify(
+                kind="fill",
+                title=f"{row['symbol']} {new_status}",
+                body=(
+                    f"Execution {execution_id}: {order.filled_qty} shares {new_status}"
+                ),
+                severity="success" if new_status == "filled" else "info",
+                account_id=str(account_id) if account_id else None,
+                ref_type="execution",
+                ref_id=execution_id,
+                action_url=f"/executions/{execution_id}",
+                data=data,
+                push=False,
+                db_path=db_path,
+            )
         except Exception:
             logger.exception(
                 "Failed to broadcast fill alert for execution %s", execution_id

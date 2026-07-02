@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from signals.exit_evaluators import evaluate_dip_exit, evaluate_earnings_exit
+from signals.exit_evaluators import evaluate_dip_exit, evaluate_earnings_exit, evaluate_vix_exit
 
 
 def _dip(**kwargs):
@@ -100,6 +100,35 @@ def test_dip_bad_entry_price():
     assert d.detail.get("error") == "bad_entry_price"
 
 
+def test_dip_fixed_hold_only_exits_at_max_holding():
+    fixed_hold_params = {
+        "stop_pct": None,
+        "first_target_pct": None,
+        "trail_pct": None,
+        "max_holding_days": 10,
+    }
+    d = _dip(
+        holding_days=5,
+        bar_low=90.0,
+        bar_high=110.0,
+        current_price=100.0,
+        params=fixed_hold_params,
+    )
+    assert d.action == "hold"
+    assert d.reason == "hold"
+
+    d = _dip(
+        holding_days=10,
+        current_price=101.0,
+        bar_high=101.0,
+        bar_low=101.0,
+        params=fixed_hold_params,
+    )
+    assert d.action == "exit"
+    assert d.reason == "time_cap"
+    assert d.exit_fraction == 1.0
+
+
 def test_dip_bar_high_low_default_to_current_price():
     d = _dip(current_price=96.9)
     assert d.action == "exit"
@@ -150,3 +179,35 @@ def test_earnings_safety_cap():
     assert d.action == "exit"
     assert d.reason == "time_cap"
     assert d.exit_fraction == 1.0
+
+
+def test_vix_exit_time_cap_precedence():
+    d = evaluate_vix_exit(current_vix=35.0, holding_days=60, params={})
+    assert d.action == "exit"
+    assert d.reason == "time_cap"
+    assert d.exit_fraction == 1.0
+
+
+def test_vix_exit_reversion():
+    d = evaluate_vix_exit(current_vix=19.0, holding_days=10, params={})
+    assert d.action == "exit"
+    assert d.reason == "vix_reversion"
+    assert d.exit_fraction == 1.0
+
+
+def test_vix_exit_hold_when_vix_high():
+    d = evaluate_vix_exit(current_vix=25.0, holding_days=10, params={})
+    assert d.action == "hold"
+    assert d.reason == "hold"
+
+
+def test_vix_exit_hold_when_vix_missing():
+    d = evaluate_vix_exit(current_vix=None, holding_days=10, params={})
+    assert d.action == "hold"
+    assert d.detail.get("error") == "no_vix"
+
+
+def test_vix_exit_boundary_vix_exactly_20_holds():
+    d = evaluate_vix_exit(current_vix=20.0, holding_days=10, params={})
+    assert d.action == "hold"
+    assert d.reason == "hold"

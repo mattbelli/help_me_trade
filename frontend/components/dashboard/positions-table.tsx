@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatMoney, type Position } from "@/lib/api";
+import { formatMoney, formatQty, type Position } from "@/lib/api";
 
 type Props = {
   positions: Position[];
@@ -61,7 +61,7 @@ export function PositionsTable({ positions, broker }: Props) {
                     </Link>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {p.qty}
+                    {formatQty(p.qty)}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{p.side}</Badge>

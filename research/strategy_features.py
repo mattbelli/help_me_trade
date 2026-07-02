@@ -400,3 +400,30 @@ def is_earnings_drift_entry(
     # In the pre-earnings holding window: at/just-inside the entry lead, but not yet
     # past the exit lead. One-entry-per-signal upstream keeps it from re-firing.
     return exit_lead_td < td_to_next <= entry_lead_td
+
+
+def is_vix_spike_entry(
+    current_vix: float,
+    prior_vix: list[float] | tuple[float, ...],
+    *,
+    vix_spike_min: float = 28.0,
+    vix_calm_max: float = 22.0,
+    vix_calm_lookback: int = 12,
+    vix_calm_min_days: int = 8,
+) -> bool:
+    """Point-in-time VIX-spike entry: a *sudden* spike from calm. True iff today's VIX
+    is above the spike floor AND at least `vix_calm_min_days` of the prior
+    `vix_calm_lookback` closes were below the calm ceiling.
+
+    Pure (no I/O) so the live path (reads VIX history from db.regime) and the golden-
+    fixture validation share one predicate. `prior_vix` is the closes immediately
+    prior to today (order-independent — only the count matters); fewer than
+    `vix_calm_lookback` ⇒ insufficient history ⇒ False (fail-closed).
+    """
+    if len(prior_vix) < vix_calm_lookback:
+        return False
+    if current_vix <= vix_spike_min:
+        return False
+    window = prior_vix[:vix_calm_lookback]
+    calm_days = sum(1 for v in window if v < vix_calm_max)
+    return calm_days >= vix_calm_min_days

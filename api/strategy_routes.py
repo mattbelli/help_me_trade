@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from db.accounts import account_is_execution_capable, get_account, list_accounts
 from db.strategies import get_strategy, list_strategies, update_strategy
+from signals.strategy_kinds import is_portfolio_kind
 from signals.strategy_universe import available_universes
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
@@ -67,11 +68,39 @@ def api_update_strategy(
                 status_code=400,
                 content={"detail": "account_id must be an execution-capable account"},
             )
+        # Portfolio strategies (momentum) rebalance in bulk and source "held" from their OWN
+        # managed_positions, so they need a DEDICATED account — sharing one with another
+        # strategy risks re-buying that strategy's overlapping names. Reject a shared bind.
+        if is_portfolio_kind(strategy_id):
+            shared_with = next(
+                (
+                    s["id"]
+                    for s in list_strategies()
+                    if s["id"] != strategy_id and s.get("account_id") == str(account_id)
+                ),
+                None,
+            )
+            if shared_with is not None:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "detail": (
+                            f"{strategy_id} needs a DEDICATED account — {account_id} is "
+                            f"already used by {shared_with}. Bind it to an empty account."
+                        )
+                    },
+                )
 
     # Session-node is propose-only by design (exits are phone prompts, never auto-sold).
     # The UI hides the auto option; block it server-side too so no direct API call can
     # route this strategy's exits through the execution chokepoint.
     if strategy_id == "session_node_spy" and body.get("exit_mode") == "auto":
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "session_node_spy is propose-only"},
+        )
+
+    if strategy_id == "session_node_spy" and body.get("entry_mode") == "auto":
         return JSONResponse(
             status_code=400,
             content={"detail": "session_node_spy is propose-only"},
@@ -86,6 +115,8 @@ def api_update_strategy(
             if "notional_usd" in body
             else None,
             exit_mode=body.get("exit_mode") if "exit_mode" in body else None,
+            entry_mode=body.get("entry_mode") if "entry_mode" in body else None,
+            alert_style=body.get("alert_style") if "alert_style" in body else None,
             params=body.get("params") if "params" in body else None,
             universe=body.get("universe") if "universe" in body else None,
             max_concurrent_positions=body.get("max_concurrent_positions")

@@ -6,14 +6,27 @@ import { AccountSummaryWidget } from "@/components/workspace/widgets/account-sum
 import { AgentProposalsWidget } from "@/components/workspace/widgets/agent-proposals-widget";
 import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
+import { JournalWidget } from "@/components/workspace/widgets/journal-widget";
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
+import { PerformanceWidget } from "@/components/workspace/widgets/performance-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
 import { MemoryWidget } from "@/components/workspace/widgets/memory-widget";
+import { NotificationsWidget } from "@/components/workspace/widgets/notifications-widget";
 import { PriceAlertsWidget } from "@/components/workspace/widgets/price-alerts-widget";
 import { ReportsWidget } from "@/components/workspace/widgets/reports-widget";
+import { ResearchWidget } from "@/components/workspace/widgets/research-widget";
+import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
+import { PerformanceStatsWidget } from "@/components/workspace/widgets/performance-stats-widget";
+import { TradingCalendarWidget } from "@/components/workspace/widgets/trading-calendar-widget";
+import { OrdersWidget } from "@/components/workspace/widgets/orders-widget";
+import { SectorRadarWidget } from "@/components/workspace/widgets/sector-radar-widget";
+import { PnlScatterWidget } from "@/components/workspace/widgets/pnl-scatter-widget";
+import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcome-distribution-widget";
+import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
+import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
 
@@ -53,14 +66,16 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "open-orders",
     title: "open orders",
     description: "Working and recent orders",
-    component: OpenOrdersWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: OpenOrdersWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
   },
   {
     id: "positions",
     title: "positions",
     description: "Open positions table",
-    component: PositionsWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: PositionsWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
   },
   {
@@ -105,9 +120,31 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   {
     id: "scans",
     title: "scans",
-    description: "Armed signal rules and recent fires",
+    description: "Universe screener — technical scan presets, ranked matches",
+    channelAware: true,
     component: ScansWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
+  },
+  {
+    id: "rules",
+    title: "rules",
+    description: "Create, arm, and manage signal rules with trigger log",
+    component: RulesWidget,
+    defaultSize: { w: 12, h: 10, minW: 6, minH: 6 },
+  },
+  {
+    id: "research",
+    title: "research",
+    description: "Deep research runs, artifact history, and report viewer",
+    component: ResearchWidget,
+    defaultSize: { w: 12, h: 10, minW: 6, minH: 5 },
+  },
+  {
+    id: "performance",
+    title: "performance",
+    description: "Trade analytics — P&L charts, calendar, win rate, and round-trips",
+    component: PerformanceWidget,
+    defaultSize: { w: 16, h: 12, minW: 8, minH: 6 },
   },
   {
     id: "memory",
@@ -117,11 +154,28 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultSize: { w: 10, h: 5, minW: 4, minH: 3 },
   },
   {
+    id: "notifications",
+    title: "notifications",
+    description: "Full inbox — read, filter, and dismiss alerts",
+    component: NotificationsWidget,
+    defaultSize: { w: 8, h: 6, minW: 4, minH: 3 },
+  },
+  {
     id: "agent-proposals",
     title: "agent proposals",
     description: "Pending AI order proposals with score — Approve / Reject",
+    channelAware: true,
     component: AgentProposalsWidget,
     defaultSize: { w: 12, h: 6, minW: 5, minH: 3 },
+  },
+  {
+    id: "journal",
+    title: "decision journal",
+    description:
+      "The agent's own paper-call track record and your real trades — AI ⇄ Me toggle",
+    channelAware: true,
+    component: JournalWidget,
+    defaultSize: { w: 12, h: 8, minW: 5, minH: 4 },
   },
   {
     id: "rvol-scanner",
@@ -130,6 +184,64 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: RvolScannerWidget,
     defaultSize: { w: 8, h: 7, minW: 4, minH: 3 },
+  },
+  {
+    id: "performance-stats",
+    title: "performance",
+    description: "Realized/unrealized P&L, win rate, trades, fees",
+    component: PerformanceStatsWidget as WidgetDefinition["component"],
+    defaultSize: { w: 16, h: 3, minW: 8, minH: 2 },
+  },
+  {
+    id: "trade-calendar",
+    title: "trading calendar",
+    description: "Monthly P&L calendar with week & day-of-week rollups",
+    component: TradingCalendarWidget as WidgetDefinition["component"],
+    defaultSize: { w: 14, h: 9, minW: 9, minH: 6 },
+  },
+  {
+    id: "orders",
+    title: "orders",
+    description: "Trade blotter — filled / open / rejected",
+    component: OrdersWidget as WidgetDefinition["component"],
+    defaultSize: { w: 12, h: 6, minW: 6, minH: 4 },
+  },
+  {
+    id: "sector-radar",
+    title: "sector radar",
+    description: "Portfolio exposure & realized P&L by sector",
+    component: SectorRadarWidget as WidgetDefinition["component"],
+    defaultSize: { w: 10, h: 7, minW: 6, minH: 5 },
+  },
+  {
+    id: "pnl-scatter",
+    title: "hold time vs p&l",
+    description: "Each closed trade: holding period vs P&L",
+    component: PnlScatterWidget as WidgetDefinition["component"],
+    defaultSize: { w: 10, h: 6, minW: 6, minH: 4 },
+  },
+  {
+    id: "trade-distribution",
+    title: "trade distribution",
+    description: "Histogram of trade outcomes (edge shape)",
+    component: OutcomeDistributionWidget as WidgetDefinition["component"],
+    defaultSize: { w: 10, h: 5, minW: 6, minH: 4 },
+  },
+  {
+    id: "winrate-trend",
+    title: "win rate trend",
+    description: "Rolling win rate & expectancy over time",
+    component: WinrateTrendWidget as WidgetDefinition["component"],
+    defaultSize: { w: 12, h: 5, minW: 6, minH: 4 },
+  },
+  {
+    id: "company-info",
+    title: "company info",
+    description: "Profile, fundamentals, facts & news — follows a channel; all-watchlist news mode",
+    multiInstance: true,
+    channelAware: true,
+    component: CompanyInfoWidget,
+    defaultSize: { w: 12, h: 9, minW: 6, minH: 5 },
   },
 ];
 

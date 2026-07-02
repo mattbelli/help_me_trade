@@ -30,10 +30,16 @@ from brokers.market_stream import (
     QuoteState,
 )
 from config.settings import broker_is_configured
+from trading.market_hours import is_market_open
 
 logger = logging.getLogger(__name__)
 
 _HANDLE_MESSAGE_TIMEOUT = 30.0  # seconds before assuming the stream dropped
+
+# A single tick >_MAX_TICK_RATIO× or <1/_MAX_TICK_RATIO× the official prior close is a bad
+# print / crossed quote, not a real intraday move — drop it so it can't spike a chart candle
+# or poison the watchlist / alerts / the RiskEngine's live quote.
+_MAX_TICK_RATIO = 3.0
 
 # Equity fields to request (minimise bandwidth)
 _EQUITY_FIELDS = [
@@ -306,6 +312,18 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 state = QuoteState()
                 self._quotes[symbol] = state
 
+            ref = state.prev_close
+            if ref > 0 and (
+                price_f > ref * _MAX_TICK_RATIO or price_f * _MAX_TICK_RATIO < ref
+            ):
+                logger.warning(
+                    "Dropping implausible %s tick %.4f (prior close %.2f)",
+                    symbol,
+                    price_f,
+                    ref,
+                )
+                continue
+
             state.price = price_f
             if bid_raw is not None:
                 state.bid = float(bid_raw)
@@ -358,6 +376,18 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 state = QuoteState()
                 self._quotes[symbol] = state
 
+            ref = state.prev_close
+            if ref > 0 and (
+                price_f > ref * _MAX_TICK_RATIO or price_f * _MAX_TICK_RATIO < ref
+            ):
+                logger.warning(
+                    "Dropping implausible %s futures tick %.4f (prior close %.2f)",
+                    symbol,
+                    price_f,
+                    ref,
+                )
+                continue
+
             state.price = price_f
             if bid_raw is not None:
                 state.bid = float(bid_raw)
@@ -409,5 +439,13 @@ class SchwabMarketStreamHub(BaseMarketHub):
     ) -> None:
         """Broadcast the updated quote and fire price alerts."""
         await self._broadcast_quote(symbol)
-        if prev is not None and prev != current:
+        if prev is None or prev == current:
+            return
+        # Equity LAST_PRICE is the live price only during RTH — pre/post-market it
+        # reverts to the frozen regular-session last, which flickers against the live
+        # extended price and fires phantom alert crosses ("SPY cross 731.27 — now
+        # 728.99"). Off-hours equity alerts come from the REST extended-quote poll
+        # (apply_extended) on the true current price instead. Futures trade ~23h with
+        # a single live last, so their stream alerts always apply.
+        if symbol.startswith("/") or is_market_open():
             await self._check_price_alerts(symbol, prev, current)

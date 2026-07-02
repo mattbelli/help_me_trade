@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -38,6 +39,17 @@ def init_chart_features(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON chart_layouts(symbol, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_price_alerts_symbol
                 ON price_alerts(symbol, triggered);
+
+            CREATE TABLE IF NOT EXISTS chart_drawings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_chart_drawings_symbol
+                ON chart_drawings(symbol, created_at);
             """
         )
         # Idempotent migration for DBs created before repeat/last_triggered_at.
@@ -244,3 +256,88 @@ def mark_alert_triggered(alert_id: int, *, repeat: bool = False) -> None:
                 (now, alert_id),
             )
         conn.commit()
+
+
+def _parse_drawing_row(row) -> dict:
+    d = dict(row)
+    d["data"] = json.loads(d["data"])
+    return d
+
+
+def list_chart_drawings(*, symbol: str | None = None) -> list[dict]:
+    """All drawings, optionally filtered by symbol; newest last. `data` parsed to a dict."""
+    init_chart_features()
+    query = "SELECT * FROM chart_drawings WHERE 1=1"
+    params: list = []
+    if symbol:
+        query += " AND symbol = ?"
+        params.append(symbol.strip().upper())
+    query += " ORDER BY created_at ASC"
+    with _connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_parse_drawing_row(row) for row in rows]
+
+
+def create_chart_drawing(*, symbol: str, kind: str, data: dict) -> dict:
+    """Insert a drawing (created_at = UTC ISO now). Returns the inserted row (data parsed)."""
+    init_chart_features()
+    now = datetime.now(UTC).isoformat()
+    sym = symbol.strip().upper()
+    with _connect() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO chart_drawings (symbol, kind, data, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (sym, kind, json.dumps(data), now),
+        )
+        conn.commit()
+        row_id = int(cursor.lastrowid)
+        row = conn.execute(
+            "SELECT * FROM chart_drawings WHERE id = ?", (row_id,)
+        ).fetchone()
+    return _parse_drawing_row(row) if row else {}
+
+
+def update_chart_drawing(
+    drawing_id: int, *, data: dict | None = None, kind: str | None = None
+) -> dict | None:
+    """Patch data and/or kind. Returns updated row (data parsed) or None if not found."""
+    init_chart_features()
+    sets: list[str] = []
+    params: list = []
+    if data is not None:
+        sets.append("data = ?")
+        params.append(json.dumps(data))
+    if kind is not None:
+        sets.append("kind = ?")
+        params.append(kind)
+    if not sets:
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM chart_drawings WHERE id = ?", (drawing_id,)
+            ).fetchone()
+        return _parse_drawing_row(row) if row else None
+    with _connect() as conn:
+        cursor = conn.execute(
+            f"UPDATE chart_drawings SET {', '.join(sets)} WHERE id = ?",
+            (*params, drawing_id),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute(
+            "SELECT * FROM chart_drawings WHERE id = ?", (drawing_id,)
+        ).fetchone()
+    return _parse_drawing_row(row) if row else None
+
+
+def delete_chart_drawing(drawing_id: int) -> bool:
+    """Delete by id. True if a row was removed, else False."""
+    init_chart_features()
+    with _connect() as conn:
+        cursor = conn.execute(
+            "DELETE FROM chart_drawings WHERE id = ?", (drawing_id,)
+        )
+        conn.commit()
+    return cursor.rowcount > 0

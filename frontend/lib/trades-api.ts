@@ -220,6 +220,35 @@ export async function requestTradeReview(body: {
   return res.json();
 }
 
+export type OrderExecution = {
+  id: string;
+  symbol: string;
+  side: string;
+  qty: string;
+  order_type: string;
+  limit_price: string | null;
+  status: string;
+  filled_qty: string | null;
+  avg_fill_price: string | null;
+  execution_mode: string;
+  submitted_at: string | null;
+  created_at: string;
+};
+
+export async function fetchOrderExecutions(params: {
+  status?: string;
+  limit?: number;
+  account_id?: string;
+}): Promise<{ executions: OrderExecution[]; count: number }> {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.account_id) qs.set("account_id", params.account_id);
+  const res = await apiFetch(`${API_BASE}/api/orders/executions?${qs}`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
 export function parseMoney(value: string | null | undefined): number {
   if (!value) return 0;
   const n = parseFloat(value);

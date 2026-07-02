@@ -312,9 +312,11 @@ class BaseMarketHub:
     ) -> None:
         """Update a symbol's extended-hours fields and (optionally) broadcast.
 
-        Called by the `/api/watchlist/market` REST poll so the WS stream carries the
-        same pre/post/overnight pricing the phone headlines — the Schwab level-one
-        stream doesn't emit ext fields. Creates a QuoteState if none exists yet.
+        Called by the `/api/watchlist/market` REST poll and the server-side alert
+        poll so the WS stream carries the same pre/post/overnight pricing the phone
+        headlines — the Schwab level-one stream doesn't emit ext fields. Creates a
+        QuoteState if none exists yet. Also drives price-alert evaluation off the
+        extended price (see below).
         """
         sym = str(symbol).strip().upper()
         if not sym:
@@ -323,11 +325,18 @@ class BaseMarketHub:
         if not state:
             state = QuoteState()
             self._quotes[sym] = state
+        prev_ext = state.ext_price
         state.ext_price = ext_price
         state.ext_change_pct = ext_change_pct
         state.market_session = market_session
         if broadcast:
             await self._broadcast_quote(sym)
+        # Drive price-alert evaluation off the extended/overnight price too. The
+        # live stream is silent outside regular hours, so without this an alert set
+        # on the chart would never fire overnight even though the price updates here.
+        # Cross-detection needs a prior value and an actual move.
+        if ext_price is not None and prev_ext is not None and prev_ext != ext_price:
+            await self._check_price_alerts(sym, prev_ext, ext_price)
 
     async def _check_price_alerts(
         self, symbol: str, prev: float, current: float
@@ -345,44 +354,31 @@ class BaseMarketHub:
             return
 
         for alert in triggered:
-            # Broadcast the price alert in the SAME flat shape rule alerts use
-            # (matches the phone client's reader). `trigger_price` is the price
-            # that crossed `target_price`.
             target = float(alert.get("price", 0.0) or 0.0)
             direction = str(alert.get("direction") or "cross")
             note = str(alert.get("note") or "")
-            await self.broadcast_alert(
-                {
-                    "source": "price_alert",
+            from signals.notify import notify
+
+            await notify(
+                kind="price_alert",
+                title=f"Price alert: {symbol} {direction} ${target:g}",
+                body=(
+                    f"{symbol} {direction} ${target:g} — now ${current:.2f}"
+                    + (f" ({note})" if note else "")
+                ),
+                severity="info",
+                ref_type="alert",
+                ref_id=str(alert.get("id")),
+                action_url=f"/watchlist/{symbol}",
+                data={
                     "symbol": symbol,
                     "alert_id": alert.get("id"),
                     "target_price": target,
                     "trigger_price": current,
                     "direction": direction,
                     "note": note,
-                }
+                },
             )
-
-            # Fire an APNs push too so a closed app still gets the alert. Flat
-            # custom keys let the phone deep-link to the symbol's detail screen
-            # on tap (mirrors how trade pushes deep-link to Approvals).
-            try:
-                from signals.push import send_alert_push
-
-                body = f"{symbol} {direction} ${target:g} — now ${current:.2f}"
-                if note:
-                    body = f"{body} ({note})"
-                await send_alert_push(
-                    title="Price alert",
-                    body=body,
-                    data={
-                        "type": "price_alert",
-                        "symbol": symbol,
-                        "alert_id": alert.get("id"),
-                    },
-                )
-            except Exception:
-                logger.warning("Price-alert push dispatch failed", exc_info=True)
 
 
 class AlpacaMarketStreamHub(BaseMarketHub):
@@ -673,4 +669,25 @@ def _quote_payload(state: QuoteState) -> dict[str, Any]:
     }
 
 
-market_hub = MarketStreamHub()
+class _LiveHubProxy:
+    """`market_hub` is imported (at import time) by the trading path — execution_service,
+    fill_tracker, exit_engine, proposals — to broadcast alerts. But the LIVE hub that actually
+    serves WS clients is created per-data-provider in api/main.py. Historically this module-level
+    instance was a SEPARATE hub with no clients, so execution/fill/exit alerts never reached the
+    browser. This proxy forwards every attribute (broadcast_alert, …) to the live hub once it's
+    bound at startup, and falls back to a standalone hub when none is bound (tests / import-only).
+    """
+
+    def __init__(self) -> None:
+        self._fallback: BaseMarketHub = MarketStreamHub()
+        self._live: BaseMarketHub | None = None
+
+    def bind(self, hub: BaseMarketHub) -> None:
+        self._live = hub
+
+    def __getattr__(self, name: str) -> Any:
+        target = self._live if self._live is not None else self._fallback
+        return getattr(target, name)
+
+
+market_hub = _LiveHubProxy()
