@@ -12,8 +12,16 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Fable-audit fix rounds (Decision Engine Phase 0/0.5) (2026-07-02)
 
-> ▶ **LATEST (2026-07-02 night) — Round 9: Schwab multi-leg fill collapse (H5) FIXED, deployed, ledger repaired
-> (e55ab8a).** Founder was flat TSLA but ledger showed +74: Schwab splits one fill into same-symbol
+> ▶ **LATEST (2026-07-02 late night) — Round 10: last-flat realized recognition SHIPPED + deployed (96916e7).**
+> Round 9's founder-approved baseline adjustments (TSLA/PLTR/GME, $0-amount `manual_adjustment` events, all 4
+> accounts broker-confirmed flat) made TSLA read fully-closed → closed-only recognition dumped its lifetime
+> +$44.5k into the WEEK view. `db/analytics.py` now books realized at every day a symbol ends flat (telescoping
+> by construction — round-9's double-count is a regression test + 200 randomized property trials). Live verified:
+> day $797.13, week $8,145.92 (= exact day-row sum), lifetime stays in all-time. Same Sonnet reviewer (resumed):
+> SAFE. Remaining from this arc: options-expiration sync gap (task #16) + nightly ledger-vs-broker qty
+> reconciliation (task #17) — see `ledger-baseline-offsets` memory.
+>
+> Round 9 (same night): Schwab multi-leg fill collapse (H5) FIXED, deployed, ledger repaired (e55ab8a). Founder was flat TSLA but ledger showed +74: Schwab splits one fill into same-symbol
 > CLOSING/OPENING legs when a sell crosses flat; the parser kept only the max leg. Parser now sums same-symbol
 > legs; `tools/repair_event_quantities.py` (dry-run-first) fixed the single corrupted event live (126→200 shares;
 > cash was never wrong — `netAmount`). Adversarial review REJECTED (BLOCKER, double-counting) the companion
