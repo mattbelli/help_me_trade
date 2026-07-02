@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ChevronDownIcon,
@@ -13,16 +13,23 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  COPILOT_MAX_WIDTH,
   COPILOT_MIN_WIDTH,
+  getCopilotMaxWidth,
   useCopilotStore,
 } from "@/lib/workspace/use-copilot-store";
 
 import { CopilotThreadHistory } from "./copilot-thread-history";
 import { WorkspaceThread } from "./workspace-chat";
 
+const COPILOT_PANEL_BG = "color-mix(in srgb, var(--panel) 90%, transparent)";
+
+function isInsideRadixPortal(target: Node): boolean {
+  return target instanceof Element && Boolean(target.closest("[data-radix-portal]"));
+}
+
 export function CopilotSidebar() {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
   const open = useCopilotStore((s) => s.open);
   const pinned = useCopilotStore((s) => s.pinned);
   const width = useCopilotStore((s) => s.width);
@@ -44,6 +51,27 @@ export function CopilotSidebar() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [historyOpen]);
 
+  useEffect(() => {
+    if (!open || pinned) return;
+
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (panelRef.current?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest("[data-copilot-toggle]")
+      ) {
+        return;
+      }
+      if (isInsideRadixPortal(target)) return;
+      setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open, pinned, setOpen]);
+
   const onResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
@@ -53,7 +81,7 @@ export function CopilotSidebar() {
       function onMove(moveEvent: PointerEvent) {
         const delta = startX - moveEvent.clientX;
         const next = Math.min(
-          COPILOT_MAX_WIDTH,
+          getCopilotMaxWidth(),
           Math.max(COPILOT_MIN_WIDTH, startWidth + delta),
         );
         setWidth(next);
@@ -77,10 +105,11 @@ export function CopilotSidebar() {
         onClick={() => setOpen(true)}
         className={cn(
           "absolute bottom-3 right-3 z-40 flex items-center gap-2 rounded-lg border border-[var(--border)]",
-          "bg-[var(--bg-raised)]/85 px-3 py-2 shadow-lg backdrop-blur-md",
+          "px-3 py-2 shadow-[var(--panel-shadow)] backdrop-blur-md",
           "font-mono text-[12px] font-medium text-[var(--fg-dim)] transition-colors",
-          "hover:bg-[var(--bg-hover)] hover:text-foreground",
+          "hover:text-foreground",
         )}
+        style={{ backgroundColor: COPILOT_PANEL_BG }}
         aria-label="Open copilot"
       >
         <MessageSquareIcon className="size-4 shrink-0" />
@@ -91,13 +120,14 @@ export function CopilotSidebar() {
 
   return (
     <motion.div
+      ref={panelRef}
       className={cn(
-        "absolute z-40 flex flex-col overflow-hidden border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)]",
+        "absolute z-40 flex flex-col overflow-hidden border border-[var(--border)] shadow-[var(--panel-shadow)] backdrop-blur-md",
         pinned
           ? "top-0 right-0 bottom-0 rounded-none border-r-0 border-t-0 border-b-0"
           : "bottom-3 right-3 h-[32rem] max-h-[calc(100svh-6rem)] rounded-lg",
       )}
-      style={{ width }}
+      style={{ width, backgroundColor: COPILOT_PANEL_BG }}
       initial={false}
       animate={{ width }}
       transition={{ type: "spring", stiffness: 420, damping: 36 }}

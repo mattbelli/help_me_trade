@@ -516,6 +516,7 @@ export function WorkspaceToolbar() {
       <div className="ml-auto flex items-center gap-1.5 md:gap-5">
         <button
           type="button"
+          data-copilot-toggle
           onClick={toggleCopilot}
           title={`${copilotOpen ? "Close" : "Open"} copilot (Ctrl/Cmd+J)`}
           aria-label="Toggle copilot"

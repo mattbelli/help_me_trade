@@ -7,11 +7,16 @@ const PINNED_STORAGE_KEY = "hmt-copilot-pinned";
 const WIDTH_STORAGE_KEY = "hmt-copilot-width";
 
 export const COPILOT_MIN_WIDTH = 320;
-export const COPILOT_MAX_WIDTH = 640;
+export const COPILOT_MAX_WIDTH = 960;
 export const COPILOT_DEFAULT_WIDTH = 380;
 
+export function getCopilotMaxWidth(): number {
+  if (typeof window === "undefined") return COPILOT_MAX_WIDTH;
+  return Math.min(COPILOT_MAX_WIDTH, window.innerWidth - 80);
+}
+
 function clampWidth(width: number): number {
-  return Math.min(COPILOT_MAX_WIDTH, Math.max(COPILOT_MIN_WIDTH, width));
+  return Math.min(getCopilotMaxWidth(), Math.max(COPILOT_MIN_WIDTH, width));
 }
 
 function loadOpen(): boolean {

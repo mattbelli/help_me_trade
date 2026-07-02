@@ -384,6 +384,9 @@ const AssistantMessage: FC = () => {
     ToolGroup,
     ReasoningGroup,
   } = useContext(ThreadComponentsContext);
+  const hasToolCallParts = useAuiState((s) =>
+    s.message.parts.some((part) => part.type === "tool-call"),
+  );
 
   // reserves space for action bar and compensates with `-mb` for consistent msg spacing
   // keeps hovered action bar from shifting layout (autohide doesn't support absolute positioning well)
@@ -400,7 +403,10 @@ const AssistantMessage: FC = () => {
       <div
         data-slot="aui_assistant-message-content"
         // [contain-intrinsic-size:auto_24px] fixes issue #4104, don't change without checking for regressions
-        className="text-foreground max-w-[88%] rounded-[22px] rounded-bl-[8px] border border-[var(--border)] bg-[var(--bg-raised)] px-4 py-3 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
+        className={cn(
+          "text-foreground max-w-[88%] rounded-[22px] rounded-bl-[8px] border border-[var(--border)] bg-[var(--bg-raised)] px-4 py-3 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px]",
+          !hasToolCallParts && "[content-visibility:auto]",
+        )}
       >
         <MessagePrimitive.GroupedParts
           groupBy={groupPartByType({
