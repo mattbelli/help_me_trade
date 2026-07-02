@@ -84,7 +84,9 @@ def _find_ev_bucket(win_prob: float, ev_table: list[dict]) -> dict | None:
                 return bucket
         elif lo <= win_prob <= hi:
             return bucket
-    return ev_table[-1]
+    # Out-of-range win_prob has no validated EV — never inherit another
+    # bucket's numbers (they flow into phone proposals).
+    return None
 
 
 def _top_factors(
@@ -130,6 +132,8 @@ def score_features(features: dict, artifacts: dict) -> dict:
     ci_hi_raw = bucket.get("wilson_ci_hi")
 
     honesty = meta.get("honesty") or {}
+    base_rate_raw = meta.get("base_rate")
+    brier_raw = meta.get("brier")
 
     return {
         "win_prob": round(win_prob, 4),
@@ -137,9 +141,9 @@ def score_features(features: dict, artifacts: dict) -> dict:
         "ci_low": round(float(ci_lo_raw), 4) if ci_lo_raw is not None else None,
         "ci_high": round(float(ci_hi_raw), 4) if ci_hi_raw is not None else None,
         "sufficient": bool(bucket.get("sufficient", False)),
-        "base_rate": round(float(meta.get("base_rate", 0.0)), 4),
+        "base_rate": round(float(base_rate_raw), 4) if base_rate_raw is not None else None,
         "low_confidence": bool(honesty.get("low_confidence", True)),
-        "brier": round(float(meta.get("brier", 0.0)), 4),
+        "brier": round(float(brier_raw), 4) if brier_raw is not None else None,
         "n_samples": int(meta.get("n_samples", 0)),
         "data_source": meta.get("data_source"),
         "top_factors": _top_factors(features, model),

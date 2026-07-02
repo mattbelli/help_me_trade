@@ -147,8 +147,8 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
 
 function GenericScore({ score }: { score: ProposalScoreData }) {
   const winPct = clampPercent(score.win_prob);
-  const baseRatePct = clampPercent(score.base_rate ?? 0);
-  const evPct = score.ev_pct ?? 0;
+  const baseRatePct = score.base_rate != null ? clampPercent(score.base_rate) : null;
+  const evPct = score.ev_pct ?? null;
   const ciLow = score.ci_low != null ? (score.ci_low * 100).toFixed(0) : null;
   const ciHigh = score.ci_high != null ? (score.ci_high * 100).toFixed(0) : null;
   const factors = (score.top_factors ?? []).slice(0, 3);
@@ -169,23 +169,27 @@ function GenericScore({ score }: { score: ProposalScoreData }) {
           className="absolute inset-y-0 left-0 rounded-full bg-[var(--c-accent)]"
           style={{ width: `${winPct}%` }}
         />
-        <div
-          className="absolute top-0 bottom-0 w-px bg-[var(--fg-faint)] opacity-70"
-          style={{ left: `${baseRatePct}%` }}
-          title={`Base rate ${baseRatePct.toFixed(0)}%`}
-        />
+        {baseRatePct != null ? (
+          <div
+            className="absolute top-0 bottom-0 w-px bg-[var(--fg-faint)] opacity-70"
+            style={{ left: `${baseRatePct}%` }}
+            title={`Base rate ${baseRatePct.toFixed(0)}%`}
+          />
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span
-          className={cn(
-            "font-mono tabular-nums",
-            evPct >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
-          )}
-        >
-          EV {evPct >= 0 ? "+" : ""}
-          {evPct.toFixed(2)}%
-        </span>
+        {evPct != null ? (
+          <span
+            className={cn(
+              "font-mono tabular-nums",
+              evPct >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+            )}
+          >
+            EV {evPct >= 0 ? "+" : ""}
+            {evPct.toFixed(2)}%
+          </span>
+        ) : null}
         {ciLow != null && ciHigh != null ? (
           <span className="font-mono tabular-nums text-[var(--fg-dim)]">
             CI {ciLow}–{ciHigh}%
