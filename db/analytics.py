@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from db.behavioral import behavioral_facts
 from db.fifo_round_trips import fifo_compute_open_lots, fifo_compute_round_trips
-from db.realized_pnl import realized_summary
+from db.realized_pnl import _CLOSE_TOLERANCE, _RECON_EVENT_TYPES, realized_summary
 from db.trades import daily_trade_stats, list_trade_events, trade_summary_stats
 from imports.money import decimal_to_str, parse_dollar
 from imports.option_symbol import is_option_symbol
@@ -416,28 +416,96 @@ def _day_before(iso_date: str) -> str:
     return (date.fromisoformat(iso_date) - timedelta(days=1)).isoformat()
 
 
-def _period_closed_win_rate(
-    start_summary: dict[str, Any],
-    end_summary: dict[str, Any],
+def _recon_qty_delta(event: dict[str, Any]) -> Decimal:
+    event_type = event.get("event_type")
+    if event_type == "option_expired":
+        raw_qty = parse_dollar(event.get("quantity"))
+        if raw_qty < 0:
+            return abs(raw_qty)
+        return -abs(raw_qty)
+    side = (event.get("side") or "").lower()
+    qty = abs(parse_dollar(event.get("quantity")))
+    if side == "buy":
+        return qty
+    if side == "sell":
+        return -qty
+    return Decimal("0")
+
+
+def _last_flat_cash_by_symbol(events: list[dict[str, Any]]) -> dict[str, Decimal]:
+    """Per-symbol cumulative net cash at the latest end-of-day flat through events."""
+    if not events:
+        return {}
+
+    sorted_events = sorted(events, key=lambda e: e["trade_date"])
+    running_qty: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    running_cash: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    last_flat_cash: dict[str, Decimal] = {}
+
+    def _snapshot_flat_symbols() -> None:
+        for symbol, qty in running_qty.items():
+            if abs(qty) < _CLOSE_TOLERANCE:
+                last_flat_cash[symbol] = running_cash[symbol]
+
+    current_day: str | None = None
+    for event in sorted_events:
+        day = event["trade_date"]
+        if current_day is not None and day != current_day:
+            _snapshot_flat_symbols()
+        current_day = day
+
+        event_type = event.get("event_type")
+        if event_type not in _RECON_EVENT_TYPES:
+            continue
+        symbol = event.get("symbol")
+        if not symbol:
+            continue
+
+        running_cash[symbol] += parse_dollar(event.get("amount"))
+        running_qty[symbol] += _recon_qty_delta(event)
+
+    if current_day is not None:
+        _snapshot_flat_symbols()
+
+    return last_flat_cash
+
+
+def _last_flat_period_delta(
+    start_events: list[dict[str, Any]] | None,
+    end_events: list[dict[str, Any]],
+) -> Decimal:
+    end_flat = _last_flat_cash_by_symbol(end_events)
+    start_flat = _last_flat_cash_by_symbol(start_events) if start_events else {}
+    symbols = set(end_flat) | set(start_flat)
+    total = Decimal("0")
+    for symbol in symbols:
+        total += end_flat.get(symbol, Decimal("0")) - start_flat.get(symbol, Decimal("0"))
+    return total
+
+
+def _last_flat_win_rate(
+    start_events: list[dict[str, Any]] | None,
+    end_events: list[dict[str, Any]],
 ) -> float | None:
-    """Win rate for symbols that newly closed between start and end boundaries."""
-    start_by_symbol = {s["symbol"]: s for s in start_summary["per_symbol"]}
+    end_flat = _last_flat_cash_by_symbol(end_events)
+    start_flat = _last_flat_cash_by_symbol(start_events) if start_events else {}
+    symbols = set(end_flat) | set(start_flat)
     wins = 0
     count = 0
-    for entry in end_summary["per_symbol"]:
-        if entry["status"] != "closed":
+    for symbol in symbols:
+        delta = end_flat.get(symbol, Decimal("0")) - start_flat.get(symbol, Decimal("0"))
+        if delta == 0:
             continue
-        start = start_by_symbol.get(entry["symbol"])
-        start_closed = bool(start and start["status"] == "closed")
-        start_cash = parse_dollar(start["net_cash"]) if start_closed else Decimal(0)
-        delta = parse_dollar(entry["net_cash"]) - start_cash
-        if start_closed and delta == 0:
-            continue  # closed before the period and untouched since
-        # Judge the PERIOD's contribution — a symbol re-traded across the
-        # boundary counts by its new round trips, not its lifetime total.
         count += 1
         if delta > 0:
             wins += 1
+    return round(wins / count, 4) if count else None
+
+
+def _all_history_last_flat_win_rate(end_events: list[dict[str, Any]]) -> float | None:
+    end_flat = _last_flat_cash_by_symbol(end_events)
+    wins = sum(1 for cash in end_flat.values() if cash > 0)
+    count = sum(1 for cash in end_flat.values() if cash != 0)
     return round(wins / count, 4) if count else None
 
 
@@ -448,22 +516,31 @@ def realized_between(
     *,
     latest_prices: dict[str, Decimal] | None = None,
 ) -> dict[str, Any]:
-    """Net-cash realized in a period via boundary deltas on full history."""
+    """Net-cash realized in a period via last-flat boundary deltas on full history.
+
+    Recognition point: a symbol's realized P&L books on each day it ends flat
+    (running qty 0), so every completed round trip lands in the window where it
+    finished — adjoining windows always sum to the covering window. NOTE: this
+    can diverge from the closed-symbols-only figures in ``in_window_recon`` /
+    ``position_reconciliation`` — a symbol that went flat and later REOPENED
+    still contributes its completed round trips here, while closed-only recon
+    reports it as open/0 until it closes again. That divergence is intentional
+    (a finished round trip is realized whether or not you re-entered).
+    """
+    del latest_prices  # retained for API compatibility; last-flat uses events only
     end_events = _events_through(history_trades, to_date)
-    end_summary = realized_summary(end_events, latest_prices=latest_prices)
-    end_closed = parse_dollar(end_summary["realized_closed"])
 
     if from_date is None:
-        start_closed = Decimal("0")
-        closed_win_rate = end_summary["closed_win_rate"]
+        start_events = None
+        closed_win_rate = _all_history_last_flat_win_rate(end_events)
     else:
         start_events = _events_through(history_trades, _day_before(from_date))
-        start_summary = realized_summary(start_events, latest_prices=latest_prices)
-        start_closed = parse_dollar(start_summary["realized_closed"])
-        closed_win_rate = _period_closed_win_rate(start_summary, end_summary)
+        closed_win_rate = _last_flat_win_rate(start_events, end_events)
+
+    realized = _last_flat_period_delta(start_events, end_events)
 
     return {
-        "realized_closed": decimal_to_str(end_closed - start_closed),
+        "realized_closed": decimal_to_str(realized),
         "closed_win_rate": closed_win_rate,
     }
 

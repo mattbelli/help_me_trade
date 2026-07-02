@@ -310,3 +310,275 @@ def test_retraded_symbol_counts_in_period_win_rate() -> None:
     quiet = realized_between(history, "2026-06-05", "2026-06-06")
     assert parse_dollar(quiet["realized_closed"]) == Decimal(0)
     assert quiet["closed_win_rate"] is None
+
+
+def test_never_flat_books_at_final_close_no_double_count() -> None:
+    """Round trip on day D while still short never flat until final cover — no double count."""
+    history = [
+        _event(
+            "2026-01-01",
+            "S",
+            "sell",
+            Decimal("6"),
+            amount=Decimal("600"),
+            key="s0",
+            row_id=1,
+        ),
+        _event(
+            "2026-03-15",
+            "S",
+            "buy",
+            Decimal("6"),
+            amount=Decimal("-300"),
+            key="b1",
+            row_id=2,
+        ),
+        _event(
+            "2026-03-15",
+            "S",
+            "sell",
+            Decimal("6"),
+            amount=Decimal("800"),
+            key="s1",
+            row_id=3,
+        ),
+        _event(
+            "2026-09-01",
+            "S",
+            "buy",
+            Decimal("6"),
+            amount=Decimal("-600"),
+            key="b2",
+            row_id=4,
+        ),
+    ]
+    day_d = "2026-03-15"
+    close_date = "2026-09-01"
+    day_after_d = "2026-03-16"
+
+    day_d_realized = parse_dollar(
+        realized_between(history, day_d, day_d)["realized_closed"]
+    )
+    tail_realized = parse_dollar(
+        realized_between(history, day_after_d, close_date)["realized_closed"]
+    )
+    covering = parse_dollar(
+        realized_between(history, day_d, close_date)["realized_closed"]
+    )
+    all_time = parse_dollar(
+        realized_between(history, None, close_date)["realized_closed"]
+    )
+
+    assert day_d_realized == Decimal("0")
+    assert day_d_realized + tail_realized == covering
+    assert covering == all_time == Decimal("500")
+
+
+def test_lifetime_dump_splits_across_windows() -> None:
+    """Completed round trips book in the window they go flat, not at final close."""
+    history = [
+        _event(
+            "2024-06-01",
+            "T",
+            "buy",
+            Decimal("10"),
+            amount=Decimal("-1000"),
+            key="t-b1",
+            row_id=1,
+        ),
+        _event(
+            "2024-06-02",
+            "T",
+            "sell",
+            Decimal("10"),
+            amount=Decimal("2000"),
+            key="t-s1",
+            row_id=2,
+        ),
+        _event(
+            "2026-07-01",
+            "T",
+            "buy",
+            Decimal("5"),
+            amount=Decimal("-500"),
+            key="t-b2",
+            row_id=3,
+        ),
+        _event(
+            "2026-07-02",
+            "T",
+            "sell",
+            Decimal("5"),
+            amount=Decimal("800"),
+            key="t-s2",
+            row_id=4,
+        ),
+    ]
+    early = parse_dollar(
+        realized_between(history, "2024-06-01", "2024-06-02")["realized_closed"]
+    )
+    middle = parse_dollar(
+        realized_between(history, "2025-01-01", "2025-01-31")["realized_closed"]
+    )
+    later = parse_dollar(
+        realized_between(history, "2026-07-01", "2026-07-02")["realized_closed"]
+    )
+    covering = parse_dollar(
+        realized_between(history, "2024-06-01", "2026-07-02")["realized_closed"]
+    )
+
+    assert early == Decimal("1000")
+    assert middle == Decimal("0")
+    assert later == Decimal("300")
+    assert covering == Decimal("1300")
+
+
+def _daily_sum_equals_period(
+    history: list[dict],
+    from_date: str,
+    to_date: str,
+) -> None:
+    days = sorted({e["trade_date"] for e in history if from_date <= e["trade_date"] <= to_date})
+    daily = daily_boundary_realized_stats(
+        history,
+        [{"date": d, "net_amount": "0", "event_count": 0} for d in days],
+        from_date=from_date,
+        to_date=to_date,
+    )
+    per_day_total = sum(parse_dollar(row["realized"]) for row in daily)
+    period = parse_dollar(
+        realized_between(history, from_date, to_date)["realized_closed"]
+    )
+    assert per_day_total == period
+
+
+@pytest.mark.parametrize(
+    ("history", "from_date", "to_date"),
+    [
+        (
+            [
+                _event(
+                    "2026-01-01",
+                    "X",
+                    "buy",
+                    Decimal("100"),
+                    amount=Decimal("-1000"),
+                    key="x-b",
+                    row_id=1,
+                ),
+                _event(
+                    "2026-01-02",
+                    "X",
+                    "sell",
+                    Decimal("100"),
+                    amount=Decimal("1200"),
+                    key="x-s",
+                    row_id=2,
+                ),
+            ],
+            "2026-01-01",
+            "2026-01-02",
+        ),
+        (
+            [
+                _event("2026-01-01", "S", "sell", Decimal("6"), amount=Decimal("600"), key="s0"),
+                _event("2026-03-15", "S", "buy", Decimal("6"), amount=Decimal("-300"), key="b1"),
+                _event("2026-03-15", "S", "sell", Decimal("6"), amount=Decimal("800"), key="s1"),
+                _event("2026-09-01", "S", "buy", Decimal("6"), amount=Decimal("-600"), key="b2"),
+            ],
+            "2026-01-01",
+            "2026-09-01",
+        ),
+        (
+            [
+                _event("2024-06-01", "T", "buy", Decimal("10"), amount=Decimal("-1000"), key="t-b1"),
+                _event("2024-06-02", "T", "sell", Decimal("10"), amount=Decimal("2000"), key="t-s1"),
+                _event("2026-07-01", "T", "buy", Decimal("5"), amount=Decimal("-500"), key="t-b2"),
+                _event("2026-07-02", "T", "sell", Decimal("5"), amount=Decimal("800"), key="t-s2"),
+            ],
+            "2024-06-01",
+            "2026-07-02",
+        ),
+    ],
+)
+def test_daily_sum_equals_period_all_fixtures(
+    history: list[dict],
+    from_date: str,
+    to_date: str,
+) -> None:
+    _daily_sum_equals_period(history, from_date, to_date)
+
+
+def test_open_core_intra_window_round_trip_contributes_zero() -> None:
+    history = [
+        _event(
+            "2026-01-01",
+            "CORE",
+            "buy",
+            Decimal("100"),
+            amount=Decimal("-5000"),
+            key="c-b0",
+            row_id=1,
+        ),
+        _event(
+            "2026-06-01",
+            "CORE",
+            "buy",
+            Decimal("50"),
+            amount=Decimal("-2500"),
+            key="c-b1",
+            row_id=2,
+        ),
+        _event(
+            "2026-06-02",
+            "CORE",
+            "sell",
+            Decimal("50"),
+            amount=Decimal("3000"),
+            key="c-s1",
+            row_id=3,
+        ),
+    ]
+    result = realized_between(history, "2026-06-01", "2026-06-02")
+    assert parse_dollar(result["realized_closed"]) == Decimal("0")
+
+
+def test_all_history_includes_prior_flat_excludes_open_tail() -> None:
+    history = [
+        _event(
+            "2026-01-01",
+            "M",
+            "buy",
+            Decimal("10"),
+            amount=Decimal("-1000"),
+            key="m-b1",
+            row_id=1,
+        ),
+        _event(
+            "2026-01-02",
+            "M",
+            "sell",
+            Decimal("10"),
+            amount=Decimal("1500"),
+            key="m-s1",
+            row_id=2,
+        ),
+        _event(
+            "2026-06-01",
+            "M",
+            "buy",
+            Decimal("20"),
+            amount=Decimal("-2000"),
+            key="m-b2",
+            row_id=3,
+        ),
+    ]
+    all_history = parse_dollar(
+        realized_between(history, None, "2026-06-01")["realized_closed"]
+    )
+    closed_only = parse_dollar(
+        realized_summary(history)["realized_closed"]
+    )
+
+    assert all_history == Decimal("500")
+    assert closed_only == Decimal("0")
