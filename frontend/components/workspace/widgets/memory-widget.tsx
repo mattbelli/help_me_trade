@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -42,7 +43,15 @@ function sortNewestFirst(items: MemoryRecord[]): MemoryRecord[] {
   );
 }
 
+function researchArtifactId(memory: MemoryRecord): number | null {
+  if (memory.type !== "research") return null;
+  const raw = memory.metadata?.artifact_id;
+  const id = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 export function MemoryWidget({}: WidgetProps) {
+  const router = useRouter();
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [loading, setLoading] = useState(true);
@@ -133,11 +142,41 @@ export function MemoryWidget({}: WidgetProps) {
             </p>
           ) : null}
           <ul className="space-y-1">
-            {visibleMemories.map((memory) => (
+            {visibleMemories.map((memory) => {
+              const artifactId = researchArtifactId(memory);
+              const openResearch = artifactId
+                ? () => router.push(`/research?id=${artifactId}`)
+                : undefined;
+
+              return (
               <li
                 key={memory.id}
                 className="group flex gap-2 rounded px-1 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
               >
+                {openResearch ? (
+                  <button
+                    type="button"
+                    onClick={openResearch}
+                    className="min-w-0 flex-1 cursor-pointer space-y-1 text-left"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          "rounded border px-1 py-px font-mono text-[9px] uppercase tracking-wide",
+                          typeChipClass(memory.type),
+                        )}
+                      >
+                        {MEMORY_TYPE_LABELS[memory.type]}
+                      </span>
+                      <span className="font-mono text-[10px] tabular-nums text-[var(--fg-faint)]">
+                        {relativeTime(memory.created_at)}
+                      </span>
+                    </div>
+                    <p className="line-clamp-3 font-mono text-[11px] leading-snug text-foreground">
+                      {memory.content}
+                    </p>
+                  </button>
+                ) : (
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
@@ -156,16 +195,21 @@ export function MemoryWidget({}: WidgetProps) {
                     {memory.content}
                   </p>
                 </div>
+                )}
                 <button
                   type="button"
                   className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[11px] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
                   aria-label="Delete memory"
-                  onClick={() => void handleDelete(memory)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDelete(memory);
+                  }}
                 >
                   ✕
                 </button>
               </li>
-            ))}
+            );
+            })}
           </ul>
         </div>
       )}

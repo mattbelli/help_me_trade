@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ai.research.graph import run_research
+from signals.notify import notify
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,22 @@ async def _run_job(job_id: str) -> None:
             )
             job.result = result
             job.status = "completed"
+            artifact_id = (result or {}).get("artifact_id")
+            if artifact_id is not None:
+                title = (result.get("report") or {}).get("title") or f"Research ready: {job.topic}"
+                try:
+                    await notify(
+                        kind="research_ready",
+                        title=title,
+                        body=(result.get("markdown") or "")[:280],
+                        severity="info",
+                        ref_type="research",
+                        ref_id=str(artifact_id),
+                        action_url=f"/research?id={artifact_id}",
+                        data={"artifact_id": artifact_id, "symbol": job.symbol},
+                    )
+                except Exception:
+                    logger.exception("research_ready notify failed for job %s", job.id)
         except asyncio.TimeoutError:
             job.status = "failed"
             job.error = f"Research timed out after {JOB_TIMEOUT_SECONDS}s"

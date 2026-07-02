@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ExternalLink, FileSearch, Loader2, Sparkles, Trash2 } from "lucide-react";
 
@@ -19,6 +19,11 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { apiFetch } from "@/lib/api";
+import {
+  buildReportThemeOverride,
+  injectReportTheme,
+} from "@/lib/report-theme";
 import {
   deleteResearchArtifact,
   getResearchArtifact,
@@ -30,6 +35,7 @@ import {
   type ResearchConfig,
   type ResearchDepth,
 } from "@/lib/research";
+import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
 
 const DEPTH_LABELS: Record<ResearchDepth, string> = {
   quick: "Quick — 1 pass",
@@ -47,6 +53,79 @@ const PHASE_LABELS: Record<string, string> = {
   writing: "Writing report",
   completed: "Report ready",
 };
+
+function ResearchReportViewer({
+  artifactId,
+  html,
+  title,
+}: {
+  artifactId: number;
+  html: string | null;
+  title: string;
+}) {
+  const [rawHtml, setRawHtml] = useState<string | null>(html);
+  const [themeNonce, setThemeNonce] = useState(0);
+
+  useEffect(() => {
+    setRawHtml(html);
+  }, [html, artifactId]);
+
+  useEffect(() => {
+    if (rawHtml) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch(researchHtmlUrl(artifactId), { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        setRawHtml(await res.text());
+      } catch {
+        if (!cancelled) setRawHtml(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactId, rawHtml]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));
+    obs.observe(el, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class"],
+    });
+    const onVars = () => setThemeNonce((n) => n + 1);
+    window.addEventListener(THEME_VARS_EVENT, onVars);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener(THEME_VARS_EVENT, onVars);
+    };
+  }, []);
+
+  const themedSrcDoc = useMemo(() => {
+    if (!rawHtml) return "";
+    if (typeof document === "undefined") return rawHtml;
+    return injectReportTheme(rawHtml, buildReportThemeOverride());
+  }, [rawHtml, themeNonce]);
+
+  if (!rawHtml) {
+    return (
+      <div className="flex h-[560px] items-center justify-center text-sm text-muted-foreground">
+        Loading report…
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      title={title}
+      srcDoc={themedSrcDoc}
+      className="h-[560px] w-full border-0 bg-[var(--bg-inset)]"
+      sandbox="allow-same-origin"
+    />
+  );
+}
 
 export function ResearchPage() {
   const searchParams = useSearchParams();
@@ -364,11 +443,10 @@ export function ResearchPage() {
               </div>
             )}
             {selected?.html && (
-              <iframe
+              <ResearchReportViewer
+                artifactId={selected.id}
+                html={selected.html}
                 title={selected.topic}
-                src={researchHtmlUrl(selected.id)}
-                className="h-[560px] w-full border-0 bg-[var(--bg-inset)]"
-                sandbox="allow-same-origin"
               />
             )}
             {selected && !selected.html && selected.markdown && (

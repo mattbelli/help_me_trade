@@ -1,6 +1,8 @@
 import type { WorkspaceNotification } from "./use-notification-store";
 
-export type NotificationTarget = { widgetType: string; symbol?: string };
+export type NotificationTarget =
+  | { widgetType: string; symbol?: string }
+  | { route: string };
 
 function resolveSymbol(n: WorkspaceNotification): string | undefined {
   // Prefer the payload's symbol — for chart-drawn price alerts `ref_id` is the
@@ -42,6 +44,8 @@ export function notificationTarget(
       return sym ? { widgetType: "chart", symbol: sym } : null;
     case "report_ready":
       return { widgetType: "reports" };
+    case "research_ready":
+      return { route: n.action_url || "/research" };
   }
   return null;
 }
