@@ -12,7 +12,14 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Fable-audit fix rounds (Decision Engine Phase 0/0.5) (2026-07-02)
 
-> ▶ **LATEST (2026-07-02 late night) — Round 10: last-flat realized recognition SHIPPED + deployed (96916e7).**
+> ▶ **LATEST (2026-07-02 late night) — Round 11: aggregate realized keyed by (account, symbol) (a494601).** Round
+> 10's last-flat merged the same ticker across accounts in all_real/all_paper (TSLA in Individual+Joint on 6/29 →
+> phantom +$4,735). Now keyed by (account_id, symbol); all_real == Σ per-account to the cent, deployed + live
+> verified. Adversarial-reviewed (300 randomized multi-account trials). Open UI bug backlog filed as tasks #18–21
+> (theme dark-leaks/hover, reports iframe palette, widget-overlap-on-nav hydrate race, sector-radar zero-exposure
+> green dot) — recon done, fixes queued next.
+>
+> Round 10 (same night): last-flat realized recognition SHIPPED + deployed (96916e7).
 > Round 9's founder-approved baseline adjustments (TSLA/PLTR/GME, $0-amount `manual_adjustment` events, all 4
 > accounts broker-confirmed flat) made TSLA read fully-closed → closed-only recognition dumped its lifetime
 > +$44.5k into the WEEK view. `db/analytics.py` now books realized at every day a symbol ends flat (telescoping
