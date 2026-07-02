@@ -16,11 +16,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ai.llm.factory import clear_llm_cache
-from ai.reflection.scheduler import reflection_loop
+from ai.reflection.scheduler import REFLECTION_INTERVAL_SECONDS, reflection_once
 from ai.rules.engine import evaluate_on_snapshot
 from api.ai_routes import router as ai_router
 from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
 from api.device_routes import router as device_router
+from api.jobs import (
+    jobs_health,
+    mark_alive,
+    newest_backup_age_s,
+    register_job,
+    register_watchdog_job,
+    start_all,
+)
 from api.journal_routes import router as journal_router
 from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
@@ -74,6 +82,7 @@ from db.accounts import (
     reconcile_account_external_id,
 )
 from db.ai_tables import delete_rule, init_ai_tables
+from db.base import DEFAULT_DB_PATH
 from db.chart_features import (
     create_chart_drawing,
     create_price_alert,
@@ -179,6 +188,9 @@ _MORNING_REPORT_ENV_ENABLED = os.environ.get(
     "MORNING_REPORT_ENABLED", "1"
 ).strip() not in ("0", "false", "no")
 MORNING_REPORT_SYMBOL = "SPY"
+_BARS_PREWARM_INTERVAL = 15.0
+_TRADE_SYNC_INTERVAL_SECONDS = 3600.0
+_ALERT_SYMBOL_INTERVAL_SECONDS = 30.0
 _PROFILE_FRESH_S = 20 * 3600
 _PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
 _UNIVERSE_DIR = Path(__file__).resolve().parent.parent / "signals" / "universes"
@@ -397,6 +409,7 @@ async def _poll_once() -> None:
     results = await asyncio.gather(*tasks, return_exceptions=False)
     if any(results):
         poll_health.record_success()
+        mark_alive("poll")
 
     # Exit engine — ONE pass after all snapshots are saved + fills reconciled this
     # cycle, so it reads fresh per-account snapshots and a current managed ledger. It
@@ -467,6 +480,8 @@ async def _signal_scan_loop() -> None:
                 logger.exception("Dip-strategy scan failed")
         except Exception:
             logger.exception("Signal scan loop iteration failed")
+        else:
+            mark_alive("signal_scan")
         await asyncio.sleep(SIGNAL_SCAN_INTERVAL_SECONDS)
 
 
@@ -479,6 +494,8 @@ async def _session_node_loop() -> None:
             await run_session_node_scan()
         except Exception:
             logger.exception("Session-node scan failed")
+        else:
+            mark_alive("session_node")
         await asyncio.sleep(SESSION_NODE_SCAN_INTERVAL_SECONDS)
 
 
@@ -508,6 +525,8 @@ async def _earnings_refresh_loop() -> None:
                 logger.info("Earnings calendar refresh upserted %d rows", n)
         except Exception:
             logger.exception("Earnings refresh loop iteration failed")
+        else:
+            mark_alive("earnings_refresh")
         await asyncio.sleep(EARNINGS_REFRESH_INTERVAL_SECONDS)
 
 
@@ -519,6 +538,8 @@ async def _regime_refresh_loop() -> None:
                 logger.info("Regime macro refresh upserted %d rows", n)
         except Exception:
             logger.exception("Regime refresh loop iteration failed")
+        else:
+            mark_alive("regime_refresh")
         await asyncio.sleep(REGIME_REFRESH_INTERVAL_SECONDS)
 
 
@@ -543,6 +564,8 @@ async def _momentum_bars_refresh_loop() -> None:
                 logger.info("Momentum daily bars refresh upserted %d rows", n)
         except Exception:
             logger.exception("Momentum bars refresh loop iteration failed")
+        else:
+            mark_alive("momentum_bars_refresh")
         await asyncio.sleep(MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS)
 
 
@@ -611,6 +634,8 @@ async def _volume_profile_refresh_loop() -> None:
                 logger.info("Volume profiles refreshed for %d symbols", n)
         except Exception:
             logger.exception("Volume profile refresh loop iteration failed")
+        else:
+            mark_alive("volume_profile_refresh")
         await asyncio.sleep(VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS)
 
 
@@ -620,14 +645,16 @@ async def _trade_sync_loop() -> None:
         results = await async_sync_all_enabled_brokers()
         for r in results:
             logger.info("Trade sync on connect: %s", r)
+        mark_alive("trade_sync")
     except Exception:
         logger.exception("Initial trade sync failed")
     while True:
-        await asyncio.sleep(3600)
+        await asyncio.sleep(_TRADE_SYNC_INTERVAL_SECONDS)
         try:
             results = await async_sync_all_enabled_brokers()
             for r in results:
                 logger.info("Periodic trade sync: %s", r)
+            mark_alive("trade_sync")
         except Exception:
             logger.exception("Periodic trade sync failed")
 
@@ -648,7 +675,9 @@ async def _alert_symbol_loop() -> None:
                 await _poll_ext_quotes_for_alerts(symbols)
         except Exception:
             logger.exception("Alert symbol loop iteration failed")
-        await asyncio.sleep(30)
+        else:
+            mark_alive("alert_symbol")
+        await asyncio.sleep(_ALERT_SYMBOL_INTERVAL_SECONDS)
 
 
 async def _poll_ext_quotes_for_alerts(symbols: set[str]) -> None:
@@ -704,90 +733,76 @@ def _mark_rvol_alerted(symbol: str, today_et: date) -> None:
     _rvol_alert_last_date[symbol] = today_et
 
 
-async def _rvol_alert_loop() -> None:
-    """Every ~5 min during RTH, push a phone alert for any watchlist symbol with RVOL ≥ threshold.
+async def _rvol_alert_once() -> None:
+    if _market_session() != "regular":
+        return
 
-    Env gates:
-      RVOL_ALERTS_ENABLED        default "1"  (set to "0" to disable)
-      RVOL_ALERT_THRESHOLD       default 3.0
-      RVOL_ALERT_INTERVAL_SECONDS default 300
-    """
-    while True:
-        await asyncio.sleep(RVOL_ALERT_INTERVAL_SECONDS)
-        if not _RVOL_ALERTS_ENABLED:
-            continue
+    bucket = _rvol_bucket_now()
+    if bucket is None:
+        return
+
+    symbols = _all_watchlist_symbols()
+    if not symbols:
+        return
+
+    try:
+        provider = get_market_data_provider()
+    except BrokerError as exc:
+        logger.warning("RVOL alert: provider unavailable: %s", exc)
+        return
+
+    if not hasattr(provider, "aget_quotes"):
+        return
+
+    from brokers.schwab_market_data import SchwabMarketData
+
+    if not isinstance(provider, SchwabMarketData):
+        return
+
+    try:
+        quotes = await provider.aget_quotes(symbols)
+    except Exception:
+        logger.exception("RVOL alert: quote fetch failed")
+        return
+
+    today_et = datetime.now(_ET).date()
+
+    from signals.notify import notify
+
+    for sym in symbols:
         try:
-            if _market_session() != "regular":
+            q = quotes.get(sym)
+            if q is None:
                 continue
-
-            bucket = _rvol_bucket_now()
-            if bucket is None:
+            total_volume = q.get("total_volume")
+            if total_volume is None or total_volume <= 0:
                 continue
-
-            symbols = _all_watchlist_symbols()
-            if not symbols:
+            profile = load_profile(sym)
+            if profile is None:
                 continue
-
-            try:
-                provider = get_market_data_provider()
-            except BrokerError as exc:
-                logger.warning("RVOL alert: provider unavailable: %s", exc)
+            rvol_val = _compute_rvol_from_total_volume(profile, float(total_volume), bucket)
+            if rvol_val is None or rvol_val < RVOL_ALERT_THRESHOLD:
                 continue
-
-            if not hasattr(provider, "aget_quotes"):
+            if not _should_rvol_alert(sym, today_et):
                 continue
-
-            from brokers.schwab_market_data import SchwabMarketData
-
-            if not isinstance(provider, SchwabMarketData):
-                continue
-
-            try:
-                quotes = await provider.aget_quotes(symbols)
-            except Exception:
-                logger.exception("RVOL alert: quote fetch failed")
-                continue
-
-            today_et = datetime.now(_ET).date()
-
-            from signals.notify import notify
-
-            for sym in symbols:
-                try:
-                    q = quotes.get(sym)
-                    if q is None:
-                        continue
-                    total_volume = q.get("total_volume")
-                    if total_volume is None or total_volume <= 0:
-                        continue
-                    profile = load_profile(sym)
-                    if profile is None:
-                        continue
-                    rvol_val = _compute_rvol_from_total_volume(profile, float(total_volume), bucket)
-                    if rvol_val is None or rvol_val < RVOL_ALERT_THRESHOLD:
-                        continue
-                    if not _should_rvol_alert(sym, today_et):
-                        continue
-                    price = q.get("regular_last") or q.get("ext_last")
-                    price_str = f"${price:.2f}" if price else "n/a"
-                    await notify(
-                        kind="rvol",
-                        title=f"Unusual volume: {sym}",
-                        body=f"{sym} {rvol_val:.1f}× normal volume ({price_str})",
-                        severity="info",
-                        action_url=f"/watchlist/{sym}",
-                        data={
-                            "symbol": sym,
-                            "rvol": round(rvol_val, 2),
-                            "price": price,
-                        },
-                    )
-                    _mark_rvol_alerted(sym, today_et)
-                    logger.info("RVOL alert sent: %s rvol=%.2f", sym, rvol_val)
-                except Exception:
-                    logger.exception("RVOL alert: error processing symbol %s", sym)
+            price = q.get("regular_last") or q.get("ext_last")
+            price_str = f"${price:.2f}" if price else "n/a"
+            await notify(
+                kind="rvol",
+                title=f"Unusual volume: {sym}",
+                body=f"{sym} {rvol_val:.1f}× normal volume ({price_str})",
+                severity="info",
+                action_url=f"/watchlist/{sym}",
+                data={
+                    "symbol": sym,
+                    "rvol": round(rvol_val, 2),
+                    "price": price,
+                },
+            )
+            _mark_rvol_alerted(sym, today_et)
+            logger.info("RVOL alert sent: %s rvol=%.2f", sym, rvol_val)
         except Exception:
-            logger.exception("RVOL alert loop iteration failed")
+            logger.exception("RVOL alert: error processing symbol %s", sym)
 
 
 def _upcoming_earnings_date(symbol: str, today_iso: str) -> str | None:
@@ -885,23 +900,6 @@ async def _earnings_alert_once() -> None:
             logger.exception("Earnings alert: error processing symbol %s", sym)
 
 
-async def _earnings_alert_loop() -> None:
-    """Every ~6h, push phone alerts for upcoming watchlist earnings milestones.
-
-    Env gates:
-      EARNINGS_ALERTS_ENABLED           default "1"  (set to "0" to disable)
-      EARNINGS_ALERT_INTERVAL_SECONDS   default 21600
-    """
-    while True:
-        await asyncio.sleep(EARNINGS_ALERT_INTERVAL_SECONDS)
-        if not _EARNINGS_ALERTS_ENABLED:
-            continue
-        try:
-            await _earnings_alert_once()
-        except Exception:
-            logger.exception("Earnings alert loop iteration failed")
-
-
 # Schwab health alert state: last-alert date (resets each ET day)
 _schwab_health_last_date: dict[str, date] = {}  # key: alert type ("expiring"/"offline"/"probe_failed")
 _schwab_probe_failures = 0
@@ -989,54 +987,28 @@ async def _schwab_health_once() -> None:
                     )
 
 
-async def _schwab_health_loop() -> None:
-    """Every ~6h, check Schwab token health and push if auth is expiring or offline.
-
-    Env gates:
-      SCHWAB_HEALTH_ALERTS_ENABLED   default "1"  (set to "0" to disable)
-      SCHWAB_HEALTH_INTERVAL_SECONDS default 21600
-    """
-    while True:
-        await asyncio.sleep(SCHWAB_HEALTH_INTERVAL_SECONDS)
-        if not _SCHWAB_HEALTH_ALERTS_ENABLED:
-            continue
-        try:
-            await _schwab_health_once()
-        except Exception:
-            logger.exception("Schwab health loop iteration failed")
-
-
 _schwab_snapshot_last_date: dict = {}
 
 
-async def _schwab_snapshot_loop() -> None:
-    """Guarantee one end-of-day Schwab equity snapshot per trading day, even if no
-    client viewed the accounts. Read-only: the daily row is written inside the
-    fetch (``get_schwab_accounts`` → ``record_schwab_daily``); this loop just forces
-    one fresh fetch after the close so the accurate day P&L / equity is persisted."""
-    while True:
-        await asyncio.sleep(SCHWAB_SNAPSHOT_INTERVAL_SECONDS)
-        try:
-            now_et = datetime.now(_ET)
-            today = now_et.date()
-            if now_et.weekday() >= 5:  # weekend — no trading day
-                continue
-            after_close = now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 5)
-            if not after_close:
-                continue
-            if _schwab_snapshot_last_date.get("date") == today:
-                continue
-            from brokers.schwab_accounts import get_schwab_accounts
-            from brokers.schwab_auth import token_exists
+async def _schwab_snapshot_once() -> None:
+    now_et = datetime.now(_ET)
+    today = now_et.date()
+    if now_et.weekday() >= 5:  # weekend — no trading day
+        return
+    after_close = now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 5)
+    if not after_close:
+        return
+    if _schwab_snapshot_last_date.get("date") == today:
+        return
+    from brokers.schwab_accounts import get_schwab_accounts
+    from brokers.schwab_auth import token_exists
 
-            if not token_exists():
-                continue
-            data = await get_schwab_accounts(force=True)
-            if data.get("authenticated"):
-                _schwab_snapshot_last_date["date"] = today
-                logger.info("Schwab EOD equity snapshot captured for %s", today)
-        except Exception:
-            logger.exception("Schwab snapshot loop iteration failed")
+    if not token_exists():
+        return
+    data = await get_schwab_accounts(force=True)
+    if data.get("authenticated"):
+        _schwab_snapshot_last_date["date"] = today
+        logger.info("Schwab EOD equity snapshot captured for %s", today)
 
 
 def _morning_report_window(now_et: datetime, hour_et: int) -> bool:
@@ -1221,6 +1193,98 @@ async def _reports_scheduler_loop() -> None:
         except Exception:
             # Guards the config reads too — this loop must never die (audit LOW-7).
             logger.exception("Reports scheduler loop iteration failed")
+        else:
+            mark_alive("reports_scheduler")
+
+
+_background_jobs_registered = False
+
+
+def _register_background_jobs() -> None:
+    global _background_jobs_registered
+    if _background_jobs_registered:
+        return
+    _background_jobs_registered = True
+
+    from api import jobs as jobs_mod
+
+    noop = jobs_mod._heartbeat_noop
+
+    heartbeat_jobs = [
+        ("poll", POLL_INTERVAL_SECONDS, None),
+        ("signal_scan", SIGNAL_SCAN_INTERVAL_SECONDS, None),
+        ("session_node", SESSION_NODE_SCAN_INTERVAL_SECONDS, None),
+        ("alert_symbol", _ALERT_SYMBOL_INTERVAL_SECONDS, None),
+        ("trade_sync", _TRADE_SYNC_INTERVAL_SECONDS, None),
+        ("earnings_refresh", float(EARNINGS_REFRESH_INTERVAL_SECONDS), None),
+        ("regime_refresh", float(REGIME_REFRESH_INTERVAL_SECONDS), None),
+        (
+            "momentum_bars_refresh",
+            float(MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS),
+            None,
+        ),
+        (
+            "volume_profile_refresh",
+            float(VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS),
+            None,
+        ),
+        (
+            "reports_scheduler",
+            float(MORNING_REPORT_INTERVAL_SECONDS),
+            lambda: _MORNING_REPORT_ENV_ENABLED,
+        ),
+        ("bars_prewarm", _BARS_PREWARM_INTERVAL, None),
+    ]
+    for name, interval_s, enabled in heartbeat_jobs:
+        register_job(
+            jobs_mod.Job(
+                name=name,
+                fn=noop,
+                interval_s=interval_s,
+                enabled=enabled,
+                heartbeat_only=True,
+            )
+        )
+
+    register_job(
+        jobs_mod.Job(
+            name="rvol_alert",
+            fn=_rvol_alert_once,
+            interval_s=float(RVOL_ALERT_INTERVAL_SECONDS),
+            enabled=lambda: _RVOL_ALERTS_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="earnings_alert",
+            fn=_earnings_alert_once,
+            interval_s=float(EARNINGS_ALERT_INTERVAL_SECONDS),
+            enabled=lambda: _EARNINGS_ALERTS_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="schwab_health",
+            fn=_schwab_health_once,
+            interval_s=float(SCHWAB_HEALTH_INTERVAL_SECONDS),
+            enabled=lambda: _SCHWAB_HEALTH_ALERTS_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="schwab_snapshot",
+            fn=_schwab_snapshot_once,
+            interval_s=float(SCHWAB_SNAPSHOT_INTERVAL_SECONDS),
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="reflection",
+            fn=reflection_once,
+            interval_s=float(REFLECTION_INTERVAL_SECONDS),
+        )
+    )
+    register_watchdog_job()
 
 
 @asynccontextmanager
@@ -1273,57 +1337,24 @@ async def lifespan(app: FastAPI):
         ):
             await reconcile_pending_executions(name)
     await _poll_once()
-    poll_task = asyncio.create_task(_poll_loop())
-    scan_task = asyncio.create_task(_signal_scan_loop())
-    session_node_task = asyncio.create_task(_session_node_loop())
-    alert_task = asyncio.create_task(_alert_symbol_loop())
-    reflection_task = asyncio.create_task(reflection_loop())
-    sync_task = asyncio.create_task(_trade_sync_loop())
-    earnings_task = asyncio.create_task(_earnings_refresh_loop())
-    regime_task = asyncio.create_task(_regime_refresh_loop())
-    momentum_bars_task = asyncio.create_task(_momentum_bars_refresh_loop())
-    volume_profile_task = asyncio.create_task(_volume_profile_refresh_loop())
-    rvol_alert_task = asyncio.create_task(_rvol_alert_loop())
-    earnings_alert_task = asyncio.create_task(_earnings_alert_loop())
-    schwab_health_task = asyncio.create_task(_schwab_health_loop())
-    schwab_snapshot_task = asyncio.create_task(_schwab_snapshot_loop())
-    morning_report_task = asyncio.create_task(_reports_scheduler_loop())
-    bars_prewarm_task = asyncio.create_task(_bars_prewarm_loop())
+    _register_background_jobs()
+    background_tasks = start_all() + [
+        asyncio.create_task(_poll_loop()),
+        asyncio.create_task(_signal_scan_loop()),
+        asyncio.create_task(_session_node_loop()),
+        asyncio.create_task(_alert_symbol_loop()),
+        asyncio.create_task(_trade_sync_loop()),
+        asyncio.create_task(_earnings_refresh_loop()),
+        asyncio.create_task(_regime_refresh_loop()),
+        asyncio.create_task(_momentum_bars_refresh_loop()),
+        asyncio.create_task(_volume_profile_refresh_loop()),
+        asyncio.create_task(_reports_scheduler_loop()),
+        asyncio.create_task(_bars_prewarm_loop()),
+    ]
     yield
-    earnings_task.cancel()
-    regime_task.cancel()
-    momentum_bars_task.cancel()
-    volume_profile_task.cancel()
-    rvol_alert_task.cancel()
-    earnings_alert_task.cancel()
-    schwab_health_task.cancel()
-    schwab_snapshot_task.cancel()
-    morning_report_task.cancel()
-    bars_prewarm_task.cancel()
-    sync_task.cancel()
-    poll_task.cancel()
-    scan_task.cancel()
-    session_node_task.cancel()
-    alert_task.cancel()
-    reflection_task.cancel()
-    for task in (
-        poll_task,
-        scan_task,
-        session_node_task,
-        alert_task,
-        reflection_task,
-        sync_task,
-        earnings_task,
-        regime_task,
-        momentum_bars_task,
-        volume_profile_task,
-        rvol_alert_task,
-        earnings_alert_task,
-        schwab_health_task,
-        schwab_snapshot_task,
-        morning_report_task,
-        bars_prewarm_task,
-    ):
+    for task in background_tasks:
+        task.cancel()
+    for task in background_tasks:
         try:
             await task
         except asyncio.CancelledError:
@@ -1356,13 +1387,20 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict[str, int | str | float | bool | None]:
+def health() -> dict[str, int | str | float | bool | list | None]:
     age = poll_health.age_seconds()
+    try:
+        db_size_bytes = os.stat(DEFAULT_DB_PATH).st_size
+    except OSError:
+        db_size_bytes = None
     return {
         "status": "ok",
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
         "last_poll_age_seconds": age,
         "poll_healthy": poll_health.is_healthy(POLL_INTERVAL_SECONDS),
+        "jobs": jobs_health(),
+        "db_size_bytes": db_size_bytes,
+        "newest_backup_age_s": newest_backup_age_s(),
     }
 
 
@@ -2290,7 +2328,6 @@ _BARS_CACHE_TTL = {
 _BARS_SEEN_SYMBOLS: dict[str, float] = {}          # symbol -> last-requested monotonic
 _BARS_SEEN_SPECS: dict[tuple[str, int], float] = {}  # (timeframe, days) -> last-requested monotonic
 _BARS_SEEN_TTL = 30 * 60.0          # forget a symbol/spec 30 min after last request
-_BARS_PREWARM_INTERVAL = 15.0       # loop cadence (s)
 _BARS_PREWARM_REFRESH_LEAD = 25.0   # refetch when <25s of cache TTL remains (never go cold mid-use)
 _BARS_PREWARM_MAX_SYMBOLS = 40      # cap Schwab load for big watchlists
 _BARS_PREWARM_PACE = 0.25           # sleep between actual fetches (s)
@@ -2415,6 +2452,8 @@ async def _bars_prewarm_loop() -> None:
             await _bars_prewarm_once()
         except Exception:
             logger.exception("Bars prewarm loop iteration failed")
+        else:
+            mark_alive("bars_prewarm")
         await asyncio.sleep(_BARS_PREWARM_INTERVAL)
 
 

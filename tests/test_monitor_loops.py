@@ -6,7 +6,6 @@ the loop iteration helpers, without exercising network or APNs plumbing.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -82,9 +81,9 @@ def test_multiple_symbols_dedup_independently():
 
 
 @pytest.mark.asyncio
-async def test_rvol_alert_loop_calls_notify_with_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rvol_alert_once_calls_notify_with_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     """RVOL spike path emits through notify() with kind=rvol and push enabled."""
-    from api.main import _rvol_alert_last_date, _rvol_alert_loop
+    from api.main import _rvol_alert_last_date, _rvol_alert_once
 
     _rvol_alert_last_date.pop("AAPL", None)
 
@@ -108,15 +107,6 @@ async def test_rvol_alert_loop_calls_notify_with_kind(monkeypatch: pytest.Monkey
     provider = object.__new__(SchwabMarketData)
     provider.aget_quotes = _FakeProvider().aget_quotes  # type: ignore[method-assign]
 
-    sleep_calls = 0
-
-    async def _fake_sleep(_seconds: float) -> None:
-        nonlocal sleep_calls
-        sleep_calls += 1
-        if sleep_calls > 1:
-            raise asyncio.CancelledError()
-
-    monkeypatch.setattr("api.main.asyncio.sleep", _fake_sleep)
     monkeypatch.setattr("api.main._RVOL_ALERTS_ENABLED", True)
     monkeypatch.setattr("api.main._market_session", lambda: "regular")
     monkeypatch.setattr("api.main._rvol_bucket_now", lambda: 38)
@@ -146,8 +136,7 @@ async def test_rvol_alert_loop_calls_notify_with_kind(monkeypatch: pytest.Monkey
     )
     monkeypatch.setattr("signals.notify.notify", _fake_notify)
 
-    with pytest.raises(asyncio.CancelledError):
-        await _rvol_alert_loop()
+    await _rvol_alert_once()
 
     assert len(notify_calls) == 1
     call = notify_calls[0]
