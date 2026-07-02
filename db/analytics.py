@@ -212,35 +212,6 @@ def day_of_week_stats(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def daily_realized_stats(
-    round_trips: list[dict[str, Any]],
-    *,
-    from_date: str | None = None,
-    to_date: str | None = None,
-) -> list[dict[str, Any]]:
-    """Daily realized P&L from closed round-trips (by close_date)."""
-    by_day: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    counts: dict[str, int] = defaultdict(int)
-    for rt in round_trips:
-        day = rt["close_date"]
-        if from_date and day < from_date:
-            continue
-        if to_date and day > to_date:
-            continue
-        by_day[day] += parse_dollar(rt["pnl"])
-        counts[day] += 1
-
-    return [
-        {
-            "date": day,
-            "net_amount": decimal_to_str(amount),
-            "event_count": counts[day],
-            "close_count": counts[day],
-        }
-        for day, amount in sorted(by_day.items())
-    ]
-
-
 def day_of_week_realized(round_trips: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_dow: dict[int, dict[str, Any]] = defaultdict(
         lambda: {"net_amount": Decimal("0"), "trade_count": 0}
@@ -433,6 +404,109 @@ def _relevant_trade_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [e for e in events if e["event_type"] in ("trade", "option_expired")]
 
 
+def _events_through(
+    events: list[dict[str, Any]], through_date: str | None
+) -> list[dict[str, Any]]:
+    if through_date is None:
+        return list(events)
+    return [e for e in events if e["trade_date"] <= through_date]
+
+
+def _day_before(iso_date: str) -> str:
+    return (date.fromisoformat(iso_date) - timedelta(days=1)).isoformat()
+
+
+def _period_closed_win_rate(
+    start_summary: dict[str, Any],
+    end_summary: dict[str, Any],
+) -> float | None:
+    """Win rate for symbols that newly closed between start and end boundaries."""
+    start_by_symbol = {s["symbol"]: s for s in start_summary["per_symbol"]}
+    wins = 0
+    count = 0
+    for entry in end_summary["per_symbol"]:
+        if entry["status"] != "closed":
+            continue
+        start = start_by_symbol.get(entry["symbol"])
+        start_closed = bool(start and start["status"] == "closed")
+        start_cash = parse_dollar(start["net_cash"]) if start_closed else Decimal(0)
+        delta = parse_dollar(entry["net_cash"]) - start_cash
+        if start_closed and delta == 0:
+            continue  # closed before the period and untouched since
+        # Judge the PERIOD's contribution — a symbol re-traded across the
+        # boundary counts by its new round trips, not its lifetime total.
+        count += 1
+        if delta > 0:
+            wins += 1
+    return round(wins / count, 4) if count else None
+
+
+def realized_between(
+    history_trades: list[dict[str, Any]],
+    from_date: str | None,
+    to_date: str | None,
+    *,
+    latest_prices: dict[str, Decimal] | None = None,
+) -> dict[str, Any]:
+    """Net-cash realized in a period via boundary deltas on full history."""
+    end_events = _events_through(history_trades, to_date)
+    end_summary = realized_summary(end_events, latest_prices=latest_prices)
+    end_closed = parse_dollar(end_summary["realized_closed"])
+
+    if from_date is None:
+        start_closed = Decimal("0")
+        closed_win_rate = end_summary["closed_win_rate"]
+    else:
+        start_events = _events_through(history_trades, _day_before(from_date))
+        start_summary = realized_summary(start_events, latest_prices=latest_prices)
+        start_closed = parse_dollar(start_summary["realized_closed"])
+        closed_win_rate = _period_closed_win_rate(start_summary, end_summary)
+
+    return {
+        "realized_closed": decimal_to_str(end_closed - start_closed),
+        "closed_win_rate": closed_win_rate,
+    }
+
+
+def daily_boundary_realized_stats(
+    history_trades: list[dict[str, Any]],
+    daily_cash_flow: list[dict[str, Any]],
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    latest_prices: dict[str, Decimal] | None = None,
+) -> list[dict[str, Any]]:
+    """Per-day boundary-delta realized P&L plus honest net-cash from trade events."""
+    cash_by_day = {row["date"]: row for row in daily_cash_flow}
+    days: set[str] = set(cash_by_day)
+    for event in history_trades:
+        day = event["trade_date"]
+        if from_date and day < from_date:
+            continue
+        if to_date and day > to_date:
+            continue
+        days.add(day)
+
+    rows: list[dict[str, Any]] = []
+    for day in sorted(days):
+        period = realized_between(
+            history_trades,
+            day,
+            day,
+            latest_prices=latest_prices,
+        )
+        cash = cash_by_day.get(day, {})
+        rows.append(
+            {
+                "date": day,
+                "realized": period["realized_closed"],
+                "net_amount": cash.get("net_amount", "0"),
+                "event_count": cash.get("event_count", 0),
+            }
+        )
+    return rows
+
+
 def _round_trips_in_period(
     *,
     account_id: str | None,
@@ -461,6 +535,7 @@ def _round_trips_in_period(
 def performance_dashboard(
     *,
     account_id: str | None = None,
+    include_daily_realized: bool = True,
     real_only: bool = False,
     paper_only: bool = False,
     period: str = "all",
@@ -512,6 +587,7 @@ def performance_dashboard(
     )
     full_recon = realized_summary(history_trades)
     period_recon = realized_summary(period_trades)
+    period_realized = realized_between(history_trades, from_date, to_date)
     behavior = behavioral_facts(events)
     daily_cash_flow = daily_trade_stats(
         account_id=account_id,
@@ -520,8 +596,17 @@ def performance_dashboard(
         real_only=real_only,
         paper_only=paper_only,
     )
-    daily_realized = daily_realized_stats(
-        round_trips_all, from_date=from_date, to_date=to_date
+    # Per-day boundary recons are the expensive part — LLM-context callers
+    # never read daily_realized, so let them skip it.
+    daily_realized = (
+        daily_boundary_realized_stats(
+            history_trades,
+            daily_cash_flow,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        if include_daily_realized
+        else []
     )
 
     return {
@@ -529,10 +614,18 @@ def performance_dashboard(
         "from_date": from_date,
         "to_date": to_date,
         "summary": summary,
-        "realized_pnl": period_recon["realized_closed"],
-        "realized_closed": period_recon["realized_closed"],
-        "closed_win_rate": period_recon["closed_win_rate"],
+        "realized_pnl": period_realized["realized_closed"],
+        "realized_closed": period_realized["realized_closed"],
+        "closed_win_rate": period_realized["closed_win_rate"],
         "cash_flow_pnl": summary["net_amount"],
+        "in_window_recon": {
+            "realized_closed": period_recon["realized_closed"],
+            "closed_win_rate": period_recon["closed_win_rate"],
+            "per_symbol": period_recon["per_symbol"],
+            "open_positions": period_recon["open_positions"],
+            "incomplete_positions": period_recon["incomplete_positions"],
+            "reliability": period_recon["reliability"],
+        },
         "position_reconciliation": {
             "period": {
                 "per_symbol": period_recon["per_symbol"],
@@ -562,7 +655,7 @@ def performance_dashboard(
         "daily_cash_flow": daily_cash_flow,
         "round_trips": round_trips_in_period[:100],
         "round_trips_note": "approximate (hold-time only)",
-        "win_rate": period_recon["closed_win_rate"],
+        "win_rate": period_realized["closed_win_rate"],
         "stock_win_rate": round(fifo_wins / len(stock_round_trips), 4)
         if stock_round_trips
         else None,
@@ -606,6 +699,8 @@ def ai_performance_context(
         period=effective_period,
         custom_from=custom_from,
         custom_to=custom_to,
+        # This caller never reads daily_realized — skip the per-day recons.
+        include_daily_realized=False,
     )
 
     symbols = symbol_trade_stats(
@@ -671,6 +766,12 @@ def ai_performance_context(
 
     full_recon = realized_summary(history_trades, latest_prices=latest_prices)
     period_recon = realized_summary(period_trades, latest_prices=latest_prices)
+    period_realized = realized_between(
+        history_trades,
+        dash["from_date"],
+        dash["to_date"],
+        latest_prices=latest_prices,
+    )
     behavior = behavioral_facts(period_events)
 
     result: dict[str, Any] = {
@@ -678,8 +779,8 @@ def ai_performance_context(
         "from_date": dash["from_date"],
         "to_date": dash["to_date"],
         "realized": {
-            "realized_closed": period_recon["realized_closed"],
-            "closed_win_rate": period_recon["closed_win_rate"],
+            "realized_closed": period_realized["realized_closed"],
+            "closed_win_rate": period_realized["closed_win_rate"],
             "per_symbol": period_recon["per_symbol"],
             "open_positions": full_recon["open_positions"],
             "incomplete_positions": full_recon["incomplete_positions"],
@@ -689,6 +790,12 @@ def ai_performance_context(
                     "incomplete_positions"
                 ],
                 "open_positions": full_recon["reliability"]["open_positions"],
+            },
+            # No per_symbol here — it duplicates the top-level list into every
+            # LLM payload for no informational gain.
+            "in_window_recon": {
+                "realized_closed": period_recon["realized_closed"],
+                "closed_win_rate": period_recon["closed_win_rate"],
             },
         },
         "behavioral": behavior,

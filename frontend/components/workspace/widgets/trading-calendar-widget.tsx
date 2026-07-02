@@ -5,10 +5,12 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  dailyRealizedAmount,
+  dailyRealizedIsCashFlowFallback,
   fetchPerformanceDashboard,
   type PerformanceDashboard,
 } from "@/lib/performance-api";
-import { formatTradeMoney, parseMoney } from "@/lib/trades-api";
+import { formatTradeMoney } from "@/lib/trades-api";
 import { cn } from "@/lib/utils";
 import { useDashboardPrefs } from "@/lib/workspace/use-dashboard-prefs";
 
@@ -22,6 +24,7 @@ type DayCell = {
   net: number;
   count: number;
   hasData: boolean;
+  cashFlowFallback?: boolean;
 };
 
 type WeekRow = {
@@ -67,7 +70,7 @@ function pnlClass(value: number): string {
 function buildWeeks(
   year: number,
   month: number,
-  dateMap: Map<string, { net: number; count: number }>,
+  dateMap: Map<string, { net: number; count: number; cashFlowFallback?: boolean }>,
 ): WeekRow[] {
   const firstOfMonth = new Date(year, month, 1);
   const lastOfMonth = new Date(year, month + 1, 0);
@@ -90,6 +93,7 @@ function buildWeeks(
         net: stat?.net ?? 0,
         count: stat?.count ?? 0,
         hasData: Boolean(stat),
+        cashFlowFallback: stat?.cashFlowFallback,
       });
       cursor = addDays(cursor, 1);
     }
@@ -131,7 +135,7 @@ function DayTile({
       onClick={onClick}
       title={
         cell.hasData
-          ? `${cell.date}: ${formatTradeMoney(cell.net)} (${cell.count} close${cell.count === 1 ? "" : "s"})`
+          ? `${cell.date}: ${formatTradeMoney(cell.net)}${cell.cashFlowFallback ? " (cash flow)" : ""} (${cell.count} event${cell.count === 1 ? "" : "s"})`
           : cell.date
       }
       className="relative flex min-h-[38px] flex-col items-center justify-start overflow-hidden rounded-[3px] px-1 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
@@ -238,12 +242,16 @@ export function TradingCalendarWidget() {
   }, [cursor.year, cursor.month, selectedAccountId]);
 
   const dateMap = useMemo(() => {
-    const map = new Map<string, { net: number; count: number }>();
+    const map = new Map<
+      string,
+      { net: number; count: number; cashFlowFallback?: boolean }
+    >();
     if (!dashboard) return map;
     for (const day of dashboard.daily_realized) {
       map.set(day.date, {
-        net: parseMoney(day.net_amount),
+        net: dailyRealizedAmount(day),
         count: day.event_count,
+        cashFlowFallback: dailyRealizedIsCashFlowFallback(day),
       });
     }
     return map;

@@ -47,6 +47,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
+  dailyRealizedAmount,
   fetchPerformanceDashboard,
   syncTrades,
   type PerformanceDashboard,
@@ -63,8 +64,16 @@ import {
 type CalendarDay = {
   date: string;
   net_amount: string;
+  realized?: string;
   event_count: number;
 };
+
+function calendarDayPnl(day: CalendarDay, mode: PnlMode): number {
+  if (mode === "realized") {
+    return dailyRealizedAmount(day);
+  }
+  return parseMoney(day.net_amount);
+}
 
 function formatCompactMoney(value: string | number): string {
   const n = typeof value === "string" ? parseMoney(value) : value;
@@ -154,25 +163,29 @@ function CalendarHeatmap({
     );
   }
 
-  const amounts = days.map((d) => parseMoney(d.net_amount));
+  const amounts = days.map((d) => calendarDayPnl(d, mode));
   const maxAbs = Math.max(...amounts.map(Math.abs), 1);
 
   return (
     <div className="flex flex-wrap gap-2">
       {days.map((day) => {
-        const amount = parseMoney(day.net_amount);
+        const amount = calendarDayPnl(day, mode);
         const intensity = Math.min(Math.abs(amount) / maxAbs, 1);
         const positive = amount >= 0;
         const active = selectedDate === day.date;
         const countLabel =
           mode === "realized"
-            ? `${day.event_count} close${day.event_count === 1 ? "" : "s"}`
+            ? `${day.event_count} event${day.event_count === 1 ? "" : "s"}`
             : `${day.event_count} event${day.event_count === 1 ? "" : "s"}`;
+        const displayAmount =
+          mode === "realized" && day.realized != null
+            ? day.realized
+            : day.net_amount;
         return (
           <button
             key={day.date}
             type="button"
-            title={`${day.date}: ${formatTradeMoney(day.net_amount)} (${countLabel})`}
+            title={`${day.date}: ${formatTradeMoney(displayAmount)}${mode === "realized" && day.realized == null ? " (cash flow)" : ""} (${countLabel})`}
             onClick={() => onSelect(active ? null : day.date)}
             className={cn(
               "flex min-w-[4.75rem] flex-col items-center justify-center rounded-md px-2 py-2 text-center transition-colors",
@@ -274,15 +287,16 @@ export function PerformancePage() {
   const cumulativeSeries = useMemo(() => {
     let running = 0;
     return calendarDays.map((d) => {
-      running += parseMoney(d.net_amount);
+      const daily = calendarDayPnl(d, pnlMode);
+      running += daily;
       return {
         date: d.date.slice(5),
         fullDate: d.date,
         cumulative: running,
-        daily: parseMoney(d.net_amount),
+        daily,
       };
     });
-  }, [calendarDays]);
+  }, [calendarDays, pnlMode]);
 
   const symbolBars = useMemo(() => {
     if (!dashboard) return [];

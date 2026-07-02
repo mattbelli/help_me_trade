@@ -1,5 +1,5 @@
 import { apiFetch, API_BASE } from "@/lib/api";
-import type { DailyTradeStat, SymbolTradeStat, TradeSummary } from "@/lib/trades-api";
+import { parseMoney, type DailyTradeStat, type SymbolTradeStat, type TradeSummary } from "@/lib/trades-api";
 
 export type PerformancePeriod =
   | "day"
@@ -36,8 +36,19 @@ export type DayOfWeekStat = {
 export type DailyPnlStat = {
   date: string;
   net_amount: string;
+  /** Boundary-delta net-cash realized; prefer over net_amount for P&L views. */
+  realized?: string;
   event_count: number;
 };
+
+/** Amount to show as daily realized P&L (falls back to net cash only when realized absent). */
+export function dailyRealizedAmount(day: DailyPnlStat): number {
+  return parseMoney(day.realized ?? day.net_amount);
+}
+
+export function dailyRealizedIsCashFlowFallback(day: DailyPnlStat): boolean {
+  return day.realized == null;
+}
 
 export type PnlMode = "realized" | "cashflow";
 
