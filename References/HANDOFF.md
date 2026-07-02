@@ -12,8 +12,20 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Fable-audit fix rounds (Decision Engine Phase 0/0.5) (2026-07-02)
 
-> ▶ **LATEST (2026-07-02 pm) — Fable-audit fix session: 5 rounds committed (c69e523→d7f8cd8), local only until
-> pushed; NOT yet deployed on serv; needs an in-browser check.** Worked the `research/fable/` audits in the
+> ▶ **LATEST (2026-07-02 night) — Round 9: Schwab multi-leg fill collapse (H5) FIXED, deployed, ledger repaired
+> (e55ab8a).** Founder was flat TSLA but ledger showed +74: Schwab splits one fill into same-symbol
+> CLOSING/OPENING legs when a sell crosses flat; the parser kept only the max leg. Parser now sums same-symbol
+> legs; `tools/repair_event_quantities.py` (dry-run-first) fixed the single corrupted event live (126→200 shares;
+> cash was never wrong — `netAmount`). Adversarial review REJECTED (BLOCKER, double-counting) the companion
+> "round-trip realized" rule → reverted; closed-only recognition stands. **OPEN ITEMS:** (1) baseline offsets —
+> all 4 real accounts broker-confirmed FLAT but ledger shows TSLA −6 / PLTR −630 (Ind) / PLTR −900 (Roth Joint) /
+> GME −32 from pre-export-window shares; the $0-amount `manual_adjustment` insert is WRITTEN but classifier-blocked
+> — needs founder approval, then day-realized for those symbols reads true. (2) Expired/settled LONG OPTIONS have
+> no expiration events (sync fetches TRADE only) → unrecorded realized losses (6 contracts found). (3) Next brief:
+> nightly ledger-vs-broker qty reconciliation job that pages on NEW drift. Suite 1219 green; backend restarted.
+>
+> Earlier same day (2026-07-02 pm) — 8 audit rounds + founder's 5 UI bugs, all SHIPPED + deployed (3ee4dfa and
+> earlier): details in BUILD.md rounds 1–8. Worked the `research/fable/` audits in the
 > roadmap's Phase-0-first order; every Composer diff self-reviewed + the money/auth-touching ones adversarially
 > Sonnet-reviewed (each review caught ≥1 real issue, all fixed pre-commit):
 > 1. **H6** `_find_ev_bucket` fabricated-EV → `None` (+ web GenericScore `?? 0` would have rendered "EV +0.00%" — fixed).
