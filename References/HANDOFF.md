@@ -10,9 +10,32 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
+## CURRENT FOCUS — Fable-audit fix rounds (Decision Engine Phase 0/0.5) (2026-07-02)
 
-> ▶ **LATEST (2026-07-02) — Performance page broken into focused cockpit widgets + Company-Info widget +
+> ▶ **LATEST (2026-07-02 pm) — Fable-audit fix session: 5 rounds committed (c69e523→d7f8cd8), local only until
+> pushed; NOT yet deployed on serv; needs an in-browser check.** Worked the `research/fable/` audits in the
+> roadmap's Phase-0-first order; every Composer diff self-reviewed + the money/auth-touching ones adversarially
+> Sonnet-reviewed (each review caught ≥1 real issue, all fixed pre-commit):
+> 1. **H6** `_find_ev_bucket` fabricated-EV → `None` (+ web GenericScore `?? 0` would have rendered "EV +0.00%" — fixed).
+> 2. **Data C1/C2/C3** — paper↔real firewall on every LLM entry point (`PerfScope.fallback` loud in API/UI/chat;
+>    review caught `turn_journal_context`'s unscoped "USER's pattern" line + `my_trades` paper-id hole).
+> 3. **Perception Tier-1** — `screener`/`market`(regime)/`news`/`calibration` resources + `get_context`
+>    news+strategy_signals; `open_orders` drop fixed; `propose_rule`→`create_rule` (honesty); SPY TTL-cache so
+>    report loops don't multiply Schwab calls.
+> 4. **LLM wiring** — journal block injected on web+mobile; memory extraction re-enabled for SAVED chats only.
+> 5. **Ops CRIT-1** — token clock preserved (on-disk wins; cross-instance clobber killed), SPY reality probe
+>    (3-strike critical push), mtime invalidation on ALL schwab adapter caches (incl. execution-side get_broker —
+>    review catch), reauth daily `--skip-if-fresh`, LOW-7 reports-loop guard. **⚠️ Human step on serv: switch the
+>    reauth crontab line to daily (see `deploy/crontab.example`).**
+> Suite 1163→1197 green, ruff + typecheck clean, chokepoint untouched. **Next:** deploy on serv + in-browser check
+> ("give me your 3 best setups" should now scan→regime→rank with calibration hedging); then Phase 0.5 remainder
+> (off-box backup + restore drill, job-runner `/health` v2, DB retention) and roadmap Phase 1.
+
+---
+
+## PREVIOUS FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
+
+> ▶ **(2026-07-02 am) — Performance page broken into focused cockpit widgets + Company-Info widget +
 > workspace→ledger per-account slicing. SHIPPED, deployed on serv (:3001/:8000), 1163 tests green, chokepoint
 > untouched, committed + pushed.** Founder ask: split the monolithic `performance` tile into small tiles, fix
 > "Day realized = $0 after close", add a few new graphs, and turn the loved ticker-info popup into a widget.
