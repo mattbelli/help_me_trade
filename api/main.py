@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import Body, FastAPI, WebSocket
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -19,7 +19,12 @@ from ai.llm.factory import clear_llm_cache
 from ai.reflection.scheduler import REFLECTION_INTERVAL_SECONDS, reflection_once
 from ai.rules.engine import evaluate_on_snapshot
 from api.ai_routes import router as ai_router
-from api.auth import auth_enabled, frontend_origins, verify_websocket_auth
+from api.auth import (
+    auth_enabled,
+    frontend_origins,
+    verify_admin_token,
+    verify_websocket_auth,
+)
 from api.device_routes import router as device_router
 from api.jobs import (
     jobs_health,
@@ -1561,7 +1566,18 @@ def api_get_settings():
 
 
 @app.put("/api/settings")
-def api_put_settings(patch: dict = Body(...)):
+def api_put_settings(request: Request, patch: dict = Body(...)):
+    if "trading" in patch:
+        trading = patch.get("trading")
+        if isinstance(trading, dict) and "kill_switch_active" in trading:
+            return JSONResponse(
+                {"error": "use /api/kill-switch"},
+                status_code=400,
+            )
+        try:
+            verify_admin_token(request)
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     try:
         updated = apply_settings_patch(patch)
         clear_llm_cache()
@@ -1569,6 +1585,46 @@ def api_put_settings(patch: dict = Body(...)):
     except (TypeError, ValueError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     return mask_settings(updated)
+
+
+@app.post("/api/kill-switch")
+async def api_kill_switch(request: Request, body: dict = Body(...)):
+    active = body.get("active")
+    if not isinstance(active, bool):
+        return JSONResponse(
+            {"error": "active must be a boolean"},
+            status_code=400,
+        )
+    if not active:
+        try:
+            verify_admin_token(request)
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+    try:
+        updated = apply_settings_patch({"trading": {"kill_switch_active": active}})
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    state = bool(updated.get("trading", {}).get("kill_switch_active", active))
+
+    from signals.notify import notify
+
+    if active:
+        title = "Kill switch armed"
+        body_text = "All new order submissions are blocked until disarmed."
+    else:
+        title = "Kill switch disarmed"
+        body_text = "Order submissions may resume per current risk limits."
+    await notify(
+        kind="kill_switch",
+        title=title,
+        body=body_text,
+        severity="critical",
+        push=True,
+    )
+
+    return {"kill_switch_active": state}
 
 
 @app.get("/api/watchlist")

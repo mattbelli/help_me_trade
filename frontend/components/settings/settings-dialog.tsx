@@ -35,6 +35,7 @@ import {
   saveSettings,
   SECRET_MASK,
   type AppSettings,
+  type TradingSettings,
 } from "@/lib/api";
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
@@ -116,6 +117,40 @@ export function SettingsDialog({ collapsed = false }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [section, setSection] = useState<SettingsSection>("brokers");
   const [modelsRevision, setModelsRevision] = useState(0);
+  const [adminToken, setAdminToken] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window !== "undefined") {
+      setAdminToken(sessionStorage.getItem("hmt-admin-token") ?? "");
+    }
+  }, [open]);
+
+  function buildSettingsPatch(
+    activeSection: SettingsSection,
+    settings: AppSettings,
+  ): Partial<AppSettings> {
+    switch (activeSection) {
+      case "brokers":
+        return {
+          primary_broker: settings.primary_broker,
+          brokers: settings.brokers,
+        };
+      case "execution": {
+        const { kill_switch_active: _ignored, ...trading } =
+          settings.trading ?? DEFAULT_TRADING;
+        return { trading: trading as TradingSettings };
+      }
+      case "reports":
+        return { reports: settings.reports };
+      case "ai":
+        return { ai: settings.ai };
+      case "research":
+        return { research: settings.research };
+      default:
+        return settings;
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -154,7 +189,11 @@ export function SettingsDialog({ collapsed = false }: Props) {
     setError(null);
     setMessage(null);
     try {
-      const saved = await saveSettings(draft);
+      const patch = buildSettingsPatch(section, draft);
+      const saved = await saveSettings(
+        patch,
+        section === "execution" ? adminToken : undefined,
+      );
       setDraft({
         ...saved,
         ai: normalizeAiSettings(saved.ai),
@@ -472,6 +511,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
           <TradingRiskSettings
             value={draft.trading}
             onChange={(trading) => setDraft((d) => ({ ...d, trading }))}
+            adminToken={adminToken}
+            onAdminTokenChange={setAdminToken}
           />
         ) : section === "strategies" ? (
           <SettingsStrategiesPanel />

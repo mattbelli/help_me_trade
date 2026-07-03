@@ -11,7 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from db.workspace import init_workspace_tables, load_workspace_layout, save_workspace_layout
 
@@ -50,10 +49,8 @@ def test_upsert_overwrites(tmp_db: Path) -> None:
 # ── Route tests ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture()
-def client():
-    from api.main import app
-    with TestClient(app) as c:
-        yield c
+def client(mutation_client):
+    yield mutation_client
 
 
 VALID_ITEM = {"i": "chart-1", "type": "chart", "x": 0, "y": 0, "w": 8, "h": 4}

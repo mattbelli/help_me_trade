@@ -67,9 +67,14 @@ def reports_client(
     reports_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> TestClient:
     _patch_db_path(monkeypatch, reports_db)
+    monkeypatch.setattr("api.auth.API_TOKEN", "pytest-test-token")
     from api.main import app
 
-    with TestClient(app, base_url="http://127.0.0.1") as client:
+    with TestClient(
+        app,
+        base_url="http://127.0.0.1",
+        headers={"X-API-Token": "pytest-test-token"},
+    ) as client:
         yield client
 
 

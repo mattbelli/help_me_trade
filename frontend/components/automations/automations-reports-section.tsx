@@ -50,7 +50,9 @@ export function AutomationsReportsSection() {
       setSaving(true);
       setError(null);
       try {
-        const saved = await saveSettings({ ...fullSettings, reports: nextReports });
+        // Section-scoped patch: spreading fullSettings would include
+        // trading.kill_switch_active and trip the admin-only settings guard.
+        const saved = await saveSettings({ reports: nextReports });
         setFullSettings(saved);
         setReports({ ...DEFAULT_REPORTS, ...saved.reports });
         dispatchSettingsSaved();

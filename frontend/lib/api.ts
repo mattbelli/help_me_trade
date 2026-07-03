@@ -7,10 +7,16 @@ export const API_BASE =
 
 export const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN ?? "";
 
-export function apiAuthHeaders(extra?: HeadersInit): HeadersInit {
+export function apiAuthHeaders(
+  extra?: HeadersInit,
+  tokenOverride?: string,
+): HeadersInit {
   const headers = new Headers(extra);
-  if (API_TOKEN) {
-    headers.set("X-API-Token", API_TOKEN);
+  // `||` not `??`: an empty-string override (untouched admin field) must fall
+  // through to API_TOKEN, else the normal token is silently dropped.
+  const token = tokenOverride || API_TOKEN;
+  if (token) {
+    headers.set("X-API-Token", token);
   }
   return headers;
 }
@@ -19,6 +25,7 @@ export async function apiFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
   timeoutMs = 20_000,
+  tokenOverride?: string,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -26,7 +33,7 @@ export async function apiFetch(
     return await fetch(input, {
       ...init,
       signal: init?.signal ?? controller.signal,
-      headers: apiAuthHeaders(init?.headers),
+      headers: apiAuthHeaders(init?.headers, tokenOverride),
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
@@ -317,16 +324,53 @@ export async function fetchSettings(): Promise<AppSettings> {
   return res.json();
 }
 
-export async function saveSettings(patch: AppSettings): Promise<AppSettings> {
-  const res = await apiFetch(`${API_BASE}/api/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
+export async function saveSettings(
+  patch: Partial<AppSettings>,
+  adminToken?: string,
+): Promise<AppSettings> {
+  const res = await apiFetch(
+    `${API_BASE}/api/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+    20_000,
+    adminToken,
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    const detail = (body as { detail?: string }).detail;
     throw new Error(
-      (body as { error?: string }).error ?? `Settings save error ${res.status}`,
+      detail ??
+        (body as { error?: string }).error ??
+        `Settings save error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function setKillSwitch(
+  active: boolean,
+  adminToken?: string,
+): Promise<{ kill_switch_active: boolean }> {
+  const res = await apiFetch(
+    `${API_BASE}/api/kill-switch`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active }),
+    },
+    20_000,
+    adminToken,
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const detail = (body as { detail?: string }).detail;
+    throw new Error(
+      detail ??
+        (body as { error?: string }).error ??
+        `Kill switch error ${res.status}`,
     );
   }
   return res.json();

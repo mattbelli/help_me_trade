@@ -20,11 +20,39 @@ for _suffix in ("", "-wal", "-shm"):
         pass
 
 import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+TEST_API_TOKEN = "pytest-test-token"
+
+
+def auth_headers(token: str = TEST_API_TOKEN) -> dict[str, str]:
+    return {"X-API-Token": token}
 
 
 @pytest.fixture(autouse=True)
 def _disable_auth_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("api.auth.API_TOKEN", "")
+    monkeypatch.setattr("api.auth.ADMIN_TOKEN", "")
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache_after_test() -> None:
+    yield
+    from config import settings as settings_mod
+
+    settings_mod.clear_settings_cache()
+
+
+@pytest.fixture
+def mutation_client(monkeypatch: pytest.MonkeyPatch):
+    """TestClient with API_TOKEN set and auth header for mutating routes."""
+    monkeypatch.setattr("api.auth.API_TOKEN", TEST_API_TOKEN)
+    from api.main import app
+
+    with TestClient(
+        app, base_url="http://127.0.0.1", headers=auth_headers()
+    ) as client:
+        yield client
 
 
 @pytest.fixture(autouse=True)

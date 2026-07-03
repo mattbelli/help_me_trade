@@ -275,7 +275,11 @@ def _is_masked(value: Any) -> bool:
 
 
 def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
-    """Merge patch into saved settings, preserving secrets when masked/empty."""
+    """Merge patch into saved settings, preserving secrets when masked/empty.
+
+    Route-level auth guards trading.* and kill_switch_active; this function
+    remains callable internally (e.g. risk-engine hard-trip kill switch).
+    """
     current = load_settings()
 
     # Only persist user-editable fields from file (not env-only fallbacks)

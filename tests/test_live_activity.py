@@ -349,30 +349,26 @@ async def test_create_phone_proposal_survives_live_activity_failure(
     assert row["expires_at"]
 
 
-def test_api_register_live_activity(tmp_path: Path, monkeypatch) -> None:
-    from fastapi.testclient import TestClient
-
+def test_api_register_live_activity(tmp_path: Path, monkeypatch, mutation_client) -> None:
     db = tmp_path / "la.db"
     monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.live_activities.DEFAULT_DB_PATH", db)
     init_live_activity_tables(db)
 
-    from api.main import app
+    client = mutation_client
+    bad = client.post("/api/live-activities", json={"proposal_id": "p1"})
+    assert bad.status_code == 400
 
-    with TestClient(app, base_url="http://127.0.0.1") as client:
-        bad = client.post("/api/live-activities", json={"proposal_id": "p1"})
-        assert bad.status_code == 400
-
-        ok = client.post(
-            "/api/live-activities",
-            json={
-                "proposal_id": "p1",
-                "activity_update_token": "upd1",
-                "device_token": "dev1",
-            },
-        )
-        assert ok.status_code == 200
-        assert ok.json() == {"ok": True}
+    ok = client.post(
+        "/api/live-activities",
+        json={
+            "proposal_id": "p1",
+            "activity_update_token": "upd1",
+            "device_token": "dev1",
+        },
+    )
+    assert ok.status_code == 200
+    assert ok.json() == {"ok": True}
 
     assert list_update_tokens("p1", db_path=db) == [
         {"device_token": "dev1", "update_token": "upd1"}
