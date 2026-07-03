@@ -34,12 +34,19 @@ const handledResponses = new Set<string>();
 // Background actions get a hard deadline; iOS suspends the process quickly.
 const ACTION_TIMEOUT_MS = 20_000;
 
-// Known push `type`s. trade_proposal + the risk_* kinds route to Approvals (Inbox);
-// price_alert deep-links to the symbol; research_ready is a web-only surface today
-// (shows, no route). For the risk_* kinds we route on `type` ONLY — serv did not
-// design their other `data` keys around a mobile contract and treats them as
-// provisional (SERV_TO_MAC handoff §3), so we don't parse sub-fields until confirmed.
-type PushType = 'trade_proposal' | 'price_alert' | 'risk_breaker' | 'risk_block' | 'research_ready';
+// Known push `type`s. trade_proposal + the risk_* kinds + proposal_missed route to
+// Approvals (Inbox); price_alert + fill_report deep-link to the symbol; research_ready
+// is a web-only surface today (shows, no route). risk_* sub-fields are provisional so we
+// route on `type` only (SERV_TO_MAC handoff §3); fill_report carries a confirmed `symbol`
+// (Seam 3 contract) which is safe to use for the deep-link.
+type PushType =
+  | 'trade_proposal'
+  | 'price_alert'
+  | 'risk_breaker'
+  | 'risk_block'
+  | 'research_ready'
+  | 'proposal_missed'
+  | 'fill_report';
 
 interface ProposalPushData {
   type?: PushType | (string & {});
@@ -150,13 +157,18 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
           void handleReject(data);
           break;
         default: {
-          // Body tap → deep-link. Trade + risk pushes open Approvals (Inbox);
-          // price alerts jump straight to that symbol's detail screen. Unknown /
+          // Body tap → deep-link. Trade + risk + missed pushes open Approvals (Inbox);
+          // price alerts and fill reports jump to the symbol's detail screen. Unknown /
           // research_ready kinds have no mobile surface, so the banner just shows.
           const t = data.type;
-          if (t === 'trade_proposal' || t === 'risk_breaker' || t === 'risk_block') {
+          if (
+            t === 'trade_proposal' ||
+            t === 'risk_breaker' ||
+            t === 'risk_block' ||
+            t === 'proposal_missed'
+          ) {
             onOpenRef.current?.();
-          } else if (t === 'price_alert' && data.symbol) {
+          } else if ((t === 'price_alert' || t === 'fill_report') && data.symbol) {
             router.push(`/symbol/${data.symbol}`);
           }
         }
