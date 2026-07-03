@@ -20,6 +20,7 @@ import { View } from 'react-native';
 import Animated, { FadeIn, Layout } from 'react-native-reanimated';
 
 import { ApiError } from '@/api/client';
+import { getProposal } from '@/api/endpoints';
 import { useApproveProposal, useRejectProposal } from '@/api/queries';
 import type { PendingProposal } from '@/api/types';
 import { Badge, Button, Card, Divider, Row, Stack, Text } from '@/components/ui';
@@ -33,6 +34,7 @@ type Phase =
   | { kind: 'authing' }
   | { kind: 'submitting' }
   | { kind: 'rejecting' }
+  | { kind: 'reconciling' }
   | { kind: 'done'; status: string; ok: boolean; message: string };
 
 const RESULT_COPY: Record<string, { ok: boolean; message: string }> = {
@@ -109,7 +111,11 @@ export function ProposalCard({
   }
 
   const isSell = proposal.side?.toLowerCase() === 'sell';
-  const busy = phase.kind === 'authing' || phase.kind === 'submitting' || phase.kind === 'rejecting';
+  const busy =
+    phase.kind === 'authing' ||
+    phase.kind === 'submitting' ||
+    phase.kind === 'rejecting' ||
+    phase.kind === 'reconciling';
   const locked = countdown.expired || phase.kind === 'done';
 
   async function onApprove() {
@@ -133,12 +139,66 @@ export function ProposalCard({
       } catch (err) {
         // 409s (hash_mismatch/expired/already_decided/blocked) arrive as ApiError —
         // surface the real reason, never a fake success or a misleading "network error".
-        haptics.error();
         const fromServer = statusFromError(err);
         if (fromServer) {
+          haptics.error();
           resolve({ status: fromServer.status, ...resultCopy(fromServer.status, fromServer.reason) });
         } else {
-          resolve({ status: 'failed', ok: false, message: 'Network error — the trade was not sent.' });
+          // Connection lost after submit may have succeeded — reconcile via GET, never guess.
+          setPhase({ kind: 'reconciling' });
+          try {
+            const updated = await getProposal(proposal.id);
+            const status = updated.status;
+            if (status === 'executed') {
+              const copy = resultCopy('executed');
+              haptics.success();
+              resolve({ status, ...copy });
+            } else if (status === 'pending_phone') {
+              haptics.error();
+              resolve({
+                status,
+                ok: false,
+                message:
+                  "We couldn't reach the server — the trade was not sent. Try again when you're back online.",
+              });
+            } else if (status === 'approving') {
+              haptics.error();
+              resolve({
+                status,
+                ok: false,
+                message: 'Still processing — check Approvals in a moment.',
+              });
+            } else if (
+              status === 'rejected' ||
+              status === 'expired' ||
+              status === 'failed' ||
+              status === 'not_found'
+            ) {
+              const copy = resultCopy(status);
+              haptics.error();
+              resolve({ status, ...copy });
+            } else {
+              haptics.error();
+              resolve({
+                status,
+                ok: false,
+                message: "Couldn't confirm the result — check Approvals.",
+              });
+            }
+          } catch (reconcileErr) {
+            if (reconcileErr instanceof ApiError && reconcileErr.status === 404) {
+              const copy = resultCopy('not_found');
+              haptics.error();
+              resolve({ status: 'not_found', ...copy });
+            } else {
+              haptics.error();
+              resolve({
+                status: 'unknown',
+                ok: false,
+                message: "Couldn't confirm the result. Check Approvals when you're back online.",
+              });
+            }
+          }
         }
       }
     } finally {
@@ -227,11 +287,31 @@ export function ProposalCard({
               </Text>
             </View>
           </Animated.View>
+        ) : phase.kind === 'reconciling' ? (
+          <Animated.View entering={FadeIn}>
+            <View
+              style={{
+                backgroundColor: colors.accentWash,
+                borderRadius: radius.lg,
+                padding: spacing.lg,
+              }}
+            >
+              <Text variant="bodyStrong" color="textMuted">
+                Checking…
+              </Text>
+            </View>
+          </Animated.View>
         ) : (
           <Row gap={spacing.md}>
             <Button label="Reject" tone="ghost" onPress={onReject} disabled={busy} style={{ flex: 1 }} />
             <Button
-              label={phase.kind === 'authing' ? 'Confirm…' : phase.kind === 'submitting' ? 'Sending…' : 'Approve'}
+              label={
+                phase.kind === 'authing'
+                  ? 'Confirm…'
+                  : phase.kind === 'submitting'
+                    ? 'Sending…'
+                    : 'Approve'
+              }
               tone="primary"
               onPress={onApprove}
               disabled={busy || locked}
