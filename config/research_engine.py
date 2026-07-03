@@ -13,9 +13,6 @@ ROLES: tuple[str, ...] = (
     "editor",
 )
 
-_STRONG_ROLES = frozenset({"planner", "critic", "editor"})
-_FAST_ROLES = frozenset({"specialists", "extraction"})
-
 DEFAULT_EFFORT = "standard"
 
 
@@ -147,26 +144,19 @@ def current_research_settings() -> dict[str, Any]:
 
 
 def resolve_role_model(role: str) -> str | None:
-    """Resolve a research role to a model name, or None for the app default."""
+    """Resolve a research role to a model name, or None for the app default.
+
+    Manual-only: an explicit per-role model wins; otherwise the app default.
+    (Automatic strong/fast delegation was removed — the ``strong_model`` /
+    ``fast_model`` / ``auto_delegate`` keys stay parked in settings for a future
+    real-auto revisit, but are not consulted here.)
+    """
     try:
         role_key = str(role or "").strip().lower()
         if role_key not in ROLES:
             return None
-
         cfg = current_research_settings()
-        explicit = cfg.get("model_roles", {}).get(role_key)
-        explicit_model = _non_empty(explicit)
-        if explicit_model is not None:
-            return explicit_model
-
-        if not cfg.get("auto_delegate", True):
-            return None
-
-        if role_key in _STRONG_ROLES:
-            return _non_empty(cfg.get("strong_model")) or None
-        if role_key in _FAST_ROLES:
-            return _non_empty(cfg.get("fast_model")) or None
-        return None
+        return _non_empty(cfg.get("model_roles", {}).get(role_key))
     except Exception:
         return None
 

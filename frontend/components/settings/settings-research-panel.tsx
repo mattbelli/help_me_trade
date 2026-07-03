@@ -7,7 +7,6 @@ import {
   TerminalField,
   TerminalInput,
   TerminalSelect,
-  TerminalToggle,
 } from "@/components/ui/terminal";
 import { API_BASE, apiFetch, type ResearchSettings } from "@/lib/api";
 import { getDefaultLlm } from "@/lib/ai-settings";
@@ -29,9 +28,6 @@ const ROLES = [
   "critic",
   "editor",
 ] as const;
-
-const STRONG_ROLES = new Set(["planner", "critic", "editor"]);
-const FAST_ROLES = new Set(["specialists", "extraction"]);
 
 const EFFORT_PRESETS = ["quick", "standard", "deep", "exhaustive"] as const;
 
@@ -58,23 +54,6 @@ function normalizeResearch(value: ResearchSettings | undefined): ResearchSetting
     auto_delegate: base.auto_delegate ?? DEFAULT_RESEARCH.auto_delegate,
     effort: base.effort ?? DEFAULT_RESEARCH.effort,
   };
-}
-
-function resolvedRoleModel(
-  role: Role,
-  research: ResearchSettings,
-  defaultModel: string,
-): string {
-  const explicit = research.model_roles?.[role]?.trim();
-  if (explicit) return explicit;
-  if (!research.auto_delegate) return defaultModel || "(app default)";
-  if (STRONG_ROLES.has(role)) {
-    return research.strong_model?.trim() || defaultModel || "(app default)";
-  }
-  if (FAST_ROLES.has(role)) {
-    return research.fast_model?.trim() || defaultModel || "(app default)";
-  }
-  return defaultModel || "(app default)";
 }
 
 export function SettingsResearchPanel({ value, ai, onChange }: Props) {
@@ -176,74 +155,12 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
           </TerminalSelect>
         </TerminalField>
 
-        <div className="flex items-center justify-between gap-4 rounded border border-border px-3 py-2">
-          <div>
-            <p className="font-mono text-[11px] text-foreground">Auto-delegate models</p>
-            <p className="font-mono text-[10px] text-[var(--fg-dim)]">
-              Strong roles → planner, critic, editor. Fast roles → specialists,
-              extraction.
-            </p>
-          </div>
-          <TerminalToggle
-            checked={research.auto_delegate ?? true}
-            onCheckedChange={(checked) => patch({ auto_delegate: checked })}
-            aria-label="Auto-delegate research models"
-          />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <TerminalField
-            label="Strong model (synthesis / critic / editor)"
-            htmlFor="research-strong-model"
-          >
-            <TerminalSelect
-              id="research-strong-model"
-              value={research.strong_model ?? ""}
-              onChange={(e) => patch({ strong_model: e.target.value })}
-              disabled={!research.auto_delegate}
-            >
-              <option value="">{`(app default${defaultModel ? `: ${defaultModel}` : ""})`}</option>
-              {modelSuggestions.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </TerminalSelect>
-          </TerminalField>
-          <TerminalField
-            label="Fast model (specialists / extraction)"
-            htmlFor="research-fast-model"
-          >
-            <TerminalSelect
-              id="research-fast-model"
-              value={research.fast_model ?? ""}
-              onChange={(e) => patch({ fast_model: e.target.value })}
-              disabled={!research.auto_delegate}
-            >
-              <option value="">{`(app default${defaultModel ? `: ${defaultModel}` : ""})`}</option>
-              {modelSuggestions.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </TerminalSelect>
-          </TerminalField>
-        </div>
-        {research.auto_delegate ? (
-          <p className="font-mono text-[10px] text-[var(--fg-dim)]">
-            Auto picks these two: strong for the heavy roles, fast for the parallel
-            fan-out. Leave a hint on “app default” and that tier just uses your
-            default model.
-          </p>
-        ) : (
-          <p className="font-mono text-[10px] text-[var(--fg-dim)]">
-            Auto-delegate is off — these hints are ignored; set each role below.
-          </p>
-        )}
-
         <div className="space-y-2">
           <p className="font-mono text-[11px] tracking-[0.06em] uppercase text-foreground">
             Role models
+          </p>
+          <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+            Assign a model to each research role, or leave it on “app default”.
           </p>
           <div className="overflow-x-auto rounded border border-border">
             <table className="w-full min-w-[28rem] border-collapse font-mono text-[11px]">
@@ -258,36 +175,24 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
                   <tr key={role} className="border-b border-border last:border-b-0">
                     <td className="px-3 py-2 align-top text-[var(--fg-dim)]">{role}</td>
                     <td className="px-3 py-2">
-                      {research.auto_delegate ? (
-                        <span className="text-[var(--fg-faint)]">
-                          {resolvedRoleModel(role, research, defaultModel)}
-                        </span>
-                      ) : (
-                        <TerminalSelect
-                          value={research.model_roles?.[role] ?? ""}
-                          onChange={(e) => patchRole(role, e.target.value)}
-                          className="w-full"
-                        >
-                          <option value="">{`(app default${defaultModel ? `: ${defaultModel}` : ""})`}</option>
-                          {modelSuggestions.map((model) => (
-                            <option key={model} value={model}>
-                              {model}
-                            </option>
-                          ))}
-                        </TerminalSelect>
-                      )}
+                      <TerminalSelect
+                        value={research.model_roles?.[role] ?? ""}
+                        onChange={(e) => patchRole(role, e.target.value)}
+                        className="w-full"
+                      >
+                        <option value="">{`(app default${defaultModel ? `: ${defaultModel}` : ""})`}</option>
+                        {modelSuggestions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </TerminalSelect>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {research.auto_delegate && (
-            <p className="font-mono text-[10px] text-[var(--fg-dim)]">
-              Auto-delegate is on — per-role overrides are disabled. Turn it off to
-              assign models manually.
-            </p>
-          )}
         </div>
       </SettingsSection>
     </div>

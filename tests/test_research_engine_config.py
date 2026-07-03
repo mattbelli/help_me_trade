@@ -29,50 +29,38 @@ def _patch_research(**kwargs: object) -> None:
 
 
 def test_resolve_role_model_explicit_override(isolated_settings) -> None:
-    _patch_research(
-        model_roles={"planner": "custom-planner"},
-        auto_delegate=True,
-        strong_model="deepseek-v4-pro",
-    )
+    _patch_research(model_roles={"planner": "custom-planner"})
     assert resolve_role_model("planner") == "custom-planner"
 
 
-def test_resolve_role_model_auto_strong_fast_split(isolated_settings) -> None:
+def test_resolve_role_model_no_override_uses_default(isolated_settings) -> None:
+    # Manual-only: without an explicit per-role model, resolve to the app
+    # default (None). Parked strong/fast/auto keys must NOT be consulted.
     _patch_research(
         auto_delegate=True,
         strong_model="deepseek-v4-pro",
         fast_model="deepseek-v4-flash",
     )
-    assert resolve_role_model("planner") == "deepseek-v4-pro"
-    assert resolve_role_model("critic") == "deepseek-v4-pro"
+    for role in ("planner", "critic", "editor", "specialists", "extraction"):
+        assert resolve_role_model(role) is None
+
+
+def test_resolve_role_model_partial_override(isolated_settings) -> None:
+    _patch_research(model_roles={"editor": "deepseek-v4-pro"})
     assert resolve_role_model("editor") == "deepseek-v4-pro"
-    assert resolve_role_model("specialists") == "deepseek-v4-flash"
-    assert resolve_role_model("extraction") == "deepseek-v4-flash"
-
-
-def test_resolve_role_model_auto_off_uses_default(isolated_settings) -> None:
-    _patch_research(
-        auto_delegate=False,
-        strong_model="deepseek-v4-pro",
-        fast_model="deepseek-v4-flash",
-    )
-    assert resolve_role_model("planner") is None
     assert resolve_role_model("specialists") is None
 
 
 def test_resolve_role_model_missing_keys_use_default(isolated_settings) -> None:
-    _patch_research(auto_delegate=True)
+    _patch_research()
     assert resolve_role_model("planner") is None
     assert resolve_role_model("unknown") is None
 
 
-def test_resolve_role_model_empty_explicit_falls_through_to_auto(isolated_settings) -> None:
-    _patch_research(
-        model_roles={"planner": ""},
-        auto_delegate=True,
-        strong_model="strong-model",
-    )
-    assert resolve_role_model("planner") == "strong-model"
+def test_resolve_role_model_empty_explicit_uses_default(isolated_settings) -> None:
+    # An empty per-role string means "app default", not a fall-through to auto.
+    _patch_research(model_roles={"planner": ""}, strong_model="strong-model")
+    assert resolve_role_model("planner") is None
 
 
 def test_resolve_effort_each_preset(isolated_settings) -> None:
