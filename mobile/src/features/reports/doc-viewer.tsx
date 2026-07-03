@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 
-import { colors, fonts, spacing, useThemeMode } from '@/theme';
+import { fonts, spacing, useColors, useThemeMode } from '@/theme';
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n');
@@ -24,6 +24,7 @@ export function DocViewer({
   // it — react-native-markdown-display memoizes on content, so without a fresh key
   // it keeps the old palette's styles after a theme change.
   const { resolved } = useThemeMode();
+  const colors = useColors();
   // Build styles at RENDER time. A module-scope style object captures the palette
   // once at load and then shows stale, wrong-theme colors after a theme switch
   // (e.g. dark-theme near-white text rendered on the light theme → invisible).

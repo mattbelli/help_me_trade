@@ -10,9 +10,10 @@ import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Button, Screen, Stack, Text } from '@/components/ui';
 import { useAuth } from '@/auth/auth-context';
 import { API_BASE_URL } from '@/config';
-import { colors, haptics, hairline, radius, spacing } from '@/theme';
+import { haptics, hairline, radius, spacing, useColors } from '@/theme';
 
 export function OnboardingScreen() {
+  const colors = useColors();
   const { signIn } = useAuth();
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);

@@ -14,25 +14,26 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useEffect } from 'react';
 
-import { colors, hairline, radius, spacing } from '@/theme';
+import { hairline, radius, spacing, useColors, type Colors } from '@/theme';
 
 import { Button } from './button';
 import { Text } from './text';
 
 type BadgeTone = 'neutral' | 'accent' | 'positive' | 'negative' | 'warning';
 // Built per-call so badge tones follow the active theme after a palette swap.
-function badgeColorsFor(): Record<BadgeTone, { bg: string; fg: string }> {
+function badgeColorsFor(palette: Colors): Record<BadgeTone, { bg: string; fg: string }> {
   return {
-    neutral: { bg: colors.surfaceRaised, fg: colors.textMuted },
-    accent: { bg: colors.accentWash, fg: colors.accent },
-    positive: { bg: colors.positiveWash, fg: colors.positive },
-    negative: { bg: colors.negativeWash, fg: colors.negative },
-    warning: { bg: 'rgba(227,179,65,0.14)', fg: colors.warning },
+    neutral: { bg: palette.surfaceRaised, fg: palette.textMuted },
+    accent: { bg: palette.accentWash, fg: palette.accent },
+    positive: { bg: palette.positiveWash, fg: palette.positive },
+    negative: { bg: palette.negativeWash, fg: palette.negative },
+    warning: { bg: 'rgba(227,179,65,0.14)', fg: palette.warning },
   };
 }
 
 export function Badge({ label, tone = 'neutral' }: { label: string; tone?: BadgeTone }) {
-  const c = badgeColorsFor()[tone];
+  const colors = useColors();
+  const c = badgeColorsFor(colors)[tone];
   return (
     <View
       style={{
@@ -52,6 +53,7 @@ export function Badge({ label, tone = 'neutral' }: { label: string; tone?: Badge
 
 /** A shimmering placeholder block sized to its container. */
 export function Skeleton({ height = 16, width, style }: { height?: number; width?: number | string; style?: ViewStyle }) {
+  const colors = useColors();
   const o = useSharedValue(0.4);
   useEffect(() => {
     o.value = withRepeat(withSequence(withTiming(0.9, { duration: 700 }), withTiming(0.4, { duration: 700 })), -1, true);

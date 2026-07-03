@@ -24,7 +24,7 @@ import { getProposal } from '@/api/endpoints';
 import { useApproveProposal, useRejectProposal } from '@/api/queries';
 import type { PendingProposal } from '@/api/types';
 import { Badge, Button, Card, Divider, Row, Stack, Text } from '@/components/ui';
-import { colors, haptics, radius, spacing } from '@/theme';
+import { haptics, radius, spacing, useColors } from '@/theme';
 
 import { ScoreMeter } from './score-meter';
 import { useCountdown } from './use-countdown';
@@ -98,6 +98,7 @@ export function ProposalCard({
    */
   onResolved?: (id: string, res: ProposalResolution) => void;
 }) {
+  const colors = useColors();
   const approve = useApproveProposal();
   const reject = useRejectProposal();
   const countdown = useCountdown(proposal.expires_at);

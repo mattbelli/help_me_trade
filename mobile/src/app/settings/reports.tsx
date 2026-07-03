@@ -15,7 +15,7 @@ import {
   Stack,
   Text,
 } from '@/components/ui';
-import { colors, hairline, radius, spacing } from '@/theme';
+import { hairline, radius, spacing, useColors } from '@/theme';
 
 function parseReports(data: Record<string, unknown> | undefined): ReportsSettings {
   const raw = data?.reports;
@@ -72,6 +72,7 @@ export default function ReportsSettingsScreen() {
 }
 
 function ReportsForm({ initial }: { initial: ReportsSettings }) {
+  const colors = useColors();
   const update = useUpdateSettings();
   const [morningLevels, setMorningLevels] = useState(initial.morning_levels_enabled);
   const [hourEt, setHourEt] = useState(String(initial.hour_et));

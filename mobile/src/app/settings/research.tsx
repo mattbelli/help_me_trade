@@ -16,7 +16,7 @@ import {
   Stack,
   Text,
 } from '@/components/ui';
-import { colors, hairline, radius, spacing } from '@/theme';
+import { hairline, radius, spacing, useColors } from '@/theme';
 
 const EFFORT_OPTIONS = ['quick', 'standard', 'deep', 'exhaustive'] as const;
 
@@ -79,6 +79,7 @@ export default function ResearchSettingsScreen() {
 }
 
 function ResearchForm({ initial }: { initial: ResearchSettings }) {
+  const colors = useColors();
   const update = useUpdateSettings();
   const [searxngUrl, setSearxngUrl] = useState(initial.searxng_url);
   const [effort, setEffort] = useState(initial.effort);

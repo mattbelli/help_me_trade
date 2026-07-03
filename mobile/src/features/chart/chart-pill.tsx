@@ -1,7 +1,7 @@
 import { View } from 'react-native';
 
 import { PressableScale, Text } from '@/components/ui';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, useColors } from '@/theme';
 
 /** Small pill toggle used by the chart range + line/candle selectors. */
 export function ChartPill({
@@ -13,6 +13,7 @@ export function ChartPill({
   active: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
   return (
     <PressableScale onPress={onPress} haptic>
       <View

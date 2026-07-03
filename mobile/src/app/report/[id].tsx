@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useReport } from '@/api/queries';
 import { BackRow, ErrorState, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { DocViewer } from '@/features/reports/doc-viewer';
-import { colors, spacing } from '@/theme';
+import { spacing, useColors } from '@/theme';
 
 const MONTHS_SHORT = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -21,6 +21,7 @@ function fmtDate(iso?: string | null): string | null {
 }
 
 export default function ReportScreen() {
+  const colors = useColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
   const id = typeof params.id === 'string' ? params.id : (params.id?.[0] ?? '');

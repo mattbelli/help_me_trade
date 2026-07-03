@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import { View } from 'react-native';
 
 import { Icon } from '@/components/ui/icon';
-import { colors, hairline, spacing } from '@/theme';
+import { hairline, spacing, useColors } from '@/theme';
 
 import { PressableScale } from './button';
 import { Row } from './layout';
@@ -23,6 +23,7 @@ export function SettingsRow({
   disabled?: boolean;
   right?: ReactNode;
 }) {
+  const colors = useColors();
   const row = (
     <>
       <Row justify="space-between" align="center" style={{ paddingVertical: spacing.md }}>

@@ -6,7 +6,7 @@ import { Stack } from 'expo-router';
 
 import { queryClient } from '@/api/query-client';
 import { AuthProvider } from '@/auth/auth-context';
-import { colors, ThemeProvider } from '@/theme';
+import { ThemeProvider, useColors } from '@/theme';
 
 /**
  * Root layout — the provider stack for the whole app:
@@ -15,19 +15,27 @@ import { colors, ThemeProvider } from '@/theme';
  */
 export default function RootLayout() {
   return (
+    <ThemeProvider>
+      <RootLayoutInner />
+    </ThemeProvider>
+  );
+}
+
+function RootLayoutInner() {
+  const colors = useColors();
+
+  return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            <ThemeProvider>
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: colors.bg },
-                  animation: 'fade',
-                }}
-              />
-            </ThemeProvider>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.bg },
+                animation: 'fade',
+              }}
+            />
           </AuthProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

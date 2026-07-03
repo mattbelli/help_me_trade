@@ -7,7 +7,7 @@ import { useMemo } from 'react';
 import { View } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 
-import { colors, pnlColor } from '@/theme';
+import { pnlColor, useColors } from '@/theme';
 
 export function Sparkline({
   data,
@@ -24,6 +24,7 @@ export function Sparkline({
   fill?: boolean;
   strokeWidth?: number;
 }) {
+  const colors = useColors();
   const { line, area, stroke, gradId } = useMemo(() => {
     const id = `spark-${Math.round(width)}-${Math.round(height)}-${data.length}`;
     if (!data || data.length < 2) {
@@ -42,7 +43,7 @@ export function Sparkline({
     const areaD = `${d} L${width.toFixed(2)},${height.toFixed(2)} L0,${height.toFixed(2)} Z`;
     const dir = data[data.length - 1] - data[0];
     return { line: d, area: areaD, stroke: color ?? pnlColor(dir), gradId: id };
-  }, [data, width, height, color]);
+  }, [data, width, height, color, colors]);
 
   if (!line) {
     return <View style={{ width, height }} />;

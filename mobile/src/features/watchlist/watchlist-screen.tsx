@@ -57,7 +57,7 @@ import {
   Text,
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
-import { colors, fonts, haptics, hairline, pnlColor, spacing } from '@/theme';
+import { colors, fonts, haptics, hairline, pnlColor, spacing, useColors } from '@/theme';
 
 import { MiniDayChart } from './mini-day-chart';
 import { sessionBadge, sessionView } from './session';
@@ -131,7 +131,7 @@ function TriColumn({
   width,
   marginLeft = 0,
   top,
-  topColor = colors.textFaint,
+  topColor,
   mid,
   midColor,
   midSize = 15,
@@ -150,9 +150,11 @@ function TriColumn({
   bottom: string;
   bottomColor: string;
 }) {
+  const colors = useColors();
+  const resolvedTopColor = topColor ?? colors.textFaint;
   return (
     <View style={{ width, alignItems: 'flex-end', marginLeft }}>
-      <Text style={{ ...mono, fontSize: 11, lineHeight: ROW_TOP, color: top ? topColor : 'transparent' }} numberOfLines={1}>
+      <Text style={{ ...mono, fontSize: 11, lineHeight: ROW_TOP, color: top ? resolvedTopColor : 'transparent' }} numberOfLines={1}>
         {top ?? ' '}
       </Text>
       <Text style={{ ...mono, fontSize: midSize, lineHeight: ROW_MID, color: midColor, opacity: midOpacity }} numberOfLines={1}>{mid}</Text>
@@ -173,6 +175,7 @@ const onIndexChangeHaptic = () => {
 };
 
 function GripDots() {
+  const colors = useColors();
   return (
     <View style={{ flexDirection: 'row', gap: 2.5 }}>
       {[0, 1].map((c) => (
@@ -210,6 +213,7 @@ function RowBody({
   index?: number;
   onDelete?: () => void;
 }) {
+  const colors = useColors();
   const sv = quote ? sessionView(quote) : null;
   const rv = rvolDisplay(quote?.rvol);
 
@@ -371,6 +375,7 @@ function ReorderableRow({
 
 // ─── 2-col dense cell ─────────────────────────────────────────────────────────
 function WatchlistCard({ symbol, quote, loading, onPress }: { symbol: string; quote?: WatchlistQuote; loading?: boolean; onPress: () => void }) {
+  const colors = useColors();
   return (
     <PressableScale onPress={onPress} style={{ flex: 1 }}>
       <Stack gap={4} style={{ flex: 1, paddingVertical: spacing.sm + 1, paddingHorizontal: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
@@ -397,6 +402,7 @@ function WatchlistCard({ symbol, quote, loading, onPress }: { symbol: string; qu
 
 // ─── Sortable column header (full-bleed rules; + lives in the left gutter) ─────
 function HeadCell({ label, width, marginLeft = 0, left = false, smallFirst = false, sortKey, sort, onSort }: { label: string; width: number; marginLeft?: number; left?: boolean; smallFirst?: boolean; sortKey: SortKey; sort: SortState; onSort: (k: SortKey) => void }) {
+  const colors = useColors();
   const active = sort.key === sortKey;
   const color = active ? colors.accent : colors.textMuted;
   const arrow = (
@@ -433,6 +439,7 @@ function HeadCell({ label, width, marginLeft = 0, left = false, smallFirst = fal
   );
 }
 function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) => void }) {
+  const colors = useColors();
   return (
     <View style={{ borderTopWidth: hairline, borderTopColor: colors.border, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
       <Row align="center" gap={0} style={{ paddingVertical: spacing.xs + 1, paddingLeft: PAD_L, paddingRight: PAD_R }}>
@@ -450,6 +457,7 @@ function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) 
 
 // ─── Page header ──────────────────────────────────────────────────────────────
 function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone, session }: { onAdd: () => void; onOpenAlerts: () => void; editing: boolean; onDone: () => void; session?: string | null }) {
+  const colors = useColors();
   return (
     <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
       <Row gap={spacing.sm} align="center">
@@ -495,6 +503,7 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose: () => void }) {
+  const colors = useColors();
   const [text, setText] = useState('');
   const debounced = useDebounced(text, 220);
   const search = useSymbolSearch(debounced);
@@ -566,6 +575,7 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
 }
 
 function SkeletonRows() {
+  const colors = useColors();
   return (
     <Stack gap={0}>
       {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -585,6 +595,7 @@ function SkeletonRows() {
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export function WatchlistScreen() {
+  const colors = useColors();
   const router = useRouter();
   const listRef = useRef<FlashListRef<string>>(null);
   const [sort, setSort] = useState<SortState>({ key: null, dir: 'desc' });

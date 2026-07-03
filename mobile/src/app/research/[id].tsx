@@ -4,9 +4,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useResearch } from '@/api/queries';
 import { BackRow, ErrorState, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { DocViewer } from '@/features/reports/doc-viewer';
-import { colors, spacing } from '@/theme';
+import { spacing, useColors } from '@/theme';
 
 export default function ResearchScreen() {
+  const colors = useColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
   const id = typeof params.id === 'string' ? params.id : (params.id?.[0] ?? '');

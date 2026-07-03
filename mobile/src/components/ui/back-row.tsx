@@ -1,11 +1,12 @@
 import { Icon } from '@/components/ui/icon';
-import { colors, spacing } from '@/theme';
+import { spacing, useColors } from '@/theme';
 
 import { PressableScale } from './button';
 import { Row } from './layout';
 import { Text } from './text';
 
 export function BackRow({ onBack }: { onBack: () => void }) {
+  const colors = useColors();
   return (
     <PressableScale onPress={onBack} haptic>
       <Row gap={spacing.xs} align="center">

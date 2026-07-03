@@ -22,11 +22,12 @@ import Animated, {
 import { Icon } from '@/components/ui/icon';
 import { Eyebrow, PressableScale, Row, Stack, Text } from '@/components/ui';
 import { useNav } from '@/state/nav';
-import { colors, hairline, haptics, radius, spacing } from '@/theme';
+import { hairline, haptics, radius, spacing, useColors } from '@/theme';
 
 import type { ChatTurn, ProposalRef } from './use-chat';
 
 export function MessageBubble({ turn }: { turn: ChatTurn }) {
+  const colors = useColors();
   const isUser = turn.role === 'user';
   const showTyping = !isUser && turn.streaming && turn.content.length === 0;
 
@@ -73,6 +74,7 @@ export function MessageBubble({ turn }: { turn: ChatTurn }) {
 
 /** Compact, tappable hand-off → jumps to Approvals (Inbox tab). NOT an approve. */
 export function ProposalHandoff({ proposal }: { proposal: ProposalRef }) {
+  const colors = useColors();
   const { openInbox } = useNav();
   return (
     <PressableScale
@@ -147,6 +149,7 @@ function TypingDots() {
 }
 
 function Dot({ delay }: { delay: number }) {
+  const colors = useColors();
   const o = useSharedValue(0.3);
   useEffect(() => {
     o.value = withRepeat(

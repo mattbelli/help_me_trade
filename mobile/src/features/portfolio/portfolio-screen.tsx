@@ -32,7 +32,7 @@ import {
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useNav } from '@/state/nav';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, useColors } from '@/theme';
 
 const RANGES: PortfolioRange[] = ['1D', '1W', '1M', '1Y', 'ALL'];
 type AccountFilter = 'all' | string;
@@ -42,6 +42,7 @@ interface PositionRow {
 }
 
 export function PortfolioScreen() {
+  const colors = useColors();
   const { openInbox } = useNav();
   const [range, setRange] = useState<PortfolioRange>('1W');
   const [accountFilter, setAccountFilter] = useState<AccountFilter>('all');
@@ -207,6 +208,7 @@ function Tile({ label, value, loading }: { label: string; value?: number; loadin
 }
 
 function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const colors = useColors();
   return (
     <PressableScale onPress={onPress}>
       <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, backgroundColor: active ? colors.accentWash : colors.surface, borderWidth: 1, borderColor: active ? colors.accent : colors.border }}>

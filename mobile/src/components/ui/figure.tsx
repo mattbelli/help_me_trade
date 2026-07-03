@@ -5,7 +5,7 @@
  */
 import { type TextStyle } from 'react-native';
 
-import { colors, pnlColor, type as typeScale } from '@/theme';
+import { pnlColor, type as typeScale, useColors } from '@/theme';
 
 import { Text, type TextProps } from './text';
 
@@ -67,6 +67,7 @@ export function Pct({
   signed?: boolean;
   pnl?: boolean;
 }) {
+  const colors = useColors();
   const sign = signed && value > 0 ? '+' : '';
   const color = pnl ? pnlColor(value) : colors.text;
   return (

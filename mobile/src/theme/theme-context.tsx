@@ -1,10 +1,10 @@
 /**
  * ThemeProvider — owns the active theme. The user picks a ThemeMode in Settings
- * (a fixed palette or `system`); we resolve it to a concrete palette, apply it to
- * the live `colors` object, and remount the subtree (keyed by the resolved
- * palette) so every render-time `colors.*` read refreshes. The choice persists to
- * AsyncStorage. `system` follows the OS light/dark scheme (light → light, else
- * carbon).
+ * (a fixed palette or `system`); we resolve it to a concrete palette, sync the
+ * global `colors` object, and supply the palette via ColorsProvider so
+ * `useColors()` consumers re-render without remounting the navigator. The choice
+ * persists to AsyncStorage. `system` follows the OS light/dark scheme (light →
+ * light, else carbon).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -14,7 +14,7 @@ import { StatusBar } from 'expo-status-bar';
 import { getCustomThemes } from '@/api/endpoints';
 import type { WebCustomTheme } from '@/api/types';
 
-import { applyColors, colors } from './colors';
+import { applyColors, ColorsProvider } from './colors';
 import { webThemeIsLight, webThemeToPalette } from './custom-themes';
 import { makeColors } from './make-colors';
 import { isLightTheme, THEME_OPTIONS, themes, type ThemeKey, type ThemeMode } from './themes';
@@ -133,7 +133,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     ? isLightTheme(resolved as ThemeKey)
     : (customMeta[resolved]?.isLight ?? false);
 
-  // Apply synchronously so the keyed subtree below renders with the new palette.
   applyColors(activeColors);
 
   const options = useMemo(
@@ -152,9 +151,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   return (
     <ThemeContext.Provider value={{ mode, resolved, isLight: activeIsLight, setMode, options }}>
       <StatusBar style={activeIsLight ? 'dark' : 'light'} />
-      <View key={resolved} style={{ flex: 1, backgroundColor: colors.bg }}>
-        {children}
-      </View>
+      <ColorsProvider value={activeColors}>
+        <View style={{ flex: 1, backgroundColor: activeColors.bg }}>{children}</View>
+      </ColorsProvider>
     </ThemeContext.Provider>
   );
 }

@@ -21,7 +21,7 @@ import { usePush } from '@/push/use-push';
 import { useLiveActivity } from '@/push/use-live-activity';
 import { useAlerts } from '@/state/alerts';
 import { NavProvider } from '@/state/nav';
-import { colors, haptics } from '@/theme';
+import { haptics, useColors } from '@/theme';
 
 import { ChatScreen } from '@/features/chat/chat-screen';
 import { InboxScreen } from '@/features/inbox/inbox-screen';
@@ -40,6 +40,7 @@ const INBOX_INDEX = 0;
 const HOME_INDEX = 2;
 
 export function CockpitPager() {
+  const colors = useColors();
   const pagerRef = useRef<PagerView>(null);
   const [page, setPage] = useState(HOME_INDEX);
   const [swipeEnabled, setSwipeEnabled] = useState(true);

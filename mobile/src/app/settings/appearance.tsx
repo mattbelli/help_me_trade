@@ -10,7 +10,7 @@ import {
   Stack,
   Text,
 } from '@/components/ui';
-import { colors, spacing, useThemeMode } from '@/theme';
+import { spacing, useColors, useThemeMode } from '@/theme';
 
 export default function AppearanceScreen() {
   const router = useRouter();
@@ -93,6 +93,7 @@ function ThemeOptionRow({
   selected: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
   return (
     <SettingsRow
       label={label}

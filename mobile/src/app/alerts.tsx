@@ -19,9 +19,10 @@ import {
   Text,
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
-import { colors, spacing } from '@/theme';
+import { spacing, useColors } from '@/theme';
 
 export default function AlertsScreen() {
+  const colors = useColors();
   const router = useRouter();
   const alerts = usePriceAlerts();
   const deleteAlert = useDeletePriceAlert();
@@ -97,6 +98,7 @@ function AlertListRow({
   onDelete: () => void;
   deleting?: boolean;
 }) {
+  const colors = useColors();
   return (
     <Row justify="space-between" align="center" style={{ paddingVertical: spacing.md }}>
       <PressableScale onPress={onOpenSymbol} style={{ flex: 1 }}>

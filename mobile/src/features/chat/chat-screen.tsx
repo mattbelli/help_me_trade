@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/ui/icon';
 import { PageHeading, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
-import { colors, hairline, haptics, radius, spacing } from '@/theme';
+import { hairline, haptics, radius, spacing, useColors } from '@/theme';
 
 import { MessageBubble } from './chat-bubbles';
 import { useChat } from './use-chat';
@@ -36,6 +36,7 @@ const SUGGESTIONS = [
 const TAB_PILL_CLEARANCE = 78;
 
 export function ChatScreen() {
+  const colors = useColors();
   const insets = useSafeAreaInsets();
   const { turns, status, error, send, stop, reset } = useChat();
   const [draft, setDraft] = useState('');
@@ -188,6 +189,7 @@ export function ChatScreen() {
 }
 
 function EmptyState({ onPick }: { onPick: (s: string) => void }) {
+  const colors = useColors();
   return (
     <Stack gap={spacing.xl} style={{ alignItems: 'center' }}>
       <View

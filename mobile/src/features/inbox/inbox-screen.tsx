@@ -20,7 +20,7 @@ import { ProposalCard } from '@/features/approvals/proposal-card';
 import { notificationRoute } from '@/features/inbox/notification-route';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useAlerts } from '@/state/alerts';
-import { colors, hairline, spacing } from '@/theme';
+import { hairline, spacing, useColors } from '@/theme';
 
 type Filter = 'all' | 'approvals' | 'orders' | 'reports' | 'alerts';
 const FILTERS: { key: Filter; label: string }[] = [
@@ -98,6 +98,7 @@ function timeAgo(iso: string): string {
 }
 
 export function InboxScreen() {
+  const colors = useColors();
   const { alerts, notifications, seed, seedNotifications, readIds, markRead, markAllRead, clearRead } = useAlerts();
   const router = useRouter();
   const pending = usePendingProposals();
@@ -252,6 +253,7 @@ export function InboxScreen() {
 }
 
 function NotificationRow({ item, onPress }: { item: Extract<Row_, { kind: 'notification' }>; onPress: () => void }) {
+  const colors = useColors();
   const { notification, category, unread } = item;
   return (
     <PressableScale onPress={onPress} haptic={false}>
@@ -275,6 +277,7 @@ function NotificationRow({ item, onPress }: { item: Extract<Row_, { kind: 'notif
 }
 
 function EventRow({ item, onPress }: { item: Extract<Row_, { kind: 'event' }>; onPress: () => void }) {
+  const colors = useColors();
   const { alert, category, unread } = item;
   return (
     <PressableScale onPress={onPress} haptic={false}>

@@ -7,9 +7,10 @@
  */
 import Svg, { Line, Rect } from 'react-native-svg';
 
-import { colors } from '@/theme';
+import { useColors } from '@/theme';
 
 export function Logo({ size = 22 }: { size?: number }) {
+  const colors = useColors();
   const teal = colors.accent;
   const amber = colors.warm;
   return (

@@ -4,7 +4,7 @@
  */
 import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
 
-import { colors } from '@/theme';
+import { useColors } from '@/theme';
 
 export type IconName =
   | 'portfolio'
@@ -27,7 +27,7 @@ export type IconName =
 export function Icon({
   name,
   size = 24,
-  color = colors.textMuted,
+  color,
   strokeWidth = 1.8,
 }: {
   name: IconName;
@@ -35,8 +35,10 @@ export function Icon({
   color?: string;
   strokeWidth?: number;
 }) {
+  const colors = useColors();
+  const strokeColor = color ?? colors.textMuted;
   const sw = strokeWidth;
-  const common = { stroke: color, strokeWidth: sw, fill: 'none', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const common = { stroke: strokeColor, strokeWidth: sw, fill: 'none', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       {name === 'portfolio' && (
@@ -66,9 +68,9 @@ export function Icon({
           <Line x1="4" y1="7" x2="20" y2="7" {...common} />
           <Line x1="4" y1="12" x2="20" y2="12" {...common} />
           <Line x1="4" y1="17" x2="20" y2="17" {...common} />
-          <Circle cx="9" cy="7" r="2.2" fill={colors.bg} stroke={color} strokeWidth={sw} />
-          <Circle cx="15" cy="12" r="2.2" fill={colors.bg} stroke={color} strokeWidth={sw} />
-          <Circle cx="8" cy="17" r="2.2" fill={colors.bg} stroke={color} strokeWidth={sw} />
+          <Circle cx="9" cy="7" r="2.2" fill={colors.bg} stroke={strokeColor} strokeWidth={sw} />
+          <Circle cx="15" cy="12" r="2.2" fill={colors.bg} stroke={strokeColor} strokeWidth={sw} />
+          <Circle cx="8" cy="17" r="2.2" fill={colors.bg} stroke={strokeColor} strokeWidth={sw} />
         </>
       )}
       {name === 'bell' && (

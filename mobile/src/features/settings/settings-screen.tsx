@@ -8,9 +8,10 @@ import { useHealth } from '@/api/queries';
 import { useAuth } from '@/auth/auth-context';
 import { Button, Card, Eyebrow, PageHeading, Row, Screen, SettingsRow, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
-import { colors, spacing, useThemeMode } from '@/theme';
+import { spacing, useColors, useThemeMode } from '@/theme';
 
 export function SettingsScreen() {
+  const colors = useColors();
   const router = useRouter();
   const health = useHealth();
   const { signOut } = useAuth();
