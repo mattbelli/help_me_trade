@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, FileSearch, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { Download, ExternalLink, FileSearch, FileText, Loader2, Sparkles, Trash2 } from "lucide-react";
+
+import { downloadResearchMarkdown } from "@/components/research/research-download";
+import { ResearchMarkdown } from "@/components/research/research-markdown";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +29,7 @@ import {
 } from "@/lib/report-theme";
 import {
   deleteResearchArtifact,
+  EFFORT_LABELS,
   getResearchArtifact,
   getResearchConfig,
   listResearchArtifacts,
@@ -36,12 +40,6 @@ import {
   type ResearchDepth,
 } from "@/lib/research";
 import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
-
-const DEPTH_LABELS: Record<ResearchDepth, string> = {
-  quick: "Quick — 1 pass",
-  standard: "Standard — 2 passes",
-  deep: "Deep — 3 passes",
-};
 
 const PHASE_LABELS: Record<string, string> = {
   started: "Starting research run",
@@ -144,6 +142,13 @@ export function ResearchPage() {
   const [phaseDetail, setPhaseDetail] = useState<string>("");
   const [researchConfig, setResearchConfig] = useState<ResearchConfig | null>(null);
   const [streamWarning, setStreamWarning] = useState<string | null>(null);
+  const [effortPresets, setEffortPresets] = useState<ResearchDepth[]>([
+    "quick",
+    "standard",
+    "deep",
+    "exhaustive",
+  ]);
+  const [viewMode, setViewMode] = useState<"markdown" | "html" | "raw">("markdown");
 
   const refreshList = useCallback(async () => {
     try {
@@ -160,7 +165,26 @@ export function ResearchPage() {
 
   useEffect(() => {
     void getResearchConfig()
-      .then(setResearchConfig)
+      .then((cfg) => {
+        setResearchConfig(cfg);
+        const presets = (cfg.effort_presets ?? []).filter(
+          (p): p is ResearchDepth =>
+            p === "quick" ||
+            p === "standard" ||
+            p === "deep" ||
+            p === "exhaustive",
+        );
+        if (presets.length) setEffortPresets(presets);
+        const defaultEffort = cfg.current?.effort;
+        if (
+          defaultEffort === "quick" ||
+          defaultEffort === "standard" ||
+          defaultEffort === "deep" ||
+          defaultEffort === "exhaustive"
+        ) {
+          setDepth(defaultEffort);
+        }
+      })
       .catch(() => setResearchConfig(null));
   }, []);
 
@@ -175,8 +199,14 @@ export function ResearchPage() {
       setSelected(null);
       return;
     }
+    setViewMode("markdown");
     void getResearchArtifact(selectedId)
-      .then(setSelected)
+      .then((data) => {
+        setSelected(data);
+        if (!data.markdown?.trim() && data.html) {
+          setViewMode("html");
+        }
+      })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load artifact"),
       );
@@ -297,7 +327,7 @@ export function ResearchPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Depth</Label>
+                <Label>Effort</Label>
                 <Select
                   value={depth}
                   onValueChange={(v) => setDepth(v as ResearchDepth)}
@@ -306,9 +336,9 @@ export function ResearchPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(DEPTH_LABELS) as ResearchDepth[]).map((d) => (
+                    {effortPresets.map((d) => (
                       <SelectItem key={d} value={d}>
-                        {DEPTH_LABELS[d]}
+                        {EFFORT_LABELS[d] ?? d}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -412,29 +442,71 @@ export function ResearchPage() {
                 </p>
               )}
             </div>
-            {selected?.html && (
-              <a
-                href={researchHtmlUrl(selected.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-7 items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted"
-              >
-                <ExternalLink className="size-3.5" />
-                Open full report
-              </a>
-            )}
-            {selected && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => void handleDelete(selected.id)}
-              >
-                <Trash2 className="size-3.5" />
-                Delete
-              </Button>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {selected?.markdown ? (
+                <>
+                  <Button
+                    type="button"
+                    variant={viewMode === "markdown" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setViewMode("markdown")}
+                  >
+                    <FileText className="size-3.5" />
+                    Preview
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={viewMode === "raw" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setViewMode("raw")}
+                  >
+                    Raw
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadResearchMarkdown(selected)}
+                  >
+                    <Download className="size-3.5" />
+                    Download .md
+                  </Button>
+                </>
+              ) : null}
+              {selected?.html ? (
+                <>
+                  <Button
+                    type="button"
+                    variant={viewMode === "html" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setViewMode("html")}
+                  >
+                    HTML
+                  </Button>
+                  <a
+                    href={researchHtmlUrl(selected.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-7 items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted"
+                  >
+                    <ExternalLink className="size-3.5" />
+                    Open full report
+                  </a>
+                </>
+              ) : null}
+              {selected ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => void handleDelete(selected.id)}
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete
+                </Button>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {!selected && (
@@ -442,19 +514,29 @@ export function ResearchPage() {
                 Run research or select a report from the list.
               </div>
             )}
-            {selected?.html && (
+            {selected?.markdown && viewMode === "markdown" && (
+              <ScrollArea className="h-[560px] p-6">
+                <ResearchMarkdown markdown={selected.markdown} />
+              </ScrollArea>
+            )}
+            {selected?.markdown && viewMode === "raw" && (
+              <ScrollArea className="h-[560px] p-6">
+                <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground">
+                  {selected.markdown}
+                </pre>
+              </ScrollArea>
+            )}
+            {selected?.html && viewMode === "html" && (
               <ResearchReportViewer
                 artifactId={selected.id}
                 html={selected.html}
                 title={selected.topic}
               />
             )}
-            {selected && !selected.html && selected.markdown && (
-              <ScrollArea className="h-[560px] p-6">
-                <pre className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {selected.markdown}
-                </pre>
-              </ScrollArea>
+            {selected && !selected.markdown && !selected.html && (
+              <div className="flex h-[560px] items-center justify-center p-8 text-center text-sm text-muted-foreground">
+                Report content not available yet.
+              </div>
             )}
             {selected && (
               <>

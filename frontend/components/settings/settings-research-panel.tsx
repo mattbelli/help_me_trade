@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Download, Trash2 } from "lucide-react";
 
+import { downloadResearchMarkdown } from "@/components/research/research-download";
 import {
   SettingsSection,
+  TerminalButton,
   TerminalField,
   TerminalInput,
   TerminalSelect,
@@ -11,6 +14,14 @@ import {
 import { API_BASE, apiFetch, type ResearchSettings } from "@/lib/api";
 import { getDefaultLlm } from "@/lib/ai-settings";
 import type { AiSettings } from "@/lib/ai-settings";
+import {
+  deleteResearchArtifact,
+  EFFORT_LABELS,
+  getResearchArtifact,
+  listResearchArtifacts,
+  type ResearchArtifact,
+  type ResearchDepth,
+} from "@/lib/research";
 
 export const DEFAULT_RESEARCH: ResearchSettings = {
   searxng_url: "",
@@ -56,6 +67,32 @@ function normalizeResearch(value: ResearchSettings | undefined): ResearchSetting
   };
 }
 
+function formatArchiveDate(iso: string): string {
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return iso;
+  return new Date(ts).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function statusClass(status: string): string {
+  switch (status) {
+    case "completed":
+      return "text-[var(--c-accent)]";
+    case "failed":
+      return "text-[var(--c-red)]";
+    case "running":
+    case "queued":
+      return "text-[var(--c-blue)]";
+    default:
+      return "text-[var(--fg-dim)]";
+  }
+}
+
 export function SettingsResearchPanel({ value, ai, onChange }: Props) {
   const research = normalizeResearch(value);
   const defaultModel = getDefaultLlm(ai).model;
@@ -63,6 +100,10 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
     known_models: defaultModel ? [defaultModel] : [],
     default_model: defaultModel,
   });
+  const [archive, setArchive] = useState<ResearchArtifact[]>([]);
+  const [archiveLoading, setArchiveLoading] = useState(true);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiveBusyId, setArchiveBusyId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +124,61 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
       cancelled = true;
     };
   }, [defaultModel]);
+
+  const refreshArchive = useCallback(async () => {
+    try {
+      const items = await listResearchArtifacts(100);
+      setArchive(items);
+      setArchiveError(null);
+    } catch (err) {
+      setArchiveError(err instanceof Error ? err.message : "Failed to load archive");
+    } finally {
+      setArchiveLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshArchive();
+  }, [refreshArchive]);
+
+  async function handleArchiveDownload(item: ResearchArtifact) {
+    setArchiveBusyId(item.id);
+    setArchiveError(null);
+    try {
+      const full =
+        item.markdown.trim().length > 0
+          ? item
+          : await getResearchArtifact(item.id);
+      if (!full.markdown.trim()) {
+        throw new Error("No markdown available for this report");
+      }
+      downloadResearchMarkdown(full);
+    } catch (err) {
+      setArchiveError(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setArchiveBusyId(null);
+    }
+  }
+
+  async function handleArchiveDelete(item: ResearchArtifact) {
+    if (
+      !window.confirm(
+        `Delete research "${item.topic}"? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setArchiveBusyId(item.id);
+    setArchiveError(null);
+    try {
+      await deleteResearchArtifact(item.id);
+      setArchive((prev) => prev.filter((row) => row.id !== item.id));
+    } catch (err) {
+      setArchiveError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setArchiveBusyId(null);
+    }
+  }
 
   const modelSuggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -149,7 +245,7 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
           >
             {EFFORT_PRESETS.map((name) => (
               <option key={name} value={name}>
-                {name}
+                {EFFORT_LABELS[name as ResearchDepth] ?? name}
               </option>
             ))}
           </TerminalSelect>
@@ -193,6 +289,91 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
               </tbody>
             </table>
           </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Archive">
+        <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+          All saved research reports. Download markdown or remove artifacts you no
+          longer need.
+        </p>
+        {archiveError ? (
+          <p className="font-mono text-[10px] text-[var(--c-red)]">{archiveError}</p>
+        ) : null}
+        <div className="overflow-x-auto rounded border border-border">
+          <table className="w-full min-w-[36rem] border-collapse font-mono text-[11px]">
+            <thead>
+              <tr className="border-b border-border bg-[var(--bg-inset)] text-left text-[var(--fg-dim)]">
+                <th className="px-3 py-2 font-normal">Topic</th>
+                <th className="px-3 py-2 font-normal">Symbol</th>
+                <th className="px-3 py-2 font-normal">Date</th>
+                <th className="px-3 py-2 font-normal">Status</th>
+                <th className="px-3 py-2 font-normal text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {archiveLoading ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-3 py-4 text-center text-[var(--fg-dim)]"
+                  >
+                    Loading…
+                  </td>
+                </tr>
+              ) : archive.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-3 py-4 text-center text-[var(--fg-dim)]"
+                  >
+                    No research artifacts yet.
+                  </td>
+                </tr>
+              ) : (
+                archive.map((item) => (
+                  <tr key={item.id} className="border-b border-border last:border-b-0">
+                    <td className="max-w-[14rem] truncate px-3 py-2 align-top text-foreground">
+                      {item.topic}
+                    </td>
+                    <td className="px-3 py-2 align-top text-[var(--fg-dim)]">
+                      {item.symbol ?? "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 align-top text-[var(--fg-dim)]">
+                      {formatArchiveDate(item.created_at)}
+                    </td>
+                    <td
+                      className={`px-3 py-2 align-top uppercase ${statusClass(item.status)}`}
+                    >
+                      {item.status}
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <div className="flex items-center justify-end gap-1">
+                        <TerminalButton
+                          variant="default"
+                          disabled={archiveBusyId === item.id}
+                          onClick={() => void handleArchiveDownload(item)}
+                          aria-label={`Download ${item.topic}`}
+                        >
+                          <Download className="size-3" />
+                          .md
+                        </TerminalButton>
+                        <TerminalButton
+                          variant="danger"
+                          disabled={archiveBusyId === item.id}
+                          onClick={() => void handleArchiveDelete(item)}
+                          aria-label={`Delete ${item.topic}`}
+                        >
+                          <Trash2 className="size-3" />
+                          Delete
+                        </TerminalButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </SettingsSection>
     </div>

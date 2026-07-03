@@ -23,7 +23,14 @@ export async function getResearchConfig(): Promise<ResearchConfig> {
   return res.json() as Promise<ResearchConfig>;
 }
 
-export type ResearchDepth = "quick" | "standard" | "deep";
+export type ResearchDepth = "quick" | "standard" | "deep" | "exhaustive";
+
+export const EFFORT_LABELS: Record<ResearchDepth, string> = {
+  quick: "Quick",
+  standard: "Standard",
+  deep: "Deep",
+  exhaustive: "Exhaustive",
+};
 
 export type ResearchArtifact = {
   id: number;
@@ -37,6 +44,27 @@ export type ResearchArtifact = {
   sources: Array<Record<string, unknown>>;
   created_at: string;
   updated_at: string;
+};
+
+export type ResearchRunQueued = {
+  job_id: string;
+  status: string;
+  topic: string;
+  symbol: string | null;
+  depth: ResearchDepth;
+};
+
+export type ResearchJob = {
+  job_id: string;
+  status: string;
+  topic: string;
+  symbol: string | null;
+  depth: ResearchDepth;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  result: { artifact_id?: number } | null;
 };
 
 export type ResearchRunResult = {
@@ -104,7 +132,7 @@ export async function runResearch(body: {
   topic: string;
   symbol?: string;
   depth?: ResearchDepth;
-}): Promise<ResearchRunResult> {
+}): Promise<ResearchRunQueued> {
   const res = await apiFetch(`${API_BASE}/api/research/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -117,7 +145,21 @@ export async function runResearch(body: {
     };
     throw new Error(parseApiError(err, `Research failed (${res.status})`));
   }
-  return res.json() as Promise<ResearchRunResult>;
+  return res.json() as Promise<ResearchRunQueued>;
+}
+
+export async function getResearchJob(jobId: string): Promise<ResearchJob> {
+  const res = await apiFetch(`${API_BASE}/api/research/jobs/${jobId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(parseApiError(err, `Research job not found (${res.status})`));
+  }
+  return res.json() as Promise<ResearchJob>;
 }
 
 export type ResearchStreamEvent = {
