@@ -34,6 +34,13 @@ _UNTRUSTED_LINE = (
 _CITE_OR_OMIT = (
     "Cite-or-omit: never state a number without a source; say 'not found' rather than guessing."
 )
+_STYLE_LINE = (
+    "Write polished, professional markdown: short paragraphs (2-4 sentences), **bold** "
+    "key figures, bullet lists for enumerations. Cite web claims inline as "
+    "[Publisher](url) markdown links — NEVER raw source ids like [web_12] or "
+    "[memory_3]. Reference internal data (price bars, portfolio, memories) in plain "
+    "prose without bracket tokens."
+)
 
 
 @dataclass(frozen=True)
@@ -237,7 +244,7 @@ def _generate_follow_up_queries(
             ),
         ),
     ]
-    raw = complete_for_extraction(llm, messages, max_tokens=300)
+    raw = complete_for_extraction(llm, messages, max_tokens=2000)
     parsed = parse_json_object(raw, prefer_keys={"queries"})
     if parsed:
         queries = parsed.get("queries", [])
@@ -269,9 +276,9 @@ def _distill_section(
             role="system",
             content=(
                 "Distill new sources into an evolving analyst section. Return JSON only "
-                "with keys: section_markdown (dense analytical prose replacing the prior "
-                "draft), key_facts (array of {source_id, fact}), gaps_remaining (array of "
-                "short strings). Demand inline [title](url) citations for every web claim. "
+                "with keys: section_markdown (a polished analyst section replacing the "
+                "prior draft), key_facts (array of {source_id, fact}), gaps_remaining "
+                f"(array of short strings). {_STYLE_LINE} "
                 f"{_CITE_OR_OMIT} {_UNTRUSTED_LINE}"
             ),
         ),
@@ -290,7 +297,7 @@ def _distill_section(
             ),
         ),
     ]
-    raw = complete_for_extraction(llm, messages, max_tokens=1200)
+    raw = complete_for_extraction(llm, messages, max_tokens=6000)
     parsed = parse_json_object(
         raw, prefer_keys={"section_markdown", "key_facts", "gaps_remaining"}
     )

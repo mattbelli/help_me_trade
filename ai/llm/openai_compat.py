@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 from urllib.parse import urljoin
@@ -11,6 +12,8 @@ from urllib.parse import urljoin
 import httpx
 
 from ai.llm.base import LLMMessage
+
+logger = logging.getLogger(__name__)
 
 
 def _http_error_detail(resp: httpx.Response) -> str:
@@ -119,7 +122,14 @@ class OpenAICompatibleLLM:
                     response=resp,
                 )
             data = resp.json()
-        return str(data["choices"][0]["message"]["content"])
+        choice = data["choices"][0]
+        if choice.get("finish_reason") == "length":
+            logger.warning(
+                "%s completion truncated at max_tokens=%d (finish_reason=length)",
+                self.provider,
+                max_tokens,
+            )
+        return str(choice["message"]["content"] or "")
 
     def complete_json(
         self,
@@ -128,12 +138,27 @@ class OpenAICompatibleLLM:
         max_tokens: int = 1024,
         temperature: float = 0.1,
     ) -> str:
-        return self.complete(
+        json_mode = self._json_mode_allowed(messages)
+        raw = self.complete(
             messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            json_mode=self._json_mode_allowed(messages),
+            json_mode=json_mode,
         )
+        # DeepSeek's json_object mode is documented to occasionally return empty
+        # content — retry once without it before callers hit their fallbacks.
+        if json_mode and not raw.strip():
+            logger.warning(
+                "%s returned empty content in json_object mode; retrying without it",
+                self.provider,
+            )
+            raw = self.complete(
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                json_mode=False,
+            )
+        return raw
 
     def stream(
         self, messages: list[LLMMessage], *, max_tokens: int = 1024

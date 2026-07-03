@@ -123,7 +123,7 @@ def _run_planner(
         ),
     ]
     try:
-        raw = complete_for_extraction(llm, messages, max_tokens=800)
+        raw = complete_for_extraction(llm, messages, max_tokens=4000)
         parsed = parse_json_object(
             raw, prefer_keys={"report_focus", "success_criteria", "specialists"}
         )
@@ -210,7 +210,7 @@ def _run_critic(
         ),
     ]
     try:
-        raw = complete_for_extraction(llm, messages, max_tokens=600)
+        raw = complete_for_extraction(llm, messages, max_tokens=4000)
         parsed = parse_json_object(
             raw,
             prefer_keys={"missing_angles", "unverified_claims", "follow_ups"},

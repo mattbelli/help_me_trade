@@ -58,22 +58,13 @@ def _distill_payload(*, with_gaps: bool = False) -> str:
 
 def _editor_report(*, word_count: int) -> str:
     body = " ".join(["sourced"] * word_count)
-    return json.dumps(
-        {
-            "title": "Test Research Report",
-            "summary": body,
-            "metrics": [{"label": "Trend", "value": "Neutral"}],
-            "sections": [
-                {
-                    "heading": "Fundamentals",
-                    "body": body,
-                    "citations": [],
-                }
-            ],
-            "risks": ["Macro sensitivity"],
-            "next_steps": ["Monitor support"],
-            "sources": [],
-        }
+    return (
+        "# Test Research Report\n\n"
+        f"{body}\n\n"
+        f"## Fundamentals\n\n{body}\n\n"
+        "## Risks\n\n- Macro sensitivity\n\n"
+        "## Next steps\n\n- Monitor support\n\n"
+        "## Bottom line\n\nNeutral stance pending confirmation.\n"
     )
 
 
@@ -154,7 +145,7 @@ class ScriptedLLM:
         if "chief editor" in lowered:
             self.editor_calls += 1
             if self.editor_all_garbage:
-                return "<<<not json>>>"
+                return ""
             if self.editor_calls == 2 and self.editor_second_response is not None:
                 return self.editor_second_response
             words = (
@@ -772,7 +763,7 @@ def test_expand_parse_failure_keeps_original_report(
         sources=[_mock_web_hit("AAPL")],
     )
     assert report["risks"] == ["Macro sensitivity"]
-    assert report["metrics"]
+    assert report["sections"]
 
 
 def test_editor_sources_overwritten_from_catalog(
