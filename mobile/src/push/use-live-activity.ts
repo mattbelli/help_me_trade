@@ -115,7 +115,11 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
           }
         }
         held.forEach((inst) => void inst.getPushToken().then(sendToken).catch(() => {}));
-        if (tries >= 20 || (captured && registered.size > 0)) {
+        // ~90s window (45 × 2s): on a COLD launch, ActivityKit hydrates
+        // `getInstances()` with a while-dead push-started activity only after a
+        // race-y delay — a short poll can miss it. The long window + the
+        // foreground re-arm together win that race in practice.
+        if (tries >= 45 || (captured && registered.size > 0)) {
           if (pollTimer) {
             clearInterval(pollTimer);
             pollTimer = null;
