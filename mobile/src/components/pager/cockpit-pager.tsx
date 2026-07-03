@@ -47,7 +47,7 @@ export function CockpitPager() {
 
   const { token } = useAuth();
   const qc = useQueryClient();
-  const { pushAlert } = useAlerts();
+  const { pushAlert, pushNotification } = useAlerts();
   const { data: pending } = usePendingProposals();
   const pendingCount = pending?.proposals.length ?? 0;
 
@@ -96,6 +96,7 @@ export function CockpitPager() {
   const { connected, subscribe } = useMarketWs({
     token,
     onAlert: pushAlert,
+    onNotification: pushNotification,
     onQuote,
     onProposal: () => {
       haptics.warning();

@@ -188,6 +188,24 @@ export interface AlertAction {
   message?: string | null;
 }
 
+export interface FeedNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  severity: string;
+  account_id: string | null;
+  strategy_id: string | null;
+  ref_type: string | null;
+  ref_id: string | null;
+  action_url: string | null;
+  group_key: string | null;
+  data?: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+  dismissed_at: string | null;
+}
+
 export interface MarketAlert {
   id: string;
   ts: string;

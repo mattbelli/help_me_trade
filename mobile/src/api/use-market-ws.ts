@@ -1,7 +1,7 @@
 import { wsUrl } from '@/config';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { MarketAlert } from './types';
+import type { FeedNotification, MarketAlert } from './types';
 
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 10_000;
@@ -22,6 +22,7 @@ export interface QuoteUpdate {
 export interface UseMarketWsOptions {
   token: string | null;
   onAlert?: (alert: MarketAlert) => void;
+  onNotification?: (notification: FeedNotification) => void;
   onQuote?: (quote: QuoteUpdate) => void;
   onProposal?: (proposalId: string) => void;
 }
@@ -58,7 +59,26 @@ interface WsAlertMessage {
   alert?: Partial<WsAlertMessage>;
 }
 
-type WsMessage = WsQuoteMessage | WsAlertMessage | Record<string, unknown>;
+interface WsNotificationMessage {
+  type: 'notification';
+  id?: string;
+  kind?: string;
+  title?: string;
+  body?: string;
+  severity?: string;
+  account_id?: string | null;
+  strategy_id?: string | null;
+  ref_type?: string | null;
+  ref_id?: string | null;
+  action_url?: string | null;
+  group_key?: string | null;
+  data?: Record<string, unknown>;
+  created_at?: string;
+  read_at?: string | null;
+  dismissed_at?: string | null;
+}
+
+type WsMessage = WsQuoteMessage | WsAlertMessage | WsNotificationMessage | Record<string, unknown>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -85,6 +105,29 @@ function parseAlert(raw: WsAlertMessage): MarketAlert {
   };
 }
 
+function parseNotification(raw: WsNotificationMessage): FeedNotification | null {
+  if (typeof raw.id !== 'string' || typeof raw.kind !== 'string') {
+    return null;
+  }
+  return {
+    id: raw.id,
+    kind: raw.kind,
+    title: raw.title ?? '',
+    body: raw.body ?? '',
+    severity: raw.severity ?? 'info',
+    account_id: raw.account_id ?? null,
+    strategy_id: raw.strategy_id ?? null,
+    ref_type: raw.ref_type ?? null,
+    ref_id: raw.ref_id ?? null,
+    action_url: raw.action_url ?? null,
+    group_key: raw.group_key ?? null,
+    data: raw.data ?? {},
+    created_at: raw.created_at ?? new Date().toISOString(),
+    read_at: raw.read_at ?? null,
+    dismissed_at: raw.dismissed_at ?? null,
+  };
+}
+
 /**
  * Resilient WebSocket hook for /ws/market.
  * Auto-reconnects with exponential backoff; pauses when token is null.
@@ -92,12 +135,14 @@ function parseAlert(raw: WsAlertMessage): MarketAlert {
 export function useMarketWs({
   token,
   onAlert,
+  onNotification,
   onQuote,
   onProposal,
 }: UseMarketWsOptions) {
   const [connected, setConnected] = useState(false);
 
   const onAlertRef = useRef(onAlert);
+  const onNotificationRef = useRef(onNotification);
   const onQuoteRef = useRef(onQuote);
   const onProposalRef = useRef(onProposal);
   const wsRef = useRef<WebSocket | null>(null);
@@ -106,9 +151,10 @@ export function useMarketWs({
 
   useEffect(() => {
     onAlertRef.current = onAlert;
+    onNotificationRef.current = onNotification;
     onQuoteRef.current = onQuote;
     onProposalRef.current = onProposal;
-  }, [onAlert, onQuote, onProposal]);
+  }, [onAlert, onNotification, onQuote, onProposal]);
 
   const subscribe = useCallback((symbols: string[]) => {
     const ws = wsRef.current;
@@ -164,6 +210,14 @@ export function useMarketWs({
             action.proposal_id
           ) {
             onProposalRef.current?.(action.proposal_id);
+          }
+          return;
+        }
+
+        if (isRecord(msg) && msg.type === 'notification') {
+          const notification = parseNotification(msg as unknown as WsNotificationMessage);
+          if (notification) {
+            onNotificationRef.current?.(notification);
           }
           return;
         }

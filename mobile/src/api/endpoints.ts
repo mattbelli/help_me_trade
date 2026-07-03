@@ -4,6 +4,7 @@ import { apiFetch } from './client';
 import type {
   Bar,
   EarningsHistory,
+  FeedNotification,
   HealthStatus,
   MarketAlert,
   PendingProposal,
@@ -135,6 +136,10 @@ export function rejectProposal(id: string, signal?: AbortSignal): Promise<{ stat
 
 export function getRecentAlerts(): Promise<{ alerts: MarketAlert[] }> {
   return apiFetch<{ alerts: MarketAlert[] }>('/api/alerts/recent');
+}
+
+export function getRecentNotifications(): Promise<{ notifications: FeedNotification[]; unread: number }> {
+  return apiFetch<{ notifications: FeedNotification[]; unread: number }>('/api/notifications');
 }
 
 // --- Price alerts (user-set on stock prices) ---
