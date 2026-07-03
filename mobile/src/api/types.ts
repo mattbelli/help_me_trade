@@ -239,3 +239,27 @@ export interface HealthStatus {
   last_poll_age_seconds?: number;
   poll_healthy?: boolean;
 }
+
+export interface Report {
+  id: string;
+  kind: string;
+  symbol: string;
+  title: string;
+  body: string;
+  format: 'text' | 'html';
+  payload: Record<string, unknown>;
+  generated_at: string;
+}
+
+export interface ResearchArtifact {
+  id: number;
+  topic: string;
+  symbol: string | null;
+  markdown: string;
+  status: string;
+  depth: string;
+  html: string | null;
+  sources: Record<string, unknown>[];
+  created_at: string;
+  updated_at: string;
+}

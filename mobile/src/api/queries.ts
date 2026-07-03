@@ -13,6 +13,8 @@ import {
   getPortfolioHistory,
   getPriceAlerts,
   getRecentAlerts,
+  getReport,
+  getResearch,
   getSnapshot,
   getWatchlist,
   getWatchlistMarket,
@@ -200,6 +202,26 @@ export function useRecentAlerts() {
     enabled,
     refetchInterval: 15_000,
     staleTime: 12_000,
+  });
+}
+
+export function useReport(id: string) {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['report', id],
+    queryFn: () => getReport(id),
+    enabled: enabled && !!id,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useResearch(id: string) {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['research', id],
+    queryFn: () => getResearch(id),
+    enabled: enabled && !!id,
+    staleTime: 5 * 60_000,
   });
 }
 

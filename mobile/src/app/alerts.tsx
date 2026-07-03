@@ -6,6 +6,7 @@ import { useDeletePriceAlert, usePriceAlerts } from '@/api/queries';
 import type { PriceAlert } from '@/api/types';
 import { Icon } from '@/components/ui/icon';
 import {
+  BackRow,
   EmptyState,
   ErrorState,
   Eyebrow,
@@ -82,19 +83,6 @@ export default function AlertsScreen() {
         }
       />
     </Screen>
-  );
-}
-
-function BackRow({ onBack }: { onBack: () => void }) {
-  return (
-    <PressableScale onPress={onBack} haptic>
-      <Row gap={spacing.xs} align="center">
-        <Icon name="chevron-left" size={20} color={colors.textMuted} />
-        <Text variant="body" color="textMuted">
-          Back
-        </Text>
-      </Row>
-    </PressableScale>
   );
 }
 

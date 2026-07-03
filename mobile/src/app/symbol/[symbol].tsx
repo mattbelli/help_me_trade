@@ -15,6 +15,7 @@ import { sessionView } from '@/features/watchlist/session';
 import { Icon } from '@/components/ui/icon';
 import {
   Button,
+  BackRow,
   Card,
   Divider,
   ErrorState,
@@ -257,19 +258,6 @@ export default function SymbolDetailScreen() {
         </Stack>
       </ScrollView>
     </Screen>
-  );
-}
-
-function BackRow({ onBack }: { onBack: () => void }) {
-  return (
-    <PressableScale onPress={onBack} haptic>
-      <Row gap={spacing.xs} align="center">
-        <Icon name="chevron-left" size={20} color={colors.textMuted} />
-        <Text variant="body" color="textMuted">
-          Back
-        </Text>
-      </Row>
-    </PressableScale>
   );
 }
 

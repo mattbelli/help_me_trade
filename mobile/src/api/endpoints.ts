@@ -11,6 +11,8 @@ import type {
   PortfolioHistory,
   PortfolioRange,
   PriceAlert,
+  Report,
+  ResearchArtifact,
   Snapshot,
   WatchlistMarket,
   WatchlistsState,
@@ -140,6 +142,14 @@ export function getRecentAlerts(): Promise<{ alerts: MarketAlert[] }> {
 
 export function getRecentNotifications(): Promise<{ notifications: FeedNotification[]; unread: number }> {
   return apiFetch<{ notifications: FeedNotification[]; unread: number }>('/api/notifications');
+}
+
+export function getReport(id: string): Promise<Report> {
+  return apiFetch<Report>(`/api/reports/${encodeURIComponent(id)}`);
+}
+
+export function getResearch(id: string): Promise<ResearchArtifact> {
+  return apiFetch<ResearchArtifact>(`/api/research/${encodeURIComponent(id)}`);
 }
 
 // --- Price alerts (user-set on stock prices) ---

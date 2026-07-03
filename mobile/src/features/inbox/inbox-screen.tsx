@@ -10,13 +10,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 
 import { getRecentAlerts, getRecentNotifications } from '@/api/endpoints';
 import { usePendingProposals } from '@/api/queries';
 import type { FeedNotification, MarketAlert, PendingProposal } from '@/api/types';
 import { Badge, formatUsd, PageHeading, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
 import { ProposalCard } from '@/features/approvals/proposal-card';
+import { notificationRoute } from '@/features/inbox/notification-route';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useAlerts } from '@/state/alerts';
 import { colors, hairline, spacing } from '@/theme';
@@ -211,10 +212,8 @@ export function InboxScreen() {
                 item={item}
                 onPress={() => {
                   markRead(item.notification.id);
-                  if (item.notification.kind === 'fill_report') {
-                    const sym = item.notification.data?.symbol;
-                    if (typeof sym === 'string') router.push(`/symbol/${sym}`);
-                  }
+                  const route = notificationRoute(item.notification);
+                  if (route) router.push(route as Href);
                 }}
               />
             );
