@@ -368,7 +368,7 @@ def test_api_register_live_activity(tmp_path: Path, monkeypatch, mutation_client
         },
     )
     assert ok.status_code == 200
-    assert ok.json() == {"ok": True}
+    assert ok.json() == {"ok": True, "bound": "exact"}
 
     assert list_update_tokens("p1", db_path=db) == [
         {"device_token": "dev1", "update_token": "upd1"}

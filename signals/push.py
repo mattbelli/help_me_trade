@@ -27,7 +27,12 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from config.settings import push_config
 from db.base import DEFAULT_DB_PATH
 from db.device_tokens import list_active_device_tokens
-from db.live_activities import clear_for_proposal, list_update_tokens
+from db.live_activities import (
+    clear_for_proposal,
+    has_other_pending_start,
+    list_update_tokens,
+    record_activity_start,
+)
 from db.paper_orders import get_proposal
 
 logger = logging.getLogger(__name__)
@@ -506,9 +511,16 @@ async def start_proposal_live_activity(
             },
         }
 
+        proposal_id = str(proposal.get("id") or "")
         sent = 0
         for row in tokens:
             token = str(row["token"])
+            if has_other_pending_start(token, proposal_id, db_path=db_path):
+                logger.warning(
+                    "concurrent LA starts for device %s…— older activity will not receive UPDATE/END",
+                    token[:8],
+                )
+            record_activity_start(proposal_id, token, db_path=db_path)
             if await _send_live_activity(token, payload_aps, db_path=db_path):
                 sent += 1
         if sent:
