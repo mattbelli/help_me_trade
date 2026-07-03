@@ -10,7 +10,34 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Research Engine v2 build (2026-07-03)
+## CURRENT FOCUS — Phase 5a: setup_scan recipe + ideas[] (2026-07-03)
+
+> ▶ **START HERE (fresh session): build Phase 5a — task #29.** Everything before it is DONE and deployed:
+> Research v2 core (Phases 1-4 + data + progress feed), and the ENTIRE audit safety block — #33 execution
+> hardening (paper-endpoint guarantee, daily-loss breaker, in-flight/daily notional caps), #34 auth
+> (fail-closed mutations, API_ADMIN_TOKEN scope, asymmetric kill switch — admin token is in serv .env),
+> #35 delivery shell (ALL of R1-R3/H1-H3, four adversarially-reviewed rounds, built in lockstep with the
+> mac agent via References/SERV_REPLY_35*.md contracts).
+>
+> **Phase 5a scope (founder-agreed):** `setup_scan` recipe over the specialist engine — takes candidate
+> symbols (args or watchlist), runs a quick per-candidate research pass, ranks, and emits validated
+> **`ideas[]`** (symbol, direction long-only, thesis, entry ZONE, stop, targets[], qualitative confidence —
+> **NO win% until calibration earns it**, cite-or-omit on every level) stored on the artifact + rendered in
+> the paper. `ideas[]` carries `entry_condition` + `status` from day one (Setup Book #42 retrofit-proofing).
+> **NO proposal bridge in 5a** — ideas are display+journal only; the founder runs scans manually for ~1-2
+> weeks to judge idea quality. ⛔ **Gates (founder-agreed):** #42 Setup Book (armed setups, entry monitoring,
+> blind+criteria-driven revalidation-at-trigger) builds ONLY after 5a ideas prove worth arming; 5c proposal
+> bridge = money-adjacent, full adversarial ceremony. Design details: `References/RESEARCH_ENGINE_V2.md`
+> (harness vision + Setup Book sections) + tasks #29/#42.
+>
+> **Cadence reminders:** brief → Composer (`node tools/composer-bridge/dispatch.mjs --brief ...`, one at a
+> time) → own diff review → gates (`uv run ruff check .` + `uv run python -m pytest -q` + frontend
+> typecheck) → adversarial Sonnet review for anything trading/-adjacent → commit by explicit path (mac agent
+> shares this tree — `git pull --rebase` before push) → `bash tools/serv-deploy.sh backend|frontend|both`.
+> Backlog (non-gating): #41 done_for_day, #36 off-box backup, #37 data tail, #38 doc-figure hygiene, #32
+> hermetic tests, #39/#40 promotion-gated, #24, #30/#31 (Phase 6 + social specialist), #14/#16/#17.
+
+## PRIOR FOCUS — Research Engine v2 build (2026-07-03)
 
 > ▶ **RESEARCH V2 CORE COMPLETE (2026-07-03, commits dd1b272→945c0cc).** All of: Phase 2 engine, quality
 > round (markdown editor), Phase 4 MD viewer/download/effort-UI + scannable paper (TL;DR/scoreboard/metrics
