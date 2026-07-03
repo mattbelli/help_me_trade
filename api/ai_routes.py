@@ -36,6 +36,7 @@ from ai.research.report import research_html_for_artifact
 from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
 from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
+from config.research_engine import resolve_effort
 from db.ai_tables import (
     MEMORY_TYPES,
     create_rule,
@@ -740,7 +741,11 @@ def api_list_session_chat_memories(session_id: str):
 async def api_run_research(body: dict = Body(...)):
     topic = str(body.get("topic", "")).strip()
     symbol = body.get("symbol")
-    depth = str(body.get("depth", "standard")).strip().lower()
+    depth_raw = body.get("depth")
+    if depth_raw is None or not str(depth_raw).strip():
+        depth = resolve_effort(None).name
+    else:
+        depth = str(depth_raw).strip().lower()
     if not topic:
         return JSONResponse({"error": "topic is required"}, status_code=400)
     if depth not in RESEARCH_DEPTHS:
@@ -785,7 +790,11 @@ def api_get_research_job(job_id: str):
 async def api_research_stream(body: dict = Body(...)):
     topic = str(body.get("topic", "")).strip()
     symbol = body.get("symbol")
-    depth = str(body.get("depth", "standard")).strip().lower()
+    depth_raw = body.get("depth")
+    if depth_raw is None or not str(depth_raw).strip():
+        depth = resolve_effort(None).name
+    else:
+        depth = str(depth_raw).strip().lower()
     if not topic:
         return JSONResponse({"error": "topic is required"}, status_code=400)
     if depth not in RESEARCH_DEPTHS:

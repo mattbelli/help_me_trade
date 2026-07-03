@@ -188,7 +188,7 @@ Available tools:
 - query — arguments: {"resource": string, "filters": object|null}
 - list_capabilities — arguments: {}
 - search_memories — arguments: {"query": string, "limit": number}
-- start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"}
+- start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"|"exhaustive" (optional)}
 - get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number, "account_id": string|null}
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
 - web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
@@ -533,9 +533,13 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         topic = str(args.get("topic", "Market research")).strip()
         symbol = args.get("symbol")
         sym = str(symbol).strip().upper() if symbol else None
-        depth = str(args.get("depth", "standard")).strip().lower()
-        if depth not in ("quick", "standard", "deep"):
-            depth = "standard"
+        from config.research_engine import resolve_effort
+
+        depth_raw = args.get("depth")
+        if depth_raw is None or not str(depth_raw).strip():
+            depth = resolve_effort(None).name
+        else:
+            depth = resolve_effort(str(depth_raw).strip().lower()).name
 
         job_id = submit_research_job(topic=topic, symbol=sym, depth=depth)
 

@@ -77,6 +77,14 @@ Per specialist, targeted inputs via the perception layer (`ai/perception/`):
 Web = SearXNG on :8585 (see [[searxng-port]]). Wrap fetched web text as untrusted
 `user`-role content (Odysseus's prompt-injection guard).
 
+**Social (planned, #31)**: a 6th `social_sentiment` specialist on FREE sources only —
+Reddit public JSON (`/r/<sub>/search.json?q=<ticker>&restrict_sr=1&sort=new&t=week`,
+`hot.json`, `/comments/<id>.json`; real User-Agent, ~1 req/s + cache — IP-block risk) +
+StockTwits free symbol stream. Upvotes/comment-count/recency = sentiment weighting.
+NO paid social APIs (founder: X API explicitly out — cost drain). Reddit text is the top
+prompt-injection vector → untrusted guard mandatory; sentiment is reported as
+what's-said + volume, never converted into fabricated conviction numbers.
+
 ## UI (separate track — founder ask)
 - **Workspace viewer**: research must render IN the workspace (old `/research` page is
   pre-widget). A popup/modal Markdown viewer (the artifact `markdown`) + **Download** (.md).
@@ -85,17 +93,49 @@ Web = SearXNG on :8585 (see [[searxng-port]]). Wrap fetched web text as untruste
   Settings → Research (as today), plus delete.
 - Keep the themed HTML view too (already themed), but MD viewer + download is the ask.
 
+## The harness vision — research as an ASSIGNABLE capability (founder, 2026-07-03)
+The engine is not a one-off report button; it's a capability the copilot can be *tasked*
+with. Three layers:
+1. **Engine** (Phase 2) — topic-agnostic planner→specialists→critic→editor. Any prompt
+   works: single stock, sector, "is this setup valid".
+2. **Recipes** (Phase 5) — named templates = specialist mix + prompt focus + **output
+   contract**: `single_stock` (default deep dive), `morning_briefing` (pre-market:
+   overnight/macro + watchlist movers + today's earnings + positions health → report +
+   watch-today list), `setup_scan` (scanner top-N → quick research pass each → rank →
+   structured `ideas[]`), `earnings_preview`, `sector_review`, `thesis_check` (weekly:
+   does each holding's original thesis still hold?).
+3. **Task assignment** (Phase 6) — copilot gets ONE narrow write tool
+   `schedule_research(recipe, params, cadence, effort)`; "morning briefing every weekday
+   8am, flag setups" = one chat sentence. Fits the curated-write-surface rule.
+
+**Decision-Engine tie-in**: `setup_scan.ideas[]` (symbol, direction, thesis,
+entry/stop/targets) feeds the EXISTING propose→phone-approve pipeline. PERCEIVE
+(perception + scans) → REASON (this engine) → DECIDE (ranked planned proposals on the
+founder's phone). Guardrails: ideas NEVER auto-execute (proposals only, off-by-default);
+each scheduled run batches into ONE summary push (alert-fatigue rule); scheduled runs
+default quick/standard effort — deep/exhaustive is an explicit ask (API cost); no win% in
+ideas until calibration exists — qualitative confidence, cite-or-omit.
+
+**Perception = shared read layer**: chat tools and research specialists call the SAME
+in-process `ai/perception` surface (`perception_query`, context builders). Phase 3 scopes
+manifest slices per specialist and lets the query step emit perception queries alongside
+web queries — so research auto-inherits every new resource the perception layer grows.
+
 ## Phases (tasks tracked separately)
-1. **Config + effort foundation** — `research.model_roles` + auto-delegate resolver;
-   `research.effort` presets → a resolved `ResearchEffort` config; Settings UI. Low-risk.
+1. **Config + effort foundation** — `research.model_roles` + effort presets + Settings UI.
+   SHIPPED 2026-07-03 (manual-only role→model; auto-delegate removed, keys parked).
 2. **Specialist engine** — new orchestrator (planner→parallel specialists→critic→editor),
    model-agnostic per role, Odysseus-superset loop; replace v1 analyze/synthesize; remove
-   truncation caps. The big one; adversarial review of synthesis + self-stop.
-3. **Source enrichment** — wire per-specialist proprietary data via perception; untrusted-web
-   guard.
+   truncation caps. The big one; adversarial review of synthesis + self-stop. (#26)
+3. **Source enrichment** — wire per-specialist proprietary data via perception (see shared
+   read layer above); untrusted-web guard. (#27)
 4. **UI** — effort preset selector on start; workspace MD viewer + download widget; settings
-   archive download.
-5. **Follow-ups** (task #24) — `web_search_status()` health probe; chat-path notify fix.
+   archive download. (#28)
+5. **Recipes + structured ideas** — recipe templates + `ideas[]` output contract →
+   proposals pipeline. (#29)
+6. **Scheduled recipes + copilot assignment** — scheduler + `schedule_research` chat tool;
+   first shipped recipe = morning_briefing. (#30)
+7. **Follow-ups** (task #24) — `web_search_status()` health probe; chat-path notify fix.
 
 ## Quality gate
 A/B the v2 paper vs the Odysseus single-model loop on the same ticker; v2 must read clearly

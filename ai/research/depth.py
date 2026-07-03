@@ -1,11 +1,7 @@
-"""Research depth presets (Odysseus-style iteration budgets)."""
+"""Research depth presets — aliases effort preset names for API validation."""
 
 from __future__ import annotations
 
-RESEARCH_DEPTHS = frozenset({"quick", "standard", "deep"})
+from config.research_engine import EFFORT_PRESET_NAMES
 
-DEPTH_CONFIG: dict[str, dict[str, int]] = {
-    "quick": {"max_iterations": 1, "max_queries": 2},
-    "standard": {"max_iterations": 2, "max_queries": 4},
-    "deep": {"max_iterations": 3, "max_queries": 6},
-}
+RESEARCH_DEPTHS = frozenset(EFFORT_PRESET_NAMES)

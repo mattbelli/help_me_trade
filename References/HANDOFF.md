@@ -10,9 +10,26 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Fable-audit fix rounds (Decision Engine Phase 0/0.5) (2026-07-02)
+## CURRENT FOCUS — Research Engine v2 build (2026-07-03)
 
-> ▶ **LATEST (2026-07-02 late night) — Rounds 12–13: five UI bugs + deep-research delivery & web-search fixed
+> ▶ **LATEST (2026-07-03) — Research v2 Phases 1+2 SHIPPED: manual role→model config, then THE ENGINE.**
+> Phase 1 (1c8c923 + earlier): `config/research_engine.py` (ROLES, effort presets quick/standard/deep/exhaustive,
+> `resolve_role_model` **manual-only** — founder killed auto-delegate, "maybe we come back to auto later"; keys
+> parked), Settings→Research role→model dropdown table. Phase 2 (this round): v1 `deep_graph.py` DELETED →
+> `ai/research/engine_v2.py` (planner→parallel specialists→critic→editor) + `ai/research/specialists.py`
+> (5-analyst roster, Odysseus-style rolling loops, self-stop capped on exhaustive). Same v1 artifact contract =
+> delivery chain untouched; `depth` = the 4 preset names; effort-scaled job timeouts; all truncation caps now
+> effort-scaled. **Adversarial Sonnet review: 15 findings, 3 gating — all 9 real ones fixed in a dedicated
+> Composer round** (cooperative cancel-event on timeout, citation-href double-escape, partial credit on transient
+> LLM errors, cumulative source caps, payload budgets, expand-downgrade guard, real-sources overwrite + more).
+> 1258 tests + ruff + typecheck green. **Quality gate before calling it done: A/B a real v2 paper vs Odysseus
+> single-model on the same ticker** (founder's bar: must beat a chat answer). Founder vision captured in
+> `RESEARCH_ENGINE_V2.md`: recipes (morning_briefing/setup_scan→`ideas[]`→proposals) #29, copilot
+> `schedule_research` task-assignment #30, free Reddit-JSON/StockTwits `social_sentiment` specialist #31 (no paid
+> social APIs). Next: Phase 3 perception-layer data per specialist (#27), Phase 4 workspace MD viewer (#28),
+> follow-ups #24.
+>
+> ▶ **Prior (2026-07-02 late night) — Rounds 12–13: five UI bugs + deep-research delivery & web-search fixed
 > (643b8d5 → cb118d8 + config).** Round 12: sector-radar green-dot, widget-overlap-on-nav (hydrate race),
 > custom-theme dark-leaks/hover, reports iframe palette — all shipped. Round 13: deep-research reports were
 > unreachable (memory click dead, no notification, dark viewer) AND web-blind (SEARXNG_URL pointed at :8080 =

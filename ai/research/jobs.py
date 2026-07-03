@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -16,7 +17,12 @@ from signals.notify import notify
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT_JOBS = 2
-JOB_TIMEOUT_SECONDS = 600
+JOB_TIMEOUT_BY_EFFORT = {
+    "quick": 300,
+    "standard": 900,
+    "deep": 1800,
+    "exhaustive": 3600,
+}
 
 _executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS, thread_name_prefix="research")
 
@@ -117,6 +123,8 @@ async def _run_job(job_id: str) -> None:
             return
         job.status = "running"
         job.started_at = datetime.now(UTC).isoformat()
+        timeout_seconds = JOB_TIMEOUT_BY_EFFORT.get(job.depth, 900)
+        cancel_event = threading.Event()
         loop = asyncio.get_running_loop()
         try:
             result = await asyncio.wait_for(
@@ -126,9 +134,10 @@ async def _run_job(job_id: str) -> None:
                         topic=job.topic,
                         symbol=job.symbol,
                         depth=job.depth,
+                        cancel_event=cancel_event,
                     ),
                 ),
-                timeout=JOB_TIMEOUT_SECONDS,
+                timeout=timeout_seconds,
             )
             job.result = result
             job.status = "completed"
@@ -149,8 +158,9 @@ async def _run_job(job_id: str) -> None:
                 except Exception:
                     logger.exception("research_ready notify failed for job %s", job.id)
         except asyncio.TimeoutError:
+            cancel_event.set()
             job.status = "failed"
-            job.error = f"Research timed out after {JOB_TIMEOUT_SECONDS}s"
+            job.error = f"Research timed out after {timeout_seconds}s"
             logger.error("Research job %s timed out", job_id)
         except Exception as exc:
             job.status = "failed"

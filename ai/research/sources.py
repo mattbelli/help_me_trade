@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import itertools
 import logging
 import re
 import socket
@@ -21,7 +22,7 @@ from db.sqlite import get_latest_snapshot
 
 logger = logging.getLogger(__name__)
 
-_SOURCE_COUNTER = 0
+_SOURCE_COUNTER = itertools.count(1)
 _MOCK_REASON = (
     "SearXNG is not configured. These are placeholder snippets — not real web results. "
     "Set SEARXNG_URL in .env or Settings → Research."
@@ -48,9 +49,7 @@ def web_search_capabilities() -> dict[str, Any]:
 
 
 def _next_source_id(prefix: str = "src") -> str:
-    global _SOURCE_COUNTER
-    _SOURCE_COUNTER += 1
-    return f"{prefix}_{_SOURCE_COUNTER}"
+    return f"{prefix}_{next(_SOURCE_COUNTER)}"
 
 
 def web_search_status() -> dict[str, Any]:
@@ -332,7 +331,7 @@ def _is_fetch_url_safe(url: str) -> bool:
     return True
 
 
-def fetch_url(url: str) -> str:
+def fetch_url(url: str, *, max_chars: int = 4000) -> str:
     if not url or "research.local" in url:
         return ""
     if not _is_fetch_url_safe(url):
@@ -368,7 +367,7 @@ def fetch_url(url: str) -> str:
     text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
-    return text[:4000]
+    return text[:max_chars]
 
 
 def summarize_web_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:
@@ -398,6 +397,8 @@ def collect_for_query(
     *,
     symbol: str | None,
     include_web: bool = True,
+    web_limit: int = 3,
+    content_max_chars: int = 4000,
 ) -> list[dict[str, Any]]:
     sources: list[dict[str, Any]] = []
     portfolio = fetch_portfolio_source()
@@ -410,9 +411,9 @@ def collect_for_query(
             sources.append(bars)
     sources.extend(fetch_memory_sources(query))
     if include_web:
-        for hit in web_search(query, limit=3):
+        for hit in web_search(query, limit=web_limit):
             if hit.get("url") and not hit.get("is_mock"):
-                body = fetch_url(str(hit["url"]))
+                body = fetch_url(str(hit["url"]), max_chars=content_max_chars)
                 if body:
                     hit = {**hit, "content": body}
             sources.append(hit)
