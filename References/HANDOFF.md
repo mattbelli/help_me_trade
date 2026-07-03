@@ -23,7 +23,19 @@ this file, append the old full version there as a new dated section.*
 > fine); research CONTENT quality now unblocked (was starved). Tasks #16 (options expirations), #17 (nightly
 > ledger-vs-broker recon), #14 (data_suspect flag) still pending.
 >
-> Round 11: aggregate realized keyed by (account, symbol) (a494601). Round
+> Round 11: aggregate realized keyed by (account, symbol) (a494601).
+>
+> ▶ **NEXT BIG BUILD — Research Engine v2 (design LOCKED with founder 2026-07-03, see
+> `References/RESEARCH_ENGINE_V2.md`).** Current deep-research output is thinner than a chat answer
+> (single cheap model, `limit=3`/1500-char/12-source truncation, one 2k-token synthesis). v2 = specialist
+> fan-out (planner→5 parallel finance specialists→critic→chief-editor), a strict SUPERSET of the founder's
+> reference **Odysseus** (`/home/mbelli/odysseus` — ports its plan/parallel-search/rolling-synthesis/self-stop/
+> big-cited-write, adds specialists + our Schwab data). **Model-agnostic** (founder has only DeepSeek v4-pro/flash,
+> no Anthropic key; Max plan not usable as app LLM per ToS): role→model is USER-CONFIGURABLE with an auto-delegate
+> default (strong→planner/critic/editor, fast→specialists). Effort = named presets (quick/standard/deep/exhaustive).
+> Separate UI ask: research must render in the WORKSPACE (popup MD viewer + download; old /research page is
+> pre-widget) + keep the Settings archive. Phases tracked as tasks #25 (config foundation) → #26 (engine) →
+> #27 (proprietary data) → #28 (UI). Quality gate: A/B vs Odysseus's single-model loop, must read clearly richer. Round
 > 10's last-flat merged the same ticker across accounts in all_real/all_paper (TSLA in Individual+Joint on 6/29 →
 > phantom +$4,735). Now keyed by (account_id, symbol); all_real == Σ per-account to the cent, deployed + live
 > verified. Adversarial-reviewed (300 randomized multi-account trials). Open UI bug backlog filed as tasks #18–21
