@@ -45,6 +45,10 @@ import {
   SettingsReportsPanel,
 } from "@/components/settings/settings-reports-panel";
 import {
+  DEFAULT_RESEARCH,
+  SettingsResearchPanel,
+} from "@/components/settings/settings-research-panel";
+import {
   DEFAULT_TRADING,
   TradingRiskSettings,
 } from "@/components/settings/trading-risk-settings";
@@ -97,7 +101,7 @@ const EMPTY: AppSettings = {
     },
   },
   ai: DEFAULT_AI_SETTINGS,
-  research: { searxng_url: "" },
+  research: DEFAULT_RESEARCH,
   trading: DEFAULT_TRADING,
   reports: DEFAULT_REPORTS,
 };
@@ -124,7 +128,12 @@ export function SettingsDialog({ collapsed = false }: Props) {
           ...data,
           ai: normalizeAiSettings(data.ai),
           research: {
-            searxng_url: data.research?.searxng_url ?? "",
+            ...DEFAULT_RESEARCH,
+            ...data.research,
+            model_roles: {
+              ...DEFAULT_RESEARCH.model_roles,
+              ...data.research?.model_roles,
+            },
           },
           trading: { ...DEFAULT_TRADING, ...data.trading },
           reports: { ...DEFAULT_REPORTS, ...data.reports },
@@ -150,7 +159,12 @@ export function SettingsDialog({ collapsed = false }: Props) {
         ...saved,
         ai: normalizeAiSettings(saved.ai),
         research: {
-          searxng_url: saved.research?.searxng_url ?? "",
+          ...DEFAULT_RESEARCH,
+          ...saved.research,
+          model_roles: {
+            ...DEFAULT_RESEARCH.model_roles,
+            ...saved.research?.model_roles,
+          },
         },
         trading: { ...DEFAULT_TRADING, ...saved.trading },
         reports: { ...DEFAULT_REPORTS, ...saved.reports },
@@ -480,31 +494,11 @@ export function SettingsDialog({ collapsed = false }: Props) {
               </p>
           </div>
         ) : section === "research" ? (
-          <div className="space-y-4">
-              <TerminalField
-                label="SearXNG URL (optional)"
-                htmlFor="searxng-url"
-              >
-                <TerminalInput
-                  id="searxng-url"
-                  value={draft.research?.searxng_url ?? ""}
-                  placeholder="http://localhost:8080"
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      research: { searxng_url: e.target.value.trim() },
-                    }))
-                  }
-                />
-              </TerminalField>
-              <p className="font-mono text-[10px] text-[var(--fg-dim)]">
-                When set, deep research uses live web search instead of mock
-                snippets. You can also set{" "}
-                <code className="text-[10px]">SEARXNG_URL</code> in{" "}
-                <code className="text-[10px]">.env</code>. Env wins if both are
-                set.
-              </p>
-          </div>
+          <SettingsResearchPanel
+            value={draft.research}
+            ai={draft.ai}
+            onChange={(research) => setDraft((d) => ({ ...d, research }))}
+          />
         ) : (
           <SettingsTradesPanel />
         )}

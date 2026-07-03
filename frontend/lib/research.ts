@@ -1,10 +1,16 @@
-import { API_BASE, apiFetch, apiUrlWithToken } from "./api";
+import { API_BASE, apiFetch, apiUrlWithToken, type ResearchSettings } from "./api";
 
 export type ResearchConfig = {
   mode: "searxng" | "mock";
   searxng_url: string;
   warning: string | null;
   uses_mock_web: boolean;
+  roles?: string[];
+  effort_presets?: string[];
+  current?: ResearchSettings;
+  default_model?: string;
+  provider?: string;
+  known_models?: string[];
 };
 
 export async function getResearchConfig(): Promise<ResearchConfig> {

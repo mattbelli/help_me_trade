@@ -252,6 +252,23 @@ export async function fetchBars(
 
 export const SECRET_MASK = "********";
 
+export type ResearchModelRoles = {
+  planner?: string;
+  specialists?: string;
+  extraction?: string;
+  critic?: string;
+  editor?: string;
+};
+
+export type ResearchSettings = {
+  searxng_url: string;
+  model_roles?: ResearchModelRoles;
+  strong_model?: string;
+  fast_model?: string;
+  auto_delegate?: boolean;
+  effort?: string;
+};
+
 export type TradingSettings = {
   execution_mode: "dry_run" | "paper" | "live";
   kill_switch_active: boolean;
@@ -286,9 +303,7 @@ export type AppSettings = {
     };
   };
   ai: AiSettings;
-  research?: {
-    searxng_url: string;
-  };
+  research?: ResearchSettings;
   trading?: TradingSettings;
   reports?: ReportsSettings;
 };

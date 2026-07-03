@@ -107,8 +107,35 @@ def api_ai_model_options():
 @router.get("/ai/research-config")
 def api_research_config():
     from ai.research.sources import web_search_status
+    from config.research_engine import (
+        EFFORT_PRESET_NAMES,
+        ROLES,
+        current_research_settings,
+        get_default_model_name,
+    )
 
-    return web_search_status()
+    provider, default_model = get_default_llm()
+    if not default_model:
+        default_model = get_default_model_name()
+
+    catalog = list_chat_models(provider, catalog=True)
+    known_models: list[str] = []
+    for row in catalog.get("catalog_models") or catalog.get("models") or []:
+        model_id = str(row.get("id", "")).strip()
+        if model_id and model_id not in known_models:
+            known_models.append(model_id)
+    if default_model and default_model not in known_models:
+        known_models.insert(0, default_model)
+
+    return {
+        **web_search_status(),
+        "roles": list(ROLES),
+        "effort_presets": list(EFFORT_PRESET_NAMES),
+        "current": current_research_settings(),
+        "default_model": default_model,
+        "provider": provider,
+        "known_models": known_models,
+    }
 
 
 @router.get("/chat/sessions")

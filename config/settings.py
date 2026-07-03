@@ -58,6 +58,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ai": DEFAULT_AI_SETTINGS.copy(),
     "research": {
         "searxng_url": "",
+        "model_roles": {},
+        "strong_model": "",
+        "fast_model": "",
+        "auto_delegate": True,
+        "effort": "standard",
     },
     "watchlist": ["SPY", "QQQ", "AAPL", "NVDA", "MU", "AMD"],
     "watchlists": {
@@ -325,10 +330,37 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
 
     if "research" in patch and isinstance(patch["research"], dict):
         if "research" not in current or not isinstance(current.get("research"), dict):
-            current["research"] = {"searxng_url": ""}
-        url = patch["research"].get("searxng_url")
-        if url is not None:
-            current["research"]["searxng_url"] = str(url).strip().rstrip("/")
+            current["research"] = copy.deepcopy(DEFAULT_SETTINGS["research"])
+        research_patch = patch["research"]
+        if "searxng_url" in research_patch:
+            current["research"]["searxng_url"] = (
+                str(research_patch.get("searxng_url", "")).strip().rstrip("/")
+            )
+        if "strong_model" in research_patch:
+            current["research"]["strong_model"] = str(
+                research_patch.get("strong_model", "")
+            ).strip()
+        if "fast_model" in research_patch:
+            current["research"]["fast_model"] = str(
+                research_patch.get("fast_model", "")
+            ).strip()
+        if "auto_delegate" in research_patch:
+            current["research"]["auto_delegate"] = bool(
+                research_patch.get("auto_delegate")
+            )
+        if "effort" in research_patch:
+            current["research"]["effort"] = str(
+                research_patch.get("effort", "standard")
+            ).strip() or "standard"
+        if "model_roles" in research_patch and isinstance(
+            research_patch["model_roles"], dict
+        ):
+            roles = current["research"].get("model_roles")
+            if not isinstance(roles, dict):
+                roles = {}
+            for role, model in research_patch["model_roles"].items():
+                roles[str(role).strip()] = str(model or "").strip()
+            current["research"]["model_roles"] = roles
 
     if "watchlist" in patch and isinstance(patch["watchlist"], list):
         current["watchlist"] = normalize_watchlist(patch["watchlist"])
