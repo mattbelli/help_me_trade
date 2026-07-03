@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 
-import { colors, fonts, spacing } from '@/theme';
+import { colors, fonts, spacing, useThemeMode } from '@/theme';
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n');
@@ -20,6 +20,10 @@ export function DocViewer({
   content: string;
   mode: 'text' | 'html' | 'markdown';
 }): ReactElement {
+  // Subscribe to the theme so we re-render on switch, and key the render below on
+  // it — react-native-markdown-display memoizes on content, so without a fresh key
+  // it keeps the old palette's styles after a theme change.
+  const { resolved } = useThemeMode();
   // Build styles at RENDER time. A module-scope style object captures the palette
   // once at load and then shows stale, wrong-theme colors after a theme switch
   // (e.g. dark-theme near-white text rendered on the light theme → invisible).
@@ -36,7 +40,7 @@ export function DocViewer({
     heading2: { color: colors.accent, fontFamily: fonts.mono, fontSize: 17, fontWeight: '700', marginTop: 20, marginBottom: 10 },
     heading3: { color: colors.accent, fontFamily: fonts.mono, fontSize: 15, fontWeight: '700', marginTop: 14, marginBottom: 8 },
     paragraph: { marginTop: 0, marginBottom: 12 },
-    strong: { color: colors.warm, fontWeight: '700' },
+    strong: { color: colors.accent, fontWeight: '700' },
     em: { color: colors.text, fontStyle: 'italic' },
     bullet_list: { marginBottom: 12 },
     ordered_list: { marginBottom: 12 },
@@ -54,15 +58,17 @@ export function DocViewer({
     code_inline: { fontFamily: fonts.mono, color: colors.text, backgroundColor: colors.surfaceRaised },
     fence: { fontFamily: fonts.mono, color: colors.text, backgroundColor: colors.surfaceRaised, padding: 10, borderRadius: 6 },
     code_block: { fontFamily: fonts.mono, color: colors.text, backgroundColor: colors.surfaceRaised, padding: 10, borderRadius: 6 },
-    table: { borderColor: colors.borderStrong, borderWidth: 1, borderRadius: 6, marginVertical: 12 },
-    th: { padding: 6, borderColor: colors.borderStrong, color: colors.text, fontWeight: '700' },
-    td: { padding: 6, borderColor: colors.borderStrong, color: colors.text },
+    table: { borderColor: colors.textFaint, borderWidth: 1, borderRadius: 6, marginVertical: 12 },
+    tr: { borderColor: colors.textFaint, borderBottomWidth: 1 },
+    th: { padding: 6, borderColor: colors.textFaint, color: colors.text, fontWeight: '700' },
+    td: { padding: 6, borderColor: colors.textFaint, color: colors.text },
   };
 
   const textContent = mode === 'html' ? stripHtml(content) : content;
 
   return (
     <ScrollView
+      key={resolved}
       style={{ flex: 1 }}
       contentContainerStyle={{
         paddingHorizontal: spacing.md,
