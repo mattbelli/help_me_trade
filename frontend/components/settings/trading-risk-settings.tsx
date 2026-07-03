@@ -28,6 +28,9 @@ const DEFAULT_TRADING: TradingSettings = {
   max_position_pct: 30,
   max_open_orders: 10,
   max_daily_orders: 20,
+  max_daily_loss_usd: 2500,
+  max_daily_notional_usd: 150000,
+  max_rebalance_run_notional_usd: 120000,
   allow_short_selling: false,
 };
 
@@ -213,6 +216,50 @@ export function TradingRiskSettings({ value, onChange }: Props) {
             value={trading.max_daily_orders}
             onChange={(e) =>
               patch({ max_daily_orders: Number(e.target.value) || 0 })
+            }
+          />
+        </TerminalField>
+        <TerminalField label="Max daily loss (USD)" htmlFor="max-daily-loss">
+          <TerminalInput
+            id="max-daily-loss"
+            type="number"
+            min={0}
+            step={100}
+            value={trading.max_daily_loss_usd}
+            onChange={(e) =>
+              patch({ max_daily_loss_usd: Number(e.target.value) || 0 })
+            }
+          />
+        </TerminalField>
+        <TerminalField
+          label="Max daily notional (USD)"
+          htmlFor="max-daily-notional"
+        >
+          <TerminalInput
+            id="max-daily-notional"
+            type="number"
+            min={0}
+            step={1000}
+            value={trading.max_daily_notional_usd}
+            onChange={(e) =>
+              patch({ max_daily_notional_usd: Number(e.target.value) || 0 })
+            }
+          />
+        </TerminalField>
+        <TerminalField
+          label="Max rebalance run notional (USD)"
+          htmlFor="max-rebalance-run-notional"
+        >
+          <TerminalInput
+            id="max-rebalance-run-notional"
+            type="number"
+            min={0}
+            step={1000}
+            value={trading.max_rebalance_run_notional_usd}
+            onChange={(e) =>
+              patch({
+                max_rebalance_run_notional_usd: Number(e.target.value) || 0,
+              })
             }
           />
         </TerminalField>

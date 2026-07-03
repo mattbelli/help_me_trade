@@ -102,6 +102,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_position_pct": 30,
         "max_open_orders": 10,
         "max_daily_orders": 20,
+        "max_daily_loss_usd": 2500.0,
+        "max_daily_notional_usd": 150000.0,
+        "max_rebalance_run_notional_usd": 120000.0,
         # Short selling (sell-to-open). OFF by default. Only ever honored in
         # dry_run/paper — LIVE short selling stays hard-blocked regardless.
         "allow_short_selling": False,
@@ -413,6 +416,12 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["execution_mode"] = str(value).strip()
             elif key == "max_order_value_usd":
                 current["trading"]["max_order_value_usd"] = float(value)
+            elif key == "max_daily_loss_usd":
+                current["trading"]["max_daily_loss_usd"] = float(value)
+            elif key == "max_daily_notional_usd":
+                current["trading"]["max_daily_notional_usd"] = float(value)
+            elif key == "max_rebalance_run_notional_usd":
+                current["trading"]["max_rebalance_run_notional_usd"] = float(value)
             elif key == "max_position_pct":
                 current["trading"]["max_position_pct"] = float(value)
             elif key == "max_open_orders":
@@ -812,6 +821,18 @@ def trading_config() -> dict[str, Any]:
         ),
         "max_open_orders": int(cfg.get("max_open_orders", defaults["max_open_orders"])),
         "max_daily_orders": int(cfg.get("max_daily_orders", defaults["max_daily_orders"])),
+        "max_daily_loss_usd": float(
+            cfg.get("max_daily_loss_usd", defaults["max_daily_loss_usd"])
+        ),
+        "max_daily_notional_usd": float(
+            cfg.get("max_daily_notional_usd", defaults["max_daily_notional_usd"])
+        ),
+        "max_rebalance_run_notional_usd": float(
+            cfg.get(
+                "max_rebalance_run_notional_usd",
+                defaults["max_rebalance_run_notional_usd"],
+            )
+        ),
         "allow_short_selling": bool(
             cfg.get("allow_short_selling", defaults["allow_short_selling"])
         ),

@@ -103,6 +103,11 @@ class AlpacaAdapter:
             await self._async_client.aclose()
         self._async_client = None
 
+    @property
+    def is_paper_endpoint(self) -> bool:
+        """True when this adapter's trading API base URL is Alpaca paper."""
+        return "paper-api" in self._base_url
+
     @classmethod
     def from_env(cls) -> AlpacaAdapter:
         return cls.from_settings()

@@ -276,6 +276,9 @@ export type TradingSettings = {
   max_position_pct: number;
   max_open_orders: number;
   max_daily_orders: number;
+  max_daily_loss_usd: number;
+  max_daily_notional_usd: number;
+  max_rebalance_run_notional_usd: number;
   allow_short_selling: boolean;
 };
 
