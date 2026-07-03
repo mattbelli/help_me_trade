@@ -22,8 +22,13 @@ this file, append the old full version there as a new dated section.*
 > effort-scaled. **Adversarial Sonnet review: 15 findings, 3 gating — all 9 real ones fixed in a dedicated
 > Composer round** (cooperative cancel-event on timeout, citation-href double-escape, partial credit on transient
 > LLM errors, cumulative source caps, payload budgets, expand-downgrade guard, real-sources overwrite + more).
-> 1258 tests + ruff + typecheck green. **Quality gate before calling it done: A/B a real v2 paper vs Odysseus
-> single-model on the same ticker** (founder's bar: must beat a chat answer). Founder vision captured in
+> 1258 tests + ruff + typecheck green. **Quality round (same night, 96c4c2e): 5 live SLB runs found 3 silent
+> LLM-plumbing failures** (DeepSeek json_object empty-content quirk → retry; finish_reason=length invisible →
+> logged; reasoning tokens eat max_tokens → editor rewritten to write PURE MARKDOWN, headings parsed
+> deterministically — see [[deepseek-llm-lessons]] memory). Validated on artifacts 162/163: ~2k-word cited paper,
+> full structure, 0 id-tokens, direct verdict — **founder confirmed: "definitely a well written report."**
+> ⚠️ Full pytest suite currently hangs on a non-hermetic test hitting live Schwab when the WAF blocks serv
+> (task #32, must-fix — pre-push gate hostage); targeted research tests green. Founder vision captured in
 > `RESEARCH_ENGINE_V2.md`: recipes (morning_briefing/setup_scan→`ideas[]`→proposals) #29, copilot
 > `schedule_research` task-assignment #30, free Reddit-JSON/StockTwits `social_sentiment` specialist #31 (no paid
 > social APIs). Next: Phase 3 perception-layer data per specialist (#27), Phase 4 workspace MD viewer (#28),
