@@ -11,6 +11,7 @@
  *   Reject calls the reject endpoint directly.
  */
 import { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addPushToStartTokenListener, addUserInteractionListener } from 'expo-widgets';
 
@@ -68,8 +69,7 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
     const registered = new Set<string>();
     const held: ReturnType<typeof tradeProposalActivity.getInstances> = [];
     const listenerSubs: { remove: () => void }[] = [];
-    let tries = 0;
-    let captured = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const sendToken = (t: string | null | undefined) => {
       // Wait for the device token; until it lands we skip without marking registered
@@ -90,29 +90,51 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
       );
     };
 
-    const poll = setInterval(() => {
-      tries += 1;
-      if (!captured) {
-        const instances = tradeProposalActivity.getInstances();
-        if (instances.length > 0) {
-          captured = true;
-          console.log('[LA] captured', instances.length, 'instance(s)');
-          instances.forEach((inst) => {
-            held.push(inst); // keep alive so the native observer isn't released
-            listenerSubs.push(
-              inst.addPushTokenListener((e) => sendToken((e as { pushToken?: string }).pushToken)),
-            );
-          });
-        }
+    const armCapture = () => {
+      console.log('[LA] arming capture poll');
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
       }
-      held.forEach((inst) => void inst.getPushToken().then(sendToken).catch(() => {}));
-      if (tries >= 20 || (captured && registered.size > 0)) clearInterval(poll);
-    }, 2000);
+      let tries = 0;
+      let captured = false;
+
+      pollTimer = setInterval(() => {
+        tries += 1;
+        if (!captured) {
+          const instances = tradeProposalActivity.getInstances();
+          if (instances.length > 0) {
+            captured = true;
+            console.log('[LA] captured', instances.length, 'instance(s)');
+            instances.forEach((inst) => {
+              held.push(inst); // keep alive so the native observer isn't released
+              listenerSubs.push(
+                inst.addPushTokenListener((e) => sendToken((e as { pushToken?: string }).pushToken)),
+              );
+            });
+          }
+        }
+        held.forEach((inst) => void inst.getPushToken().then(sendToken).catch(() => {}));
+        if (tries >= 20 || (captured && registered.size > 0)) {
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        }
+      }, 2000);
+    };
+
+    armCapture();
+
+    const appStateSub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') armCapture();
+    });
 
     return () => {
+      appStateSub.remove();
+      if (pollTimer) clearInterval(pollTimer);
       tokenSub.remove();
       interactionSub.remove();
-      clearInterval(poll);
       listenerSubs.forEach((s) => s.remove());
     };
   }, []);
