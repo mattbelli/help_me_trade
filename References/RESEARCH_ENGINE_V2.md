@@ -108,6 +108,20 @@ with. Three layers:
    `schedule_research(recipe, params, cadence, effort)`; "morning briefing every weekday
    8am, flag setups" = one chat sentence. Fits the curated-write-surface rule.
 
+**The Setup Book (founder, 2026-07-03, task #42)**: an idea whose entry isn't live becomes
+an ARMED SETUP, not a proposal — persisted book, lifecycle `armed → triggered →
+revalidating → proposed/discarded`. Entry-window monitoring reuses the price-alert
+engine. **Revalidation-at-trigger** (the founder's key ask — weeks may pass; macro/
+earnings/thesis can break): a quick flash-effort pass gets the ORIGINAL thesis + fresh
+internal data (technicals, news-since-arming, earnings calendar, regime) → confirm
+(propose, card shows "what changed") / adjust (re-propose new levels) / discard (quiet
+inbox note + journaled reason). Rules: stop-breached-before-entry auto-invalidates
+(arrival direction matters — breakdown ≠ pullback); per-setup TTL; target-without-entry
+= journaled `missed`; optional weekly thesis_check refresh over the book. The full
+arm→trigger→verdict→decision→outcome chain journals = the calibration substrate.
+`ideas[]` carries `entry_condition` + `status` from day one. Build: 5a recipes+schema →
+5b book+monitoring → 5c revalidation+proposal bridge (adversarial ceremony).
+
 **Decision-Engine tie-in**: `setup_scan.ideas[]` (symbol, direction, thesis,
 entry/stop/targets) feeds the EXISTING propose→phone-approve pipeline. PERCEIVE
 (perception + scans) → REASON (this engine) → DECIDE (ranked planned proposals on the
