@@ -12,6 +12,7 @@ import type { FeedNotification, MarketAlert } from '@/api/types';
 const MAX_ALERTS = 300;
 const MAX_DISMISSED = 500; // bound the persisted set so it can't grow forever
 const DISMISSED_KEY = 'inbox.dismissed.v1';
+const READ_KEY = 'inbox.read.v1';
 
 interface AlertsValue {
   alerts: MarketAlert[];
@@ -37,6 +38,27 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   const seenIds = useRef<Set<string>>(new Set());
   // Ref (not state) — only consulted at push/seed/clear time, never rendered.
   const dismissedRef = useRef<Set<string>>(new Set());
+  // Read state is persisted so a theme-switch remount (live-colors arch) doesn't
+  // wipe it — otherwise everything reads as unread again after switching themes.
+  const readHydrated = useRef(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(READ_KEY)
+      .then((raw) => {
+        if (raw) setReadIds(new Set(JSON.parse(raw) as string[]));
+      })
+      .catch(() => {})
+      .finally(() => {
+        readHydrated.current = true;
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!readHydrated.current) return; // don't overwrite stored reads before hydrate
+    let ids = [...readIds];
+    if (ids.length > MAX_DISMISSED) ids = ids.slice(ids.length - MAX_DISMISSED);
+    void AsyncStorage.setItem(READ_KEY, JSON.stringify(ids)).catch(() => {});
+  }, [readIds]);
 
   // Hydrate dismissed from storage, then drop any already-shown dismissed alerts.
   useEffect(() => {

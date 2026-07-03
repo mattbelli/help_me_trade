@@ -54,9 +54,9 @@ export function DocViewer({
     code_inline: { fontFamily: fonts.mono, color: colors.text, backgroundColor: colors.surfaceRaised },
     fence: { fontFamily: fonts.mono, color: colors.text, backgroundColor: colors.surfaceRaised, padding: 10, borderRadius: 6 },
     code_block: { fontFamily: fonts.mono, color: colors.text, backgroundColor: colors.surfaceRaised, padding: 10, borderRadius: 6 },
-    table: { borderColor: colors.border, borderWidth: 1, borderRadius: 6, marginVertical: 12 },
-    th: { padding: 6, color: colors.text, fontWeight: '700' },
-    td: { padding: 6, borderColor: colors.border, color: colors.text },
+    table: { borderColor: colors.borderStrong, borderWidth: 1, borderRadius: 6, marginVertical: 12 },
+    th: { padding: 6, borderColor: colors.borderStrong, color: colors.text, fontWeight: '700' },
+    td: { padding: 6, borderColor: colors.borderStrong, color: colors.text },
   };
 
   const textContent = mode === 'html' ? stripHtml(content) : content;
