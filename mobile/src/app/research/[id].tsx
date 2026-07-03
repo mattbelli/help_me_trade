@@ -29,25 +29,11 @@ export default function ResearchScreen() {
         <Stack gap={spacing.md} style={{ flex: 1 }}>
           <BackRow onBack={() => router.back()} />
 
-          {research.isLoading ? (
-            <Stack gap={spacing.sm}>
-              <Skeleton height={28} width="80%" />
-              <Skeleton height={14} width={120} />
-            </Stack>
-          ) : research.data ? (
-            <Stack gap={spacing.xs}>
-              <Text variant="title">
-                {research.data.topic}
-                {research.data.symbol && !research.data.topic.includes(research.data.symbol) ? (
-                  <Text variant="title" color="textMuted">{` · ${research.data.symbol}`}</Text>
-                ) : null}
-              </Text>
-              {research.data.status !== 'completed' ? (
-                <Text variant="caption" color="textFaint">
-                  still {research.data.status}…
-                </Text>
-              ) : null}
-            </Stack>
+          {/* No screen heading: the markdown leads with its own `# topic` h1. */}
+          {!research.isLoading && research.data && research.data.status !== 'completed' ? (
+            <Text variant="caption" color="textFaint">
+              still {research.data.status}…
+            </Text>
           ) : null}
 
           {research.isLoading ? (
