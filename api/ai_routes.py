@@ -213,6 +213,22 @@ def api_list_pending_proposals():
     return {"proposals": list_pending_proposals()}
 
 
+@router.get("/proposals/missed")
+def api_list_missed_proposals(
+    since: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    from db.paper_orders import list_paper_order_proposals
+
+    return {
+        "proposals": list_paper_order_proposals(
+            status="expired",
+            since=since,
+            limit=limit,
+        )
+    }
+
+
 @router.get("/proposals/score")
 def api_proposal_score(
     symbol: str = Query(...),

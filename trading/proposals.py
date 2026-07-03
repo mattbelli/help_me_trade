@@ -14,6 +14,7 @@ from db.paper_orders import (
     claim_proposal_for_approval,
     create_pending_proposal,
     get_proposal,
+    list_paper_order_proposals,
     transition_proposal_status,
 )
 from signals.notify import notify
@@ -79,6 +80,15 @@ def _parse_expires_at(expires_at: str | None) -> datetime | None:
         return datetime.fromisoformat(expires_at)
     except ValueError:
         return None
+
+
+def _qty_str(qty: Any) -> str:
+    """Wire-format qty: integral values without a trailing '.0'."""
+    try:
+        f = float(qty)
+        return str(int(f)) if f.is_integer() else str(qty)
+    except (TypeError, ValueError):
+        return str(qty or "")
 
 
 def _is_expired(row: dict[str, Any]) -> bool:
@@ -274,6 +284,74 @@ async def approve_proposal(
         proposal_id, status="executed", proposal=row, db_path=db_path
     )
     return out
+
+
+async def sweep_expired_proposals(*, db_path: Path = DEFAULT_DB_PATH) -> int:
+    """Proactively expire unanswered pending_phone proposals past TTL."""
+    expired_count = 0
+    try:
+        rows = list_paper_order_proposals(
+            status="pending_phone", limit=200, db_path=db_path
+        )
+    except Exception:
+        logger.exception("Failed to list pending proposals for expiry sweep")
+        return 0
+
+    for row in rows:
+        try:
+            if not _is_expired(row):
+                continue
+            proposal_id = str(row["id"])
+            if not transition_proposal_status(
+                proposal_id,
+                expect="pending_phone",
+                to="expired",
+                db_path=db_path,
+            ):
+                continue
+
+            expired_count += 1
+            _journal_decision(
+                proposal_id, decision="expired", decided_by="system", db_path=db_path
+            )
+            await _try_end_proposal_live_activity(
+                proposal_id, status="expired", proposal=row, db_path=db_path
+            )
+
+            summary = str(row.get("summary") or "")
+            expired_at_iso = row.get("expires_at") or ""
+            try:
+                await notify(
+                    kind="proposal_missed",
+                    title="Missed trade proposal",
+                    body=f"{summary} expired unanswered",
+                    severity="warning",
+                    ref_type="proposal",
+                    ref_id=proposal_id,
+                    data={
+                        "type": "proposal_missed",
+                        "proposal_id": proposal_id,
+                        "symbol": str(row.get("symbol", "")),
+                        "side": str(row.get("side", "")),
+                        # Contract shows integral qty without ".0" (REAL column
+                        # would render "2.0"); mobile parses numerically either way.
+                        "qty": _qty_str(row.get("qty")),
+                        "summary": summary,
+                        "expired_at": expired_at_iso,
+                    },
+                    push=True,
+                    db_path=db_path,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to send proposal_missed push for %s", proposal_id
+                )
+        except Exception:
+            logger.exception(
+                "Failed to expire proposal %s in sweep", row.get("id")
+            )
+
+    return expired_count
 
 
 async def reject_proposal(

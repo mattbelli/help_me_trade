@@ -196,6 +196,7 @@ MORNING_REPORT_SYMBOL = "SPY"
 _BARS_PREWARM_INTERVAL = 15.0
 _TRADE_SYNC_INTERVAL_SECONDS = 3600.0
 _ALERT_SYMBOL_INTERVAL_SECONDS = 30.0
+_PROPOSAL_SWEEP_INTERVAL_SECONDS = 60.0
 _PROFILE_FRESH_S = 20 * 3600
 _PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
 _UNIVERSE_DIR = Path(__file__).resolve().parent.parent / "signals" / "universes"
@@ -662,6 +663,28 @@ async def _trade_sync_loop() -> None:
             mark_alive("trade_sync")
         except Exception:
             logger.exception("Periodic trade sync failed")
+
+
+async def _proposal_sweeper_loop() -> None:
+    """Expire unanswered pending_phone proposals on boot, then periodically."""
+    from trading.proposals import sweep_expired_proposals
+
+    try:
+        n = await sweep_expired_proposals()
+        if n:
+            logger.info("Proposal sweeper expired %d proposals on startup", n)
+        mark_alive("proposal_sweeper")
+    except Exception:
+        logger.exception("Initial proposal sweep failed")
+    while True:
+        await asyncio.sleep(_PROPOSAL_SWEEP_INTERVAL_SECONDS)
+        try:
+            n = await sweep_expired_proposals()
+            if n:
+                logger.info("Proposal sweeper expired %d proposals", n)
+            mark_alive("proposal_sweeper")
+        except Exception:
+            logger.exception("Periodic proposal sweep failed")
 
 
 async def _alert_symbol_loop() -> None:
@@ -1236,6 +1259,7 @@ def _register_background_jobs() -> None:
         ("session_node", SESSION_NODE_SCAN_INTERVAL_SECONDS, None),
         ("alert_symbol", _ALERT_SYMBOL_INTERVAL_SECONDS, None),
         ("trade_sync", _TRADE_SYNC_INTERVAL_SECONDS, None),
+        ("proposal_sweeper", _PROPOSAL_SWEEP_INTERVAL_SECONDS, None),
         ("earnings_refresh", float(EARNINGS_REFRESH_INTERVAL_SECONDS), None),
         ("regime_refresh", float(REGIME_REFRESH_INTERVAL_SECONDS), None),
         (
@@ -1371,6 +1395,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_session_node_loop()),
         asyncio.create_task(_alert_symbol_loop()),
         asyncio.create_task(_trade_sync_loop()),
+        asyncio.create_task(_proposal_sweeper_loop()),
         asyncio.create_task(_earnings_refresh_loop()),
         asyncio.create_task(_regime_refresh_loop()),
         asyncio.create_task(_momentum_bars_refresh_loop()),

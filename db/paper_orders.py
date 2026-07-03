@@ -277,31 +277,36 @@ def list_pending_proposals(
 def list_paper_order_proposals(
     *,
     session_id: str | None = None,
+    status: str | None = None,
+    since: str | None = None,
     limit: int = 50,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     init_paper_order_tables(db_path)
     lim = max(1, min(limit, 200))
+    conditions: list[str] = []
+    params: list[Any] = []
+    if session_id:
+        conditions.append("session_id = ?")
+        params.append(session_id)
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+    if since:
+        conditions.append("created_at > ?")
+        params.append(since)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.append(lim)
     with _connect(db_path) as conn:
-        if session_id:
-            rows = conn.execute(
-                """
-                SELECT * FROM paper_order_proposals
-                WHERE session_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (session_id, lim),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT * FROM paper_order_proposals
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (lim,),
-            ).fetchall()
+        rows = conn.execute(
+            f"""
+            SELECT * FROM paper_order_proposals
+            {where}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
     return [_row_to_proposal(r) for r in rows]
 
 

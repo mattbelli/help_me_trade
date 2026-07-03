@@ -24,6 +24,7 @@ AUDIT_LOOP_NAMES = [
     "alert_symbol",
     "reflection",
     "trade_sync",
+    "proposal_sweeper",
     "earnings_refresh",
     "regime_refresh",
     "momentum_bars_refresh",
