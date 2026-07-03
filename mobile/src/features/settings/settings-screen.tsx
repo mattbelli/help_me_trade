@@ -127,7 +127,7 @@ export function SettingsScreen() {
               <Eyebrow>configuration</Eyebrow>
               <SettingsRow label="Reports" onPress={() => router.push('/settings/reports')} />
               <SettingsRow label="Research" onPress={() => router.push('/settings/research')} />
-              <SettingsRow label="Brokers" value="soon" disabled />
+              <SettingsRow label="Brokers" onPress={() => router.push('/settings/brokers')} />
               <SettingsRow label="Execution / Risk" value="soon" disabled />
               <SettingsRow label="Strategies" value="soon" disabled />
               <SettingsRow label="AI" value="soon" disabled />
