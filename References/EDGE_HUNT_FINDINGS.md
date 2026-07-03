@@ -290,3 +290,64 @@ flow** (bid/ask volume + delta), which the eye reads on the tape but the candle 
 *faint* signal exists, but it's cost-swamped at the candle level. **This is a data problem, not a parameter
 problem** — the real test of the thesis needs Databento order-flow (footprint), which is wired. Don't tweak the
 candle version (chasing the least-bad corner = overfitting). Fork: order-flow pull (real test) or shelve.
+
+---
+
+# Round 4 — the banked-scripts sweep (2026-07-02, Fable): five hypotheses, five honest kills
+
+The 6/26 session banked six scripts it never ran (recon confirmed: zero artifacts, zero journal entries).
+This round ran them under the full gauntlet — **ledger-first** (`research/HYPOTHESIS_LEDGER.csv`, H77–H81,
+registered before execution), excess-over-SPY block bootstrap, worst-cut + snooping + adversarial verify.
+Result: **no new sleeve. Five valuable negatives** — and an empirical re-confirmation that the 2010–2026
+daily S&P panel's hypothesis space has converged (per the fable deep-dive's cut list: new alpha needs new
+data, not new signals on this panel).
+
+## KILLED — pre-earnings drift / "earnings announcement premium" (H77) — definitive
+Long D-5 close → D-1 close before announcement, $5/500k filters, −5% stop, 10bps. n=**32,462** (653 syms,
+2010–2026). Excess **−0.08%/trade**, CI incl. 0, **5/16** positive years, OOS negative, ex-2020+2026 −0.11%.
+The academic "announcement premium" does not exist net-of-SPY on this universe — and earnings.db is
+survivorship-biased (653 current names), so truth is *worse*. `_edgehunt/pre_earnings_drift_excess.py`.
+
+## KILLED — PEAD × steep-YC (H78) — the lucky-cell textbook case
+CC-ret>+2% on earnings day + YC>0.5, T+1 open, hold 20d. Full-sample looked alive (+0.35%/trade net, CI
+[+0.08,+1.09], p=0.011; OOS +0.70% sig) — then the pre-planned probe (`_probe_pead_steep_yc.py`) executed:
+**(1) snooping sweep: 1/8 thresholds significant — exactly the chosen 0.5** (0.25 and 0.75 both fail);
+**(2) OOS ex-2020: +0.18%, NOT sig** (p=0.084) — the OOS headline was COVID-bounce; **(3) non-monotone
+dose-response** (YC 0.5–1.0 sig, YC>1.0 not — steeper should be ≥ as good if causal); (4) worst cut ex-2020+2026
+already failed (CI [−0.02,+0.99]). The "YC conditioning" is crisis-year clustering, not a yield-curve mechanism.
+Resurrecting killed-PEAD via conditioning = the chase-the-least-bad-corner pattern. Dead.
+
+## KILLED — yield-curve sector rotation (H79)
+Steepening→Fin/Mfg, flat→Util/Svc, monthly top-quintile 12-1 mom. Excess **+0.17%/mo** full sample, **OOS
+excess NEGATIVE**, ~half of years lose to SPY. ⚠ The banked script's "Significant: True, p=0.0000" was
+bootstrapped on **raw net returns** (= beta), not excess — flagged as a script defect; verdict here uses the
+excess basis. Positive excess concentrates in steep-YC months (+1.05%/mo, 42 mo) = the already-known regime
+effect wearing a worse strategy. `_edgehunt/yield_curve_rotation.py`.
+
+## KILLED — share-buyback momentum (H80) — clean kill of a genuinely new event class
+12-mo share reduction >1% (EDGAR shares) + top-80th-pct 12-1 mom, monthly. n=7,877: excess **+0.08%**, CI
+[−0.21,+0.37], p(≤0)=0.31. The look-ahead exit filter the probe was built to audit turned out immaterial
+(1 stock-month in 16y). Nothing there, honestly established. `_edgehunt/share_buyback_mom_probe.py`.
+
+## NOT CONFIRMED — steep-YC dip graded gate 0.3–0.7 (H81) — keep the single 0.5, adversary was right
+Motivation: de-knife-edge the validated dip gate (fable + deep-dive rec) and open it fractionally in today's
+flat curve. Result of the threshold sweep looked like a plateau (0.3/0.4/0.5 all ≈+0.91% sig; fades >0.6) —
+but adversarial review (Sonnet) refuted the reparameterization: **(1)** at the date level the "ensemble" is
+*bit-for-bit identical* to the plain >0.3 gate (YC is a date-level value → pooled per-date means unchanged;
+CI [+0.321,+1.436] literally equals the >0.3 CI); **(2)** the marginal (0.3,0.5] band is 43 dates, **37% of
+them 2020** — crisis contamination, not structure; **(3)** EV ordering is **non-monotone in YC** (looser
+gates score higher — anti-causal, same disease as H78); **(4)** today's spread is **+0.29** so even 0.3 is
+closed — the "opens today" motivation was factually false, and picking 0.3 *because* today reads 0.29 would
+be threshold-drift snooping. **Verdict: single 0.5 gate stays; ship the honest disclosure "gate closed
+(YC=+0.29)" instead** (→ SETUP_AVENUES.md dormancy-visibility). New caveat logged: the validated sleeve's
+OOS-only ex-crisis subset (n=47 dates) is not significant on its own, CI [−0.07,+3.36] — thin-sample note,
+not a demotion (the full ex-2020+2026 cut still passes: +0.74%, p=0.013). `_edgehunt/steepyc_dip_ensemble.py`.
+
+## Bottom line (round 4)
+Five pre-registered trials (ledger H77–H81, honest n_trials accounting for future DSR), five kills, zero new
+sleeves — **which is the converged-panel warning confirming itself in data.** Value shipped: pre-earnings
+drift and buyback-momentum permanently retired (don't re-attack); two independent demonstrations that
+YC-conditioning of new entries = crisis-clustering artifact (the validated dip survives because it passes
+worst-cut + beta decomposition, which these didn't); one script-defect pattern to watch (bootstrapping raw
+instead of excess). Next alpha dollars go to **new data**: pre-2010 Norgate (book risk estimate), delisted
+earnings backfill, MBO absorption features (setstudy rebuild), Russell universe — per the deep-dive §4.
