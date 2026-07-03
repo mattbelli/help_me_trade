@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useReport } from '@/api/queries';
 import { BackRow, ErrorState, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { DocViewer } from '@/features/reports/doc-viewer';
-import { spacing } from '@/theme';
+import { colors, spacing } from '@/theme';
 
 const MONTHS_SHORT = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -39,7 +39,14 @@ export default function ReportScreen() {
 
   return (
     <Screen>
-      <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
+      <View
+        style={{
+          flex: 1,
+          paddingTop: spacing.sm,
+          paddingHorizontal: spacing.xl,
+          backgroundColor: colors.surface,
+        }}
+      >
         <Stack gap={spacing.md} style={{ flex: 1 }}>
           <BackRow onBack={() => router.back()} />
 

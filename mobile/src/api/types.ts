@@ -264,6 +264,21 @@ export interface ResearchArtifact {
   updated_at: string;
 }
 
+export interface ReportsSettings {
+  morning_levels_enabled: boolean;
+  hour_et: number;
+}
+
+export interface ResearchSettings {
+  searxng_url: string;
+  effort: string;
+}
+
+export interface AppSettings {
+  reports?: ReportsSettings;
+  research?: ResearchSettings;
+}
+
 export interface WebCustomTheme {
   id: string;
   name: string;

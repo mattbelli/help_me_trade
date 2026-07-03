@@ -217,3 +217,11 @@ export function registerLiveActivityToken(args: {
 export function getCustomThemes(): Promise<{ custom_themes: WebCustomTheme[] }> {
   return apiFetch<{ custom_themes: WebCustomTheme[] }>('/api/workspace/custom-themes');
 }
+
+export function getSettings(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>('/api/settings');
+}
+
+export function updateSettings(patch: Record<string, unknown>): Promise<unknown> {
+  return apiFetch('/api/settings', { method: 'PUT', body: patch });
+}

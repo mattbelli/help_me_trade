@@ -22,12 +22,32 @@ import { isLightTheme, THEME_OPTIONS, themes, type ThemeKey, type ThemeMode } fr
 const STORAGE_KEY = 'hmt_theme_mode';
 const CUSTOM_KEY = 'hmt_custom_themes_v1';
 
+type ThemeOption = {
+  mode: string;
+  label: string;
+  swatch: string;
+  kind: 'builtin' | 'system' | 'custom';
+};
+
+function themeOptionsFromBuiltins(): ThemeOption[] {
+  return THEME_OPTIONS.map((opt) => {
+    if (opt.mode === 'system') {
+      return { ...opt, swatch: themes.carbon.accent, kind: 'system' as const };
+    }
+    return {
+      ...opt,
+      swatch: themes[opt.mode as ThemeKey].accent,
+      kind: 'builtin' as const,
+    };
+  });
+}
+
 interface ThemeValue {
   mode: ThemeMode | string;
   resolved: string;
   isLight: boolean;
   setMode: (mode: ThemeMode | string) => void;
-  options: { mode: string; label: string }[];
+  options: ThemeOption[];
 }
 
 const ThemeContext = createContext<ThemeValue>({
@@ -35,7 +55,7 @@ const ThemeContext = createContext<ThemeValue>({
   resolved: 'carbon',
   isLight: false,
   setMode: () => {},
-  options: THEME_OPTIONS,
+  options: themeOptionsFromBuiltins(),
 });
 
 function isValidSavedMode(saved: string): boolean {
@@ -117,8 +137,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   applyColors(activeColors);
 
   const options = useMemo(
-    () => [...THEME_OPTIONS, ...custom.map((t) => ({ mode: t.id, label: t.name }))],
-    [custom],
+    () => [
+      ...themeOptionsFromBuiltins(),
+      ...custom.map((t) => ({
+        mode: t.id,
+        label: t.name,
+        swatch: customColors[t.id]?.accent ?? themes.carbon.accent,
+        kind: 'custom' as const,
+      })),
+    ],
+    [custom, customColors],
   );
 
   return (

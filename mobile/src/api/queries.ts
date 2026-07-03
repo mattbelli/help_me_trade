@@ -22,6 +22,8 @@ import {
   rejectProposal,
   removeWatchlistSymbol,
   searchSymbols,
+  getSettings,
+  updateSettings,
   updateWatchlistSymbols,
 } from './endpoints';
 import type { PortfolioRange, WatchlistMarket, WatchlistQuote, WatchlistsState } from './types';
@@ -191,6 +193,26 @@ export function useHealth() {
     queryKey: ['health'],
     queryFn: getHealth,
     refetchInterval: 30_000,
+  });
+}
+
+export function useSettings() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['settings'] });
+    },
   });
 }
 

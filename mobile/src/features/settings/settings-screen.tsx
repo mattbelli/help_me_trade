@@ -6,17 +6,18 @@ import { tradeProposalActivity } from '../../../widgets/trade-proposal';
 
 import { useHealth } from '@/api/queries';
 import { useAuth } from '@/auth/auth-context';
-import { Icon } from '@/components/ui/icon';
-import { Button, Card, Eyebrow, PageHeading, PressableScale, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
+import { Button, Card, Eyebrow, PageHeading, Row, Screen, SettingsRow, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
-import { colors, hairline, spacing, useThemeMode } from '@/theme';
+import { colors, spacing, useThemeMode } from '@/theme';
 
 export function SettingsScreen() {
   const router = useRouter();
   const health = useHealth();
   const { signOut } = useAuth();
-  const { mode, setMode, options } = useThemeMode();
+  const { mode, options } = useThemeMode();
   const testLA = useRef<ReturnType<typeof tradeProposalActivity.start> | null>(null);
+
+  const activeThemeLabel = options.find((opt) => opt.mode === mode)?.label ?? mode;
 
   const startTestLA = () => {
     testLA.current = tradeProposalActivity.start({
@@ -110,31 +111,33 @@ export function SettingsScreen() {
           </Card>
 
           <Card>
-            <Stack gap={spacing.md}>
+            <Stack gap={spacing.sm}>
               <Eyebrow>appearance</Eyebrow>
-              <Row gap={spacing.xs} style={{ flexWrap: 'wrap' }}>
-                {options.map((opt) => {
-                  const active = mode === opt.mode;
-                  return (
-                    <PressableScale key={opt.mode} onPress={() => setMode(opt.mode)}>
-                      <View
-                        style={{
-                          paddingHorizontal: spacing.md,
-                          paddingVertical: spacing.sm - 1,
-                          borderRadius: 999,
-                          backgroundColor: active ? colors.accentWash : colors.surfaceRaised,
-                          borderWidth: hairline,
-                          borderColor: active ? colors.accent : colors.border,
-                        }}
-                      >
-                        <Text variant="caption" style={{ color: active ? colors.accent : colors.textMuted }}>
-                          {opt.label}
-                        </Text>
-                      </View>
-                    </PressableScale>
-                  );
-                })}
-              </Row>
+              <SettingsRow
+                label="Theme"
+                value={activeThemeLabel}
+                onPress={() => router.push('/settings/appearance')}
+              />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={spacing.sm}>
+              <Eyebrow>configuration</Eyebrow>
+              <SettingsRow label="Reports" onPress={() => router.push('/settings/reports')} />
+              <SettingsRow label="Research" onPress={() => router.push('/settings/research')} />
+              <SettingsRow label="Brokers" value="soon" disabled />
+              <SettingsRow label="Execution / Risk" value="soon" disabled />
+              <SettingsRow label="Strategies" value="soon" disabled />
+              <SettingsRow label="AI" value="soon" disabled />
+              <SettingsRow label="Import" value="soon" disabled />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={spacing.sm}>
+              <Eyebrow>price alerts</Eyebrow>
+              <SettingsRow label="Price alerts" onPress={() => router.push('/alerts')} />
             </Stack>
           </Card>
 
@@ -142,33 +145,6 @@ export function SettingsScreen() {
             <Stack gap={spacing.md}>
               <Eyebrow>account</Eyebrow>
               <Button tone="danger" label="Disconnect" onPress={handleDisconnect} />
-            </Stack>
-          </Card>
-
-          <Card>
-            <Stack gap={spacing.sm}>
-              <Eyebrow>price alerts</Eyebrow>
-              <PressableScale onPress={() => router.push('/alerts')}>
-                <Row justify="space-between" align="center">
-                  <Text variant="bodyStrong">Price alerts</Text>
-                  <Icon name="chevron-right" size={20} color={colors.textMuted} />
-                </Row>
-              </PressableScale>
-            </Stack>
-          </Card>
-
-          <Card>
-            <Stack gap={spacing.sm}>
-              <Eyebrow>strategies</Eyebrow>
-              <Row justify="space-between" align="center">
-                <Stack gap={2} style={{ flex: 1 }}>
-                  <Text variant="bodyStrong">Strategies</Text>
-                  <Text variant="caption" color="textMuted">
-                    configure the agent&apos;s strategies — coming soon
-                  </Text>
-                </Stack>
-                <Icon name="chevron-right" size={20} color={colors.textMuted} />
-              </Row>
             </Stack>
           </Card>
 
