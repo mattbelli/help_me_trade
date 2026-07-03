@@ -32,9 +32,10 @@ const warmCarbon: RawPalette = {
   surface: '#1c1a16',
   surfaceRaised: '#232019',
   scrim: 'rgba(10, 8, 6, 0.66)',
-  text: '#e9e6e0',
-  textMuted: '#a09a8d',
-  textFaint: '#6b6457',
+  // Warm cream rather than near-white — softer/less sharp for ticker names + headings.
+  text: '#e7dcc6',
+  textMuted: '#a99f8c',
+  textFaint: '#6f6757',
   onAccent: '#0d0b08',
   border: '#2b2820',
   borderStrong: '#3a352a',
@@ -61,13 +62,14 @@ const oled: RawPalette = {
   onAccent: '#000000',
   border: '#1e232b',
   borderStrong: '#2b323c',
-  accent: '#5ad1be',
+  // OLED leads with a light electric blue (its own identity vs Carbon's teal).
+  accent: '#5ab4ff',
   warm: '#e0975b',
   positive: '#5bc98a',
   negative: '#ef6f6c',
   warning: '#e3b341',
   info: '#6cb0ff',
-  chart: ['#5ad1be', '#6cb0ff', '#b08cff', '#e3b341', '#e0975b'],
+  chart: ['#5ab4ff', '#5ad1be', '#b08cff', '#e3b341', '#e0975b'],
 };
 
 const light: RawPalette = {

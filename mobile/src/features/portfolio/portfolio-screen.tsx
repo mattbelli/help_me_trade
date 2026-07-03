@@ -20,6 +20,7 @@ import {
   ErrorState,
   Eyebrow,
   Money,
+  PageHeading,
   Pct,
   PressableScale,
   Row,
@@ -31,7 +32,7 @@ import {
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useNav } from '@/state/nav';
-import { colors, pnlColor, radius, spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 const RANGES: PortfolioRange[] = ['1D', '1W', '1M', '1Y', 'ALL'];
 type AccountFilter = 'all' | string;
@@ -93,9 +94,9 @@ export function PortfolioScreen() {
         }
         ListHeaderComponent={
           <Stack gap={spacing.xl} style={{ paddingTop: spacing.sm, paddingBottom: spacing.lg }}>
-            {/* Terminal status line */}
+            {/* Page header — logo + title, broker status on the right */}
             <Row justify="space-between" align="center">
-              <Eyebrow style={{ letterSpacing: 0.5 }}>help_me_trade</Eyebrow>
+              <PageHeading title="portfolio" />
               <Row gap={spacing.xs} align="center">
                 <Text variant="caption" style={{ color: colors.positive }}>
                   ●
@@ -128,7 +129,7 @@ export function PortfolioScreen() {
               {curve.isLoading || chartWidth === 0 ? (
                 <Skeleton height={110} />
               ) : curvePts.length > 1 ? (
-                <Sparkline data={curvePts} width={chartWidth} height={110} color={pnlColor(curvePts[curvePts.length - 1] - curvePts[0])} fill strokeWidth={2} />
+                <Sparkline data={curvePts} width={chartWidth} height={110} color={colors.accent} fill strokeWidth={2} />
               ) : (
                 <View style={{ height: 110, alignItems: 'center', justifyContent: 'center' }}>
                   <Text variant="caption" color="textFaint">No history for {range}</Text>

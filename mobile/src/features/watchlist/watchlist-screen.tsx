@@ -47,10 +47,10 @@ import {
   EmptyState,
   ErrorState,
   Money,
+  PageHeading,
   PressableScale,
   Row,
   Screen,
-  ScreenTitle,
   Skeleton,
   Sparkline,
   Stack,
@@ -63,12 +63,12 @@ import { MiniDayChart } from './mini-day-chart';
 import { sessionBadge, sessionView } from './session';
 
 const SCREEN_W = Dimensions.get('window').width;
-const PAD_L = 28; // left gutter holds the grip / + in line with the content
-const PAD_R = spacing.xl;
+const PAD_L = 24; // left gutter holds the grip / + in line with the content
+const PAD_R = spacing.lg;
 const SYM_W = 50;
-const PRICE_W = 90;
-const CHG_W = 64;
-const VOL_W = 50; // fits "53.4M"
+const PRICE_W = 86;
+const CHG_W = 60;
+const VOL_W = 48; // fits "53.4M"
 const GAP = spacing.sm;
 const CHART_W = Math.max(64, SCREEN_W - PAD_L - PAD_R - SYM_W - PRICE_W - CHG_W - VOL_W - 3 * GAP);
 
@@ -230,7 +230,18 @@ function RowBody({
   const jiggle = useAnimatedStyle(() => ({ transform: [{ rotateZ: `${tilt.value}deg` }] }));
 
   return (
-    <Animated.View style={[{ borderBottomWidth: hairline, borderBottomColor: colors.border, boxShadow: ROW_SHADOW, backgroundColor: active ? colors.surface : undefined }, jiggle]}>
+    <Animated.View
+      style={[
+        {
+          borderBottomWidth: hairline,
+          borderBottomColor: colors.border,
+          boxShadow: ROW_SHADOW,
+          // Excel-style zebra: odd rows get a barely-there tint over the base bg.
+          backgroundColor: active ? colors.surfaceRaised : (index ?? 0) % 2 === 1 ? colors.stripe : colors.bg,
+        },
+        jiggle,
+      ]}
+    >
       <PressableScale onPress={onPress} onLongPress={onLongPress} delayLongPress={250}>
         <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
           {editing ? (
@@ -385,13 +396,38 @@ function WatchlistCard({ symbol, quote, loading, onPress }: { symbol: string; qu
 }
 
 // ─── Sortable column header (full-bleed rules; + lives in the left gutter) ─────
-function HeadCell({ label, width, marginLeft = 0, left = false, sortKey, sort, onSort }: { label: string; width: number; marginLeft?: number; left?: boolean; sortKey: SortKey; sort: SortState; onSort: (k: SortKey) => void }) {
+function HeadCell({ label, width, marginLeft = 0, left = false, smallFirst = false, sortKey, sort, onSort }: { label: string; width: number; marginLeft?: number; left?: boolean; smallFirst?: boolean; sortKey: SortKey; sort: SortState; onSort: (k: SortKey) => void }) {
   const active = sort.key === sortKey;
+  const color = active ? colors.accent : colors.textMuted;
+  const arrow = (
+    <Text style={{ ...mono, fontSize: 9, color: active ? colors.accent : 'transparent' }}>{sort.dir === 'desc' ? '▼' : '▲'}</Text>
+  );
+  // smallFirst shrinks the leading char (e.g. "r" of rvol) since the column also
+  // carries raw volume on the subline.
+  const labelEl = smallFirst ? (
+    <Text style={{ ...mono, letterSpacing: 0.4, color }}>
+      <Text style={{ fontSize: 9 }}>{label.charAt(0)}</Text>
+      <Text style={{ fontSize: 12 }}>{label.slice(1)}</Text>
+    </Text>
+  ) : (
+    <Text style={{ ...mono, fontSize: 12, letterSpacing: 0.4, color }}>{label}</Text>
+  );
+  // Right-aligned columns put the arrow LEFT of the label so the label sits flush
+  // over its numbers; the left column keeps the arrow after it.
   return (
     <PressableScale onPress={() => onSort(sortKey)} haptic style={{ width, marginLeft }}>
       <Row gap={2} align="center" justify={left ? 'flex-start' : 'flex-end'}>
-        <Text style={{ ...mono, fontSize: 12, letterSpacing: 0.4, color: active ? colors.accent : colors.textMuted }}>{label}</Text>
-        <Text style={{ ...mono, fontSize: 9, color: active ? colors.accent : 'transparent' }}>{sort.dir === 'desc' ? '▼' : '▲'}</Text>
+        {left ? (
+          <>
+            {labelEl}
+            {arrow}
+          </>
+        ) : (
+          <>
+            {arrow}
+            {labelEl}
+          </>
+        )}
       </Row>
     </PressableScale>
   );
@@ -403,7 +439,7 @@ function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) 
         <HeadCell label="sym" width={SYM_W} left sortKey="sym" sort={sort} onSort={onSort} />
         <HeadCell label="last" width={PRICE_W} sortKey="last" sort={sort} onSort={onSort} />
         <HeadCell label="chg" width={CHG_W} marginLeft={GAP} sortKey="chg" sort={sort} onSort={onSort} />
-        <HeadCell label="rvol" width={VOL_W} marginLeft={GAP} sortKey="vol" sort={sort} onSort={onSort} />
+        <HeadCell label="rvol" width={VOL_W} marginLeft={GAP} smallFirst sortKey="vol" sort={sort} onSort={onSort} />
         <View style={{ width: CHART_W, marginLeft: GAP, alignItems: 'flex-end' }}>
           <Text style={{ ...mono, fontSize: 12, letterSpacing: 0.4, color: colors.textMuted }}>1d</Text>
         </View>
@@ -417,7 +453,7 @@ function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone, session }: { on
   return (
     <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
       <Row gap={spacing.sm} align="center">
-        <ScreenTitle>watchlist</ScreenTitle>
+        <PageHeading title="watchlist" />
         {session ? (
           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: colors.warmWash }}>
             <Text style={{ ...mono, fontSize: 10, letterSpacing: 0.6, color: colors.warm }}>{session}</Text>

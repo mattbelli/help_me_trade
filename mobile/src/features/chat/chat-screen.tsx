@@ -19,7 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/ui/icon';
-import { PressableScale, Row, Screen, ScreenTitle, Stack, Text } from '@/components/ui';
+import { PageHeading, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
 import { colors, hairline, haptics, radius, spacing } from '@/theme';
 
 import { MessageBubble } from './chat-bubbles';
@@ -74,7 +74,7 @@ export function ChatScreen() {
           align="center"
           style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.sm }}
         >
-          <ScreenTitle>chat</ScreenTitle>
+          <PageHeading title="chat" />
           {turns.length > 0 ? (
             <PressableScale onPress={reset} haptic>
               <Text variant="caption" color="textMuted">

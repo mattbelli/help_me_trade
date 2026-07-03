@@ -42,6 +42,8 @@ export function makeColors(p: RawPalette) {
     surfaceRaised: p.surfaceRaised,
     surfaceHover: p.surfaceRaised,
     scrim: p.scrim,
+    // Barely-there row tint for zebra striping (faint over the base bg).
+    stripe: hexToRgba(p.text, 0.022),
     // Text
     text: p.text,
     textMuted: p.textMuted,
