@@ -279,6 +279,25 @@ export interface AppSettings {
   research?: ResearchSettings;
 }
 
+export type StrategyEntryMode = 'auto' | 'propose';
+export type StrategyExitMode = 'auto' | 'propose';
+
+export interface Strategy {
+  id: string;
+  name: string;
+  enabled: boolean;
+  account_id: string;
+  account_label: string;
+  notional_usd: number;
+  entry_mode: StrategyEntryMode;
+  exit_mode: StrategyExitMode;
+  universe: string;
+  max_concurrent_positions: number | null;
+  max_deployed_usd: number | null;
+  alert_style: string;
+  params?: Record<string, unknown>;
+}
+
 export interface WebCustomTheme {
   id: string;
   name: string;

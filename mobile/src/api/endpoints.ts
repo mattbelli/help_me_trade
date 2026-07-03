@@ -14,6 +14,7 @@ import type {
   Report,
   ResearchArtifact,
   Snapshot,
+  Strategy,
   WatchlistMarket,
   WatchlistsState,
   WebCustomTheme,
@@ -224,4 +225,12 @@ export function getSettings(): Promise<Record<string, unknown>> {
 
 export function updateSettings(patch: Record<string, unknown>): Promise<unknown> {
   return apiFetch('/api/settings', { method: 'PUT', body: patch });
+}
+
+export function getStrategies(): Promise<{ strategies: Strategy[] }> {
+  return apiFetch<{ strategies: Strategy[] }>('/api/strategies');
+}
+
+export function updateStrategy(id: string, patch: Record<string, unknown>): Promise<unknown> {
+  return apiFetch(`/api/strategies/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
 }

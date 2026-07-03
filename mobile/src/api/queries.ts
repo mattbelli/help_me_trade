@@ -23,7 +23,9 @@ import {
   removeWatchlistSymbol,
   searchSymbols,
   getSettings,
+  getStrategies,
   updateSettings,
+  updateStrategy,
   updateWatchlistSymbols,
 } from './endpoints';
 import type { PortfolioRange, WatchlistMarket, WatchlistQuote, WatchlistsState } from './types';
@@ -212,6 +214,27 @@ export function useUpdateSettings() {
     mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['settings'] });
+    },
+  });
+}
+
+export function useStrategies() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['strategies'],
+    queryFn: getStrategies,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateStrategy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
+      updateStrategy(id, patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['strategies'] });
     },
   });
 }

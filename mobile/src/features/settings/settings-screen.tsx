@@ -129,7 +129,7 @@ export function SettingsScreen() {
               <SettingsRow label="Research" onPress={() => router.push('/settings/research')} />
               <SettingsRow label="Brokers" onPress={() => router.push('/settings/brokers')} />
               <SettingsRow label="Execution / Risk" value="soon" disabled />
-              <SettingsRow label="Strategies" value="soon" disabled />
+              <SettingsRow label="Strategies" onPress={() => router.push('/settings/strategies')} />
               <SettingsRow label="AI" value="soon" disabled />
               <SettingsRow label="Import" value="soon" disabled />
             </Stack>
