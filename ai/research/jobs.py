@@ -17,6 +17,10 @@ from signals.notify import notify
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT_JOBS = 2
+MAX_JOB_EVENTS = 200
+DEFAULT_JOB_EVENTS_RETURN = 50
+_QUERY_TRUNCATE = 120
+_SCALAR_TYPES = (str, int, float, bool, type(None))
 JOB_TIMEOUT_BY_EFFORT = {
     "quick": 300,
     "standard": 900,
@@ -39,6 +43,40 @@ class ResearchJob:
     finished_at: str | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+    events: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _slim_progress_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    slim: dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(value, _SCALAR_TYPES):
+            slim[key] = value
+        elif isinstance(value, list):
+            if key == "queries":
+                slim[key] = [str(item)[:_QUERY_TRUNCATE] for item in value]
+            else:
+                slim[key] = [
+                    item for item in value if isinstance(item, _SCALAR_TYPES)
+                ]
+    return slim
+
+
+def append_progress_event(
+    events: list[dict[str, Any]],
+    phase: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    max_events: int = MAX_JOB_EVENTS,
+) -> None:
+    entry: dict[str, Any] = {
+        "ts": datetime.now(UTC).isoformat(),
+        "phase": phase,
+        **_slim_progress_payload(payload or {}),
+    }
+    events.append(entry)
+    overflow = len(events) - max_events
+    if overflow > 0:
+        del events[:overflow]
 
 
 _jobs: dict[str, ResearchJob] = {}
@@ -126,6 +164,9 @@ async def _run_job(job_id: str) -> None:
         timeout_seconds = JOB_TIMEOUT_BY_EFFORT.get(job.depth, 900)
         cancel_event = threading.Event()
         loop = asyncio.get_running_loop()
+        def on_progress(phase: str, payload: dict[str, Any]) -> None:
+            append_progress_event(job.events, phase, payload)
+
         try:
             result = await asyncio.wait_for(
                 loop.run_in_executor(
@@ -135,6 +176,7 @@ async def _run_job(job_id: str) -> None:
                         symbol=job.symbol,
                         depth=job.depth,
                         cancel_event=cancel_event,
+                        on_progress=on_progress,
                     ),
                 ),
                 timeout=timeout_seconds,

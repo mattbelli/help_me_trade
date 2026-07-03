@@ -375,6 +375,11 @@
   50% { opacity: 1; }
 }
 
+@keyframes research-cursor-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

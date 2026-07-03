@@ -54,6 +54,24 @@ export type ResearchRunQueued = {
   depth: ResearchDepth;
 };
 
+export type ResearchActivityEvent = {
+  ts?: string;
+  phase: string;
+  key?: string;
+  title?: string;
+  round?: number;
+  queries?: string[];
+  follow_up?: boolean;
+  rounds?: number;
+  sources?: number;
+  status?: string;
+  specialists_ok?: number;
+  warning?: string;
+  target_words?: number;
+  words?: number;
+  target?: number;
+};
+
 export type ResearchJob = {
   job_id: string;
   status: string;
@@ -65,6 +83,8 @@ export type ResearchJob = {
   finished_at: string | null;
   error: string | null;
   result: { artifact_id?: number } | null;
+  events?: ResearchActivityEvent[];
+  phase?: string;
 };
 
 export type ResearchRunResult = {

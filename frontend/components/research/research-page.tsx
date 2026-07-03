@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Download, ExternalLink, FileSearch, FileText, Loader2, Sparkles, Trash2 } from "lucide-react";
 
 import { downloadResearchMarkdown } from "@/components/research/research-download";
+import { ResearchActivityFeed } from "@/components/research/research-activity-feed";
 import { ResearchMarkdown } from "@/components/research/research-markdown";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -35,6 +36,7 @@ import {
   listResearchArtifacts,
   researchHtmlUrl,
   streamResearch,
+  type ResearchActivityEvent,
   type ResearchArtifact,
   type ResearchConfig,
   type ResearchDepth,
@@ -140,6 +142,7 @@ export function ResearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<string | null>(null);
   const [phaseDetail, setPhaseDetail] = useState<string>("");
+  const [activityEvents, setActivityEvents] = useState<ResearchActivityEvent[]>([]);
   const [researchConfig, setResearchConfig] = useState<ResearchConfig | null>(null);
   const [streamWarning, setStreamWarning] = useState<string | null>(null);
   const [effortPresets, setEffortPresets] = useState<ResearchDepth[]>([
@@ -217,6 +220,7 @@ export function ResearchPage() {
     setError(null);
     setPhase("started");
     setPhaseDetail("");
+    setActivityEvents([]);
     setStreamWarning(null);
     try {
       const result = await streamResearch(
@@ -227,6 +231,14 @@ export function ResearchPage() {
         },
         (event) => {
           setPhase(event.phase);
+          setActivityEvents((prev) => [
+            ...prev,
+            {
+              ts: new Date().toISOString(),
+              phase: event.phase,
+              ...(event.data as Omit<ResearchActivityEvent, "ts" | "phase">),
+            },
+          ]);
           if (event.phase === "web_warning" && event.data.warning) {
             setStreamWarning(String(event.data.warning));
           } else if (event.phase === "searching" && event.data.query) {
@@ -367,6 +379,9 @@ export function ResearchPage() {
                   {phaseDetail ? ` · ${phaseDetail}` : ""}
                 </p>
               )}
+              {loading ? (
+                <ResearchActivityFeed events={activityEvents} status="running" />
+              ) : null}
             </CardContent>
           </Card>
 

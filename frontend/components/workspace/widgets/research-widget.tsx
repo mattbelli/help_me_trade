@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { ResearchActivityFeed } from "@/components/research/research-activity-feed";
 import { ResearchViewerModal } from "@/components/research/research-viewer-modal";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,13 +21,14 @@ import {
   runResearch,
   type ResearchArtifact,
   type ResearchDepth,
+  type ResearchActivityEvent,
 } from "@/lib/research";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 5_000;
+const POLL_RUNNING_MS = 2_500;
 const LIST_LIMIT = 10;
 
 function formatRelativeTime(iso: string): string {
@@ -78,6 +80,7 @@ export function ResearchWidget({ config }: WidgetProps) {
   const [running, setRunning] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activityEvents, setActivityEvents] = useState<ResearchActivityEvent[]>([]);
 
   const [viewerId, setViewerId] = useState<number | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -136,6 +139,9 @@ export function ResearchWidget({ config }: WidgetProps) {
         const job = await getResearchJob(activeJobId!);
         if (cancelled) return;
         setRunStatus(job.status);
+        if (job.events?.length) {
+          setActivityEvents(job.events);
+        }
         if (job.status === "completed") {
           const artifactId = job.result?.artifact_id;
           setActiveJobId(null);
@@ -160,7 +166,7 @@ export function ResearchWidget({ config }: WidgetProps) {
     }
 
     void poll();
-    const timer = setInterval(() => void poll(), POLL_MS);
+    const timer = setInterval(() => void poll(), POLL_RUNNING_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -173,6 +179,7 @@ export function ResearchWidget({ config }: WidgetProps) {
     setRunning(true);
     setError(null);
     setRunStatus("queued");
+    setActivityEvents([]);
     try {
       const queued = await runResearch({
         topic: trimmedTopic,
@@ -253,6 +260,13 @@ export function ResearchWidget({ config }: WidgetProps) {
               "Run research"
             )}
           </TerminalButton>
+          {running ? (
+            <ResearchActivityFeed
+              events={activityEvents}
+              status={runStatus ?? "running"}
+              className="mt-2"
+            />
+          ) : null}
         </div>
       </div>
 

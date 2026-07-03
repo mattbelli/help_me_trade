@@ -31,7 +31,7 @@ from ai.llm.models import list_chat_models, list_default_model_options
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.depth import RESEARCH_DEPTHS
-from ai.research.jobs import enqueue_research, get_job
+from ai.research.jobs import DEFAULT_JOB_EVENTS_RETURN, enqueue_research, get_job
 from ai.research.report import research_html_for_artifact
 from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
@@ -768,10 +768,18 @@ async def api_run_research(body: dict = Body(...)):
 
 
 @router.get("/research/jobs/{job_id}")
-def api_get_research_job(job_id: str):
+def api_get_research_job(
+    job_id: str,
+    events: str | None = Query(None),
+):
     job = get_job(job_id)
     if job is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
+    if events == "all":
+        job_events = job.events
+    else:
+        job_events = job.events[-DEFAULT_JOB_EVENTS_RETURN:]
+    phase = job_events[-1]["phase"] if job_events else job.status
     return {
         "job_id": job.id,
         "status": job.status,
@@ -783,6 +791,8 @@ def api_get_research_job(job_id: str):
         "finished_at": job.finished_at,
         "error": job.error,
         "result": job.result,
+        "events": job_events,
+        "phase": phase,
     }
 
 
