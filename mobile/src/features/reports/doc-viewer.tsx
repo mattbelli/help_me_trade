@@ -1,58 +1,94 @@
-import { useMemo, useRef, type ReactElement } from 'react';
-import { WebView } from 'react-native-webview';
-import { marked } from 'marked';
+import type { ReactElement } from 'react';
+import {
+  ScrollView,
+  Text as RNText,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
+import Markdown from 'react-native-markdown-display';
 
-import { colors } from '@/theme';
+import { colors, fonts, spacing } from '@/theme';
 
-marked.setOptions({ gfm: true });
+const monoTextStyle: TextStyle = {
+  fontFamily: fonts.mono,
+  fontSize: 13,
+  lineHeight: 21,
+  color: colors.textMuted,
+};
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n');
 }
 
-function buildBody(content: string, mode: 'text' | 'html' | 'markdown'): string {
-  if (mode === 'html') return content;
-  if (mode === 'text') return `<pre class="report-pre">${escapeHtml(content)}</pre>`;
-  return marked.parse(content, { async: false });
-}
-
-function buildHtml(body: string): string {
-  const { bg, text, textMuted, textFaint, border, surfaceRaised, accent } = colors;
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-html,body { margin:0; background:${bg}; }
-.md { font-family: ui-monospace, Menlo, monospace; font-size:12px; line-height:1.65;
-      color:${textMuted}; max-width:65ch; margin:0 auto; padding:16px 18px 48px; }
-.md h1 { margin:0 0 16px; font-size:18px; font-weight:600; color:${text}; }
-.md h2 { margin:24px 0 12px; font-size:16px; font-weight:600; color:${text}; }
-.md h3 { margin:16px 0 8px; font-size:14px; font-weight:600; color:${text}; }
-.md p { margin:12px 0; } .md p:first-child{margin-top:0;} .md p:last-child{margin-bottom:0;}
-.md ul { margin:12px 0; padding-left:20px; list-style:disc; }
-.md ol { margin:12px 0; padding-left:20px; list-style:decimal; }
-.md li { line-height:1.65; margin:4px 0; }
-.md strong { font-weight:600; color:${text}; } .md em { font-style:italic; }
-.md blockquote { margin:12px 0; border-left:2px solid ${border}; padding-left:12px; color:${textFaint}; }
-.md hr { margin:24px 0; border:0; border-top:1px solid ${border}; }
-.md a { color:${accent}; text-decoration:underline; }
-.md table { margin:16px 0; width:100%; border-collapse:collapse; font-size:11px; }
-.md th { border:1px solid ${border}; background:${surfaceRaised}; padding:6px 8px; text-align:left; font-weight:500; color:${text}; }
-.md td { border:1px solid ${border}; padding:6px 8px; vertical-align:top; }
-.md code { font-family:ui-monospace,Menlo,monospace; }
-.report-pre { font-family:ui-monospace,Menlo,monospace; font-size:12px; line-height:1.65;
-              white-space:pre-wrap; color:${textMuted}; margin:0; }
-</style>
-</head>
-<body><div class="md">${body}</div></body>
-</html>`;
-}
+const markdownStyles: Record<string, TextStyle | ViewStyle> = {
+  body: { color: colors.textMuted, fontFamily: fonts.mono, fontSize: 13, lineHeight: 21 },
+  heading1: {
+    color: colors.text,
+    fontFamily: fonts.mono,
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  heading2: {
+    color: colors.text,
+    fontFamily: fonts.mono,
+    fontSize: 17,
+    fontWeight: '600',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  heading3: {
+    color: colors.text,
+    fontFamily: fonts.mono,
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  paragraph: { marginTop: 0, marginBottom: 12 },
+  strong: { color: colors.text, fontWeight: '600' },
+  em: { fontStyle: 'italic' },
+  bullet_list: { marginBottom: 12 },
+  ordered_list: { marginBottom: 12 },
+  list_item: { marginBottom: 4 },
+  blockquote: {
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
+    paddingLeft: 12,
+    marginVertical: 12,
+    backgroundColor: 'transparent',
+  },
+  hr: { backgroundColor: colors.border, height: 1, marginVertical: 20 },
+  link: { color: colors.accent, textDecorationLine: 'underline' },
+  code_inline: {
+    fontFamily: fonts.mono,
+    color: colors.text,
+    backgroundColor: colors.surfaceRaised,
+  },
+  fence: {
+    fontFamily: fonts.mono,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceRaised,
+    padding: 10,
+    borderRadius: 6,
+  },
+  code_block: {
+    fontFamily: fonts.mono,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceRaised,
+    padding: 10,
+    borderRadius: 6,
+  },
+  table: {
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 6,
+    marginVertical: 12,
+  },
+  th: { padding: 6, color: colors.text, fontWeight: '600' },
+  td: { padding: 6, borderColor: colors.border },
+};
 
 export function DocViewer({
   content,
@@ -61,26 +97,21 @@ export function DocViewer({
   content: string;
   mode: 'text' | 'html' | 'markdown';
 }): ReactElement {
-  const initialLoad = useRef(true);
-  const html = useMemo(() => buildHtml(buildBody(content, mode)), [content, mode]);
+  const textContent = mode === 'html' ? stripHtml(content) : content;
 
   return (
-    <WebView
-      source={{ html }}
-      originWhitelist={['*']}
-      style={{ flex: 1, backgroundColor: 'transparent' }}
-      scrollEnabled
-      showsVerticalScrollIndicator
-      onShouldStartLoadWithRequest={(req) => {
-        if (initialLoad.current) {
-          initialLoad.current = false;
-          return true;
-        }
-        if (req.url.startsWith('http://') || req.url.startsWith('https://')) {
-          return false;
-        }
-        return true;
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{
+        paddingHorizontal: spacing.xl,
+        paddingBottom: spacing['5xl'],
       }}
-    />
+    >
+      {mode === 'markdown' ? (
+        <Markdown style={markdownStyles}>{content}</Markdown>
+      ) : (
+        <RNText style={monoTextStyle}>{textContent}</RNText>
+      )}
+    </ScrollView>
   );
 }

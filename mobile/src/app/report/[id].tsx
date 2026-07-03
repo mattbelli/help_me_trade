@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useReport } from '@/api/queries';
 import { BackRow, ErrorState, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { DocViewer } from '@/features/reports/doc-viewer';
-import { colors, spacing } from '@/theme';
+import { spacing } from '@/theme';
 
 const MONTHS_SHORT = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -50,12 +50,7 @@ export default function ReportScreen() {
             </Stack>
           ) : report.data ? (
             <Stack gap={spacing.xs}>
-              <Text variant="title">
-                {report.data.title}
-                {report.data.symbol ? (
-                  <Text variant="title" color="textMuted">{` · ${report.data.symbol}`}</Text>
-                ) : null}
-              </Text>
+              <Text variant="title">{report.data.title}</Text>
               {report.data.generated_at ? (
                 <Text variant="caption" color="textFaint">
                   {fmtDate(report.data.generated_at.slice(0, 10)) ?? report.data.generated_at}
@@ -64,18 +59,14 @@ export default function ReportScreen() {
             </Stack>
           ) : null}
 
-          <View style={{ flex: 1, marginHorizontal: -spacing.xl, backgroundColor: colors.bg }}>
-            {report.isLoading ? (
-              <View style={{ flex: 1, paddingHorizontal: spacing.xl }}>
-                <Skeleton style={{ flex: 1 }} />
-              </View>
-            ) : report.data ? (
-              <DocViewer
-                content={report.data.body}
-                mode={report.data.format === 'html' ? 'html' : 'text'}
-              />
-            ) : null}
-          </View>
+          {report.isLoading ? (
+            <Skeleton style={{ flex: 1 }} />
+          ) : report.data ? (
+            <DocViewer
+              content={report.data.body}
+              mode={report.data.format === 'html' ? 'html' : 'text'}
+            />
+          ) : null}
         </Stack>
       </View>
     </Screen>

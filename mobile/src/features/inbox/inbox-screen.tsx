@@ -154,8 +154,10 @@ export function InboxScreen() {
       if (filter === 'all') return true;
       return r.kind === 'approval' ? filter === 'approvals' : r.category === filter;
     });
-    // Unread first, then newest.
-    next.sort((x, y) => Number(y.unread) - Number(x.unread) || y.ts - x.ts);
+    // Actionable approvals pinned on top; everything else is chronological
+    // (newest first) regardless of read state — so a read item stays in place
+    // (greyed, no dot) like an email inbox rather than sinking out of view.
+    next.sort((x, y) => Number(y.kind === 'approval') - Number(x.kind === 'approval') || y.ts - x.ts);
     return {
       filtered: next,
       unreadCount: rows.filter((r) => r.unread).length,

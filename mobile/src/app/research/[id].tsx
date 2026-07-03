@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useResearch } from '@/api/queries';
 import { BackRow, ErrorState, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { DocViewer } from '@/features/reports/doc-viewer';
-import { colors, spacing } from '@/theme';
+import { spacing } from '@/theme';
 
 export default function ResearchScreen() {
   const router = useRouter();
@@ -23,9 +23,6 @@ export default function ResearchScreen() {
     );
   }
 
-  const html = research.data?.html;
-  const useHtml = typeof html === 'string' && html.length > 0;
-
   return (
     <Screen>
       <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
@@ -41,7 +38,7 @@ export default function ResearchScreen() {
             <Stack gap={spacing.xs}>
               <Text variant="title">
                 {research.data.topic}
-                {research.data.symbol ? (
+                {research.data.symbol && !research.data.topic.includes(research.data.symbol) ? (
                   <Text variant="title" color="textMuted">{` · ${research.data.symbol}`}</Text>
                 ) : null}
               </Text>
@@ -53,18 +50,11 @@ export default function ResearchScreen() {
             </Stack>
           ) : null}
 
-          <View style={{ flex: 1, marginHorizontal: -spacing.xl, backgroundColor: colors.bg }}>
-            {research.isLoading ? (
-              <View style={{ flex: 1, paddingHorizontal: spacing.xl }}>
-                <Skeleton style={{ flex: 1 }} />
-              </View>
-            ) : research.data ? (
-              <DocViewer
-                content={useHtml ? html : research.data.markdown}
-                mode={useHtml ? 'html' : 'markdown'}
-              />
-            ) : null}
-          </View>
+          {research.isLoading ? (
+            <Skeleton style={{ flex: 1 }} />
+          ) : research.data ? (
+            <DocViewer content={research.data.markdown} mode="markdown" />
+          ) : null}
         </Stack>
       </View>
     </Screen>
