@@ -7,7 +7,7 @@ import { tradeProposalActivity } from '../../../widgets/trade-proposal';
 import { useHealth } from '@/api/queries';
 import { useAuth } from '@/auth/auth-context';
 import { Icon } from '@/components/ui/icon';
-import { Button, Card, Eyebrow, PressableScale, Row, Screen, ScreenTitle, Skeleton, Stack, Text } from '@/components/ui';
+import { Button, Card, Eyebrow, PageHeading, PressableScale, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
 import { colors, hairline, spacing, THEME_OPTIONS, useThemeMode } from '@/theme';
 
@@ -185,7 +185,7 @@ export function SettingsScreen() {
 }
 
 function Header() {
-  return <ScreenTitle>settings</ScreenTitle>;
+  return <PageHeading title="settings" />;
 }
 
 function stripScheme(url: string): string {

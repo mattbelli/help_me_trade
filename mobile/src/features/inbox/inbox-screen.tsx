@@ -15,7 +15,7 @@ import { useRouter } from 'expo-router';
 import { getRecentAlerts } from '@/api/endpoints';
 import { usePendingProposals } from '@/api/queries';
 import type { MarketAlert, PendingProposal } from '@/api/types';
-import { Badge, formatUsd, PressableScale, Row, Screen, ScreenTitle, Stack, Text } from '@/components/ui';
+import { Badge, formatUsd, PageHeading, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
 import { ProposalCard } from '@/features/approvals/proposal-card';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useAlerts } from '@/state/alerts';
@@ -129,7 +129,7 @@ export function InboxScreen() {
         ListHeaderComponent={
           <Stack gap={spacing.md} style={{ paddingTop: spacing.sm, paddingBottom: spacing.sm }}>
             <Row justify="space-between" align="center">
-              <ScreenTitle>inbox</ScreenTitle>
+              <PageHeading title="inbox" />
               <Row gap={spacing.lg} align="center">
                 {unreadCount > 0 ? (
                   <PressableScale onPress={markAllRead} haptic={false}>
