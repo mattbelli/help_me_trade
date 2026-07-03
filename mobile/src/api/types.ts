@@ -263,3 +263,22 @@ export interface ResearchArtifact {
   created_at: string;
   updated_at: string;
 }
+
+export interface WebCustomTheme {
+  id: string;
+  name: string;
+  base: string;
+  colorScheme: string;
+  tokens: {
+    bg?: string;
+    surface?: string;
+    border?: string;
+    fg?: string;
+    fgDim?: string;
+    accent?: string;
+    green?: string;
+    red?: string;
+    chartAccent?: string;
+    chartBg?: string;
+  };
+}

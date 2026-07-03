@@ -9,13 +9,13 @@ import { useAuth } from '@/auth/auth-context';
 import { Icon } from '@/components/ui/icon';
 import { Button, Card, Eyebrow, PageHeading, PressableScale, Row, Screen, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
-import { colors, hairline, spacing, THEME_OPTIONS, useThemeMode } from '@/theme';
+import { colors, hairline, spacing, useThemeMode } from '@/theme';
 
 export function SettingsScreen() {
   const router = useRouter();
   const health = useHealth();
   const { signOut } = useAuth();
-  const { mode, setMode } = useThemeMode();
+  const { mode, setMode, options } = useThemeMode();
   const testLA = useRef<ReturnType<typeof tradeProposalActivity.start> | null>(null);
 
   const startTestLA = () => {
@@ -113,7 +113,7 @@ export function SettingsScreen() {
             <Stack gap={spacing.md}>
               <Eyebrow>appearance</Eyebrow>
               <Row gap={spacing.xs} style={{ flexWrap: 'wrap' }}>
-                {THEME_OPTIONS.map((opt) => {
+                {options.map((opt) => {
                   const active = mode === opt.mode;
                   return (
                     <PressableScale key={opt.mode} onPress={() => setMode(opt.mode)}>

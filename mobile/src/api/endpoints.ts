@@ -16,6 +16,7 @@ import type {
   Snapshot,
   WatchlistMarket,
   WatchlistsState,
+  WebCustomTheme,
 } from './types';
 
 export function getHealth(): Promise<HealthStatus> {
@@ -211,4 +212,8 @@ export function registerLiveActivityToken(args: {
       ...(args.proposalId ? { proposal_id: args.proposalId } : {}),
     },
   });
+}
+
+export function getCustomThemes(): Promise<{ custom_themes: WebCustomTheme[] }> {
+  return apiFetch<{ custom_themes: WebCustomTheme[] }>('/api/workspace/custom-themes');
 }

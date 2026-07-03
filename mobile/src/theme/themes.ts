@@ -93,6 +93,13 @@ const light: RawPalette = {
   chart: ['#2f9e8c', '#3a7fd0', '#7a5cc0', '#b8862a', '#bd7f43'],
 };
 
+export const BASE_PALETTES: Record<string, RawPalette> = {
+  carbon,
+  warm: warmCarbon,
+  oled,
+  light,
+};
+
 export const themes = {
   carbon: makeColors(carbon),
   warmCarbon: makeColors(warmCarbon),
