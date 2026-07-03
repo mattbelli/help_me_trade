@@ -137,8 +137,6 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
     });
   }
 
-  const datalistId = "research-model-suggestions";
-
   return (
     <div className="space-y-5">
       <SettingsSection title="Web search">
@@ -194,25 +192,54 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <TerminalField label="Strong model hint" htmlFor="research-strong-model">
-            <TerminalInput
+          <TerminalField
+            label="Strong model (synthesis / critic / editor)"
+            htmlFor="research-strong-model"
+          >
+            <TerminalSelect
               id="research-strong-model"
-              list={datalistId}
               value={research.strong_model ?? ""}
-              placeholder={defaultModel || "app default"}
-              onChange={(e) => patch({ strong_model: e.target.value.trim() })}
-            />
+              onChange={(e) => patch({ strong_model: e.target.value })}
+              disabled={!research.auto_delegate}
+            >
+              <option value="">{`(app default${defaultModel ? `: ${defaultModel}` : ""})`}</option>
+              {modelSuggestions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </TerminalSelect>
           </TerminalField>
-          <TerminalField label="Fast model hint" htmlFor="research-fast-model">
-            <TerminalInput
+          <TerminalField
+            label="Fast model (specialists / extraction)"
+            htmlFor="research-fast-model"
+          >
+            <TerminalSelect
               id="research-fast-model"
-              list={datalistId}
               value={research.fast_model ?? ""}
-              placeholder={defaultModel || "app default"}
-              onChange={(e) => patch({ fast_model: e.target.value.trim() })}
-            />
+              onChange={(e) => patch({ fast_model: e.target.value })}
+              disabled={!research.auto_delegate}
+            >
+              <option value="">{`(app default${defaultModel ? `: ${defaultModel}` : ""})`}</option>
+              {modelSuggestions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </TerminalSelect>
           </TerminalField>
         </div>
+        {research.auto_delegate ? (
+          <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+            Auto picks these two: strong for the heavy roles, fast for the parallel
+            fan-out. Leave a hint on “app default” and that tier just uses your
+            default model.
+          </p>
+        ) : (
+          <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+            Auto-delegate is off — these hints are ignored; set each role below.
+          </p>
+        )}
 
         <div className="space-y-2">
           <p className="font-mono text-[11px] tracking-[0.06em] uppercase text-foreground">
@@ -236,13 +263,18 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
                           {resolvedRoleModel(role, research, defaultModel)}
                         </span>
                       ) : (
-                        <TerminalInput
-                          list={datalistId}
+                        <TerminalSelect
                           value={research.model_roles?.[role] ?? ""}
-                          placeholder={defaultModel || "app default"}
-                          onChange={(e) => patchRole(role, e.target.value.trim())}
+                          onChange={(e) => patchRole(role, e.target.value)}
                           className="w-full"
-                        />
+                        >
+                          <option value="">{`(app default${defaultModel ? `: ${defaultModel}` : ""})`}</option>
+                          {modelSuggestions.map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
+                          ))}
+                        </TerminalSelect>
                       )}
                     </td>
                   </tr>
@@ -257,12 +289,6 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
             </p>
           )}
         </div>
-
-        <datalist id={datalistId}>
-          {modelSuggestions.map((model) => (
-            <option key={model} value={model} />
-          ))}
-        </datalist>
       </SettingsSection>
     </div>
   );
