@@ -15,8 +15,8 @@ export default function ResearchScreen() {
 
   if (research.isError) {
     return (
-      <Screen>
-        <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.xl }}>
+      <Screen style={{ backgroundColor: colors.surface }}>
+        <View style={{ flex: 1, paddingTop: spacing.sm, paddingHorizontal: spacing.md }}>
           <BackRow onBack={() => router.back()} />
           <ErrorState onRetry={research.refetch} />
         </View>
@@ -25,13 +25,12 @@ export default function ResearchScreen() {
   }
 
   return (
-    <Screen>
+    <Screen style={{ backgroundColor: colors.surface }}>
       <View
         style={{
           flex: 1,
           paddingTop: spacing.sm,
-          paddingHorizontal: spacing.xl,
-          backgroundColor: colors.surface,
+          paddingHorizontal: spacing.md,
         }}
       >
         <Stack gap={spacing.md} style={{ flex: 1 }}>
@@ -44,8 +43,8 @@ export default function ResearchScreen() {
             </Text>
           ) : null}
 
-          {/* Break out of the screen's xl gutter so the document runs near full-width. */}
-          <View style={{ flex: 1, marginHorizontal: -spacing.xl }}>
+          {/* Break out of the screen's md gutter so the document runs near full-width. */}
+          <View style={{ flex: 1, marginHorizontal: -spacing.md }}>
             {research.isLoading ? (
               <Skeleton style={{ flex: 1 }} />
             ) : research.data ? (
