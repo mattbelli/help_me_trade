@@ -141,7 +141,7 @@ export function getRecentAlerts(): Promise<{ alerts: MarketAlert[] }> {
 }
 
 export function getRecentNotifications(): Promise<{ notifications: FeedNotification[]; unread: number }> {
-  return apiFetch<{ notifications: FeedNotification[]; unread: number }>('/api/notifications');
+  return apiFetch<{ notifications: FeedNotification[]; unread: number }>('/api/notifications?limit=150');
 }
 
 export function getReport(id: string): Promise<Report> {

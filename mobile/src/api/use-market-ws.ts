@@ -200,7 +200,15 @@ export function useMarketWs({
         const msg = JSON.parse(event.data) as WsMessage;
 
         if (isRecord(msg) && msg.type === 'alert') {
-          const alert = parseAlert(msg as unknown as WsAlertMessage);
+          const raw = msg as unknown as WsAlertMessage & { kind?: unknown; type?: unknown };
+          // Serv mirrors notifications into the alert buffer; the notification stream renders them.
+          if (
+            typeof raw.kind === 'string'
+            || (raw.alert && typeof raw.alert === 'object' && (raw.alert as { type?: unknown }).type === 'notification')
+          ) {
+            return;
+          }
+          const alert = parseAlert(raw);
           onAlertRef.current?.(alert);
 
           const action = alert.action;

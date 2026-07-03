@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { FeedNotification, MarketAlert } from '@/api/types';
 
-const MAX_ALERTS = 200;
+const MAX_ALERTS = 300;
 const MAX_DISMISSED = 500; // bound the persisted set so it can't grow forever
 const DISMISSED_KEY = 'inbox.dismissed.v1';
 

@@ -22,11 +22,12 @@ import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useAlerts } from '@/state/alerts';
 import { colors, hairline, spacing } from '@/theme';
 
-type Filter = 'all' | 'approvals' | 'orders' | 'alerts';
+type Filter = 'all' | 'approvals' | 'orders' | 'reports' | 'alerts';
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'approvals', label: 'Approvals' },
   { key: 'orders', label: 'Orders' },
+  { key: 'reports', label: 'Reports' },
   { key: 'alerts', label: 'Alerts' },
 ];
 
@@ -51,11 +52,18 @@ function categorizeNotification(n: FeedNotification): Filter {
     case 'risk_breaker':
     case 'risk_block':
       return 'orders';
+    case 'report_ready':
     case 'research_ready':
-      return 'alerts';
+      return 'reports';
     default:
       return 'alerts';
   }
+}
+
+/** Serv mirrors notifications into /api/alerts/recent; the notification stream renders them. */
+function isGenuineAlert(raw: unknown): raw is MarketAlert {
+  if (typeof raw !== 'object' || raw === null) return false;
+  return typeof (raw as { kind?: unknown }).kind !== 'string';
 }
 
 function alertTitle(a: MarketAlert): string {
@@ -100,7 +108,7 @@ export function InboxScreen() {
   const { refreshing, onRefresh } = usePullRefresh(() =>
     Promise.all([
       pending.refetch(),
-      getRecentAlerts().then((r) => seed(r.alerts ?? [])).catch(() => undefined),
+      getRecentAlerts().then((r) => seed((r.alerts ?? []).filter(isGenuineAlert))).catch(() => undefined),
       getRecentNotifications().then((r) => seedNotifications(r.notifications ?? [])).catch(() => undefined),
     ]),
   );
@@ -112,7 +120,7 @@ export function InboxScreen() {
     let cancelled = false;
     void Promise.all([
       getRecentAlerts()
-        .then((r) => { if (!cancelled) seed(r.alerts ?? []); })
+        .then((r) => { if (!cancelled) seed((r.alerts ?? []).filter(isGenuineAlert)); })
         .catch(() => {}),
       getRecentNotifications()
         .then((r) => { if (!cancelled) seedNotifications(r.notifications ?? []); })
