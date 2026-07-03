@@ -35,12 +35,12 @@ export function DocViewer({
   };
 
   const markdownStyles: Record<string, TextStyle | ViewStyle> = {
-    body: { color: colors.text, fontFamily: fonts.mono, fontSize: 13, lineHeight: 21 },
+    body: { color: colors.textMuted, fontFamily: fonts.mono, fontSize: 13, lineHeight: 21 },
     heading1: { color: colors.accent, fontFamily: fonts.mono, fontSize: 20, fontWeight: '700', marginTop: 4, marginBottom: 12 },
     heading2: { color: colors.accent, fontFamily: fonts.mono, fontSize: 17, fontWeight: '700', marginTop: 20, marginBottom: 10 },
     heading3: { color: colors.accent, fontFamily: fonts.mono, fontSize: 15, fontWeight: '700', marginTop: 14, marginBottom: 8 },
     paragraph: { marginTop: 0, marginBottom: 12 },
-    strong: { color: colors.accent, fontWeight: '700' },
+    strong: { color: colors.text, fontWeight: '700' },
     em: { color: colors.text, fontStyle: 'italic' },
     bullet_list: { marginBottom: 12 },
     ordered_list: { marginBottom: 12 },
@@ -60,7 +60,7 @@ export function DocViewer({
     code_block: { fontFamily: fonts.mono, color: colors.text, backgroundColor: colors.surfaceRaised, padding: 10, borderRadius: 6 },
     table: { borderColor: colors.textFaint, borderWidth: 1, borderRadius: 6, marginVertical: 12 },
     tr: { borderColor: colors.textFaint, borderBottomWidth: 1 },
-    th: { padding: 6, borderColor: colors.textFaint, color: colors.text, fontWeight: '700' },
+    th: { padding: 6, borderColor: colors.textFaint, backgroundColor: colors.bgInset, color: colors.text, fontWeight: '700' },
     td: { padding: 6, borderColor: colors.textFaint, color: colors.text },
   };
 
