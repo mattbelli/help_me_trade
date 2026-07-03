@@ -343,7 +343,7 @@ be threshold-drift snooping. **Verdict: single 0.5 gate stays; ship the honest d
 OOS-only ex-crisis subset (n=47 dates) is not significant on its own, CI [−0.07,+3.36] — thin-sample note,
 not a demotion (the full ex-2020+2026 cut still passes: +0.74%, p=0.013). `_edgehunt/steepyc_dip_ensemble.py`.
 
-## Bottom line (round 4)
+## Bottom line (round 4 — see round 5 below for the regime-local fork)
 Five pre-registered trials (ledger H77–H81, honest n_trials accounting for future DSR), five kills, zero new
 sleeves — **which is the converged-panel warning confirming itself in data.** Value shipped: pre-earnings
 drift and buyback-momentum permanently retired (don't re-attack); two independent demonstrations that
@@ -351,3 +351,62 @@ YC-conditioning of new entries = crisis-clustering artifact (the validated dip s
 worst-cut + beta decomposition, which these didn't); one script-defect pattern to watch (bootstrapping raw
 instead of excess). Next alpha dollars go to **new data**: pre-2010 Norgate (book risk estimate), delisted
 earnings backfill, MBO absorption features (setstudy rebuild), Russell universe — per the deep-dive §4.
+
+---
+
+# Round 5 — the REGIME-LOCAL fork (2026-07-02, founder-directed): "what's working NOW"
+
+**⚠ DIFFERENT EVIDENCE STANDARD — separate shelf.** Founder call: stop requiring 16y timeless alpha;
+find what's live in the 2021–2026 regime, paper it small, pre-register kill lines, ride until decay
+("it has an edge until it doesn't"). These results must NEVER be labeled "validated" in
+`strategy_stats.json` — they are **regime sleeves**: paper-first, Tier-B-style honest labels
+("regime-local evidence, 5y window, expected finite lifetime"), journaled so calibration accrues.
+The regime read they map to: (1) index concentration / leader persistence, (2) conditioned dip-buying →
+fast V-recoveries (2020/2022/2024/2025/2026), (3) amplified earnings gaps, (4) episodic vol spikes that
+terminate fast, (5) fast sector rotation. Ledger H82–H86. One NEW data point added to the repo:
+**VIX 3-month term structure** (`data/research/vix3m_fred.csv`, FRED VXVCLS keyless pull, 2007→).
+
+## ✔ PAPER-QUALIFIED — generals' dip (H82): the high-frequency avenue
+Top-30 by 60d dollar volume (point-in-time monthly), c>SMA50, 3d ≤ −3.5% → T+1 open, 10d hold, excess
+vs SPY. Full 2021–26: nothing (+0.14%, ns). **But the per-year trend is monotone improving**: 2021 −2.5%
+→ 2022 −1.7% → 2023 −0.1% → 2024 +0.4% → 2025 +0.7% → 2026 +6.0%; **last-12m: +3.63%/trade net, CI
+[+0.11,+4.66], p=0.021, wr 60%** (h=10d). Honest caveats: last-12m leans on the 2026 recovery leg
+(crisis-clustering signature — the exact thing that killed H78/H81 as *timeless* claims); bled in
+2022-style rate-shock tape. **Frequency 25.6 setups/mo** in TSLA/NVDA/AMD/PLTR/COIN/AVGO etc. — the LLM
+slate avenue win regardless of edge. **Kill line (pre-registered): trailing-6m excess (10d) < 0 at a
+month-end check, or trailing-60-trade win rate < 45% → retire.** `_edgehunt/generals_dip.py`.
+
+## ✔ PAPER-QUALIFIED — V-bounce harvester (H83, recovery-exit variant)
+SPY ≥5% below 20d high + VIX ≥25 + first higher-low up-day → T+1 open, exit on recovery to the prior
+20d high (cap 30td). Post-2020: **8/10 wins, mean +2.9%, median +6.2%**; the three most recent shocks
+(Aug-24, Apr-25, Mar-26) each +6–8%. Tail risk: firing early in a protracted crash (Mar-2020 entry:
+−9.9% capped; fixed-15d variant would have been −23.9% → recovery-exit is the variant, fixed-hold
+rejected). ~1.3 episodes/yr, bunchy. Episodic small-n, descriptive — no bootstrap claimed. **Kill line:
+any episode MAE ≤ −15%, or 3 consecutive losing episodes → retire.** `_edgehunt/v_bounce_harvester.py`.
+
+## ✔ PAPER-QUALIFIED — VIX term-structure snap (H86): entry-trigger upgrade, not a new sleeve
+NEW DATA: spot-VIX/VIX3M ratio; entry the day backwardation (ratio>1, ≥2d) flips back to contango.
+21-day hold post-2020: **13/14 wins, mean +5.0% vs +1.4% unconditional baseline**; ~2.3 episodes/yr.
+Near-total overlap with the vix_spike sleeve + H83 → **consolidate: ONE vol-event sleeve, three candidate
+triggers (VIX>28-from-calm / drawdown-stabilization / term-flip) paper-traded side by side in the
+journal; promote the best trigger after ~5 live episodes.** The term-flip is mechanically the cleanest
+(waits for confirmed fear-termination; vol-sellers re-engage). Cluster cap: 1 position per 21d window.
+**Kill line: mean 21d return < +2.0% over the next 10 episodes → suspend.** `_edgehunt/vix_term_snap.py`.
+
+## ✘ REJECTED — mega-gap continuation (H84)
+Earnings-day gap ≥+6% that holds → T+1, 10/20d. The regime claim is **backwards**: 2021–26 excess
+(+0.34%/+0.19%) is WEAKER than 2010–20 (+0.58%/+1.40%), all four cells ns, per-year incoherent. More
+gaps in the modern tape (4.1/mo vs 2.3/mo) but no follow-through premium. `_edgehunt/mega_gap_continuation.py`.
+
+## ~ WATCH — fast sector RS (H85)
+Top-2 sectors by 1m/3m EW return, monthly. 2021+ positive but ns (1m +0.25%/mo p=0.24; 3m +0.42%/mo
+p=0.13); thesis contradicted (3m beats 1m — rotation isn't "fast"); 2024–25 deteriorating; sector
+selection does beat the EW-all control. Not paper-ready; recheck after 12 more months. `_edgehunt/fast_sector_rs.py`.
+
+## Bottom line (round 5)
+Under the regime-local standard: **2 paper sleeves + 1 trigger upgrade qualified, 1 killed, 1 watch.**
+The three qualifiers are two distinct trades: (a) *generals' dip* — high-frequency single-name BTD in the
+concentration regime (the LLM-slate avenue), and (b) *the vol-event trade* — one sleeve, three candidate
+triggers, now including the new term-structure data. Both ship paper-only with the pre-registered kill
+lines above, Tier-B labels, and journal entries so the calibration loop grades them. The regime fork and
+the tier-1 book stay on separate shelves — decay here is expected and handled, not a scandal.
