@@ -466,10 +466,14 @@ def run_research_v2(
             report["web_search_warning"] = web_meta["warning"]
             report["web_search_mode"] = web_meta.get("mode")
 
+        # The artifact's display title becomes the editor's paper title; the
+        # user's original prompt is preserved inside the report as `query`.
+        report["query"] = topic
+        display_title = str(report.get("title") or "").strip() or topic
         markdown = report_to_markdown(report)
         html = render_report_html(report)
         save_research_artifact(
-            topic=topic,
+            topic=display_title,
             symbol=sym,
             markdown=markdown,
             status="completed",

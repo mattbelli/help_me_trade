@@ -12,6 +12,14 @@ from typing import Any
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
+from ai.research.data_sources import (
+    fetch_calibration_source,
+    fetch_earnings_source,
+    fetch_fundamentals_source,
+    fetch_market_regime_source,
+    fetch_news_source,
+    fetch_technicals_source,
+)
 from ai.research.errors import ResearchCancelled
 from ai.research.source_text import source_for_analysis
 from ai.research.sources import (
@@ -49,6 +57,7 @@ class SpecialistSpec:
     title: str
     system_prompt: str
     seed_query_templates: tuple[str, ...]
+    data_sources: tuple[str, ...] = ()
 
 
 @dataclass
@@ -91,6 +100,7 @@ SPECIALIST_ROSTER: tuple[SpecialistSpec, ...] = (
             "{symbol} earnings revenue margins valuation",
             "{symbol} balance sheet cash flow fundamentals",
         ),
+        data_sources=("earnings", "fundamentals", "portfolio"),
     ),
     SpecialistSpec(
         key="technicals",
@@ -105,6 +115,7 @@ SPECIALIST_ROSTER: tuple[SpecialistSpec, ...] = (
             "{symbol} technical analysis support resistance",
             "{symbol} price trend volume momentum chart",
         ),
+        data_sources=("technicals", "bars"),
     ),
     SpecialistSpec(
         key="news_catalyst",
@@ -119,6 +130,7 @@ SPECIALIST_ROSTER: tuple[SpecialistSpec, ...] = (
             "{symbol} latest news catalysts earnings date",
             "{symbol} analyst ratings upgrades downgrades",
         ),
+        data_sources=("news", "earnings"),
     ),
     SpecialistSpec(
         key="bear_risk",
@@ -133,6 +145,7 @@ SPECIALIST_ROSTER: tuple[SpecialistSpec, ...] = (
             "{symbol} bear case risks short thesis",
             "{symbol} downside risks regulatory competition",
         ),
+        data_sources=("calibration", "news", "portfolio"),
     ),
     SpecialistSpec(
         key="macro_sector",
@@ -147,6 +160,7 @@ SPECIALIST_ROSTER: tuple[SpecialistSpec, ...] = (
             "{symbol} sector peers industry outlook",
             "{symbol} macro rates sector rotation",
         ),
+        data_sources=("market_regime", "fundamentals"),
     ),
 )
 
@@ -172,18 +186,40 @@ def _merge_sources(
     return merged
 
 
-def _collect_generic_sources(
-    query: str, *, symbol: str | None
+_NO_SYMBOL_SOURCES = frozenset({"portfolio", "market_regime", "calibration"})
+
+_DATA_SOURCE_REGISTRY: dict[str, Callable[..., dict[str, Any] | list[dict[str, Any]] | None]] = {
+    "earnings": fetch_earnings_source,
+    "fundamentals": fetch_fundamentals_source,
+    "technicals": fetch_technicals_source,
+    "news": fetch_news_source,
+    "market_regime": fetch_market_regime_source,
+    "calibration": fetch_calibration_source,
+    "bars": fetch_bars_source,
+    "portfolio": lambda _symbol=None: fetch_portfolio_source(),
+}
+
+
+def _collect_data_sources(
+    spec: SpecialistSpec, query: str, *, symbol: str | None
 ) -> list[dict[str, Any]]:
     sources: list[dict[str, Any]] = []
-    portfolio = fetch_portfolio_source()
-    if portfolio:
-        sources.append(portfolio)
     sym = normalize_research_symbol(symbol)
-    if sym:
-        bars = fetch_bars_source(sym)
-        if bars:
-            sources.append(bars)
+    for name in spec.data_sources:
+        fetcher = _DATA_SOURCE_REGISTRY.get(name)
+        if fetcher is None:
+            continue
+        if name not in _NO_SYMBOL_SOURCES and not sym:
+            continue
+        try:
+            result = fetcher(sym) if name not in _NO_SYMBOL_SOURCES else fetcher()
+        except Exception as exc:
+            logger.warning("Data source %s failed: %s", name, exc)
+            continue
+        if isinstance(result, list):
+            sources.extend(result)
+        elif result:
+            sources.append(result)
     sources.extend(fetch_memory_sources(query))
     return sources
 
@@ -278,8 +314,10 @@ def _distill_section(
                 "Distill new sources into an evolving analyst section. Return JSON only "
                 "with keys: section_markdown (a polished analyst section replacing the "
                 "prior draft), key_facts (array of {source_id, fact}), gaps_remaining "
-                f"(array of short strings). {_STYLE_LINE} "
-                f"{_CITE_OR_OMIT} {_UNTRUSTED_LINE}"
+                f"(array of short strings). Sources typed *_internal are the desk's own "
+                "data — trust them over conflicting web claims and reference them in "
+                "prose (e.g. 'per internal price data'), never as bracket tokens. "
+                f"{_STYLE_LINE} {_CITE_OR_OMIT} {_UNTRUSTED_LINE}"
             ),
         ),
         LLMMessage(
@@ -448,7 +486,7 @@ def _run_specialist_inner(
 
             generic_batch: list[dict[str, Any]] = []
             if round_num == 1 and not extra_queries:
-                generic_batch = _collect_generic_sources(topic, symbol=symbol)
+                generic_batch = _collect_data_sources(spec, topic, symbol=symbol)
             prior_keys = {_source_key(s) for s in sources}
             seed = _merge_sources(sources, generic_batch)
             merged = _collect_web_for_queries(

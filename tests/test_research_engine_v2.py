@@ -198,9 +198,27 @@ def patch_sources(monkeypatch: pytest.MonkeyPatch):
         lambda query, **kwargs: [_mock_web_hit(query)],
     )
     monkeypatch.setattr("ai.research.specialists.fetch_url", lambda url, **kwargs: "")
-    monkeypatch.setattr("ai.research.specialists.fetch_portfolio_source", lambda: None)
-    monkeypatch.setattr("ai.research.specialists.fetch_bars_source", lambda *a, **k: None)
     monkeypatch.setattr("ai.research.specialists.fetch_memory_sources", lambda *a, **k: [])
+
+    def _noop_symbol(_symbol: str | None = None) -> None:
+        return None
+
+    def _noop() -> None:
+        return None
+
+    monkeypatch.setattr(
+        "ai.research.specialists._DATA_SOURCE_REGISTRY",
+        {
+            "earnings": _noop_symbol,
+            "fundamentals": _noop_symbol,
+            "technicals": _noop_symbol,
+            "news": _noop_symbol,
+            "market_regime": _noop,
+            "calibration": _noop,
+            "bars": _noop_symbol,
+            "portfolio": lambda _symbol=None: _noop(),
+        },
+    )
 
 
 @pytest.fixture
