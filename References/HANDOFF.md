@@ -12,6 +12,15 @@ this file, append the old full version there as a new dated section.*
 
 ## CURRENT FOCUS — Research Engine v2 build (2026-07-03)
 
+> ▶ **RESEARCH V2 CORE COMPLETE (2026-07-03, commits dd1b272→945c0cc).** All of: Phase 2 engine, quality
+> round (markdown editor), Phase 4 MD viewer/download/effort-UI + scannable paper (TL;DR/scoreboard/metrics
+> tables), live progress feed, Phase 3 proprietary data (`ai/research/data_sources.py` — internal technicals/
+> levels/RVOL, earnings+EPS surprises, Finnhub fundamentals/news [keys SET+verified], regime, calibration),
+> artifact titles = editor headline. Founder-validated live (artifacts 162/164/165/167). **NEXT BLOCK (audit-
+> driven, founder-agreed): safety #33 (paper-endpoint guarantee/daily-loss breaker/caps) → auth #34 → mobile
+> delivery shell #35 — BEFORE Phase 5 recipes→ideas[]→proposals (#29/#30/#31 queued after).** Full audit gap
+> scorecard: 2026-07-03 sweep — safety-execution + mobile-approval audits had ZERO coverage; now tasks #33-38.
+
 > ▶ **LATEST (2026-07-03) — Research v2 Phases 1+2 SHIPPED: manual role→model config, then THE ENGINE.**
 > Phase 1 (1c8c923 + earlier): `config/research_engine.py` (ROLES, effort presets quick/standard/deep/exhaustive,
 > `resolve_role_model` **manual-only** — founder killed auto-delegate, "maybe we come back to auto later"; keys
