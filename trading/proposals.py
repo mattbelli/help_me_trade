@@ -354,6 +354,232 @@ async def sweep_expired_proposals(*, db_path: Path = DEFAULT_DB_PATH) -> int:
     return expired_count
 
 
+_PUSH_RETRY_MAX_ATTEMPTS = 3
+# 300s post-expiry margin assumes worst-case approve->submit latency well under
+# it (validate's broker HTTP calls are bounded ~30s timeouts; full flow ~60-90s
+# worst case). If broker clients ever gain retry/backoff, re-verify this bound.
+_APPROVAL_RECONCILE_MAX_AGE_SECONDS = 300
+
+# canceled/expired count as SUCCESS for proposal resolution: the order verifiably
+# reached the broker (same convention as bare `submitted` — the proposal's job
+# ended at hand-off; fill outcome is fill_report's concern). Leaving them out
+# livelocks the reconciler: fill_tracker can flip submitted->canceled before the
+# reconciler's first eligible look, and the in-flight skip would then hold the
+# proposal in `approving` forever (adversarial-review finding, 2026-07-03).
+_EXECUTION_SUCCESS_STATUSES = frozenset(
+    {"submitted", "filled", "partially_filled", "dry_run", "canceled", "expired"}
+)
+_EXECUTION_FAILURE_STATUSES = frozenset({"rejected", "error"})
+
+# Cross-pass dedup for delivery alarms: a zero-delivery proposal must alarm ONCE,
+# not on every 60s sweep until it expires. In-memory (resets on restart → at most
+# one duplicate alarm per restart) — proportionate to the LOW-severity finding.
+_delivery_alarmed: set[str] = set()
+
+
+async def retry_undelivered_pushes(*, db_path: Path = DEFAULT_DB_PATH) -> int:
+    """Re-send failed proposal pushes for unexpired pending_phone proposals."""
+    retried = 0
+    alarmed: set[str] = set()
+    try:
+        rows = list_paper_order_proposals(
+            status="pending_phone", limit=200, db_path=db_path
+        )
+    except Exception:
+        logger.exception("Failed to list pending proposals for push retry")
+        return 0
+
+    from db.push_deliveries import (
+        delivery_channel,
+        retries_exhausted_with_no_sent,
+        undelivered_tokens,
+    )
+    from signals.push import _fire_delivery_alarm, send_proposal_push_to_token
+
+    for row in rows:
+        try:
+            if _is_expired(row):
+                continue
+            proposal_id = str(row["id"])
+            tokens = undelivered_tokens(
+                proposal_id, max_attempts=_PUSH_RETRY_MAX_ATTEMPTS, db_path=db_path
+            )
+            for token in tokens:
+                channel = delivery_channel(proposal_id, token, db_path=db_path)
+                await send_proposal_push_to_token(
+                    row, token, channel=channel, db_path=db_path
+                )
+                retried += 1
+
+            if (
+                proposal_id not in alarmed
+                and proposal_id not in _delivery_alarmed
+                and retries_exhausted_with_no_sent(
+                    proposal_id,
+                    max_attempts=_PUSH_RETRY_MAX_ATTEMPTS,
+                    db_path=db_path,
+                )
+            ):
+                alarmed.add(proposal_id)
+                _delivery_alarmed.add(proposal_id)
+                await _fire_delivery_alarm(
+                    row,
+                    reason="all push retries exhausted with zero deliveries",
+                    db_path=db_path,
+                )
+        except Exception:
+            logger.exception("Failed to retry push for proposal %s", row.get("id"))
+
+    return retried
+
+
+async def reconcile_orphaned_approvals(
+    *,
+    max_age_seconds: int = _APPROVAL_RECONCILE_MAX_AGE_SECONDS,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Resolve stale approving proposals via execution lookup.
+
+    Age is measured from created_at — claim_proposal_for_approval does not stamp
+    a separate column.
+    """
+    reconciled = 0
+    try:
+        rows = list_paper_order_proposals(status="approving", limit=200, db_path=db_path)
+    except Exception:
+        logger.exception("Failed to list approving proposals for reconciliation")
+        return 0
+
+    from db.order_executions import get_execution_by_proposal
+
+    now = datetime.now(UTC)
+    for row in rows:
+        try:
+            # Defensive only — status='approving' implies decided_at IS NULL (the
+            # terminal transition sets both atomically). The REAL concurrency
+            # guard is the expect="approving" CAS on the transition below.
+            if row.get("decided_at") is not None:
+                continue
+            # Eligibility is keyed to EXPIRY + margin, not created_at: a claim can
+            # only happen while unexpired, so `now >= expires_at + max_age` proves
+            # the claim is at least max_age old and no live approve flow can still
+            # be inside its seconds-long claim->submit window. (created_at + max_age
+            # alone is unsafe: a claim at second 299 of a 300s TTL would be
+            # reconciler-eligible ~1s after claiming.) Missing/malformed expires_at
+            # falls back to created_at — such rows can never be claimed anyway
+            # (_is_expired fail-safes them), so no live flow exists to race.
+            anchor = _parse_expires_at(row.get("expires_at"))
+            if anchor is None:
+                created_raw = row.get("created_at")
+                if not created_raw:
+                    continue
+                try:
+                    anchor = datetime.fromisoformat(str(created_raw))
+                except ValueError:
+                    continue
+            if anchor.tzinfo is None:
+                anchor = anchor.replace(tzinfo=UTC)
+            if (now - anchor).total_seconds() < max_age_seconds:
+                continue
+
+            proposal_id = str(row["id"])
+            execution = get_execution_by_proposal(proposal_id, db_path=db_path)
+
+            # In-flight execution (pending = audit row written, validate running;
+            # or any unrecognized status): do NOT resolve — leave for a later pass
+            # once the chokepoint reaches a terminal state. Resolving here could
+            # mark a proposal failed while its order still places.
+            if execution is not None and (
+                execution["status"]
+                not in (_EXECUTION_SUCCESS_STATUSES | _EXECUTION_FAILURE_STATUSES)
+            ):
+                logger.debug(
+                    "reconcile: proposal %s execution %s in-flight (%s) — skipping",
+                    proposal_id,
+                    execution["id"],
+                    execution["status"],
+                )
+                continue
+
+            if execution is not None and execution["status"] in _EXECUTION_SUCCESS_STATUSES:
+                terminal_status = "executed"
+                extra = {"execution_id": execution["id"]}
+                la_status = "executed"
+                la_reason = None
+                notify_body = (
+                    f"Reconciled orphaned approval for {row.get('summary') or proposal_id} "
+                    f"→ executed ({execution['id']})"
+                )
+            elif execution is not None and execution["status"] in _EXECUTION_FAILURE_STATUSES:
+                terminal_status = "failed"
+                last_error = (
+                    str(execution.get("status") or "approval crashed — broker rejected")
+                )
+                extra = {"last_error": last_error}
+                la_status = "failed"
+                la_reason = last_error
+                notify_body = (
+                    f"Reconciled orphaned approval for {row.get('summary') or proposal_id} "
+                    f"→ failed ({last_error})"
+                )
+            else:
+                terminal_status = "failed"
+                last_error = (
+                    "orphaned approving — no execution found; approval must be re-issued"
+                )
+                extra = {"last_error": last_error}
+                la_status = "failed"
+                la_reason = last_error
+                notify_body = (
+                    f"Reconciled orphaned approval for {row.get('summary') or proposal_id} "
+                    f"→ failed (no execution)"
+                )
+
+            if not transition_proposal_status(
+                proposal_id,
+                expect="approving",
+                to=terminal_status,
+                db_path=db_path,
+                **extra,
+            ):
+                continue
+
+            reconciled += 1
+            await _try_end_proposal_live_activity(
+                proposal_id,
+                status=la_status,
+                status_reason=la_reason,
+                proposal=row,
+                db_path=db_path,
+            )
+            try:
+                await notify(
+                    kind="proposal_reconciled",
+                    title="Proposal approval reconciled",
+                    body=notify_body,
+                    severity="warning",
+                    ref_type="proposal",
+                    ref_id=proposal_id,
+                    data={
+                        "type": "proposal_reconciled",
+                        "proposal_id": proposal_id,
+                        "status": terminal_status,
+                    },
+                    push=False,
+                    db_path=db_path,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to notify proposal_reconciled for %s", proposal_id
+                )
+        except Exception:
+            logger.exception(
+                "Failed to reconcile approving proposal %s", row.get("id")
+            )
+
+    return reconciled
+
+
 async def reject_proposal(
     proposal_id: str,
     *,

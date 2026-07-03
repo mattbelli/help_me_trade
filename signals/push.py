@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from config.settings import push_config
 from db.base import DEFAULT_DB_PATH
-from db.device_tokens import list_active_device_tokens
+from db.device_tokens import deactivate_device_token, list_active_device_tokens
 from db.live_activities import (
     clear_for_proposal,
     has_other_pending_start,
@@ -34,6 +34,7 @@ from db.live_activities import (
     record_activity_start,
 )
 from db.paper_orders import get_proposal
+from db.push_deliveries import record_delivery
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,52 @@ def _build_expo_message(token: str, proposal: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _send_expo(messages: list[dict[str, Any]], cfg: dict[str, Any]) -> int:
+def _safe_record_delivery(
+    proposal_id: str,
+    device_token: str,
+    channel: str,
+    status: str,
+    *,
+    detail: str | None = None,
+    db_path: Path,
+) -> None:
+    try:
+        record_delivery(
+            proposal_id,
+            device_token,
+            channel,
+            status,
+            detail=detail,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception(
+            "push delivery ledger write failed for %s → %s…",
+            proposal_id,
+            device_token[:8],
+        )
+
+
+def _apns_failure_detail(resp: httpx.Response) -> tuple[str, bool]:
+    """Return (detail, is_unregistered)."""
+    reason = ""
+    try:
+        body = resp.json()
+        reason = str(body.get("reason") or "")
+    except Exception:
+        reason = resp.text[:200]
+    detail = f"{resp.status_code} {reason}".strip()
+    unregistered = resp.status_code == 410 or reason == "Unregistered"
+    return detail, unregistered
+
+
+async def _send_expo(
+    messages: list[dict[str, Any]],
+    cfg: dict[str, Any],
+    *,
+    proposal_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
     if not messages:
         return 0
     headers: dict[str, str] = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -87,7 +133,58 @@ async def _send_expo(messages: list[dict[str, Any]], cfg: dict[str, Any]) -> int
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(_EXPO_PUSH_URL, json=messages, headers=headers)
         response.raise_for_status()
-    return len(messages)
+        payload = response.json()
+
+    tickets = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(tickets, list):
+        tickets = []
+
+    sent = 0
+    for idx, message in enumerate(messages):
+        token = str(message.get("to") or "")
+        ticket = tickets[idx] if idx < len(tickets) else {}
+        if not isinstance(ticket, dict):
+            ticket = {}
+
+        if proposal_id and token:
+            if ticket.get("status") == "ok":
+                _safe_record_delivery(
+                    proposal_id, token, "expo", "sent", db_path=db_path
+                )
+                sent += 1
+            else:
+                err_msg = str(ticket.get("message") or "expo error")
+                details = ticket.get("details") if isinstance(ticket.get("details"), dict) else {}
+                err_code = str(details.get("error") or "")
+                if err_code == "DeviceNotRegistered":
+                    deactivate_device_token(token, db_path=db_path)
+                    _safe_record_delivery(
+                        proposal_id,
+                        token,
+                        "expo",
+                        "failed",
+                        detail="unregistered — token deactivated",
+                        db_path=db_path,
+                    )
+                else:
+                    _safe_record_delivery(
+                        proposal_id,
+                        token,
+                        "expo",
+                        "failed",
+                        detail=err_msg,
+                        db_path=db_path,
+                    )
+        elif ticket.get("status") == "ok":
+            sent += 1
+
+    if not proposal_id:
+        if tickets:
+            return sum(
+                1 for t in tickets if isinstance(t, dict) and t.get("status") == "ok"
+            )
+        return len(messages)
+    return sent
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +231,72 @@ def _build_apns_payload(proposal: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _send_apns(proposal: dict[str, Any], cfg: dict[str, Any], db_path: Path) -> int:
+async def _send_apns_to_token(
+    proposal: dict[str, Any],
+    token: str,
+    *,
+    cfg: dict[str, Any],
+    client: httpx.AsyncClient,
+    host: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    db_path: Path,
+) -> bool:
+    proposal_id = str(proposal.get("id") or "")
+    try:
+        resp = await client.post(
+            f"https://{host}/3/device/{token}", headers=headers, json=payload
+        )
+    except httpx.HTTPError:
+        logger.exception("apns request failed for %s…", token[:8])
+        if proposal_id:
+            _safe_record_delivery(
+                proposal_id,
+                token,
+                "apns",
+                "failed",
+                detail="http error",
+                db_path=db_path,
+            )
+        return False
+
+    if resp.status_code == 200:
+        if proposal_id:
+            _safe_record_delivery(proposal_id, token, "apns", "sent", db_path=db_path)
+        return True
+
+    detail, unregistered = _apns_failure_detail(resp)
+    logger.warning("apns %s for %s…: %s", resp.status_code, token[:8], detail)
+    if proposal_id:
+        if unregistered:
+            deactivate_device_token(token, db_path=db_path)
+            _safe_record_delivery(
+                proposal_id,
+                token,
+                "apns",
+                "failed",
+                detail="unregistered — token deactivated",
+                db_path=db_path,
+            )
+        else:
+            _safe_record_delivery(
+                proposal_id,
+                token,
+                "apns",
+                "failed",
+                detail=detail,
+                db_path=db_path,
+            )
+    return False
+
+
+async def _send_apns(
+    proposal: dict[str, Any],
+    cfg: dict[str, Any],
+    db_path: Path,
+    *,
+    tokens: list[str] | None = None,
+) -> int:
     key_id = str(cfg.get("apns_key_id") or "").strip()
     team_id = str(cfg.get("apns_team_id") or "").strip()
     bundle = str(cfg.get("apns_bundle_id") or "").strip()
@@ -149,7 +311,9 @@ async def _send_apns(proposal: dict[str, Any], cfg: dict[str, Any], db_path: Pat
         logger.exception("apns key not readable at %s", key_path)
         return 0
 
-    tokens = list_active_device_tokens(token_type="apns", db_path=db_path)
+    if tokens is None:
+        token_rows = list_active_device_tokens(token_type="apns", db_path=db_path)
+        tokens = [str(row["token"]) for row in token_rows]
     if not tokens:
         return 0
 
@@ -165,20 +329,18 @@ async def _send_apns(proposal: dict[str, Any], cfg: dict[str, Any], db_path: Pat
 
     sent = 0
     async with httpx.AsyncClient(http2=True, timeout=15.0) as client:
-        for row in tokens:
-            token = str(row["token"])
-            try:
-                resp = await client.post(
-                    f"https://{host}/3/device/{token}", headers=headers, json=payload
-                )
-            except httpx.HTTPError:
-                logger.exception("apns request failed for %s…", token[:8])
-                continue
-            if resp.status_code == 200:
+        for token in tokens:
+            if await _send_apns_to_token(
+                proposal,
+                token,
+                cfg=cfg,
+                client=client,
+                host=host,
+                headers=headers,
+                payload=payload,
+                db_path=db_path,
+            ):
                 sent += 1
-            else:
-                # e.g. BadDeviceToken / Unregistered — log, keep going.
-                logger.warning("apns %s for %s…: %s", resp.status_code, token[:8], resp.text[:200])
     return sent
 
 
@@ -289,6 +451,73 @@ async def send_alert_push(
         return 0
 
 
+async def _fire_delivery_alarm(
+    proposal: dict[str, Any],
+    *,
+    reason: str,
+    db_path: Path,
+) -> None:
+    try:
+        from signals.notify import notify
+
+        proposal_id = str(proposal.get("id") or "")
+        summary = _proposal_body(proposal)
+        await notify(
+            kind="delivery_alarm",
+            title="Proposal push undelivered",
+            body=f"{summary}: {reason}",
+            severity="critical",
+            ref_type="proposal",
+            ref_id=proposal_id,
+            data={
+                "type": "delivery_alarm",
+                "proposal_id": proposal_id,
+                "reason": reason,
+            },
+            push=False,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("Failed to fire delivery_alarm for %s", proposal.get("id"))
+
+
+async def send_proposal_push_to_token(
+    proposal: dict[str, Any],
+    token: str,
+    *,
+    channel: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
+    """Re-send a proposal push to a single device token. NEVER raises."""
+    try:
+        cfg = push_config()
+        if not cfg["enabled"]:
+            return False
+
+        provider = (channel or str(cfg.get("provider") or "expo")).strip().lower()
+        if provider == "apns":
+            sent = await _send_apns(proposal, cfg, db_path, tokens=[token])
+            return sent == 1
+        if provider == "expo":
+            message = _build_expo_message(token, proposal)
+            sent = await _send_expo(
+                [message],
+                cfg,
+                proposal_id=str(proposal.get("id") or ""),
+                db_path=db_path,
+            )
+            return sent == 1
+        logger.warning("Unknown push provider %r — skipping single-token send", provider)
+        return False
+    except Exception:
+        logger.exception(
+            "Failed to send proposal push for %s to %s…",
+            proposal.get("id"),
+            token[:8],
+        )
+        return False
+
+
 async def send_proposal_push(
     proposal: dict[str, Any],
     *,
@@ -306,21 +535,41 @@ async def send_proposal_push(
             return 0
 
         provider = str(cfg.get("provider") or "expo").strip().lower()
+        proposal_id = str(proposal.get("id") or "")
 
         if provider == "apns":
+            token_rows = list_active_device_tokens(token_type="apns", db_path=db_path)
+            had_tokens = bool(token_rows)
             sent = await _send_apns(proposal, cfg, db_path)
         elif provider == "expo":
-            tokens = list_active_device_tokens(token_type="expo", db_path=db_path)
-            if not tokens:
-                return 0
-            messages = [_build_expo_message(str(row["token"]), proposal) for row in tokens]
-            sent = await _send_expo(messages, cfg)
+            token_rows = list_active_device_tokens(token_type="expo", db_path=db_path)
+            had_tokens = bool(token_rows)
+            if not token_rows:
+                sent = 0
+            else:
+                messages = [
+                    _build_expo_message(str(row["token"]), proposal) for row in token_rows
+                ]
+                sent = await _send_expo(
+                    messages,
+                    cfg,
+                    proposal_id=proposal_id,
+                    db_path=db_path,
+                )
         else:
             logger.warning("Unknown push provider %r — skipping", provider)
             return 0
 
         if sent:
             logger.info("Sent proposal push for %s to %d device(s)", proposal.get("id"), sent)
+        elif had_tokens:
+            await _fire_delivery_alarm(
+                proposal, reason="all push attempts failed", db_path=db_path
+            )
+        else:
+            await _fire_delivery_alarm(
+                proposal, reason="no registered device tokens", db_path=db_path
+            )
         return sent
     except Exception:
         logger.exception("Failed to send proposal push for %s", proposal.get("id"))

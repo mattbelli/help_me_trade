@@ -113,6 +113,7 @@ from db.order_executions import (
     init_execution_tables,
 )
 from db.paper_orders import init_paper_order_tables
+from db.push_deliveries import init_push_delivery_tables
 from db.reports import init_reports_tables
 from db.session_node import init_session_node_tables
 from db.sqlite import (
@@ -666,23 +667,35 @@ async def _trade_sync_loop() -> None:
 
 
 async def _proposal_sweeper_loop() -> None:
-    """Expire unanswered pending_phone proposals on boot, then periodically."""
-    from trading.proposals import sweep_expired_proposals
+    """Expire unanswered proposals, retry undelivered pushes, reconcile orphans."""
+    from trading.proposals import (
+        reconcile_orphaned_approvals,
+        retry_undelivered_pushes,
+        sweep_expired_proposals,
+    )
+
+    async def _run_pass() -> None:
+        expired = await sweep_expired_proposals()
+        retried = await retry_undelivered_pushes()
+        reconciled = await reconcile_orphaned_approvals()
+        logger.debug(
+            "Proposal sweeper: expired=%d retried=%d reconciled=%d",
+            expired,
+            retried,
+            reconciled,
+        )
+        if expired:
+            logger.info("Proposal sweeper expired %d proposals", expired)
+        mark_alive("proposal_sweeper")
 
     try:
-        n = await sweep_expired_proposals()
-        if n:
-            logger.info("Proposal sweeper expired %d proposals on startup", n)
-        mark_alive("proposal_sweeper")
+        await _run_pass()
     except Exception:
         logger.exception("Initial proposal sweep failed")
     while True:
         await asyncio.sleep(_PROPOSAL_SWEEP_INTERVAL_SECONDS)
         try:
-            n = await sweep_expired_proposals()
-            if n:
-                logger.info("Proposal sweeper expired %d proposals", n)
-            mark_alive("proposal_sweeper")
+            await _run_pass()
         except Exception:
             logger.exception("Periodic proposal sweep failed")
 
@@ -1345,6 +1358,18 @@ async def lifespan(app: FastAPI):
             "API_TOKEN is not set — API and WebSocket routes are unauthenticated. "
             "Set API_TOKEN in .env for production-like local security."
         )
+    from config.settings import push_config
+
+    push_cfg = push_config()
+    if (
+        push_cfg["enabled"]
+        and str(push_cfg.get("provider") or "").strip().lower() == "apns"
+        and push_cfg.get("apns_use_sandbox")
+    ):
+        logger.warning(
+            "APNs is in SANDBOX mode — production builds will not receive pushes; "
+            "set APNS_USE_SANDBOX=0 for TestFlight/App Store builds"
+        )
     init_db()
     init_chart_features()
     init_workspace_tables()
@@ -1356,6 +1381,7 @@ async def lifespan(app: FastAPI):
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
+    init_push_delivery_tables()
     init_device_token_tables()
     init_live_activity_tables()
     init_execution_tables()

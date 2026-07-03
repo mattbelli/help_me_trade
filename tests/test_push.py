@@ -117,7 +117,7 @@ async def test_push_enabled_sends_to_active_tokens(monkeypatch, tmp_path: Path) 
 
     captured: list[list[dict]] = []
 
-    async def _capture(messages, _cfg):
+    async def _capture(messages, _cfg, **_kwargs):
         captured.append(messages)
         return len(messages)
 
@@ -126,6 +126,7 @@ async def test_push_enabled_sends_to_active_tokens(monkeypatch, tmp_path: Path) 
         lambda: {"enabled": True, "provider": "expo", "expo_access_token": ""},
     )
     monkeypatch.setattr("signals.push._send_expo", _capture)
+    monkeypatch.setattr("signals.push._fire_delivery_alarm", AsyncMock())
 
     proposal = _sample_proposal()
     sent = await send_proposal_push(proposal, db_path=db)
@@ -154,6 +155,7 @@ async def test_push_no_tokens_returns_zero(monkeypatch, tmp_path: Path) -> None:
         "signals.push.push_config",
         lambda: {"enabled": True, "provider": "expo", "expo_access_token": ""},
     )
+    monkeypatch.setattr("signals.push._fire_delivery_alarm", AsyncMock())
 
     sent = await send_proposal_push(_sample_proposal(), db_path=db)
     assert sent == 0

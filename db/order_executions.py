@@ -332,6 +332,26 @@ def get_execution(
     return _row_to_execution(row) if row else None
 
 
+def get_execution_by_proposal(
+    proposal_id: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Most recent execution row for a proposal, if any."""
+    init_execution_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM order_executions
+            WHERE proposal_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (proposal_id,),
+        ).fetchone()
+    return _row_to_execution(row) if row else None
+
+
 def list_submitted_executions(
     broker: str,
     *,
