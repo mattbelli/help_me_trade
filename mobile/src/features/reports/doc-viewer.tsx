@@ -32,11 +32,11 @@ export function DocViewer({
 
   const markdownStyles: Record<string, TextStyle | ViewStyle> = {
     body: { color: colors.text, fontFamily: fonts.mono, fontSize: 13, lineHeight: 21 },
-    heading1: { color: colors.text, fontFamily: fonts.mono, fontSize: 20, fontWeight: '700', marginTop: 4, marginBottom: 12 },
-    heading2: { color: colors.text, fontFamily: fonts.mono, fontSize: 17, fontWeight: '700', marginTop: 20, marginBottom: 10 },
-    heading3: { color: colors.text, fontFamily: fonts.mono, fontSize: 15, fontWeight: '700', marginTop: 14, marginBottom: 8 },
+    heading1: { color: colors.accent, fontFamily: fonts.mono, fontSize: 20, fontWeight: '700', marginTop: 4, marginBottom: 12 },
+    heading2: { color: colors.accent, fontFamily: fonts.mono, fontSize: 17, fontWeight: '700', marginTop: 20, marginBottom: 10 },
+    heading3: { color: colors.accent, fontFamily: fonts.mono, fontSize: 15, fontWeight: '700', marginTop: 14, marginBottom: 8 },
     paragraph: { marginTop: 0, marginBottom: 12 },
-    strong: { color: colors.text, fontWeight: '700' },
+    strong: { color: colors.warm, fontWeight: '700' },
     em: { color: colors.text, fontStyle: 'italic' },
     bullet_list: { marginBottom: 12 },
     ordered_list: { marginBottom: 12 },
@@ -65,7 +65,7 @@ export function DocViewer({
     <ScrollView
       style={{ flex: 1 }}
       contentContainerStyle={{
-        paddingHorizontal: spacing.lg,
+        paddingHorizontal: spacing.md,
         paddingBottom: spacing['5xl'],
       }}
     >

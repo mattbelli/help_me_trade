@@ -36,11 +36,14 @@ export default function ResearchScreen() {
             </Text>
           ) : null}
 
-          {research.isLoading ? (
-            <Skeleton style={{ flex: 1 }} />
-          ) : research.data ? (
-            <DocViewer content={research.data.markdown} mode="markdown" />
-          ) : null}
+          {/* Break out of the screen's xl gutter so the document runs near full-width. */}
+          <View style={{ flex: 1, marginHorizontal: -spacing.xl }}>
+            {research.isLoading ? (
+              <Skeleton style={{ flex: 1 }} />
+            ) : research.data ? (
+              <DocViewer content={research.data.markdown} mode="markdown" />
+            ) : null}
+          </View>
         </Stack>
       </View>
     </Screen>

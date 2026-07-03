@@ -59,14 +59,17 @@ export default function ReportScreen() {
             </Stack>
           ) : null}
 
-          {report.isLoading ? (
-            <Skeleton style={{ flex: 1 }} />
-          ) : report.data ? (
-            <DocViewer
-              content={report.data.body}
-              mode={report.data.format === 'html' ? 'html' : 'text'}
-            />
-          ) : null}
+          {/* Break out of the screen's xl gutter so the document runs near full-width. */}
+          <View style={{ flex: 1, marginHorizontal: -spacing.xl }}>
+            {report.isLoading ? (
+              <Skeleton style={{ flex: 1 }} />
+            ) : report.data ? (
+              <DocViewer
+                content={report.data.body}
+                mode={report.data.format === 'html' ? 'html' : 'text'}
+              />
+            ) : null}
+          </View>
         </Stack>
       </View>
     </Screen>
