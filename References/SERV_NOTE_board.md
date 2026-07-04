@@ -14,8 +14,11 @@ keep cards one-per-line-ish as seeded).
 - `lanes`: `founder` ("Waiting on you" — decisions only he can make), `in_progress`,
   `next`, `backlog`, `done` (keep ~10 newest; older history lives in BUILD.md).
 - Card: `{id, title, lane, type: feature|bug|safety|research|ops, priority: high|normal|low,
-  notes (one line), owner: serv|mac|founder|serv+mac, updated_at: YYYY-MM-DD}`.
-- Bump top-level `updated_at` when you edit.
+  notes (one line), owner: serv|mac|founder|serv+mac, updated_at: ISO-8601 UTC}`.
+  - **Write full ISO-8601 UTC timestamps** on every bump, e.g. `"2026-07-04T14:32:00Z"`.
+    Date-only `YYYY-MM-DD` still parses but degrades to “new for that calendar day” in the
+    UI — prefer full timestamps so founder sees precise freshness.
+- Bump top-level `updated_at` when you edit (same ISO-8601 UTC rule).
 
 ## For mobile (later, optional)
 `GET /api/board` returns `{"board": {...}}` — if you ever want a board tab/screen in the

@@ -1,6 +1,13 @@
 {
-  "updated_at": "2026-07-04T02:30:00Z",
-  "lanes": ["founder", "in_progress", "next", "backlog", "done"],
+  "updated_at": "2026-07-04T02:44:48Z",
+  "lanes": [
+    "inbox",
+    "founder",
+    "in_progress",
+    "next",
+    "backlog",
+    "done"
+  ],
   "cards": [
     {
       "id": "judge-scan-ideas",
@@ -8,7 +15,7 @@
       "lane": "founder",
       "type": "research",
       "priority": "high",
-      "notes": "Market reopens Monday. Your verdict gates #42 Setup Book — nothing arms until you say ideas are worth arming.",
+      "notes": "Market reopens Monday. Your verdict gates #42 Setup Book \u2014 nothing arms until you say ideas are worth arming.",
       "owner": "founder",
       "updated_at": "2026-07-04"
     },
@@ -48,7 +55,7 @@
       "lane": "in_progress",
       "type": "feature",
       "priority": "high",
-      "notes": "Founder ask: ideas he doesn't take must still build the win% record. Every validated idea gets shadow-resolved by price action alone: pending → triggered (entry zone touched within TTL) → won/lost/expired (target vs stop, conservative same-bar rule). Separable later: raw scan win% vs founder-filter value-add vs conviction lane. This is 5b's outcome machinery built early. No trading/ involvement — pure journaling.",
+      "notes": "Founder ask: ideas he doesn't take must still build the win% record. Every validated idea gets shadow-resolved by price action alone: pending \u2192 triggered (entry zone touched within TTL) \u2192 won/lost/expired (target vs stop, conservative same-bar rule). Separable later: raw scan win% vs founder-filter value-add vs conviction lane. This is 5b's outcome machinery built early. No trading/ involvement \u2014 pure journaling.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -64,13 +71,23 @@
     },
     {
       "id": "regime-sleeves",
-      "title": "Regime sleeves: generals_dip + vol_event (PC builds, serv reviews PR)",
-      "lane": "in_progress",
+      "title": "Regime sleeves MERGED + deployed \u2014 dark until founder arms them",
+      "lane": "done",
       "type": "safety",
       "priority": "high",
-      "notes": "PC agent builds References/REGIME_SLEEVES_SPEC.md in a worktree off origin/main, PR-only. File claims: PC owns signals/ sleeves + FRED VIX3M + registry; serv owns frontend/ + ai/research/. Nobody touches execution_service/RiskEngine. Serv runs the trading-safety adversarial review before merge. Ships disabled + propose-only, paper only.",
+      "notes": "Full ceremony complete: spec \u2192 PC build \u2192 serv adversarial review (4 real bugs incl. live-repro'd HIGH: disabled sleeve orphaned its open positions) \u2192 PC fix (ccbad64) \u2192 serv delta re-review w/ independent test runs (35/35) \u2192 founder squash-merge (4584356) \u2192 deployed, dormancy endpoint verified: both sleeves enabled:false, propose-only. ARM in Settings \u2192 Strategies when ready \u2014 that starts the paper clock. Follow-ups: _scan_generals pending-count fix (this week, non-gating); PC regens post-#28 research numbers.",
       "owner": "founder",
-      "updated_at": "2026-07-04"
+      "updated_at": "2026-07-04T03:37:00Z"
+    },
+    {
+      "id": "generals-pending-count",
+      "title": "_scan_generals: pending buys don't count toward max-5 concurrency",
+      "lane": "next",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "Same dead slim-row filter pattern the #29 review flushed out of _vol_cluster_count. Non-gating (worst case = extra founder-gated card, not a position) but a known-broken invariant — fix same way (list_paper_order_proposals + expiry guard). Serv ruling on PR #29 thread.",
+      "owner": "serv",
+      "updated_at": "2026-07-04T03:37:00Z"
     },
     {
       "id": "44",
@@ -88,7 +105,7 @@
       "lane": "next",
       "type": "ops",
       "priority": "high",
-      "notes": "Ops CRIT-2 completion — one disk failure currently loses the ledger history.",
+      "notes": "Ops CRIT-2 completion \u2014 one disk failure currently loses the ledger history.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -104,7 +121,7 @@
     },
     {
       "id": "37",
-      "title": "Data-correctness tail: UTC→ET dates, day_pl deposits, FIFO leak",
+      "title": "Data-correctness tail: UTC\u2192ET dates, day_pl deposits, FIFO leak",
       "lane": "next",
       "type": "bug",
       "priority": "normal",
@@ -208,7 +225,7 @@
       "lane": "backlog",
       "type": "ops",
       "priority": "low",
-      "notes": "Rapid deploys leave open tabs on stale builds → weird nav failures. App should detect the server build changed and prompt reload.",
+      "notes": "Rapid deploys leave open tabs on stale builds \u2192 weird nav failures. App should detect the server build changed and prompt reload.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -238,7 +255,7 @@
       "lane": "backlog",
       "type": "safety",
       "priority": "low",
-      "notes": "Gates ever enabling allow_short_selling — blocked until then.",
+      "notes": "Gates ever enabling allow_short_selling \u2014 blocked until then.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -258,7 +275,7 @@
       "lane": "backlog",
       "type": "feature",
       "priority": "normal",
-      "notes": "Open thread — needed for retrospective completeness.",
+      "notes": "Open thread \u2014 needed for retrospective completeness.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -268,7 +285,7 @@
       "lane": "done",
       "type": "feature",
       "priority": "high",
-      "notes": "3 consecutive scans → identical structure sets. Code detects, LLM vetoes/grades.",
+      "notes": "3 consecutive scans \u2192 identical structure sets. Code detects, LLM vetoes/grades.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -308,9 +325,19 @@
       "lane": "done",
       "type": "research",
       "priority": "high",
-      "notes": "Planner→specialists→critic→editor; proprietary data first-class; founder-approved papers.",
+      "notes": "Planner\u2192specialists\u2192critic\u2192editor; proprietary data first-class; founder-approved papers.",
       "owner": "serv",
       "updated_at": "2026-07-03"
+    },
+    {
+      "id": "fr-1783133088",
+      "title": "Quotes Bugs",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "watchlist isnt showing quotes on phone. serv last-close issue? having inconsistent pricing across watchlists and charts and web app and phone. need to look into this. we need consistent pricing and we want it available 24/5 for where it applies",
+      "owner": "founder",
+      "updated_at": "2026-07-04"
     }
   ]
 }

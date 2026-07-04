@@ -13,6 +13,11 @@ import {
   type BoardCard,
   type BoardData,
 } from "@/lib/api";
+import {
+  isCardNew,
+  parseUpdatedAt,
+  useBoardLastSeen,
+} from "@/lib/board-last-seen";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 
@@ -81,12 +86,12 @@ const PRIORITY_ORDER: Record<string, number> = {
 const DONE_LANE_CAP = 10;
 const AUTO_REFRESH_MS = 60_000;
 
-function localTodayIso(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+function NewChip() {
+  return (
+    <span className="shrink-0 rounded-full border border-[color-mix(in_srgb,var(--c-accent)_40%,transparent)] bg-[color-mix(in_srgb,var(--c-accent)_14%,transparent)] px-1.5 py-px font-mono text-[8px] uppercase tracking-wide text-[var(--c-accent)]">
+      new
+    </span>
+  );
 }
 
 function sortCards(cards: BoardCard[]): BoardCard[] {
@@ -132,20 +137,18 @@ function ClampedNotes({ text }: { text: string }) {
 function BoardCardView({
   card,
   muted,
-  showNew,
+  isNew,
   expanded,
   laneLabel,
   onToggle,
 }: {
   card: BoardCard;
   muted?: boolean;
-  showNew?: boolean;
+  isNew?: boolean;
   expanded: boolean;
   laneLabel: string;
   onToggle: (cardId: string) => void;
 }) {
-  const isNew = showNew && card.updated_at.slice(0, 10) === localTodayIso();
-
   return (
     <button
       type="button"
@@ -154,17 +157,21 @@ function BoardCardView({
         "w-full rounded-md border border-border/80 bg-card/60 p-3 text-left shadow-sm transition-colors hover:border-border hover:bg-card/90",
         muted && "opacity-70",
         expanded && "border-border bg-card/90",
+        isNew &&
+          "border-l-2 border-l-[color-mix(in_srgb,var(--c-accent)_50%,transparent)]",
       )}
     >
       <div className="flex items-start gap-2">
+        {isNew ? (
+          <span
+            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[var(--c-accent)]"
+            aria-hidden
+          />
+        ) : null}
         <h3 className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-foreground">
           {card.title}
         </h3>
-        {isNew ? (
-          <span className="shrink-0 rounded-full border border-[color-mix(in_srgb,var(--c-blue)_40%,transparent)] bg-[color-mix(in_srgb,var(--c-blue)_14%,transparent)] px-1.5 py-px font-mono text-[8px] uppercase tracking-wide text-[var(--c-blue)]">
-            new
-          </span>
-        ) : null}
+        {isNew ? <NewChip /> : null}
         <ChevronDown
           className={cn(
             "mt-0.5 size-3.5 shrink-0 text-muted-foreground/45 transition-transform duration-200",
@@ -317,12 +324,16 @@ function FounderInboxQuickAdd({
 function BoardLane({
   laneId,
   cards,
+  lastSeen,
+  seenCards,
   expandedCardId,
   onInboxAdded,
   onToggleCard,
 }: {
   laneId: string;
   cards: BoardCard[];
+  lastSeen: number | null;
+  seenCards: Record<string, number>;
   expandedCardId: string | null;
   onInboxAdded?: (card: BoardCard) => void;
   onToggleCard: (cardId: string) => void;
@@ -331,6 +342,9 @@ function BoardLane({
   const displayCards = config.done
     ? sortCards(cards).slice(0, DONE_LANE_CAP)
     : sortCards(cards);
+  const newCount = displayCards.filter((card) =>
+    isCardNew(card.id, card.updated_at, lastSeen, seenCards),
+  ).length;
 
   return (
     <section
@@ -362,6 +376,12 @@ function BoardLane({
           )}
         >
           {config.title}
+          {newCount > 0 ? (
+            <span className="font-normal text-muted-foreground">
+              {" · "}
+              <span className="text-[var(--c-accent)]">{newCount} new</span>
+            </span>
+          ) : null}
         </h2>
         <p className="text-[10px] text-muted-foreground">{displayCards.length} items</p>
       </header>
@@ -384,7 +404,7 @@ function BoardLane({
               key={card.id}
               card={card}
               muted={config.done}
-              showNew={config.inbox}
+              isNew={isCardNew(card.id, card.updated_at, lastSeen, seenCards)}
               expanded={expandedCardId === card.id}
               laneLabel={laneTitle(laneId)}
               onToggle={onToggleCard}
@@ -402,10 +422,21 @@ export function BoardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const { lastSeen, seenCards, markAllSeen, markCardSeen } = useBoardLastSeen();
 
-  const handleToggleCard = useCallback((cardId: string) => {
-    setExpandedCardId((prev) => (prev === cardId ? null : cardId));
-  }, []);
+  const handleToggleCard = useCallback(
+    (cardId: string) => {
+      setExpandedCardId((prev) => {
+        if (prev !== cardId) {
+          // Opening a card counts as reading it.
+          const card = board?.cards.find((c) => c.id === cardId);
+          markCardSeen(cardId, card ? parseUpdatedAt(card.updated_at) : 0);
+        }
+        return prev === cardId ? null : cardId;
+      });
+    },
+    [board, markCardSeen],
+  );
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -488,17 +519,33 @@ export function BoardPage() {
             </p>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={refreshing}
-          onClick={() => void load(true)}
-          className="shrink-0 gap-1.5"
-        >
-          <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              markAllSeen(
+                Math.max(
+                  0,
+                  ...(board?.cards ?? []).map((c) => parseUpdatedAt(c.updated_at)),
+                ),
+              )
+            }
+            className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Mark all seen
+          </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={refreshing}
+            onClick={() => void load(true)}
+            className="shrink-0 gap-1.5"
+          >
+            <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+        </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto">
@@ -515,6 +562,8 @@ export function BoardPage() {
                 key={lane}
                 laneId={lane}
                 cards={cardsByLane.get(lane) ?? []}
+                lastSeen={lastSeen}
+                seenCards={seenCards}
                 expandedCardId={expandedCardId}
                 onInboxAdded={lane === "inbox" ? handleInboxAdded : undefined}
                 onToggleCard={handleToggleCard}
