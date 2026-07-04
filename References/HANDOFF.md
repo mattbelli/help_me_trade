@@ -10,9 +10,31 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## CURRENT FOCUS — Phase 5a: setup_scan recipe + ideas[] (2026-07-03)
+## CURRENT FOCUS — Phase 5a SHIPPED + deterministic (2026-07-04); founder judging idea quality
 
-> ▶ **START HERE (fresh session): build Phase 5a — task #29.** Everything before it is DONE and deployed:
+> ▶ **Phase 5a is BUILT, TUNED, DEPLOYED, COMMITTED.** `setup_scan` recipe live end-to-end (Research page →
+> Recipe select → blank symbols = active watchlist, cap 12, futures auto-skipped). Architecture after the
+> founder-agreed reliability round: **code detects, LLM vetoes/grades** — `ai/research/structures.py` (pure,
+> stdlib-only) deterministically detects `pullback_to_support` / `breakout_above_resistance` from real
+> S/R prices (now exported by `research/levels.py include_prices=True`), with entry_state ready|forming,
+> R/R≥1.5 floor; the LLM (veto-and-grade prompt) can kill a structure with a named reason or accept+write
+> thesis/confidence/risks — it can NEVER invent setups or alter levels; ranker returns ordering only.
+> No-structure candidates get deterministic journaled reasons with zero LLM/API spend; quick effort now
+> includes 1 web query (structured candidates only). **Proven: 3 consecutive scans → identical structure
+> sets** (artifacts 171-173; GS consistently detected + consistently vetoed on July-14 earnings; SPY
+> pullback ready 731.57-738.89). Validator regex fixed live (bare `\d+%` rejected benign "1.0% above
+> support" prose — now only numeric probability claims die).
+>
+> **NOW: founder runs scans manually (~1-2 weeks) to judge idea quality — that's the 5b gate.** Serv-side
+> next steps, in order: (1) **conviction lane** (founder-agreed direction): LLM-originated ideas in a
+> labeled "Conviction ideas" section, `origin: "llm_conviction"` vs `"structure"` in the schema,
+> journaled for A/B calibration, HARD-blocked from ever arming/proposing until track record earns it —
+> build after a few days of scan data; (2) threshold tuning from founder feedback (constants atop
+> structures.py); (3) then #42 Setup Book per its gate.
+
+## PRIOR FOCUS — Phase 5a original brief (2026-07-03, superseded by ship note above)
+
+> ▶ Everything before 5a is DONE and deployed:
 > Research v2 core (Phases 1-4 + data + progress feed), and the ENTIRE audit safety block — #33 execution
 > hardening (paper-endpoint guarantee, daily-loss breaker, in-flight/daily notional caps), #34 auth
 > (fail-closed mutations, API_ADMIN_TOKEN scope, asymmetric kill switch — admin token is in serv .env),

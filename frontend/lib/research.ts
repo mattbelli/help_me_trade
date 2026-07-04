@@ -25,6 +25,13 @@ export async function getResearchConfig(): Promise<ResearchConfig> {
 
 export type ResearchDepth = "quick" | "standard" | "deep" | "exhaustive";
 
+export type ResearchRecipe = "single_stock" | "setup_scan";
+
+export const RECIPE_LABELS: Record<ResearchRecipe, string> = {
+  single_stock: "Deep dive",
+  setup_scan: "Setup scan",
+};
+
 export const EFFORT_LABELS: Record<ResearchDepth, string> = {
   quick: "Quick",
   standard: "Standard",
@@ -59,6 +66,11 @@ export type ResearchActivityEvent = {
   phase: string;
   key?: string;
   title?: string;
+  symbol?: string;
+  has_setup?: boolean;
+  count?: number;
+  ideas?: number;
+  candidates_with_setups?: number;
   round?: number;
   queries?: string[];
   follow_up?: boolean;
@@ -152,6 +164,8 @@ export async function runResearch(body: {
   topic: string;
   symbol?: string;
   depth?: ResearchDepth;
+  recipe?: ResearchRecipe;
+  symbols?: string[];
 }): Promise<ResearchRunQueued> {
   const res = await apiFetch(`${API_BASE}/api/research/run`, {
     method: "POST",
@@ -192,6 +206,8 @@ export async function streamResearch(
     topic: string;
     symbol?: string;
     depth?: ResearchDepth;
+    recipe?: ResearchRecipe;
+    symbols?: string[];
   },
   onEvent: (event: ResearchStreamEvent) => void,
 ): Promise<ResearchRunResult | null> {

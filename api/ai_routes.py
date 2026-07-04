@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -31,6 +32,7 @@ from ai.llm.models import list_chat_models, list_default_model_options
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.depth import RESEARCH_DEPTHS
+from ai.research.graph import VALID_RECIPES
 from ai.research.jobs import DEFAULT_JOB_EVENTS_RETURN, enqueue_research, get_job
 from ai.research.report import research_html_for_artifact
 from ai.research.stream import astream_deep_research
@@ -753,34 +755,98 @@ def api_list_session_chat_memories(session_id: str):
     return {"memories": out}
 
 
-@router.post("/research/run")
-async def api_run_research(body: dict = Body(...)):
+def _parse_research_symbols(raw: object) -> list[str] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return None
+    symbols: list[str] = []
+    for item in raw:
+        sym = str(item).strip().upper()
+        if sym:
+            symbols.append(sym)
+    return symbols[:50]
+
+
+def _parse_research_request(body: dict) -> tuple[dict[str, object] | None, str | None]:
+    recipe = str(body.get("recipe", "single_stock")).strip().lower()
+    if recipe not in VALID_RECIPES:
+        return None, (
+            f"recipe must be one of: {', '.join(sorted(VALID_RECIPES))}"
+        )
+
     topic = str(body.get("topic", "")).strip()
-    symbol = body.get("symbol")
+    if recipe == "setup_scan":
+        if not topic:
+            topic = f"Setup scan — {datetime.now(UTC).strftime('%Y-%m-%d')}"
+    elif not topic:
+        return None, "topic is required"
+
     depth_raw = body.get("depth")
     if depth_raw is None or not str(depth_raw).strip():
         depth = resolve_effort(None).name
     else:
         depth = str(depth_raw).strip().lower()
-    if not topic:
-        return JSONResponse({"error": "topic is required"}, status_code=400)
     if depth not in RESEARCH_DEPTHS:
-        return JSONResponse(
-            {"error": f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"},
-            status_code=400,
-        )
+        return None, f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"
+
+    symbol = body.get("symbol")
     sym = str(symbol).strip().upper() if symbol else None
+
+    symbols_raw = body.get("symbols")
+    if symbols_raw is not None:
+        symbols = _parse_research_symbols(symbols_raw)
+        if symbols is None:
+            return None, "symbols must be a list of strings"
+    else:
+        symbols = None
+
+    return {
+        "topic": topic,
+        "symbol": sym,
+        "depth": depth,
+        "recipe": recipe,
+        "symbols": symbols,
+    }, None
+
+
+@router.post("/research/run")
+async def api_run_research(body: dict = Body(...)):
+    parsed, err = _parse_research_request(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    assert parsed is not None
+    topic = str(parsed["topic"])
+    sym = parsed.get("symbol")
+    depth = str(parsed["depth"])
+    recipe = str(parsed["recipe"])
+    symbols = parsed.get("symbols")
+    if not isinstance(symbols, list) and symbols is not None:
+        symbols = None
     try:
         # Await the async enqueue directly so _run_job is scheduled on the
         # main event loop. The sync submit_research_job wrapper would run the
         # enqueue in a throwaway asyncio.run loop that tears down immediately,
         # cancelling the _run_job task (status tracking + completion notify)
         # while the detached executor thread keeps running the research.
-        job_id = await enqueue_research(topic=topic, symbol=sym, depth=depth)
+        job_id = await enqueue_research(
+            topic=topic,
+            symbol=sym if isinstance(sym, str) else None,
+            depth=depth,
+            recipe=recipe,
+            symbols=symbols if isinstance(symbols, list) else None,
+        )
     except Exception as exc:
         logger.exception("Research enqueue failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
-    return {"job_id": job_id, "status": "queued", "topic": topic, "symbol": sym, "depth": depth}
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "topic": topic,
+        "symbol": sym,
+        "depth": depth,
+        "recipe": recipe,
+    }
 
 
 @router.get("/research/jobs/{job_id}")
@@ -814,24 +880,26 @@ def api_get_research_job(
 
 @router.post("/research/stream")
 async def api_research_stream(body: dict = Body(...)):
-    topic = str(body.get("topic", "")).strip()
-    symbol = body.get("symbol")
-    depth_raw = body.get("depth")
-    if depth_raw is None or not str(depth_raw).strip():
-        depth = resolve_effort(None).name
-    else:
-        depth = str(depth_raw).strip().lower()
-    if not topic:
-        return JSONResponse({"error": "topic is required"}, status_code=400)
-    if depth not in RESEARCH_DEPTHS:
-        return JSONResponse(
-            {"error": f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"},
-            status_code=400,
-        )
-    sym = str(symbol).strip().upper() if symbol else None
+    parsed, err = _parse_research_request(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    assert parsed is not None
+    topic = str(parsed["topic"])
+    sym = parsed.get("symbol")
+    depth = str(parsed["depth"])
+    recipe = str(parsed["recipe"])
+    symbols = parsed.get("symbols")
+    if not isinstance(symbols, list) and symbols is not None:
+        symbols = None
 
     async def event_generator():
-        async for chunk in astream_deep_research(topic=topic, symbol=sym, depth=depth):
+        async for chunk in astream_deep_research(
+            topic=topic,
+            symbol=sym if isinstance(sym, str) else None,
+            depth=depth,
+            recipe=recipe,
+            symbols=symbols if isinstance(symbols, list) else None,
+        ):
             yield chunk
             await asyncio.sleep(0)
 

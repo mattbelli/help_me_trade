@@ -37,6 +37,8 @@ class ResearchJob:
     topic: str
     symbol: str | None
     depth: str
+    recipe: str = "single_stock"
+    symbols: list[str] | None = None
     status: str = "queued"
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     started_at: str | None = None
@@ -98,6 +100,8 @@ async def enqueue_research(
     topic: str,
     symbol: str | None = None,
     depth: str = "standard",
+    recipe: str = "single_stock",
+    symbols: list[str] | None = None,
 ) -> str:
     job_id = uuid.uuid4().hex[:12]
     job = ResearchJob(
@@ -105,6 +109,8 @@ async def enqueue_research(
         topic=topic.strip(),
         symbol=symbol.strip().upper() if symbol else None,
         depth=depth,
+        recipe=recipe,
+        symbols=symbols,
     )
     async with _lock:
         _jobs[job_id] = job
@@ -117,13 +123,21 @@ def submit_research_job(
     topic: str,
     symbol: str | None = None,
     depth: str = "standard",
+    recipe: str = "single_stock",
+    symbols: list[str] | None = None,
 ) -> str:
     """Sync-safe enqueue for chat tools and blocking API callers."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(
-            enqueue_research(topic=topic, symbol=symbol, depth=depth)
+            enqueue_research(
+                topic=topic,
+                symbol=symbol,
+                depth=depth,
+                recipe=recipe,
+                symbols=symbols,
+            )
         )
 
     if loop.is_running():
@@ -132,12 +146,24 @@ def submit_research_job(
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(
                 lambda: asyncio.run(
-                    enqueue_research(topic=topic, symbol=symbol, depth=depth)
+                    enqueue_research(
+                        topic=topic,
+                        symbol=symbol,
+                        depth=depth,
+                        recipe=recipe,
+                        symbols=symbols,
+                    )
                 )
             ).result()
 
     return loop.run_until_complete(
-        enqueue_research(topic=topic, symbol=symbol, depth=depth)
+        enqueue_research(
+            topic=topic,
+            symbol=symbol,
+            depth=depth,
+            recipe=recipe,
+            symbols=symbols,
+        )
     )
 
 
@@ -175,6 +201,8 @@ async def _run_job(job_id: str) -> None:
                         topic=job.topic,
                         symbol=job.symbol,
                         depth=job.depth,
+                        recipe=job.recipe,
+                        symbols=job.symbols,
                         cancel_event=cancel_event,
                         on_progress=on_progress,
                     ),

@@ -34,18 +34,24 @@ import {
   getResearchArtifact,
   getResearchConfig,
   listResearchArtifacts,
+  RECIPE_LABELS,
   researchHtmlUrl,
   streamResearch,
   type ResearchActivityEvent,
   type ResearchArtifact,
   type ResearchConfig,
   type ResearchDepth,
+  type ResearchRecipe,
 } from "@/lib/research";
 import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
 
 const PHASE_LABELS: Record<string, string> = {
   started: "Starting research run",
   planning: "Planning search queries",
+  scan_candidates: "Resolving scan candidates",
+  candidate_started: "Assessing candidate",
+  candidate_done: "Candidate assessed",
+  ranking: "Ranking setups",
   searching: "Gathering sources",
   sources: "Sources collected",
   analyzing: "Analyzing findings",
@@ -137,6 +143,8 @@ export function ResearchPage() {
   const [selected, setSelected] = useState<ResearchArtifact | null>(null);
   const [topic, setTopic] = useState("AAPL momentum and sector context");
   const [symbol, setSymbol] = useState("AAPL");
+  const [scanSymbols, setScanSymbols] = useState("");
+  const [recipe, setRecipe] = useState<ResearchRecipe>("single_stock");
   const [depth, setDepth] = useState<ResearchDepth>("standard");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -222,12 +230,25 @@ export function ResearchPage() {
     setPhaseDetail("");
     setActivityEvents([]);
     setStreamWarning(null);
+    const isSetupScan = recipe === "setup_scan";
+    const defaultTopic = `Setup scan — ${new Date().toISOString().slice(0, 10)}`;
+    const resolvedTopic = isSetupScan
+      ? topic.trim() || defaultTopic
+      : topic.trim();
+    const parsedSymbols = isSetupScan
+      ? scanSymbols
+          .split(/[\s,]+/)
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean)
+      : undefined;
     try {
       const result = await streamResearch(
         {
-          topic: topic.trim(),
-          symbol: symbol.trim() || undefined,
+          topic: resolvedTopic,
+          symbol: isSetupScan ? undefined : symbol.trim() || undefined,
           depth,
+          recipe,
+          symbols: parsedSymbols?.length ? parsedSymbols : undefined,
         },
         (event) => {
           setPhase(event.phase);
@@ -321,23 +342,59 @@ export function ResearchPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="topic">Topic</Label>
+                <Label>Recipe</Label>
+                <Select
+                  value={recipe}
+                  onValueChange={(v) => setRecipe(v as ResearchRecipe)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(RECIPE_LABELS) as ResearchRecipe[]).map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {RECIPE_LABELS[r]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="topic">
+                  Topic{recipe === "setup_scan" ? " (optional)" : ""}
+                </Label>
                 <Input
                   id="topic"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="NVDA earnings setup and sector risks"
+                  placeholder={
+                    recipe === "setup_scan"
+                      ? "Leave blank for default date title"
+                      : "NVDA earnings setup and sector risks"
+                  }
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="symbol">Symbol (optional)</Label>
-                <Input
-                  id="symbol"
-                  value={symbol}
-                  onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-                  placeholder="AAPL"
-                />
-              </div>
+              {recipe === "single_stock" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="symbol">Symbol (optional)</Label>
+                  <Input
+                    id="symbol"
+                    value={symbol}
+                    onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                    placeholder="AAPL"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="scanSymbols">Symbols (optional)</Label>
+                  <Input
+                    id="scanSymbols"
+                    value={scanSymbols}
+                    onChange={(e) => setScanSymbols(e.target.value.toUpperCase())}
+                    placeholder="blank = active watchlist"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Effort</Label>
                 <Select
@@ -359,7 +416,7 @@ export function ResearchPage() {
               <Button
                 className="w-full"
                 onClick={() => void handleRun()}
-                disabled={loading || !topic.trim()}
+                disabled={loading || (recipe === "single_stock" && !topic.trim())}
               >
                 {loading ? (
                   <>
@@ -369,7 +426,7 @@ export function ResearchPage() {
                 ) : (
                   <>
                     <FileSearch className="size-4" />
-                    Run deep research
+                    {recipe === "setup_scan" ? "Run setup scan" : "Run deep research"}
                   </>
                 )}
               </Button>

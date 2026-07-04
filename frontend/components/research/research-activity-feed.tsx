@@ -60,7 +60,29 @@ function formatEventLine(event: ResearchActivityEvent): {
       };
     case "writing":
       return {
-        text: `✍ editor writing (target ${Number(event.target_words ?? 0)} words)`,
+        text: `✍ editor writing${event.ideas != null ? ` (${Number(event.ideas)} ideas)` : event.target_words != null ? ` (target ${Number(event.target_words)} words)` : ""}`,
+        tone: "default",
+      };
+    case "scan_candidates":
+      return {
+        text: `▸ scanning ${Number(event.count ?? 0)} candidates`,
+        tone: "default",
+      };
+    case "candidate_started":
+      return {
+        text: `▶ assessing ${String(event.symbol ?? "?")}`,
+        tone: "default",
+      };
+    case "candidate_done": {
+      const sym = String(event.symbol ?? "?");
+      if (event.has_setup) {
+        return { text: `✓ ${sym} — setup found`, tone: "success" };
+      }
+      return { text: `○ ${sym} — no setup`, tone: "default" };
+    }
+    case "ranking":
+      return {
+        text: `⚖ ranking ${Number(event.candidates_with_setups ?? 0)} setups`,
         tone: "default",
       };
     case "expanding":

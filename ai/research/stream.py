@@ -18,6 +18,8 @@ def stream_deep_research(
     topic: str,
     symbol: str | None = None,
     depth: str = "standard",
+    recipe: str = "single_stock",
+    symbols: list[str] | None = None,
 ) -> Iterator[str]:
     events: list[str] = []
 
@@ -29,6 +31,8 @@ def stream_deep_research(
             topic=topic,
             symbol=symbol,
             depth=depth,
+            recipe=recipe,
+            symbols=symbols,
             on_progress=on_progress,
         )
         for event in events:
@@ -54,6 +58,8 @@ async def astream_deep_research(
     topic: str,
     symbol: str | None = None,
     depth: str = "standard",
+    recipe: str = "single_stock",
+    symbols: list[str] | None = None,
 ) -> AsyncIterator[str]:
     import asyncio
     from queue import Queue
@@ -72,6 +78,8 @@ async def astream_deep_research(
                 topic=topic,
                 symbol=symbol,
                 depth=depth,
+                recipe=recipe,
+                symbols=symbols,
                 on_progress=on_progress,
             )
         except Exception as exc:

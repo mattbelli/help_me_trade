@@ -115,7 +115,7 @@ def fetch_technicals_source(symbol: str) -> dict[str, Any] | None:
     vol_series = volumes(ibars)
     idx = len(ibars) - 1
 
-    levels = level_features(ibars, idx)
+    levels = level_features(ibars, idx, include_prices=True)
     profile = load_profile(sym)
     rvol = rvol_now(profile, [])
 
