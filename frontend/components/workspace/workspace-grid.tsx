@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type HTMLAttributes,
   type MouseEvent,
@@ -33,7 +32,6 @@ import { cn } from "@/lib/utils";
 import {
   colsForLayout,
   GRID_COL_TARGET_PX,
-  GRID_DEFAULT_COLS,
   GRID_MARGIN_PX,
   gridPixelWidth,
 } from "@/lib/workspace/grid-metrics";
@@ -587,12 +585,13 @@ export function WorkspaceGrid() {
     setGridCols,
   } = useWorkspaceStore();
 
-  const [width, setWidth] = useState(() => gridPixelWidth(GRID_DEFAULT_COLS));
-  const [cols, setCols] = useState(GRID_DEFAULT_COLS);
-  // Tracks whether cols/width have been measured from the real container width.
-  // The grid must NOT render until this is true, or RGL will clamp widgets that
-  // sit beyond the default 24-col boundary (causing the "chart jumps left" bug).
-  const [colsMeasured, setColsMeasured] = useState(false);
+  // Host width (minus scroll padding), null until first measured. cols/width
+  // are DERIVED from (layout, hostWidth) synchronously in render — they must
+  // never lag the layout in state: RGL remounts on page switch, and mounting
+  // with the PREVIOUS page's col count lets its correctBounds clamp wide
+  // layouts leftward into overlap (the "charts slide left" bug), a clamp that
+  // survives the late cols correction and persists on the next drag-stop.
+  const [hostWidth, setHostWidth] = useState<number | null>(null);
   const [flashingId, setFlashingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -645,55 +644,40 @@ export function WorkspaceGrid() {
     return () => flushWorkspaceLayoutSave();
   }, [hydrate]);
 
-  // Stable ref so the ResizeObserver closure always reads the latest layout
-  // without re-attaching the observer on every layout change.
-  const layoutRef = useRef(layout);
-  useEffect(() => {
-    layoutRef.current = layout;
-  });
-
   useEffect(() => {
     if (!hydrated) return;
 
+    // Measure the host (outside copilot paddingRight) so pin/unpin never
+    // shrinks cols and triggers a reflow that could be persisted.
     const el = gridMeasureContainer();
     if (!el) return;
 
-    function measure() {
-      // Measure the host (outside copilot paddingRight) so pin/unpin never
-      // shrinks cols and triggers a reflow that could be persisted.
-      const availWidth = el!.clientWidth - 32; // 2×16px scroll padding
-      const nextCols = colsForLayout(layoutRef.current, availWidth);
-      setCols(nextCols);
-      setGridCols(nextCols);
-      setWidth(gridPixelWidth(nextCols));
-      setColsMeasured(true);
-      measureEdges();
-    }
-
+    const measure = () => setHostWidth(el.clientWidth - 32); // 2×16px scroll padding
     measure();
 
-    const observer = new ResizeObserver(() => measure());
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hydrated, setGridCols, measureEdges]);
+  }, [hydrated]);
 
-  // When layout changes (widget moved/resized/added), recompute cols so the
-  // canvas grows immediately. Wrapped in rAF so RGL has time to apply DOM
-  // changes before we re-measure, avoiding synchronous cascades.
+  // Derived in render (see hostWidth note): the same render that hands RGL a
+  // page's layout always hands it that layout's col count.
+  const cols = useMemo(
+    () => (hostWidth == null ? null : colsForLayout(layout, hostWidth)),
+    [layout, hostWidth],
+  );
+  const width = cols == null ? null : gridPixelWidth(cols);
+
   useEffect(() => {
-    if (!hydrated) return;
-    const id = requestAnimationFrame(() => {
-      const el = gridMeasureContainer();
-      if (!el) return;
-      const availWidth = el.clientWidth - 32;
-      const nextCols = colsForLayout(layout, availWidth);
-      setCols(nextCols);
-      setGridCols(nextCols);
-      setWidth(gridPixelWidth(nextCols));
-      measureEdges();
-    });
+    if (cols != null) setGridCols(cols);
+  }, [cols, setGridCols]);
+
+  // Re-check the scroll-edge fades whenever canvas geometry changes; rAF so
+  // RGL has applied its DOM changes before we read scroll sizes.
+  useEffect(() => {
+    const id = requestAnimationFrame(measureEdges);
     return () => cancelAnimationFrame(id);
-  }, [layout, hydrated, setGridCols, measureEdges]);
+  }, [layout, cols, measureEdges]);
 
   // Pass each item's real x,y,w,h straight through — NO clamping to window
   // cols. The growing canvas means a widget at x=20,w=8 on a 28-col canvas
@@ -750,7 +734,7 @@ export function WorkspaceGrid() {
                 }
           }
         >
-          {hydrated && colsMeasured ? (
+          {hydrated && cols != null && width != null ? (
             <div id="workspace-grid-root" className="relative" style={{ width }}>
               <ReactGridLayout
                 key={activePageId}
