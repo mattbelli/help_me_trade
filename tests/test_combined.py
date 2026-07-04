@@ -90,6 +90,14 @@ def test_load_strategy_trades_applies_cost_and_filters(tmp_path: Path) -> None:
     assert filtered[0][0] == "2020-01-01"
 
 
+def test_load_strategy_trades_requires_explicit_cost(tmp_path: Path) -> None:
+    """Gross-or-net must be stated — no silent cost default."""
+    db = tmp_path / "strategy.db"
+    _seed_strategy_db(db, [("2020-01-01", 5, 10.0)])
+    with pytest.raises(TypeError):
+        load_strategy_trades(db)
+
+
 def test_window_excludes_trades_exiting_past_end(tmp_path: Path) -> None:
     """TRAIN/TEST hygiene: a late-TRAIN entry whose exit lands in TEST is dropped."""
     db = tmp_path / "strategy.db"

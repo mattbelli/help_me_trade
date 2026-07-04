@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 RESEARCH_DATA_DIR = DEFAULT_BARS_DB_PATH.parent
 DEFAULT_STRATEGY_DB_PATH = RESEARCH_DATA_DIR / "strategy_labeled.db"
 
+# Single source of truth for round-trip trading cost (%). The validated book's
+# per-trade sims used 10 bps RT (see EDGE_HUNT_FINDINGS); portfolio.py's old
+# 0.30 default was its own invention and is gone. Rows built with cost_pct > 0
+# store blended_return_pct NET of costs — downstream consumers (portfolio.py /
+# combined.py) must then be passed cost_pct=0.0 explicitly, or they double-count.
+DEFAULT_COST_PCT = 0.10
+
 _CREATE_STRATEGY_SETUPS = """
 CREATE TABLE IF NOT EXISTS strategy_setups (
     id INTEGER PRIMARY KEY,
@@ -450,13 +457,17 @@ def build_strategy_dataset(
     require_capitulation: bool = False,
     cap_day_max: float = -2.0,
     cap_vol_min: float = 1.5,
-    cost_pct: float = 0.0,
+    cost_pct: float = DEFAULT_COST_PCT,
     trail_pct: float | None = None,
     side: str = "long",
     jobs: int = 1,
     replace: bool = True,
 ) -> dict:
-    """Build strategy-labeled rows and return headline expectancy summary."""
+    """Build strategy-labeled rows and return headline expectancy summary.
+
+    Stored blended_return_pct is NET of cost_pct (default DEFAULT_COST_PCT);
+    pass cost_pct=0.0 to store gross returns.
+    """
     benchmark_sym = benchmark.strip().upper()
     work_symbols = [s.strip().upper() for s in symbols if s.strip().upper() != benchmark_sym]
 
@@ -640,8 +651,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--cost-pct",
         type=float,
-        default=0.0,
-        help="Round-trip cost deducted from blended return (default: 0.0)",
+        default=DEFAULT_COST_PCT,
+        help=(
+            "Round-trip cost deducted from blended return before storing "
+            f"(default: DEFAULT_COST_PCT={DEFAULT_COST_PCT} — 10 bps RT, the "
+            "validated-book assumption; stored rows are then NET of costs)"
+        ),
     )
     parser.add_argument(
         "--trail-pct",

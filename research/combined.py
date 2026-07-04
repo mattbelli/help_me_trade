@@ -34,11 +34,17 @@ def load_strategy_trades(
     db_path: str | Path,
     *,
     source: str = "norgate",
-    cost_pct: float = 0.0,
+    cost_pct: float,
     start: str | None = None,
     end: str | None = None,
 ) -> list[tuple[str, int, float]]:
-    """Return [(entry_date, holding_days, net_return)] from strategy_setups for one DB."""
+    """Return [(entry_date, holding_days, net_return)] from strategy_setups for one DB.
+
+    cost_pct is required (no default): pass 0.0 ONLY if the stored
+    blended_return_pct is already net of costs (strategy_dataset built with
+    cost_pct > 0, its default); otherwise pass the gross-to-net cost here.
+    Costs are applied exactly once — the portfolio sim downstream runs at 0.0.
+    """
     conn = connect(Path(db_path))
     try:
         rows = conn.execute(
@@ -127,6 +133,8 @@ def _backtest_kwargs(
         "max_concurrent": max_concurrent,
         "per_trade_fraction": per_trade_fraction,
         "sizing": sizing,
+        # Costs were already applied once in load_strategy_trades (per-source
+        # cost_pct on top of the stored returns) — the sim must not re-charge.
         "cost_pct": 0.0,
     }
 

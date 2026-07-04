@@ -12,7 +12,7 @@ import numpy as np
 
 from db.base import connect
 from research.bars import DEFAULT_BARS_DB_PATH
-from research.strategy_dataset import DEFAULT_STRATEGY_DB_PATH
+from research.strategy_dataset import DEFAULT_COST_PCT, DEFAULT_STRATEGY_DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -134,10 +134,23 @@ def backtest_portfolio(
     max_gross_exposure: float = 1.0,
     sizing: str = "fixed",
     stop_pct: float = 3.0,
-    cost_pct: float = 0.30,
+    cost_pct: float | None = None,
     periods_per_year: int = 252,
 ) -> dict:
-    """Event-driven portfolio sim. Returns metrics + the daily equity curve."""
+    """Event-driven portfolio sim. Returns metrics + the daily equity curve.
+
+    cost_pct must be passed explicitly: 0.0 when trade returns are already net
+    of costs (strategy_setups built with cost_pct > 0), or DEFAULT_COST_PCT
+    (10 bps RT, the validated-book assumption) when they are gross. The old
+    silent 0.30 default was this module's own invention and double-counted
+    against net-stored returns.
+    """
+    if cost_pct is None:
+        msg = (
+            "cost_pct is required: pass 0.0 if trade returns are already net of "
+            f"costs, or DEFAULT_COST_PCT ({DEFAULT_COST_PCT}) if they are gross"
+        )
+        raise ValueError(msg)
     parsed: list[tuple[int, int, float, str]] = []
     for entry_date, holding_days, return_pct in trades:
         dt = date.fromisoformat(str(entry_date))
@@ -387,7 +400,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-gross", type=float, default=1.0, help="Max gross exposure / equity")
     parser.add_argument("--sizing", choices=("fixed", "risk"), default="fixed", help="Position sizing")
     parser.add_argument("--stop-pct", type=float, default=3.0, help="Stop %% for risk sizing")
-    parser.add_argument("--cost-pct", type=float, default=0.30, help="Round-trip cost per trade %%")
+    parser.add_argument(
+        "--cost-pct",
+        type=float,
+        default=0.0,
+        help=(
+            "Round-trip cost %% applied on top of stored returns (default: 0.0 — "
+            "strategy_setups rows are already NET when built with strategy_dataset's "
+            f"DEFAULT_COST_PCT={DEFAULT_COST_PCT}; pass a value only for gross-stored rows)"
+        ),
+    )
     parser.add_argument("--years", type=int, default=None, help="Restrict to last N years of signals")
     parser.add_argument("--benchmark", default="SPY", help="Benchmark symbol")
     parser.add_argument(
