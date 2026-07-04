@@ -146,12 +146,26 @@ STRATEGY_KINDS: dict[str, StrategyKind] = {
 }
 
 
+# Regime-local (Tier-B) sleeves — they run on their own post-close loop
+# (signals.regime_sleeves), NOT through the generic strategy scan; kind_spec() stays
+# None for them on purpose. NOTE: trading/exit_engine._strategy_kind still maps
+# "generals_dip" → "dip" (substring), which is exactly the wiring the sleeve relies on
+# for its 10-trading-day fixed-hold exit (all price legs None). vol_event exits are
+# managed by the sleeve module itself (the exit engine skips unknown kinds).
+REGIME_SLEEVE_KINDS = ("generals_dip", "vol_event")
+
+
 def strategy_kind(strategy_id: str) -> str | None:
     """Infer kind from id. NOTE: trading/exit_engine._strategy_kind covers only dip/earnings
     (it's reached only AFTER is_portfolio_kind filters momentum out) — they diverge by design."""
     sid = (strategy_id or "").lower()
     if sid.startswith("momentum"):
         return "momentum"
+    # Regime sleeves BEFORE the substring checks ("generals_dip" must not match "dip").
+    if "generals" in sid:
+        return "generals_dip"
+    if "vol_event" in sid:
+        return "vol_event"
     if "vix" in sid:
         return "vix_spike"
     if "earnings" in sid:

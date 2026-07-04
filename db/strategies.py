@@ -59,6 +59,38 @@ _VIX_SPIKE_DEFAULT_PARAMS: dict[str, Any] = {
     "max_holding_days": 60,
 }
 
+# Regime-local (Tier-B) sleeves — References/REGIME_SLEEVES_SPEC.md. Paper-only,
+# PROPOSE-only, seeded DISABLED + UNBOUND; the founder arms them manually. Scanned by
+# signals.regime_sleeves (post-close loop), NOT the generic strategy scan. Kill lines
+# are enforced mechanically (auto-disable through this table's enabled flag / params).
+_GENERALS_DIP_DEFAULT_PARAMS: dict[str, Any] = {
+    "side": "long",
+    "sma_window": 50,
+    "ret_3d_max": -3.5,
+    # Exit = pure 10-trading-day fixed hold: trading/exit_engine maps this id to the
+    # dip evaluator, and explicit None stop/target/trail legs disable every price leg
+    # (the steepyc_dip pattern) — only the time cap remains.
+    "stop_pct": None,
+    "first_target_pct": None,
+    "trail_pct": None,
+    "max_holding_days": 10,
+}
+
+_VOL_EVENT_DEFAULT_PARAMS: dict[str, Any] = {
+    "side": "long",
+    "symbol": "SPY",
+    "drawdown_pct": 5.0,
+    "vix_min": 25.0,
+    "dd_max_holding_days": 30,
+    "tf_max_holding_days": 21,
+    # Per-trigger enable flags — the sleeve's kill lines flip these (params_json IS
+    # the existing strategy-state mechanism; no new state system).
+    "triggers": {
+        "drawdown_stab": {"enabled": True},
+        "term_flip": {"enabled": True},
+    },
+}
+
 _EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
     # entry (mirrors is_earnings_drift_entry defaults — the validated values)
     "blowout_pct": 5.0,
@@ -387,6 +419,8 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
     need_earnings = get_strategy("earnings_drift", db_path=db_path) is None
     need_session_node = get_strategy("session_node_spy", db_path=db_path) is None
     need_momentum = get_strategy("momentum_sp500", db_path=db_path) is None
+    need_generals = get_strategy("generals_dip", db_path=db_path) is None
+    need_vol_event = get_strategy("vol_event", db_path=db_path) is None
     if (
         not need_dip_buy
         and not need_dip_refined
@@ -395,6 +429,8 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
         and not need_earnings
         and not need_session_node
         and not need_momentum
+        and not need_generals
+        and not need_vol_event
     ):
         return
 
@@ -499,6 +535,50 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 now=now,
                 exit_mode="propose",
                 universe=None,
+            )
+
+        if need_generals:
+            # Regime-local Tier-B sleeve (paper pilot) — top-30 3d-flush, 10td fixed
+            # hold. DISABLED + UNBOUND + propose-only (session-node pattern); founder
+            # arms manually. Universe is the sleeve's own monthly point-in-time top-30
+            # (universe column unused → None). Max 5 concurrent per the spec.
+            _insert_strategy(
+                conn,
+                strategy_id="generals_dip",
+                name="Generals Dip (regime-local)",
+                enabled=False,
+                account_id=None,
+                notional=1000.0,
+                params=_GENERALS_DIP_DEFAULT_PARAMS,
+                now=now,
+                exit_mode="propose",
+                universe=None,
+            )
+            conn.execute(
+                "UPDATE strategies SET max_concurrent_positions = 5 WHERE id = ?",
+                ("generals_dip",),
+            )
+
+        if need_vol_event:
+            # Regime-local Tier-B sleeve (paper pilot) — SPY-only vol-shock termination
+            # (drawdown_stab + term_flip triggers; existing vix_spike stays a separate
+            # strategy but counts toward the shared cluster cap). DISABLED + UNBOUND +
+            # propose-only; founder arms manually.
+            _insert_strategy(
+                conn,
+                strategy_id="vol_event",
+                name="Vol-Event Reversion (regime-local)",
+                enabled=False,
+                account_id=None,
+                notional=1000.0,
+                params=_VOL_EVENT_DEFAULT_PARAMS,
+                now=now,
+                exit_mode="propose",
+                universe=None,
+            )
+            conn.execute(
+                "UPDATE strategies SET max_concurrent_positions = 1 WHERE id = ?",
+                ("vol_event",),
             )
 
         if need_momentum:
