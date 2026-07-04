@@ -6,9 +6,10 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket
@@ -104,6 +105,7 @@ from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
 from db.earnings_alerts import init_earnings_alert_tables
 from db.earnings_calendar import earnings_hour, last_earnings_date, next_earnings_date
+from db.idea_outcomes import init_idea_outcomes_tables
 from db.live_activities import init_live_activity_tables
 from db.multi_account import migrate_multi_account
 from db.notifications import init_notifications_tables
@@ -151,6 +153,8 @@ from trading.proposal_intake import propose_from_scan_fire
 from trading.sync import async_sync_all_enabled_brokers
 
 ROOT = Path(__file__).resolve().parent.parent
+BOARD_JSON_PATH = ROOT / "References" / "board.json"
+_EMPTY_BOARD: dict = {"updated_at": None, "lanes": [], "cards": []}
 POLL_INTERVAL_SECONDS = max(
     5, int(os.environ.get("POLL_INTERVAL_SECONDS", "20"))
 )
@@ -198,6 +202,8 @@ _BARS_PREWARM_INTERVAL = 15.0
 _TRADE_SYNC_INTERVAL_SECONDS = 3600.0
 _ALERT_SYMBOL_INTERVAL_SECONDS = 30.0
 _PROPOSAL_SWEEP_INTERVAL_SECONDS = 60.0
+_IDEA_TRACKER_INTERVAL_MARKET_SECONDS = 1800.0
+_IDEA_TRACKER_INTERVAL_OFF_SECONDS = 3600.0
 _PROFILE_FRESH_S = 20 * 3600
 _PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
 _UNIVERSE_DIR = Path(__file__).resolve().parent.parent / "signals" / "universes"
@@ -698,6 +704,35 @@ async def _proposal_sweeper_loop() -> None:
             await _run_pass()
         except Exception:
             logger.exception("Periodic proposal sweep failed")
+
+
+def _idea_tracker_sleep_seconds() -> float:
+    now_et = datetime.now(_ET)
+    if now_et.weekday() < 5 and 9 <= now_et.hour < 17:
+        return _IDEA_TRACKER_INTERVAL_MARKET_SECONDS
+    return _IDEA_TRACKER_INTERVAL_OFF_SECONDS
+
+
+async def _idea_tracker_loop() -> None:
+    """Shadow-track setup_scan idea outcomes against daily bars."""
+    from research.idea_tracker import sweep_open_ideas
+
+    async def _run_pass() -> None:
+        counts = await asyncio.to_thread(sweep_open_ideas)
+        if any(counts.get(k, 0) for k in counts if k != "examined"):
+            logger.info("Idea tracker sweep: %s", counts)
+        mark_alive("idea_tracker")
+
+    try:
+        await _run_pass()
+    except Exception:
+        logger.exception("Initial idea tracker sweep failed")
+    while True:
+        await asyncio.sleep(_idea_tracker_sleep_seconds())
+        try:
+            await _run_pass()
+        except Exception:
+            logger.exception("Periodic idea tracker sweep failed")
 
 
 async def _alert_symbol_loop() -> None:
@@ -1273,6 +1308,7 @@ def _register_background_jobs() -> None:
         ("alert_symbol", _ALERT_SYMBOL_INTERVAL_SECONDS, None),
         ("trade_sync", _TRADE_SYNC_INTERVAL_SECONDS, None),
         ("proposal_sweeper", _PROPOSAL_SWEEP_INTERVAL_SECONDS, None),
+        ("idea_tracker", _IDEA_TRACKER_INTERVAL_MARKET_SECONDS, None),
         ("earnings_refresh", float(EARNINGS_REFRESH_INTERVAL_SECONDS), None),
         ("regime_refresh", float(REGIME_REFRESH_INTERVAL_SECONDS), None),
         (
@@ -1374,6 +1410,7 @@ async def lifespan(app: FastAPI):
     init_chart_features()
     init_workspace_tables()
     init_ai_tables()
+    init_idea_outcomes_tables()
     init_session_node_tables()
     init_earnings_alert_tables()
     init_reports_tables()
@@ -1422,6 +1459,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_alert_symbol_loop()),
         asyncio.create_task(_trade_sync_loop()),
         asyncio.create_task(_proposal_sweeper_loop()),
+        asyncio.create_task(_idea_tracker_loop()),
         asyncio.create_task(_earnings_refresh_loop()),
         asyncio.create_task(_regime_refresh_loop()),
         asyncio.create_task(_momentum_bars_refresh_loop()),
@@ -2369,6 +2407,21 @@ async def api_session_node_levels(symbol: str = "SPY"):
     return payload
 
 
+@app.get("/api/ideas/outcomes")
+def api_idea_outcomes():
+    from db.idea_outcomes import (
+        get_summary,
+        list_recent_open,
+        list_recent_resolved,
+    )
+
+    return {
+        "summary": get_summary(),
+        "open": list_recent_open(),
+        "resolved": list_recent_resolved(limit=50),
+    }
+
+
 @app.get("/api/reports")
 def api_list_reports(limit: int = 30):
     from db.reports import list_reports
@@ -2736,6 +2789,127 @@ def api_put_workspace_pages(body: dict = Body(...)):
         )
     save_workspace_pages(pages_state)
     return {"ok": True}
+
+
+def load_board() -> dict:
+    """Read project kanban board from References/board.json (fresh each call)."""
+    logger = logging.getLogger(__name__)
+    try:
+        if not BOARD_JSON_PATH.is_file():
+            logger.warning("board.json missing at %s", BOARD_JSON_PATH)
+            return dict(_EMPTY_BOARD)
+        parsed = json.loads(BOARD_JSON_PATH.read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
+            logger.warning("board.json invalid: root is not an object")
+            return dict(_EMPTY_BOARD)
+        return parsed
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("failed to load board.json: %s", exc)
+        return dict(_EMPTY_BOARD)
+
+
+def _load_board_for_mutation() -> dict:
+    """Load board.json for writes; 409 if missing or corrupt."""
+    logger = logging.getLogger(__name__)
+    if not BOARD_JSON_PATH.is_file():
+        raise HTTPException(
+            status_code=409,
+            detail="board.json is missing; an agent must restore it before adding inbox cards",
+        )
+    try:
+        parsed = json.loads(BOARD_JSON_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("failed to load board.json for mutation: %s", exc)
+        raise HTTPException(
+            status_code=409,
+            detail=f"board.json is corrupt or unreadable: {exc}",
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="board.json is corrupt: root is not an object",
+        )
+    return parsed
+
+
+def _save_board_atomic(board: dict) -> None:
+    """Atomically replace board.json (safe under concurrent agent edits)."""
+    content = json.dumps(board, indent=2) + "\n"
+    fd, tmp_path = tempfile.mkstemp(
+        dir=BOARD_JSON_PATH.parent,
+        prefix=".board-",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_path, BOARD_JSON_PATH)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+@app.get("/api/board")
+def api_get_board():
+    return {"board": load_board()}
+
+
+@app.post("/api/board/inbox")
+def api_post_board_inbox(body: dict = Body(...)):
+    title_raw = body.get("title")
+    if not isinstance(title_raw, str):
+        raise HTTPException(status_code=400, detail="title is required")
+    title = title_raw.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    if len(title) > 200:
+        raise HTTPException(
+            status_code=400, detail="title must be at most 200 characters"
+        )
+
+    notes_raw = body.get("notes", "")
+    if notes_raw is None:
+        notes_raw = ""
+    if not isinstance(notes_raw, str):
+        raise HTTPException(status_code=400, detail="notes must be a string")
+    notes = notes_raw.strip()
+    if len(notes) > 500:
+        raise HTTPException(
+            status_code=400, detail="notes must be at most 500 characters"
+        )
+
+    board = _load_board_for_mutation()
+
+    lanes = board.get("lanes")
+    if not isinstance(lanes, list):
+        lanes = []
+        board["lanes"] = lanes
+    if "inbox" not in lanes:
+        lanes.insert(0, "inbox")
+
+    cards = board.get("cards")
+    if not isinstance(cards, list):
+        cards = []
+        board["cards"] = cards
+
+    card = {
+        "id": f"fr-{int(time.time())}",
+        "title": title,
+        "lane": "inbox",
+        "type": "idea",
+        "priority": "normal",
+        "notes": notes,
+        "owner": "founder",
+        "updated_at": date.today().isoformat(),
+    }
+    cards.append(card)
+    board["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    _save_board_atomic(board)
+    return {"ok": True, "card": card}
 
 
 @app.get("/api/workspace/custom-themes")

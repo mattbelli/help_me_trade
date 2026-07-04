@@ -825,6 +825,23 @@ async def run_setup_scan(
             artifact_id=int(created_artifact_id),
         )
 
+        if validated_ideas:
+            try:
+                from db.idea_outcomes import register_ideas
+
+                registered = register_ideas(int(created_artifact_id), validated_ideas)
+                logger.info(
+                    "Registered %d idea outcome(s) for artifact %s",
+                    registered,
+                    created_artifact_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to register idea outcomes for artifact %s: %s",
+                    created_artifact_id,
+                    exc,
+                )
+
         idea_count = len(validated_ideas)
         candidate_count = len(candidates)
         top_syms = ", ".join(i["symbol"] for i in validated_ideas[:2])

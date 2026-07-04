@@ -1,0 +1,316 @@
+{
+  "updated_at": "2026-07-04T02:30:00Z",
+  "lanes": ["founder", "in_progress", "next", "backlog", "done"],
+  "cards": [
+    {
+      "id": "judge-scan-ideas",
+      "title": "Run setup scans + judge idea quality (~1-2 weeks)",
+      "lane": "founder",
+      "type": "research",
+      "priority": "high",
+      "notes": "Market reopens Monday. Your verdict gates #42 Setup Book — nothing arms until you say ideas are worth arming.",
+      "owner": "founder",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "ledger-offsets",
+      "title": "Approve TSLA/PLTR/GME ledger quantity offsets",
+      "lane": "founder",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "Pending your sign-off on the adjustment; options expirations also missing from sync (#16).",
+      "owner": "founder",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "research-widget-feed",
+      "title": "Research widget: live feed + reattach + viewer parity",
+      "lane": "done",
+      "type": "bug",
+      "priority": "high",
+      "notes": "Widget reuses page components (feed, viewer, delete/download). Feed now survives navigation/reload and follows chat-started runs (job-based polling, shared hook). Headless-verified.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "retire-old-ui",
+      "title": "Retire old sidebar UI: workspace becomes the main URL",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "notes": "Founder-agreed hybrid: workspace at / + a few dedicated pages (board, maybe research) in the new shell. Fix all notification/chat deep-links that exit to old routes. Gaps first: memory widget create/edit/search, RunningNow roll-up.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "idea-outcomes",
+      "title": "Idea shadow-tracker: mechanical outcomes for EVERY scan idea",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "notes": "Founder ask: ideas he doesn't take must still build the win% record. Every validated idea gets shadow-resolved by price action alone: pending → triggered (entry zone touched within TTL) → won/lost/expired (target vs stop, conservative same-bar rule). Separable later: raw scan win% vs founder-filter value-add vs conviction lane. This is 5b's outcome machinery built early. No trading/ involvement — pure journaling.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "copilot-grid-shift",
+      "title": "Charts slide/overlap after pinning+unpinning the copilot",
+      "lane": "next",
+      "type": "bug",
+      "priority": "high",
+      "notes": "Founder: 3 charts wide on page 1; right charts slide left, likely after pin/unpin of copilot chat. Suspect: docked copilot animates the grid container width (paddingRight) and react-grid-layout re-lays out at the squeezed width, then persists those positions. Old reload-overlap bug (#20) was fixed; this is a new trigger.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "regime-sleeves",
+      "title": "Regime sleeves: generals_dip + vol_event (PC builds, serv reviews PR)",
+      "lane": "in_progress",
+      "type": "safety",
+      "priority": "high",
+      "notes": "PC agent builds References/REGIME_SLEEVES_SPEC.md in a worktree off origin/main, PR-only. File claims: PC owns signals/ sleeves + FRED VIX3M + registry; serv owns frontend/ + ai/research/. Nobody touches execution_service/RiskEngine. Serv runs the trading-safety adversarial review before merge. Ships disabled + propose-only, paper only.",
+      "owner": "founder",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "44",
+      "title": "Conviction lane: LLM-originated ideas (A/B vs structure lane)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "notes": "Founder-agreed. Builds after a few days of structure-lane scan data. origin field, labeled section, hard-blocked from proposals until calibrated.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "36",
+      "title": "Off-box backup + restore drill",
+      "lane": "next",
+      "type": "ops",
+      "priority": "high",
+      "notes": "Ops CRIT-2 completion — one disk failure currently loses the ledger history.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "41",
+      "title": "fill_tracker: done_for_day status never maps terminal",
+      "lane": "next",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "Fill reports for orders resting at day-end never fire; found in #35 H3 review.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "37",
+      "title": "Data-correctness tail: UTC→ET dates, day_pl deposits, FIFO leak",
+      "lane": "next",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "42",
+      "title": "Setup Book: armed setups, entry monitoring, revalidate-at-trigger",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "high",
+      "notes": "GATED on founder judging 5a ideas worth arming. 5c proposal bridge = full adversarial ceremony.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "30",
+      "title": "Scheduled recipes + copilot schedule_research tool (morning briefing)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "Phase 6: 'morning briefing every weekday 8am' as one chat sentence.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "31",
+      "title": "Social sentiment specialist (free Reddit JSON + StockTwits)",
+      "lane": "backlog",
+      "type": "research",
+      "priority": "normal",
+      "notes": "Qualitative-only input, never numbers. After conviction lane.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "16",
+      "title": "Options expirations missing from Schwab sync",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "Unrecorded realized losses in the ledger.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "17",
+      "title": "Nightly ledger-vs-broker quantity reconciliation job",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "14",
+      "title": "data_suspect flag: bad-bars sanity check",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "low",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "24",
+      "title": "Harden research web-search + chat-initiated job path",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "32",
+      "title": "Tests hit live Schwab (suite hung 66min on WAF block)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "notes": "Make suite hermetic.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "font-size-setting",
+      "title": "User-adjustable font scale (accessibility)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "low",
+      "notes": "Founder: app font is deliberately small/dense; add a size setting for users who can't see well. Global scale factor in Settings, not per-widget.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "version-skew-reload",
+      "title": "Version-skew detection: 'reload to update' toast after deploys",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "notes": "Rapid deploys leave open tabs on stale builds → weird nav failures. App should detect the server build changed and prompt reload.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "38",
+      "title": "Stop writing real account figures into tracked docs",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "State-audit P0 hygiene.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "39",
+      "title": "Breaker session-open re-baseline job",
+      "lane": "backlog",
+      "type": "safety",
+      "priority": "low",
+      "notes": "Promotion-gated (matters when auto-execution scales).",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "40",
+      "title": "Buy-to-cover in-flight gap",
+      "lane": "backlog",
+      "type": "safety",
+      "priority": "low",
+      "notes": "Gates ever enabling allow_short_selling — blocked until then.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "43",
+      "title": "Silent content-available push at proposal-create",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "low",
+      "notes": "Optional R2 hardening; only if stuck approval cards appear in real use.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "futures-import",
+      "title": "Import futures trade history (Schwab/ToS PDFs, point multipliers)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "Open thread — needed for retrospective completeness.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "29",
+      "title": "Phase 5a: setup_scan recipe + deterministic structures + validated ideas[]",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "notes": "3 consecutive scans → identical structure sets. Code detects, LLM vetoes/grades.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "35",
+      "title": "#35 Mobile phone-approval delivery shell (R1-R3, H1-H3)",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "notes": "All six audit findings, both sides, device-verified.",
+      "owner": "serv+mac",
+      "updated_at": "2026-07-03"
+    },
+    {
+      "id": "34",
+      "title": "#34 Auth hardening: fail-closed mutations, admin scope, asymmetric kill switch",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "notes": "Adversarial review: zero bypasses.",
+      "owner": "serv",
+      "updated_at": "2026-07-03"
+    },
+    {
+      "id": "33",
+      "title": "#33 Execution-safety: paper-endpoint guarantee, daily-loss breaker, notional caps",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "notes": "5 adversarial-review bugs fixed pre-ship.",
+      "owner": "serv",
+      "updated_at": "2026-07-03"
+    },
+    {
+      "id": "research-v2",
+      "title": "Research Engine v2 core (Phases 1-4: specialists, data, viewer, quality)",
+      "lane": "done",
+      "type": "research",
+      "priority": "high",
+      "notes": "Planner→specialists→critic→editor; proprietary data first-class; founder-approved papers.",
+      "owner": "serv",
+      "updated_at": "2026-07-03"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { PagesMenu } from "@/components/layout/pages-menu";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { ThemeSwitcher } from "@/components/workspace/theme-switcher";
 import { WorkspaceThread } from "@/components/workspace/workspace-chat";
@@ -201,11 +202,14 @@ export function MobileWorkspace() {
 
   return (
     <div className="flex h-svh flex-col bg-background">
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
-        <h1 className="font-mono text-[13px] font-semibold tracking-tight text-foreground">
-          {activeLabel}
-        </h1>
-        <div className="flex items-center gap-1">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <PagesMenu hideLabel />
+          <h1 className="truncate font-mono text-[13px] font-semibold tracking-tight text-foreground">
+            {activeLabel}
+          </h1>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           <SettingsDialog collapsed />
           <ThemeSwitcher />
         </div>

@@ -33,7 +33,7 @@ from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.depth import RESEARCH_DEPTHS
 from ai.research.graph import VALID_RECIPES
-from ai.research.jobs import DEFAULT_JOB_EVENTS_RETURN, enqueue_research, get_job
+from ai.research.jobs import DEFAULT_JOB_EVENTS_RETURN, enqueue_research, get_job, list_jobs
 from ai.research.report import research_html_for_artifact
 from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
@@ -849,6 +849,11 @@ async def api_run_research(body: dict = Body(...)):
     }
 
 
+@router.get("/research/jobs")
+def api_list_research_jobs(limit: int = Query(10, ge=1, le=100)):
+    return {"jobs": list_jobs(limit=limit)}
+
+
 @router.get("/research/jobs/{job_id}")
 def api_get_research_job(
     job_id: str,
@@ -859,6 +864,12 @@ def api_get_research_job(
         return JSONResponse({"error": "Not found"}, status_code=404)
     if events == "all":
         job_events = job.events
+    elif events is not None:
+        try:
+            event_limit = max(1, int(events))
+            job_events = job.events[-event_limit:]
+        except ValueError:
+            job_events = job.events[-DEFAULT_JOB_EVENTS_RETURN:]
     else:
         job_events = job.events[-DEFAULT_JOB_EVENTS_RETURN:]
     phase = job_events[-1]["phase"] if job_events else job.status
@@ -871,6 +882,7 @@ def api_get_research_job(
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
+        "artifact_id": job.artifact_id,
         "error": job.error,
         "result": job.result,
         "events": job_events,

@@ -82,6 +82,9 @@ export type ResearchActivityEvent = {
   target_words?: number;
   words?: number;
   target?: number;
+  query?: string;
+  total?: number;
+  findings?: number;
 };
 
 export type ResearchJob = {
@@ -93,10 +96,24 @@ export type ResearchJob = {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  artifact_id: number | null;
   error: string | null;
   result: { artifact_id?: number } | null;
   events?: ResearchActivityEvent[];
   phase?: string;
+};
+
+export type ResearchJobSummary = {
+  job_id: string;
+  topic: string;
+  symbol: string | null;
+  depth: ResearchDepth;
+  recipe: ResearchRecipe;
+  status: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  artifact_id: number | null;
 };
 
 export type ResearchRunResult = {
@@ -182,8 +199,15 @@ export async function runResearch(body: {
   return res.json() as Promise<ResearchRunQueued>;
 }
 
-export async function getResearchJob(jobId: string): Promise<ResearchJob> {
-  const res = await apiFetch(`${API_BASE}/api/research/jobs/${jobId}`, {
+export async function getResearchJob(
+  jobId: string,
+  events?: number | "all",
+): Promise<ResearchJob> {
+  const query =
+    events != null
+      ? `?events=${events === "all" ? "all" : String(events)}`
+      : "";
+  const res = await apiFetch(`${API_BASE}/api/research/jobs/${jobId}${query}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -194,6 +218,23 @@ export async function getResearchJob(jobId: string): Promise<ResearchJob> {
     throw new Error(parseApiError(err, `Research job not found (${res.status})`));
   }
   return res.json() as Promise<ResearchJob>;
+}
+
+export async function listResearchJobs(
+  limit = 10,
+): Promise<ResearchJobSummary[]> {
+  const res = await apiFetch(`${API_BASE}/api/research/jobs?limit=${limit}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(parseApiError(err, `Failed to list research jobs (${res.status})`));
+  }
+  const data = (await res.json()) as { jobs: ResearchJobSummary[] };
+  return data.jobs;
 }
 
 export type ResearchStreamEvent = {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, MessageSquareIcon } from "lucide-react";
 
+import { PagesMenu } from "@/components/layout/pages-menu";
 import { AccountSelector } from "@/components/workspace/account-selector";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
@@ -277,6 +278,8 @@ export function WorkspaceToolbar() {
             help_me_trade
           </span>
         </div>
+
+        <PagesMenu />
 
         <DropdownMenu
           open={brokerOpen}

@@ -52,6 +52,17 @@ import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
 const ROW_HEIGHT_PX = 48;
 
+/** Stable ancestor whose width is unaffected by docked-copilot paddingRight. */
+const GRID_HOST_ID = "workspace-grid-host";
+const GRID_SCROLL_ID = "workspace-grid-scroll";
+
+function gridMeasureContainer(): HTMLElement | null {
+  return (
+    document.getElementById(GRID_HOST_ID) ??
+    document.getElementById(GRID_SCROLL_ID)
+  );
+}
+
 const CHART_STYLES = [
   { label: "Candles", value: "candle" as const },
   { label: "Line", value: "line" as const },
@@ -611,7 +622,7 @@ export function WorkspaceGrid() {
   });
 
   const measureEdges = useCallback(() => {
-    const el = document.getElementById("workspace-grid-scroll");
+    const el = document.getElementById(GRID_SCROLL_ID);
     if (!el) return;
     const top = el.scrollTop > 2;
     const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 2;
@@ -644,11 +655,13 @@ export function WorkspaceGrid() {
   useEffect(() => {
     if (!hydrated) return;
 
-    const el = document.getElementById("workspace-grid-scroll");
+    const el = gridMeasureContainer();
     if (!el) return;
 
     function measure() {
-      const availWidth = el!.clientWidth - 32; // 2×16px padding
+      // Measure the host (outside copilot paddingRight) so pin/unpin never
+      // shrinks cols and triggers a reflow that could be persisted.
+      const availWidth = el!.clientWidth - 32; // 2×16px scroll padding
       const nextCols = colsForLayout(layoutRef.current, availWidth);
       setCols(nextCols);
       setGridCols(nextCols);
@@ -670,7 +683,7 @@ export function WorkspaceGrid() {
   useEffect(() => {
     if (!hydrated) return;
     const id = requestAnimationFrame(() => {
-      const el = document.getElementById("workspace-grid-scroll");
+      const el = gridMeasureContainer();
       if (!el) return;
       const availWidth = el.clientWidth - 32;
       const nextCols = colsForLayout(layout, availWidth);
@@ -722,7 +735,7 @@ export function WorkspaceGrid() {
       {/* Relative wrapper for the four-edge gradient overlays. */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
-          id="workspace-grid-scroll"
+          id={GRID_SCROLL_ID}
           onScroll={measureEdges}
           className="workspace-scroll h-full overflow-auto px-4 pt-4 pb-6"
           style={

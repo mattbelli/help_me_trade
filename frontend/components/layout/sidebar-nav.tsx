@@ -7,6 +7,7 @@ import {
   Brain,
   CandlestickChart,
   LayoutDashboard,
+  Kanban,
   LayoutGrid,
   LineChart,
   Scale,
@@ -53,6 +54,12 @@ const NAV_ITEMS: {
     label: "Research",
     description: "Deep dives",
     icon: Search,
+  },
+  {
+    href: "/board",
+    label: "Board",
+    description: "Project kanban",
+    icon: Kanban,
   },
   {
     href: "/memories",

@@ -1295,3 +1295,61 @@ export async function dismissNotification(
   if (!res.ok) throw new Error(`Dismiss error ${res.status}`);
   return res.json();
 }
+
+export type BoardCardType =
+  | "feature"
+  | "bug"
+  | "safety"
+  | "research"
+  | "ops"
+  | "idea";
+export type BoardCardPriority = "high" | "normal" | "low";
+
+export type BoardCard = {
+  id: string;
+  title: string;
+  lane: string;
+  type: BoardCardType;
+  priority: BoardCardPriority;
+  notes: string;
+  owner: string;
+  updated_at: string;
+};
+
+export type BoardData = {
+  updated_at: string | null;
+  lanes: string[];
+  cards: BoardCard[];
+};
+
+export async function fetchBoard(): Promise<BoardData> {
+  const res = await apiFetch(`${API_BASE}/api/board`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Board error ${res.status}`);
+  const data = await res.json();
+  return data.board as BoardData;
+}
+
+export type BoardInboxAddResponse = {
+  ok: true;
+  card: BoardCard;
+};
+
+export async function addBoardInboxCard(
+  title: string,
+  notes?: string,
+): Promise<BoardInboxAddResponse> {
+  const res = await apiFetch(`${API_BASE}/api/board/inbox`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, notes: notes ?? "" }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { detail?: unknown };
+    const detail =
+      typeof data.detail === "string"
+        ? data.detail
+        : `Board inbox error ${res.status}`;
+    throw new Error(detail);
+  }
+  return res.json() as Promise<BoardInboxAddResponse>;
+}

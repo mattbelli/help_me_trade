@@ -9,9 +9,14 @@ import { SnapshotProvider } from "@/components/providers/snapshot-provider";
 import { RightRail } from "./right-rail";
 import { Sidebar } from "./sidebar";
 
+const FULL_BLEED_PREFIXES = ["/workspace", "/board", "/research"];
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const fullBleed = pathname?.startsWith("/workspace");
+  // "/" is the workspace now (founder decision 2026-07-04) — full-bleed too.
+  const fullBleed =
+    pathname === "/" ||
+    FULL_BLEED_PREFIXES.some((prefix) => pathname?.startsWith(prefix));
 
   return (
     <SnapshotProvider>

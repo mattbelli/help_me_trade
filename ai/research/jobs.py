@@ -43,6 +43,7 @@ class ResearchJob:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     started_at: str | None = None
     finished_at: str | None = None
+    artifact_id: int | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -90,9 +91,24 @@ def get_job(job_id: str) -> ResearchJob | None:
     return _jobs.get(job_id)
 
 
-def list_jobs(*, limit: int = 20) -> list[ResearchJob]:
+def _job_summary(job: ResearchJob) -> dict[str, Any]:
+    return {
+        "job_id": job.id,
+        "topic": job.topic,
+        "symbol": job.symbol,
+        "depth": job.depth,
+        "recipe": job.recipe,
+        "status": job.status,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "artifact_id": job.artifact_id,
+    }
+
+
+def list_jobs(*, limit: int = 10) -> list[dict[str, Any]]:
     jobs = sorted(_jobs.values(), key=lambda j: j.created_at, reverse=True)
-    return jobs[:limit]
+    return [_job_summary(job) for job in jobs[:limit]]
 
 
 async def enqueue_research(
@@ -192,6 +208,10 @@ async def _run_job(job_id: str) -> None:
         loop = asyncio.get_running_loop()
         def on_progress(phase: str, payload: dict[str, Any]) -> None:
             append_progress_event(job.events, phase, payload)
+            if phase == "started":
+                raw_artifact_id = payload.get("artifact_id")
+                if raw_artifact_id is not None:
+                    job.artifact_id = int(raw_artifact_id)
 
         try:
             result = await asyncio.wait_for(
@@ -213,6 +233,7 @@ async def _run_job(job_id: str) -> None:
             job.status = "completed"
             artifact_id = (result or {}).get("artifact_id")
             if artifact_id is not None:
+                job.artifact_id = int(artifact_id)
                 title = (result.get("report") or {}).get("title") or f"Research ready: {job.topic}"
                 try:
                     await notify(

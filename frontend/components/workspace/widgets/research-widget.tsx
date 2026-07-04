@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { ResearchActivityFeed } from "@/components/research/research-activity-feed";
+import { ResearchArtifactListItem } from "@/components/research/research-artifact-list-item";
 import { ResearchViewerModal } from "@/components/research/research-viewer-modal";
-import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import { RESEARCH_DELETE_CONFIRM } from "@/components/research/research-viewer";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   TerminalButton,
@@ -14,51 +15,19 @@ import {
   TerminalSelect,
 } from "@/components/ui/terminal";
 import {
+  deleteResearchArtifact,
   EFFORT_LABELS,
   getResearchConfig,
-  getResearchJob,
   listResearchArtifacts,
-  runResearch,
   type ResearchArtifact,
   type ResearchDepth,
-  type ResearchActivityEvent,
 } from "@/lib/research";
+import { useResearchJobFeed } from "@/lib/use-research-job-feed";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
-import { cn } from "@/lib/utils";
 
-const POLL_RUNNING_MS = 2_500;
 const LIST_LIMIT = 10;
-
-function formatRelativeTime(iso: string): string {
-  const ts = Date.parse(iso);
-  if (Number.isNaN(ts)) return iso;
-  const deltaSec = Math.round((Date.now() - ts) / 1000);
-  if (deltaSec < 60) return "just now";
-  if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)}m ago`;
-  if (deltaSec < 86400) return `${Math.floor(deltaSec / 3600)}h ago`;
-  return new Date(ts).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function statusChipClass(status: string): string {
-  switch (status) {
-    case "completed":
-      return "text-[var(--c-accent)] border-[color-mix(in_srgb,var(--c-accent)_35%,transparent)]";
-    case "running":
-    case "queued":
-      return "text-[var(--c-blue)] border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)]";
-    case "failed":
-      return "text-[var(--c-red)] border-[color-mix(in_srgb,var(--c-red)_35%,transparent)]";
-    default:
-      return "text-[var(--fg-dim)] border-[var(--border)]";
-  }
-}
 
 export function ResearchWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
@@ -77,10 +46,6 @@ export function ResearchWidget({ config }: WidgetProps) {
     "deep",
     "exhaustive",
   ]);
-  const [running, setRunning] = useState(false);
-  const [runStatus, setRunStatus] = useState<string | null>(null);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [activityEvents, setActivityEvents] = useState<ResearchActivityEvent[]>([]);
 
   const [viewerId, setViewerId] = useState<number | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -96,6 +61,22 @@ export function ResearchWidget({ config }: WidgetProps) {
       setLoading(false);
     }
   }, []);
+
+  const {
+    isRunning: running,
+    activityEvents,
+    error: feedError,
+    setError: setFeedError,
+    startResearch,
+  } = useResearchJobFeed({
+    onComplete: async (artifactId) => {
+      await refreshList();
+      setViewerId(artifactId);
+      setViewerOpen(true);
+    },
+  });
+
+  const displayError = feedError ?? error;
 
   useEffect(() => {
     void refreshList();
@@ -130,68 +111,30 @@ export function ResearchWidget({ config }: WidgetProps) {
     };
   }, []);
 
-  useEffect(() => {
-    if (!activeJobId) return;
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const job = await getResearchJob(activeJobId!);
-        if (cancelled) return;
-        setRunStatus(job.status);
-        if (job.events?.length) {
-          setActivityEvents(job.events);
-        }
-        if (job.status === "completed") {
-          const artifactId = job.result?.artifact_id;
-          setActiveJobId(null);
-          setRunning(false);
-          await refreshList();
-          if (artifactId) {
-            setViewerId(artifactId);
-            setViewerOpen(true);
-          }
-        } else if (job.status === "failed" || job.status === "cancelled") {
-          setActiveJobId(null);
-          setRunning(false);
-          setError(job.error ?? `Research ${job.status}`);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Job poll failed");
-          setActiveJobId(null);
-          setRunning(false);
-        }
-      }
-    }
-
-    void poll();
-    const timer = setInterval(() => void poll(), POLL_RUNNING_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [activeJobId, refreshList]);
-
   async function handleRun() {
     const trimmedTopic = topic.trim();
     if (!trimmedTopic) return;
-    setRunning(true);
     setError(null);
-    setRunStatus("queued");
-    setActivityEvents([]);
+    setFeedError(null);
+    await startResearch({
+      topic: trimmedTopic,
+      symbol: symbol.trim() || undefined,
+      depth,
+    });
+  }
+
+  async function handleDelete(id: number) {
+    if (!window.confirm(RESEARCH_DELETE_CONFIRM)) return;
+    setError(null);
     try {
-      const queued = await runResearch({
-        topic: trimmedTopic,
-        symbol: symbol.trim() || undefined,
-        depth,
-      });
-      setActiveJobId(queued.job_id);
-      setRunStatus(queued.status);
+      await deleteResearchArtifact(id);
+      if (viewerId === id) {
+        setViewerId(null);
+        setViewerOpen(false);
+      }
+      await refreshList();
     } catch (err) {
-      setRunning(false);
-      setRunStatus(null);
-      setError(err instanceof Error ? err.message : "Research failed");
+      setError(err instanceof Error ? err.message : "Failed to delete research");
     }
   }
 
@@ -254,7 +197,7 @@ export function ResearchWidget({ config }: WidgetProps) {
             {running ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="size-3 animate-spin" />
-                {runStatus ?? "Running"}…
+                Running…
               </span>
             ) : (
               "Run research"
@@ -263,16 +206,16 @@ export function ResearchWidget({ config }: WidgetProps) {
           {running ? (
             <ResearchActivityFeed
               events={activityEvents}
-              status={runStatus ?? "running"}
-              className="mt-2"
+              status="running"
+              className="mt-2 max-h-28"
             />
           ) : null}
         </div>
       </div>
 
-      {error ? (
+      {displayError ? (
         <p className="shrink-0 border-b border-[var(--border)] px-1 py-1.5 font-mono text-[10px] text-[var(--c-red)]">
-          {error}
+          {displayError}
         </p>
       ) : null}
 
@@ -287,37 +230,15 @@ export function ResearchWidget({ config }: WidgetProps) {
         ) : (
           <ul className="space-y-0.5">
             {artifacts.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => openViewer(item.id)}
-                  className="group/row w-full rounded border border-transparent px-1.5 py-1.5 text-left transition-colors hover:border-[var(--border)] hover:bg-[var(--bg-hover)]"
-                >
-                  <p className="line-clamp-2 font-mono text-[11px] text-foreground">
-                    {item.topic}
-                  </p>
-                  <p className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-[var(--fg-faint)]">
-                    <span
-                      className={cn(
-                        "rounded border px-1 uppercase",
-                        statusChipClass(item.status),
-                      )}
-                    >
-                      {item.status}
-                    </span>
-                    <span>{formatRelativeTime(item.created_at)}</span>
-                    {item.symbol ? (
-                      <ClickableSymbol
-                        symbol={item.symbol}
-                        linked={linked}
-                        onActivate={() => publish(item.symbol!)}
-                        className="text-[10px]"
-                      />
-                    ) : null}
-                    <span className="text-[var(--fg-dim)]">{item.depth}</span>
-                  </p>
-                </button>
-              </li>
+              <ResearchArtifactListItem
+                key={item.id}
+                item={item}
+                variant="widget"
+                linked={linked}
+                onSymbolActivate={publish}
+                onSelect={() => openViewer(item.id)}
+                onDelete={(id) => void handleDelete(id)}
+              />
             ))}
           </ul>
         )}
@@ -327,6 +248,7 @@ export function ResearchWidget({ config }: WidgetProps) {
         artifactId={viewerId}
         open={viewerOpen}
         onClose={() => setViewerOpen(false)}
+        onDeleted={() => void refreshList()}
       />
     </div>
   );

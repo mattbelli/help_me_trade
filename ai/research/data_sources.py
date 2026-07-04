@@ -92,6 +92,37 @@ def _fetch_bars(symbol: str, *, days: int = 365) -> list[Any] | None:
     return bars or None
 
 
+def _bar_date(bar: Any) -> date | None:
+    raw = str(getattr(bar, "time", "") or "").strip()
+    if not raw:
+        return None
+    if "T" in raw:
+        from datetime import datetime
+
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return dt.date()
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def fetch_daily_bars_since(symbol: str, since: date) -> list[Any] | None:
+    """Daily Alpaca bars on/after ``since`` (shared by research + idea tracker)."""
+    sym = normalize_research_symbol(symbol)
+    if not sym:
+        return None
+    lookback_days = max(30, (date.today() - since).days + 14)
+    bars = _fetch_bars(sym, days=lookback_days)
+    if not bars:
+        return None
+    filtered = [b for b in bars if (_bar_date(b) or date.min) >= since]
+    return filtered or None
+
+
 def _bars_to_indicator_bars(bars: list[Any]) -> list[dict[str, float]]:
     return [
         {"o": b.open, "h": b.high, "l": b.low, "c": b.close, "v": b.volume}

@@ -32,7 +32,10 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
 3. **Commit cadence: iterate → confirm → BUILD.md → commit.** Don't commit per micro-edit. Build it, leave it
    in the working tree, let the user use + adjust it; once it's good, update `References/BUILD.md` (flip
    status, add a history row), THEN commit + push the consolidated round. For UI-only work, note "pending
-   in-browser check" rather than blocking.
+   in-browser check" rather than blocking. **Also keep `References/board.json` current** (the founder's
+   kanban, rendered at `/board`): move/add/retire cards whenever work starts/finishes/appears — every
+   agent, every phase, same discipline as BUILD/HANDOFF. A stale board defeats its purpose. Decisions
+   only the founder can make go in the `founder` lane ("Waiting on you").
 4. **Minimize the Opus main-loop token cost** ("you are the expensive one"). Delegate: code → Composer;
    recon/review/research → **Sonnet subagents**; keep the main loop short — don't do heavy generation or broad
    file-reading inline when a subagent can. `/model sonnet` for routine turns is the user's biggest lever.

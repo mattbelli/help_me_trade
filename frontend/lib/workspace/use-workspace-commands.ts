@@ -1,6 +1,7 @@
 "use client";
 
 import { useAui } from "@assistant-ui/react";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useCallback } from "react";
 
@@ -34,6 +35,7 @@ export type CommandResult = {
 
 export const WORKSPACE_COMMANDS = [
   "/positions",
+  "/board",
   "/add",
   "/theme",
   "/clear",
@@ -42,6 +44,7 @@ export const WORKSPACE_COMMANDS = [
 ] as const;
 
 export function useWorkspaceCommands() {
+  const router = useRouter();
   const { showToast } = useWorkspaceToast();
   const { theme, setTheme } = useTheme();
   const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
@@ -160,6 +163,10 @@ export function useWorkspaceCommands() {
         case "/positions":
           showToast("/positions — coming soon");
           return { handled: true, output: "positions — coming soon" };
+        case "/board":
+          router.push("/board");
+          showToast("Project board");
+          return { handled: true, output: "navigating to project board" };
         case "/add": {
           const arg = value.split(/\s+/).slice(1).join(" ").trim();
           if (!arg) {
@@ -200,7 +207,7 @@ export function useWorkspaceCommands() {
           };
       }
     },
-    [addWidget, aui, clearScrollback, customThemes, openWidgetPicker, setTheme, showToast, theme],
+    [addWidget, aui, clearScrollback, customThemes, openWidgetPicker, router, setTheme, showToast, theme],
   );
 
   return { runCommand };

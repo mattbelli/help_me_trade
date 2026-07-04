@@ -96,6 +96,8 @@ const EMPTY_COMPONENTS: ThreadComponents = {};
 const ThreadComponentsContext =
   createContext<ThreadComponents>(EMPTY_COMPONENTS);
 
+const ThreadMonoContext = createContext(false);
+
 // Startup exposes a loading placeholder thread; treat it as a new chat so
 // the composer mounts centered. Loads after startup keep the docked layout.
 const isNewChatView = (s: AssistantState) =>
@@ -111,7 +113,9 @@ export const Thread: FC<ThreadProps> = ({
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <ThreadRoot isEmpty={isEmpty} messagesOnly={messagesOnly} mono={mono} />
+      <ThreadMonoContext.Provider value={mono}>
+        <ThreadRoot isEmpty={isEmpty} messagesOnly={messagesOnly} mono={mono} />
+      </ThreadMonoContext.Provider>
     </ThreadComponentsContext.Provider>
   );
 };
@@ -131,7 +135,7 @@ const ThreadRoot: FC<{
     <ThreadPrimitive.Root
       className={cn(
         "aui-root aui-thread-root bg-background @container flex h-full flex-col",
-        mono && "font-mono",
+        mono && "font-mono text-[13px] [&_pre]:text-[11px] [&_.aui-md-pre]:text-[11px]",
       )}
       style={{
         ["--thread-max-width" as string]: "44rem",
@@ -258,6 +262,7 @@ const ThreadSuggestionItem: FC = () => {
 };
 
 const Composer: FC = () => {
+  const mono = useContext(ThreadMonoContext);
   const { ComposerSlashCommands } = useContext(ThreadComponentsContext);
   // Don't steal focus on phones — autofocus pops the on-screen keyboard the
   // moment the Agent tab opens. Desktop still autofocuses for quick typing.
@@ -271,7 +276,10 @@ const Composer: FC = () => {
       <ComposerAttachments />
       <ComposerPrimitive.Input
         placeholder="Send a message… (type / for commands)"
-        className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none"
+        className={cn(
+          "aui-composer-input placeholder:text-muted-foreground/80 max-h-32 w-full resize-none bg-transparent px-2.5 py-1 outline-none",
+          mono ? "min-h-8 text-[13px]" : "min-h-10 text-base",
+        )}
         rows={1}
         autoFocus={!isMobile}
         aria-label="Message input"
@@ -581,6 +589,7 @@ const UserActionBar: FC = () => {
 };
 
 const EditComposer: FC = () => {
+  const mono = useContext(ThreadMonoContext);
   return (
     <MessagePrimitive.Root
       data-slot="aui_edit-composer-wrapper"
@@ -588,7 +597,10 @@ const EditComposer: FC = () => {
     >
       <ComposerPrimitive.Root className="aui-edit-composer-root bg-background border-border/60 dark:border-muted-foreground/15 dark:bg-muted/30 ms-auto flex w-full max-w-[85%] flex-col rounded-3xl border shadow-[var(--panel-shadow)]">
         <ComposerPrimitive.Input
-          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
+          className={cn(
+            "aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 outline-none",
+            mono ? "text-[13px]" : "text-base",
+          )}
           autoFocus
         />
         <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">

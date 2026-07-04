@@ -1,15 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Download, ExternalLink, FileSearch, FileText, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { FileSearch, Loader2, Sparkles } from "lucide-react";
 
-import { downloadResearchMarkdown } from "@/components/research/research-download";
 import { ResearchActivityFeed } from "@/components/research/research-activity-feed";
-import { ResearchMarkdown } from "@/components/research/research-markdown";
+import { ResearchArtifactListItem } from "@/components/research/research-artifact-list-item";
+import {
+  RESEARCH_DELETE_CONFIRM,
+  ResearchViewerActionBar,
+  ResearchViewerBody,
+  ResearchViewerFooter,
+  useResearchViewMode,
+} from "@/components/research/research-viewer";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Badge } from "@/components/ui/badge";
+import { PagesMenu } from "@/components/layout/pages-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,12 +27,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { apiFetch } from "@/lib/api";
-import {
-  buildReportThemeOverride,
-  injectReportTheme,
-} from "@/lib/report-theme";
 import {
   deleteResearchArtifact,
   EFFORT_LABELS,
@@ -35,15 +34,12 @@ import {
   getResearchConfig,
   listResearchArtifacts,
   RECIPE_LABELS,
-  researchHtmlUrl,
-  streamResearch,
-  type ResearchActivityEvent,
   type ResearchArtifact,
   type ResearchConfig,
   type ResearchDepth,
   type ResearchRecipe,
 } from "@/lib/research";
-import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
+import { useResearchJobFeed } from "@/lib/use-research-job-feed";
 
 const PHASE_LABELS: Record<string, string> = {
   started: "Starting research run",
@@ -60,79 +56,6 @@ const PHASE_LABELS: Record<string, string> = {
   completed: "Report ready",
 };
 
-function ResearchReportViewer({
-  artifactId,
-  html,
-  title,
-}: {
-  artifactId: number;
-  html: string | null;
-  title: string;
-}) {
-  const [rawHtml, setRawHtml] = useState<string | null>(html);
-  const [themeNonce, setThemeNonce] = useState(0);
-
-  useEffect(() => {
-    setRawHtml(html);
-  }, [html, artifactId]);
-
-  useEffect(() => {
-    if (rawHtml) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await apiFetch(researchHtmlUrl(artifactId), { cache: "no-store" });
-        if (!res.ok || cancelled) return;
-        setRawHtml(await res.text());
-      } catch {
-        if (!cancelled) setRawHtml(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [artifactId, rawHtml]);
-
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const el = document.documentElement;
-    const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));
-    obs.observe(el, {
-      attributes: true,
-      attributeFilter: ["data-theme", "class"],
-    });
-    const onVars = () => setThemeNonce((n) => n + 1);
-    window.addEventListener(THEME_VARS_EVENT, onVars);
-    return () => {
-      obs.disconnect();
-      window.removeEventListener(THEME_VARS_EVENT, onVars);
-    };
-  }, []);
-
-  const themedSrcDoc = useMemo(() => {
-    if (!rawHtml) return "";
-    if (typeof document === "undefined") return rawHtml;
-    return injectReportTheme(rawHtml, buildReportThemeOverride());
-  }, [rawHtml, themeNonce]);
-
-  if (!rawHtml) {
-    return (
-      <div className="flex h-[560px] items-center justify-center text-sm text-muted-foreground">
-        Loading report…
-      </div>
-    );
-  }
-
-  return (
-    <iframe
-      title={title}
-      srcDoc={themedSrcDoc}
-      className="h-[560px] w-full border-0 bg-[var(--bg-inset)]"
-      sandbox="allow-same-origin"
-    />
-  );
-}
-
 export function ResearchPage() {
   const searchParams = useSearchParams();
   const deepLinkId = Number(searchParams.get("id"));
@@ -146,20 +69,32 @@ export function ResearchPage() {
   const [scanSymbols, setScanSymbols] = useState("");
   const [recipe, setRecipe] = useState<ResearchRecipe>("single_stock");
   const [depth, setDepth] = useState<ResearchDepth>("standard");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [phase, setPhase] = useState<string | null>(null);
-  const [phaseDetail, setPhaseDetail] = useState<string>("");
-  const [activityEvents, setActivityEvents] = useState<ResearchActivityEvent[]>([]);
   const [researchConfig, setResearchConfig] = useState<ResearchConfig | null>(null);
-  const [streamWarning, setStreamWarning] = useState<string | null>(null);
   const [effortPresets, setEffortPresets] = useState<ResearchDepth[]>([
     "quick",
     "standard",
     "deep",
     "exhaustive",
   ]);
-  const [viewMode, setViewMode] = useState<"markdown" | "html" | "raw">("markdown");
+  const [viewMode, setViewMode] = useResearchViewMode(selected, selectedId);
+
+  const {
+    isRunning: loading,
+    activityEvents,
+    phase,
+    phaseDetail,
+    streamWarning,
+    error,
+    setError,
+    startResearch,
+  } = useResearchJobFeed({
+    onComplete: async (artifactId) => {
+      await refreshListRef.current?.();
+      setSelectedId(artifactId);
+    },
+  });
+
+  const refreshListRef = useRef<(() => Promise<void>) | null>(null);
 
   const refreshList = useCallback(async () => {
     try {
@@ -168,7 +103,9 @@ export function ResearchPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load research");
     }
-  }, []);
+  }, [setError]);
+
+  refreshListRef.current = refreshList;
 
   useEffect(() => {
     void refreshList();
@@ -210,13 +147,9 @@ export function ResearchPage() {
       setSelected(null);
       return;
     }
-    setViewMode("markdown");
     void getResearchArtifact(selectedId)
       .then((data) => {
         setSelected(data);
-        if (!data.markdown?.trim() && data.html) {
-          setViewMode("html");
-        }
       })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load artifact"),
@@ -224,12 +157,7 @@ export function ResearchPage() {
   }, [selectedId]);
 
   async function handleRun() {
-    setLoading(true);
     setError(null);
-    setPhase("started");
-    setPhaseDetail("");
-    setActivityEvents([]);
-    setStreamWarning(null);
     const isSetupScan = recipe === "setup_scan";
     const defaultTopic = `Setup scan — ${new Date().toISOString().slice(0, 10)}`;
     const resolvedTopic = isSetupScan
@@ -241,51 +169,17 @@ export function ResearchPage() {
           .map((s) => s.trim().toUpperCase())
           .filter(Boolean)
       : undefined;
-    try {
-      const result = await streamResearch(
-        {
-          topic: resolvedTopic,
-          symbol: isSetupScan ? undefined : symbol.trim() || undefined,
-          depth,
-          recipe,
-          symbols: parsedSymbols?.length ? parsedSymbols : undefined,
-        },
-        (event) => {
-          setPhase(event.phase);
-          setActivityEvents((prev) => [
-            ...prev,
-            {
-              ts: new Date().toISOString(),
-              phase: event.phase,
-              ...(event.data as Omit<ResearchActivityEvent, "ts" | "phase">),
-            },
-          ]);
-          if (event.phase === "web_warning" && event.data.warning) {
-            setStreamWarning(String(event.data.warning));
-          } else if (event.phase === "searching" && event.data.query) {
-            setPhaseDetail(String(event.data.query));
-          } else if (event.phase === "sources" && event.data.total) {
-            setPhaseDetail(`${event.data.total} sources`);
-          } else if (event.phase === "writing") {
-            setPhaseDetail(`${event.data.findings ?? 0} findings`);
-          }
-        },
-      );
-      await refreshList();
-      if (result?.artifact_id) {
-        setSelectedId(result.artifact_id);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Research failed");
-    } finally {
-      setLoading(false);
-      setPhase(null);
-      setPhaseDetail("");
-    }
+    await startResearch({
+      topic: resolvedTopic,
+      symbol: isSetupScan ? undefined : symbol.trim() || undefined,
+      depth,
+      recipe,
+      symbols: parsedSymbols?.length ? parsedSymbols : undefined,
+    });
   }
 
   async function handleDelete(id: number) {
-    if (!window.confirm("Delete this research report? This cannot be undone.")) {
+    if (!window.confirm(RESEARCH_DELETE_CONFIRM)) {
       return;
     }
     setError(null);
@@ -302,36 +196,47 @@ export function ResearchPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        title="Research"
-        subtitle="Odysseus-style deep research: iterative search, source analysis, and structured HTML reports."
-      />
-
-      {error && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+    <div className="flex h-svh min-h-0 flex-col bg-background">
+      <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <PagesMenu />
+          <div className="min-w-0">
+            <h1 className="truncate font-mono text-[13px] font-semibold tracking-tight text-foreground">
+              Research
+            </h1>
+            <p className="truncate text-[10px] text-[var(--fg-dim)]">
+              Deep research with iterative search and structured reports
+            </p>
+          </div>
         </div>
-      )}
+      </header>
 
-      {researchConfig?.uses_mock_web && (
-        <div
-          className="rounded-lg border border-[var(--c-amber)]/40 bg-[var(--c-amber)]/10 px-4 py-3 text-sm text-[var(--c-amber)]"
-          role="alert"
-        >
-          <strong className="font-medium text-[var(--foreground)]">Mock web search active.</strong>{" "}
-          {researchConfig.warning ??
-            "Configure SearXNG in Settings or set SEARXNG_URL — reports will use placeholder snippets until then."}
-        </div>
-      )}
+      <main className="min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto w-full max-w-[1920px] space-y-6 px-4 py-5 sm:px-6 sm:py-6">
+          {error && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
 
-      {streamWarning && !researchConfig?.uses_mock_web && (
-        <div className="rounded-lg border border-[var(--c-amber)]/40 bg-[var(--c-amber)]/10 px-4 py-3 text-sm text-[var(--c-amber)]">
-          {streamWarning}
-        </div>
-      )}
+          {researchConfig?.uses_mock_web && (
+            <div
+              className="rounded-lg border border-[var(--c-amber)]/40 bg-[var(--c-amber)]/10 px-4 py-3 text-sm text-[var(--c-amber)]"
+              role="alert"
+            >
+              <strong className="font-medium text-[var(--foreground)]">Mock web search active.</strong>{" "}
+              {researchConfig.warning ??
+                "Configure SearXNG in Settings or set SEARXNG_URL — reports will use placeholder snippets until then."}
+            </div>
+          )}
 
-      <div className="grid gap-6 xl:grid-cols-[340px_1fr]">
+          {streamWarning && !researchConfig?.uses_mock_web && (
+            <div className="rounded-lg border border-[var(--c-amber)]/40 bg-[var(--c-amber)]/10 px-4 py-3 text-sm text-[var(--c-amber)]">
+              {streamWarning}
+            </div>
+          )}
+
+          <div className="grid gap-6 xl:grid-cols-[340px_1fr]">
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -455,43 +360,13 @@ export function ResearchPage() {
                     </p>
                   )}
                   {artifacts.map((item) => (
-                    <div
+                    <ResearchArtifactListItem
                       key={item.id}
-                      className={`flex items-start gap-1 rounded-lg border px-1 py-1 transition-colors ${
-                        selectedId === item.id
-                          ? "border-accent/40 bg-accent/10"
-                          : "border-transparent hover:bg-muted/50"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(item.id)}
-                        className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="line-clamp-2 text-sm font-medium">
-                            {item.topic}
-                          </p>
-                          <Badge variant="outline" className="shrink-0 text-[10px] uppercase">
-                            {item.depth}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {new Date(item.created_at).toLocaleString()}
-                          {item.symbol ? ` · ${item.symbol}` : ""}
-                        </p>
-                      </button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                        aria-label={`Delete research: ${item.topic}`}
-                        onClick={() => void handleDelete(item.id)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
+                      item={item}
+                      selected={selectedId === item.id}
+                      onSelect={() => setSelectedId(item.id)}
+                      onDelete={(id) => void handleDelete(id)}
+                    />
                   ))}
                 </div>
               </ScrollArea>
@@ -514,116 +389,21 @@ export function ResearchPage() {
                 </p>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {selected?.markdown ? (
-                <>
-                  <Button
-                    type="button"
-                    variant={viewMode === "markdown" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setViewMode("markdown")}
-                  >
-                    <FileText className="size-3.5" />
-                    Preview
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={viewMode === "raw" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setViewMode("raw")}
-                  >
-                    Raw
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => downloadResearchMarkdown(selected)}
-                  >
-                    <Download className="size-3.5" />
-                    Download .md
-                  </Button>
-                </>
-              ) : null}
-              {selected?.html ? (
-                <>
-                  <Button
-                    type="button"
-                    variant={viewMode === "html" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setViewMode("html")}
-                  >
-                    HTML
-                  </Button>
-                  <a
-                    href={researchHtmlUrl(selected.id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex h-7 items-center gap-1 rounded-[min(var(--radius-md),12px)] border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted"
-                  >
-                    <ExternalLink className="size-3.5" />
-                    Open full report
-                  </a>
-                </>
-              ) : null}
-              {selected ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => void handleDelete(selected.id)}
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete
-                </Button>
-              ) : null}
-            </div>
+            <ResearchViewerActionBar
+              artifact={selected}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              onDelete={(id) => void handleDelete(id)}
+            />
           </CardHeader>
           <CardContent className="p-0">
-            {!selected && (
-              <div className="flex h-[560px] items-center justify-center p-8 text-center text-sm text-muted-foreground">
-                Run research or select a report from the list.
-              </div>
-            )}
-            {selected?.markdown && viewMode === "markdown" && (
-              <ScrollArea className="h-[560px] p-6">
-                <ResearchMarkdown markdown={selected.markdown} />
-              </ScrollArea>
-            )}
-            {selected?.markdown && viewMode === "raw" && (
-              <ScrollArea className="h-[560px] p-6">
-                <pre className="whitespace-pre-wrap font-mono text-sm text-muted-foreground">
-                  {selected.markdown}
-                </pre>
-              </ScrollArea>
-            )}
-            {selected?.html && viewMode === "html" && (
-              <ResearchReportViewer
-                artifactId={selected.id}
-                html={selected.html}
-                title={selected.topic}
-              />
-            )}
-            {selected && !selected.markdown && !selected.html && (
-              <div className="flex h-[560px] items-center justify-center p-8 text-center text-sm text-muted-foreground">
-                Report content not available yet.
-              </div>
-            )}
-            {selected && (
-              <>
-                <Separator />
-                <div className="px-6 py-4 text-xs text-muted-foreground">
-                  Status: {selected.status}
-                  {selected.report?.summary
-                    ? ` · ${String(selected.report.summary).slice(0, 120)}…`
-                    : ""}
-                </div>
-              </>
-            )}
+            <ResearchViewerBody artifact={selected} viewMode={viewMode} />
+            {selected ? <ResearchViewerFooter artifact={selected} /> : null}
           </CardContent>
         </Card>
-      </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
