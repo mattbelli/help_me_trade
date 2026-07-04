@@ -17,9 +17,15 @@ from research.calibration import (
     fit_score_model,
     out_of_fold_scores,
 )
-from research.dataset_io import compute_raw_score, load_labeled_dataset
+from research.dataset_io import (
+    apply_preprocessing,
+    compute_raw_score,
+    feature_names,
+    fit_preprocessing,
+    load_labeled_dataset,
+)
 from research.ev import build_ev_table, wilson_ci
-from research.train import train_and_export
+from research.train import purged_oof_scores, train_and_export
 from research.validation import purged_kfold_indices
 
 
@@ -90,6 +96,79 @@ def test_purged_kfold_no_train_test_overlap_per_fold() -> None:
     for train_idx, test_idx in folds:
         overlap = set(train_idx.tolist()) & set(test_idx.tolist())
         assert overlap == set()
+
+
+# --- Per-fold preprocessing (CV leakage fix) ---
+
+
+def _raw_matrix_with_first_numeric(values: list[float]) -> np.ndarray:
+    mat = np.zeros((len(values), len(feature_names())), dtype=float)
+    mat[:, 0] = values
+    return mat
+
+
+def test_fit_preprocessing_uses_only_given_rows() -> None:
+    mat = _raw_matrix_with_first_numeric([1.0, 2.0, 3.0, 101.0, 102.0, 103.0])
+    pre = fit_preprocessing(mat[:3])
+    assert pre["medians"]["rsi_14"] == pytest.approx(2.0)
+    assert pre["means"]["rsi_14"] == pytest.approx(2.0)
+    assert pre["stds"]["rsi_14"] == pytest.approx(np.std([1.0, 2.0, 3.0]))
+
+    # Applying train-fold stats to the shifted test rows must NOT recenter them.
+    transformed = apply_preprocessing(mat[3:], pre)
+    assert np.all(transformed[:, 0] > 50.0)
+
+
+def test_apply_preprocessing_imputes_with_fitted_median() -> None:
+    train = _raw_matrix_with_first_numeric([1.0, 2.0, 3.0])
+    pre = fit_preprocessing(train)
+
+    test = _raw_matrix_with_first_numeric([np.nan, 200.0])
+    transformed = apply_preprocessing(test, pre)
+    # NaN imputed with the TRAIN median (2.0) then standardized with train stats.
+    expected = (2.0 - pre["means"]["rsi_14"]) / pre["stds"]["rsi_14"]
+    assert transformed[0, 0] == pytest.approx(expected)
+    # Input matrix is not mutated.
+    assert np.isnan(test[0, 0])
+
+
+def test_purged_oof_scores_fold_fit_and_covers_all_samples() -> None:
+    rng = np.random.default_rng(3)
+    n = 100
+    base = rng.normal(0.0, 1.0, n)
+    y = (base + rng.normal(0.0, 0.5, n) > 0).astype(int)
+    base = base.copy()
+    base[60:] += 10.0  # regime shift: full-sample stats would differ per fold
+    x_raw = _raw_matrix_with_first_numeric(list(base))
+
+    entry_dates, holding_days = _make_dated_samples(n, gap_days=2, holding=1)
+    folds = purged_kfold_indices(entry_dates, holding_days, n_splits=4)
+
+    oof = purged_oof_scores(x_raw, y, folds)
+    assert oof.shape == y.shape
+    assert np.all(np.isfinite(oof))
+    assert np.all((oof >= 0.0) & (oof <= 1.0))
+
+    # Must match a manual per-fold fit/transform (stats from train rows only).
+    expected = np.full(n, np.nan, dtype=float)
+    for train_idx, test_idx in folds:
+        pre = fit_preprocessing(x_raw[train_idx])
+        model = fit_score_model(apply_preprocessing(x_raw[train_idx], pre), y[train_idx])
+        expected[test_idx] = model.predict_proba(
+            apply_preprocessing(x_raw[test_idx], pre)
+        )[:, 1]
+    assert np.allclose(oof, expected)
+
+
+def test_load_labeled_dataset_returns_raw_matrix(tmp_path: Path) -> None:
+    labeled_db = tmp_path / "labeled.db"
+    _write_synthetic_labeled_db(labeled_db, n=40)
+    data = load_labeled_dataset(labeled_db)
+    assert data["X_raw"].shape == data["X"].shape
+    # X equals full-sample preprocessing applied to X_raw (final-model contract).
+    assert np.allclose(
+        data["X"], apply_preprocessing(data["X_raw"], data["preprocessing"])
+    )
 
 
 # --- Calibration ---
