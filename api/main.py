@@ -138,6 +138,7 @@ from db.workspace import (
 from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.momentum import refresh_universe_bars
 from signals.regime import refresh_regime_macro
+from signals.regime_sleeves import run_regime_sleeves_scan
 from signals.scan import run_signal_scan
 from signals.session_node_strategy import compute_session_levels, run_session_node_scan
 from signals.strategy_kinds import strategy_kind
@@ -165,6 +166,11 @@ SESSION_NODE_SCAN_INTERVAL_SECONDS = max(
 )
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 REGIME_REFRESH_INTERVAL_SECONDS = 24 * 3600
+# Regime sleeves evaluate completed daily bars after the close — a ~10-min cadence is
+# plenty (the scan self-gates to the post-close window and dedups per trading day).
+REGIME_SLEEVES_SCAN_INTERVAL_SECONDS = max(
+    60, int(os.environ.get("REGIME_SLEEVES_SCAN_INTERVAL_SECONDS", "600"))
+)
 MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
 RVOL_ALERT_INTERVAL_SECONDS = max(
@@ -535,6 +541,21 @@ async def _earnings_refresh_loop() -> None:
         else:
             mark_alive("earnings_refresh")
         await asyncio.sleep(EARNINGS_REFRESH_INTERVAL_SECONDS)
+
+
+async def _regime_sleeves_loop() -> None:
+    """Regime-local sleeves (generals_dip + vol_event) — propose-only, post-close.
+
+    The scan itself gates to the after-close window, dedups per trading day, and
+    no-ops while both sleeves are disabled (their shipped state)."""
+    while True:
+        try:
+            acted = await run_regime_sleeves_scan()
+            if acted:
+                logger.info("Regime-sleeves scan acted: %s", acted)
+        except Exception:
+            logger.exception("Regime-sleeves scan failed")
+        await asyncio.sleep(REGIME_SLEEVES_SCAN_INTERVAL_SECONDS)
 
 
 async def _regime_refresh_loop() -> None:
@@ -1424,6 +1445,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_proposal_sweeper_loop()),
         asyncio.create_task(_earnings_refresh_loop()),
         asyncio.create_task(_regime_refresh_loop()),
+        asyncio.create_task(_regime_sleeves_loop()),
         asyncio.create_task(_momentum_bars_refresh_loop()),
         asyncio.create_task(_volume_profile_refresh_loop()),
         asyncio.create_task(_reports_scheduler_loop()),
