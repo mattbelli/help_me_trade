@@ -26,6 +26,7 @@ from db.decision_journal import (
     set_entry_fill,
 )
 from db.managed_positions import list_open_positions, record_open_position
+from db.paper_orders import create_pending_proposal, transition_proposal_status
 from db.regime import latest_observation, upsert_regime
 from db.session_node import get_payload, mark
 from db.strategies import get_strategy, seed_default_strategies, update_strategy
@@ -764,3 +765,131 @@ def test_disabled_trigger_stays_dormant_and_visible(db: Path, scan_env, monkeypa
     status = sleeves_status(db_path=db)["sleeves"][VOL_EVENT_ID]
     assert "drawdown_stab disabled (kill line)" in status["last_scan"]["status"]
     assert status["triggers"]["drawdown_stab"]["enabled"] is False
+
+
+# --- adversarial-review regression fixes (2026-07-03) --------------------------------------
+
+
+def test_vol_event_exit_runs_while_sleeve_disabled(db: Path, exit_env, monkeypatch) -> None:
+    """Reviewer repro (finding 1): sleeve DISABLED + open position way past its 21td
+    cap must still get an exit proposal — exits are never gated on enabled."""
+    seed_default_strategies(db_path=db)  # vol_event ships disabled
+    assert get_strategy(VOL_EVENT_ID, db_path=db)["enabled"] is False
+    _open_vol_position(db, entry_days_ago=69, ctx={"trigger_id": "term_flip"})
+    _patch_bars(monkeypatch, {"SPY": _bars([100.0] * 40)})
+
+    acted = asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    exits = [a for a in acted if a["kind"] == "exit_propose"]
+    assert len(exits) == 1 and exits[0]["reason"].startswith("time_cap_21")
+    call = exit_env["proposals"][0]
+    assert call["args"]["side"] == "sell" and call["source"] == f"exit:{VOL_EVENT_ID}"
+    # entries stayed gated; the exit is visible next to the disabled status
+    status = sleeves_status(db_path=db)["sleeves"][VOL_EVENT_ID]["last_scan"]["status"]
+    assert "exit proposed" in status and "disabled (not armed)" in status
+
+
+def test_vol_event_exit_runs_through_kill_switch_gate(db: Path, exit_env, monkeypatch) -> None:
+    """Finding 1: kill switch / proposals-paused gate blocks ENTRIES only — an open
+    position past its cap still gets its exit proposal."""
+    seed_default_strategies(db_path=db)
+    update_strategy(VOL_EVENT_ID, enabled=True, db_path=db)
+    monkeypatch.setattr(rs, "is_kill_switch_active", lambda: True)
+    _open_vol_position(db, entry_days_ago=69, ctx={"trigger_id": "term_flip"})
+    _patch_bars(monkeypatch, {"SPY": _bars([100.0] * 40)})
+
+    acted = asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    assert [a["kind"] for a in acted] == ["exit_propose"]
+    status = sleeves_status(db_path=db)["sleeves"][VOL_EVENT_ID]["last_scan"]["status"]
+    assert "exit proposed" in status and "gated" in status
+
+
+def test_vol_event_kill_checks_run_while_sleeve_disabled(
+    db: Path, scan_env, monkeypatch
+) -> None:
+    """Finding 1: per-episode kill checks fire on newly resolved episodes even while
+    the sleeve is disabled."""
+    seed_default_strategies(db_path=db)  # vol_event ships disabled
+    for i in range(3):
+        _journal_trade(
+            db, proposal_id=f"dd{i}", strategy_id=VOL_EVENT_ID, rule_id="drawdown_stab",
+            entry=100.0, exit_price=98.0, created_at=f"2026-06-1{i + 1}T14:00:00+00:00",
+        )
+    _patch_bars(monkeypatch, {"SPY": _spy_flat_bars()})
+
+    asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    vol = get_strategy(VOL_EVENT_ID, db_path=db)
+    assert vol["params"]["triggers"]["drawdown_stab"]["enabled"] is False
+    rows = by_strategy(VOL_EVENT_ID, db_path=db)
+    assert any(r.get("decision") == "kill_check_fail" for r in rows)
+
+
+def test_nan_close_candidate_does_not_abort_generals_pass(
+    db: Path, scan_env, monkeypatch
+) -> None:
+    """Finding 2: a NaN close must be skipped at sizing (Decimal('nan') → floor raises
+    → whole pass aborted), leaving the other valid candidates to propose."""
+    _enable_sleeve(db, GENERALS_ID)
+    mark(
+        "regime:universe:generals_dip",
+        "universe",
+        payload={"month": "2026-07", "as_of": "2026-06-30", "symbols": ["NANCO", "AAA"]},
+        db_path=db,
+    )
+    nan_bars = _bars([100.0] * 59 + [float("nan")])
+    _patch_bars(
+        monkeypatch,
+        {"AAA": _flush_bars(), "NANCO": nan_bars, "SPY": _bars([100.0] * 60)},
+    )
+    # Force both through the predicate so the NaN close reaches sizing; NaN ranks
+    # most-oversold so it is sized BEFORE the valid candidate.
+    monkeypatch.setattr(
+        rs, "is_generals_dip_entry",
+        lambda cv, **kw: (True, -6.0 if cv[-1] != cv[-1] else -5.0),
+    )
+
+    acted = asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    proposed = [a for a in acted if a.get("kind") == "propose"]
+    assert [p["symbol"] for p in proposed] == ["AAA"]
+    status = sleeves_status(db_path=db)["sleeves"][GENERALS_ID]["last_scan"]["status"]
+    assert "proposed 1" in status and "skipped 1" in status
+
+
+def _pending_vix_spike_buy(db: Path) -> dict:
+    return create_pending_proposal(
+        proposal={"symbol": "SPY", "side": "buy", "qty": 10, "order_type": "market"},
+        intent_fields={"symbol": "SPY", "side": "buy", "qty": 10, "order_type": "market"},
+        session_id=None,
+        ttl_seconds=3600,
+        summary="vix_spike entry",
+        source="strategy:vix_spike",
+        db_path=db,
+    )
+
+
+def test_cluster_cap_counts_pending_vix_spike_buy(db: Path, scan_env, monkeypatch) -> None:
+    """Finding 3: an unapproved vix_spike BUY card (intraday scan) must occupy the
+    single vol-event slot at the evening vol_event scan."""
+    _enable_sleeve(db, VOL_EVENT_ID)
+    _seed_regime(db, _term_flip_regime_rows())
+    _patch_bars(monkeypatch, {"SPY": _bars([100.0] * 40)})
+    _pending_vix_spike_buy(db)
+
+    acted = asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    assert scan_env["proposals"] == []
+    assert [a["kind"] for a in acted] == ["suppressed"]
+
+
+def test_cluster_cap_counts_approving_vix_spike_buy(db: Path, scan_env, monkeypatch) -> None:
+    """Finding 3 + non-blocking #5: a proposal mid-approval ('approving') still
+    occupies the slot — same guard the exit-side throttle already applies."""
+    _enable_sleeve(db, VOL_EVENT_ID)
+    _seed_regime(db, _term_flip_regime_rows())
+    _patch_bars(monkeypatch, {"SPY": _bars([100.0] * 40)})
+    row = _pending_vix_spike_buy(db)
+    assert transition_proposal_status(
+        row["id"], expect="pending_phone", to="approving", db_path=db
+    )
+
+    acted = asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    assert scan_env["proposals"] == []
+    assert [a["kind"] for a in acted] == ["suppressed"]

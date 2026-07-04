@@ -21,7 +21,10 @@ Exits:
   on SPY close recovering the trailing 20d-high that defined the drawdown (30td cap);
   term_flip is a fixed 21-trading-day hold. Sell-side phone proposals only; the same
   pending_exit marker format as the exit engine so closure reconcile + the decision
-  journal resolve exactly as they do for every other strategy.
+  journal resolve exactly as they do for every other strategy. Exit management and
+  per-episode kill checks are NEVER gated — they run even while the sleeve is
+  disabled or agent proposals are paused (mirrors trading/exit_engine, which
+  ignores strategy.enabled); only entries are gated.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ import uuid
 from bisect import bisect_right
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from math import floor
+from math import floor, isfinite
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +44,11 @@ from db.base import DEFAULT_DB_PATH, now_iso
 from db.decision_journal import by_strategy, record_decision, set_decision
 from db.managed_positions import list_open_positions, update_exit_state
 from db.order_executions import get_execution
-from db.paper_orders import get_proposal, list_pending_proposals
+from db.paper_orders import (
+    get_proposal,
+    list_paper_order_proposals,
+    list_pending_proposals,
+)
 from db.regime import recent_observations
 from db.session_node import claim, forget, get_payload, mark
 from db.sqlite import get_latest_snapshot
@@ -314,7 +321,9 @@ async def _propose_entry(
     created after hours — no live quote); RiskEngine still gates at approval time."""
     from trading.proposals import create_phone_proposal
 
-    if close <= 0:
+    # isfinite: NaN passes a bare `<= 0` check, then Decimal('nan') makes floor()
+    # raise and abort the whole pass — dropping every other valid candidate.
+    if not isfinite(close) or close <= 0:
         return None
     qty = int(floor(Decimal(str(notional_usd)) / Decimal(str(close))))
     if qty < 1:
@@ -641,14 +650,28 @@ def _disable_trigger(trigger_id: str, reason: str, *, db_path: Path) -> None:
 
 def _vol_cluster_count(*, db_path: Path) -> int:
     """Active vol-event positions BOOK-WIDE: open vol_event OR vix_spike managed
-    positions (vix_spike queried read-only) + pending vol_event entry proposals."""
+    positions (vix_spike queried read-only) + unresolved (pending_phone OR approving)
+    vol_event AND vix_spike entry (buy) proposals — vix_spike scans intraday, so an
+    unapproved morning card must occupy the slot at the evening scan too."""
     open_rows = [
         r for r in list_open_positions(db_path=db_path)
         if r["strategy_id"] in (VOL_EVENT_ID, VIX_SPIKE_ID)
     ]
+    # list_paper_order_proposals (NOT list_pending_proposals, whose slim rows drop
+    # `source` — the old filter could never match) + a manual expiry guard for the
+    # pending_phone rows; approving rows are mid-execution and never expire away.
+    now = now_iso()
+    entry_sources = (f"strategy:{VOL_EVENT_ID}", f"strategy:{VIX_SPIKE_ID}")
+    proposals = [
+        p
+        for p in list_paper_order_proposals(
+            status="pending_phone", limit=200, db_path=db_path
+        )
+        if not p.get("expires_at") or str(p["expires_at"]) > now
+    ] + list_paper_order_proposals(status="approving", limit=200, db_path=db_path)
     pending = [
-        p for p in list_pending_proposals(db_path=db_path)
-        if (p.get("source") or "") == f"strategy:{VOL_EVENT_ID}"
+        p for p in proposals
+        if (p.get("source") or "") in entry_sources
         and str(p.get("side", "")).lower() == "buy"
     ]
     return len(open_rows) + len(pending)
@@ -926,7 +949,11 @@ async def _scan_vol_event(
     eval_date: str,
     status: dict[str, str],
     db_path: Path,
+    spy_bars: list[DatedBar],
 ) -> list[dict[str, Any]]:
+    """ENTRY side only. Exits + per-episode kill checks are hoisted into
+    run_regime_sleeves_scan so they run even while this scan is skipped
+    (sleeve disabled / proposals paused / kill switch)."""
     acted: list[dict[str, Any]] = []
     parts: list[str] = []
 
@@ -935,13 +962,6 @@ async def _scan_vol_event(
         status[VOL_EVENT_ID] = "no execution-capable account"
         return []
     notional = float(strategy.get("notional_usd") or 0)
-
-    spy_bars = (await _fetch_daily_bars([SPY], days=_SPY_BAR_DAYS)).get(SPY) or []
-
-    # Exits + per-episode kill checks run every pass (independent of the entry claim).
-    acted += await _vol_event_exits(strategy, spy_bars, eval_date, parts, db_path=db_path)
-    await _vol_event_kill_checks(spy_bars, db_path=db_path)
-    strategy = get_strategy(VOL_EVENT_ID, db_path=db_path) or strategy  # kill checks may flip flags
 
     claim_key = f"regime:scan:{VOL_EVENT_ID}:{eval_date}"
     if claim(claim_key, "scan", db_path=db_path):
@@ -1118,14 +1138,34 @@ async def run_regime_sleeves_scan(
         if not _in_post_close_window(t):
             return []
         eval_date = t.astimezone(_ET).date().isoformat()
+        status: dict[str, str] = {}
+
+        # NEVER-GATED position management (adversarial-review fix, 2026-07-03):
+        # vol_event exit proposals + per-episode kill checks run on every pass,
+        # independent of the sleeve's enabled flag, agent_proposals_enabled, and
+        # the kill switch — mirroring trading/exit_engine, which manages open
+        # positions regardless of strategy.enabled. Only ENTRIES stay gated below;
+        # otherwise a disabled sleeve strands its open positions past their holding
+        # caps (and the orphan pins the cluster cap forever).
+        vol_parts: list[str] = []
+        spy_bars: list[DatedBar] = []
+        try:
+            spy_bars = (await _fetch_daily_bars([SPY], days=_SPY_BAR_DAYS)).get(SPY) or []
+            vol_strategy = get_strategy(VOL_EVENT_ID, db_path=db_path) or {}
+            acted += await _vol_event_exits(
+                vol_strategy, spy_bars, eval_date, vol_parts, db_path=db_path
+            )
+            await _vol_event_kill_checks(spy_bars, db_path=db_path)
+        except Exception:
+            logger.exception("vol_event exit/kill management failed")
+            vol_parts.append("exit/kill management error (see logs)")
 
         cfg = trading_config()
         gates_ok = bool(cfg.get("agent_proposals_enabled", True)) and not is_kill_switch_active()
 
-        status: dict[str, str] = {}
-        for sleeve_id, scan in (
-            (GENERALS_ID, _scan_generals),
-            (VOL_EVENT_ID, _scan_vol_event),
+        for sleeve_id, scan, extra in (
+            (GENERALS_ID, _scan_generals, {}),
+            (VOL_EVENT_ID, _scan_vol_event, {"spy_bars": spy_bars}),
         ):
             strategy = get_strategy(sleeve_id, db_path=db_path)
             if strategy is None or not strategy.get("enabled"):
@@ -1136,11 +1176,16 @@ async def run_regime_sleeves_scan(
                 continue
             try:
                 acted += await scan(
-                    strategy, eval_date=eval_date, status=status, db_path=db_path
+                    strategy, eval_date=eval_date, status=status, db_path=db_path, **extra
                 )
             except Exception:
                 logger.exception("Regime-sleeve scan failed for %s", sleeve_id)
                 status[sleeve_id] = "scan error (see logs)"
+        if vol_parts:
+            entry_status = status.get(VOL_EVENT_ID)
+            status[VOL_EVENT_ID] = "; ".join(
+                vol_parts + ([entry_status] if entry_status else [])
+            )
         _set_status(status, db_path=db_path)
     except Exception:
         logger.exception("Regime-sleeves scan failed")
