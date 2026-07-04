@@ -6,11 +6,13 @@ export const BOARD_LAST_SEEN_KEY = "board:lastSeen";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Date-only values parse as local midnight; full ISO strings use Date.parse. */
+/** Date-only values parse as UTC midnight — LOCAL midnight put agent-stamped
+ * dates in the founder's future (US evening = next UTC day), making their
+ * "new" markers unkillable. Full ISO strings use Date.parse. */
 export function parseUpdatedAt(value: string): number {
   if (DATE_ONLY_RE.test(value)) {
     const [y, m, d] = value.split("-").map(Number);
-    return new Date(y, m - 1, d).getTime();
+    return Date.UTC(y, m - 1, d);
   }
   const ts = Date.parse(value);
   return Number.isNaN(ts) ? 0 : ts;
@@ -26,7 +28,14 @@ export function readBoardLastSeen(): number | null {
 
 export function writeBoardLastSeen(timestamp = Date.now()): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(BOARD_LAST_SEEN_KEY, String(timestamp));
+  // MONOTONIC: the per-visit auto-write must never move lastSeen backwards —
+  // it was undoing markAllSeen's future-clamped value on the next visit,
+  // resurrecting every cleared marker.
+  const existing = readBoardLastSeen() ?? 0;
+  window.localStorage.setItem(
+    BOARD_LAST_SEEN_KEY,
+    String(Math.max(existing, timestamp)),
+  );
 }
 
 const LAST_SEEN_WRITE_DELAY_MS = 5_000;

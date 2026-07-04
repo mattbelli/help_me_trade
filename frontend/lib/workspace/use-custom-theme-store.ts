@@ -103,7 +103,12 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     );
     if (local.length > 0) {
       if (localChanged) saveLocalCustomThemes(local);
-      scheduleServerSave(local);
+      // Push local up ONLY when the server CONFIRMED it has no themes
+      // (serverThemes === []). When the fetch FAILED (null — e.g. backend
+      // mid-restart), pushing would let any device with stale localStorage
+      // silently clobber the canonical server copy — this deleted a theme
+      // and reverted another on 2026-07-04 (restored from backup).
+      if (serverThemes !== null) scheduleServerSave(local);
       set({ themes: local, hydrated: true });
       injectCustomThemeStyles(local);
       return;
