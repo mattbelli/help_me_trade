@@ -14,6 +14,11 @@ from signals.strategy_universe import available_universes
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
+# Propose-only by design — entries AND exits are phone-approved, never auto-routed
+# through the execution chokepoint. The regime-local sleeves additionally carry
+# mechanical kill lines (References/REGIME_SLEEVES_SPEC.md).
+_PROPOSE_ONLY_IDS = frozenset({"session_node_spy", "generals_dip", "vol_event"})
+
 
 def _strategy_to_api(strategy: dict[str, Any]) -> dict[str, Any]:
     out = dict(strategy)
@@ -51,6 +56,17 @@ def api_list_strategy_accounts() -> dict[str, Any]:
 def api_list_strategy_universes() -> dict[str, Any]:
     """Universe options a strategy can scan (built-ins + pinnable named watchlists)."""
     return {"universes": available_universes()}
+
+
+@router.get("/regime-sleeves/status")
+def api_regime_sleeves_status() -> dict[str, Any]:
+    """Dormancy-visible status for the regime-local sleeves: enable state, the last
+    scan result (WHY nothing fired — e.g. '0 flushes in top-30 today', 'term_flip
+    dormant (vix3m stale)'), the current point-in-time universe, trigger flags, and
+    the latest kill-line check."""
+    from signals.regime_sleeves import sleeves_status
+
+    return sleeves_status()
 
 
 @router.put("/{strategy_id}")
@@ -91,19 +107,15 @@ def api_update_strategy(
                     },
                 )
 
-    # Session-node is propose-only by design (exits are phone prompts, never auto-sold).
-    # The UI hides the auto option; block it server-side too so no direct API call can
-    # route this strategy's exits through the execution chokepoint.
-    if strategy_id == "session_node_spy" and body.get("exit_mode") == "auto":
+    # Propose-only strategies (session-node + the regime-local sleeves): the UI hides
+    # the auto option; block it server-side too so no direct API call can route their
+    # entries/exits through the execution chokepoint unattended.
+    if strategy_id in _PROPOSE_ONLY_IDS and (
+        body.get("exit_mode") == "auto" or body.get("entry_mode") == "auto"
+    ):
         return JSONResponse(
             status_code=400,
-            content={"detail": "session_node_spy is propose-only"},
-        )
-
-    if strategy_id == "session_node_spy" and body.get("entry_mode") == "auto":
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "session_node_spy is propose-only"},
+            content={"detail": f"{strategy_id} is propose-only"},
         )
 
     try:
