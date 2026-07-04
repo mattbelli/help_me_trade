@@ -72,10 +72,10 @@
     {
       "id": "copilot-grid-shift",
       "title": "Charts slide/overlap after pinning+unpinning the copilot",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "bug",
       "priority": "high",
-      "notes": "FIXED on main, pending in-browser check + deploy. Real trigger wasn't the copilot padding (already guarded) — it's any page switch: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols. Verify: 3-charts-wide page → hop pages via tabs/Alt+1-5 (with and without copilot pinned) → charts stay put; drag one, reload → still correct.",
+      "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) — it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
