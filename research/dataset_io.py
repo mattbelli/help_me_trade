@@ -78,12 +78,60 @@ def _standardize_matrix(
     return out
 
 
+def fit_preprocessing(raw_matrix: np.ndarray) -> dict:
+    """Fit imputation medians and z-score stats on raw rows (NaN = missing).
+
+    When cross-validating, fit this on the training-fold rows ONLY and apply
+    to both fold halves (see research.train.purged_oof_scores) — fitting on
+    the full sample leaks test-fold distribution into the transform.
+    """
+    numeric_count = len(NUMERIC_FEATURES)
+    medians: dict[str, float] = {}
+    imputed = raw_matrix[:, :numeric_count].copy()
+    for j, name in enumerate(NUMERIC_FEATURES):
+        col = imputed[:, j]
+        finite = col[np.isfinite(col)]
+        median = float(np.median(finite)) if len(finite) else 0.0
+        medians[name] = median
+        col[~np.isfinite(col)] = median
+
+    means = imputed.mean(axis=0)
+    stds = imputed.std(axis=0)
+    stds = np.where(stds == 0, 1.0, stds)
+
+    return {
+        "numeric_features": list(NUMERIC_FEATURES),
+        "medians": medians,
+        "means": {n: float(means[i]) for i, n in enumerate(NUMERIC_FEATURES)},
+        "stds": {n: float(stds[i]) for i, n in enumerate(NUMERIC_FEATURES)},
+        "entry_context_categories": list(ENTRY_CONTEXT_CATEGORIES),
+    }
+
+
+def apply_preprocessing(raw_matrix: np.ndarray, preprocessing: dict) -> np.ndarray:
+    """Impute NaNs and standardize raw rows using previously fit stats."""
+    numeric_count = len(NUMERIC_FEATURES)
+    out = raw_matrix.copy()
+    medians = preprocessing["medians"]
+    for j, name in enumerate(NUMERIC_FEATURES):
+        col = out[:, j]
+        col[~np.isfinite(col)] = medians[name]
+    means = np.array([preprocessing["means"][n] for n in NUMERIC_FEATURES])
+    stds = np.array([preprocessing["stds"][n] for n in NUMERIC_FEATURES])
+    return _standardize_matrix(out, numeric_count, means, stds)
+
+
 def load_labeled_dataset(
     db_path: Path = DEFAULT_LABELED_DB_PATH,
     *,
     min_rows: int = 1,
 ) -> dict:
-    """Load labeled_setups, featurize, impute, standardize, and sort by entry_date."""
+    """Load labeled_setups, featurize, and sort by entry_date.
+
+    Returns both X_raw (NaN = missing; refit preprocessing per CV fold on this)
+    and X standardized with FULL-SAMPLE stats — the latter is only for the final
+    deployed model / live-scorer contract, never for cross-validation.
+    """
     conn = connect(db_path)
     try:
         rows = conn.execute(
@@ -106,21 +154,8 @@ def load_labeled_dataset(
         dtype=float,
     )
 
-    numeric_count = len(NUMERIC_FEATURES)
-    medians: dict[str, float] = {}
-    for j, name in enumerate(NUMERIC_FEATURES):
-        col = raw_matrix[:, j]
-        finite = col[np.isfinite(col)]
-        median = float(np.median(finite)) if len(finite) else 0.0
-        medians[name] = median
-        bad = ~np.isfinite(col)
-        raw_matrix[bad, j] = median
-
-    means = raw_matrix[:, :numeric_count].mean(axis=0)
-    stds = raw_matrix[:, :numeric_count].std(axis=0)
-    stds = np.where(stds == 0, 1.0, stds)
-
-    x = _standardize_matrix(raw_matrix, numeric_count, means, stds)
+    preprocessing = fit_preprocessing(raw_matrix)
+    x = apply_preprocessing(raw_matrix, preprocessing)
     y = np.array([int(row["label"]) for row in rows], dtype=int)
     returns = np.array([float(row["return_pct"]) for row in rows], dtype=float)
     entry_dates = np.array([row["entry_date"] for row in rows], dtype=str)
@@ -129,18 +164,13 @@ def load_labeled_dataset(
     names = feature_names()
     return {
         "X": x,
+        "X_raw": raw_matrix,
         "y": y,
         "returns": returns,
         "entry_dates": entry_dates,
         "holding_days": holding_days,
         "feature_names": names,
-        "preprocessing": {
-            "numeric_features": list(NUMERIC_FEATURES),
-            "medians": medians,
-            "means": {n: float(means[i]) for i, n in enumerate(NUMERIC_FEATURES)},
-            "stds": {n: float(stds[i]) for i, n in enumerate(NUMERIC_FEATURES)},
-            "entry_context_categories": list(ENTRY_CONTEXT_CATEGORIES),
-        },
+        "preprocessing": preprocessing,
     }
 
 

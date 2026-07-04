@@ -7,22 +7,45 @@ import json
 import logging
 from pathlib import Path
 
+import numpy as np
+
 from db.base import now_iso
 from research.calibration import (
     calibrate,
     calibration_metrics,
     fit_platt,
     fit_score_model,
-    out_of_fold_scores,
 )
 from research.dataset import DEFAULT_LABELED_DB_PATH
-from research.dataset_io import load_labeled_dataset
+from research.dataset_io import apply_preprocessing, fit_preprocessing, load_labeled_dataset
 from research.ev import build_ev_table
 from research.validation import purged_kfold_indices
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
+
+
+def purged_oof_scores(
+    x_raw: np.ndarray,
+    y: np.ndarray,
+    folds: list[tuple[np.ndarray, np.ndarray]],
+) -> np.ndarray:
+    """Out-of-fold scores with preprocessing fit per training fold.
+
+    Median imputation and z-score stats are fit on each fold's TRAIN rows only,
+    then applied to both halves — fitting them on the full sample (the old
+    load-time standardization) leaked test-fold distribution into the CV.
+    """
+    oof = np.full(len(y), np.nan, dtype=float)
+    for train_idx, test_idx in folds:
+        pre = fit_preprocessing(x_raw[train_idx])
+        model = fit_score_model(apply_preprocessing(x_raw[train_idx], pre), y[train_idx])
+        oof[test_idx] = model.predict_proba(apply_preprocessing(x_raw[test_idx], pre))[:, 1]
+    if np.any(np.isnan(oof)):
+        msg = "OOF scores contain NaN — folds did not cover all samples"
+        raise ValueError(msg)
+    return oof
 
 
 def train_and_export(
@@ -49,7 +72,7 @@ def train_and_export(
         n_splits=n_splits,
         embargo_frac=embargo_frac,
     )
-    oof_scores = out_of_fold_scores(x, y, folds)
+    oof_scores = purged_oof_scores(data["X_raw"], y, folds)
     platt = fit_platt(oof_scores, y)
     calibrated_probs = calibrate(oof_scores, platt)
     metrics = calibration_metrics(calibrated_probs, y)

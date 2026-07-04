@@ -20,15 +20,31 @@ DEFAULT_WINDOWS: dict[str, tuple[str | None, str | None]] = {
 }
 
 
+def _exit_past_end(entry_date: str, holding_days: int, end: str) -> bool:
+    """True when the trade's exit (entry ordinal + holding_days) lands after end.
+
+    Window hygiene: a trade must EXIT inside the window too — otherwise a
+    late-TRAIN entry whose label window extends into TEST leaks the boundary.
+    """
+    exit_ord = date.fromisoformat(entry_date).toordinal() + holding_days
+    return exit_ord > date.fromisoformat(end).toordinal()
+
+
 def load_strategy_trades(
     db_path: str | Path,
     *,
     source: str = "norgate",
-    cost_pct: float = 0.0,
+    cost_pct: float,
     start: str | None = None,
     end: str | None = None,
 ) -> list[tuple[str, int, float]]:
-    """Return [(entry_date, holding_days, net_return)] from strategy_setups for one DB."""
+    """Return [(entry_date, holding_days, net_return)] from strategy_setups for one DB.
+
+    cost_pct is required (no default): pass 0.0 ONLY if the stored
+    blended_return_pct is already net of costs (strategy_dataset built with
+    cost_pct > 0, its default); otherwise pass the gross-to-net cost here.
+    Costs are applied exactly once — the portfolio sim downstream runs at 0.0.
+    """
     conn = connect(Path(db_path))
     try:
         rows = conn.execute(
@@ -46,12 +62,15 @@ def load_strategy_trades(
     trades: list[tuple[str, int, float]] = []
     for row in rows:
         entry_date = row["entry_date"]
+        holding_days = int(row["holding_days"])
         if start is not None and entry_date < start:
             continue
         if end is not None and entry_date > end:
             continue
+        if end is not None and _exit_past_end(entry_date, holding_days, end):
+            continue
         net_return = float(row["blended_return_pct"]) - cost_pct
-        trades.append((entry_date, int(row["holding_days"]), net_return))
+        trades.append((entry_date, holding_days, net_return))
     return trades
 
 
@@ -67,6 +86,8 @@ def _filter_trades(
         if start is not None and entry_date < start:
             continue
         if end is not None and entry_date > end:
+            continue
+        if end is not None and _exit_past_end(entry_date, holding_days, end):
             continue
         filtered.append((entry_date, holding_days, ret))
     return filtered
@@ -112,6 +133,8 @@ def _backtest_kwargs(
         "max_concurrent": max_concurrent,
         "per_trade_fraction": per_trade_fraction,
         "sizing": sizing,
+        # Costs were already applied once in load_strategy_trades (per-source
+        # cost_pct on top of the stored returns) — the sim must not re-charge.
         "cost_pct": 0.0,
     }
 

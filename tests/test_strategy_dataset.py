@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from datetime import date, timedelta
 from pathlib import Path
@@ -10,7 +11,7 @@ import pytest
 
 from db.base import connect
 from research.bars import cache_bars
-from research.strategy_dataset import build_strategy_dataset
+from research.strategy_dataset import DEFAULT_COST_PCT, build_strategy_dataset
 from research.strategy_sim import simulate_exit
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
 
@@ -500,6 +501,13 @@ def test_build_strategy_dataset_cost_shifts_label(
     assert row["blended_return_pct"] == pytest.approx(-0.5)
 
 
+def test_default_cost_is_single_sourced() -> None:
+    """The build default is the validated-book 10 bps RT, from DEFAULT_COST_PCT."""
+    assert DEFAULT_COST_PCT == pytest.approx(0.10)
+    sig = inspect.signature(build_strategy_dataset)
+    assert sig.parameters["cost_pct"].default == DEFAULT_COST_PCT
+
+
 def test_build_strategy_dataset_short_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
     strategy_tmp_paths: tuple[Path, Path],
@@ -536,6 +544,7 @@ def test_build_strategy_dataset_short_end_to_end(
         "source": "test",
         "bars_db_path": bars_db,
         "strategy_db_path": strategy_db,
+        "cost_pct": 0.0,
         "side": "short",
     }
     summary = build_strategy_dataset(**params)

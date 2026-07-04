@@ -26,7 +26,13 @@ def simulate_exit(
     trail_pct: float | None = None,
     side: str = "long",
 ) -> dict | None:
-    """Simulate the scale-out exit from an entry at bars[entry_idx]['c'].
+    """Simulate the scale-out exit for a signal at bars[entry_idx].
+
+    The signal fires at bars[entry_idx]'s close; the fill is the NEXT bar's
+    open (real execution). Stops/targets anchor to that fill and are scanned
+    from the entry bar onward. Bars that OPEN beyond a stop or target fill at
+    the open (gap-through), not at the stop/target price. holding_days is
+    counted from the signal bar (entry_date + holding_days spans the window).
 
     ``side="long"``: buy at entry, profit when price rises (default).
     ``side="short"``: sell at entry, profit when price falls (research only).
@@ -49,12 +55,13 @@ def simulate_exit(
     if entry_idx < 0 or entry_idx >= len(bars):
         return None
 
-    entry_price = bars[entry_idx]["c"]
-    if entry_price <= 0 or not math.isfinite(entry_price):
+    entry_bar_idx = entry_idx + 1
+    last_j = min(entry_idx + max_holding, len(bars) - 1)
+    if entry_bar_idx > last_j:
         return None
 
-    last_j = min(entry_idx + max_holding, len(bars) - 1)
-    if last_j <= entry_idx:
+    entry_price = bars[entry_bar_idx]["o"]
+    if entry_price <= 0 or not math.isfinite(entry_price):
         return None
 
     stop_price = entry_price * (1 - stop_pct / 100)
@@ -77,21 +84,37 @@ def simulate_exit(
     hit_trail = False
     timed_out = False
     outcome: str | None = None
+    first_leg_return: float | None = None
     remainder_return: float | None = None
     exit_j: int | None = None
     first_target_bar_idx: int | None = None
     peak_high: float | None = None
 
-    for j in range(entry_idx + 1, last_j + 1):
+    for j in range(entry_bar_idx, last_j + 1):
         bar = bars[j]
-        for key in ("h", "l", "c"):
+        for key in ("o", "h", "l", "c"):
             price = bar[key]
             if price <= 0 or not math.isfinite(price):
                 return None
+        open_ret_pct = (bar["o"] / entry_price - 1) * 100
 
         if phase == 1:
             high_ret_pct = (bar["h"] / entry_price - 1) * 100
             low_ret_pct = (bar["l"] / entry_price - 1) * 100
+            if open_ret_pct <= -stop_pct:
+                # Gap through the stop: the fill is the open, not the stop price.
+                hit_stop = True
+                outcome = "stopped"
+                remainder_return = open_ret_pct
+                exit_j = j
+                break
+            if open_ret_pct >= first_target_pct:
+                # Gap through the first target: the partial fills at the open.
+                hit_first_target = True
+                first_leg_return = open_ret_pct
+                first_target_bar_idx = j
+                phase = 2
+                continue
             hit_stop_bar = low_ret_pct <= -stop_pct
             hit_first = high_ret_pct >= first_target_pct
             if hit_stop_bar and hit_first:
@@ -109,6 +132,7 @@ def simulate_exit(
                 break
             if hit_first:
                 hit_first_target = True
+                first_leg_return = first_target_pct
                 first_target_bar_idx = j
                 phase = 2
                 continue
@@ -122,6 +146,13 @@ def simulate_exit(
                     peak_high = bars[first_target_bar_idx]["h"]
                 trail_stop = peak_high * (1 - trail_pct / 100)
                 effective_stop = max(breakeven_price, trail_stop)
+                if bar["o"] <= effective_stop:
+                    # Gap through the trailing stop: fill at the open.
+                    hit_trail = True
+                    outcome = "first_then_trail"
+                    remainder_return = open_ret_pct
+                    exit_j = j
+                    break
                 if bar["l"] <= effective_stop:
                     hit_trail = True
                     outcome = "first_then_trail"
@@ -131,6 +162,19 @@ def simulate_exit(
                 peak_high = max(peak_high, bar["h"])
             else:
                 high_ret_pct = (bar["h"] / entry_price - 1) * 100
+                if bar["o"] <= phase2_stop_price:
+                    # Gap through the phase-2 stop: fill at the open.
+                    outcome = phase2_stop_outcome
+                    remainder_return = open_ret_pct
+                    exit_j = j
+                    break
+                if open_ret_pct >= runner_target_pct:
+                    # Gap through the runner target: fill at the open.
+                    hit_runner = True
+                    outcome = "first_then_runner"
+                    remainder_return = open_ret_pct
+                    exit_j = j
+                    break
                 hit_be = bar["l"] <= phase2_stop_price
                 hit_runner_bar = high_ret_pct >= runner_target_pct
                 if hit_be and hit_runner_bar:
@@ -170,8 +214,9 @@ def simulate_exit(
     if phase == 1 and outcome in ("stopped", "timeout"):
         blended = remainder_return
     else:
+        assert first_leg_return is not None
         blended = (
-            first_exit_fraction * first_target_pct
+            first_exit_fraction * first_leg_return
             + (1 - first_exit_fraction) * remainder_return
         )
 
@@ -213,12 +258,13 @@ def _simulate_exit_short(
     if entry_idx < 0 or entry_idx >= len(bars):
         return None
 
-    entry_price = bars[entry_idx]["c"]
-    if entry_price <= 0 or not math.isfinite(entry_price):
+    entry_bar_idx = entry_idx + 1
+    last_j = min(entry_idx + max_holding, len(bars) - 1)
+    if entry_bar_idx > last_j:
         return None
 
-    last_j = min(entry_idx + max_holding, len(bars) - 1)
-    if last_j <= entry_idx:
+    entry_price = bars[entry_bar_idx]["o"]
+    if entry_price <= 0 or not math.isfinite(entry_price):
         return None
 
     stop_price = entry_price * (1 + stop_pct / 100)
@@ -239,19 +285,35 @@ def _simulate_exit_short(
     hit_trail = False
     timed_out = False
     outcome: str | None = None
+    first_leg_return: float | None = None
     remainder_return: float | None = None
     exit_j: int | None = None
     first_target_bar_idx: int | None = None
     trough_low: float | None = None
 
-    for j in range(entry_idx + 1, last_j + 1):
+    for j in range(entry_bar_idx, last_j + 1):
         bar = bars[j]
-        for key in ("h", "l", "c"):
+        for key in ("o", "h", "l", "c"):
             price = bar[key]
             if price <= 0 or not math.isfinite(price):
                 return None
+        open_ret_pct = _short_return_pct(entry_price, bar["o"])
 
         if phase == 1:
+            if bar["o"] >= stop_price:
+                # Gap through the stop: the fill is the open, not the stop price.
+                hit_stop = True
+                outcome = "stopped"
+                remainder_return = open_ret_pct
+                exit_j = j
+                break
+            if bar["o"] <= first_price:
+                # Gap through the first target: the partial fills at the open.
+                hit_first_target = True
+                first_leg_return = open_ret_pct
+                first_target_bar_idx = j
+                phase = 2
+                continue
             hit_stop_bar = bar["h"] >= stop_price
             hit_first = bar["l"] <= first_price
             if hit_stop_bar and hit_first:
@@ -269,6 +331,7 @@ def _simulate_exit_short(
                 break
             if hit_first:
                 hit_first_target = True
+                first_leg_return = first_target_pct
                 first_target_bar_idx = j
                 phase = 2
                 continue
@@ -282,6 +345,13 @@ def _simulate_exit_short(
                     trough_low = bars[first_target_bar_idx]["l"]
                 trail_stop = trough_low * (1 + trail_pct / 100)
                 effective_stop = min(breakeven_price, trail_stop)
+                if bar["o"] >= effective_stop:
+                    # Gap through the trailing stop: fill at the open.
+                    hit_trail = True
+                    outcome = "first_then_trail"
+                    remainder_return = open_ret_pct
+                    exit_j = j
+                    break
                 if bar["h"] >= effective_stop:
                     hit_trail = True
                     outcome = "first_then_trail"
@@ -290,6 +360,19 @@ def _simulate_exit_short(
                     break
                 trough_low = min(trough_low, bar["l"])
             else:
+                if bar["o"] >= phase2_stop_price:
+                    # Gap through the phase-2 stop: fill at the open.
+                    outcome = phase2_stop_outcome
+                    remainder_return = open_ret_pct
+                    exit_j = j
+                    break
+                if bar["o"] <= runner_price:
+                    # Gap through the runner target: fill at the open.
+                    hit_runner = True
+                    outcome = "first_then_runner"
+                    remainder_return = open_ret_pct
+                    exit_j = j
+                    break
                 hit_be = bar["h"] >= phase2_stop_price
                 hit_runner_bar = bar["l"] <= runner_price
                 if hit_be and hit_runner_bar:
@@ -332,8 +415,9 @@ def _simulate_exit_short(
     if phase == 1 and outcome in ("stopped", "timeout"):
         blended = remainder_return
     else:
+        assert first_leg_return is not None
         blended = (
-            first_exit_fraction * first_target_pct
+            first_exit_fraction * first_leg_return
             + (1 - first_exit_fraction) * remainder_return
         )
 
