@@ -32,6 +32,19 @@ this file, append the old full version there as a new dated section.*
 > build after a few days of scan data; (2) threshold tuning from founder feedback (constants atop
 > structures.py); (3) then #42 Setup Book per its gate.
 
+## ALSO FIXED (2026-07-04) — quote consistency round (founder card "Quotes Bugs"), pending deploy
+
+> Phone blank-watchlist root-caused: Schwab bar-batch failures were swallowed → `/api/watchlist/market`
+> returned **200 + empty quotes** → mobile React-Query cache replaced wholesale (web's additive merge
+> masked it as "frozen"). Fixes on `main`: total-batch miss now → `logger.error` + **502** (clients keep
+> last-good data; regression test in `tests/test_watchlist_futures.py`); mobile `useWatchlistMarket`
+> merges additively like web; chart (`use-symbol-quote.ts` → `tv-light-chart.tsx`) now draws a dashed
+> `ext` price line during pre/post/overnight so chart ⇄ watchlist agree off-hours (chart previously froze
+> at the 4pm regular price). **Deploy pending: backend restart + frontend rebuild (human does the
+> restart) + phone bundle refresh**; ext line verifiable from Sun 20:00 ET. Known remaining divergence
+> (on the board, not urgent): positions widgets show broker-snapshot `current_price` (Schwab = derived
+> marketValue/qty on the 20s poll), a third price source. Full detail: BUILD.md 2026-07-04 row.
+
 ## PRIOR FOCUS — Phase 5a original brief (2026-07-03, superseded by ship note above)
 
 > ▶ Everything before 5a is DONE and deployed:

@@ -131,7 +131,11 @@ export function useWatchlistMarket(symbols: string[] | undefined) {
 
   return useQuery({
     queryKey: ['watchlist-market', symbolsKey],
-    queryFn: () => getWatchlistMarket(symbols),
+    queryFn: async () => {
+      const data = await getWatchlistMarket(symbols);
+      const prev = qc.getQueryData<WatchlistMarket>(['watchlist-market', symbolsKey]);
+      return { ...data, quotes: { ...prev?.quotes, ...data.quotes } };
+    },
     enabled: enabled && Boolean(symbolsKey),
     refetchInterval: 6_000,
     staleTime: 4_000,

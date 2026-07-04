@@ -1859,6 +1859,16 @@ async def api_watchlist_market(symbols: str = ""):
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
+    if symbol_list and not any(bars_by_symbol.get(s) for s in symbol_list):
+        logger.error(
+            "Watchlist market: bar fetch returned no data for any of %d symbols — likely provider auth/data outage",
+            len(symbol_list),
+        )
+        return JSONResponse(
+            {"error": "market data unavailable: no bars for any requested symbol"},
+            status_code=502,
+        )
+
     intraday_by_symbol: dict[str, list[StockBar]] = {}
     try:
         intraday_by_symbol = await provider.aget_stock_bars_batch(

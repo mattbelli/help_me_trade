@@ -148,3 +148,22 @@ def test_session_intraday_closes_equity_rth_unchanged() -> None:
         _bar("2026-06-29T20:30:00Z", 200.0),  # 16:30 ET -> after close, excluded
     ]
     assert _session_intraday_closes(bars) == [100.0]
+
+
+def test_empty_bar_batch_returns_502(
+    test_client, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A total bar-fetch failure (e.g. stale provider auth) must return 502,
+    not 200 with empty quotes — clients keep last-good data on error."""
+    provider = _make_provider()
+
+    async def _empty_batch(symbols: list[str], timeframe: str = "1Day", days: int = 12):
+        return {}
+
+    provider.aget_stock_bars_batch = _empty_batch
+    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setenv("VOLUME_PROFILE_DIR", str(tmp_path))
+
+    resp = test_client.get("/api/watchlist/market?symbols=AAPL,/ES")
+    assert resp.status_code == 502
+    assert "market data unavailable" in resp.json()["error"]

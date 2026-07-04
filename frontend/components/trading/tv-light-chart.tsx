@@ -13,6 +13,7 @@ import {
   CrosshairMode,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   createChart,
   TickMarkType,
   type IChartApi,
@@ -151,6 +152,8 @@ type Props = {
   timeframe?: ChartTimeframe;
   style?: "candle" | "line";
   livePrice?: number;
+  extPrice?: number | null;
+  marketSession?: string | null;
   /** Hide the chart's own toolbar + overlay — the workspace frame provides the
       controls (symbol, timeframe, style, Studies), so the internal one is redundant. */
   compact?: boolean;
@@ -164,6 +167,8 @@ export function TvLightChart({
   timeframe: timeframeProp,
   style: styleProp,
   livePrice,
+  extPrice,
+  marketSession,
   compact = false,
   showLevels: showLevelsProp,
   studies,
@@ -175,6 +180,7 @@ export function TvLightChart({
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const levelLinesRef = useRef<IPriceLine[]>([]);
   const sessionLevelLinesRef = useRef<IPriceLine[]>([]);
+  const extPriceLineRef = useRef<IPriceLine | null>(null);
   const studySeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const oscSeriesRef = useRef<ISeriesApi<"Line" | "Histogram">[]>([]);
   const barsRef = useRef<Ohlcv[]>([]);
@@ -712,6 +718,7 @@ export function TvLightChart({
       chartRef.current = null;
       mainRef.current = null;
       volumeRef.current = null;
+      extPriceLineRef.current = null;
     };
   }, [timeframe.value, style, themeNonce]);
 
@@ -915,6 +922,46 @@ export function TvLightChart({
 
     return removeSessionLevelLines;
   }, [showLevels, sessionLevels, loading, timeframe.value, style, themeNonce]);
+
+  useEffect(() => {
+    const series = mainRef.current;
+
+    const removeExtPriceLine = () => {
+      if (extPriceLineRef.current && series) {
+        try {
+          series.removePriceLine(extPriceLineRef.current);
+        } catch {
+          /* series removed */
+        }
+      }
+      extPriceLineRef.current = null;
+    };
+
+    const showExt =
+      extPrice != null &&
+      marketSession != null &&
+      (marketSession === "pre" ||
+        marketSession === "post" ||
+        marketSession === "overnight");
+
+    if (!showExt || !series || loading) {
+      removeExtPriceLine();
+      return removeExtPriceLine;
+    }
+
+    removeExtPriceLine();
+    const color = withAlpha(resolveCssColor(TREND_COLOR_VAR, "#5ad1be"), 0.75);
+    extPriceLineRef.current = series.createPriceLine({
+      price: extPrice,
+      color,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "ext",
+    });
+
+    return removeExtPriceLine;
+  }, [extPrice, marketSession, loading, timeframe.value, style, symbol, themeNonce]);
 
   useEffect(() => {
     const chart = chartRef.current;

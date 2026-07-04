@@ -52,10 +52,20 @@
     {
       "id": "idea-outcomes",
       "title": "Idea shadow-tracker: mechanical outcomes for EVERY scan idea",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
-      "notes": "Founder ask: ideas he doesn't take must still build the win% record. Every validated idea gets shadow-resolved by price action alone: pending \u2192 triggered (entry zone touched within TTL) \u2192 won/lost/expired (target vs stop, conservative same-bar rule). Separable later: raw scan win% vs founder-filter value-add vs conviction lane. This is 5b's outcome machinery built early. No trading/ involvement \u2014 pure journaling.",
+      "notes": "SHIPPED on main (7b6cf03), per BUILD.md. State machine (research/idea_tracker.py: pending\u2192triggered\u2192won/lost/expired/invalidated/data_gap incl. conservative same-bar rules), storage (db/idea_outcomes.py SQLite table + win-rate summary), 30-min market-hours scheduler (api/main.py), and 13-test suite (tests/test_idea_tracker.py) all confirmed working. GET /api/ideas/outcomes exists. UI consumption split out as idea-outcomes-ui.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "idea-outcomes-ui",
+      "title": "Idea outcomes UI: win% dashboard / shadow-tracker view",
+      "lane": "next",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "Backend (idea-outcomes) is shipped and has a working GET /api/ideas/outcomes endpoint, but nothing in the frontend consumes it yet \u2014 no widget/dashboard shows pending/triggered/won/lost ideas or the win-rate summary. Also deferred: founder-verdict UI and conviction-lane A/B via origin field (see BUILD.md v1.5 notes).",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -332,11 +342,11 @@
     {
       "id": "fr-1783133088",
       "title": "Quotes Bugs",
-      "lane": "inbox",
-      "type": "idea",
-      "priority": "normal",
-      "notes": "watchlist isnt showing quotes on phone. serv last-close issue? having inconsistent pricing across watchlists and charts and web app and phone. need to look into this. we need consistent pricing and we want it available 24/5 for where it applies",
-      "owner": "founder",
+      "lane": "in_progress",
+      "type": "bug",
+      "priority": "high",
+      "notes": "FIXED, pending deploy + live check. Root causes: (1) phone blanks = Schwab bar-fetch failures swallowed → /api/watchlist/market returned 200 + empty quotes → mobile cache replaced wholesale (web's additive merge masked it as 'frozen'); now a total-batch miss returns 502 + error log, clients keep last-good data (+regression test). (2) Chart ignored ext_price/market_session while watchlist prefers it off-hours; chart now draws a dashed 'ext' price line during pre/post/overnight. (3) Mobile watchlist merges quotes additively like web. All checks green (1489 pytest, ruff, typecheck). NEEDS: backend restart + frontend rebuild on serv + phone bundle refresh; ext line verifiable from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence — flag if it bugs you.",
+      "owner": "serv",
       "updated_at": "2026-07-04"
     }
   ]

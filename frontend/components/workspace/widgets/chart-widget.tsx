@@ -27,7 +27,7 @@ export function ChartWidget({ config }: WidgetProps) {
       ? (channelSymbol ?? config.symbol ?? "SPY")
       : (config.symbol ?? "SPY");
 
-  const { price: livePrice } = useSymbolQuote({
+  const { price: livePrice, extPrice, marketSession } = useSymbolQuote({
     symbol,
     enabled: Boolean(symbol),
   });
@@ -44,6 +44,8 @@ export function ChartWidget({ config }: WidgetProps) {
             timeframe={timeframe}
             style={style}
             livePrice={livePrice}
+            extPrice={extPrice}
+            marketSession={marketSession}
           />
         ) : (
           <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
