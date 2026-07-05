@@ -10,6 +10,23 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-06) — UI sprint SHIPPED; next: brand phase 2 / statement importer / audit cards
+
+> **The entire 2026-07-05 UI sprint is DONE, deployed, pushed** (BUILD.md has per-round rows): polish rounds
+> 1-4 (ticker links / motion + tick-flash / type ladder / widget-state kit), Ember theme (founder's wezterm
+> palette + film grain, replaced warm), floating theme editor (+ honest var rows), header alignment + chart/
+> watchlist ☰ toolbars, watchlist edit mode (pencil → add-row + round red − badges), brand `stand_in` phase 1
+> (channel button = the tinted mark, HMT toolbar, favicon). **Founder eyeball Monday open: the M1 tick-flash**
+> (needs live quotes). Next candidates, founder-priority order: (a) **brand phase 2** (card
+> `brand-overhaul-ui`: boot moment, empty-page watermark, app icon, color question); (b) **`statement-import`**
+> (monthly Schwab PDF → balance anchors + month-end positions; supersedes ledger-offsets guesswork);
+> (c) **`db-retention`** (VACUUM + age hourly keepers; file at 600MB and growing); (d) the 13 audit gap cards
+> (top: `mobile-approval-device-auth`, `safety-fill-attribution-orphan`; founder lane holds the
+> kill-switch-blocks-exits design call). UI-round conventions that now bind: Tailwind v4 needs
+> `text-[length:var(--fs-*)]`; new CSS vars go INSIDE populated :root; dev smoke servers on **3005+ only**
+> (3002 = nhl-gm-sim); deploy = build + `tools/serv-deploy.sh frontend` back-to-back; legacy routes are a
+> build-time blind spot (prerender!) until `retire-old-ui`.
+
 ## ▶ START HERE (2026-07-05 pm) — NEXT TASK: UI cleanup/polish rounds
 
 > Founder is about to start the UI quality work. Read **`References/UI_POLISH.md`** (Opus designer
