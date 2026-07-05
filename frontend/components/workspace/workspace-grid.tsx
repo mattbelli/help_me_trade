@@ -754,12 +754,14 @@ export function WorkspaceGrid() {
         <WorkspaceWidgetPicker onClose={() => setPickerOpen(false)} />
       ) : null}
 
-      {/* Relative wrapper for the four-edge gradient overlays. */}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      {/* Relative wrapper for the four-edge gradient overlays. Grain lives HERE
+          (non-scrolling) so it covers the viewport at every scroll position —
+          on the scroller it only spanned the first viewport of content. */}
+      <div className="grain-surface relative min-h-0 flex-1 overflow-hidden">
         <div
           id={GRID_SCROLL_ID}
           onScroll={measureEdges}
-          className="workspace-scroll grain-surface h-full overflow-auto px-4 pt-4 pb-6"
+          className="workspace-scroll h-full overflow-auto px-4 pt-4 pb-6"
           style={
             locked
               ? {}
