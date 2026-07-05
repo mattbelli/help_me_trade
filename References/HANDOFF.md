@@ -10,6 +10,23 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## LATEST (2026-07-05, Saturday-night round — all deployed + pushed, `6e2cdc6`)
+
+> Full detail in BUILD.md's 2026-07-05 rows. (1) **Quotes round 2** (founder live report): /ES stale
+> daily-bar price → `_futures_price_roll` (newer 5-min Globex session rolls the quote forward); weekend
+> ext divergence → "closed" is now an ext session end-to-end (payload, hub, chart header, watchlist EXT
+> badge, dashed line). Live-verified. (2) **⚠️ idea-tracker weekend kill-bug**: closed-market sweeps
+> counted as fetch failures → all 4 day-one ideas falsely `data_gap`'d; fixed (tri-state
+> `fetch_daily_bars_since`), **all 4 ideas restored to pending for Monday's judging window**.
+> (3) **idea-outcomes widget SHIPPED** (`/add idea outcomes`) — founder watches outcomes accumulate from
+> judging day one; in-browser eyeball pending. (4) **#36 backup**: serv chain + restore drill VERIFIED;
+> remaining = founder eyeballs the PC pull folder (card → founder lane). (5) **generals_dip
+> pending-count invariant fixed** (adversarial review SAFE) — correct before sleeves ever get armed.
+> (6) Grid page-switch slide/overlap bug fixed + founder-verified (7/4). Strategic notes carded:
+> broker-protocol hardening, main.py strangler steps 1-2, ship-it/multi-tenant + parked Alpaca-SIP
+> triggers (cards `quotes-extraction-broker-protocol`, `mainpy-lifecycle-split`, `ship-it-multi-tenant`).
+> **Ratchet rule now in force: nothing NEW lands in api/main.py — route modules only.**
+
 ## CURRENT FOCUS — Phase 5a SHIPPED + deterministic (2026-07-04); founder judging idea quality
 
 > ▶ **Phase 5a is BUILT, TUNED, DEPLOYED, COMMITTED.** `setup_scan` recipe live end-to-end (Research page →
