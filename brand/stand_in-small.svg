@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!-- stand_in · flat fallback for ≤16px (favicon) · the hollow closes at this size, so "you" renders as quiet grey -->
+  <rect x="34" y="38" width="20" height="54" fill="#525a66"/>
+  <rect x="66" y="26" width="20" height="54" fill="#e9ebee"/>
+</svg>
