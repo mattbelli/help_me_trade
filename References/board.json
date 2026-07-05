@@ -12,11 +12,12 @@
     {
       "id": "theme-editor-floating",
       "title": "Theme editor: kill the scrim/blur — draggable floating window over the live workspace",
-      "lane": "next",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Founder 2026-07-05: the editor currently opens as a modal with a blurred/scrimmed backdrop, hiding exactly what you're editing. Rework to a non-modal floating panel: no scrim, no backdrop-blur, draggable by title bar, workspace stays fully interactive/visible so var edits render live behind it. Keep --elev/panel-shadow chrome so it reads as a window. Queued immediately after theme-ember lands (same-file collision avoidance)."
+      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): Base-UI modal Dialog (scrim + backdrop-blur-xs + scroll-lock + focus-trap) → non-modal floating window via createPortal: no scrim/blur, title-bar pointer-capture drag with viewport clamping, z-[65] (above console/picker, below banner/toast), motionStd fade-scale open, Escape closes without trapping. Verified: body scroll unlocked, Alt+2 page-switch works with editor open. Editor internals untouched.",
+      "updated_at": "2026-07-05"
     },
     {
       "id": "theme-ember",
@@ -25,7 +26,7 @@
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): warm theme replaced by Ember (id kept, label swapped) — bg #242321, panels #2b2925, chrome #17181a, amber accent #d99a52, soft green/red #a3b565/#d9705c; fg-faint lifted to #7f766a (3.5:1) for 9px readability, wezterm #4e4840 kept for borders/decoration. Film grain = inline SVG fractalNoise tile via --grain/--grain-opacity (0.08) + .grain-surface util, applied to canvas + widget headers (one-liner to extend). All widget headers unified to the chart's 14px scale. Orchestrator fix: --chart-accent reverted to green #a3b565 (candle guardrail — agent had set amber). Founder eyeball pending; grain-behind-everything trial = add .grain-surface to WidgetCard.",
+      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): warm theme replaced by Ember (id kept, label swapped) — bg #242321, panels #2b2925, chrome #17181a, amber accent #d99a52, soft green/red #a3b565/#d9705c; fg-faint lifted to #7f766a (3.5:1) for 9px readability, wezterm #4e4840 kept for borders/decoration. Film grain = inline SVG fractalNoise tile via --grain/--grain-opacity (0.08) + .grain-surface util, applied to canvas + widget headers (one-liner to extend). All widget headers unified to the chart's 14px scale. Orchestrator fix: --chart-accent reverted to green #a3b565 (candle guardrail — agent had set amber). Founder eyeball pending; grain-behind-everything trial = add .grain-surface to WidgetCard. ROUND 2 (founder feedback 2026-07-05): surfaces neutralized to carbon grey (#202020/#262626/#2d2d2c — warmth now lives only in text/accent, no brown cast), candles muted (#97a06e/#c47767), grain extended to ALL widget panels (.grain-surface on WidgetCard; header layer removed to avoid doubling).",
       "updated_at": "2026-07-05"
     },
     {

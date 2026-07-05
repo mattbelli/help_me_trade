@@ -1,16 +1,13 @@
 "use client";
 
+import { motion } from "motion/react";
+import { XIcon } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { TerminalButton, TerminalInput } from "@/components/ui/terminal";
+import { motionStd, useMotionSafe } from "@/lib/workspace/motion";
 import {
   applyInlinePreview,
   bulkSetValue,
@@ -27,6 +24,8 @@ import {
   type WorkspaceTheme,
 } from "@/lib/workspace/themes";
 import { useCustomThemeStore } from "@/lib/workspace/use-custom-theme-store";
+
+const PANEL_WIDTH = 416; // w-[26rem]
 
 type ThemeEditorDialogProps = {
   open: boolean;
@@ -78,12 +77,23 @@ export function ThemeEditorDialog({
   const [cloneBase, setCloneBase] = useState<string>("carbon");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  // Floating-window position (session-only, never persisted). null until the
+  // window opens; seeded to the right edge below the toolbar.
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragOffset = useRef<{ dx: number; dy: number } | null>(null);
+  const transition = useMotionSafe(motionStd);
+
   // Seed when a fresh editor session opens (render-time adjust on prop change —
   // the React-endorsed "store previous value in state" pattern, not an effect).
   const sessionKey = open ? `${editingId ?? "clone"}` : null;
   const [seededKey, setSeededKey] = useState<string | null>(null);
   if (seededKey !== sessionKey) {
     setSeededKey(sessionKey);
+    if (sessionKey !== null) {
+      // Default: right side of the viewport, just under the toolbar.
+      setPos({ left: Math.max(8, window.innerWidth - PANEL_WIDTH - 24), top: 56 });
+    }
     if (sessionKey === null) {
       // closed — nothing to seed
     } else if (editing) {
@@ -126,6 +136,35 @@ export function ThemeEditorDialog({
   function handleCancel() {
     clearInlinePreview();
     onOpenChange(false);
+  }
+
+  // Title-bar drag: pointer-capture so move/up fire even off the header;
+  // clamp so the window (and its title bar) can never be lost off-screen.
+  function handleDragStart(e: React.PointerEvent) {
+    if (!pos) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragOffset.current = { dx: e.clientX - pos.left, dy: e.clientY - pos.top };
+  }
+
+  function handleDragMove(e: React.PointerEvent) {
+    if (!dragOffset.current) return;
+    const w = panelRef.current?.offsetWidth ?? PANEL_WIDTH;
+    const left = Math.min(
+      Math.max(8, e.clientX - dragOffset.current.dx),
+      window.innerWidth - w - 8,
+    );
+    const top = Math.min(
+      Math.max(8, e.clientY - dragOffset.current.dy),
+      window.innerHeight - 40,
+    );
+    setPos({ left, top });
+  }
+
+  function handleDragEnd(e: React.PointerEvent) {
+    dragOffset.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
   }
 
   function handleSave() {
@@ -184,26 +223,50 @@ export function ThemeEditorDialog({
     );
   }
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) clearInlinePreview();
-        onOpenChange(next);
+  if (!open || !pos) return null;
+
+  return createPortal(
+    <motion.div
+      ref={panelRef}
+      role="dialog"
+      aria-label={editing ? "Edit theme" : "New theme"}
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={transition}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          handleCancel();
+        }
       }}
+      style={{ left: pos.left, top: pos.top, width: PANEL_WIDTH }}
+      className="fixed z-[65] flex flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
     >
-      <DialogContent
-        className="border border-[var(--border)] bg-[var(--panel)] font-mono shadow-[var(--panel-shadow)] sm:max-w-md"
-        showCloseButton={false}
+      <div
+        onPointerDown={handleDragStart}
+        onPointerMove={handleDragMove}
+        onPointerUp={handleDragEnd}
+        onPointerCancel={handleDragEnd}
+        className="-mx-4 -mt-4 flex cursor-grab touch-none items-start gap-2 rounded-t-xl border-b border-[var(--border)] bg-[var(--bg-inset)]/50 px-4 py-2.5 active:cursor-grabbing"
       >
-        <DialogHeader>
-          <DialogTitle className="font-mono text-[length:var(--fs-title)] tracking-[0.08em] uppercase text-foreground">
+        <div className="flex flex-col gap-1">
+          <span className="font-mono text-[length:var(--fs-title)] tracking-[0.08em] uppercase text-foreground">
             {editing ? "Edit theme" : "New theme"}
-          </DialogTitle>
-          <DialogDescription className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
+          </span>
+          <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             Cloned from {baseLabel(cloneBase, editing?.name)}
-          </DialogDescription>
-        </DialogHeader>
+          </span>
+        </div>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={handleCancel}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="ml-auto rounded p-0.5 text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      </div>
 
         <label className="flex items-center gap-3">
           <span className="w-20 shrink-0 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] uppercase text-[var(--fg-faint)]">
@@ -329,7 +392,7 @@ export function ThemeEditorDialog({
             Save
           </TerminalButton>
         </div>
-      </DialogContent>
-    </Dialog>
+    </motion.div>,
+    document.body,
   );
 }
