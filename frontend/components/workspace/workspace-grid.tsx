@@ -453,12 +453,17 @@ function WidgetHeader({
           {def?.title ?? widgetType}
         </span>
       )}
+      {meta ? (
+        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)] [text-box:trim-both_cap_alphabetic]">
+          {meta}
+        </span>
+      ) : null}
+      <div className="flex-1" />
+      {isChart && config && onConfigChange ? (
+        <ChartHeaderMenus config={config} onConfigChange={onConfigChange} />
+      ) : null}
       {widgetType === "watchlist" && onWatchlistChange ? (
         <>
-          <WatchlistListSelector
-            watchlistId={watchlistId}
-            onSelect={onWatchlistChange}
-          />
           {config && onConfigChange ? (
             <button
               type="button"
@@ -479,16 +484,11 @@ function WidgetHeader({
               +
             </button>
           ) : null}
+          <WatchlistListSelector
+            watchlistId={watchlistId}
+            onSelect={onWatchlistChange}
+          />
         </>
-      ) : null}
-      {meta ? (
-        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)] [text-box:trim-both_cap_alphabetic]">
-          {meta}
-        </span>
-      ) : null}
-      <div className="flex-1" />
-      {isChart && config && onConfigChange ? (
-        <ChartHeaderMenus config={config} onConfigChange={onConfigChange} />
       ) : null}
       {channelAware ? (
         <ChannelSelector channel={channel} onChange={onChannelChange} />
