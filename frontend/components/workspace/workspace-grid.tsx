@@ -487,6 +487,12 @@ function WidgetHeader({
           <WatchlistListSelector
             watchlistId={watchlistId}
             onSelect={onWatchlistChange}
+            editing={config?.editing ?? false}
+            onToggleEdit={
+              config && onConfigChange
+                ? () => onConfigChange({ editing: !config.editing })
+                : undefined
+            }
           />
         </>
       ) : null}

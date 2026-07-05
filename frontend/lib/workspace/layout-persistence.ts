@@ -10,6 +10,8 @@ export type WidgetInstanceConfig = {
   watchlistId?: string;
   /** Watchlist: header "+" toggles the inline add-symbol row at the top of the list. */
   adding?: boolean;
+  /** Watchlist: ☰ → Edit list — rows show an always-visible remove ×. */
+  editing?: boolean;
   /** Chart studies toggled from the frame toolbar's Studies dropdown. */
   showSessionNodes?: boolean;
   studies?: string[];

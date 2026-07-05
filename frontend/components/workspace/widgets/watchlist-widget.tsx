@@ -245,6 +245,7 @@ function WatchlistSymbolRow({
   isOvernight,
   linked,
   removing,
+  editing,
   onPublish,
   onRemove,
   onDragStart,
@@ -255,6 +256,7 @@ function WatchlistSymbolRow({
   isOvernight: boolean;
   linked: boolean;
   removing: boolean;
+  editing: boolean;
   onPublish: () => void;
   onRemove: () => void;
   onDragStart: () => void;
@@ -343,7 +345,12 @@ function WatchlistSymbolRow({
               e.stopPropagation();
               onRemove();
             }}
-            className="rounded px-0.5 font-mono text-[length:var(--fs-body)] leading-none text-[var(--fg-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40"
+            className={cn(
+              "rounded px-0.5 font-mono text-[length:var(--fs-body)] leading-none transition-opacity hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40",
+              editing
+                ? "opacity-100 text-[var(--c-red)]"
+                : "text-[var(--fg-faint)] opacity-0 group-hover:opacity-100",
+            )}
             aria-label={`Remove ${symbol}`}
           >
             ×
@@ -714,6 +721,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               isOvernight={overnightSymbols.has(symbol.toUpperCase())}
               linked={linked}
               removing={removing === symbol}
+              editing={config.editing ?? false}
               onPublish={() => publish(symbol)}
               onRemove={() => void removeSymbol(symbol)}
               onDragStart={() => setSortState(null)}
