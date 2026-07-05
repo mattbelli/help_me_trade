@@ -301,6 +301,14 @@ def _sweep_row(row: dict[str, Any], *, now_date: date, db_path: Path | None = No
         update_outcome(outcome_id, fetch_fail_streak=streak, **db_kwargs)
         return None
 
+    if not bars:
+        # Fetch succeeded but no trading session on/after as_of yet (weekend/
+        # holiday). Benign — nothing to evaluate and NOT a data gap; clear any
+        # failure streak so a closed market can never kill an idea.
+        if int(row.get("fetch_fail_streak") or 0) > 0:
+            update_outcome(outcome_id, fetch_fail_streak=0, **db_kwargs)
+        return None
+
     patch: dict[str, Any] | None
     if status == "pending":
         patch = _process_pending(row, bars, now_date=now_date)

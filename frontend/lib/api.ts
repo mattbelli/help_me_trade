@@ -1353,3 +1353,54 @@ export async function addBoardInboxCard(
   }
   return res.json() as Promise<BoardInboxAddResponse>;
 }
+
+export type IdeaOutcomeStatus =
+  | "pending"
+  | "triggered"
+  | "won"
+  | "lost"
+  | "expired"
+  | "invalidated"
+  | "data_gap";
+
+export type IdeaOutcomeRow = {
+  id: number;
+  artifact_id: number;
+  idea_index: number;
+  symbol: string;
+  as_of: string;
+  entry_low: string;
+  entry_high: string;
+  stop: string;
+  targets: string[];
+  status: IdeaOutcomeStatus;
+  triggered_at: string | null;
+  resolved_at: string | null;
+  resolution_price: string | null;
+  first_target_hit: number | null;
+  mfe_pct: number | null;
+  mae_pct: number | null;
+  founder_verdict: string | null;
+  notes: string | null;
+  updated_at: string;
+};
+
+export type IdeaOutcomesSummary = {
+  counts: Record<string, number>;
+  resolved: number;
+  win_rate: number | null;
+};
+
+export type IdeaOutcomesResponse = {
+  summary: IdeaOutcomesSummary;
+  open: IdeaOutcomeRow[];
+  resolved: IdeaOutcomeRow[];
+};
+
+export async function getIdeaOutcomes(): Promise<IdeaOutcomesResponse> {
+  const res = await apiFetch(`${API_BASE}/api/ideas/outcomes`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Idea outcomes error ${res.status}`);
+  return res.json();
+}

@@ -27,6 +27,7 @@ import { PnlScatterWidget } from "@/components/workspace/widgets/pnl-scatter-wid
 import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcome-distribution-widget";
 import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
 import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
+import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
 
@@ -124,6 +125,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: ScansWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
+  },
+  {
+    id: "idea-outcomes",
+    title: "idea outcomes",
+    description:
+      "Shadow-tracked scan ideas — every idea's mechanical outcome + win rate",
+    channelAware: true,
+    component: IdeaOutcomesWidget,
+    defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
   },
   {
     id: "rules",

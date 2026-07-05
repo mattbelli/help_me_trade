@@ -62,12 +62,12 @@
     {
       "id": "idea-outcomes-ui",
       "title": "Idea outcomes UI: win% dashboard / shadow-tracker view",
-      "lane": "next",
+      "lane": "done",
       "type": "feature",
       "priority": "normal",
-      "notes": "Backend (idea-outcomes) is shipped and has a working GET /api/ideas/outcomes endpoint, but nothing in the frontend consumes it yet \u2014 no widget/dashboard shows pending/triggered/won/lost ideas or the win-rate summary. Also deferred: founder-verdict UI and conviction-lane A/B via origin field (see BUILD.md v1.5 notes).",
+      "notes": "SHIPPED + deployed 2026-07-05 (eyeball pending): `/add idea outcomes` \u2014 summary strip (resolved N + honest win rate, '\u2014' until data), per-status chips, Open/Resolved tabs, click-to-chart tickers, notes on hover, 60s poll. BONUS FIX while building: the tracker was killing weekend-registered ideas as data_gap (closed-market sweeps counted as fetch failures \u2014 all 4 day-one ideas were dead); root-caused, fixed, +2 regression tests, and all 4 ideas RESTORED to pending for Monday. Deferred as before: founder-verdict UI, conviction-lane A/B via origin.",
       "owner": "serv",
-      "updated_at": "2026-07-04"
+      "updated_at": "2026-07-05"
     },
     {
       "id": "copilot-grid-shift",
@@ -141,13 +141,13 @@
     },
     {
       "id": "36",
-      "title": "Off-box backup + restore drill",
-      "lane": "next",
+      "title": "Off-box backup: verify the PC pull folder (rest of the drill PASSED)",
+      "lane": "founder",
       "type": "ops",
       "priority": "high",
-      "notes": "Ops CRIT-2 completion \u2014 one disk failure currently loses the ledger history.",
-      "owner": "serv",
-      "updated_at": "2026-07-04"
+      "notes": "Audited 2026-07-05, destination = PC over tailnet (your call). Serv side VERIFIED: nightly 03:00 sqlite .backup + integrity_check + config tarball, 14-day retention, coverage complete (everything that matters lives in trading.db; other DBs are empty stubs, research/ is rebuildable cache). RESTORE DRILL PASSED: restored yesterday's snapshot, integrity ok, row counts exact vs live. REMAINING (you): check the PC's HMT-backup-pull folder \u2014 is the newest trading-*.db recent? sshd shows the PC connecting most days but at scattered times (looks like Task Scheduler run-on-wake, not 03:30), and serv can't see what was copied. If stale, fix the 'HMT backup pull' scheduled task on Windows.",
+      "owner": "founder",
+      "updated_at": "2026-07-05"
     },
     {
       "id": "41",

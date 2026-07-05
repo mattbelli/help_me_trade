@@ -111,7 +111,14 @@ def _bar_date(bar: Any) -> date | None:
 
 
 def fetch_daily_bars_since(symbol: str, since: date) -> list[Any] | None:
-    """Daily Alpaca bars on/after ``since`` (shared by research + idea tracker)."""
+    """Daily Alpaca bars on/after ``since`` (shared by research + idea tracker).
+
+    Tri-state result — callers must distinguish the empty list from None:
+    ``None`` = the FETCH failed; ``[]`` = fetch OK but no trading session on/after
+    ``since`` yet (weekend/holiday). Collapsing both to None made the idea
+    tracker count every closed-market sweep as a fetch failure and data_gap
+    weekend-registered ideas before their first session.
+    """
     sym = normalize_research_symbol(symbol)
     if not sym:
         return None
@@ -119,8 +126,7 @@ def fetch_daily_bars_since(symbol: str, since: date) -> list[Any] | None:
     bars = _fetch_bars(sym, days=lookback_days)
     if not bars:
         return None
-    filtered = [b for b in bars if (_bar_date(b) or date.min) >= since]
-    return filtered or None
+    return [b for b in bars if (_bar_date(b) or date.min) >= since]
 
 
 def _bars_to_indicator_bars(bars: list[Any]) -> list[dict[str, float]]:

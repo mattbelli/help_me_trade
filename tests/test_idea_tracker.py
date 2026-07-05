@@ -308,6 +308,34 @@ def test_data_gap_after_repeated_fetch_failures(idea_db) -> None:
     assert not list_open(db_path=idea_db)
 
 
+def test_closed_market_empty_bars_is_benign_not_data_gap(idea_db) -> None:
+    """Fetch OK but no session since as_of (weekend/holiday) must never count
+    toward the data_gap streak — this killed all 4 day-one ideas over July 4th."""
+    _register(idea_db)
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=[]):
+        for _ in range(DATA_GAP_FAIL_STREAK + 2):
+            counts = sweep_open_ideas(db_path=idea_db)
+            assert counts.get("data_gap", 0) == 0
+    rows = list_open(db_path=idea_db)
+    assert len(rows) == 1
+    assert int(rows[0]["fetch_fail_streak"] or 0) == 0
+
+
+def test_empty_bars_resets_prior_fail_streak(idea_db) -> None:
+    """A successful fetch (even with zero new bars) clears an accumulated
+    failure streak, so outage + weekend can't combine into a false data_gap."""
+    _register(idea_db)
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=None):
+        for _ in range(DATA_GAP_FAIL_STREAK - 1):
+            sweep_open_ideas(db_path=idea_db)
+    rows = list_open(db_path=idea_db)
+    assert int(rows[0]["fetch_fail_streak"]) == DATA_GAP_FAIL_STREAK - 1
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=[]):
+        sweep_open_ideas(db_path=idea_db)
+    rows = list_open(db_path=idea_db)
+    assert int(rows[0]["fetch_fail_streak"] or 0) == 0
+
+
 def test_get_summary_win_rate(idea_db) -> None:
     _register(idea_db, symbol="WIN")
     _register(
