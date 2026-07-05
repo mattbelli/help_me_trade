@@ -109,11 +109,116 @@ const REPRESENTATIVE_VAR: Record<EditableToken, string> = Object.fromEntries(
   EDITABLE_TOKENS.map((t) => [t.token, t.vars[0]]),
 ) as Record<EditableToken, string>;
 
-// Every var the inline preview may touch — cleared verbatim on cancel/save.
-const PREVIEW_VARS: string[] = [
-  ...EDITABLE_TOKENS.flatMap((t) => t.vars),
-  "--c-accent-soft",
+// ── Full per-var catalog (the "All colors" section) ──────────────────────────
+// Every themable var, individually editable, grouped for the editor. Kept in
+// sync with the [data-theme] blocks in globals.css; excludes the Tailwind
+// --color-* aliases, font/radius vars, and the non-color --panel-shadow.
+
+export type ColorVar = { var: string; label: string };
+export type ColorVarGroup = { label: string; vars: ColorVar[] };
+
+export const ALL_COLOR_GROUPS: ColorVarGroup[] = [
+  {
+    label: "Text",
+    vars: [
+      { var: "--foreground", label: "Foreground" },
+      { var: "--fg-dim", label: "Dim text" },
+      { var: "--fg-faint", label: "Faint text" },
+      { var: "--muted-foreground", label: "Muted text" },
+    ],
+  },
+  {
+    label: "Surfaces",
+    vars: [
+      { var: "--background", label: "Background" },
+      { var: "--panel", label: "Panel" },
+      { var: "--card", label: "Card" },
+      { var: "--popover", label: "Popover" },
+      { var: "--bg-raised", label: "Raised" },
+      { var: "--bg-hover", label: "Hover" },
+      { var: "--bg-inset", label: "Inset" },
+      { var: "--muted", label: "Muted" },
+      { var: "--secondary", label: "Secondary" },
+      { var: "--accent", label: "Accent surface" },
+      { var: "--scrim", label: "Scrim (overlay)" },
+    ],
+  },
+  {
+    label: "Borders",
+    vars: [
+      { var: "--border", label: "Border" },
+      { var: "--border-strong", label: "Border strong" },
+      { var: "--input", label: "Input" },
+      { var: "--ring", label: "Focus ring" },
+    ],
+  },
+  {
+    label: "Accent",
+    vars: [
+      { var: "--c-accent", label: "Accent" },
+      { var: "--c-accent-soft", label: "Accent soft" },
+      { var: "--c-on-accent", label: "On accent" },
+      { var: "--c-glow", label: "Glow" },
+      { var: "--c-command", label: "Command" },
+    ],
+  },
+  {
+    label: "Semantic",
+    vars: [
+      { var: "--c-green", label: "Green" },
+      { var: "--pnl-positive", label: "P&L positive" },
+      { var: "--c-red", label: "Red" },
+      { var: "--pnl-negative", label: "P&L negative" },
+      { var: "--c-danger", label: "Danger" },
+      { var: "--destructive", label: "Destructive" },
+      { var: "--c-amber", label: "Amber (warnings)" },
+      { var: "--c-yellow", label: "Yellow" },
+      { var: "--c-blue", label: "Blue" },
+      { var: "--c-violet", label: "Violet" },
+    ],
+  },
+  {
+    label: "Chart",
+    vars: [
+      { var: "--chart-background", label: "Chart bg" },
+      { var: "--chart-accent", label: "Chart line" },
+      { var: "--chart-down", label: "Chart down" },
+      { var: "--chart-1", label: "Chart 1" },
+      { var: "--chart-2", label: "Chart 2" },
+      { var: "--chart-3", label: "Chart 3" },
+      { var: "--chart-4", label: "Chart 4" },
+      { var: "--chart-5", label: "Chart 5" },
+    ],
+  },
+  {
+    label: "Sidebar",
+    vars: [
+      { var: "--sidebar", label: "Sidebar" },
+      { var: "--sidebar-accent", label: "Sidebar accent" },
+      { var: "--sidebar-border", label: "Sidebar border" },
+      { var: "--sidebar-foreground", label: "Sidebar text" },
+      { var: "--sidebar-accent-foreground", label: "Sidebar accent text" },
+      { var: "--sidebar-primary", label: "Sidebar primary" },
+      { var: "--sidebar-ring", label: "Sidebar ring" },
+    ],
+  },
 ];
+
+/** True when a value can round-trip through <input type="color"> (#rgb/#rrggbb). */
+export function isHexColor(value: string): boolean {
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test((value ?? "").trim());
+}
+
+// Every var the inline preview may touch — cleared verbatim on cancel/save.
+// Union of the quick-palette groups, the full per-var catalog, and the derived
+// --c-accent-soft, deduped.
+const PREVIEW_VARS: string[] = Array.from(
+  new Set([
+    ...EDITABLE_TOKENS.flatMap((t) => t.vars),
+    ...ALL_COLOR_GROUPS.flatMap((g) => g.vars.map((v) => v.var)),
+    "--c-accent-soft",
+  ]),
+);
 
 // ── Known theme vars (captured verbatim at clone time) ───────────────────────
 // The ~50 keys present in each globals.css [data-theme] block.

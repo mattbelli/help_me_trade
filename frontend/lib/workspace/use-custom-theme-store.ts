@@ -25,6 +25,7 @@ type CustomThemeState = {
   hydrate: () => Promise<void>;
   createFromCurrent: (name: string, base: string) => string;
   updateTokens: (id: string, token: EditableToken, hex: string) => void;
+  updateVars: (id: string, vars: Record<string, string>) => void;
   rename: (id: string, name: string) => void;
   remove: (id: string) => void;
 };
@@ -150,6 +151,23 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
         ...t,
         tokens,
         vars,
+        colorScheme: resolvedColorScheme(vars),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    set({ themes: next });
+    persist(next);
+  },
+
+  updateVars: (id, vars) => {
+    // Replace the full resolved var map (individual "All colors" edits) and
+    // re-derive the quick-palette tokens so re-opening the editor stays seeded.
+    const next = get().themes.map((t) => {
+      if (t.id !== id) return t;
+      return {
+        ...t,
+        vars,
+        tokens: deriveTokensFromVars(vars),
         colorScheme: resolvedColorScheme(vars),
         updatedAt: new Date().toISOString(),
       };

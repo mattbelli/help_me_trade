@@ -12,11 +12,13 @@ import {
 } from "@/components/ui/dialog";
 import { TerminalButton, TerminalInput } from "@/components/ui/terminal";
 import {
+  ALL_COLOR_GROUPS,
   applyInlinePreview,
   captureThemeVars,
   clearInlinePreview,
   deriveTokensFromVars,
   EDITABLE_TOKENS,
+  isHexColor,
   mergeTokensIntoVars,
   normalizeHex,
   type EditableToken,
@@ -50,7 +52,7 @@ export function ThemeEditorDialog({
   const { theme, setTheme } = useTheme();
   const themes = useCustomThemeStore((s) => s.themes);
   const createFromCurrent = useCustomThemeStore((s) => s.createFromCurrent);
-  const updateTokens = useCustomThemeStore((s) => s.updateTokens);
+  const updateVars = useCustomThemeStore((s) => s.updateVars);
   const rename = useCustomThemeStore((s) => s.rename);
   const remove = useCustomThemeStore((s) => s.remove);
 
@@ -64,7 +66,9 @@ export function ThemeEditorDialog({
     () => ({}) as Record<EditableToken, string>,
   );
   const [baseVars, setBaseVars] = useState<Record<string, string>>({});
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [cloneBase, setCloneBase] = useState<string>("carbon");
+  const [showAll, setShowAll] = useState(false);
 
   // Seed when a fresh editor session opens (render-time adjust on prop change —
   // the React-endorsed "store previous value in state" pattern, not an effect).
@@ -78,6 +82,7 @@ export function ThemeEditorDialog({
       setName(editing.name);
       setTokens(editing.tokens);
       setBaseVars(editing.vars);
+      setOverrides({});
       setCloneBase(editing.base);
     } else {
       // Clone-current mode: snapshot the resolved active theme.
@@ -85,21 +90,35 @@ export function ThemeEditorDialog({
       setName("");
       setTokens(deriveTokensFromVars(vars));
       setBaseVars(vars);
+      setOverrides({});
       setCloneBase(theme ?? "carbon");
     }
   }
 
+  // The working var map: quick-palette group fan-out with individual "All
+  // colors" edits layered on top (individual edits win over group edits).
+  const previewVars = useMemo(
+    () => ({ ...mergeTokensIntoVars(baseVars, tokens), ...overrides }),
+    [baseVars, tokens, overrides],
+  );
+
   // Paint the live preview whenever the editor is open with seeded vars.
   useEffect(() => {
     if (!open || Object.keys(baseVars).length === 0) return;
-    applyInlinePreview(mergeTokensIntoVars(baseVars, tokens));
-  }, [open, baseVars, tokens]);
+    applyInlinePreview(previewVars);
+  }, [open, baseVars, previewVars]);
 
   function handleColor(token: EditableToken, raw: string) {
     const hex = normalizeHex(raw);
     const nextTokens = { ...tokens, [token]: hex };
     setTokens(nextTokens);
-    applyInlinePreview(mergeTokensIntoVars(baseVars, nextTokens));
+    applyInlinePreview({ ...mergeTokensIntoVars(baseVars, nextTokens), ...overrides });
+  }
+
+  function handleVarChange(cssVar: string, raw: string) {
+    const nextOverrides = { ...overrides, [cssVar]: raw };
+    setOverrides(nextOverrides);
+    applyInlinePreview({ ...mergeTokensIntoVars(baseVars, tokens), ...nextOverrides });
   }
 
   function handleCancel() {
@@ -109,9 +128,7 @@ export function ThemeEditorDialog({
 
   function handleSave() {
     if (editing) {
-      for (const { token } of EDITABLE_TOKENS) {
-        updateTokens(editing.id, token, tokens[token]);
-      }
+      updateVars(editing.id, previewVars);
       if (name.trim() && name.trim() !== editing.name) {
         rename(editing.id, name.trim());
       }
@@ -193,6 +210,64 @@ export function ThemeEditorDialog({
               </div>
             );
           })}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAll((s) => !s)}
+            className="flex items-center gap-1.5 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-dim)] hover:text-foreground"
+          >
+            <span className="w-2 text-[var(--fg-faint)]">
+              {showAll ? "▾" : "▸"}
+            </span>
+            All colors
+          </button>
+          {showAll ? (
+            <div className="flex max-h-[280px] flex-col gap-3 overflow-y-auto pr-1">
+              {ALL_COLOR_GROUPS.map((group) => (
+                <div key={group.label} className="flex flex-col gap-1">
+                  <div className="font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
+                    {group.label}
+                  </div>
+                  {group.vars.map(({ var: cssVar, label }) => {
+                    const value = previewVars[cssVar] ?? "";
+                    return (
+                      <div key={cssVar} className="flex items-center gap-2">
+                        <div className="flex w-32 shrink-0 flex-col leading-tight">
+                          <span className="font-mono text-[10px] text-foreground">
+                            {label}
+                          </span>
+                          <span className="font-mono text-[8px] text-[var(--fg-faint)]">
+                            {cssVar}
+                          </span>
+                        </div>
+                        {isHexColor(value) ? (
+                          <input
+                            type="color"
+                            aria-label={label}
+                            value={normalizeHex(value)}
+                            onChange={(e) =>
+                              handleVarChange(cssVar, e.target.value)
+                            }
+                            className="size-6 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
+                          />
+                        ) : null}
+                        <TerminalInput
+                          value={value}
+                          onChange={(e) =>
+                            handleVarChange(cssVar, e.target.value)
+                          }
+                          spellCheck={false}
+                          className="h-6 flex-1"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="-mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t border-[var(--border)] bg-[var(--bg-inset)]/50 p-3">
