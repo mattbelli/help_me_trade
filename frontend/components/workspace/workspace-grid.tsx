@@ -447,7 +447,7 @@ function WidgetHeader({
         />
       ) : (
         <span
-          className="min-w-0 truncate text-[length:var(--fs-widget-title)] font-semibold text-foreground [text-box:trim-both_cap_alphabetic]"
+          className="min-w-0 truncate text-[length:var(--fs-widget-title)] font-semibold text-foreground [text-box:trim-both_cap_text]"
           style={{ fontFamily: "var(--font-display)" }}
         >
           {def?.title ?? widgetType}

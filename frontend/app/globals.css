@@ -131,6 +131,8 @@
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+    /* Scroll-hint shadow color (see .scroll-shadow-y) — light theme overrides. */
+    --scroll-shadow: rgba(0, 0, 0, 0.45);
     /* Film-grain texture: off by default; the ember theme opts in. */
     --grain: none;
     --grain-opacity: 0;
@@ -394,6 +396,7 @@
     --c-glow: 0 0 0 1px rgba(37, 99, 235, 0.16);
     --widget-hover-shadow: 0 2px 10px rgba(20, 24, 31, 0.10);
     --scrim: rgba(40, 35, 25, 0.35);
+    --scroll-shadow: rgba(20, 24, 31, 0.16);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
@@ -624,6 +627,32 @@
 
 /* Scroll surfaces with no visible scrollbar (founder preference — a bottom
    gradient fade signifies more content instead). Scrolling still works. */
+/* No visible scrollbars ANYWHERE (founder rule) — scroll affordance comes from
+   the .scroll-shadow-y hint / edge fades instead. Firefox + Chromium. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Scroll hint: a soft shadow at top/bottom that appears ONLY when more content
+   lies beyond that edge (cover layers scroll with content and mask the fixed
+   shadows when you reach the end — pure CSS, no JS). */
+.scroll-shadow-y {
+  background:
+    linear-gradient(var(--panel) 30%, transparent) center top,
+    linear-gradient(transparent, var(--panel) 70%) center bottom,
+    radial-gradient(farthest-side at 50% 0, var(--scroll-shadow), transparent) center top,
+    radial-gradient(farthest-side at 50% 100%, var(--scroll-shadow), transparent) center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 24px, 100% 24px, 100% 10px, 100% 10px;
+  background-attachment: local, local, scroll, scroll;
+}
+
 .workspace-scroll {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* legacy Edge */
