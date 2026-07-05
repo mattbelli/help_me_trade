@@ -110,6 +110,36 @@
       "updated_at": "2026-07-04"
     },
     {
+      "id": "quotes-extraction-broker-protocol",
+      "title": "Extract quotes/watchlist cluster from main.py + promote quotes/streaming into the broker protocol",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) — makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "mainpy-lifecycle-split",
+      "title": "main.py strangler step 2: lifecycle/app-state module (19 bg loops, 35 module globals)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "The audit's real 'architectural fragility': startup side effects + shared mutable state in the same namespace as 52 request handlers. Deliberate round (opportunism won't reach it): background loops + module-level caches/state into a lifecycle module; main.py ends as ~500 lines of app wiring. After quotes-extraction-broker-protocol.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ship-it-multi-tenant",
+      "title": "Someday/ship-it: multi-user = Alpaca Broker API + per-user data entitlements (not just adapters)",
+      "lane": "backlog",
+      "type": "research",
+      "priority": "low",
+      "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) — adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data — trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
+      "owner": "founder",
+      "updated_at": "2026-07-05"
+    },
+    {
       "id": "36",
       "title": "Off-box backup + restore drill",
       "lane": "next",
