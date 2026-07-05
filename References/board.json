@@ -40,6 +40,16 @@
       "updated_at": "2026-07-04"
     },
     {
+      "id": "ui-polish-do-first",
+      "title": "UI polish do-first batch: tick-flash, page crossfade, motion scale, toast, type ladder",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "notes": "From References/UI_POLISH.md (Opus design review, 32 recs, founder-directed scope). Batch: M1 price tick-flash (the 'live terminal' signal), M2 page hot-swap crossfade (one motion.div+key), motion.ts scale + prefers-reduced-motion guard (prerequisite \u2014 codebase has zero reduced-motion handling), N3 approve/reject result-toast restyle+motion (mission-critical path), T1+T2 type-scale collapse (12 drifting sizes \u2192 one ladder) + label-tracking rule, D2 wire the already-declared-but-dead widget hover-lift. Report includes exact spring/duration values and a 7-item don't-do list (no money count-up, no blur on data panels, no CRT kitsch...).",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
       "id": "ui-polish-small",
       "title": "UI small fixes: duplicate 'performance' picker entries, sector-radar label collisions/clipping",
       "lane": "backlog",
