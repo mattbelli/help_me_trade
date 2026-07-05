@@ -16,12 +16,15 @@ this file, append the old full version there as a new dated section.*
 > review, 32 recs — the good one) and the pruned `References/UI_AUDIT.md` (state-handling findings).
 > ⚠️ Memory [[ui-review-means-visual-quality]]: UI work here = the terminal workspace's LOOK
 > (motion/typography/depth) — never legacy-migration observations; the founder likes the dense mono
-> aesthetic, refine don't replace. Build order (cards on /board): (1) **`ui-polish-do-first`** (next,
-> high) — motion.ts scale + prefers-reduced-motion guard FIRST (prerequisite), then M1 price
-> tick-flash, M2 page hot-swap crossfade, N3 approve/reject toast restyle, T1+T2 type-scale collapse,
-> D2 wire the dead widget hover-lift; exact spring/duration values are in UI_POLISH.md. (2)
-> `ticker-link-gaps` (quick ClickableSymbol wiring: orders blotter, price-alerts, pnl-scatter). (3)
-> `ui-empty-states` (shared WidgetEmpty/Loading/Error + empty-page CTA). Founder favors Opus agents
+> aesthetic, refine don't replace. Build order (founder-agreed 2026-07-05, dependency-driven): (1)
+> **`ticker-link-gaps`** — the one pure-correctness item, small isolated round (ClickableSymbol:
+> orders blotter, price-alerts, pnl-scatter). (2) **motion batch** from `ui-polish-do-first`:
+> motion.ts scale + prefers-reduced-motion guard FIRST (prerequisite), then M1 price tick-flash,
+> M2 page hot-swap crossfade, N3 approve/reject toast restyle, D2 dead hover-lift; exact values in
+> UI_POLISH.md. (3) **T1+T2 type-scale collapse** — settles the ladder BEFORE anything is built on
+> it. (4) **`ui-empty-states`** LAST on purpose: the shared WidgetEmpty/Loading/Error kit + empty-page
+> CTA instantiates across ~20 widgets and must be born on the final type/motion system (not restyled
+> twice); it also carries the trust-critical fix (8 widgets show silent-empty on fetch failure). Founder favors Opus agents
 > for UI coding rounds (themes were built that way, 2 rounds, both accepted). Deploy rule: `npm run
 > build` ONLY back-to-back with `tools/serv-deploy.sh frontend` ([[frontend-build-breaks-live-server]]).
 >
