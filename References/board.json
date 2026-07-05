@@ -31,11 +31,11 @@
     },
     {
       "id": "reddit-oauth-creds",
-      "title": "Create a free Reddit script app so the buzz collector can read Reddit",
-      "lane": "founder",
+      "title": "Reddit access for buzz collector \u2014 solved via RSS, no app needed",
+      "lane": "done",
       "type": "ops",
       "priority": "normal",
-      "notes": "Reddit 403-blocks unauthenticated .json fetching, so social-buzz P1 currently collects from StockTwits only. Fix (~2 min, your Reddit account): reddit.com/prefs/apps -> create app -> type 'script' -> any name/redirect (http://localhost) -> give me the client ID + secret for .env (REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET). Serv then switches the fetcher to the OAuth endpoint (free, ToS-compliant, 100 QPM). Until then baselines build on StockTwits alone.",
+      "notes": "RESOLVED 2026-07-05 without credentials: Reddit gated self-serve app creation (the 'Responsible Builder Policy' wall you hit), but their public .rss Atom feeds serve fine from serv. Fetcher switched to /r/<sub>/new.rss with stdlib XML parsing, 2.5s spacing between subs (a 4-request burst trips the anonymous rate limit), 403 treated like 429. Deployed; verification of a full clean cycle in progress. Nothing for you to do.",
       "owner": "founder",
       "updated_at": "2026-07-05"
     },
