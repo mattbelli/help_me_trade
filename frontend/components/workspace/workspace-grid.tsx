@@ -438,7 +438,10 @@ function WidgetHeader({
           onConfigChange={onConfigChange}
         />
       ) : (
-        <span className="min-w-0 truncate font-mono text-[length:var(--fs-emph)] font-semibold text-foreground">
+        <span
+          className="min-w-0 truncate text-[length:var(--fs-widget-title)] font-semibold text-foreground"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
           {def?.title ?? widgetType}
         </span>
       )}
@@ -530,7 +533,7 @@ const WidgetCard = forwardRef<
       ref={ref}
       id={`widget-${item.i}`}
       className={cn(
-        "group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)] hover:shadow-[var(--widget-hover-shadow)]",
+        "group grain-surface flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)] hover:shadow-[var(--widget-hover-shadow)]",
         isStatic && "h-full",
         flashing &&
           "ring-2 ring-[var(--c-accent)] ring-offset-1 ring-offset-[var(--panel)]",

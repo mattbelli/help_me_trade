@@ -239,7 +239,6 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     kind: "single",
     var: "--grain-opacity",
     label: "Grain",
-    desc: "film-grain strength, 0\u20130.2 (ember)",
   },
   {
     kind: "group",
