@@ -107,7 +107,7 @@ export function CopilotSidebar() {
         className={cn(
           "absolute bottom-3 right-3 z-40 flex items-center gap-2 rounded-lg border border-[var(--border)]",
           "px-3 py-2 shadow-[var(--panel-shadow)] backdrop-blur-md",
-          "font-mono text-[12px] font-medium text-[var(--fg-dim)] transition-colors",
+          "font-mono text-[length:var(--fs-title)] font-medium text-[var(--fg-dim)] transition-colors",
           "hover:text-foreground",
         )}
         style={{ backgroundColor: COPILOT_PANEL_BG }}
@@ -156,7 +156,7 @@ export function CopilotSidebar() {
         >
           <PanelLeftIcon className="size-4" />
         </Button>
-        <span className="font-mono text-[12px] font-medium text-foreground">
+        <span className="font-mono text-[length:var(--fs-title)] font-medium text-foreground">
           Copilot
         </span>
         <div className="flex-1" />

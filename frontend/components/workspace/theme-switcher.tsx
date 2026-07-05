@@ -71,7 +71,7 @@ export function ThemeSwitcher({ className }: { className?: string }) {
               variant="ghost"
               size="sm"
               className={cn(
-                "h-7 gap-1.5 px-2.5 font-mono text-[11px] text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground",
+                "h-7 gap-1.5 px-2.5 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground",
                 className,
               )}
             />
@@ -80,7 +80,7 @@ export function ThemeSwitcher({ className }: { className?: string }) {
           <PaletteIcon className="size-3.5" />
           theme
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-52 font-mono text-xs">
+        <DropdownMenuContent align="end" className="min-w-52 font-mono text-[length:var(--fs-body)]">
           {WORKSPACE_THEMES.map((id) => (
             <DropdownMenuItem key={id} onClick={() => setTheme(id)} className="gap-2">
               <span
@@ -99,7 +99,7 @@ export function ThemeSwitcher({ className }: { className?: string }) {
           {customThemes.map((ct) => (
             <div
               key={ct.id}
-              className="group/custom relative flex cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
+              className="group/custom relative flex cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-[length:var(--fs-title)] hover:bg-accent hover:text-accent-foreground"
             >
               <button
                 type="button"

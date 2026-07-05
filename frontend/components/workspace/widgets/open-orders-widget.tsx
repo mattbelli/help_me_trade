@@ -50,7 +50,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
 
   if (!snapshot) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         Waiting for orders…
       </p>
     );
@@ -58,7 +58,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
 
   if (orders.length === 0) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No open orders
       </p>
     );
@@ -66,7 +66,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
 
   return (
     <div className="h-full overflow-auto px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             {(["ID", "Sym", "Side", "Qty", "Type", "Px", "Status"] as const).map(
@@ -74,7 +74,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
                 <th
                   key={h}
                   className={cn(
-                    "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                    "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
                     idx === 0 || h === "Sym" || h === "Side" || h === "Type"
                       ? "text-left"
                       : "text-right",
@@ -93,7 +93,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               key={order.id}
               className="group/row transition-colors hover:bg-[var(--bg-hover)]"
             >
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)]">
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
                 #{order.id.slice(-5)}
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
@@ -104,7 +104,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
                     onActivate={() => publish(order.symbol)}
                   />
                   {order.accountLabel ? (
-                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+                    <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
                       {order.accountLabel}
                     </span>
                   ) : null}
@@ -112,7 +112,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               </td>
               <td
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[11px] tracking-wide uppercase",
+                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
                   sideClass(order.side),
                 )}
               >
@@ -121,7 +121,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
                 {formatQty(order)}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)] uppercase">
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase">
                 {order.order_type}
               </td>
               <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
@@ -131,7 +131,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               </td>
               <td
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[11px] uppercase",
+                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase",
                   statusClass(order.status),
                 )}
               >

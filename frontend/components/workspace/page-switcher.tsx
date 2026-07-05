@@ -32,21 +32,21 @@ function PageDeleteConfirm({
 }) {
   return (
     <div className="w-44 border-[var(--border)] bg-[var(--panel)] p-2 font-mono shadow-[var(--panel-shadow)]">
-      <p className="px-1 py-1 text-[11px] text-[var(--fg-dim)]">
+      <p className="px-1 py-1 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         Delete &ldquo;{pageName}&rdquo; and its widgets?
       </p>
       <div className="mt-1.5 flex justify-end gap-1.5">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+          className="rounded border border-[var(--border)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded border border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] px-2 py-0.5 text-[10px] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
+          className="rounded border border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
         >
           Delete
         </button>
@@ -113,7 +113,7 @@ function PagePill({
         onKeyDown={onKeyDown}
         onBlur={commit}
         onClick={(e) => e.stopPropagation()}
-        className="max-w-[7rem] rounded-full border border-[var(--c-accent)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[10px] text-foreground outline-none"
+        className="max-w-[7rem] rounded-full border border-[var(--c-accent)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[length:var(--fs-table)] text-foreground outline-none"
         aria-label="Rename page"
       />
     );
@@ -129,7 +129,7 @@ function PagePill({
         onStartRename();
       }}
       className={cn(
-        "max-w-[7rem] truncate rounded-full border px-2 py-0.5 font-mono text-[10px] transition-colors",
+        "max-w-[7rem] truncate rounded-full border px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
         active
           ? "border-[var(--c-accent)] bg-[var(--c-accent-soft)] text-foreground"
           : "border-[var(--border)] text-[var(--fg-dim)] hover:border-[var(--border-strong)] hover:text-foreground",
@@ -248,7 +248,7 @@ export function PageSwitcher() {
             title="Add page"
           >
             <Plus className="size-2.5" />
-            <span className="text-[8px] uppercase tracking-wide">pg</span>
+            <span className="text-[length:var(--fs-micro)] uppercase tracking-[0.08em]">pg</span>
           </button>
         ) : null}
       </div>
@@ -273,7 +273,7 @@ export function PageSwitcher() {
             <div className="min-w-28 p-1 font-mono">
               <button
                 type="button"
-                className="flex w-full rounded-md px-2 py-1 text-left text-[11px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
                 onClick={() => {
                   setRenamingPageId(contextMenu.pageId);
                   setContextMenu(null);
@@ -284,7 +284,7 @@ export function PageSwitcher() {
               {canDelete ? (
                 <button
                   type="button"
-                  className="flex w-full rounded-md px-2 py-1 text-left text-[11px] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
+                  className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
                   onClick={() => handleDelete(contextMenu.pageId)}
                 >
                   Delete

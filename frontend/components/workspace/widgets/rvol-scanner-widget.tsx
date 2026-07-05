@@ -94,7 +94,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
   }
 
   if (error && !data) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
   }
 
   // ── Off-hours / empty state ────────────────────────────────────────────────
@@ -105,14 +105,14 @@ export function RvolScannerWidget({ config }: WidgetProps) {
     : "—";
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+    <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-2 py-1.5">
-        <span className="text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]">
+        <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
           {sessionLabel}
         </span>
         {data ? (
-          <span className="text-[9.5px] tabular-nums text-[var(--fg-faint)]">
+          <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
             {formatAsOf(data.as_of)}
           </span>
         ) : null}
@@ -120,21 +120,21 @@ export function RvolScannerWidget({ config }: WidgetProps) {
 
       {/* Off-hours / empty notice */}
       {offHours ? (
-        <p className="p-3 text-[11px] text-[var(--fg-dim)]">
+        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           {data?.note ?? "Scanner runs during market hours (9:30–16:00 ET)."}
         </p>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           {/* Column headers */}
           <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5">
-            <span className="text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]">
+            <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
               #
             </span>
             {(["Sym", "Last", "RVOL", "Vol"] as const).map((h, idx) => (
               <span
                 key={h}
                 className={cn(
-                  "text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]",
+                  "text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]",
                   idx === 0 ? "text-left" : "text-right",
                 )}
               >
@@ -157,7 +157,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
               )}
             >
               {/* Rank */}
-              <span className="text-[10px] tabular-nums text-[var(--fg-faint)]">
+              <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                 {idx + 1}
               </span>
               {/* Symbol */}

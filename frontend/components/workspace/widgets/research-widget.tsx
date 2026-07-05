@@ -150,7 +150,7 @@ export function ResearchWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-1.5 py-1">
       <div className="shrink-0 border-b border-[var(--border)] px-1 pb-2">
-        <p className="mb-2 font-mono text-[11px] tracking-[0.04em] text-[var(--fg-faint)] uppercase">
+        <p className="mb-2 font-mono text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Research
         </p>
         <div className="space-y-2">
@@ -214,17 +214,17 @@ export function ResearchWidget({ config }: WidgetProps) {
       </div>
 
       {displayError ? (
-        <p className="shrink-0 border-b border-[var(--border)] px-1 py-1.5 font-mono text-[10px] text-[var(--c-red)]">
+        <p className="shrink-0 border-b border-[var(--border)] px-1 py-1.5 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
           {displayError}
         </p>
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto pt-1">
-        <p className="mb-1 px-1 font-mono text-[10px] tracking-[0.04em] text-[var(--fg-faint)] uppercase">
+        <p className="mb-1 px-1 font-mono text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Recent
         </p>
         {artifacts.length === 0 ? (
-          <p className="px-1 font-mono text-[11px] text-[var(--fg-dim)]">
+          <p className="px-1 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
             No research runs yet.
           </p>
         ) : (

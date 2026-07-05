@@ -81,10 +81,10 @@ function TrendTooltip({
 
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 shadow-sm">
-      <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+      <p className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
         trade #{point.seq}
       </p>
-      <p className="font-mono text-[11px] font-semibold tabular-nums text-foreground">
+      <p className="font-mono text-[length:var(--fs-body)] font-semibold tabular-nums text-foreground">
         {point.winRate.toFixed(0)}% win rate
       </p>
     </div>
@@ -144,7 +144,7 @@ export function WinrateTrendWidget() {
 
   const periodButtonClass = (active: boolean) =>
     cn(
-      "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+      "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
       active
         ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
         : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -156,11 +156,8 @@ export function WinrateTrendWidget() {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
-          <span className="truncate font-mono text-[10px] uppercase tracking-[0.05em] text-[var(--fg-faint)]">
-            Win rate trend
-          </span>
           {stats.currentWinRate != null ? (
-            <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+            <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
               win {stats.currentWinRate}% · avg win {fmtMoney(stats.avgWin)} · avg
               loss {fmtMoney(stats.avgLoss)} · exp {fmtMoney(stats.expectancy)}
             </span>
@@ -182,13 +179,13 @@ export function WinrateTrendWidget() {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
+          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
         ) : null}
         {loading && sortedPnls.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : needsMoreData ? (
           <div className="flex h-full min-h-24 items-center justify-center px-4 text-center">
-            <p className="font-mono text-xs text-[var(--fg-dim)]">
+            <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
               Need more closed trades to chart a trend ({sortedPnls.length}/
               {MIN_TRADES_TO_CHART})
             </p>

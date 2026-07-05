@@ -62,11 +62,11 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
   const planRules = score.plan?.rules ?? [];
 
   return (
-    <div className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-inset)]/40 px-2.5 py-2 text-xs">
+    <div className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-inset)]/40 px-2.5 py-2 text-[length:var(--fs-body)]">
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium text-foreground">{score.label ?? "Strategy"}</span>
         {badge ? (
-          <Badge variant="outline" className={cn("h-4 px-1.5 text-[10px]", badge.className)}>
+          <Badge variant="outline" className={cn("h-4 px-1.5 text-[length:var(--fs-table)]", badge.className)}>
             {badge.label}
           </Badge>
         ) : null}
@@ -79,7 +79,7 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
           {hasWinRate ? (
             <>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--fg-dim)]">
+                <span className="font-mono text-[length:var(--fs-table)] uppercase tracking-[0.08em] text-[var(--fg-dim)]">
                   Win
                 </span>
                 <span className="font-semibold tabular-nums text-foreground">
@@ -116,7 +116,7 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
       )}
 
       {score.n_setups != null ? (
-        <p className="font-mono text-[10px] text-[var(--fg-faint)]">
+        <p className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
           n={score.n_setups.toLocaleString()} setups
           {score.per_year_positive ? ` · ${score.per_year_positive} yrs+` : ""}
         </p>
@@ -124,11 +124,11 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
 
       {planRules.length > 0 ? (
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 border-t border-[var(--border)]/60 pt-1.5">
-          <span className="text-[10px] uppercase tracking-wide text-[var(--fg-faint)]">
+          <span className="text-[length:var(--fs-table)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
             Plan
           </span>
           {planRules.map((rule, i) => (
-            <span key={rule} className="font-mono text-[10px] text-[var(--fg-dim)]">
+            <span key={rule} className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
               {rule}
               {i < planRules.length - 1 ? " ·" : ""}
             </span>
@@ -137,7 +137,7 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
       ) : null}
 
       {score.note ? (
-        <p className="truncate text-[10px] text-[var(--fg-faint)]" title={score.note}>
+        <p className="truncate text-[length:var(--fs-table)] text-[var(--fg-faint)]" title={score.note}>
           {score.note}
         </p>
       ) : null}
@@ -154,9 +154,9 @@ function GenericScore({ score }: { score: ProposalScoreData }) {
   const factors = (score.top_factors ?? []).slice(0, 3);
 
   return (
-    <div className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-inset)]/40 px-2.5 py-2 text-xs">
+    <div className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-inset)]/40 px-2.5 py-2 text-[length:var(--fs-body)]">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--fg-dim)]">
+        <span className="font-mono text-[length:var(--fs-table)] uppercase tracking-[0.08em] text-[var(--fg-dim)]">
           Win
         </span>
         <span className="font-semibold tabular-nums text-foreground">
@@ -198,14 +198,14 @@ function GenericScore({ score }: { score: ProposalScoreData }) {
         {score.low_confidence ? (
           <Badge
             variant="outline"
-            className="h-4 px-1.5 text-[10px]"
+            className="h-4 px-1.5 text-[length:var(--fs-table)]"
             title={`Provisional — small sample (n=${score.n_samples ?? 0})`}
           >
             low confidence
           </Badge>
         ) : null}
         {!score.sufficient ? (
-          <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+          <Badge variant="outline" className="h-4 px-1.5 text-[length:var(--fs-table)]">
             thin data
           </Badge>
         ) : null}
@@ -213,14 +213,14 @@ function GenericScore({ score }: { score: ProposalScoreData }) {
 
       {factors.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1">
-          <span className="text-[10px] text-[var(--fg-faint)]">Why</span>
+          <span className="text-[length:var(--fs-table)] text-[var(--fg-faint)]">Why</span>
           {factors.map((factor) => {
             const bullish = factor.direction === "bullish";
             return (
               <span
                 key={factor.name}
                 className={cn(
-                  "inline-flex items-center gap-0.5 rounded border px-1 py-px font-mono text-[10px]",
+                  "inline-flex items-center gap-0.5 rounded border px-1 py-px font-mono text-[length:var(--fs-table)]",
                   bullish
                     ? "border-[color-mix(in_srgb,var(--c-green)_35%,transparent)] text-[var(--c-green)]"
                     : "border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] text-[var(--c-red)]",

@@ -64,15 +64,15 @@ export function CompanyInfoModal({
     >
       <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-y-auto border border-[var(--border)] bg-[var(--panel)] font-mono text-foreground sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-mono text-[13px]">
+          <DialogTitle className="font-mono text-[length:var(--fs-title)]">
             {symbol ?? "Company"}
           </DialogTitle>
         </DialogHeader>
 
         {loading ? (
-          <p className="text-[11px] text-[var(--fg-dim)]">Loading…</p>
+          <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
         ) : error ? (
-          <p className="text-[11px] text-[var(--c-red)]">{error}</p>
+          <p className="text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
         ) : data ? (
           <div className="flex flex-col gap-4">
             <HeaderSection

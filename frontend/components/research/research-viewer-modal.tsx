@@ -129,26 +129,26 @@ export function ResearchViewerModal({
         <DialogHeader className="shrink-0 gap-2 border-b border-[var(--border)] px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-2 pr-8">
             <div className="min-w-0 flex-1">
-              <DialogTitle className="line-clamp-2 font-mono text-[13px] leading-snug">
+              <DialogTitle className="line-clamp-2 font-mono text-[length:var(--fs-title)] leading-snug">
                 {title}
               </DialogTitle>
               {artifact && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   {artifact.symbol ? (
-                    <span className="rounded border border-[var(--border)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--c-accent)]">
+                    <span className="rounded border border-[var(--border)] px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--c-accent)]">
                       {artifact.symbol}
                     </span>
                   ) : null}
                   <span
                     className={cn(
-                      "rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase",
+                      "rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] uppercase",
                       statusChipClass(artifact.status),
                     )}
                   >
                     {artifact.status}
                   </span>
                   {metaLine ? (
-                    <span className="font-mono text-[10px] text-[var(--fg-faint)]">
+                    <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
                       {metaLine}
                     </span>
                   ) : null}
@@ -169,12 +169,12 @@ export function ResearchViewerModal({
 
         <div className="min-h-0 flex-1 overflow-auto">
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-[11px] text-[var(--fg-dim)]">
+            <div className="flex items-center justify-center gap-2 py-12 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
               <Loader2 className="size-4 animate-spin" />
               Loading report…
             </div>
           ) : error ? (
-            <p className="py-8 text-center text-[11px] text-[var(--c-red)]">{error}</p>
+            <p className="py-8 text-center text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
           ) : (
             <ResearchViewerBody
               artifact={artifact}

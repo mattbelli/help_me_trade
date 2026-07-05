@@ -138,10 +138,10 @@ function ChartHeaderControls({
           onCommit={commitSymbol}
           onEscape={() => setDraftSymbol(committedSymbol)}
           dragSafeControlProps={dragSafeControlProps}
-          inputClassName="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
+          inputClassName="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[length:var(--fs-body)] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
         />
       ) : (
-        <span className="font-mono text-[11px] font-semibold text-[var(--c-accent)]">
+        <span className="font-mono text-[length:var(--fs-body)] font-semibold text-[var(--c-accent)]">
           {symbol}
         </span>
       )}
@@ -151,7 +151,7 @@ function ChartHeaderControls({
       >
         <span
           className={cn(
-            "rounded px-0.5 font-mono text-[15px] font-semibold tabular-nums",
+            "rounded px-0.5 font-mono text-[length:var(--fs-emph)] font-semibold tabular-nums",
             hasChange
               ? isPositive
                 ? "text-[var(--c-green)]"
@@ -168,7 +168,7 @@ function ChartHeaderControls({
         {hasChange ? (
           <span
             className={cn(
-              "font-mono text-[10px] tabular-nums",
+              "font-mono text-[length:var(--fs-table)] tabular-nums",
               isPositive ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
             )}
           >
@@ -194,21 +194,21 @@ function ChartHeaderControls({
         <DropdownMenuTrigger
           type="button"
           {...dragSafeControlProps}
-          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         >
           {timeframe.label}
           <ChevronDown className="size-2.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+          className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
         >
           {CHART_TIMEFRAMES.map((tf) => (
             <DropdownMenuItem
               key={tf.value}
               onClick={() => onConfigChange({ timeframe: tf.value })}
               className={cn(
-                "px-2 py-1.5 text-[11px]",
+                "px-2 py-1.5 text-[length:var(--fs-body)]",
                 timeframe.value === tf.value
                   ? "text-foreground"
                   : "text-[var(--fg-dim)]",
@@ -223,21 +223,21 @@ function ChartHeaderControls({
         <DropdownMenuTrigger
           type="button"
           {...dragSafeControlProps}
-          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         >
           {styleLabel}
           <ChevronDown className="size-2.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+          className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
         >
           {CHART_STYLES.map((s) => (
             <DropdownMenuItem
               key={s.value}
               onClick={() => onConfigChange({ style: s.value })}
               className={cn(
-                "px-2 py-1.5 text-[11px]",
+                "px-2 py-1.5 text-[length:var(--fs-body)]",
                 style === s.value ? "text-foreground" : "text-[var(--fg-dim)]",
               )}
             >
@@ -250,14 +250,14 @@ function ChartHeaderControls({
         <DropdownMenuTrigger
           type="button"
           {...dragSafeControlProps}
-          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         >
           Studies
           <ChevronDown className="size-2.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+          className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
         >
           {OVERLAY_STUDIES.map((s) => {
             const enabled = (config.studies ?? []).includes(s.id);
@@ -273,7 +273,7 @@ function ChartHeaderControls({
                   onConfigChange({ studies: next });
                 }}
                 className={cn(
-                  "flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]",
+                  "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
                   enabled ? "text-foreground" : "text-[var(--fg-dim)]",
                 )}
               >
@@ -297,7 +297,7 @@ function ChartHeaderControls({
                   onConfigChange({ studies: next });
                 }}
                 className={cn(
-                  "flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]",
+                  "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
                   enabled ? "text-foreground" : "text-[var(--fg-dim)]",
                 )}
               >
@@ -312,7 +312,7 @@ function ChartHeaderControls({
               onConfigChange({ showSessionNodes: !config.showSessionNodes })
             }
             className={cn(
-              "flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]",
+              "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
               config.showSessionNodes
                 ? "text-foreground"
                 : "text-[var(--fg-dim)]",
@@ -356,7 +356,7 @@ function WidgetRemoveButton({
         type="button"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
-        className="workspace-no-drag rounded p-0.5 font-mono text-[12px] text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+        className="workspace-no-drag rounded p-0.5 font-mono text-[length:var(--fs-title)] text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
         aria-label={`Remove ${title}`}
       >
         <X className="size-3.5" />
@@ -365,14 +365,14 @@ function WidgetRemoveButton({
         align="end"
         className="w-44 border-[var(--border)] bg-[var(--panel)] p-2 font-mono shadow-[var(--panel-shadow)]"
       >
-        <p className="px-1 py-1 text-[11px] text-[var(--fg-dim)]">
+        <p className="px-1 py-1 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           Remove this widget?
         </p>
         <div className="mt-1.5 flex justify-end gap-1.5">
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+            className="rounded border border-[var(--border)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
           >
             Cancel
           </button>
@@ -382,7 +382,7 @@ function WidgetRemoveButton({
               setOpen(false);
               onRemove();
             }}
-            className="rounded border border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] px-2 py-0.5 text-[10px] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
+            className="rounded border border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
           >
             Remove
           </button>
@@ -428,7 +428,7 @@ function WidgetHeader({
         !locked && !isStatic && "cursor-grab active:cursor-grabbing",
       )}
     >
-      <span className="font-mono text-[12px] leading-none tracking-[-1px] text-[var(--fg-faint)]">
+      <span className="font-mono text-[length:var(--fs-title)] leading-none tracking-[-1px] text-[var(--fg-faint)]">
         ⠿
       </span>
       {isChart && config && onConfigChange ? (
@@ -438,7 +438,7 @@ function WidgetHeader({
           onConfigChange={onConfigChange}
         />
       ) : (
-        <span className="font-mono text-[11.5px] font-semibold text-foreground">
+        <span className="font-mono text-[length:var(--fs-title)] font-semibold text-foreground">
           {def?.title ?? widgetType}
         </span>
       )}
@@ -459,7 +459,7 @@ function WidgetHeader({
               aria-label={config.adding ? "Close add symbol" : "Add symbol"}
               aria-pressed={config.adding ?? false}
               className={cn(
-                "workspace-no-drag inline-flex size-4 items-center justify-center rounded font-mono text-[13px] leading-none outline-none hover:bg-[var(--bg-hover)]",
+                "workspace-no-drag inline-flex size-4 items-center justify-center rounded font-mono text-[length:var(--fs-title)] leading-none outline-none hover:bg-[var(--bg-hover)]",
                 config.adding
                   ? "text-[var(--c-accent)]"
                   : "text-[var(--fg-dim)] hover:text-foreground",
@@ -471,7 +471,7 @@ function WidgetHeader({
         </>
       ) : null}
       {meta ? (
-        <span className="font-mono text-[10px] text-[var(--fg-faint)]">
+        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
           {meta}
         </span>
       ) : null}
@@ -560,7 +560,7 @@ const WidgetCard = forwardRef<
             onConfigChange={onConfigChange}
           />
         ) : (
-          <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+          <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
             Unknown widget: {item.type}
           </p>
         )}

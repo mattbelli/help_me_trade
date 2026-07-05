@@ -105,7 +105,7 @@ export function NotificationBanner() {
                 className="flex min-w-0 flex-1 items-start gap-2 text-left"
               >
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--c-amber)]" />
-                <span className="min-w-0 font-mono text-[11px]">
+                <span className="min-w-0 font-mono text-[length:var(--fs-body)]">
                   <span className="block truncate font-semibold text-foreground">
                     {banner.title}
                   </span>

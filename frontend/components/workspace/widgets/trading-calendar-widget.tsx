@@ -117,7 +117,7 @@ function DayTile({
   if (!cell.inMonth) {
     return (
       <div className="flex min-h-[38px] flex-col items-center justify-start rounded-[3px] px-1 py-1">
-        <span className="font-mono text-[10px] text-[var(--fg-faint)] opacity-40">
+        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)] opacity-40">
           {cell.dayNum}
         </span>
       </div>
@@ -153,12 +153,12 @@ function DayTile({
           }}
         />
       ) : null}
-      <span className="relative z-10 font-mono text-[10px] text-[var(--fg-dim)] tabular-nums">
+      <span className="relative z-10 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] tabular-nums">
         {cell.dayNum}
       </span>
       <span
         className={cn(
-          "relative z-10 mt-0.5 font-mono text-[10px] font-semibold tabular-nums",
+          "relative z-10 mt-0.5 font-mono text-[length:var(--fs-table)] font-semibold tabular-nums",
           cell.hasData ? pnlClass(cell.net) : "text-[var(--fg-faint)]",
         )}
       >
@@ -173,7 +173,7 @@ function RollupTile({ total, muted }: { total: number; muted?: boolean }) {
     <div className="flex min-h-[38px] flex-col items-center justify-center rounded-[3px] border-l border-[var(--border)] bg-[var(--bg-inset)] px-1 py-1">
       <span
         className={cn(
-          "font-mono text-[10px] font-semibold tabular-nums",
+          "font-mono text-[length:var(--fs-table)] font-semibold tabular-nums",
           muted && total === 0 ? "text-[var(--fg-faint)]" : pnlClass(total),
         )}
       >
@@ -335,24 +335,24 @@ export function TradingCalendarWidget() {
         >
           <ChevronRight className="size-3.5" />
         </button>
-        <span className="font-mono text-[12px] font-semibold text-foreground">
+        <span className="font-mono text-[length:var(--fs-title)] font-semibold text-foreground">
           {monthLabel}
         </span>
         {!isCurrentMonth ? (
           <button
             type="button"
             onClick={resetToday}
-            className="rounded px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-[var(--fg-faint)] uppercase transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+            className="rounded px-1.5 py-0.5 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
           >
             Today
           </button>
         ) : null}
-        <span className="ml-auto font-mono text-[9px] tracking-[0.1em] text-[var(--fg-faint)] uppercase">
+        <span className="ml-auto font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Month P/L
         </span>
         <span
           className={cn(
-            "font-mono text-[13px] font-semibold tabular-nums",
+            "font-mono text-[length:var(--fs-title)] font-semibold tabular-nums",
             pnlClass(monthTotal),
           )}
         >
@@ -362,22 +362,22 @@ export function TradingCalendarWidget() {
 
       {selectedDetail ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-inset)] px-3 py-1.5">
-          <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+          <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             {selectedDetail.date}
           </span>
           <span
             className={cn(
-              "font-mono text-[11px] font-semibold tabular-nums",
+              "font-mono text-[length:var(--fs-body)] font-semibold tabular-nums",
               pnlClass(selectedDetail.net),
             )}
           >
             {formatTradeMoney(selectedDetail.net)}
           </span>
-          <span className="font-mono text-[10px] text-[var(--fg-faint)]">
+          <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
             {selectedDetail.count} close{selectedDetail.count === 1 ? "" : "s"}
           </span>
           {selectedDetail.symbols.length > 0 ? (
-            <span className="truncate font-mono text-[10px] text-[var(--fg-faint)]">
+            <span className="truncate font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
               {selectedDetail.symbols.join(", ")}
             </span>
           ) : null}
@@ -386,7 +386,7 @@ export function TradingCalendarWidget() {
 
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {error ? (
-          <p className="p-2 font-mono text-[11px] text-[var(--c-red)]">
+          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">
             {error}
           </p>
         ) : null}
@@ -406,12 +406,12 @@ export function TradingCalendarWidget() {
             {WEEKDAY_LABELS.map((label) => (
               <div
                 key={`hdr-${label}`}
-                className="px-1 py-0.5 text-center font-mono text-[9px] tracking-wide text-[var(--fg-faint)] uppercase"
+                className="px-1 py-0.5 text-center font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase"
               >
                 {label}
               </div>
             ))}
-            <div className="px-1 py-0.5 text-center font-mono text-[9px] tracking-wide text-[var(--fg-faint)] uppercase">
+            <div className="px-1 py-0.5 text-center font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
               Week
             </div>
 

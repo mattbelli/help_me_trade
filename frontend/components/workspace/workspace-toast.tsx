@@ -52,7 +52,7 @@ export function WorkspaceToastProvider({ children }: { children: ReactNode }) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6, transition: exit }}
               transition={enter}
-              className="relative overflow-hidden rounded-lg border border-[var(--border)] bg-[color-mix(in_srgb,var(--panel)_90%,transparent)] px-4 py-2 font-mono text-xs text-foreground backdrop-blur"
+              className="relative overflow-hidden rounded-lg border border-[var(--border)] bg-[color-mix(in_srgb,var(--panel)_90%,transparent)] px-4 py-2 font-mono text-[length:var(--fs-body)] text-foreground backdrop-blur"
               style={{
                 boxShadow: `inset 2px 0 0 ${
                   toast.kind === "error"

@@ -168,7 +168,7 @@ function WatchlistAddRow({
         autoFocus
         disabled={submitting}
         placeholder="Add symbol"
-        className="min-w-0 flex-1 bg-transparent font-mono text-[12px] uppercase text-foreground outline-none placeholder:text-[var(--fg-faint)]"
+        className="min-w-0 flex-1 bg-transparent font-mono text-[length:var(--fs-title)] uppercase text-foreground outline-none placeholder:text-[var(--fg-faint)]"
         onChange={(e) => {
           const next = e.target.value.toUpperCase();
           setQuery(next);
@@ -192,7 +192,7 @@ function WatchlistAddRow({
         }}
       />
       {loading ? (
-        <span className="shrink-0 font-mono text-[9px] text-[var(--fg-faint)]">
+        <span className="shrink-0 font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
           …
         </span>
       ) : null}
@@ -200,7 +200,7 @@ function WatchlistAddRow({
         type="button"
         onClick={onClose}
         aria-label="Close add symbol"
-        className="shrink-0 rounded px-0.5 font-mono text-[12px] leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+        className="shrink-0 rounded px-0.5 font-mono text-[length:var(--fs-title)] leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
       >
         ×
       </button>
@@ -210,7 +210,7 @@ function WatchlistAddRow({
             <li key={sym}>
               <button
                 type="button"
-                className="w-full px-2 py-1 text-left font-mono text-[11px] text-foreground hover:bg-[var(--bg-hover)]"
+                className="w-full px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--bg-hover)]"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   void addSymbol(sym);
@@ -296,7 +296,7 @@ function WatchlistSymbolRow({
       >
         <button
           type="button"
-          className="cursor-grab select-none font-mono text-[10px] leading-none text-[var(--fg-faint)] opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+          className="cursor-grab select-none font-mono text-[length:var(--fs-table)] leading-none text-[var(--fg-faint)] opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
           aria-label={`Reorder ${symbol}`}
           onPointerDown={(e) => {
             e.stopPropagation();
@@ -325,7 +325,7 @@ function WatchlistSymbolRow({
           />
           {showEarningsBadge && nextEarningsDate ? (
             <span
-              className="shrink-0 rounded px-0.5 font-mono text-[9px] leading-none"
+              className="shrink-0 rounded px-0.5 font-mono text-[length:var(--fs-micro)] leading-none"
               style={earningsBadgeStyle(earningsDays)}
               title={`Earnings ${nextEarningsDate}`}
             >
@@ -339,7 +339,7 @@ function WatchlistSymbolRow({
               e.stopPropagation();
               onRemove();
             }}
-            className="rounded px-0.5 font-mono text-[11px] leading-none text-[var(--fg-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40"
+            className="rounded px-0.5 font-mono text-[length:var(--fs-body)] leading-none text-[var(--fg-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40"
             aria-label={`Remove ${symbol}`}
           >
             ×
@@ -355,7 +355,7 @@ function WatchlistSymbolRow({
         >
           {quote ? formatPrice(displayPrice) : "—"}
           {extBadge ? (
-            <span className="rounded px-0.5 font-mono text-[8px] leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)]">
+            <span className="rounded px-0.5 font-mono text-[length:var(--fs-micro)] leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)]">
               {extBadge.label}
             </span>
           ) : null}
@@ -627,23 +627,23 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
 
   if (error && !displayList) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
     );
   }
 
   if (!displayList || !state) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No active watchlist
       </p>
     );
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+    <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {marketLoading ? (
         <div className="border-b border-[var(--border)] px-3 py-0.5">
-          <span className="text-[10px] text-[var(--fg-faint)]">loading…</span>
+          <span className="text-[length:var(--fs-table)] text-[var(--fg-faint)]">loading…</span>
         </div>
       ) : null}
 
@@ -670,7 +670,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 type="button"
                 onClick={() => handleSortHeaderClick(h.key)}
                 className={cn(
-                  "text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
                   idx === 0 ? "text-left" : "text-right",
                 )}
               >
@@ -683,7 +683,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               <span
                 key={h.label}
                 className={cn(
-                  "text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
                   idx === 0 ? "text-left" : "text-right",
                 )}
               >

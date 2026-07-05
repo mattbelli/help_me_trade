@@ -45,7 +45,7 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
     <DropdownMenu>
       <DropdownMenuTrigger
         type="button"
-        className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[10px] text-[var(--fg-faint)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -54,7 +54,7 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+        className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
       >
         {state.lists.map((list) => (
           <DropdownMenuItem

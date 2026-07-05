@@ -160,14 +160,14 @@ export function ResearchActivityFeed({
       aria-label="Research activity"
     >
       {lines.length === 0 ? (
-        <p className="font-mono text-[10px] text-[var(--fg-faint)]">Waiting for activity…</p>
+        <p className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">Waiting for activity…</p>
       ) : (
         <ul className="space-y-0.5">
           {lines.map((line) => (
             <li
               key={line.key}
               className={cn(
-                "flex min-w-0 items-start gap-1 font-mono text-[10px] leading-snug transition-all duration-200 ease-out animate-in fade-in slide-in-from-bottom-0.5",
+                "flex min-w-0 items-start gap-1 font-mono text-[length:var(--fs-table)] leading-snug transition-all duration-200 ease-out animate-in fade-in slide-in-from-bottom-0.5",
                 toneClass(line.tone),
               )}
             >

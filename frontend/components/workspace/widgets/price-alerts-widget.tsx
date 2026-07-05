@@ -164,7 +164,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
           type="button"
           onClick={() => (formOpen && form.editingId == null ? closeForm() : openCreateForm())}
           className={cn(
-            "inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 font-mono text-[11px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground",
+            "inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground",
             formOpen && form.editingId == null && "border-[var(--c-accent)] text-[var(--c-accent)]",
           )}
         >
@@ -174,10 +174,10 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
       </div>
 
       {formOpen ? (
-        <div className="shrink-0 space-y-2 border-b border-[var(--border)] px-2 py-2 font-mono text-[11px]">
+        <div className="shrink-0 space-y-2 border-b border-[var(--border)] px-2 py-2 font-mono text-[length:var(--fs-body)]">
           <div className="grid grid-cols-2 gap-2">
             <label className="space-y-0.5">
-              <span className="text-[9.5px] tracking-[0.05em] text-[var(--fg-faint)] uppercase">
+              <span className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
                 Symbol
               </span>
               <input
@@ -191,11 +191,11 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                 }
                 disabled={form.editingId != null}
                 placeholder="AAPL"
-                className="w-full rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[11px] text-foreground outline-none focus:border-[var(--c-accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[length:var(--fs-body)] text-foreground outline-none focus:border-[var(--c-accent)] disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>
             <label className="space-y-0.5">
-              <span className="text-[9.5px] tracking-[0.05em] text-[var(--fg-faint)] uppercase">
+              <span className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
                 Price
               </span>
               <input
@@ -206,13 +206,13 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                   setForm((prev) => ({ ...prev, price: e.target.value }))
                 }
                 placeholder="0.00"
-                className="w-full rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[11px] tabular-nums text-foreground outline-none focus:border-[var(--c-accent)]"
+                className="w-full rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[length:var(--fs-body)] tabular-nums text-foreground outline-none focus:border-[var(--c-accent)]"
               />
             </label>
           </div>
 
           <div className="space-y-0.5">
-            <span className="text-[9.5px] tracking-[0.05em] text-[var(--fg-faint)] uppercase">
+            <span className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
               Direction
             </span>
             <div className="flex gap-1">
@@ -224,7 +224,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                     setForm((prev) => ({ ...prev, direction: dir }))
                   }
                   className={cn(
-                    "flex-1 rounded border px-1.5 py-0.5 text-[10px] tracking-wide uppercase transition-colors",
+                    "flex-1 rounded border px-1.5 py-0.5 text-[length:var(--fs-table)] tracking-[0.08em] uppercase transition-colors",
                     form.direction === dir
                       ? "border-[var(--c-accent)] bg-[color-mix(in_srgb,var(--c-accent)_12%,transparent)] text-[var(--c-accent)]"
                       : "border-[var(--border)] text-[var(--fg-dim)] hover:bg-[var(--bg-hover)]",
@@ -236,7 +236,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
             </div>
           </div>
 
-          <label className="flex items-center gap-1.5 text-[10px] text-[var(--fg-dim)]">
+          <label className="flex items-center gap-1.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             <input
               type="checkbox"
               checked={form.repeat}
@@ -249,7 +249,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
           </label>
 
           <label className="block space-y-0.5">
-            <span className="text-[9.5px] tracking-[0.05em] text-[var(--fg-faint)] uppercase">
+            <span className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
               Note
             </span>
             <input
@@ -259,12 +259,12 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                 setForm((prev) => ({ ...prev, note: e.target.value }))
               }
               placeholder="Optional"
-              className="w-full rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[11px] text-foreground outline-none focus:border-[var(--c-accent)]"
+              className="w-full rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[length:var(--fs-body)] text-foreground outline-none focus:border-[var(--c-accent)]"
             />
           </label>
 
           {formError ? (
-            <p className="text-[10px] text-[var(--c-red)]">{formError}</p>
+            <p className="text-[length:var(--fs-table)] text-[var(--c-red)]">{formError}</p>
           ) : null}
 
           <div className="flex gap-1.5">
@@ -272,7 +272,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
               type="button"
               onClick={() => void handleSave()}
               disabled={saving}
-              className="rounded border border-[var(--c-accent)] px-2 py-0.5 text-[10px] text-[var(--c-accent)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-accent)_12%,transparent)] disabled:opacity-50"
+              className="rounded border border-[var(--c-accent)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--c-accent)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-accent)_12%,transparent)] disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -280,7 +280,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
               type="button"
               onClick={closeForm}
               disabled={saving}
-              className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+              className="rounded border border-[var(--border)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
             >
               Cancel
             </button>
@@ -292,13 +292,13 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
         {loading && alerts.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : error ? (
-          <p className="font-mono text-xs text-[var(--c-red)]">{error}</p>
+          <p className="font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
         ) : alerts.length === 0 ? (
-          <p className="font-mono text-xs text-[var(--fg-dim)]">
+          <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
             No price alerts configured
           </p>
         ) : (
-          <table className="w-full border-collapse font-mono text-[12px]">
+          <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
             <thead>
               <tr>
                 {(["Sym", "Price", "Dir", "Status", "Note", ""] as const).map(
@@ -306,7 +306,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                     <th
                       key={h || "actions"}
                       className={cn(
-                        "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                        "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
                         idx === 0 ||
                           h === "Dir" ||
                           h === "Status" ||
@@ -338,7 +338,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                   <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground">
                     {formatMoney(alert.price)}
                   </td>
-                  <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] uppercase text-[var(--fg-dim)]">
+                  <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase text-[var(--fg-dim)]">
                     {alert.direction}
                     {alert.repeat ? (
                       <span
@@ -351,7 +351,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                   </td>
                   <td
                     className={cn(
-                      "border-b border-[var(--border)] px-2 py-1.5 text-[11px] uppercase",
+                      "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase",
                       alert.triggered && !alert.repeat
                         ? "text-[var(--c-green)]"
                         : "text-[var(--c-blue)]",
@@ -363,7 +363,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
                         ? "triggered"
                         : "active"}
                   </td>
-                  <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)]">
+                  <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
                     {alert.note || "—"}
                   </td>
                   <td className="border-b border-[var(--border)] px-1 py-1.5">

@@ -62,7 +62,7 @@ function ScrollbackLine({ entry }: { entry: ScrollbackEntry }) {
   return (
     <div
       className={cn(
-        "font-mono text-[12px] leading-relaxed whitespace-pre-wrap",
+        "font-mono text-[length:var(--fs-title)] leading-relaxed whitespace-pre-wrap",
         entry.kind === "input" && "text-[var(--fg-dim)]",
         entry.kind === "output" && "text-[var(--fg-faint)]",
         entry.kind === "error" && "text-[var(--c-danger)]",
@@ -98,7 +98,7 @@ function CommandAutocomplete({
         <li key={cmd}>
           <button
             type="button"
-            className="w-full px-3.5 py-1 text-left font-mono text-[11px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)]/60 hover:text-foreground"
+            className="w-full px-3.5 py-1 text-left font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)]/60 hover:text-foreground"
             onMouseDown={(e) => {
               e.preventDefault();
               onSelect(cmd);
@@ -287,7 +287,7 @@ export function CommandConsole() {
         <div className="relative inline-grid min-w-[16rem] max-w-[50%] flex-1 items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1">
           <span
             aria-hidden
-            className="invisible col-start-1 row-start-1 whitespace-pre font-mono text-[14px]"
+            className="invisible col-start-1 row-start-1 whitespace-pre font-mono text-[length:var(--fs-emph)]"
           >
             {mirrorText}
             {focused ? "▋" : ""}
@@ -310,14 +310,14 @@ export function CommandConsole() {
             spellCheck={false}
             autoComplete="off"
             aria-label="Workspace command line"
-            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent font-mono text-[14px] text-foreground outline-none"
+            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent font-mono text-[length:var(--fs-emph)] text-foreground outline-none"
             style={{ caretColor: "transparent" }}
           />
 
           {focused ? (
             <span
               aria-hidden
-              className="pointer-events-none col-start-1 row-start-1 flex items-center font-mono text-[14px] text-transparent"
+              className="pointer-events-none col-start-1 row-start-1 flex items-center font-mono text-[length:var(--fs-emph)] text-transparent"
             >
               {inputValue}
               <span

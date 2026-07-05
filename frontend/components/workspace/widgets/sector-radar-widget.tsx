@@ -96,14 +96,14 @@ function SectorTooltip({
 
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 shadow-sm">
-      <p className="font-mono text-[10px] font-semibold text-foreground">
+      <p className="font-mono text-[length:var(--fs-table)] font-semibold text-foreground">
         {row.sector}
       </p>
-      <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+      <p className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
         {(row.weightPct * 100).toFixed(1)}% · {row.positionCount} pos
       </p>
       <p
-        className="font-mono text-[11px] font-semibold tabular-nums"
+        className="font-mono text-[length:var(--fs-body)] font-semibold tabular-nums"
         style={{ color: row.realizedPnl >= 0 ? "var(--c-green)" : "var(--c-red)" }}
       >
         {row.realizedPnl >= 0 ? "+" : ""}
@@ -179,7 +179,7 @@ export function SectorRadarWidget() {
 
   const pillClass = (active: boolean) =>
     cn(
-      "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+      "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
       active
         ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
         : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -189,11 +189,8 @@ export function SectorRadarWidget() {
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
-          <span className="truncate font-mono text-[10px] uppercase tracking-[0.05em] text-[var(--fg-faint)]">
-            Sector radar
-          </span>
           {rows.length > 0 ? (
-            <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+            <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
               {rows.length} sector{rows.length === 1 ? "" : "s"}
               {mode === "pnl" ? (
                 <>
@@ -246,13 +243,13 @@ export function SectorRadarWidget() {
 
       <div className="flex-1 min-h-0 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
+          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
         ) : null}
         {loading && rows.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : rows.length === 0 ? (
           <div className="flex h-full min-h-24 items-center justify-center px-4 text-center">
-            <p className="font-mono text-xs text-[var(--fg-dim)]">
+            <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
               No sector data — no open positions or trades in range
             </p>
           </div>
@@ -261,7 +258,7 @@ export function SectorRadarWidget() {
             <div className="min-h-0 flex-1">
               {mode === "allocation" && totalMarketValue <= 0 ? (
                 <div className="flex h-full min-h-24 items-center justify-center px-4 text-center">
-                  <p className="font-mono text-xs text-[var(--fg-dim)]">
+                  <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
                     No open positions — allocation unavailable
                     <br />
                     <span className="text-[var(--fg-faint)]">
@@ -371,7 +368,7 @@ export function SectorRadarWidget() {
               {sortedRows.map((row) => (
                 <div
                   key={row.sector}
-                  className="flex items-center justify-between gap-2 font-mono text-[10px]"
+                  className="flex items-center justify-between gap-2 font-mono text-[length:var(--fs-table)]"
                 >
                   <span className="min-w-0 flex-1 truncate text-[var(--fg-dim)]">
                     {row.sector}

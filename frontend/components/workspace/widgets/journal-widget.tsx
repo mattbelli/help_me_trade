@@ -77,7 +77,7 @@ function ToggleButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.05em] transition-colors",
+        "px-2 py-0.5 text-[length:var(--fs-body)] font-medium uppercase tracking-[0.08em] transition-colors",
         active
           ? "bg-[var(--c-accent)] text-[var(--bg)]"
           : "text-[var(--fg-dim)] hover:text-foreground",
@@ -159,7 +159,7 @@ export function JournalWidget({ config }: WidgetProps) {
     view === "ai" ? decisions !== null : trades !== null && summary !== null;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+    <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {/* Header: AI ⇄ Me toggle + refresh */}
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-2 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
@@ -167,7 +167,7 @@ export function JournalWidget({ config }: WidgetProps) {
             <ToggleButton active={view === "ai"} onClick={() => setView("ai")}>
               AI
             </ToggleButton>
-            <span className="self-center text-[10px] text-[var(--fg-faint)]">⇄</span>
+            <span className="self-center text-[length:var(--fs-table)] text-[var(--fg-faint)]">⇄</span>
             <ToggleButton active={view === "me"} onClick={() => setView("me")}>
               Me
             </ToggleButton>
@@ -179,11 +179,11 @@ export function JournalWidget({ config }: WidgetProps) {
             >
               <SelectTrigger
                 size="sm"
-                className="h-6 min-w-[5.5rem] border-[var(--border)] bg-[var(--bg-inset)] px-1.5 font-mono text-[10px] text-foreground"
+                className="h-6 min-w-[5.5rem] border-[var(--border)] bg-[var(--bg-inset)] px-1.5 font-mono text-[length:var(--fs-table)] text-foreground"
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="font-mono text-[11px]">
+              <SelectContent className="font-mono text-[length:var(--fs-body)]">
                 <SelectItem value="all">All real</SelectItem>
                 {realAccounts.map((acct) => (
                   <SelectItem key={acct.id} value={acct.id}>
@@ -200,7 +200,7 @@ export function JournalWidget({ config }: WidgetProps) {
       </div>
 
       {error ? (
-        <p className="px-2 py-1 text-[10px] text-[var(--c-red)]">{error}</p>
+        <p className="px-2 py-1 text-[length:var(--fs-table)] text-[var(--c-red)]">{error}</p>
       ) : null}
 
       {!loaded && loading ? (
@@ -294,9 +294,9 @@ function CalibrationView({
 }) {
   if (!calibration || calibration.n_resolved === 0) {
     return (
-      <div className="min-h-0 flex-1 overflow-auto p-3 text-[11px] text-[var(--fg-dim)]">
+      <div className="min-h-0 flex-1 overflow-auto p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         <p className="font-medium text-[var(--fg-dim)]">Insufficient data</p>
-        <p className="mt-1 text-[10px] text-[var(--fg-faint)]">
+        <p className="mt-1 text-[length:var(--fs-table)] text-[var(--fg-faint)]">
           No resolved paper calls to grade yet. Calibration compares the agent&apos;s
           predicted win% against what actually happened — it stays honestly empty until
           enough proposals win/lose (≥{calibration?.min_samples ?? 10} per group).
@@ -332,7 +332,7 @@ function CalibrationTable({
   if (groups.length === 0) return null;
   return (
     <div className="border-b border-[var(--border)]">
-      <div className="px-2 pt-2 text-[10px] uppercase tracking-[0.06em] text-[var(--fg-faint)]">
+      <div className="px-2 pt-2 text-[length:var(--fs-table)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
         {title}
       </div>
       {groups.map((g) => {
@@ -344,12 +344,12 @@ function CalibrationTable({
           >
             <div className="min-w-0">
               <span className="truncate font-medium">{g.label}</span>
-              <span className="ml-1 text-[10px] text-[var(--fg-faint)]">n{g.n}</span>
+              <span className="ml-1 text-[length:var(--fs-table)] text-[var(--fg-faint)]">n{g.n}</span>
             </div>
-            <div className="text-right text-[11px] tabular-nums">
+            <div className="text-right text-[length:var(--fs-body)] tabular-nums">
               {insufficient ? (
                 <span
-                  className="text-[10px] uppercase"
+                  className="text-[length:var(--fs-table)] uppercase"
                   style={{ color: "var(--fg-dim)" }}
                   title={`Need ≥${minSamples} resolved trades to grade`}
                 >
@@ -357,14 +357,14 @@ function CalibrationTable({
                 </span>
               ) : (
                 <span
-                  className="text-[10px] uppercase"
+                  className="text-[length:var(--fs-table)] uppercase"
                   style={{ color: verdictColor(g.verdict) }}
                 >
                   {verdictLabel(g.verdict)}
                 </span>
               )}
             </div>
-            <div className="col-span-2 text-[10px] text-[var(--fg-dim)] tabular-nums">
+            <div className="col-span-2 text-[length:var(--fs-table)] text-[var(--fg-dim)] tabular-nums">
               <span className="text-[var(--fg-faint)]">pred </span>
               {pct(g.predicted_win)}
               <span className="text-[var(--fg-faint)]"> vs real </span>
@@ -404,7 +404,7 @@ function DecisionsView({
 }) {
   if (decisions.length === 0) {
     return (
-      <p className="p-3 text-[11px] text-[var(--fg-dim)]">
+      <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No agent decisions yet — arm a strategy or run a paper proposal.
       </p>
     );
@@ -418,7 +418,7 @@ function DecisionsView({
           {strat.map((s) => (
             <span
               key={s.strategy_id}
-              className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--fg-dim)]"
+              className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]"
               title={`${s.wins}W / ${s.losses}L`}
             >
               <span className="text-foreground">{s.strategy_id}</span> ·{" "}
@@ -447,7 +447,7 @@ function DecisionsView({
                 "—"
               )}
             </span>
-            <span className="flex items-center gap-2 tabular-nums text-[11px]">
+            <span className="flex items-center gap-2 tabular-nums text-[length:var(--fs-body)]">
               <span className="text-[var(--fg-faint)]">win% {pct(d.win_prob)}</span>
               <span style={{ color: outcomeColor(d.outcome) }}>
                 {d.outcome ?? d.decision ?? "pending"}
@@ -463,7 +463,7 @@ function DecisionsView({
             </span>
           </div>
           {d.thesis ? (
-            <p className="truncate text-[10px] text-[var(--fg-faint)]">{d.thesis}</p>
+            <p className="truncate text-[length:var(--fs-table)] text-[var(--fg-faint)]">{d.thesis}</p>
           ) : null}
         </div>
       ))}
@@ -495,7 +495,7 @@ function MeView({
     <div className="min-h-0 flex-1 overflow-auto">
       {/* Net-cash truth + behavioral summary line */}
       {summary ? (
-        <div className="border-b border-[var(--border)] px-2 py-1.5 text-[10px] text-[var(--fg-dim)]">
+        <div className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]">
           <div>
             <span className="text-[var(--fg-faint)]">net-cash realized </span>
             <span
@@ -519,7 +519,7 @@ function MeView({
       ) : null}
 
       {trades.length === 0 ? (
-        <p className="p-3 text-[11px] text-[var(--fg-dim)]">
+        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           No closed round-trips in the imported history.
         </p>
       ) : (
@@ -539,7 +539,7 @@ function MeView({
                 "—"
               )}
             </span>
-            <span className="text-right text-[10px] text-[var(--fg-faint)]">
+            <span className="text-right text-[length:var(--fs-table)] text-[var(--fg-faint)]">
               {t.side}
             </span>
             <span
@@ -549,11 +549,11 @@ function MeView({
             >
               {money(t.pnl)}
             </span>
-            <span className="text-right text-[10px] tabular-nums text-[var(--fg-dim)]">
+            <span className="text-right text-[length:var(--fs-table)] tabular-nums text-[var(--fg-dim)]">
               {t.hold_days == null ? "—" : `${t.hold_days}d`}
             </span>
             <span
-              className="text-right text-[10px] uppercase"
+              className="text-right text-[length:var(--fs-table)] uppercase"
               style={{ color: outcomeColor(t.outcome) }}
             >
               {t.outcome === "win" ? "W" : t.outcome === "loss" ? "L" : "—"}

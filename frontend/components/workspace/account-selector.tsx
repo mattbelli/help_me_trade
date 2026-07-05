@@ -35,11 +35,11 @@ export function AccountSelector({ value, onChange }: AccountSelectorProps) {
     <Select value={value} onValueChange={(v) => onChange(v ?? "overview")}>
       <SelectTrigger
         size="sm"
-        className="h-7 min-w-[7rem] border-[var(--border)] bg-[var(--bg-inset)] px-2 font-mono text-[10.5px] text-foreground"
+        className="h-7 min-w-[7rem] border-[var(--border)] bg-[var(--bg-inset)] px-2 font-mono text-[length:var(--fs-table)] text-foreground"
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="font-mono text-[11px]">
+      <SelectContent className="font-mono text-[length:var(--fs-body)]">
         <SelectItem value="overview">Overview — Real + Paper</SelectItem>
 
         {realAccounts.length > 0 ? (

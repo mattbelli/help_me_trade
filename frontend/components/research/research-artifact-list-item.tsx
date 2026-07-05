@@ -77,8 +77,8 @@ export function ResearchArtifactListItem({
             }}
             className="min-w-0 flex-1 cursor-pointer text-left"
           >
-            <p className="line-clamp-2 font-mono text-[11px] text-foreground">{item.topic}</p>
-            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-[var(--fg-faint)]">
+            <p className="line-clamp-2 font-mono text-[length:var(--fs-body)] text-foreground">{item.topic}</p>
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
               <span
                 className={cn(
                   "rounded border px-1 uppercase",
@@ -93,7 +93,7 @@ export function ResearchArtifactListItem({
                   symbol={item.symbol}
                   linked={linked ?? false}
                   onActivate={() => onSymbolActivate(item.symbol!)}
-                  className="text-[10px]"
+                  className="text-[length:var(--fs-table)]"
                 />
               ) : item.symbol ? (
                 <span>{item.symbol}</span>
@@ -150,7 +150,7 @@ export function ResearchArtifactListItem({
       >
         <div className="flex items-start justify-between gap-2">
           <p className="line-clamp-2 text-sm font-medium">{item.topic}</p>
-          <Badge variant="outline" className="shrink-0 text-[10px] uppercase">
+          <Badge variant="outline" className="shrink-0 text-[length:var(--fs-table)] uppercase">
             {item.depth}
           </Badge>
         </div>

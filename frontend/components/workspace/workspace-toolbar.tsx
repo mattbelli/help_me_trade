@@ -64,7 +64,7 @@ function MoneyTypeBadge({
     return (
       <span
         className={cn(
-          "inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[9px] tracking-wide text-[var(--fg-dim)] uppercase",
+          "inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-dim)] uppercase",
           className,
         )}
       >
@@ -76,7 +76,7 @@ function MoneyTypeBadge({
     return (
       <span
         className={cn(
-          "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[9px] tracking-wide text-[var(--c-amber)] uppercase",
+          "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase",
           className,
         )}
       >
@@ -87,7 +87,7 @@ function MoneyTypeBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[9px] tracking-wide text-[var(--c-blue)] uppercase",
+        "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-blue)] uppercase",
         className,
       )}
     >
@@ -112,12 +112,12 @@ function ToolbarTile({
   const flash = usePriceFlash(flashValue);
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-0.5 text-center leading-tight">
-      <div className="font-mono text-[8px] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
+      <div className="font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
         {label}
       </div>
       <div
         className={cn(
-          "rounded font-mono text-[14px] font-semibold tabular-nums text-foreground",
+          "rounded font-mono text-[length:var(--fs-emph)] font-semibold tabular-nums text-foreground",
           flash === "up" && "tick-flash-up",
           flash === "down" && "tick-flash-down",
           valueClassName,
@@ -270,11 +270,11 @@ export function WorkspaceToolbar() {
   const auth = brokerAuth(details, primary);
 
   return (
-    <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[11.5px]">
+    <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[length:var(--fs-title)]">
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2">
           <span
-            className="grid size-5 place-items-center rounded-md text-[11px] font-extrabold text-[var(--c-on-accent)]"
+            className="grid size-5 place-items-center rounded-md text-[length:var(--fs-body)] font-extrabold text-[var(--c-on-accent)]"
             style={{
               backgroundImage:
                 "linear-gradient(135deg, var(--c-accent), var(--c-violet))",
@@ -282,7 +282,7 @@ export function WorkspaceToolbar() {
           >
             ▰
           </span>
-          <span className="hidden font-sans text-[13px] font-bold tracking-tight sm:inline">
+          <span className="hidden font-sans text-[length:var(--fs-title)] font-bold tracking-tight sm:inline">
             help_me_trade
           </span>
         </div>
@@ -315,26 +315,26 @@ export function WorkspaceToolbar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="w-64 border-[var(--border)] bg-[var(--panel)] p-3 font-mono text-[11px] text-foreground shadow-[var(--panel-shadow)]"
+            className="w-64 border-[var(--border)] bg-[var(--panel)] p-3 font-mono text-[length:var(--fs-body)] text-foreground shadow-[var(--panel-shadow)]"
           >
             {detailsLoading ? (
               <p className="text-[var(--fg-dim)]">Loading…</p>
             ) : (
               <dl className="space-y-2">
                 <div>
-                  <dt className="text-[9.5px] tracking-wide text-[var(--fg-faint)] uppercase">
+                  <dt className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
                     Primary broker
                   </dt>
                   <dd className="mt-0.5 capitalize text-foreground">{primary}</dd>
                 </div>
                 <div>
-                  <dt className="text-[9.5px] tracking-wide text-[var(--fg-faint)] uppercase">
+                  <dt className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
                     Environment
                   </dt>
                   <dd className="mt-0.5">
                     <span
                       className={cn(
-                        "inline-flex rounded-full border px-2 py-px text-[10px]",
+                        "inline-flex rounded-full border px-2 py-px text-[length:var(--fs-table)]",
                         isPaper
                           ? "border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] text-[var(--c-blue)]"
                           : "border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] text-[var(--c-amber)]",
@@ -346,7 +346,7 @@ export function WorkspaceToolbar() {
                 </div>
                 {auth ? (
                   <div>
-                    <dt className="text-[9.5px] tracking-wide text-[var(--fg-faint)] uppercase">
+                    <dt className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
                       Connection
                     </dt>
                     <dd className="mt-0.5 flex items-start gap-1.5">
@@ -363,7 +363,7 @@ export function WorkspaceToolbar() {
                   </div>
                 ) : null}
                 <div>
-                  <dt className="text-[9.5px] tracking-wide text-[var(--fg-faint)] uppercase">
+                  <dt className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
                     Last update
                   </dt>
                   <dd className="mt-0.5 text-[var(--fg-dim)]">

@@ -138,7 +138,7 @@ export function ResearchViewerActionBar({
   if (!artifact) return null;
 
   const actionBtnClass =
-    "h-6 gap-1 px-2 py-1 font-mono text-[11px] [&_svg:not([class*='size-'])]:size-3.5";
+    "h-6 gap-1 px-2 py-1 font-mono text-[length:var(--fs-body)] [&_svg:not([class*='size-'])]:size-3.5";
 
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
@@ -190,7 +190,7 @@ export function ResearchViewerActionBar({
             href={researchHtmlUrl(artifact.id)}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-6 items-center gap-1 rounded-[min(var(--radius-md),10px)] border border-border bg-background px-2 py-1 font-mono text-[11px] font-medium hover:bg-muted"
+            className="inline-flex h-6 items-center gap-1 rounded-[min(var(--radius-md),10px)] border border-border bg-background px-2 py-1 font-mono text-[length:var(--fs-body)] font-medium hover:bg-muted"
           >
             <ExternalLink className="size-3.5" />
             Open full report

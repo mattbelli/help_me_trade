@@ -93,7 +93,7 @@ export function NotificationsWidget({}: WidgetProps) {
 
   if (!hydrated) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">Loading…</p>
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
     );
   }
 
@@ -104,7 +104,7 @@ export function NotificationsWidget({}: WidgetProps) {
           <button
             type="button"
             className={cn(
-              "rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+              "rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
               filter === "all"
                 ? "border-[var(--border)] bg-[var(--bg-hover)] text-foreground"
                 : "border-transparent text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -116,7 +116,7 @@ export function NotificationsWidget({}: WidgetProps) {
           <button
             type="button"
             className={cn(
-              "rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+              "rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
               filter === "unread"
                 ? "border-[var(--border)] bg-[var(--bg-hover)] text-foreground"
                 : "border-transparent text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -132,7 +132,7 @@ export function NotificationsWidget({}: WidgetProps) {
                 key={kind}
                 type="button"
                 className={cn(
-                  "rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+                  "rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
                   filter === mode
                     ? "border-[var(--border)] bg-[var(--bg-hover)] text-foreground"
                     : "border-transparent text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -146,7 +146,7 @@ export function NotificationsWidget({}: WidgetProps) {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {unread > 0 ? (
-            <span className="font-mono text-[10px] tabular-nums text-[var(--fg-faint)]">
+            <span className="font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
               {unread} unread
             </span>
           ) : null}
@@ -155,7 +155,7 @@ export function NotificationsWidget({}: WidgetProps) {
             disabled={unread === 0}
             onClick={() => markAllRead()}
             className={cn(
-              "rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+              "rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
               unread === 0
                 ? "cursor-not-allowed border-transparent text-[var(--fg-faint)]"
                 : "border-transparent text-[var(--c-accent)] hover:bg-[var(--c-accent-soft)]",
@@ -167,7 +167,7 @@ export function NotificationsWidget({}: WidgetProps) {
       </div>
 
       {visible.length === 0 ? (
-        <p className="p-2 font-mono text-xs text-[var(--fg-dim)]">
+        <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           No notifications
         </p>
       ) : (
@@ -202,19 +202,19 @@ export function NotificationsWidget({}: WidgetProps) {
                       />
                       <span
                         className={cn(
-                          "rounded border px-1 py-px font-mono text-[9px] uppercase tracking-wide",
+                          "rounded border px-1 py-px font-mono text-[length:var(--fs-micro)] uppercase tracking-[0.08em]",
                           kindChipClass(n.kind),
                         )}
                       >
                         {formatKind(n.kind)}
                       </span>
-                      <span className="font-mono text-[10px] tabular-nums text-[var(--fg-faint)]">
+                      <span className="font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                         {relativeTime(n.created_at)}
                       </span>
                     </div>
                     <p
                       className={cn(
-                        "mt-1 font-mono text-[11px] leading-snug",
+                        "mt-1 font-mono text-[length:var(--fs-body)] leading-snug",
                         n.read
                           ? "font-normal text-foreground"
                           : "font-semibold text-foreground",
@@ -223,18 +223,18 @@ export function NotificationsWidget({}: WidgetProps) {
                       {n.title}
                     </p>
                     {expanded ? (
-                      <p className="mt-1.5 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--fg-dim)]">
+                      <p className="mt-1.5 whitespace-pre-wrap font-mono text-[length:var(--fs-body)] leading-relaxed text-[var(--fg-dim)]">
                         {n.body}
                       </p>
                     ) : n.body ? (
-                      <p className="mt-0.5 line-clamp-2 font-mono text-[10px] leading-snug text-[var(--fg-dim)]">
+                      <p className="mt-0.5 line-clamp-2 font-mono text-[length:var(--fs-table)] leading-snug text-[var(--fg-dim)]">
                         {n.body}
                       </p>
                     ) : null}
                   </button>
                   <button
                     type="button"
-                    className="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[11px] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-accent)]"
+                    className="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[length:var(--fs-body)] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-accent)]"
                     aria-label="Open in workspace"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -245,7 +245,7 @@ export function NotificationsWidget({}: WidgetProps) {
                   </button>
                   <button
                     type="button"
-                    className="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[11px] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
+                    className="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[length:var(--fs-body)] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
                     aria-label="Dismiss notification"
                     onClick={(e) => {
                       e.stopPropagation();

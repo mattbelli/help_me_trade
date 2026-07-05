@@ -148,7 +148,7 @@ export function ScansWidget({ config }: WidgetProps) {
   };
 
   if (presets.length === 0 && error) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
   }
 
   if (presets.length === 0) {
@@ -160,7 +160,7 @@ export function ScansWidget({ config }: WidgetProps) {
     presets.find((p) => p.id === selected)?.metric_label ?? "Value";
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+    <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {/* Controls */}
       <div className="flex items-center gap-1.5 border-b border-[var(--border)] px-2 py-1.5">
         {/* Universe toggle: Watchlist ⇄ S&P 500 */}
@@ -173,7 +173,7 @@ export function ScansWidget({ config }: WidgetProps) {
               title={u.title}
               aria-pressed={universe === u.id}
               className={cn(
-                "px-1.5 py-0.5 font-mono text-[9.5px] transition-colors",
+                "px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
                 universe === u.id
                   ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
                   : "text-[var(--fg-faint)] hover:bg-[var(--bg-hover)] hover:text-foreground",
@@ -215,45 +215,45 @@ export function ScansWidget({ config }: WidgetProps) {
           {running ? "…" : "Run"}
         </TerminalButton>
         {showResults ? (
-          <span className="tabular-nums text-[9.5px] text-[var(--fg-faint)]">
+          <span className="tabular-nums text-[length:var(--fs-table)] text-[var(--fg-faint)]">
             {data.universe_size} · {formatAsOf(data.as_of)}
           </span>
         ) : null}
       </div>
 
       {showResults && data.note ? (
-        <p className="px-2 py-1 font-mono text-[10px] text-[var(--c-amber)]">
+        <p className="px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--c-amber)]">
           {data.note}
         </p>
       ) : null}
 
       {error && showResults ? (
-        <p className="px-2 py-1 font-mono text-[10px] text-[var(--c-red)]">
+        <p className="px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
           {error}
         </p>
       ) : null}
 
       {/* Body */}
       {!showResults ? (
-        <p className="p-3 text-[11px] text-[var(--fg-dim)]">
+        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           {error ?? "Pick a scan and Run."}
         </p>
       ) : data.count === 0 ? (
-        <p className="p-3 text-[11px] text-[var(--fg-dim)]">
+        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           No matches across {data.universe_size} screened symbols.
         </p>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           {/* Column headers */}
           <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5">
-            <span className="text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]">
+            <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
               #
             </span>
             {(["Sym", metricLabel, "Last", "1d %"] as const).map((h, idx) => (
               <span
                 key={h}
                 className={cn(
-                  "truncate text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]",
+                  "truncate text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]",
                   idx === 0 ? "text-left" : "text-right",
                 )}
               >
@@ -268,7 +268,7 @@ export function ScansWidget({ config }: WidgetProps) {
               key={row.symbol}
               className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
             >
-              <span className="text-[10px] tabular-nums text-[var(--fg-faint)]">
+              <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                 {idx + 1}
               </span>
               <span className="truncate font-medium">

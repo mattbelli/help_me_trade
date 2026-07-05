@@ -85,7 +85,7 @@ function PositionRow({
             onActivate={() => onPublish(p.symbol)}
           />
           {p.accountLabel ? (
-            <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+            <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
               {p.accountLabel}
             </span>
           ) : null}
@@ -94,7 +94,7 @@ function PositionRow({
       <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatQty(p.qty)}
       </td>
-      <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] tracking-wide text-[var(--fg-faint)] uppercase">
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
         {p.side}
       </td>
       <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
@@ -156,7 +156,7 @@ export function PositionsWidget({ config }: WidgetProps) {
 
   if (!snapshot) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         Waiting for positions…
       </p>
     );
@@ -164,7 +164,7 @@ export function PositionsWidget({ config }: WidgetProps) {
 
   if (positions.length === 0) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No open positions
       </p>
     );
@@ -172,14 +172,14 @@ export function PositionsWidget({ config }: WidgetProps) {
 
   return (
     <div className="h-full overflow-auto px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             {COLUMNS.map(({ label, key, align }) => (
               <th
                 key={key}
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
                   align === "left" ? "text-left" : "text-right",
                 )}
               >

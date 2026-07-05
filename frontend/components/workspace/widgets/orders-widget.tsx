@@ -33,7 +33,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const TH =
-  "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase";
+  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
 const TD = "border-b border-[var(--border)] px-2 py-1.5";
 const ROW = "group/row transition-colors hover:bg-[var(--bg-hover)]";
 
@@ -86,11 +86,11 @@ function FilledTab({
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
   if (error) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
   }
   if (events.length === 0) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No trade history
       </p>
     );
@@ -98,7 +98,7 @@ function FilledTab({
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Date</th>
@@ -131,7 +131,7 @@ function FilledTab({
                 <td
                   className={cn(
                     TD,
-                    "text-[11px] tracking-wide uppercase",
+                    "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
                     sideClass(e.side),
                   )}
                 >
@@ -182,14 +182,14 @@ function OpenTab({
   }
   if (!hasSnapshot) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         Waiting for orders…
       </p>
     );
   }
   if (orders.length === 0) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No open orders
       </p>
     );
@@ -197,7 +197,7 @@ function OpenTab({
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Symbol</th>
@@ -220,7 +220,7 @@ function OpenTab({
                     onActivate={() => publish(o.symbol)}
                   />
                   {o.accountLabel ? (
-                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+                    <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
                       {o.accountLabel}
                     </span>
                   ) : null}
@@ -229,7 +229,7 @@ function OpenTab({
               <td
                 className={cn(
                   TD,
-                  "text-[11px] tracking-wide uppercase",
+                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
                   sideClass(o.side),
                 )}
               >
@@ -241,10 +241,10 @@ function OpenTab({
               <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
                 {o.filled_qty}
               </td>
-              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
                 {o.order_type}
               </td>
-              <td className={cn(TD, "text-[11px] uppercase", statusClass(o.status))}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(o.status))}>
                 {o.status.replace(/_/g, " ")}
               </td>
               <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
@@ -273,11 +273,11 @@ function RejectedTab({
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
   if (error) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
   }
   if (executions.length === 0) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No rejected orders
       </p>
     );
@@ -285,7 +285,7 @@ function RejectedTab({
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Time</th>
@@ -314,7 +314,7 @@ function RejectedTab({
               <td
                 className={cn(
                   TD,
-                  "text-[11px] tracking-wide uppercase",
+                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
                   sideClass(x.side),
                 )}
               >
@@ -323,13 +323,13 @@ function RejectedTab({
               <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
                 {x.qty}
               </td>
-              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
                 {x.order_type}
               </td>
-              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
                 {x.execution_mode}
               </td>
-              <td className={cn(TD, "text-[11px] uppercase", statusClass(x.status))}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(x.status))}>
                 {x.status.replace(/_/g, " ")}
               </td>
             </tr>
@@ -433,7 +433,7 @@ export function OrdersWidget({ config }: WidgetProps) {
             type="button"
             onClick={() => setTab(id)}
             className={cn(
-              "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+              "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
               tab === id
                 ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
                 : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",

@@ -113,7 +113,7 @@ export function MemoryWidget({}: WidgetProps) {
             key={filter.id}
             type="button"
             className={cn(
-              "rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+              "rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
               typeFilter === filter.id
                 ? "border-[var(--border)] bg-[var(--bg-hover)] text-foreground"
                 : "border-transparent text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -126,18 +126,18 @@ export function MemoryWidget({}: WidgetProps) {
       </div>
 
       {error && visibleMemories.length === 0 ? (
-        <p className="p-2 font-mono text-xs text-[var(--c-red)]">{error}</p>
+        <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
       ) : null}
 
       {visibleMemories.length === 0 ? (
-        <p className="p-2 font-mono text-xs text-[var(--fg-dim)]">
+        <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           No memories yet — the copilot learns preferences and lessons over
           time.
         </p>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           {error ? (
-            <p className="mb-1 px-1 font-mono text-[10px] text-[var(--c-red)]">
+            <p className="mb-1 px-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
               {error}
             </p>
           ) : null}
@@ -162,17 +162,17 @@ export function MemoryWidget({}: WidgetProps) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span
                         className={cn(
-                          "rounded border px-1 py-px font-mono text-[9px] uppercase tracking-wide",
+                          "rounded border px-1 py-px font-mono text-[length:var(--fs-micro)] uppercase tracking-[0.08em]",
                           typeChipClass(memory.type),
                         )}
                       >
                         {MEMORY_TYPE_LABELS[memory.type]}
                       </span>
-                      <span className="font-mono text-[10px] tabular-nums text-[var(--fg-faint)]">
+                      <span className="font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                         {relativeTime(memory.created_at)}
                       </span>
                     </div>
-                    <p className="line-clamp-3 font-mono text-[11px] leading-snug text-foreground">
+                    <p className="line-clamp-3 font-mono text-[length:var(--fs-body)] leading-snug text-foreground">
                       {memory.content}
                     </p>
                   </button>
@@ -181,24 +181,24 @@ export function MemoryWidget({}: WidgetProps) {
                   <div className="flex flex-wrap items-center gap-2">
                     <span
                       className={cn(
-                        "rounded border px-1 py-px font-mono text-[9px] uppercase tracking-wide",
+                        "rounded border px-1 py-px font-mono text-[length:var(--fs-micro)] uppercase tracking-[0.08em]",
                         typeChipClass(memory.type),
                       )}
                     >
                       {MEMORY_TYPE_LABELS[memory.type]}
                     </span>
-                    <span className="font-mono text-[10px] tabular-nums text-[var(--fg-faint)]">
+                    <span className="font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                       {relativeTime(memory.created_at)}
                     </span>
                   </div>
-                  <p className="line-clamp-3 font-mono text-[11px] leading-snug text-foreground">
+                  <p className="line-clamp-3 font-mono text-[length:var(--fs-body)] leading-snug text-foreground">
                     {memory.content}
                   </p>
                 </div>
                 )}
                 <button
                   type="button"
-                  className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[11px] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
+                  className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[length:var(--fs-body)] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
                   aria-label="Delete memory"
                   onClick={(e) => {
                     e.stopPropagation();

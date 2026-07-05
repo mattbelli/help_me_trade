@@ -69,7 +69,7 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
         aria-label="Add a widget"
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
-          <p className="font-mono text-[11.5px] font-semibold text-foreground">
+          <p className="font-mono text-[length:var(--fs-title)] font-semibold text-foreground">
             Add a widget
           </p>
           <button
@@ -89,12 +89,12 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
             placeholder="Search widgets…"
             // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
-            className="w-full bg-transparent font-mono text-xs text-foreground outline-none placeholder:text-[var(--fg-faint)]"
+            className="w-full bg-transparent font-mono text-[length:var(--fs-body)] text-foreground outline-none placeholder:text-[var(--fg-faint)]"
           />
         </div>
         <div className="max-h-72 overflow-y-auto p-1">
           {shown.length === 0 ? (
-            <p className="px-2 py-6 text-center font-mono text-xs text-[var(--fg-dim)]">
+            <p className="px-2 py-6 text-center font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
               No widgets.
             </p>
           ) : null}
@@ -105,11 +105,11 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
               onClick={() => select(widget.id)}
               className="flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]"
             >
-              <span className="font-mono text-[12px] font-semibold text-foreground">
+              <span className="font-mono text-[length:var(--fs-title)] font-semibold text-foreground">
                 {widget.title}
               </span>
               {widget.description ? (
-                <span className="font-mono text-[10.5px] text-[var(--fg-dim)]">
+                <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
                   {widget.description}
                 </span>
               ) : null}

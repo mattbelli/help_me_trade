@@ -34,7 +34,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const TH =
-  "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase";
+  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
 const TD = "border-b border-[var(--border)] px-2 py-1.5";
 const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
 
@@ -99,7 +99,7 @@ function OriginChip({ origin }: { origin: string }) {
   if (origin !== "llm_conviction") return null;
   return (
     <span
-      className="ml-1 rounded px-1 py-px font-mono text-[9px] tracking-wide text-[var(--c-violet)] uppercase"
+      className="ml-1 rounded px-1 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-violet)] uppercase"
       title="LLM-originated conviction idea (A/B tracked)"
     >
       LLM
@@ -126,7 +126,7 @@ function StatusCell({ row }: { row: IdeaOutcomeRow }) {
   const label = row.status.replace(/_/g, " ");
   return (
     <td
-      className={cn(TD, "text-[11px] uppercase", statusClass(row.status))}
+      className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(row.status))}
       title={row.notes?.trim() ? row.notes : undefined}
     >
       {label}
@@ -145,13 +145,13 @@ function OpenTable({
 }) {
   if (rows.length === 0) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">No open ideas</p>
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">No open ideas</p>
     );
   }
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Symbol</th>
@@ -209,7 +209,7 @@ function ResolvedTable({
 }) {
   if (rows.length === 0) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No resolved ideas
       </p>
     );
@@ -217,7 +217,7 @@ function ResolvedTable({
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Symbol</th>
@@ -310,7 +310,7 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
   }
 
   if (error && !data) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
   }
 
   if (
@@ -321,7 +321,7 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
     Object.keys(data.summary.counts).length === 0
   ) {
     return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
         No tracked ideas yet — run a setup scan.
       </p>
     );
@@ -335,18 +335,18 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
-        <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
           resolved {summary.resolved} · win rate {formatWinRate(summary.win_rate)}
           {originSummary ? ` · ${originSummary}` : ""}
         </span>
         {statusChips.length > 0 ? (
-          <span className="font-mono text-[10px] text-[var(--fg-faint)]">
+          <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
             {statusChips.join(" · ")}
           </span>
         ) : null}
         {stale ? (
           <span
-            className="font-mono text-[9px] tracking-wide text-[var(--c-amber)] uppercase"
+            className="font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase"
             title={error ?? undefined}
           >
             stale
@@ -361,7 +361,7 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
             type="button"
             onClick={() => setTab(id)}
             className={cn(
-              "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+              "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
               tab === id
                 ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
                 : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",

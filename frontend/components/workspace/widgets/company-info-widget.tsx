@@ -24,7 +24,7 @@ type Mode = "symbol" | "watchlist-news";
 
 const modeButtonClass = (active: boolean) =>
   cn(
-    "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+    "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
     active
       ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
       : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -100,7 +100,7 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-1.5">
-        <span className="truncate text-[11px] text-[var(--fg-dim)]">
+        <span className="truncate text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           {mode === "symbol" ? (symbol ?? "Company info") : "All watchlists"}
         </span>
         <div className="flex items-center gap-1">
@@ -124,15 +124,15 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {mode === "symbol" ? (
           !symbol ? (
-            <p className="text-[11px] text-[var(--fg-dim)]">
+            <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">
               {channel !== "none"
                 ? "Click a ticker to load its company info"
                 : "Link a channel or pick a symbol"}
             </p>
           ) : loading ? (
-            <p className="text-[11px] text-[var(--fg-dim)]">Loading…</p>
+            <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
           ) : error ? (
-            <p className="text-[11px] text-[var(--c-red)]">{error}</p>
+            <p className="text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
           ) : data ? (
             <div className="flex flex-col gap-4">
               <HeaderSection
@@ -149,9 +149,9 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
             </div>
           ) : null
         ) : newsLoading && newsItems.length === 0 ? (
-          <p className="text-[11px] text-[var(--fg-dim)]">Loading…</p>
+          <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
         ) : newsError ? (
-          <p className="text-[11px] text-[var(--c-red)]">{newsError}</p>
+          <p className="text-[length:var(--fs-body)] text-[var(--c-red)]">{newsError}</p>
         ) : (
           <NewsSection news={newsItems} title="Watchlist news" showSymbol />
         )}

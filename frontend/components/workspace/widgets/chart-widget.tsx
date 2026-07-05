@@ -48,7 +48,7 @@ export function ChartWidget({ config }: WidgetProps) {
             marketSession={marketSession}
           />
         ) : (
-          <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
+          <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
             Enter a symbol
           </p>
         )}

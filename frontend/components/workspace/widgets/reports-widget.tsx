@@ -58,10 +58,10 @@ function ReportListItem({
           : "border-l-transparent hover:bg-[var(--bg-hover)]",
       )}
     >
-      <p className="truncate font-mono text-[11px] text-foreground">
+      <p className="truncate font-mono text-[length:var(--fs-body)] text-foreground">
         {report.title}
       </p>
-      <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] text-[var(--fg-faint)]">
+      <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
         <span className="rounded-sm border border-[var(--border)] px-1 text-[var(--fg-dim)] uppercase">
           {kindLabel(report.kind)}
         </span>
@@ -108,11 +108,11 @@ function ReportViewer({ report }: { report: ReportRow }) {
   }
   return (
     <div className="h-full overflow-auto p-3">
-      <p className="font-mono text-[11px] text-foreground">{report.title}</p>
-      <p className="mt-1 font-mono text-[10px] text-[var(--fg-faint)]">
+      <p className="font-mono text-[length:var(--fs-body)] text-foreground">{report.title}</p>
+      <p className="mt-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
         {formatRelativeTime(report.generated_at)}
       </p>
-      <pre className="mt-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--fg-dim)]">
+      <pre className="mt-3 font-mono text-[length:var(--fs-title)] leading-relaxed whitespace-pre-wrap text-[var(--fg-dim)]">
         {report.body}
       </pre>
     </div>
@@ -173,7 +173,7 @@ export function ReportsWidget() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
-        <p className="font-mono text-[11px] tracking-[0.04em] text-[var(--fg-faint)] uppercase">
+        <p className="font-mono text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Reports
         </p>
         <div className="flex items-center gap-1.5">
@@ -201,15 +201,15 @@ export function ReportsWidget() {
       </div>
 
       {error && (
-        <p className="border-b border-[var(--border)] px-3 py-2 font-mono text-[11px] text-[var(--c-red)]">
+        <p className="border-b border-[var(--border)] px-3 py-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">
           {error}
         </p>
       )}
 
       {loading && reports.length === 0 ? (
-        <p className="p-3 font-mono text-[11px] text-[var(--fg-dim)]">Loading…</p>
+        <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
       ) : reports.length === 0 ? (
-        <p className="p-3 font-mono text-[11px] text-[var(--fg-dim)]">
+        <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           No reports yet. Use Generate or wait for a scheduled brief.
         </p>
       ) : (
@@ -229,7 +229,7 @@ export function ReportsWidget() {
             {selected ? (
               <ReportViewer report={selected} />
             ) : (
-              <p className="p-3 font-mono text-[11px] text-[var(--fg-dim)]">
+              <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
                 Select a report
               </p>
             )}

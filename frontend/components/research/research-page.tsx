@@ -201,10 +201,10 @@ export function ResearchPage() {
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <PagesMenu />
           <div className="min-w-0">
-            <h1 className="truncate font-mono text-[13px] font-semibold tracking-tight text-foreground">
+            <h1 className="truncate font-mono text-[length:var(--fs-title)] font-semibold tracking-tight text-foreground">
               Research
             </h1>
-            <p className="truncate text-[10px] text-[var(--fg-dim)]">
+            <p className="truncate text-[length:var(--fs-table)] text-[var(--fg-dim)]">
               Deep research with iterative search and structured reports
             </p>
           </div>

@@ -13,7 +13,7 @@ const TerminalSelect = React.forwardRef<
         ref={ref}
         data-slot="terminal-select"
         className={cn(
-          "w-full appearance-none rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-1 pr-6 font-mono text-[11px] text-foreground outline-none transition-colors focus:border-[var(--c-accent)] disabled:opacity-50",
+          "w-full appearance-none rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-1 pr-6 font-mono text-[length:var(--fs-body)] text-foreground outline-none transition-colors focus:border-[var(--c-accent)] disabled:opacity-50",
           className
         )}
         {...props}

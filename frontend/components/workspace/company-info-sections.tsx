@@ -73,7 +73,7 @@ export function winProbLabel(value: number | null | undefined): string {
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="mb-1.5 text-[9.5px] font-medium tracking-[0.06em] uppercase"
+      className="mb-1.5 text-[length:var(--fs-table)] font-medium tracking-[0.08em] uppercase"
       style={{ color: "var(--fg-faint)" }}
     >
       {children}
@@ -97,15 +97,15 @@ function StatCell({
     <div className={cn("flex flex-col", isMd ? "gap-0.5" : "gap-px")}>
       <span
         className={cn(
-          "font-medium tracking-[0.04em] uppercase",
-          isMd ? "text-[9.5px]" : "text-[9px]",
+          "font-medium tracking-[0.08em] uppercase",
+          isMd ? "text-[length:var(--fs-table)]" : "text-[length:var(--fs-micro)]",
         )}
         style={{ color: "var(--fg-faint)" }}
       >
         {label}
       </span>
       <span
-        className={cn("tabular-nums", isMd ? "text-[13px] font-semibold" : "text-[11px]")}
+        className={cn("tabular-nums", isMd ? "text-[length:var(--fs-title)] font-semibold" : "text-[length:var(--fs-body)]")}
         style={{ color: color ?? (isMd ? "var(--fg)" : "var(--fg-dim)") }}
       >
         {value}
@@ -155,14 +155,14 @@ export function HeaderSection({
             symbol={symbol}
             linked={linked}
             onActivate={onPublish}
-            className="font-mono text-[13px] font-medium"
+            className="font-mono text-[length:var(--fs-title)] font-medium"
           />
           {profile.weburl ? (
             <a
               href={profile.weburl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-0.5 text-[10px] text-[var(--fg-faint)] transition-colors hover:text-[var(--c-accent)]"
+              className="inline-flex items-center gap-0.5 text-[length:var(--fs-table)] text-[var(--fg-faint)] transition-colors hover:text-[var(--c-accent)]"
               onClick={(e) => e.stopPropagation()}
             >
               site
@@ -171,18 +171,18 @@ export function HeaderSection({
           ) : null}
         </div>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="font-mono text-[20px] leading-none font-semibold tabular-nums text-foreground">
+          <span className="font-mono text-[length:var(--fs-hero)] leading-none font-semibold tabular-nums text-foreground">
             {quote?.price != null ? `$${fmtNum(quote.price)}` : DASH}
           </span>
           <span
-            className="text-[12px] font-semibold tabular-nums"
+            className="text-[length:var(--fs-title)] font-semibold tabular-nums"
             style={{ color: changeColor }}
           >
             {fmtPct(changePct)}
           </span>
           {quote?.market_session ? (
             <span
-              className="rounded-full border border-[var(--border)] px-1.5 py-px text-[9px] font-medium tracking-wide uppercase"
+              className="rounded-full border border-[var(--border)] px-1.5 py-px text-[length:var(--fs-micro)] font-medium tracking-[0.08em] uppercase"
               style={{ color: "var(--fg-faint)" }}
             >
               {quote.market_session}
@@ -190,12 +190,12 @@ export function HeaderSection({
           ) : null}
         </div>
         {profile.name ? (
-          <div className="mt-0.5 truncate text-[12px] text-foreground">
+          <div className="mt-0.5 truncate text-[length:var(--fs-title)] text-foreground">
             {profile.name}
           </div>
         ) : null}
         {meta.length > 0 || marketCap != null ? (
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-[var(--fg-dim)]">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             {meta.map((m) => (
               <span key={m}>{m}</span>
             ))}
@@ -323,7 +323,7 @@ export function NewsSection({
     <div>
       <SectionTitle>{title}</SectionTitle>
       {news.length === 0 ? (
-        <p className="text-[11px] text-[var(--fg-faint)]">No recent news</p>
+        <p className="text-[length:var(--fs-body)] text-[var(--fg-faint)]">No recent news</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {news.map((item, idx) => {
@@ -334,12 +334,12 @@ export function NewsSection({
                   href={item.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-start gap-1 text-[11px] leading-snug text-foreground transition-colors hover:text-[var(--c-accent)]"
+                  className="inline-flex items-start gap-1 text-[length:var(--fs-body)] leading-snug text-foreground transition-colors hover:text-[var(--c-accent)]"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {symbol ? (
                     <span
-                      className="mt-0.5 shrink-0 rounded border border-[var(--border)] px-1 py-px font-mono text-[9px] tracking-wide text-[var(--c-accent)] uppercase"
+                      className="mt-0.5 shrink-0 rounded border border-[var(--border)] px-1 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-accent)] uppercase"
                     >
                       {symbol}
                     </span>
@@ -347,13 +347,13 @@ export function NewsSection({
                   <span className="min-w-0">{item.headline}</span>
                   <ExternalLink className="mt-0.5 size-2.5 shrink-0 text-[var(--fg-faint)]" />
                 </a>
-                <span className="text-[9.5px] text-[var(--fg-faint)]">
+                <span className="text-[length:var(--fs-table)] text-[var(--fg-faint)]">
                   {[item.source, relativeTime(item.datetime)]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
                 {item.summary ? (
-                  <span className="line-clamp-2 text-[10px] text-[var(--fg-dim)]">
+                  <span className="line-clamp-2 text-[length:var(--fs-table)] text-[var(--fg-dim)]">
                     {item.summary}
                   </span>
                 ) : null}

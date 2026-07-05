@@ -34,7 +34,7 @@ export function ChannelSelector({ channel, onChange }: Props) {
       />
       <DropdownMenuContent
         align="end"
-        className="min-w-36 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+        className="min-w-36 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
       >
         {CHANNELS.map((ch) => (
           <DropdownMenuItem

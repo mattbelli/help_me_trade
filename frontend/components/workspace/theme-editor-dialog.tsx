@@ -160,8 +160,8 @@ export function ThemeEditorDialog({
     return (
       <div key={cssVar} className="flex items-center gap-2 pl-5">
         <div className="flex w-32 shrink-0 flex-col leading-tight">
-          <span className="font-mono text-[10px] text-foreground">{label}</span>
-          <span className="font-mono text-[8px] text-[var(--fg-faint)]">
+          <span className="font-mono text-[length:var(--fs-table)] text-foreground">{label}</span>
+          <span className="font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
             {cssVar}
           </span>
         </div>
@@ -197,16 +197,16 @@ export function ThemeEditorDialog({
         showCloseButton={false}
       >
         <DialogHeader>
-          <DialogTitle className="font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
+          <DialogTitle className="font-mono text-[length:var(--fs-title)] tracking-[0.08em] uppercase text-foreground">
             {editing ? "Edit theme" : "New theme"}
           </DialogTitle>
-          <DialogDescription className="font-mono text-[10px] text-[var(--fg-dim)]">
+          <DialogDescription className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             Cloned from {baseLabel(cloneBase, editing?.name)}
           </DialogDescription>
         </DialogHeader>
 
         <label className="flex items-center gap-3">
-          <span className="w-20 shrink-0 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
+          <span className="w-20 shrink-0 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] uppercase text-[var(--fg-faint)]">
             Name
           </span>
           <TerminalInput
@@ -224,7 +224,7 @@ export function ThemeEditorDialog({
               return (
                 <div key={row.var} className="flex items-center gap-2">
                   <span className="w-2 shrink-0" />
-                  <span className="w-24 shrink-0 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
+                  <span className="w-24 shrink-0 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] uppercase text-[var(--fg-faint)]">
                     {row.label}
                   </span>
                   {isHexColor(value) ? (
@@ -259,7 +259,7 @@ export function ThemeEditorDialog({
                     onClick={() =>
                       setExpanded((s) => ({ ...s, [row.label]: !isOpen }))
                     }
-                    className="w-2 shrink-0 font-mono text-[9px] text-[var(--fg-faint)] hover:text-foreground"
+                    className="w-2 shrink-0 font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)] hover:text-foreground"
                   >
                     {isOpen ? "▾" : "▸"}
                   </button>
@@ -268,7 +268,7 @@ export function ThemeEditorDialog({
                     onClick={() =>
                       setExpanded((s) => ({ ...s, [row.label]: !isOpen }))
                     }
-                    className="w-24 shrink-0 text-left font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)] hover:text-foreground"
+                    className="w-24 shrink-0 text-left font-mono text-[length:var(--fs-micro)] tracking-[0.08em] uppercase text-[var(--fg-faint)] hover:text-foreground"
                   >
                     {row.label}
                   </button>
