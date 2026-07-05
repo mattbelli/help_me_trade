@@ -405,6 +405,67 @@ def test_generals_scan_respects_concurrency_cap(db: Path, scan_env, monkeypatch)
     assert "skipped 2" in sleeves_status(db_path=db)["sleeves"][GENERALS_ID]["last_scan"]["status"]
 
 
+def test_generals_scan_counts_pending_buy_toward_cap(
+    db: Path, scan_env, monkeypatch
+) -> None:
+    """Board card generals-pending-count: an unapproved generals_dip BUY card must
+    occupy a slot at the next scan. The old filter ran over list_pending_proposals
+    slim rows, which drop `source` — it could never match, so pending buys were
+    invisible to the max-concurrent cap."""
+    _enable_sleeve(db, GENERALS_ID)
+    update_strategy(GENERALS_ID, max_concurrent_positions=1, db_path=db)
+    mark(
+        "regime:universe:generals_dip",
+        "universe",
+        payload={"month": "2026-07", "as_of": "2026-06-30", "symbols": ["AAA", "CCC"]},
+        db_path=db,
+    )
+    create_pending_proposal(
+        proposal={"symbol": "AAA", "side": "buy", "qty": 10, "order_type": "market"},
+        intent_fields={"symbol": "AAA", "side": "buy", "qty": 10, "order_type": "market"},
+        session_id=None,
+        ttl_seconds=3600,
+        summary="generals_dip entry",
+        source=f"strategy:{GENERALS_ID}",
+        db_path=db,
+    )
+    _patch_bars(monkeypatch, {"AAA": _flush_bars(), "CCC": _flush_bars()})
+
+    acted = asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    assert [a for a in acted if a.get("kind") == "propose"] == []
+    assert scan_env["proposals"] == []
+    assert "skipped 2" in sleeves_status(db_path=db)["sleeves"][GENERALS_ID]["last_scan"]["status"]
+
+
+def test_generals_scan_pending_buy_marks_symbol_busy(
+    db: Path, scan_env, monkeypatch
+) -> None:
+    """With slots free, a pending generals_dip AAA card must still block a second
+    AAA proposal (busy set) while letting a different symbol through."""
+    _enable_sleeve(db, GENERALS_ID)
+    mark(
+        "regime:universe:generals_dip",
+        "universe",
+        payload={"month": "2026-07", "as_of": "2026-06-30", "symbols": ["AAA", "CCC"]},
+        db_path=db,
+    )
+    create_pending_proposal(
+        proposal={"symbol": "AAA", "side": "buy", "qty": 10, "order_type": "market"},
+        intent_fields={"symbol": "AAA", "side": "buy", "qty": 10, "order_type": "market"},
+        session_id=None,
+        ttl_seconds=3600,
+        summary="generals_dip entry",
+        source=f"strategy:{GENERALS_ID}",
+        db_path=db,
+    )
+    _patch_bars(monkeypatch, {"AAA": _flush_bars(), "CCC": _flush_bars()})
+
+    asyncio.run(run_regime_sleeves_scan(db_path=db, now=_NOW))
+    proposed_symbols = [p["args"]["symbol"] for p in scan_env["proposals"]]
+    assert "AAA" not in proposed_symbols
+    assert "CCC" in proposed_symbols
+
+
 def test_scan_outside_post_close_window_is_noop(db: Path, scan_env) -> None:
     _enable_sleeve(db, GENERALS_ID)
     midday = datetime(2026, 7, 3, 12, 0, tzinfo=_ET)

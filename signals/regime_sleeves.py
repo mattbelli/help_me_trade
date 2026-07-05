@@ -569,9 +569,23 @@ async def _scan_generals(
             r for r in list_open_positions(db_path=db_path)
             if r["strategy_id"] == GENERALS_ID
         ]
+        # list_paper_order_proposals (NOT list_pending_proposals, whose slim rows
+        # drop `source` — this filter could never match, so pending buys neither
+        # counted toward max-5 nor marked their symbol busy) + a manual expiry
+        # guard for pending_phone; approving rows are mid-execution and never
+        # expire away. Mirrors the reviewed _vol_cluster_count fix.
+        now = now_iso()
+        unresolved = [
+            p
+            for p in list_paper_order_proposals(
+                status="pending_phone", limit=200, db_path=db_path
+            )
+            if not p.get("expires_at") or str(p["expires_at"]) > now
+        ] + list_paper_order_proposals(status="approving", limit=200, db_path=db_path)
         pending = [
-            p for p in list_pending_proposals(db_path=db_path)
+            p for p in unresolved
             if (p.get("source") or "") == f"strategy:{GENERALS_ID}"
+            and str(p.get("side", "")).lower() == "buy"
         ]
         busy = {str(r["symbol"]).upper() for r in open_rows} | {
             str(p.get("symbol", "")).upper() for p in pending

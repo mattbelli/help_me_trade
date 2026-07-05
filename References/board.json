@@ -92,12 +92,12 @@
     {
       "id": "generals-pending-count",
       "title": "_scan_generals: pending buys don't count toward max-5 concurrency",
-      "lane": "next",
+      "lane": "done",
       "type": "bug",
       "priority": "normal",
-      "notes": "Same dead slim-row filter pattern the #29 review flushed out of _vol_cluster_count. Non-gating (worst case = extra founder-gated card, not a position) but a known-broken invariant — fix same way (list_paper_order_proposals + expiry guard). Serv ruling on PR #29 thread.",
+      "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) — pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
       "owner": "serv",
-      "updated_at": "2026-07-04T03:37:00Z"
+      "updated_at": "2026-07-05"
     },
     {
       "id": "44",
