@@ -10,6 +10,16 @@
   ],
   "cards": [
     {
+      "id": "memory-onboarding-interview",
+      "title": "Copilot onboarding interview → seeds standing memory (the copilot's CLAUDE.md)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Founder-sparked 2026-07-05: first-run guided conversation (who you are, goals, risk comfort, schedule, communication style) writing user_authored preference/directive rows with verbatim-quote provenance; skippable + revisitable from Settings. Rides the memory-overhaul write path (Phase 1+) and renders via the design doc's Standing Memory block (Tier A, ≤8 directives / ~700 tok). Behavioral-pattern memories stay agent_inferred+(unconfirmed) per the authority model; no stored emotional-state reads (tone-adapt only). GATED ON: memory-overhaul Phase 0/1 shipping first.",
+      "updated_at": "2026-07-05"
+    },
+    {
       "id": "widget-polish-batch",
       "title": "Widget polish: watchlist edit-mode drag + flush rows, legible earnings badge, open-orders/price-alerts header cleanup",
       "lane": "done",
