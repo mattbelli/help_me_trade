@@ -78,22 +78,22 @@ export function PendingProposalCard({
           );
           break;
         case "blocked":
-          showToast(`Blocked: ${typeof body.reason === "string" ? body.reason : "risk check"}`);
+          showToast(`Blocked: ${typeof body.reason === "string" ? body.reason : "risk check"}`, "error");
           break;
         case "expired":
-          showToast("Proposal expired");
+          showToast("Proposal expired", "error");
           break;
         case "already_decided":
           showToast("Already decided");
           break;
         case "hash_mismatch":
-          showToast("Proposal changed — refresh");
+          showToast("Proposal changed — refresh", "error");
           break;
         default:
-          showToast("Approve failed");
+          showToast("Approve failed", "error");
       }
     } catch {
-      showToast("Approve failed");
+      showToast("Approve failed", "error");
     } finally {
       setPending(false);
       onResolved();
@@ -110,7 +110,7 @@ export function PendingProposalCard({
         showToast("Rejected");
       }
     } catch {
-      showToast("Reject failed");
+      showToast("Reject failed", "error");
     } finally {
       setPending(false);
       onResolved();

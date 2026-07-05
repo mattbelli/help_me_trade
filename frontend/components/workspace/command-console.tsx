@@ -22,6 +22,7 @@ import {
   useWorkspaceCommands,
 } from "@/lib/workspace/use-workspace-commands";
 import { WIDGET_REGISTRY } from "@/lib/workspace/widget-registry";
+import { motionStd } from "@/lib/workspace/motion";
 
 const SCROLLBACK_MAX_HEIGHT = "min(50vh, 24rem)";
 
@@ -241,7 +242,7 @@ export function CommandConsole() {
     <motion.div
       ref={consoleRef}
       className="absolute right-0 bottom-0 left-0 z-50 h-[40px] border-t border-[var(--border)] bg-[var(--bg-raised)]/85 backdrop-blur-md"
-      transition={{ type: "spring", stiffness: 420, damping: 36 }}
+      transition={motionStd}
     >
       {hasOverlayContent ? (
         <div className="absolute bottom-full left-4 mb-2 w-max max-w-[min(40rem,calc(100%-2rem))] overflow-hidden rounded-none border border-[var(--border)] bg-[var(--bg-raised)]/90 shadow-lg backdrop-blur-md">

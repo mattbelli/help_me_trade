@@ -28,6 +28,7 @@ import {
   useDashboardPrefs,
 } from "@/lib/workspace/use-dashboard-prefs";
 import { useRealAccounts } from "@/lib/workspace/use-real-accounts";
+import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import { useEtClock } from "@/lib/workspace/use-et-clock";
 import { ThemeSwitcher } from "./theme-switcher";
 import { NotificationBell } from "./notification-bell";
@@ -99,11 +100,16 @@ function ToolbarTile({
   label,
   value,
   valueClassName,
+  flashValue,
 }: {
   label: string;
   value: string;
   valueClassName?: string;
+  // Raw number the tile shows, for the tick-flash wash. Pass null (e.g. under
+  // privacy mode) to suppress the flash.
+  flashValue?: number | null;
 }) {
+  const flash = usePriceFlash(flashValue);
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-0.5 text-center leading-tight">
       <div className="font-mono text-[8px] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
@@ -111,7 +117,9 @@ function ToolbarTile({
       </div>
       <div
         className={cn(
-          "font-mono text-[14px] font-semibold tabular-nums text-foreground",
+          "rounded font-mono text-[14px] font-semibold tabular-nums text-foreground",
+          flash === "up" && "tick-flash-up",
+          flash === "down" && "tick-flash-down",
           valueClassName,
         )}
       >
@@ -404,6 +412,9 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatCompactMoney,
                     )}
+                    flashValue={
+                      privacyMode ? null : (realSummary.liquidation_value ?? 0)
+                    }
                   />
                   <ToolbarTile
                     label="PAPER"
@@ -412,6 +423,11 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatCompactMoney,
                     )}
+                    flashValue={
+                      privacyMode
+                        ? null
+                        : (snapshot?.all_accounts_summary?.portfolio_value ?? 0)
+                    }
                   />
                 </>
               ) : realView ? (
@@ -423,6 +439,7 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatCompactMoney,
                     )}
+                    flashValue={privacyMode ? null : realView.portfolio_value}
                   />
                   <ToolbarTile
                     label="CASH"
@@ -431,6 +448,7 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatCompactMoney,
                     )}
+                    flashValue={privacyMode ? null : realView.cash}
                   />
                   <ToolbarTile
                     label="DAY"
@@ -439,6 +457,7 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatSignedPnl,
                     )}
+                    flashValue={privacyMode ? null : realView.day_pl}
                     valueClassName={
                       !privacyMode && realView.day_pl !== 0
                         ? realView.day_pl >= 0
@@ -454,6 +473,7 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatSignedPnl,
                     )}
+                    flashValue={privacyMode ? null : realView.unrealized_pl}
                     valueClassName={
                       !privacyMode
                         ? realView.unrealized_pl >= 0
@@ -472,6 +492,7 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatCompactMoney,
                     )}
+                    flashValue={privacyMode ? null : view.portfolio_value}
                   />
                   <ToolbarTile
                     label="BP"
@@ -480,6 +501,7 @@ export function WorkspaceToolbar() {
                       privacyMode,
                       formatCompactMoney,
                     )}
+                    flashValue={privacyMode ? null : view.buying_power}
                   />
                   <ToolbarTile
                     label="DAY"
@@ -490,6 +512,7 @@ export function WorkspaceToolbar() {
                           ? maskMoney(dayPnl, privacyMode, formatSignedPnl)
                           : "—"
                     }
+                    flashValue={privacyMode ? null : dayPnl}
                     valueClassName={
                       !privacyMode && dayPnl != null
                         ? dayPnl >= 0
@@ -501,6 +524,7 @@ export function WorkspaceToolbar() {
                   <ToolbarTile
                     label="UPL"
                     value={maskMoney(view.unrealized_pl, privacyMode, formatSignedPnl)}
+                    flashValue={privacyMode ? null : view.unrealized_pl}
                     valueClassName={
                       !privacyMode
                         ? view.unrealized_pl >= 0

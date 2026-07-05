@@ -16,6 +16,7 @@ import { useConsoleStore } from "@/lib/workspace/use-console-store";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 import { usePageHotkeys } from "@/lib/workspace/use-page-hotkeys";
+import { motionStd } from "@/lib/workspace/motion";
 
 export default function WorkspacePageImpl() {
   usePageHotkeys();
@@ -85,7 +86,7 @@ export default function WorkspacePageImpl() {
                   className="h-full min-h-0"
                   initial={false}
                   animate={{ paddingRight: dockedPadding }}
-                  transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                  transition={motionStd}
                 >
                   <WorkspaceGrid />
                 </motion.div>

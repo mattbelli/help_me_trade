@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, formatQty } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 import {
@@ -56,6 +57,71 @@ function sortPositions(
 
     return mul * ((va as number) - (vb as number));
   });
+}
+
+function PositionRow({
+  p,
+  idx,
+  linked,
+  onPublish,
+}: {
+  p: TaggedPosition;
+  idx: number;
+  linked: boolean;
+  onPublish: (symbol: string) => void;
+}) {
+  const valueFlash = usePriceFlash(p.market_value);
+
+  return (
+    <tr
+      key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
+      className="group/row transition-colors hover:bg-[var(--bg-hover)]"
+    >
+      <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <ClickableSymbol
+            symbol={p.symbol}
+            linked={linked}
+            onActivate={() => onPublish(p.symbol)}
+          />
+          {p.accountLabel ? (
+            <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+              {p.accountLabel}
+            </span>
+          ) : null}
+        </span>
+      </td>
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+        {formatQty(p.qty)}
+      </td>
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] tracking-wide text-[var(--fg-faint)] uppercase">
+        {p.side}
+      </td>
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+        {formatMoney(p.current_price)}
+      </td>
+      <td
+        className={cn(
+          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground",
+          valueFlash === "up" && "tick-flash-up",
+          valueFlash === "down" && "tick-flash-down",
+        )}
+      >
+        {formatMoney(p.market_value)}
+      </td>
+      <td
+        className={cn(
+          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+          p.unrealized_pl >= 0
+            ? "text-[var(--c-green)]"
+            : "text-[var(--c-red)]",
+        )}
+      >
+        {p.unrealized_pl >= 0 ? "+" : ""}
+        {formatMoney(p.unrealized_pl)}
+      </td>
+    </tr>
+  );
 }
 
 export function PositionsWidget({ config }: WidgetProps) {
@@ -138,48 +204,13 @@ export function PositionsWidget({ config }: WidgetProps) {
         </thead>
         <tbody>
           {sortedPositions.map((p, idx) => (
-            <tr
+            <PositionRow
               key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
-              className="group/row transition-colors hover:bg-[var(--bg-hover)]"
-            >
-              <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
-                <span className="inline-flex items-center gap-1.5">
-                  <ClickableSymbol
-                    symbol={p.symbol}
-                    linked={linked}
-                    onActivate={() => publish(p.symbol)}
-                  />
-                  {p.accountLabel ? (
-                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
-                      {p.accountLabel}
-                    </span>
-                  ) : null}
-                </span>
-              </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-                {formatQty(p.qty)}
-              </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] tracking-wide text-[var(--fg-faint)] uppercase">
-                {p.side}
-              </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-                {formatMoney(p.current_price)}
-              </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground">
-                {formatMoney(p.market_value)}
-              </td>
-              <td
-                className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
-                  p.unrealized_pl >= 0
-                    ? "text-[var(--c-green)]"
-                    : "text-[var(--c-red)]",
-                )}
-              >
-                {p.unrealized_pl >= 0 ? "+" : ""}
-                {formatMoney(p.unrealized_pl)}
-              </td>
-            </tr>
+              p={p}
+              idx={idx}
+              linked={linked}
+              onPublish={publish}
+            />
           ))}
         </tbody>
       </table>

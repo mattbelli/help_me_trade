@@ -15,6 +15,7 @@ import {
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
@@ -274,6 +275,8 @@ function WatchlistSymbolRow({
   const showEarningsBadge =
     earningsDays != null && earningsDays >= 0 && earningsDays <= 14;
 
+  const priceFlash = usePriceFlash(quote ? displayPrice : null);
+
   return (
     <Reorder.Item
       value={symbol}
@@ -343,7 +346,11 @@ function WatchlistSymbolRow({
           </button>
         </span>
         <span
-          className="inline-flex items-center justify-end gap-0.5 tabular-nums text-foreground"
+          className={cn(
+            "inline-flex items-center justify-end gap-0.5 rounded tabular-nums text-foreground",
+            priceFlash === "up" && "tick-flash-up",
+            priceFlash === "down" && "tick-flash-down",
+          )}
           title={extBadge?.title}
         >
           {quote ? formatPrice(displayPrice) : "—"}

@@ -114,6 +114,7 @@
     --chart-down: #ef6f6c;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
     --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
@@ -177,6 +178,7 @@
     --chart-down: #ef6f6c;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
     --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
@@ -240,6 +242,7 @@
     --c-on-accent: #1a1410;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 8px 30px rgba(0, 0, 0, 0.4);
     --c-glow: 0 0 0 1px rgba(239, 231, 214, 0.10);
+    --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
@@ -303,6 +306,7 @@
     --c-on-accent: #000000;
     --panel-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
     --c-glow: 0 0 0 1px rgba(155, 107, 255, 0.16);
+    --widget-hover-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
     --scrim: rgba(0, 0, 0, 0.5);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
@@ -366,6 +370,7 @@
     --c-on-accent: #ffffff;
     --panel-shadow: 0 1px 2px rgba(20, 24, 31, 0.06), 0 8px 24px rgba(20, 24, 31, 0.08);
     --c-glow: 0 0 0 1px rgba(37, 99, 235, 0.16);
+    --widget-hover-shadow: 0 2px 10px rgba(20, 24, 31, 0.10);
     --scrim: rgba(40, 35, 25, 0.35);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
@@ -378,6 +383,57 @@
 @keyframes research-cursor-pulse {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
+}
+
+/* Price tick-flash (M1): a fading background wash on the changed price cell —
+   never a text-color swap or a row highlight. Re-triggered by toggling the
+   class via usePriceFlash. */
+@keyframes tick-flash-up {
+  from { background-color: color-mix(in srgb, var(--c-green) 16%, transparent); }
+  to { background-color: transparent; }
+}
+
+@keyframes tick-flash-down {
+  from { background-color: color-mix(in srgb, var(--c-red) 16%, transparent); }
+  to { background-color: transparent; }
+}
+
+.tick-flash-up {
+  animation: tick-flash-up 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tick-flash-down {
+  animation: tick-flash-down 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Toast countdown rule (N3): a 1px bar that shrinks over the 2.8s auto-dismiss
+   so the toast leaving isn't a surprise. */
+@keyframes toast-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.toast-countdown {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 1px;
+  width: 100%;
+  transform-origin: left;
+  opacity: 0.7;
+  animation: toast-countdown 2800ms linear forwards;
+}
+
+/* Reduced-motion guard scoped to the keyframe animations added above (the
+   motion/react transitions collapse to instant via useMotionSafe separately). */
+@media (prefers-reduced-motion: reduce) {
+  .tick-flash-up,
+  .tick-flash-down {
+    animation: none;
+  }
+  .toast-countdown {
+    display: none;
+  }
 }
 
 @layer base {

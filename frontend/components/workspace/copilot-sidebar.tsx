@@ -17,6 +17,7 @@ import {
   getCopilotMaxWidth,
   useCopilotStore,
 } from "@/lib/workspace/use-copilot-store";
+import { motionStd } from "@/lib/workspace/motion";
 
 import { CopilotThreadHistory } from "./copilot-thread-history";
 import { WorkspaceThread } from "./workspace-chat";
@@ -130,7 +131,7 @@ export function CopilotSidebar() {
       style={{ width, backgroundColor: COPILOT_PANEL_BG }}
       initial={false}
       animate={{ width }}
-      transition={{ type: "spring", stiffness: 420, damping: 36 }}
+      transition={motionStd}
     >
       <div
         role="separator"
@@ -212,7 +213,7 @@ export function CopilotSidebar() {
                 initial={{ x: -12, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -12, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                transition={motionStd}
               >
                 <CopilotThreadHistory
                   onAfterSelect={() => setHistoryOpen(false)}

@@ -11,6 +11,7 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
+import { motion } from "motion/react";
 import { Check, ChevronDown, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
@@ -40,6 +41,8 @@ import type {
   WorkspaceLayoutItem,
 } from "@/lib/workspace/layout-persistence";
 import { flushWorkspaceLayoutSave, useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import { useMotionSafe } from "@/lib/workspace/motion";
+import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
@@ -107,6 +110,7 @@ function ChartHeaderControls({
   const hasPrice = displayPrice != null;
   const hasChange = displayChangePct != null;
   const isPositive = (displayChangePct ?? 0) >= 0;
+  const priceFlash = usePriceFlash(displayPrice);
 
   // Local draft so the symbol box is freely editable (you can clear it and retype) —
   // we only COMMIT (and refetch the chart) on Enter/blur, not on every keystroke.
@@ -147,7 +151,7 @@ function ChartHeaderControls({
       >
         <span
           className={cn(
-            "font-mono text-[15px] font-semibold tabular-nums",
+            "rounded px-0.5 font-mono text-[15px] font-semibold tabular-nums",
             hasChange
               ? isPositive
                 ? "text-[var(--c-green)]"
@@ -155,6 +159,8 @@ function ChartHeaderControls({
               : hasPrice
                 ? "text-foreground"
                 : "text-[var(--fg-dim)]",
+            priceFlash === "up" && "tick-flash-up",
+            priceFlash === "down" && "tick-flash-down",
           )}
         >
           {hasPrice ? displayPrice.toFixed(2) : "—"}
@@ -524,7 +530,7 @@ const WidgetCard = forwardRef<
       ref={ref}
       id={`widget-${item.i}`}
       className={cn(
-        "group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)]",
+        "group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)] hover:shadow-[var(--widget-hover-shadow)]",
         isStatic && "h-full",
         flashing &&
           "ring-2 ring-[var(--c-accent)] ring-offset-1 ring-offset-[var(--panel)]",
@@ -600,6 +606,10 @@ export function WorkspaceGrid() {
   // survives the late cols correction and persists on the next drag-stop.
   const [hostWidth, setHostWidth] = useState<number | null>(null);
   const [flashingId, setFlashingId] = useState<string | null>(null);
+  // Fade-in only on page hot-swap (Alt+1-5) — no exit, which would add
+  // perceived latency to a keyboard-driven switch. Collapses to instant under
+  // reduced motion.
+  const pageFade = useMotionSafe({ duration: 0.12 });
 
   useEffect(() => {
     if (!focusRequest) return;
@@ -742,7 +752,15 @@ export function WorkspaceGrid() {
           }
         >
           {hydrated && cols != null && width != null ? (
-            <div id="workspace-grid-root" className="relative" style={{ width }}>
+            <motion.div
+              key={activePageId}
+              id="workspace-grid-root"
+              className="relative"
+              style={{ width }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={pageFade}
+            >
               <ReactGridLayout
                 key={activePageId}
                 className="layout"
@@ -776,7 +794,7 @@ export function WorkspaceGrid() {
                   />
                 ))}
               </ReactGridLayout>
-            </div>
+            </motion.div>
           ) : null}
         </div>
 

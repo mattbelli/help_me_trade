@@ -11,6 +11,7 @@ import {
   useNotificationStore,
 } from "@/lib/workspace/use-notification-store";
 import { useNotificationActivate } from "@/lib/workspace/use-notification-activate";
+import { motionStd } from "@/lib/workspace/motion";
 
 const AUTO_DISMISS_MS = 6_000;
 const MAX_BANNERS = 3;
@@ -94,7 +95,7 @@ export function NotificationBanner() {
             initial={{ opacity: 0, x: 48 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 48 }}
-            transition={{ type: "spring", stiffness: 420, damping: 32 }}
+            transition={motionStd}
             className="pointer-events-auto overflow-hidden rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_45%,transparent)] bg-[var(--panel)] shadow-[var(--panel-shadow)]"
           >
             <div className="flex items-start gap-2 px-3 py-2.5">
