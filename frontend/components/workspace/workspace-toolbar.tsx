@@ -274,8 +274,8 @@ export function WorkspaceToolbar() {
     <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[length:var(--fs-title)]">
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2">
-          <StandInMark duo className="size-5" />
-          <span className="hidden font-mono text-[length:var(--fs-title)] font-bold tracking-[0.08em] sm:inline">
+          <StandInMark duo className="size-6" />
+          <span className="hidden font-mono text-[length:var(--fs-emph)] font-bold tracking-[0.08em] sm:inline">
             HMT
           </span>
         </div>

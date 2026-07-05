@@ -36,7 +36,7 @@ export function ChannelSelector({ channel, onChange }: Props) {
         }
       >
         <StandInMark
-          className={cn("size-8", channel === "none" && "opacity-70")}
+          className={cn("size-6", channel === "none" && "opacity-70")}
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent
