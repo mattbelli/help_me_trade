@@ -96,10 +96,17 @@ function ChartHeaderControls({
       : (config.symbol ?? "SPY");
   const styleLabel =
     CHART_STYLES.find((s) => s.value === style)?.label ?? "Candles";
-  const { price, live, changePct } = useSymbolQuote({ symbol });
-  const hasPrice = price != null;
-  const hasChange = changePct != null;
-  const isPositive = (changePct ?? 0) >= 0;
+  const { price, live, changePct, extPrice, extChangePct, marketSession } =
+    useSymbolQuote({ symbol });
+  // Same rule as the watchlist row: off-RTH, show the last extended print so
+  // the header, watchlist, and (extended) candles all agree on one number.
+  const showExt =
+    extPrice != null && marketSession != null && marketSession !== "regular";
+  const displayPrice = showExt ? extPrice : price;
+  const displayChangePct = showExt ? (extChangePct ?? changePct) : changePct;
+  const hasPrice = displayPrice != null;
+  const hasChange = displayChangePct != null;
+  const isPositive = (displayChangePct ?? 0) >= 0;
 
   // Local draft so the symbol box is freely editable (you can clear it and retype) —
   // we only COMMIT (and refetch the chart) on Enter/blur, not on every keystroke.
@@ -150,7 +157,7 @@ function ChartHeaderControls({
                 : "text-[var(--fg-dim)]",
           )}
         >
-          {hasPrice ? price.toFixed(2) : "—"}
+          {hasPrice ? displayPrice.toFixed(2) : "—"}
         </span>
         {hasChange ? (
           <span
@@ -159,7 +166,7 @@ function ChartHeaderControls({
               isPositive ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
             )}
           >
-            {`${changePct > 0 ? "+" : ""}${changePct.toFixed(2)}%`}
+            {`${displayChangePct > 0 ? "+" : ""}${displayChangePct.toFixed(2)}%`}
           </span>
         ) : null}
         <span

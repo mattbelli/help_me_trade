@@ -231,6 +231,7 @@ const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
   pre: { label: "PRE", title: "Pre-market" },
   post: { label: "AFT", title: "After-hours" },
   overnight: { label: "24h", title: "Overnight (24/5)" },
+  closed: { label: "EXT", title: "Last extended-hours trade (market closed)" },
 };
 
 function WatchlistSymbolRow({

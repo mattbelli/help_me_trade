@@ -1909,14 +1909,27 @@ async def api_watchlist_market(symbols: str = ""):
         is_future = sym.startswith("/")
 
         if is_future:
+            day_high = float(latest.high)
+            day_low = float(latest.low)
+            day_volume = float(latest.volume)
+            spark_closes = closes[-7:]
+            roll = _futures_price_roll(bars, intraday_by_symbol.get(sym, []))
+            if roll is not None:
+                price = roll["price"]
+                prev = roll["prev_close"]
+                change_pct = roll["change_pct"]
+                day_high = roll["day_high"]
+                day_low = roll["day_low"]
+                day_volume = roll["volume"]
+                spark_closes = (closes + [price])[-7:]
             quotes[sym] = {
                 "price": price,
                 "change_pct": round(change_pct, 2),
-                "sparkline": [round(c, 4) for c in closes[-7:]],
+                "sparkline": [round(c, 4) for c in spark_closes],
                 "prev_close": prev,
-                "volume": float(latest.volume),
-                "day_high": float(latest.high),
-                "day_low": float(latest.low),
+                "volume": day_volume,
+                "day_high": day_high,
+                "day_low": day_low,
                 "intraday": intraday,
                 "market_session": session,
                 "ext_price": None,
@@ -1949,10 +1962,12 @@ async def api_watchlist_market(symbols: str = ""):
         except Exception:
             _next_earnings = None
 
-        ext_price_val = eq.get("ext_last") if session in ("pre", "post", "overnight") else None
-        ext_change_val = (
-            eq.get("ext_change_pct") if session in ("pre", "post", "overnight") else None
-        )
+        # "closed" (weekend/holiday) included: Schwab's quote retains the last
+        # extended print, and the chart candles (extended_hours=True) end on it —
+        # omitting it left watchlist/label a session behind the visible candles.
+        _ext_sessions = ("pre", "post", "overnight", "closed")
+        ext_price_val = eq.get("ext_last") if session in _ext_sessions else None
+        ext_change_val = eq.get("ext_change_pct") if session in _ext_sessions else None
 
         quotes[sym] = {
             "price": price,
@@ -2263,6 +2278,50 @@ def _session_intraday_closes(
             kept.append(bar)
 
     return [round(b.close, 4) for b in kept]
+
+
+def _futures_price_roll(
+    daily_bars: list[StockBar], intraday_bars: list[StockBar]
+) -> dict | None:
+    """Roll a futures quote forward when the 5-min series has a whole Globex
+    session the daily series lacks — Schwab's futures DAILY bars can lag a
+    session (e.g. the 2026-07-03 holiday half-session never got a daily bar),
+    which froze the row's price at the prior settle while its own intraday
+    line showed the newer session. Returns replacement quote fields, or None
+    when the dailies are current.
+    """
+    if not daily_bars or not intraday_bars:
+        return None
+    from research.intraday_profile import globex_session_date
+
+    def _bar_et(bar: StockBar) -> datetime:
+        return datetime.fromisoformat(bar.time.replace("Z", "+00:00")).astimezone(_ET)
+
+    sessions = [
+        (sd, bar)
+        for bar in intraday_bars
+        if (sd := globex_session_date(_bar_et(bar))) is not None
+    ]
+    if not sessions:
+        return None
+    latest_session = max(sd for sd, _ in sessions)
+    last_daily_date = datetime.fromisoformat(
+        daily_bars[-1].time.replace("Z", "+00:00")
+    ).date()
+    if latest_session <= last_daily_date:
+        return None
+
+    session_bars = [bar for sd, bar in sessions if sd == latest_session]
+    price = session_bars[-1].close
+    prev = daily_bars[-1].close
+    return {
+        "price": price,
+        "prev_close": prev,
+        "change_pct": ((price - prev) / prev * 100) if prev else 0.0,
+        "day_high": float(max(b.high for b in session_bars)),
+        "day_low": float(min(b.low for b in session_bars)),
+        "volume": float(sum(b.volume for b in session_bars)),
+    }
 
 
 @app.put("/api/watchlist")

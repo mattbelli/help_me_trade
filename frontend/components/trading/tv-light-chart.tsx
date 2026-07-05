@@ -942,7 +942,10 @@ export function TvLightChart({
       marketSession != null &&
       (marketSession === "pre" ||
         marketSession === "post" ||
-        marketSession === "overnight");
+        marketSession === "overnight" ||
+        // weekend/holiday: candles (extended) end on the last ext print — keep
+        // the dashed line so the label can't sit a session behind the candles
+        marketSession === "closed");
 
     if (!showExt || !series || loading) {
       removeExtPriceLine();

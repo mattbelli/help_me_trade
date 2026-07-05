@@ -18,6 +18,7 @@ type WsQuoteFrame = {
   price?: number;
   live?: boolean;
   ext_price?: number | null;
+  ext_change_pct?: number | null;
   market_session?: WatchlistQuote["market_session"] | null;
 };
 
@@ -26,6 +27,7 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
   const [live, setLive] = useState(false);
   const [changePct, setChangePct] = useState<number | undefined>();
   const [extPrice, setExtPrice] = useState<number | null | undefined>();
+  const [extChangePct, setExtChangePct] = useState<number | null | undefined>();
   const [marketSession, setMarketSession] = useState<
     WatchlistQuote["market_session"] | null | undefined
   >();
@@ -59,12 +61,16 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
             setPrice(quote.price);
             setChangePct(quote.change_pct);
             setExtPrice(quote.ext_price);
+            setExtChangePct(quote.ext_change_pct);
             setMarketSession(quote.market_session);
             setLive(Boolean(msg.live));
           }
           if (msg.type === "quote" && msg.symbol === normalized) {
             if (msg.price != null) setPrice(msg.price);
             if (msg.ext_price !== undefined) setExtPrice(msg.ext_price);
+            if (msg.ext_change_pct !== undefined) {
+              setExtChangePct(msg.ext_change_pct);
+            }
             if (msg.market_session !== undefined) {
               setMarketSession(msg.market_session);
             }
@@ -95,5 +101,5 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
     };
   }, [enabled, normalized]);
 
-  return { price, live, changePct, extPrice, marketSession };
+  return { price, live, changePct, extPrice, extChangePct, marketSession };
 }

@@ -167,3 +167,77 @@ def test_empty_bar_batch_returns_502(
     resp = test_client.get("/api/watchlist/market?symbols=AAPL,/ES")
     assert resp.status_code == 502
     assert "market data unavailable" in resp.json()["error"]
+
+
+def test_futures_price_roll_uses_newer_intraday_session() -> None:
+    """Schwab's futures DAILY series can lag a whole session (e.g. the 2026-07-03
+    holiday half-session had 5-min bars but no daily bar) — price must roll
+    forward from the newer intraday session, not freeze at the prior settle."""
+    from api.main import _futures_price_roll
+
+    daily = [
+        _bar("2026-07-01T05:00:00Z", 7_532.75),
+        _bar("2026-07-02T05:00:00Z", 7_523.0),
+    ]
+    intraday = [
+        _bar("2026-07-02T14:00:00Z", 7_520.0, 300.0),  # 10:00 ET 07-02 -> old session
+        _bar("2026-07-02T22:30:00Z", 7_540.0, 100.0),  # 18:30 ET 07-02 -> 07-03 session
+        _bar("2026-07-03T16:55:00Z", 7_557.0, 700.0),  # 12:55 ET 07-03 -> 07-03 session
+    ]
+    roll = _futures_price_roll(daily, intraday)
+    assert roll is not None
+    assert roll["price"] == pytest.approx(7_557.0)
+    assert roll["prev_close"] == pytest.approx(7_523.0)
+    assert roll["change_pct"] == pytest.approx((7_557.0 - 7_523.0) / 7_523.0 * 100)
+    # High/low/volume come from the NEW session's bars only (incl. the 18:30
+    # evening bar, which belongs to the 07-03 Globex session).
+    assert roll["day_high"] == pytest.approx(7_558.0)  # 7557 close + 1 (bar helper)
+    assert roll["day_low"] == pytest.approx(7_539.0)  # 7540 close - 1
+    assert roll["volume"] == pytest.approx(800.0)
+
+
+def test_futures_price_roll_none_when_daily_current() -> None:
+    """Same-session intraday bars must NOT roll — daily close stays authoritative."""
+    from api.main import _futures_price_roll
+
+    daily = [_bar("2026-07-02T05:00:00Z", 7_523.0)]
+    intraday = [_bar("2026-07-02T14:00:00Z", 7_530.0)]  # 10:00 ET 07-02, same session
+    assert _futures_price_roll(daily, intraday) is None
+    assert _futures_price_roll(daily, []) is None
+    assert _futures_price_roll([], intraday) is None
+
+
+def test_futures_stale_daily_rolls_price_in_endpoint(
+    test_client, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: /ES with a lagging daily series serves the intraday session's
+    last price, and the sparkline ends at that price (not the stale settle)."""
+    from brokers.schwab_market_data import SchwabMarketData
+
+    provider = MagicMock(spec=SchwabMarketData)
+    es_daily = [
+        _bar("2026-07-01T05:00:00Z", 7_532.75),
+        _bar("2026-07-02T05:00:00Z", 7_523.0),
+    ]
+    es_intraday = [
+        _bar("2026-07-03T16:50:00Z", 7_555.0, 200.0),
+        _bar("2026-07-03T16:55:00Z", 7_557.0, 300.0),
+    ]
+
+    async def _batch(symbols: list[str], timeframe: str = "1Day", days: int = 12):
+        return {"/ES": es_intraday if timeframe == "5Min" else es_daily}
+
+    provider.aget_stock_bars_batch = _batch
+    provider.aget_quotes = AsyncMock(return_value={})
+    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.main._market_session", lambda: "closed")
+    monkeypatch.setattr("api.main.market_hub.apply_extended", AsyncMock())
+    monkeypatch.setenv("VOLUME_PROFILE_DIR", str(tmp_path))
+
+    resp = test_client.get("/api/watchlist/market?symbols=/ES")
+    assert resp.status_code == 200
+    es = resp.json()["quotes"]["/ES"]
+    assert es["price"] == pytest.approx(7_557.0)
+    assert es["prev_close"] == pytest.approx(7_523.0)
+    assert es["sparkline"][-1] == pytest.approx(7_557.0)
+    assert es["volume"] == pytest.approx(500.0)
