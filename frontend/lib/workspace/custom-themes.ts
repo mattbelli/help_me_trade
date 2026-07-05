@@ -119,6 +119,9 @@ const REPRESENTATIVE_VAR: Record<EditableToken, string> = Object.fromEntries(
 export type ThemeColorMember = {
   var: string;
   label: string;
+  /** One line of real information: what this var visibly drives. Omit when the
+   *  label already says it — the editor then shows no subline (no echo). */
+  desc?: string;
   /**
    * How the group swatch writes this member. "color" (default): the picked hex
    * verbatim; "soft": 12% color-mix wash; "glow": 1px ring at 12%; "skip":
@@ -128,7 +131,7 @@ export type ThemeColorMember = {
 };
 
 export type ThemeColorRow =
-  | { kind: "single"; var: string; label: string }
+  | { kind: "single"; var: string; label: string; desc?: string }
   | { kind: "group"; label: string; lead: string; members: ThemeColorMember[] };
 
 export const THEME_COLOR_ROWS: ThemeColorRow[] = [
@@ -157,13 +160,13 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
       { var: "--panel", label: "Panel" },
       { var: "--card", label: "Card" },
       { var: "--popover", label: "Popover" },
-      { var: "--bg-raised", label: "Raised" },
-      { var: "--bg-hover", label: "Hover" },
-      { var: "--bg-inset", label: "Inset" },
+      { var: "--bg-raised", label: "Raised", desc: "console \u00b7 floating chrome" },
+      { var: "--bg-hover", label: "Hover", desc: "row & control hover fill" },
+      { var: "--bg-inset", label: "Inset", desc: "sunken wells \u00b7 toolbar tiles" },
       { var: "--muted", label: "Muted" },
       { var: "--secondary", label: "Secondary" },
-      { var: "--accent", label: "Accent surface" },
-      { var: "--scrim", label: "Scrim (overlay)", bulkSet: "skip" },
+      { var: "--accent", label: "Accent surface", desc: "selected / active surface" },
+      { var: "--scrim", label: "Scrim", bulkSet: "skip", desc: "dialog backdrop dim" },
     ],
   },
   {
@@ -174,7 +177,7 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
       { var: "--border", label: "Border" },
       { var: "--border-strong", label: "Border strong" },
       { var: "--input", label: "Input" },
-      { var: "--ring", label: "Focus ring" },
+      { var: "--ring", label: "Focus ring", desc: "keyboard focus outline" },
     ],
   },
   {
@@ -182,14 +185,13 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     label: "Accent",
     lead: "--c-accent",
     members: [
-      { var: "--c-accent", label: "Accent" },
-      { var: "--c-accent-soft", label: "Accent soft", bulkSet: "soft" },
-      { var: "--c-on-accent", label: "On accent", bulkSet: "skip" },
-      { var: "--c-glow", label: "Glow", bulkSet: "glow" },
-      { var: "--c-command", label: "Command" },
+      { var: "--c-accent", label: "Accent", desc: "tickers \u00b7 links \u00b7 active controls" },
+      { var: "--c-accent-soft", label: "Accent soft", bulkSet: "soft", desc: "12% wash \u2014 chips, selected tabs" },
+      { var: "--c-on-accent", label: "On accent", bulkSet: "skip", desc: "text on accent-filled buttons" },
+      { var: "--c-glow", label: "Glow", bulkSet: "glow", desc: "live-dot / connected glow ring" },
+      { var: "--c-command", label: "Command", desc: "console \u203a prompt" },
       { var: "--sidebar-primary", label: "Sidebar primary" },
       { var: "--sidebar-ring", label: "Sidebar ring" },
-      { var: "--chart-1", label: "Chart 1" },
     ],
   },
   {
@@ -197,8 +199,8 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     label: "Positive",
     lead: "--c-green",
     members: [
-      { var: "--c-green", label: "Green" },
-      { var: "--pnl-positive", label: "P&L positive" },
+      { var: "--c-green", label: "Green", desc: "gain text \u00b7 buy side \u00b7 tick-flash" },
+      { var: "--pnl-positive", label: "P&L positive", desc: "analytics chart fills" },
     ],
   },
   {
@@ -206,11 +208,10 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     label: "Negative",
     lead: "--c-red",
     members: [
-      { var: "--c-red", label: "Red" },
-      { var: "--pnl-negative", label: "P&L negative" },
-      { var: "--c-danger", label: "Danger" },
+      { var: "--c-red", label: "Red", desc: "loss text \u00b7 sell side \u00b7 errors" },
+      { var: "--pnl-negative", label: "P&L negative", desc: "analytics chart fills" },
+      { var: "--c-danger", label: "Danger", desc: "kill switch \u00b7 destructive actions" },
       { var: "--destructive", label: "Destructive" },
-      { var: "--chart-down", label: "Chart down" },
     ],
   },
   {
@@ -218,9 +219,9 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     label: "Highlights",
     lead: "--c-amber",
     members: [
-      { var: "--c-amber", label: "Amber (warnings)" },
+      { var: "--c-amber", label: "Amber", desc: "warnings \u00b7 earnings badges" },
       { var: "--c-yellow", label: "Yellow" },
-      { var: "--c-blue", label: "Blue" },
+      { var: "--c-blue", label: "Blue", desc: "info \u00b7 open-order status" },
       { var: "--c-violet", label: "Violet" },
     ],
   },
@@ -229,13 +230,16 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     label: "Chart",
     lead: "--chart-accent",
     members: [
-      { var: "--chart-background", label: "Chart bg" },
-      { var: "--chart-accent", label: "Chart line" },
-      { var: "--chart-2", label: "Chart 2" },
-      { var: "--chart-3", label: "Chart 3" },
-      { var: "--chart-4", label: "Chart 4" },
-      { var: "--chart-5", label: "Chart 5" },
+      { var: "--chart-background", label: "Canvas", desc: "candle chart background" },
+      { var: "--chart-accent", label: "Candle up", desc: "up candles \u00b7 sparkline & equity lines" },
+      { var: "--chart-down", label: "Candle down", desc: "down candles \u00b7 down volume" },
     ],
+  },
+  {
+    kind: "single",
+    var: "--grain-opacity",
+    label: "Grain",
+    desc: "film-grain strength, 0\u20130.2 (ember)",
   },
   {
     kind: "group",
@@ -318,6 +322,8 @@ export const KNOWN_THEME_VARS: string[] = [
   "--chart-4",
   "--chart-5",
   "--chart-accent",
+  "--grain",
+  "--grain-opacity",
   "--pnl-positive",
   "--pnl-negative",
   "--radius",

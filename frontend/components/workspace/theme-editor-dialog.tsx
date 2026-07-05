@@ -194,15 +194,18 @@ export function ThemeEditorDialog({
     onOpenChange(false);
   }
 
-  function renderMemberRow({ var: cssVar, label }: ThemeColorMember) {
+  function renderMemberRow({ var: cssVar, label, desc }: ThemeColorMember) {
     const value = vars[cssVar] ?? "";
     return (
       <div key={cssVar} className="flex items-center gap-2 pl-5">
-        <div className="flex w-32 shrink-0 flex-col leading-tight">
+        {/* subline = what the var drives; the raw var name lives in the tooltip */}
+        <div className="flex w-32 shrink-0 flex-col leading-tight" title={cssVar}>
           <span className="font-mono text-[length:var(--fs-table)] text-foreground">{label}</span>
-          <span className="font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-            {cssVar}
-          </span>
+          {desc ? (
+            <span className="font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+              {desc}
+            </span>
+          ) : null}
         </div>
         {isHexColor(value) ? (
           <input
@@ -287,8 +290,18 @@ export function ThemeEditorDialog({
               return (
                 <div key={row.var} className="flex items-center gap-2">
                   <span className="w-2 shrink-0" />
-                  <span className="w-24 shrink-0 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] uppercase text-[var(--fg-faint)]">
-                    {row.label}
+                  <span
+                    className="w-24 shrink-0 flex-col font-mono leading-tight"
+                    title={row.var}
+                  >
+                    <span className="block text-[length:var(--fs-micro)] tracking-[0.08em] uppercase text-[var(--fg-faint)]">
+                      {row.label}
+                    </span>
+                    {row.desc ? (
+                      <span className="block text-[length:var(--fs-micro)] normal-case text-[var(--fg-faint)]/70">
+                        {row.desc}
+                      </span>
+                    ) : null}
                   </span>
                   {isHexColor(value) ? (
                     <input

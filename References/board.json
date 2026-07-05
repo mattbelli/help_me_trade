@@ -16,7 +16,7 @@
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): Base-UI modal Dialog (scrim + backdrop-blur-xs + scroll-lock + focus-trap) → non-modal floating window via createPortal: no scrim/blur, title-bar pointer-capture drag with viewport clamping, z-[65] (above console/picker, below banner/toast), motionStd fade-scale open, Escape closes without trapping. Verified: body scroll unlocked, Alt+2 page-switch works with editor open. Editor internals untouched.",
+      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): Base-UI modal Dialog (scrim + backdrop-blur-xs + scroll-lock + focus-trap) → non-modal floating window via createPortal: no scrim/blur, title-bar pointer-capture drag with viewport clamping, z-[65] (above console/picker, below banner/toast), motionStd fade-scale open, Escape closes without trapping. Verified: body scroll unlocked, Alt+2 page-switch works with editor open. Editor internals untouched. ROUND 2 (founder feedback): var rows renamed to what they actually drive — Chart group is now Canvas / Candle up / Candle down (dead shadcn chart-1..5 slots removed from the editor; editing them did nothing); redundant var-name sublines replaced by real one-line descriptions (var name moved to tooltip); --grain-opacity is an editable GRAIN row; clones now capture --grain/--grain-opacity.",
       "updated_at": "2026-07-05"
     },
     {
