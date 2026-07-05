@@ -10,6 +10,24 @@
   ],
   "cards": [
     {
+      "id": "brand-overhaul-ui",
+      "title": "Brand design overhaul: logo-as-channel-button, HMT wordmark, logo placements",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder 2026-07-05. BLOCKED on brand/readme.md from the RN phone branch (exists only on the mac's un-pushed copy — founder card). Scope once unblocked: (1) channel selector → the LOGO as the button, tinted per channel (fixes the finicky tiny hit target; brand mark doubles as channel switcher; bigger padded hit area + dropdown unchanged); (2) toolbar top-left: 'help_me_trade' → HMT + logo mark; (3) logo in Settings header; (4) orchestrator recs: boot moment (UI_POLISH P1) uses the mark; empty-page CTA watermark; browser favicon + PWA icon; login/unlock screen if one ever exists. Mechanism can be built art-agnostic (SVG component slot) — mark swaps in when the kit lands."
+    },
+    {
+      "id": "push-phone-brand-doc",
+      "title": "Push the RN phone branch with brand/readme.md (mac side)",
+      "lane": "founder",
+      "type": "ops",
+      "priority": "high",
+      "owner": "founder",
+      "notes": "Serv searched every origin branch + the stale mobile/ copy — brand/readme.md isn't on the remote. Push the mac branch (or paste the file in chat) to unblock brand-overhaul-ui."
+    },
+    {
       "id": "theme-editor-floating",
       "title": "Theme editor: kill the scrim/blur — draggable floating window over the live workspace",
       "lane": "done",
