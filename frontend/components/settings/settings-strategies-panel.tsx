@@ -154,7 +154,7 @@ const STRATEGY_DOCS: Record<string, StrategyDoc> = {
 function statusToneClasses(tone: StrategyDoc["status"]["tone"]): string {
   switch (tone) {
     case "good":
-      return "border-[var(--c-green)]/30 bg-[var(--c-green)]/10 text-[var(--c-green)]";
+      return "border-[var(--c-green)]/30 bg-[var(--c-green-bg)]/10 text-[var(--c-green)]";
     case "warn":
       return "border-[var(--c-amber)]/30 bg-[var(--c-amber)]/10 text-[var(--c-amber)]";
     case "danger":

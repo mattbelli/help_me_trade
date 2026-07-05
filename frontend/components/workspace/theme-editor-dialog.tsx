@@ -15,6 +15,9 @@ import {
   clearInlinePreview,
   isHexColor,
   normalizeHex,
+  resolveEditorPreviewIsDark,
+  resolveThemeIsDark,
+  syncHtmlDarkClass,
   THEME_COLOR_ROWS,
   type ThemeColorMember,
 } from "@/lib/workspace/custom-themes";
@@ -114,7 +117,11 @@ export function ThemeEditorDialog({
   useEffect(() => {
     if (!open || Object.keys(vars).length === 0) return;
     applyInlinePreview(vars);
-  }, [open, vars]);
+    syncHtmlDarkClass(resolveEditorPreviewIsDark(cloneBase, vars));
+    return () => {
+      syncHtmlDarkClass(resolveThemeIsDark(theme, themes));
+    };
+  }, [open, vars, cloneBase, theme, themes]);
 
   function handleVarChange(cssVar: string, raw: string) {
     const next = { ...vars, [cssVar]: raw };

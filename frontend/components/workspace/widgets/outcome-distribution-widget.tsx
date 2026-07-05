@@ -218,7 +218,7 @@ export function OutcomeDistributionWidget() {
                 {buckets.map((bucket) => (
                   <Cell
                     key={bucket.index}
-                    fill={bucket.index >= 0 ? "var(--c-green)" : "var(--c-red)"}
+                    fill={bucket.index >= 0 ? "var(--c-green-bg)" : "var(--c-red)"}
                   />
                 ))}
               </Bar>

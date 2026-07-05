@@ -1,6 +1,6 @@
 "use client";
 
-import type { WorkspaceTheme } from "./themes";
+import { isBuiltinTheme, type WorkspaceTheme } from "./themes";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -141,15 +141,17 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     label: "Text",
     lead: "--foreground",
     members: [
-      { var: "--foreground", label: "Foreground" },
-      { var: "--fg-dim", label: "Dim text" },
-      { var: "--fg-faint", label: "Faint text" },
-      { var: "--muted-foreground", label: "Muted text" },
-      { var: "--card-foreground", label: "Card text" },
-      { var: "--popover-foreground", label: "Popover text" },
-      { var: "--primary", label: "Primary" },
-      { var: "--secondary-foreground", label: "Secondary text" },
-      { var: "--accent-foreground", label: "Accent-surface text" },
+      { var: "--foreground", label: "Foreground", desc: "main text everywhere" },
+      { var: "--fg-widget-title", label: "Widget titles", desc: "the watchlist / positions / chart header titles" },
+      { var: "--fg-table-header", label: "Column headers", desc: "SYM \u00b7 LAST \u00b7 \u0394% label rows in tables" },
+      { var: "--fg-dim", label: "Dim text", desc: "secondary values, timestamps" },
+      { var: "--fg-faint", label: "Faint text", desc: "placeholders, disabled, hairline labels" },
+      { var: "--muted-foreground", label: "Muted text", desc: "shadcn muted surfaces" },
+      { var: "--card-foreground", label: "Card text", desc: "text on card surfaces (dialogs, panels)" },
+      { var: "--popover-foreground", label: "Popover text", desc: "text on popover surfaces (menus, tooltips)" },
+      { var: "--primary", label: "Primary", desc: "text on primary-filled buttons" },
+      { var: "--secondary-foreground", label: "Secondary text", desc: "text on secondary surfaces" },
+      { var: "--accent-foreground", label: "Accent-surface text", desc: "text on accent / selected surfaces" },
     ],
   },
   {
@@ -199,7 +201,8 @@ export const THEME_COLOR_ROWS: ThemeColorRow[] = [
     label: "Positive",
     lead: "--c-green",
     members: [
-      { var: "--c-green", label: "Green", desc: "gain text \u00b7 buy side \u00b7 tick-flash" },
+      { var: "--c-green", label: "Green", desc: "gain text \u00b7 buy side" },
+      { var: "--c-green-bg", label: "Green (fills)", desc: "badge fills \u00b7 status dots \u00b7 tick-flash wash" },
       { var: "--pnl-positive", label: "P&L positive", desc: "analytics chart fills" },
     ],
   },
@@ -341,11 +344,14 @@ export const KNOWN_THEME_VARS: string[] = [
   "--border-strong",
   "--fg-dim",
   "--fg-faint",
+  "--fg-widget-title",
+  "--fg-table-header",
   "--c-accent",
   "--c-accent-soft",
   "--c-violet",
   "--c-blue",
   "--c-green",
+  "--c-green-bg",
   "--c-red",
   "--c-yellow",
   "--c-amber",
@@ -502,6 +508,50 @@ export function clearInlinePreview(): void {
   const style = document.documentElement.style;
   for (const name of PREVIEW_VARS) style.removeProperty(name);
   window.dispatchEvent(new Event(THEME_VARS_EVENT));
+}
+
+
+/** Whether the active theme should get the `.dark` class (for @custom-variant dark). */
+export function resolveThemeIsDark(
+  themeId: string | undefined | null,
+  customThemes: CustomTheme[],
+): boolean {
+  if (!themeId || themeId === "carbon" || themeId === "warm" || themeId === "oled") {
+    return themeId !== "light";
+  }
+  if (themeId === "light") return false;
+
+  const custom = customThemes.find((t) => t.id === themeId);
+  if (custom) {
+    if (isBuiltinTheme(custom.base)) {
+      return custom.base !== "light";
+    }
+    return custom.colorScheme === "dark";
+  }
+
+  if (typeof document !== "undefined") {
+    const bg = getComputedStyle(document.documentElement)
+      .getPropertyValue("--background")
+      .trim();
+    if (bg) return colorSchemeFromBackground(bg) === "dark";
+  }
+  return true;
+}
+
+/** Preview darkness while the theme editor is open (clone base or edited background). */
+export function resolveEditorPreviewIsDark(
+  cloneBase: string,
+  vars: Record<string, string>,
+): boolean {
+  if (isBuiltinTheme(cloneBase)) {
+    return cloneBase !== "light";
+  }
+  return colorSchemeFromBackground(vars["--background"] ?? "#000000") === "dark";
+}
+
+export function syncHtmlDarkClass(isDark: boolean): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.classList.toggle("dark", isDark);
 }
 
 // ── localStorage ─────────────────────────────────────────────────────────────

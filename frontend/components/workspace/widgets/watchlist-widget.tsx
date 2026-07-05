@@ -325,7 +325,7 @@ function WatchlistSymbolRow({
             aria-label={isOvernight ? "Tradable 24/5 overnight" : undefined}
           >
             {isOvernight ? (
-              <span className="size-1.5 rounded-full bg-[var(--c-green)]" />
+              <span className="size-1.5 rounded-full bg-[var(--c-green-bg)]" />
             ) : null}
           </span>
           <ClickableSymbol
@@ -685,7 +685,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 type="button"
                 onClick={() => handleSortHeaderClick(h.key)}
                 className={cn(
-                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
+                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
                   idx === 0 ? "text-left" : "text-right",
                 )}
               >
@@ -698,7 +698,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               <span
                 key={h.label}
                 className={cn(
-                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
+                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
                   idx === 0 ? "text-left" : "text-right",
                 )}
               >

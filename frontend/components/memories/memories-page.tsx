@@ -57,7 +57,7 @@ const EMPTY_FORM: MemoryFormState = {
 function typeBadgeClass(type: MemoryType): string {
   if (type === "preference") return "border-[var(--c-blue)]/30 bg-[var(--c-blue)]/10 text-[var(--c-blue)]";
   if (type === "lesson") return "border-[var(--c-amber)]/30 bg-[var(--c-amber)]/10 text-[var(--c-amber)]";
-  return "border-[var(--c-green)]/30 bg-[var(--c-green)]/10 text-[var(--c-green)]";
+  return "border-[var(--c-green)]/30 bg-[var(--c-green-bg)]/10 text-[var(--c-green)]";
 }
 
 function researchArtifactId(memory: MemoryRecord): number | null {

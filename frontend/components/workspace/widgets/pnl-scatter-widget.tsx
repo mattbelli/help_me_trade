@@ -212,7 +212,7 @@ export function PnlScatterWidget({ config }: WidgetProps) {
                 {points.map((point, idx) => (
                   <Cell
                     key={`${point.symbol}-${idx}`}
-                    fill={point.pnl >= 0 ? "var(--c-green)" : "var(--c-red)"}
+                    fill={point.pnl >= 0 ? "var(--c-green-bg)" : "var(--c-red)"}
                   />
                 ))}
               </Scatter>

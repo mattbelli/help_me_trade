@@ -114,11 +114,14 @@
     --border-strong: #333a44;
     --fg-dim: #9aa1ab;
     --fg-faint: #616873;
+    --fg-widget-title: var(--foreground);
+    --fg-table-header: var(--fg-faint);
     --c-accent: #5ad1be;
     --c-accent-soft: rgba(90, 209, 190, 0.12);
     --c-violet: #b08cff;
     --c-blue: #6cb0ff;
     --c-green: #5bc98a;
+    --c-green-bg: #5bc98a;
     --c-red: #ef6f6c;
     --c-yellow: #e3b341;
     --c-amber: #e0975b;
@@ -183,11 +186,14 @@
     --border-strong: #333a44;
     --fg-dim: #9aa1ab;
     --fg-faint: #616873;
+    --fg-widget-title: var(--foreground);
+    --fg-table-header: var(--fg-faint);
     --c-accent: #5ad1be;
     --c-accent-soft: rgba(90, 209, 190, 0.12);
     --c-violet: #b08cff;
     --c-blue: #6cb0ff;
     --c-green: #5bc98a;
+    --c-green-bg: #5bc98a;
     --c-red: #ef6f6c;
     --c-yellow: #e3b341;
     --c-amber: #e0975b;
@@ -250,11 +256,14 @@
     --border-strong: #454440;
     --fg-dim: #b5ac9e;
     --fg-faint: #7f766a;
+    --fg-widget-title: var(--foreground);
+    --fg-table-header: var(--fg-faint);
     --c-accent: #d99a52;
     --c-accent-soft: rgba(217, 154, 82, 0.12);
     --c-violet: #c07a8f;
     --c-blue: #6f97a8;
     --c-green: #a3b565;
+    --c-green-bg: #a3b565;
     --c-red: #d9705c;
     --c-yellow: #e8a24a;
     --c-amber: #e8a24a;
@@ -317,11 +326,14 @@
     --border-strong: #34343a;
     --fg-dim: #9b9ba3;
     --fg-faint: #5c5c63;
+    --fg-widget-title: var(--foreground);
+    --fg-table-header: var(--fg-faint);
     --c-accent: #9b6bff;
     --c-accent-soft: rgba(155, 107, 255, 0.16);
     --c-violet: #b08cff;
     --c-blue: #6cb0ff;
     --c-green: #5bc98a;
+    --c-green-bg: #5bc98a;
     --c-red: #ef6f6c;
     --c-yellow: #e3b341;
     --c-amber: #e0975b;
@@ -381,11 +393,14 @@
     --border-strong: #cdd2da;
     --fg-dim: #59616c;
     --fg-faint: #878e98;
+    --fg-widget-title: var(--foreground);
+    --fg-table-header: var(--fg-faint);
     --c-accent: #2563eb;
     --c-accent-soft: rgba(37, 99, 235, 0.12);
     --c-violet: #7c5cd0;
     --c-blue: #3b82c4;
     --c-green: #1f9d57;
+    --c-green-bg: #1f9d57;
     --c-red: #d23b34;
     --c-yellow: #b8901c;
     --c-amber: #c77b3a;
@@ -414,7 +429,7 @@
    never a text-color swap or a row highlight. Re-triggered by toggling the
    class via usePriceFlash. */
 @keyframes tick-flash-up {
-  from { background-color: color-mix(in srgb, var(--c-green) 16%, transparent); }
+  from { background-color: color-mix(in srgb, var(--c-green-bg) 16%, transparent); }
   to { background-color: transparent; }
 }
 

@@ -188,7 +188,7 @@ function ChartHeaderControls({
             className={cn(
               "size-1.5 rounded-full",
               live
-                ? "bg-[var(--c-green)]"
+                ? "bg-[var(--c-green-bg)]"
                 : "border border-[var(--fg-dim)] bg-transparent",
             )}
           />
@@ -456,7 +456,7 @@ function WidgetHeader({
         />
       ) : (
         <span
-          className="min-w-0 truncate pb-[0.3em] -mb-[0.3em] text-[length:var(--fs-widget-title)] font-semibold text-foreground [text-box:trim-both_cap_alphabetic]"
+          className="min-w-0 truncate pb-[0.3em] -mb-[0.3em] text-[length:var(--fs-widget-title)] font-semibold text-[var(--fg-widget-title)] [text-box:trim-both_cap_alphabetic]"
           style={{ fontFamily: "var(--font-display)" }}
         >
           {def?.title ?? widgetType}

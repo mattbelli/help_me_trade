@@ -6,6 +6,8 @@ import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes"
 import { WORKSPACE_THEMES } from "@/lib/workspace/themes"
 import {
   injectCustomThemeStyles,
+  resolveThemeIsDark,
+  syncHtmlDarkClass,
 } from "@/lib/workspace/custom-themes"
 import { useCustomThemeStore } from "@/lib/workspace/use-custom-theme-store"
 
@@ -70,6 +72,7 @@ function ThemeProvider({
       {...props}
     >
       <ThemeMigration />
+      <ThemeDarkClass />
       <ThemeHotkey />
       {children}
     </NextThemesProvider>
@@ -84,6 +87,17 @@ function ThemeMigration() {
       setTheme(LEGACY_THEME_ALIASES[theme])
     }
   }, [theme, setTheme])
+
+  return null
+}
+
+function ThemeDarkClass() {
+  const { theme } = useTheme()
+  const customThemes = useCustomThemeStore((s) => s.themes)
+
+  React.useEffect(() => {
+    syncHtmlDarkClass(resolveThemeIsDark(theme, customThemes))
+  }, [theme, customThemes])
 
   return null
 }

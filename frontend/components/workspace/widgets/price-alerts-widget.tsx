@@ -303,7 +303,7 @@ export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
                     <th
                       key={h || "actions"}
                       className={cn(
-                        "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
+                        "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
                         idx === 0 ||
                           h === "Dir" ||
                           h === "Status" ||

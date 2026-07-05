@@ -300,7 +300,7 @@ export function WorkspaceToolbar() {
               className={cn(
                 "size-1.5 rounded-full",
                 connected
-                  ? "bg-[var(--c-green)] shadow-[0_0_8px_var(--c-green)]"
+                  ? "bg-[var(--c-green-bg)] shadow-[0_0_8px_var(--c-green-bg)]"
                   : "bg-[var(--fg-faint)]",
               )}
             />
@@ -347,7 +347,7 @@ export function WorkspaceToolbar() {
                         className={cn(
                           "mt-1 size-1.5 shrink-0 rounded-full",
                           auth.authenticated
-                            ? "bg-[var(--c-green)]"
+                            ? "bg-[var(--c-green-bg)]"
                             : "bg-[var(--c-red)]",
                         )}
                       />

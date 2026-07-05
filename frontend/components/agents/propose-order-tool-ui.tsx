@@ -58,7 +58,7 @@ function ProposalStatusBanner({
       className={cn(
         "my-2 rounded-lg border p-3 text-sm",
         variant === "success" &&
-          "border-[var(--c-green)]/40 bg-[var(--c-green)]/10 text-[var(--c-green)]",
+          "border-[var(--c-green)]/40 bg-[var(--c-green-bg)]/10 text-[var(--c-green)]",
         variant === "dry_run" &&
           "border-[var(--fg-dim)]/30 bg-[var(--bg-raised)] text-foreground",
         variant === "rejected" &&

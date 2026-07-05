@@ -149,7 +149,7 @@ function DayTile({
           aria-hidden
           className="absolute inset-0"
           style={{
-            backgroundColor: positive ? "var(--c-green)" : "var(--c-red)",
+            backgroundColor: positive ? "var(--c-green-bg)" : "var(--c-red)",
             opacity: 0.05 + intensity * 0.25,
           }}
         />
