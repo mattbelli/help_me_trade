@@ -247,3 +247,45 @@ def test_structure_type_and_why_passthrough(last_prices, allowed):
     assert valid[0]["structure_type"] == "pullback_to_support"
     assert "support" in valid[0]["why"]
 
+
+def test_origin_stamped_server_side_default_structure(last_prices, allowed):
+    valid, rejected = validate_ideas(
+        [_valid_raw()],
+        last_prices,
+        allowed_symbols=allowed,
+    )
+    assert rejected == []
+    assert valid[0]["origin"] == "structure"
+
+
+def test_origin_stamped_server_side_llm_conviction(last_prices, allowed):
+    valid, rejected = validate_ideas(
+        [_valid_raw()],
+        last_prices,
+        allowed_symbols=allowed,
+        origin="llm_conviction",
+    )
+    assert rejected == []
+    assert valid[0]["origin"] == "llm_conviction"
+
+
+def test_llm_provided_origin_is_overwritten(last_prices, allowed):
+    valid, rejected = validate_ideas(
+        [_valid_raw(origin="llm_conviction")],
+        last_prices,
+        allowed_symbols=allowed,
+        origin="structure",
+    )
+    assert rejected == []
+    assert valid[0]["origin"] == "structure"
+
+
+def test_conviction_ideas_rejected_by_same_sanity_rules(last_prices, allowed):
+    _, rejected = validate_ideas(
+        [_valid_raw(stop="210.50")],
+        last_prices,
+        allowed_symbols=allowed,
+        origin="llm_conviction",
+    )
+    assert rejected[0]["reason"] == "stop must be below entry zone low"
+

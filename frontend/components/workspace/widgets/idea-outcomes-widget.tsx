@@ -73,6 +73,40 @@ function formatWinRate(winRate: number | null): string {
   return `${(winRate * 100).toFixed(1)}%`;
 }
 
+function formatOriginLabel(origin: string): string {
+  if (origin === "llm_conviction") return "llm";
+  if (origin === "structure") return "struct";
+  return origin.slice(0, 6);
+}
+
+function formatOriginWinRateSummary(
+  byOrigin: NonNullable<IdeaOutcomesResponse["summary"]["by_origin"]>,
+): string {
+  const entries = Object.entries(byOrigin);
+  if (entries.length < 2) return "";
+  return entries
+    .map(([origin, stats]) => {
+      const label = formatOriginLabel(origin);
+      const winLoss = (stats.counts.won ?? 0) + (stats.counts.lost ?? 0);
+      const total = Object.values(stats.counts).reduce((sum, n) => sum + n, 0);
+      const count = winLoss > 0 ? winLoss : total;
+      return `${label} ${formatWinRate(stats.win_rate)} (${count})`;
+    })
+    .join(" · ");
+}
+
+function OriginChip({ origin }: { origin: string }) {
+  if (origin !== "llm_conviction") return null;
+  return (
+    <span
+      className="ml-1 rounded px-1 py-px font-mono text-[9px] tracking-wide text-[var(--c-violet)] uppercase"
+      title="LLM-originated conviction idea (A/B tracked)"
+    >
+      LLM
+    </span>
+  );
+}
+
 function formatMfeMae(mfe: number | null, mae: number | null): string {
   const parts: string[] = [];
   if (mfe != null) {
@@ -138,6 +172,7 @@ function OpenTable({
                   linked={linked}
                   onActivate={() => publish(row.symbol)}
                 />
+                <OriginChip origin={row.origin} />
               </td>
               <StatusCell row={row} />
               <td className={cn(TD, "tabular-nums text-[var(--fg-dim)]")}>
@@ -202,6 +237,7 @@ function ResolvedTable({
                   linked={linked}
                   onActivate={() => publish(row.symbol)}
                 />
+                <OriginChip origin={row.origin} />
               </td>
               <StatusCell row={row} />
               <td className={cn(TD, "text-[var(--fg-dim)]")}>
@@ -292,12 +328,16 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
   }
 
   const summary = data!.summary;
+  const originSummary = summary.by_origin
+    ? formatOriginWinRateSummary(summary.by_origin)
+    : "";
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
         <span className="font-mono text-[10px] text-[var(--fg-dim)]">
           resolved {summary.resolved} · win rate {formatWinRate(summary.win_rate)}
+          {originSummary ? ` · ${originSummary}` : ""}
         </span>
         {statusChips.length > 0 ? (
           <span className="font-mono text-[10px] text-[var(--fg-faint)]">

@@ -75,7 +75,7 @@
       "lane": "done",
       "type": "bug",
       "priority": "high",
-      "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) — it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
+      "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) \u2014 it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -95,19 +95,19 @@
       "lane": "done",
       "type": "bug",
       "priority": "normal",
-      "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) — pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
+      "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) \u2014 pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
     {
       "id": "44",
       "title": "Conviction lane: LLM-originated ideas (A/B vs structure lane)",
-      "lane": "next",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
-      "notes": "Founder-agreed. Builds after a few days of structure-lane scan data. origin field, labeled section, hard-blocked from proposals until calibrated.",
+      "notes": "SHIPPED + deployed 2026-07-05 (founder moved the gate up so A/B journals from judging day one). One batched LLM call per scan over no-structure candidates; up to 2 nominations, 'no conviction' fully OK; same validate_ideas pipeline (long-only, sanity bounds, no win%); origin stamped SERVER-side (LLM-provided origin ignored); fail-soft (conviction errors never touch structure lane); paper gets a labeled 'Conviction ideas (LLM-originated \u2014 unproven)' section; idea_outcomes gains origin column + by_origin win-rate split; widget shows LLM chip + per-origin summary. HARD-blocked from proposals: 5c bridge must filter origin != structure. Suite 1509 green.",
       "owner": "serv",
-      "updated_at": "2026-07-04"
+      "updated_at": "2026-07-05"
     },
     {
       "id": "quotes-extraction-broker-protocol",
@@ -115,7 +115,7 @@
       "lane": "backlog",
       "type": "ops",
       "priority": "normal",
-      "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) — makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
+      "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) \u2014 makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -135,7 +135,7 @@
       "lane": "backlog",
       "type": "research",
       "priority": "low",
-      "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) — adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data — trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
+      "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) \u2014 adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data \u2014 trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
       "owner": "founder",
       "updated_at": "2026-07-05"
     },
@@ -375,7 +375,7 @@
       "lane": "in_progress",
       "type": "bug",
       "priority": "high",
-      "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 — watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles — ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence — flag if it bugs you.",
+      "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 \u2014 watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles \u2014 ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence \u2014 flag if it bugs you.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     }

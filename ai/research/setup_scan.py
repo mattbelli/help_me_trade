@@ -68,6 +68,24 @@ RANKER_SYSTEM_PROMPT = (
     "conditions)."
 )
 
+CONVICTION_SYSTEM_PROMPT = (
+    "You are a discretionary long-only analyst reviewing candidates where "
+    "deterministic structure detection found NO qualifying setup, but market "
+    "data is available. You may nominate UP TO 2 long ideas total from the "
+    "provided candidates, or none — 'no conviction' is fully acceptable. "
+    "For each idea: symbol (must be from the provided list), entry_zone "
+    "{low, high}, stop, targets (array of 1-3 prices), thesis (2-3 sentences "
+    "citing the provided numbers), confidence ('low'|'medium'|'high'), "
+    "confidence_reason (one line), key_risks (array of 1-4 strings). "
+    "Prices MUST be grounded in the provided support/resistance levels and "
+    "latest_close — if you cannot justify entry/stop/targets from those numbers, "
+    "do NOT nominate that symbol. NEVER output win probabilities, numeric "
+    "confidence scores, or percentage win rates. "
+    f"{_UNTRUSTED_LINE} "
+    "Return JSON only with key: ideas (array of idea objects, empty array if "
+    "no conviction)."
+)
+
 PAPER_EDITOR_SYSTEM_PROMPT = (
     "You are the chief editor writing a setup scan research paper in pure Markdown "
     "(no JSON, no code fences). Structure exactly:\n"
@@ -584,6 +602,207 @@ def _fallback_scan_markdown(
     return "\n".join(lines)
 
 
+def _build_conviction_candidate_summary(
+    symbol: str, content: dict[str, Any]
+) -> dict[str, Any]:
+    """Compact deterministic summary from already-fetched technicals content."""
+    summary: dict[str, Any] = {"symbol": symbol}
+
+    close = content.get("latest_close")
+    if close is not None:
+        summary["latest_close"] = close
+
+    sma50 = content.get("sma50")
+    sma200 = content.get("sma200")
+    if close is not None and sma50 is not None:
+        summary["close_vs_sma50"] = "above" if float(close) > float(sma50) else "below"
+    if close is not None and sma200 is not None:
+        summary["close_vs_sma200"] = (
+            "above" if float(close) > float(sma200) else "below"
+        )
+    if sma50 is not None and sma200 is not None:
+        summary["sma50_vs_sma200"] = (
+            "above" if float(sma50) > float(sma200) else "below"
+        )
+
+    if content.get("ret_3d") is not None:
+        summary["ret_3d"] = content["ret_3d"]
+
+    levels = content.get("levels")
+    if isinstance(levels, dict):
+        for key in (
+            "support_prices",
+            "resistance_prices",
+            "dist_to_support_pct",
+            "dist_to_resistance_pct",
+        ):
+            if levels.get(key) is not None:
+                summary[key] = levels[key]
+
+    rvol = content.get("rvol")
+    if isinstance(rvol, dict) and rvol.get("value") is not None:
+        summary["rvol"] = rvol["value"]
+
+    if content.get("next_earnings"):
+        summary["next_earnings"] = content["next_earnings"]
+
+    return summary
+
+
+def _conviction_raw_from_llm(raw: dict[str, Any]) -> dict[str, Any]:
+    risks = raw.get("key_risks") or raw.get("risks") or []
+    if not isinstance(risks, list):
+        risks = []
+    evidence = raw.get("evidence_urls") or raw.get("evidence") or []
+    if not isinstance(evidence, list):
+        evidence = []
+    return {
+        "symbol": str(raw.get("symbol", "")).strip().upper(),
+        "direction": "long",
+        "thesis": str(raw.get("thesis", "")).strip(),
+        "entry_zone": raw.get("entry_zone"),
+        "stop": raw.get("stop"),
+        "targets": raw.get("targets"),
+        "confidence": str(raw.get("confidence", "")).strip().lower(),
+        "confidence_reason": str(raw.get("confidence_reason", "")).strip(),
+        "risks": [str(r).strip() for r in risks if str(r).strip()],
+        "evidence": [str(u).strip() for u in evidence if str(u).strip()],
+    }
+
+
+async def _run_conviction_pass(
+    *,
+    no_structure_assessments: list[dict[str, Any]],
+    last_prices: dict[str, Decimal],
+    effort_preset: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, Any]]:
+    """LLM conviction lane — fail-soft; errors must not affect structure output."""
+    journal: dict[str, Any] = {"nominated": [], "rejected": [], "note": None}
+
+    if not no_structure_assessments:
+        journal["note"] = "no no-structure candidates for conviction pass"
+        return [], [], journal
+
+    try:
+        summaries: list[dict[str, Any]] = []
+        allowed_symbols: set[str] = set()
+        for assessment in no_structure_assessments:
+            symbol = str(assessment["symbol"]).strip().upper()
+            technicals = assessment.get("technicals")
+            content = (
+                technicals.get("content")
+                if isinstance(technicals, dict)
+                else None
+            )
+            if not isinstance(content, dict):
+                continue
+            summaries.append(_build_conviction_candidate_summary(symbol, content))
+            allowed_symbols.add(symbol)
+
+        if not summaries:
+            journal["note"] = "no conviction summaries built from technicals"
+            return [], [], journal
+
+        payload = {"candidates": summaries}
+        llm = get_llm(model=resolve_role_model("specialists"))
+        messages = [
+            LLMMessage(role="system", content=CONVICTION_SYSTEM_PROMPT),
+            LLMMessage(
+                role="user",
+                content=json.dumps(payload, default=str)[
+                    : effort_preset.per_source_content_limit * 6
+                ],
+            ),
+        ]
+        raw = await asyncio.to_thread(
+            complete_for_extraction, llm, messages, max_tokens=2000
+        )
+        parsed = parse_json_object(raw, prefer_keys={"ideas"})
+        if not parsed:
+            journal["note"] = "conviction pass returned invalid JSON"
+            logger.warning("Conviction pass: invalid JSON")
+            return [], [], journal
+
+        raw_ideas_payload = parsed.get("ideas")
+        if not isinstance(raw_ideas_payload, list):
+            journal["note"] = "conviction pass returned invalid ideas payload"
+            logger.warning("Conviction pass: ideas key missing or not a list")
+            return [], [], journal
+
+        if not raw_ideas_payload:
+            journal["note"] = "no conviction ideas this scan"
+            return [], [], journal
+
+        raw_ideas = [
+            _conviction_raw_from_llm(item)
+            for item in raw_ideas_payload[:2]
+            if isinstance(item, dict)
+        ]
+        validated, rejected = validate_ideas(
+            raw_ideas,
+            last_prices,
+            allowed_symbols=allowed_symbols,
+            origin="llm_conviction",
+        )
+        journal["nominated"] = [{"symbol": idea["symbol"]} for idea in validated]
+        journal["rejected"] = rejected
+        if validated:
+            journal["note"] = f"{len(validated)} conviction idea(s) nominated"
+        elif rejected:
+            journal["note"] = "conviction ideas rejected by validation"
+        else:
+            journal["note"] = "no conviction ideas this scan"
+        return validated, rejected, journal
+    except Exception as exc:
+        logger.warning("Conviction pass failed: %s", exc)
+        journal["note"] = f"conviction pass error: {exc}"
+        return [], [], journal
+
+
+def _build_conviction_section_markdown(
+    conviction_ideas: list[dict[str, Any]],
+) -> str:
+    lines = [
+        "## Conviction ideas (LLM-originated — unproven)",
+        "",
+        "_Discretionary LLM nominations, tracked for calibration A/B vs the "
+        "structure lane — not validated setups._",
+        "",
+        "| Symbol | Entry zone | Stop | Targets | Confidence |",
+        "|---|---|---|---|---|",
+    ]
+    for idea in conviction_ideas:
+        zone = idea["entry_zone"]
+        targets = ", ".join(idea["targets"])
+        lines.append(
+            f"| {idea['symbol']} | {zone['low']}-{zone['high']} | "
+            f"{idea['stop']} | {targets} | {idea['confidence']} |"
+        )
+    for idea in conviction_ideas:
+        lines.extend(["", f"### {idea['symbol']} — conviction", ""])
+        lines.append(idea["thesis"])
+        if idea.get("confidence_reason"):
+            lines.append(f"- Confidence: {idea['confidence_reason']}")
+        if idea.get("risks"):
+            lines.append("- Risks:")
+            for risk in idea["risks"]:
+                lines.append(f"  - {risk}")
+    return "\n".join(lines)
+
+
+def _append_conviction_section(
+    markdown: str,
+    conviction_ideas: list[dict[str, Any]],
+) -> str:
+    if not conviction_ideas:
+        return markdown
+    section = _build_conviction_section_markdown(conviction_ideas)
+    for marker in ("## No-setup candidates", "## Scan conditions"):
+        if marker in markdown:
+            return markdown.replace(marker, section + "\n\n" + marker, 1)
+    return markdown + "\n\n" + section
+
+
 async def run_setup_scan(
     *,
     topic: str,
@@ -717,6 +936,12 @@ async def run_setup_scan(
         rejected: list[dict[str, str]] = []
         scan_note = ""
         ranker_discarded: list[dict[str, str]] = []
+        conviction_journal: dict[str, Any] = {
+            "nominated": [],
+            "rejected": [],
+            "note": None,
+        }
+        conviction_ideas: list[dict[str, Any]] = []
 
         if setup_results:
             raw_ideas = [a["raw_idea"] for a in setup_results if a.get("raw_idea")]
@@ -724,6 +949,7 @@ async def run_setup_scan(
                 raw_ideas,
                 last_prices,
                 allowed_symbols=set(candidates),
+                origin="structure",
             )
 
             if len(validated_ideas) > 1:
@@ -765,6 +991,33 @@ async def run_setup_scan(
                 if label:
                     scan_note = f"No qualifying setups; market regime: {label}."
 
+        # Conviction lane: LLM may nominate up to 2 ideas from no-structure
+        # candidates. HARD-blocked from proposal/arming — Phase 5c bridge (#42)
+        # must filter origin != "structure" before any trade path.
+        no_structure_assessments = [
+            a
+            for a in assessments
+            if a.get("no_structure_reason")
+            and a.get("no_structure_reason") != "no technicals data"
+            and not a.get("error")
+            and a.get("technicals")
+        ]
+        emit(
+            "conviction_pass",
+            {"candidates": len(no_structure_assessments)},
+        )
+        conviction_ideas, conviction_rejected, conviction_journal = (
+            await _run_conviction_pass(
+                no_structure_assessments=no_structure_assessments,
+                last_prices=last_prices,
+                effort_preset=resolved,
+            )
+        )
+        conviction_journal["rejected"] = conviction_rejected
+
+        structure_ideas = validated_ideas
+        validated_ideas = structure_ideas + conviction_ideas
+
         emit("writing", {"ideas": len(validated_ideas)})
         _check_cancelled(cancel_event)
 
@@ -772,7 +1025,7 @@ async def run_setup_scan(
         try:
             markdown = _write_scan_paper(
                 topic=display_topic,
-                validated_ideas=validated_ideas,
+                validated_ideas=structure_ideas,
                 no_setup=no_structure + no_setup + ranker_discarded,
                 scan_note=scan_note,
                 candidates=candidates,
@@ -781,10 +1034,11 @@ async def run_setup_scan(
             logger.warning("Paper editor failed, using fallback: %s", exc)
             markdown = _fallback_scan_markdown(
                 topic=display_topic,
-                validated_ideas=validated_ideas,
+                validated_ideas=structure_ideas,
                 no_setup=no_structure + no_setup + ranker_discarded,
                 scan_note=scan_note,
             )
+        markdown = _append_conviction_section(markdown, conviction_ideas)
 
         report = _report_from_paper_markdown(
             markdown, topic=display_topic, symbol=None
@@ -800,6 +1054,7 @@ async def run_setup_scan(
             "no_structure": no_structure,
             "no_setup": no_setup,
             "scan_note": scan_note,
+            "conviction": conviction_journal,
         }
         report["generated_at"] = datetime.now(UTC).isoformat()
         report["sources"] = [

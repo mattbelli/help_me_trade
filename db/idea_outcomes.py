@@ -10,6 +10,7 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.schema_helpers import _add_column_if_missing
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             CREATE INDEX IF NOT EXISTS idx_idea_outcomes_updated
                 ON idea_outcomes(updated_at DESC);
             """
+        )
+        _add_column_if_missing(
+            conn, "idea_outcomes", "origin", "TEXT NOT NULL DEFAULT 'structure'"
         )
         conn.commit()
 
@@ -102,14 +106,15 @@ def register_ideas(
 
             as_of = str(idea.get("as_of") or now).strip() or now
             targets_json = json.dumps([str(t) for t in targets])
+            origin = str(idea.get("origin", "structure")).strip() or "structure"
 
             cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO idea_outcomes (
                     artifact_id, idea_index, symbol, as_of,
                     entry_low, entry_high, stop, targets_json,
-                    status, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                    status, origin, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                 """,
                 (
                     int(artifact_id),
@@ -120,6 +125,7 @@ def register_ideas(
                     entry_high,
                     stop,
                     targets_json,
+                    origin,
                     now,
                 ),
             )
@@ -248,6 +254,13 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
         rows = conn.execute(
             "SELECT status, COUNT(*) AS n FROM idea_outcomes GROUP BY status"
         ).fetchall()
+        origin_rows = conn.execute(
+            """
+            SELECT origin, status, COUNT(*) AS n
+            FROM idea_outcomes
+            GROUP BY origin, status
+            """
+        ).fetchall()
 
     counts: dict[str, int] = {}
     for row in rows:
@@ -259,8 +272,29 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     win_loss = won + lost
     win_rate = (won / win_loss) if win_loss else None
 
+    origin_counts: dict[str, dict[str, int]] = {}
+    for row in origin_rows:
+        origin = str(row["origin"] or "structure")
+        status = str(row["status"])
+        origin_counts.setdefault(origin, {})[status] = int(row["n"])
+
+    by_origin: dict[str, Any] = {}
+    for origin, origin_status_counts in origin_counts.items():
+        origin_won = origin_status_counts.get("won", 0)
+        origin_lost = origin_status_counts.get("lost", 0)
+        origin_resolved = sum(
+            origin_status_counts.get(s, 0) for s in TERMINAL_STATUSES
+        )
+        origin_win_loss = origin_won + origin_lost
+        by_origin[origin] = {
+            "counts": origin_status_counts,
+            "resolved": origin_resolved,
+            "win_rate": (origin_won / origin_win_loss) if origin_win_loss else None,
+        }
+
     return {
         "counts": counts,
         "resolved": resolved,
         "win_rate": win_rate,
+        "by_origin": by_origin,
     }

@@ -1374,6 +1374,7 @@ export type IdeaOutcomeRow = {
   stop: string;
   targets: string[];
   status: IdeaOutcomeStatus;
+  origin: string;
   triggered_at: string | null;
   resolved_at: string | null;
   resolution_price: string | null;
@@ -1389,6 +1390,14 @@ export type IdeaOutcomesSummary = {
   counts: Record<string, number>;
   resolved: number;
   win_rate: number | null;
+  by_origin?: Record<
+    string,
+    {
+      counts: Record<string, number>;
+      resolved: number;
+      win_rate: number | null;
+    }
+  >;
 };
 
 export type IdeaOutcomesResponse = {

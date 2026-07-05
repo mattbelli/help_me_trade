@@ -367,3 +367,71 @@ def test_get_summary_win_rate(idea_db) -> None:
     assert summary["counts"]["lost"] == 1
     assert summary["resolved"] == 2
     assert summary["win_rate"] == 0.5
+
+
+def test_register_ideas_stores_origin(idea_db) -> None:
+    idea = _sample_idea()
+    idea["origin"] = "llm_conviction"
+    register_ideas(1, [idea], db_path=idea_db)
+    rows = list_open(db_path=idea_db)
+    assert rows[0]["origin"] == "llm_conviction"
+
+
+def test_origin_migration_adds_column_to_old_db(tmp_path) -> None:
+    db = tmp_path / "legacy.db"
+    with __import__("sqlite3").connect(db) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE idea_outcomes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artifact_id INTEGER NOT NULL,
+                idea_index INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                as_of TEXT NOT NULL,
+                entry_low TEXT NOT NULL,
+                entry_high TEXT NOT NULL,
+                stop TEXT NOT NULL,
+                targets_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                updated_at TEXT NOT NULL,
+                UNIQUE(artifact_id, idea_index)
+            );
+            """
+        )
+        conn.commit()
+
+    init_idea_outcomes_tables(db)
+    with __import__("sqlite3").connect(db) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(idea_outcomes)")}
+    assert "origin" in cols
+
+
+def test_get_summary_splits_by_origin(idea_db) -> None:
+    struct_idea = _sample_idea(symbol="STRUCT")
+    struct_idea["origin"] = "structure"
+    llm_idea = _sample_idea(symbol="LLM1")
+    llm_idea["origin"] = "llm_conviction"
+    register_ideas(1, [struct_idea], db_path=idea_db)
+    register_ideas(2, [llm_idea], db_path=idea_db)
+    rows = list_open(db_path=idea_db)
+    struct_row = next(r for r in rows if r["symbol"] == "STRUCT")
+    llm_row = next(r for r in rows if r["symbol"] == "LLM1")
+    update_outcome(
+        int(struct_row["id"]),
+        status="won",
+        resolved_at="2026-01-10",
+        db_path=idea_db,
+    )
+    update_outcome(
+        int(llm_row["id"]),
+        status="lost",
+        resolved_at="2026-01-10",
+        db_path=idea_db,
+    )
+
+    summary = get_summary(db_path=idea_db)
+    assert "by_origin" in summary
+    assert summary["by_origin"]["structure"]["counts"]["won"] == 1
+    assert summary["by_origin"]["structure"]["win_rate"] == 1.0
+    assert summary["by_origin"]["llm_conviction"]["counts"]["lost"] == 1
+    assert summary["by_origin"]["llm_conviction"]["win_rate"] == 0.0

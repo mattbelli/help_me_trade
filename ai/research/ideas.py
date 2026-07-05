@@ -58,6 +58,7 @@ def validate_ideas(
     last_prices: dict[str, Decimal],
     *,
     allowed_symbols: set[str] | frozenset[str],
+    origin: str = "structure",
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """Return (valid, rejected) idea dicts. Valid ideas are normalized in place."""
     valid: list[dict[str, Any]] = []
@@ -71,6 +72,9 @@ def validate_ideas(
     for raw in raw_ideas:
         if not isinstance(raw, dict):
             continue
+
+        # origin is stamped server-side — never trust LLM-provided labels.
+        raw = {k: v for k, v in raw.items() if k != "origin"}
 
         symbol = str(raw.get("symbol", "")).strip().upper()
         if not symbol:
@@ -242,6 +246,7 @@ def validate_ideas(
                 idea["structure_type"] = str(raw["structure_type"])
             if raw.get("why") is not None:
                 idea["why"] = str(raw["why"])
+            idea["origin"] = origin
             valid.append(idea)
             seen_symbols.add(symbol)
 
