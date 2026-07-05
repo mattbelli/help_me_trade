@@ -12,20 +12,22 @@
     {
       "id": "brand-overhaul-ui",
       "title": "Brand design overhaul: logo-as-channel-button, HMT wordmark, logo placements",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Founder 2026-07-05. BLOCKED on brand/readme.md from the RN phone branch (exists only on the mac's un-pushed copy — founder card). Scope once unblocked: (1) channel selector → the LOGO as the button, tinted per channel (fixes the finicky tiny hit target; brand mark doubles as channel switcher; bigger padded hit area + dropdown unchanged); (2) toolbar top-left: 'help_me_trade' → HMT + logo mark; (3) logo in Settings header; (4) orchestrator recs: boot moment (UI_POLISH P1) uses the mark; empty-page CTA watermark; browser favicon + PWA icon; login/unlock screen if one ever exists. Mechanism can be built art-agnostic (SVG component slot) — mark swaps in when the kit lands."
+      "notes": "UNBLOCKED + phase 1 SHIPPED 2026-07-05: StandInMark component (mono/currentColor + duo fg-dim/foreground cuts per brand README); channel selector = the mark, channel-tinted, real 24px hit area (was a 10px square); toolbar = mark + HMT (gradient ▰ + help_me_trade retired); Settings dialog title mark; favicon = stand_in-small (app/icon.svg). REMAINING: boot moment (P1) with the mark, empty-page CTA watermark, app-icon pass + the color question (brand README says greyscale-first, color deliberate later).",
+      "updated_at": "2026-07-05"
     },
     {
       "id": "push-phone-brand-doc",
       "title": "Push the RN phone branch with brand/readme.md (mac side)",
-      "lane": "founder",
+      "lane": "done",
       "type": "ops",
       "priority": "high",
       "owner": "founder",
-      "notes": "Serv searched every origin branch + the stale mobile/ copy — brand/readme.md isn't on the remote. Push the mac branch (or paste the file in chat) to unblock brand-overhaul-ui."
+      "notes": "DONE 2026-07-05 — founder pushed brand/ to main (stand_in mark: README + 4 SVG cuts + exploration doc).",
+      "updated_at": "2026-07-05"
     },
     {
       "id": "theme-editor-floating",

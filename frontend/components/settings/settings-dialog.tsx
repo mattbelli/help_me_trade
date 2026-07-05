@@ -38,6 +38,7 @@ import {
   type TradingSettings,
 } from "@/lib/api";
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
+import { StandInMark } from "@/components/workspace/stand-in-mark";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
 import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
@@ -243,7 +244,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
       </DialogTrigger>
       <DialogContent className="flex h-[min(88vh,820px)] max-h-[88vh] w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden border border-[var(--border)] bg-[var(--panel)] p-0 font-mono shadow-[var(--panel-shadow)] sm:!max-w-[min(96vw,80rem)]">
         <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
-          <DialogTitle className="font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
+          <DialogTitle className="flex items-center gap-2 font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
+            <StandInMark duo className="size-4" />
             Settings
           </DialogTitle>
           <DialogDescription className="font-mono text-[10px] text-[var(--fg-dim)]">

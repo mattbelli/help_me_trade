@@ -7,6 +7,7 @@ import { PagesMenu } from "@/components/layout/pages-menu";
 import { AccountSelector } from "@/components/workspace/account-selector";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
+import { StandInMark } from "@/components/workspace/stand-in-mark";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -273,17 +274,9 @@ export function WorkspaceToolbar() {
     <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[length:var(--fs-title)]">
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2">
-          <span
-            className="grid size-5 place-items-center rounded-md text-[length:var(--fs-body)] font-extrabold text-[var(--c-on-accent)]"
-            style={{
-              backgroundImage:
-                "linear-gradient(135deg, var(--c-accent), var(--c-violet))",
-            }}
-          >
-            ▰
-          </span>
-          <span className="hidden font-sans text-[length:var(--fs-title)] font-bold tracking-tight sm:inline">
-            help_me_trade
+          <StandInMark duo className="size-5" />
+          <span className="hidden font-mono text-[length:var(--fs-title)] font-bold tracking-[0.08em] sm:inline">
+            HMT
           </span>
         </div>
 
