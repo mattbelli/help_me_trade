@@ -126,7 +126,7 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="min-h-0 flex-1 overflow-auto p-3 scroll-shadow-y">
         {mode === "symbol" ? (
           !symbol ? (
             <WidgetEmpty

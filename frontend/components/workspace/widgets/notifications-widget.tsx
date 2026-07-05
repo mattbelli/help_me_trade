@@ -178,7 +178,7 @@ export function NotificationsWidget({}: WidgetProps) {
       {visible.length === 0 ? (
         <WidgetEmpty message="No notifications" className="p-2" />
       ) : (
-        <ul className="min-h-0 flex-1 space-y-1 overflow-auto">
+        <ul className="min-h-0 flex-1 space-y-1 overflow-auto scroll-shadow-y">
           {visible.map((n) => {
             const expanded = expandedId === n.id;
             return (

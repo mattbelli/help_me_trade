@@ -249,7 +249,7 @@ export function ScansWidget({ config }: WidgetProps) {
           message={`No matches across ${data.universe_size} screened symbols.`}
         />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
           {/* Column headers */}
           <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5">
             <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">

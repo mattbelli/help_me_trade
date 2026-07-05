@@ -298,7 +298,7 @@ function CalibrationView({
 }) {
   if (!calibration || calibration.n_resolved === 0) {
     return (
-      <div className="min-h-0 flex-1 overflow-auto p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
+      <div className="min-h-0 flex-1 overflow-auto p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)] scroll-shadow-y">
         <p className="font-medium text-[var(--fg-dim)]">Insufficient data</p>
         <p className="mt-1 text-[length:var(--fs-table)] text-[var(--fg-faint)]">
           No resolved paper calls to grade yet. Calibration compares the agent&apos;s
@@ -309,7 +309,7 @@ function CalibrationView({
     );
   }
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
       <CalibrationTable
         title="By strategy"
         groups={calibration.by_strategy}
@@ -413,7 +413,7 @@ function DecisionsView({
   }
   const strat = (stats?.by_strategy ?? []).filter((s) => s.n > 0);
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
       {/* Per-strategy stats strip */}
       {strat.length > 0 ? (
         <div className="flex flex-wrap gap-1.5 border-b border-[var(--border)] px-2 py-1.5">
@@ -494,7 +494,7 @@ function MeView({
     .join("/");
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
       {/* Net-cash truth + behavioral summary line */}
       {summary ? (
         <div className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]">

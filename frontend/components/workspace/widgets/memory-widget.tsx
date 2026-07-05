@@ -139,7 +139,7 @@ export function MemoryWidget({}: WidgetProps) {
           className="p-2"
         />
       ) : visibleMemories.length === 0 ? null : (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
           {error ? (
             <p className="mb-1 px-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
               {error}

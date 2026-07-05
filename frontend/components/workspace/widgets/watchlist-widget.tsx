@@ -209,7 +209,7 @@ function WatchlistAddRow({
         ×
       </button>
       {open && suggestions.length > 0 ? (
-        <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)]">
+        <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)] scroll-shadow-y">
           {suggestions.map((sym) => (
             <li key={sym}>
               <button
@@ -652,7 +652,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1">
+      <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y">
         <div
           className={cn(
             ROW_GRID,

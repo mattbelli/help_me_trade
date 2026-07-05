@@ -432,7 +432,7 @@ export function OrdersWidget({ config }: WidgetProps) {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
         {tab === "filled" ? (
           <FilledTab
             events={filledEvents}

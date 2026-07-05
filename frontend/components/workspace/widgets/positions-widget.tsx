@@ -171,7 +171,7 @@ export function PositionsWidget({ config }: WidgetProps) {
   }
 
   return (
-    <div className="h-full overflow-auto px-1.5 py-1">
+    <div className="h-full overflow-auto px-1.5 py-1 scroll-shadow-y">
       <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>

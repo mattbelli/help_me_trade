@@ -385,7 +385,7 @@ export function TradingCalendarWidget() {
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div className="min-h-0 flex-1 overflow-auto p-2 scroll-shadow-y">
         {error ? (
           <WidgetError message={error} className="p-2" />
         ) : null}

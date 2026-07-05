@@ -111,7 +111,7 @@ function ReportViewer({ report }: { report: ReportRow }) {
     );
   }
   return (
-    <div className="h-full overflow-auto p-3">
+    <div className="h-full overflow-auto p-3 scroll-shadow-y">
       <p className="font-mono text-[length:var(--fs-body)] text-foreground">{report.title}</p>
       <p className="mt-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
         {formatRelativeTime(report.generated_at)}
@@ -216,7 +216,7 @@ export function ReportsWidget() {
         <WidgetEmpty message="No reports yet. Use Generate or wait for a scheduled brief." />
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(9rem,14rem)_1fr] overflow-hidden">
-          <ul className="min-h-0 divide-y divide-[var(--border)] overflow-auto border-r border-[var(--border)]">
+          <ul className="min-h-0 divide-y divide-[var(--border)] overflow-auto border-r border-[var(--border)] scroll-shadow-y">
             {reports.map((report) => (
               <li key={report.id}>
                 <ReportListItem

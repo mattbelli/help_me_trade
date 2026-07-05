@@ -359,7 +359,7 @@ export function SectorRadarWidget() {
               )}
             </div>
 
-            <div className="max-h-[42%] shrink-0 space-y-1 overflow-y-auto border-t border-[var(--border)] pt-1">
+            <div className="max-h-[42%] shrink-0 space-y-1 overflow-y-auto border-t border-[var(--border)] pt-1 scroll-shadow-y">
               {sortedRows.map((row) => (
                 <div
                   key={row.sector}

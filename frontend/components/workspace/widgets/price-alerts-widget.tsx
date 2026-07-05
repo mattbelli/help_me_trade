@@ -292,7 +292,7 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1">
+      <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y">
         {loading && alerts.length === 0 ? (
           <WidgetLoading cols={[2, 1, 1]} />
         ) : error && alerts.length === 0 ? (

@@ -366,7 +366,7 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
         {tab === "open" ? (
           <OpenTable rows={data!.open} linked={linked} publish={publish} />
         ) : (

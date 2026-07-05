@@ -19,7 +19,7 @@ export function AgentProposalsWidget({ config }: WidgetProps) {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3">
+    <div className="flex h-full flex-col overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3 scroll-shadow-y">
       <header className="mb-2 flex shrink-0 items-baseline justify-between gap-2">
         <h2 className="font-mono text-[length:var(--fs-body)] font-semibold uppercase tracking-[0.08em] text-[var(--fg-dim)]">
           Pending approvals

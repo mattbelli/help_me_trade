@@ -140,7 +140,7 @@ export function PerformanceStatsWidget() {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-2.5">
+      <div className="min-h-0 flex-1 overflow-auto p-2.5 scroll-shadow-y">
         {loading && !dashboard ? (
           <div className="flex flex-wrap gap-2">
             {Array.from({ length: 5 }).map((_, i) => (

@@ -222,7 +222,7 @@ export function ResearchWidget({ config }: WidgetProps) {
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto pt-1">
+      <div className="min-h-0 flex-1 overflow-auto pt-1 scroll-shadow-y">
         <p className="mb-1 px-1 font-mono text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Recent
         </p>
