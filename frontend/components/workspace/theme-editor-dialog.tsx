@@ -303,7 +303,23 @@ export function ThemeEditorDialog({
                       </span>
                     ) : null}
                   </span>
-                  {isHexColor(value) ? (
+                  {row.var === "--grain-opacity" ? (
+                    <>
+                      <input
+                        type="range"
+                        min={0}
+                        max={0.2}
+                        step={0.005}
+                        aria-label="Grain strength"
+                        value={Number.parseFloat(value) || 0}
+                        onChange={(e) => handleVarChange(row.var, e.target.value)}
+                        className="h-1 flex-1 cursor-pointer accent-[var(--c-accent)]"
+                      />
+                      <span className="w-10 shrink-0 text-right font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-dim)]">
+                        {(Number.parseFloat(value) || 0).toFixed(3)}
+                      </span>
+                    </>
+                  ) : isHexColor(value) ? (
                     <input
                       type="color"
                       aria-label={row.label}
@@ -312,12 +328,14 @@ export function ThemeEditorDialog({
                       className="size-7 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
                     />
                   ) : null}
-                  <TerminalInput
-                    value={value}
-                    onChange={(e) => handleVarChange(row.var, e.target.value)}
-                    spellCheck={false}
-                    className="h-7 w-28"
-                  />
+                  {row.var !== "--grain-opacity" ? (
+                    <TerminalInput
+                      value={value}
+                      onChange={(e) => handleVarChange(row.var, e.target.value)}
+                      spellCheck={false}
+                      className="h-7 w-28"
+                    />
+                  ) : null}
                 </div>
               );
             }

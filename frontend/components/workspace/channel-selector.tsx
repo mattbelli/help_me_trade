@@ -23,7 +23,7 @@ export function ChannelSelector({ channel, onChange }: Props) {
       <DropdownMenuTrigger
         type="button"
         className={cn(
-          "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)]",
+          "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-0.5 outline-none transition-colors hover:bg-[var(--bg-hover)]",
         )}
         style={{
           color: channel !== "none" ? activeColor : "var(--fg-faint)",
@@ -36,7 +36,7 @@ export function ChannelSelector({ channel, onChange }: Props) {
         }
       >
         <StandInMark
-          className={cn("size-4", channel === "none" && "opacity-70")}
+          className={cn("size-8", channel === "none" && "opacity-70")}
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent

@@ -36,6 +36,8 @@ export function ChartWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="relative min-h-0 flex-1">
+        {/* film grain over the chart canvas (theme-gated via --grain vars) */}
+        <span aria-hidden className="grain-overlay" />
         {symbol ? (
           <TvLightChart
             symbol={symbol}
