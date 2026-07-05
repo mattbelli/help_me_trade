@@ -10,13 +10,43 @@
   ],
   "cards": [
     {
-      "id": "scroll-ergonomics",
-      "title": "Workspace scroll ergonomics: Ctrl+wheel chart zoom (plain wheel = page scroll) + middle-mouse canvas pan",
+      "id": "widget-polish-batch",
+      "title": "Widget polish: watchlist edit-mode drag + flush rows, legible earnings badge, open-orders/price-alerts header cleanup",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-05 (commit 68d40d1, deployed :3001): grab dots only in edit mode (reorder = edit-mode handle, red − replaces sparkline while editing, rows flush-left like positions); earnings badge 9→10px font-medium; '0 open' meta dropped; price-alerts + moved into widget header (config.adding), second header row deleted. Pending founder in-browser confirm.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "theme-round-fg-bg-green",
+      "title": "Theme round: green fills vs text split, widget-title/column-header vars, custom-theme dark: fix, clearer editor descs",
       "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Founder-approved 2026-07-05. Composer run dispatched (brief: scroll-ergonomics.md): charts stop eating plain wheel (handleScroll/handleScale mouseWheel:false + own Ctrl/⌘+wheel barSpacing zoom + transient 'Ctrl+scroll to zoom' hint pill); middle-mouse-drag pans #workspace-grid-scroll Figma-style. Watchlist/positions lists untouched (already chain scroll at their ends). Pending diff review + in-browser check.",
+      "notes": "Composer run dispatched 2026-07-05 (brief: theme-round.md): --c-green-bg (badge fills/dots/tick-flash) separate from --c-green text; --fg-widget-title + --fg-table-header rows so the founder can recolor watchlist headers; custom themes get the dark: variant (base-aware .dark class toggle); Text-group descs rewritten w/ concrete examples. Settings dialog itself audited = fully var-driven (only gaps: --panel-shadow not editable, --scrim bulk-skip, dark: variant).",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "memory-overhaul",
+      "title": "Copilot memory is logging junk, not remembering — overhaul plan (report ready for founder)",
+      "lane": "founder",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Deep dive DONE 2026-07-05 → References/MEMORY_SYSTEM_REPORT.md. Root causes: regex-fallback extractor stores raw questions as preferences/lessons; every research run auto-logs its summary (7 near-dup SLB rows); retrieval = word-overlap (mem0 vector branch inert via parsing bug); per-turn injection off in web chat. Proposed 3 phases: (1) kill fallback + stop research auto-log + LLM write-judge + curate 29 rows + save_memory tool; (2) sqlite-vec semantic recall + turn injection (roadmap R4); (3) update/merge lifecycle + decay + provenance. WAITING ON FOUNDER: read report, greenlight Phase 1.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "scroll-ergonomics",
+      "title": "Workspace scroll ergonomics: Ctrl+wheel chart zoom (plain wheel = page scroll) + middle-mouse canvas pan",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-05 (commit 6548251, deployed :3001): Ctrl/⌘+wheel zooms charts, plain wheel scrolls page (+hint pill); middle-mouse-drag pans canvas; header-title centering regression fixed same night (descender paint room, screenshot-verified). Founder confirmed charts fine.",
       "updated_at": "2026-07-05"
     },
     {

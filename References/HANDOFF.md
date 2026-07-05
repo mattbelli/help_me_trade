@@ -10,6 +10,22 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-05 late) — founder-live evening batch SHIPPED ×3 rounds; memory overhaul awaiting founder
+
+> Three Composer rounds shipped, deployed :3001, pushed (BUILD.md rows + board current): (1) **scroll
+> ergonomics** — Ctrl/⌘+wheel = chart zoom, plain wheel = page scroll (+hint pill), middle-mouse-drag pans the
+> canvas; header-title centering regression fixed (descender paint room, NOT trim-both_cap_text). (2) **widget
+> polish** — watchlist grab dots exist only in edit mode (rows flush-left like positions; edit = ⋮⋮ left +
+> red − replaces sparkline), earnings badge 10px, "0 open" meta dropped, price-alerts + lives in the widget
+> header (`config.adding`). (3) **theme round** — `--c-green-bg` (fills/dots/flash) split from `--c-green`
+> (text); `--fg-widget-title` + `--fg-table-header` rows so the founder can recolor headers; custom themes now
+> get the `dark:` variant (`.dark` class synced from theme base, `theme-provider.tsx`); Text-group descs are
+> concrete. **Founder still to eyeball all three in-browser** (was mowing the lawn). ⚠️ NEW big thread:
+> **copilot memory stores junk** — deep dive DONE → `References/MEMORY_SYSTEM_REPORT.md` (root causes: regex
+> fallback extractor, research auto-log, inert mem0 vector search, injection off) + 3-phase fix plan; card
+> `memory-overhaul` in the founder lane — do NOT build until he greenlights Phase 1. Also parked: widget spawn
+> UX proposal (card `widget-spawn-ux`, founder lane).
+
 ## ▶ START HERE (2026-07-06) — UI sprint SHIPPED; next: brand phase 2 / statement importer / audit cards
 
 > **The entire 2026-07-05 UI sprint is DONE, deployed, pushed** (BUILD.md has per-round rows): polish rounds
