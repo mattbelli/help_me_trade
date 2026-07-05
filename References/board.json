@@ -10,6 +10,26 @@
   ],
   "cards": [
     {
+      "id": "scroll-ergonomics",
+      "title": "Workspace scroll ergonomics: Ctrl+wheel chart zoom (plain wheel = page scroll) + middle-mouse canvas pan",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder-approved 2026-07-05. Composer run dispatched (brief: scroll-ergonomics.md): charts stop eating plain wheel (handleScroll/handleScale mouseWheel:false + own Ctrl/⌘+wheel barSpacing zoom + transient 'Ctrl+scroll to zoom' hint pill); middle-mouse-drag pans #workspace-grid-scroll Figma-style. Watchlist/positions lists untouched (already chain scroll at their ends). Pending diff review + in-browser check.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "widget-spawn-ux",
+      "title": "Widget spawn UX: land in viewport + flash + drag hint (proposal ready)",
+      "lane": "founder",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Investigated 2026-07-05, no code yet. Finding: per-type default sizes already exist (WIDGET_REGISTRY.defaultSize); real bug is placement is invisible — findPlacement takes first free gap from canvas top-left (or below everything), no scroll-into-view/highlight after add. RECOMMENDED: (1) viewport-aware placement (scan visible scroll region first), (2) fire existing focusRequest scroll+flash after addWidget, (3) transient 'drag to move' hint on the fresh widget. Full click-to-place ghost mode = fallback if this isn't enough. Awaiting founder go-ahead.",
+      "updated_at": "2026-07-05"
+    },
+    {
       "id": "brand-overhaul-ui",
       "title": "Brand design overhaul: logo-as-channel-button, HMT wordmark, logo placements",
       "lane": "in_progress",

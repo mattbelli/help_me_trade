@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type HTMLAttributes,
   type MouseEvent,
@@ -56,6 +57,13 @@ const ROW_HEIGHT_PX = 48;
 /** Stable ancestor whose width is unaffected by docked-copilot paddingRight. */
 const GRID_HOST_ID = "workspace-grid-host";
 const GRID_SCROLL_ID = "workspace-grid-scroll";
+
+function isEditablePanTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return true;
+  return target.isContentEditable;
+}
 
 function gridMeasureContainer(): HTMLElement | null {
   return (
@@ -447,7 +455,7 @@ function WidgetHeader({
         />
       ) : (
         <span
-          className="min-w-0 truncate text-[length:var(--fs-widget-title)] font-semibold text-foreground [text-box:trim-both_cap_text]"
+          className="min-w-0 truncate pb-[0.3em] -mb-[0.3em] text-[length:var(--fs-widget-title)] font-semibold text-foreground [text-box:trim-both_cap_alphabetic]"
           style={{ fontFamily: "var(--font-display)" }}
         >
           {def?.title ?? widgetType}
@@ -651,6 +659,10 @@ export function WorkspaceGrid() {
     left: false,
     right: false,
   });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const panningRef = useRef(false);
+  const panPointerIdRef = useRef<number | null>(null);
+  const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
 
   const measureEdges = useCallback(() => {
     const el = document.getElementById(GRID_SCROLL_ID);
@@ -669,6 +681,74 @@ export function WorkspaceGrid() {
         return prev;
       return { top, bottom, left, right };
     });
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const endPan = (pointerId: number) => {
+      if (!panningRef.current) return;
+      panningRef.current = false;
+      panPointerIdRef.current = null;
+      el.style.cursor = "";
+      try {
+        el.releasePointerCapture(pointerId);
+      } catch {
+        /* not captured */
+      }
+    };
+
+    const onPointerDown = (e: globalThis.PointerEvent) => {
+      if (e.button !== 1) return;
+      if (isEditablePanTarget(e.target)) return;
+      e.preventDefault();
+      panningRef.current = true;
+      panPointerIdRef.current = e.pointerId;
+      panStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        scrollLeft: el.scrollLeft,
+        scrollTop: el.scrollTop,
+      };
+      el.setPointerCapture(e.pointerId);
+      el.style.cursor = "grabbing";
+    };
+
+    const onPointerMove = (e: globalThis.PointerEvent) => {
+      if (!panningRef.current || e.pointerId !== panPointerIdRef.current) return;
+      const start = panStartRef.current;
+      el.scrollLeft = start.scrollLeft - (e.clientX - start.x);
+      el.scrollTop = start.scrollTop - (e.clientY - start.y);
+    };
+
+    const onPointerUp = (e: globalThis.PointerEvent) => {
+      if (e.pointerId !== panPointerIdRef.current) return;
+      endPan(e.pointerId);
+    };
+
+    const onMouseDown = (e: globalThis.MouseEvent) => {
+      if (e.button !== 1) return;
+      if (isEditablePanTarget(e.target)) return;
+      e.preventDefault();
+    };
+
+    el.addEventListener("pointerdown", onPointerDown, { capture: true });
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", onPointerUp);
+    el.addEventListener("pointercancel", onPointerUp);
+    el.addEventListener("mousedown", onMouseDown);
+
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup", onPointerUp);
+      el.removeEventListener("pointercancel", onPointerUp);
+      el.removeEventListener("mousedown", onMouseDown);
+      if (panningRef.current && panPointerIdRef.current != null) {
+        endPan(panPointerIdRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -753,6 +833,7 @@ export function WorkspaceGrid() {
           on the scroller it only spanned the first viewport of content. */}
       <div className="grain-surface relative min-h-0 flex-1 overflow-hidden">
         <div
+          ref={scrollRef}
           id={GRID_SCROLL_ID}
           onScroll={measureEdges}
           className="workspace-scroll h-full overflow-auto px-4 pt-4 pb-6"

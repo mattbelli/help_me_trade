@@ -77,6 +77,21 @@ const ALERTS_POLL_MS = 20_000;
 const LEVEL_HIT_PX = 6;
 const HANDLE_HIT_PX = 9;
 const TREND_COLOR_VAR = "--c-accent";
+const CHART_HANDLE_SCROLL = {
+  mouseWheel: false,
+  pressedMouseMove: true,
+  horzTouchDrag: true,
+  vertTouchDrag: true,
+};
+const CHART_HANDLE_SCALE = {
+  mouseWheel: false,
+  pinch: true,
+  axisPressedMouseMove: true,
+  axisDoubleClickReset: true,
+};
+const IS_MAC =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 
 function timeToLogical(time: number, bars: Ohlcv[], interval: number): number {
   if (bars.length === 0) return 0;
@@ -213,6 +228,8 @@ export function TvLightChart({
   const [editingId, setEditingId] = useState<number | null>(null);
   const editingIdRef = useRef<number | null>(null);
   const draggingRef = useRef<{ id: number; handleIdx: number } | null>(null);
+  const zoomHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showZoomHint, setShowZoomHint] = useState(false);
   const [alertMenu, setAlertMenu] = useState<{
     x: number;
     y: number;
@@ -596,6 +613,8 @@ export function TvLightChart({
           formatCrosshairTime(time, intraday),
       },
       autoSize: true,
+      handleScroll: CHART_HANDLE_SCROLL,
+      handleScale: CHART_HANDLE_SCALE,
     });
 
     const mainSeries =
@@ -710,7 +729,25 @@ export function TvLightChart({
       }
     });
 
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const ts = chart.timeScale();
+        const cur = ts.options().barSpacing;
+        const next = Math.min(60, Math.max(0.5, cur * Math.exp(-e.deltaY * 0.0015)));
+        ts.applyOptions({ barSpacing: next });
+        return;
+      }
+      setShowZoomHint(true);
+      if (zoomHintTimeoutRef.current) clearTimeout(zoomHintTimeoutRef.current);
+      zoomHintTimeoutRef.current = setTimeout(() => setShowZoomHint(false), 800);
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+
     return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (zoomHintTimeoutRef.current) clearTimeout(zoomHintTimeoutRef.current);
       pendingPointsRef.current = [];
       previewRef.current = null;
       setDrawTool(null);
@@ -1315,7 +1352,12 @@ export function TvLightChart({
           const drag = draggingRef.current;
           draggingRef.current = null;
           const chart = chartRef.current;
-          if (chart) chart.applyOptions({ handleScroll: true, handleScale: true });
+          if (chart) {
+            chart.applyOptions({
+              handleScroll: CHART_HANDLE_SCROLL,
+              handleScale: CHART_HANDLE_SCALE,
+            });
+          }
           try {
             (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
           } catch {
@@ -1344,6 +1386,17 @@ export function TvLightChart({
           <Skeleton className="absolute inset-0 z-10 rounded-none" />
         )}
         <div ref={containerRef} className="absolute inset-0" />
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 z-30 flex items-center justify-center transition-opacity duration-200",
+            showZoomHint ? "opacity-100" : "opacity-0",
+          )}
+        >
+          <span className="rounded-md border border-border/80 bg-background/95 px-2.5 py-1 text-[11px] text-muted-foreground shadow-md backdrop-blur-sm">
+            {IS_MAC ? "⌘" : "Ctrl"} + scroll to zoom
+          </span>
+        </div>
         {alertMenu && (
           <ChartAlertContextMenu
             menuRef={alertMenuRef}
