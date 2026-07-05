@@ -2,7 +2,7 @@
 
 Gentle background sampling into ``social_mentions`` SQLite buckets. No LLM, no
 scan integration. Polite client: distinctive User-Agent, 30-min cadence, bounded
-requests (4 subreddit + 1 StockTwits per cycle), fail-soft on errors/429.
+requests (1 round-robin subreddit + 1 StockTwits per cycle), fail-soft on errors/429.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import asyncio
 import html
 import logging
 import re
-import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -29,7 +28,6 @@ _USER_AGENT = "help_me_trade/1.0 mention-baseline"
 _HTTP_TIMEOUT = 10.0
 _LOOP_INTERVAL_SECONDS = 30 * 60
 _DEDUPE_MAX = 500
-_REDDIT_INTER_REQUEST_SECONDS = 2.5
 
 _REDDIT_SUBS = ("wallstreetbets", "stocks", "investing", "StockMarket")
 _STOCKTWITS_TRENDING_URL = "https://api.stocktwits.com/api/2/streams/trending.json"
@@ -120,7 +118,9 @@ _stocktwits_seen = _BoundedIdSet()
 
 
 def reset_dedupe_state_for_tests() -> None:
-    """Clear in-memory dedupe sets (tests only)."""
+    """Clear in-memory dedupe sets + the sub round-robin cursor (tests only)."""
+    global _reddit_sub_index
+    _reddit_sub_index = 0
     _reddit_seen.clear()
     _stocktwits_seen.clear()
 
@@ -188,40 +188,47 @@ def _parse_reddit_atom(xml_text: str) -> list[tuple[str, str]]:
     return out
 
 
+# Round-robin cursor: ONE subreddit per cycle. Even 2.5s-spaced multi-sub
+# bursts tripped Reddit's anonymous rate limit (429 on request #2, observed
+# live), and a mid-burst 429 was discarding the counts already fetched. Each
+# sub gets sampled every 4 cycles (~2h at the 30-min cadence) — for BASELINES,
+# consistent sampling matters more than per-cycle completeness.
+_reddit_sub_index = 0
+
+
 def fetch_reddit_mentions() -> dict[str, int]:
-    """Fetch new Reddit posts from finance subs; return symbol→count.
+    """Fetch new posts from ONE finance sub (round-robin); return symbol→count.
 
     Uses the .rss (Atom) endpoints — Reddit 403-blocks unauthenticated .json
     and has gated self-serve OAuth app creation, but the RSS feeds serve fine
     (verified live 2026-07-05). Titles + content HTML carry what mention
     counting needs; entry ids drive the cross-cycle dedupe.
     """
-    counts: dict[str, int] = {}
-    for i, sub in enumerate(_REDDIT_SUBS):
-        if i:
-            # Space the per-sub requests — a 4-request burst trips Reddit's
-            # unauthenticated rate limit; runs in a worker thread, so cheap.
-            time.sleep(_REDDIT_INTER_REQUEST_SECONDS)
-        url = f"https://www.reddit.com/r/{sub}/new.rss?limit=100"
-        try:
-            resp = httpx.get(url, headers=_http_headers(), timeout=_HTTP_TIMEOUT)
-            if resp.status_code in (403, 429):
-                logger.warning(
-                    "Reddit blocked/rate-limited (%s) on r/%s — skipping Reddit",
-                    resp.status_code,
-                    sub,
-                )
-                return {}
-            resp.raise_for_status()
-        except httpx.HTTPError:
-            logger.warning("Reddit fetch failed for r/%s", sub, exc_info=True)
-            continue
+    global _reddit_sub_index
+    sub = _REDDIT_SUBS[_reddit_sub_index % len(_REDDIT_SUBS)]
+    _reddit_sub_index += 1
 
-        for entry_id, text in _parse_reddit_atom(resp.text):
-            if not _reddit_seen.consume(entry_id):
-                continue
-            for sym in extract_symbols(text):
-                counts[sym] = counts.get(sym, 0) + 1
+    url = f"https://www.reddit.com/r/{sub}/new.rss?limit=100"
+    try:
+        resp = httpx.get(url, headers=_http_headers(), timeout=_HTTP_TIMEOUT)
+        if resp.status_code in (403, 429):
+            logger.warning(
+                "Reddit blocked/rate-limited (%s) on r/%s — skipping this cycle",
+                resp.status_code,
+                sub,
+            )
+            return {}
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        logger.warning("Reddit fetch failed for r/%s", sub, exc_info=True)
+        return {}
+
+    counts: dict[str, int] = {}
+    for entry_id, text in _parse_reddit_atom(resp.text):
+        if not _reddit_seen.consume(entry_id):
+            continue
+        for sym in extract_symbols(text):
+            counts[sym] = counts.get(sym, 0) + 1
     return counts
 
 

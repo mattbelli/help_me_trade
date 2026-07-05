@@ -157,7 +157,6 @@ def test_dedupe_same_post_ids_across_fetch_calls():
 
     with (
         patch("signals.social_buzz.httpx.get", return_value=FakeResponse()),
-        patch("signals.social_buzz.time.sleep", lambda _s: None),
     ):
         first = fetch_reddit_mentions()
         second = fetch_reddit_mentions()
@@ -185,7 +184,6 @@ def test_dedupe_across_two_accumulator_cycles(social_db):
     fixed_now = datetime(2026, 7, 5, 12, 0, tzinfo=_ET)
     with (
         patch("signals.social_buzz.httpx.get", return_value=FakeResponse()),
-        patch("signals.social_buzz.time.sleep", lambda _s: None),
         patch("signals.social_buzz.fetch_stocktwits_trending", lambda: {}),
         patch("signals.social_buzz.et_hour_bucket", return_value="2026-07-05T12"),
     ):
