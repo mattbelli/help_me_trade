@@ -13,7 +13,7 @@ import {
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
 import { motion } from "motion/react";
-import { Check, ChevronDown, GripVertical, Menu as MenuIcon, SquarePen, X } from "lucide-react";
+import { Check, ChevronDown, GripVertical, Menu as MenuIcon, Plus, SquarePen, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -350,6 +350,7 @@ function useWidgetHeaderMeta(widgetType: string): string | undefined {
 
   if (widgetType === "open-orders" && snapshot) {
     const count = snapshot.open_order_count;
+    if (count === 0) return undefined;
     return count === 1 ? "1 open" : `${count} open`;
   }
 
@@ -497,6 +498,26 @@ function WidgetHeader({
             onSelect={onWatchlistChange}
           />
         </>
+      ) : null}
+      {widgetType === "price-alerts" && config && onConfigChange ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onConfigChange({ adding: !config.adding });
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label={config.adding ? "Close new alert form" : "Add alert"}
+          aria-pressed={config.adding ?? false}
+          className={cn(
+            "workspace-no-drag inline-flex items-center justify-center rounded p-1 outline-none hover:bg-[var(--bg-hover)]",
+            config.adding
+              ? "text-[var(--c-accent)]"
+              : "text-[var(--fg-dim)] hover:text-foreground",
+          )}
+        >
+          <Plus className="size-3.5" />
+        </button>
       ) : null}
       {channelAware ? (
         <ChannelSelector channel={channel} onChange={onChannelChange} />

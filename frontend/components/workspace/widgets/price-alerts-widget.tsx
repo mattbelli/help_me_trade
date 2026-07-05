@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
@@ -58,16 +58,19 @@ function alertToForm(alert: PriceAlert): AlertFormState {
   };
 }
 
-export function PriceAlertsWidget({ config }: WidgetProps) {
+export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
+  const [editFormOpen, setEditFormOpen] = useState(false);
   const [form, setForm] = useState<AlertFormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const createFormOpen = config.adding ?? false;
+  const formOpen = createFormOpen || editFormOpen;
 
   const load = useCallback(async () => {
     try {
@@ -88,22 +91,28 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
     return () => clearInterval(timer);
   }, [load]);
 
-  function openCreateForm() {
-    setForm(EMPTY_FORM);
-    setFormError(null);
-    setFormOpen(true);
-  }
+  useEffect(() => {
+    if (createFormOpen) {
+      setForm(EMPTY_FORM);
+      setFormError(null);
+    }
+  }, [createFormOpen]);
 
   function openEditForm(alert: PriceAlert) {
     setForm(alertToForm(alert));
     setFormError(null);
-    setFormOpen(true);
+    setEditFormOpen(true);
   }
 
   function closeForm() {
-    setFormOpen(false);
-    setForm(EMPTY_FORM);
-    setFormError(null);
+    if (editFormOpen) {
+      setEditFormOpen(false);
+      setForm(EMPTY_FORM);
+      setFormError(null);
+    }
+    if (createFormOpen) {
+      onConfigChange({ adding: false });
+    }
   }
 
   async function handleSave() {
@@ -163,20 +172,6 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 justify-end px-1.5 pt-1">
-        <button
-          type="button"
-          onClick={() => (formOpen && form.editingId == null ? closeForm() : openCreateForm())}
-          className={cn(
-            "inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground",
-            formOpen && form.editingId == null && "border-[var(--c-accent)] text-[var(--c-accent)]",
-          )}
-        >
-          <Plus className="size-3" />
-          Alert
-        </button>
-      </div>
-
       {formOpen ? (
         <div className="shrink-0 space-y-2 border-b border-[var(--border)] px-2 py-2 font-mono text-[length:var(--fs-body)]">
           <div className="grid grid-cols-2 gap-2">

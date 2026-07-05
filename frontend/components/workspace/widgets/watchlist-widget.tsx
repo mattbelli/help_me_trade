@@ -25,8 +25,11 @@ import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
 
-const ROW_GRID =
-  "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
+function rowGrid(editing: boolean): string {
+  return editing
+    ? "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1"
+    : "grid grid-cols-[minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
+}
 
 function rvolColor(value: number): string {
   if (value >= 3) return "var(--c-red)";
@@ -296,28 +299,14 @@ function WatchlistSymbolRow({
     >
       <div
         className={cn(
-          ROW_GRID,
+          rowGrid(editing),
           "group/row group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
         )}
       >
         {editing ? (
           <button
             type="button"
-            disabled={removing}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            aria-label={`Remove ${symbol}`}
-            className="flex size-4 shrink-0 select-none items-center justify-center justify-self-center rounded-full bg-[var(--c-red)] transition-transform hover:scale-110 disabled:opacity-40"
-          >
-            <span className="h-[2px] w-2 rounded-full bg-white" aria-hidden />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="cursor-grab select-none font-mono text-[length:var(--fs-table)] leading-none text-[var(--fg-faint)] opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+            className="cursor-grab select-none font-mono text-[length:var(--fs-table)] leading-none text-[var(--fg-faint)] active:cursor-grabbing"
             aria-label={`Reorder ${symbol}`}
             onPointerDown={(e) => {
               e.stopPropagation();
@@ -328,7 +317,7 @@ function WatchlistSymbolRow({
           >
             ⋮⋮
           </button>
-        )}
+        ) : null}
         <span className="inline-flex min-w-0 items-center gap-1">
           <span
             className="flex size-1.5 shrink-0 items-center justify-center"
@@ -347,7 +336,7 @@ function WatchlistSymbolRow({
           />
           {showEarningsBadge && nextEarningsDate ? (
             <span
-              className="shrink-0 rounded px-0.5 font-mono text-[length:var(--fs-micro)] leading-none"
+              className="shrink-0 rounded px-1 py-px font-medium font-mono text-[length:var(--fs-table)] leading-none"
               style={earningsBadgeStyle(earningsDays)}
               title={`Earnings ${nextEarningsDate}`}
             >
@@ -401,22 +390,41 @@ function WatchlistSymbolRow({
         ) : (
           <span className="text-right tabular-nums text-[var(--fg-faint)]">—</span>
         )}
-        <div className="flex justify-end">
-          <Sparkline
-            values={
-              (quote?.intraday?.length ? quote.intraday : quote?.sparkline) ?? []
-            }
-            width={48}
-            height={18}
-            className={
-              quote
-                ? positive
-                  ? "text-[var(--c-green)]"
-                  : "text-[var(--c-red)]"
-                : "text-[var(--fg-faint)]"
-            }
-          />
-        </div>
+        {editing ? (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={removing}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label={`Remove ${symbol}`}
+              className="flex size-4 shrink-0 select-none items-center justify-center rounded-full bg-[var(--c-red)] transition-transform hover:scale-110 disabled:opacity-40"
+            >
+              <span className="h-[2px] w-2 rounded-full bg-white" aria-hidden />
+            </button>
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <Sparkline
+              values={
+                (quote?.intraday?.length ? quote.intraday : quote?.sparkline) ??
+                []
+              }
+              width={48}
+              height={18}
+              className={
+                quote
+                  ? positive
+                    ? "text-[var(--c-green)]"
+                    : "text-[var(--c-red)]"
+                  : "text-[var(--fg-faint)]"
+              }
+            />
+          </div>
+        )}
       </div>
     </Reorder.Item>
   );
@@ -644,6 +652,8 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     return <WidgetEmpty message="No active watchlist" />;
   }
 
+  const editing = config.editing ?? false;
+
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {marketLoading ? (
@@ -655,18 +665,18 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y">
         <div
           className={cn(
-            ROW_GRID,
+            rowGrid(editing),
             "gap-x-1 border-b border-[var(--border)] px-2 py-1.5",
           )}
         >
-          <span />
+          {editing ? <span /> : null}
           {(
             [
               { label: "Sym", key: "symbol" as const },
               { label: "Last", key: "price" as const },
               { label: "Δ%", key: "change_pct" as const },
               { label: "RVOL", key: "rvol" as const },
-              { label: "1d" },
+              { label: editing ? "" : "1d" },
             ] as const
           ).map((h, idx) =>
             "key" in h ? (
@@ -721,7 +731,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               isOvernight={overnightSymbols.has(symbol.toUpperCase())}
               linked={linked}
               removing={removing === symbol}
-              editing={config.editing ?? false}
+              editing={editing}
               onPublish={() => publish(symbol)}
               onRemove={() => void removeSymbol(symbol)}
               onDragStart={() => setSortState(null)}
