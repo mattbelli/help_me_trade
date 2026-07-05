@@ -191,13 +191,13 @@
     },
     {
       "id": "31",
-      "title": "Social sentiment specialist (free Reddit JSON + StockTwits)",
-      "lane": "backlog",
+      "title": "Social buzz: Reddit/StockTwits breadth for the conviction lane (4 phases)",
+      "lane": "in_progress",
       "type": "research",
       "priority": "normal",
-      "notes": "Qualitative-only input, never numbers. After conviction lane.",
+      "notes": "Founder design session 2026-07-05. Doctrine: code detects (mention-velocity anomaly = counts vs rolling 14-day same-ET-hour baseline), LLM interprets (catalyst digging, qualitative only \u2014 never sentiment scores); social text = adversarial data (pump risk) behind the untrusted-content guard, influences judgment fields only, never levels. P1 (IN PROGRESS, Composer): accumulator loop \u2014 free Reddit JSON (WSB/stocks/investing/StockMarket) + StockTwits trending \u2192 social_mentions table + /api/social/buzz|trending with honest 'warming' state until baselines exist (start collecting NOW; the denominator needs weeks). P2: social block in veto-grade + conviction prompts (reinforce/kill with named reasons). P3: buzz-anomaly symbols injected as scan CANDIDATES (capped, source-tagged for A/B) \u2014 buzz nominates, the pipeline still has to find something real. P4: buzz alerts, only if P2/P3 prove value in the outcome tracker. No paid social APIs.",
       "owner": "serv",
-      "updated_at": "2026-07-04"
+      "updated_at": "2026-07-05"
     },
     {
       "id": "16",

@@ -43,6 +43,7 @@ from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
 from api.scan_routes import router as scan_router
 from api.schwab_routes import router as schwab_router
+from api.social_routes import router as social_router
 from api.strategy_routes import router as strategy_router
 from api.ticker_routes import router as ticker_router
 from api.trade_routes import router as trade_router
@@ -143,6 +144,7 @@ from signals.regime import refresh_regime_macro
 from signals.regime_sleeves import run_regime_sleeves_scan
 from signals.scan import run_signal_scan
 from signals.session_node_strategy import compute_session_levels, run_session_node_scan
+from signals.social_buzz import social_buzz_loop
 from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
@@ -1481,6 +1483,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_trade_sync_loop()),
         asyncio.create_task(_proposal_sweeper_loop()),
         asyncio.create_task(_idea_tracker_loop()),
+        asyncio.create_task(social_buzz_loop()),
         asyncio.create_task(_earnings_refresh_loop()),
         asyncio.create_task(_regime_refresh_loop()),
         asyncio.create_task(_regime_sleeves_loop()),
@@ -1512,6 +1515,7 @@ app.include_router(scan_router)
 app.include_router(schwab_router)
 app.include_router(journal_router)
 app.include_router(ticker_router)
+app.include_router(social_router)
 app.include_router(orders_router)
 
 app.add_middleware(SecurityMiddleware)
