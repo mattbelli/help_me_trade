@@ -502,18 +502,6 @@
   .grain-surface {
     position: relative;
   }
-  /* Same texture as .grain-surface but as an ELEMENT painted above its
-     siblings — for canvases (TradingView) that cover the panel ::before. */
-  .grain-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 5;
-    pointer-events: none;
-    background-image: var(--grain, none);
-    background-size: 128px 128px;
-    background-repeat: repeat;
-    opacity: var(--grain-opacity, 0);
-  }
   .grain-surface::before {
     content: "";
     position: absolute;
