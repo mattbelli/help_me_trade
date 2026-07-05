@@ -36,7 +36,7 @@
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Deep dive DONE 2026-07-05 → References/MEMORY_SYSTEM_REPORT.md. Root causes: regex-fallback extractor stores raw questions as preferences/lessons; every research run auto-logs its summary (7 near-dup SLB rows); retrieval = word-overlap (mem0 vector branch inert via parsing bug); per-turn injection off in web chat. Proposed 3 phases: (1) kill fallback + stop research auto-log + LLM write-judge + curate 29 rows + save_memory tool; (2) sqlite-vec semantic recall + turn injection (roadmap R4); (3) update/merge lifecycle + decay + provenance. WAITING ON FOUNDER: read report, greenlight Phase 1.",
+      "notes": "Deep dive DONE 2026-07-05 → References/MEMORY_SYSTEM_REPORT.md. Root causes: regex-fallback extractor stores raw questions as preferences/lessons; every research run auto-logs its summary (7 near-dup SLB rows); retrieval = word-overlap (mem0 vector branch inert via parsing bug); per-turn injection off in web chat. Proposed 3 phases: (1) kill fallback + stop research auto-log + LLM write-judge + curate 29 rows + save_memory tool; (2) sqlite-vec semantic recall + turn injection (roadmap R4); (3) update/merge lifecycle + decay + provenance. WAITING ON FOUNDER: read report, greenlight Phase 1. Note: the Fable LLM audit had already carded the retrieval half (llm-mem0-inert, absorbed here); write-side causes were net-new findings.",
       "updated_at": "2026-07-05"
     },
     {
@@ -155,7 +155,8 @@
       "lane": "backlog",
       "type": "bug",
       "priority": "normal",
-      "notes": "mem0 .search() mis-parses {results:[...]} → silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt — carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep)."
+      "notes": "mem0 .search() mis-parses {results:[...]} → silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt — carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep). → 2026-07-05: ABSORBED into memory-overhaul Phase 2 (founder lane) — the write-side junk was the bigger half (see References/MEMORY_SYSTEM_REPORT.md); FTS5-vs-sqlite-vec is decided there, not here.",
+      "updated_at": "2026-07-05"
     },
     {
       "id": "ci-safety-hardening",
