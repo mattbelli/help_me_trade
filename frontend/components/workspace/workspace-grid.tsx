@@ -12,7 +12,7 @@ import {
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
 import { motion } from "motion/react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, GripVertical, Menu as MenuIcon, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -91,14 +91,10 @@ function ChartHeaderControls({
 }) {
   const channelSymbol = useChannelSymbol(channel);
   const manualMode = channel === "none";
-  const timeframe = resolveChartTimeframe(config.timeframe);
-  const style = config.style ?? "candle";
   const symbol =
     channel !== "none"
       ? (channelSymbol ?? config.symbol ?? "SPY")
       : (config.symbol ?? "SPY");
-  const styleLabel =
-    CHART_STYLES.find((s) => s.value === style)?.label ?? "Candles";
   const { price, live, changePct, extPrice, extChangePct, marketSession } =
     useSymbolQuote({ symbol });
   // Same rule as the watchlist row: off-RTH, show the last extended print so
@@ -141,7 +137,7 @@ function ChartHeaderControls({
           inputClassName="workspace-no-drag w-16 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[length:var(--fs-body)] font-semibold text-foreground uppercase outline-none focus:border-[var(--c-accent)]"
         />
       ) : (
-        <span className="font-mono text-[length:var(--fs-body)] font-semibold text-[var(--c-accent)]">
+        <span className="font-mono text-[length:var(--fs-body)] font-semibold text-[var(--c-accent)] [text-box:trim-both_cap_alphabetic]">
           {symbol}
         </span>
       )}
@@ -151,7 +147,7 @@ function ChartHeaderControls({
       >
         <span
           className={cn(
-            "rounded px-0.5 font-mono text-[length:var(--fs-emph)] font-semibold tabular-nums",
+            "rounded px-0.5 font-mono text-[length:var(--fs-emph)] font-semibold tabular-nums [text-box:trim-both_cap_alphabetic]",
             hasChange
               ? isPositive
                 ? "text-[var(--c-green)]"
@@ -168,7 +164,7 @@ function ChartHeaderControls({
         {hasChange ? (
           <span
             className={cn(
-              "font-mono text-[length:var(--fs-table)] tabular-nums",
+              "font-mono text-[length:var(--fs-table)] tabular-nums [text-box:trim-both_cap_alphabetic]",
               isPositive ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
             )}
           >
@@ -190,17 +186,40 @@ function ChartHeaderControls({
           />
         </span>
       </span>
+    </>
+  );
+}
+
+/**
+ * Right-aligned chart controls: the timeframe dropdown stays one click (heavy
+ * use); style + studies live behind a ☰ menu so new chart options land there
+ * instead of widening the header toolbar.
+ */
+function ChartHeaderMenus({
+  config,
+  onConfigChange,
+}: {
+  config: WidgetInstanceConfig;
+  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+}) {
+  const timeframe = resolveChartTimeframe(config.timeframe);
+  const style = config.style ?? "candle";
+
+  return (
+    <>
       <DropdownMenu>
         <DropdownMenuTrigger
           type="button"
           {...dragSafeControlProps}
           className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         >
-          {timeframe.label}
+          <span className="[text-box:trim-both_cap_alphabetic]">
+            {timeframe.label}
+          </span>
           <ChevronDown className="size-2.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          align="start"
+          align="end"
           className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
         >
           {CHART_TIMEFRAMES.map((tf) => (
@@ -223,42 +242,30 @@ function ChartHeaderControls({
         <DropdownMenuTrigger
           type="button"
           {...dragSafeControlProps}
-          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+          aria-label="Chart options"
+          className="workspace-no-drag inline-flex items-center rounded p-1 text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         >
-          {styleLabel}
-          <ChevronDown className="size-2.5" />
+          <MenuIcon className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          align="start"
-          className="min-w-24 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+          align="end"
+          className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
         >
           {CHART_STYLES.map((s) => (
             <DropdownMenuItem
               key={s.value}
+              onSelect={(e) => e.preventDefault()}
               onClick={() => onConfigChange({ style: s.value })}
               className={cn(
-                "px-2 py-1.5 text-[length:var(--fs-body)]",
+                "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
                 style === s.value ? "text-foreground" : "text-[var(--fg-dim)]",
               )}
             >
               {s.label}
+              {style === s.value ? <Check className="size-3" /> : null}
             </DropdownMenuItem>
           ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          type="button"
-          {...dragSafeControlProps}
-          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
-        >
-          Studies
-          <ChevronDown className="size-2.5" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
-        >
+          <DropdownMenuSeparator />
           {OVERLAY_STUDIES.map((s) => {
             const enabled = (config.studies ?? []).includes(s.id);
             return (
@@ -424,13 +431,14 @@ function WidgetHeader({
   return (
     <div
       className={cn(
-        "workspace-drag-handle relative flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5",
+        "workspace-drag-handle relative flex h-10 items-center gap-2 border-b border-[var(--border)] px-3",
         !locked && !isStatic && "cursor-grab active:cursor-grabbing",
       )}
     >
-      <span className="font-mono text-[length:var(--fs-title)] leading-none tracking-[-1px] text-[var(--fg-faint)]">
-        ⠿
-      </span>
+      <GripVertical
+        className="size-3.5 shrink-0 text-[var(--fg-faint)]"
+        aria-hidden
+      />
       {isChart && config && onConfigChange ? (
         <ChartHeaderControls
           config={config}
@@ -439,7 +447,7 @@ function WidgetHeader({
         />
       ) : (
         <span
-          className="min-w-0 truncate text-[length:var(--fs-widget-title)] font-semibold text-foreground"
+          className="min-w-0 truncate text-[length:var(--fs-widget-title)] font-semibold text-foreground [text-box:trim-both_cap_alphabetic]"
           style={{ fontFamily: "var(--font-display)" }}
         >
           {def?.title ?? widgetType}
@@ -474,11 +482,14 @@ function WidgetHeader({
         </>
       ) : null}
       {meta ? (
-        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
+        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)] [text-box:trim-both_cap_alphabetic]">
           {meta}
         </span>
       ) : null}
       <div className="flex-1" />
+      {isChart && config && onConfigChange ? (
+        <ChartHeaderMenus config={config} onConfigChange={onConfigChange} />
+      ) : null}
       {channelAware ? (
         <ChannelSelector channel={channel} onChange={onChannelChange} />
       ) : null}

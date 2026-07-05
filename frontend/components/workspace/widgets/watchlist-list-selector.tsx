@@ -45,11 +45,13 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
     <DropdownMenu>
       <DropdownMenuTrigger
         type="button"
-        className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] leading-none text-[var(--fg-faint)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {activeList.name}
+        <span className="[text-box:trim-both_cap_alphabetic]">
+          {activeList.name}
+        </span>
         <ChevronDown className="size-2.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent

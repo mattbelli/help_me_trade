@@ -68,9 +68,9 @@
     --fs-hero: 19px;
     /* widget header title: between title(12) and emph(14) by founder taste */
     --fs-widget-title: 13px;
-    /* header/display face: local Iosevka trial — falls back to the mono stack
-       on machines without it (webfont not self-hosted yet) */
-    --font-display: Iosevka, "Iosevka Nerd Font", var(--font-mono);
+    /* header/display face: one-line hook for font trials (Iosevka trial
+       reverted 2026-07-05 — founder preferred the house mono) */
+    --font-display: var(--font-mono);
     --background: #131519;
     --chart-background: var(--background);
     --foreground: #e9e7e3;
