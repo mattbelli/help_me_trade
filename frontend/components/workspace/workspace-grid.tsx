@@ -424,7 +424,7 @@ function WidgetHeader({
   return (
     <div
       className={cn(
-        "workspace-drag-handle relative flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5",
+        "workspace-drag-handle grain-surface relative flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5",
         !locked && !isStatic && "cursor-grab active:cursor-grabbing",
       )}
     >
@@ -438,7 +438,7 @@ function WidgetHeader({
           onConfigChange={onConfigChange}
         />
       ) : (
-        <span className="font-mono text-[length:var(--fs-title)] font-semibold text-foreground">
+        <span className="min-w-0 truncate font-mono text-[length:var(--fs-emph)] font-semibold text-foreground">
           {def?.title ?? widgetType}
         </span>
       )}
@@ -739,7 +739,7 @@ export function WorkspaceGrid() {
         <div
           id={GRID_SCROLL_ID}
           onScroll={measureEdges}
-          className="workspace-scroll h-full overflow-auto px-4 pt-4 pb-6"
+          className="workspace-scroll grain-surface h-full overflow-auto px-4 pt-4 pb-6"
           style={
             locked
               ? {}

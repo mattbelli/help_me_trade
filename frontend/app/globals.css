@@ -126,6 +126,9 @@
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+    /* Film-grain texture: off by default; the ember theme opts in. */
+    --grain: none;
+    --grain-opacity: 0;
 }
 
 [data-theme="carbon"] {
@@ -192,68 +195,73 @@
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
+/* "Ember" — founder's wezterm palette: warm charcoal + amber, film grain. */
 [data-theme="warm"] {
     color-scheme: dark;
-    --background: #1a1816;
-    --chart-background: #1a1816;
-    --foreground: #ece9e3;
-    --card: #221f1d;
-    --card-foreground: #ece9e3;
-    --popover: #221f1d;
-    --popover-foreground: #ece9e3;
-    --primary: #ece9e3;
-    --primary-foreground: #1a1816;
-    --secondary: #2b2825;
-    --secondary-foreground: #ece9e3;
-    --muted: #2b2825;
-    --muted-foreground: #a39c92;
-    --accent: #2b2825;
-    --accent-foreground: #ece9e3;
-    --destructive: #ef706a;
+    --background: #242321;
+    --chart-background: #242321;
+    --foreground: #d3ccbe;
+    --card: #2b2925;
+    --card-foreground: #d3ccbe;
+    --popover: #2b2925;
+    --popover-foreground: #d3ccbe;
+    --primary: #d3ccbe;
+    --primary-foreground: #242321;
+    --secondary: #332f2a;
+    --secondary-foreground: #d3ccbe;
+    --muted: #332f2a;
+    --muted-foreground: #b5ac9e;
+    --accent: #332f2a;
+    --accent-foreground: #d3ccbe;
+    --destructive: #d9705c;
     --border: #393531;
     --input: #393531;
-    --ring: #efe7d6;
-    --chart-1: #e0975b;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5ec79a;
-    --chart-down: #ef706a;
-    --pnl-positive: #5ec79a;
-    --pnl-negative: #ef706a;
+    --ring: #d99a52;
+    --chart-1: #d99a52;
+    --chart-2: #6f97a8;
+    --chart-3: #c07a8f;
+    --chart-4: #e8a24a;
+    --chart-5: #a3b565;
+    /* guardrail: candle-up stays green in every theme (ember green, not amber) */
+    --chart-accent: #a3b565;
+    --chart-down: #d9705c;
+    --pnl-positive: #a3b565;
+    --pnl-negative: #d9705c;
     --radius: 0.625rem;
-    --sidebar: #141312;
-    --sidebar-foreground: #ece9e3;
-    --sidebar-primary: #efe7d6;
-    --sidebar-primary-foreground: #1a1816;
-    --sidebar-accent: #2b2825;
-    --sidebar-accent-foreground: #ece9e3;
+    --sidebar: #17181a;
+    --sidebar-foreground: #d3ccbe;
+    --sidebar-primary: #d99a52;
+    --sidebar-primary-foreground: #17181a;
+    --sidebar-accent: #332f2a;
+    --sidebar-accent-foreground: #d3ccbe;
     --sidebar-border: #393531;
-    --sidebar-ring: #efe7d6;
-    --panel: #221f1d;
-    --bg-raised: #221f1d;
-    --bg-inset: #141312;
-    --bg-hover: #2b2825;
-    --border-strong: #4c4742;
-    --fg-dim: #a39c92;
-    --fg-faint: #6e675d;
-    --c-accent: #efe7d6;
-    --c-accent-soft: rgba(239, 231, 214, 0.10);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-green: #5ec79a;
-    --c-red: #ef706a;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef706a;
-    --c-on-accent: #1a1410;
+    --sidebar-ring: #d99a52;
+    --panel: #2b2925;
+    --bg-raised: #2b2925;
+    --bg-inset: #17181a;
+    --bg-hover: #332f2a;
+    --border-strong: #4e4840;
+    --fg-dim: #b5ac9e;
+    --fg-faint: #7f766a;
+    --c-accent: #d99a52;
+    --c-accent-soft: rgba(217, 154, 82, 0.12);
+    --c-violet: #c07a8f;
+    --c-blue: #6f97a8;
+    --c-green: #a3b565;
+    --c-red: #d9705c;
+    --c-yellow: #e8a24a;
+    --c-amber: #e8a24a;
+    --c-command: #e8a24a;
+    --c-danger: #d9705c;
+    --c-on-accent: #17181a;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 8px 30px rgba(0, 0, 0, 0.4);
-    --c-glow: 0 0 0 1px rgba(239, 231, 214, 0.10);
+    --c-glow: 0 0 0 1px rgba(217, 154, 82, 0.12);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
     --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+    /* Film grain: monochrome fractal-noise tile, tuned by eye on a screenshot. */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.33 0.33 0.33 0 0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23g)'/%3E%3C/svg%3E");
+    --grain-opacity: 0.08;
 }
 
 [data-theme="oled"] {
@@ -480,6 +488,25 @@
       transparent 0
     );
     background-size: 22px 22px;
+  }
+
+  /* Film-grain overlay: consumes --grain / --grain-opacity (no-op unless the
+     active theme sets them). Layers a tiled noise texture over the surface via
+     a pointer-transparent ::before, without touching the element's own
+     background (so dot-grids stay intact). Add this class to opt a surface in. */
+  .grain-surface {
+    position: relative;
+  }
+  .grain-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: var(--grain, none);
+    background-size: 128px 128px;
+    background-repeat: repeat;
+    opacity: var(--grain-opacity, 0);
   }
 }
 

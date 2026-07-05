@@ -10,6 +10,34 @@
   ],
   "cards": [
     {
+      "id": "theme-editor-floating",
+      "title": "Theme editor: kill the scrim/blur — draggable floating window over the live workspace",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder 2026-07-05: the editor currently opens as a modal with a blurred/scrimmed backdrop, hiding exactly what you're editing. Rework to a non-modal floating panel: no scrim, no backdrop-blur, draggable by title bar, workspace stays fully interactive/visible so var edits render live behind it. Keep --elev/panel-shadow chrome so it reads as a window. Queued immediately after theme-ember lands (same-file collision avoidance)."
+    },
+    {
+      "id": "theme-ember",
+      "title": "Ember theme (replace warm) from founder's wezterm + grain texture + uniform header sizes",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): warm theme replaced by Ember (id kept, label swapped) — bg #242321, panels #2b2925, chrome #17181a, amber accent #d99a52, soft green/red #a3b565/#d9705c; fg-faint lifted to #7f766a (3.5:1) for 9px readability, wezterm #4e4840 kept for borders/decoration. Film grain = inline SVG fractalNoise tile via --grain/--grain-opacity (0.08) + .grain-surface util, applied to canvas + widget headers (one-liner to extend). All widget headers unified to the chart's 14px scale. Orchestrator fix: --chart-accent reverted to green #a3b565 (candle guardrail — agent had set amber). Founder eyeball pending; grain-behind-everything trial = add .grain-surface to WidgetCard.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "iosevka-font-trial",
+      "title": "Trial Iosevka as the terminal mono font",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "Founder uses Iosevka Nerd Font in wezterm and likes it. Trial as the app's mono (self-hosted woff2 — CSP blocks external fonts; check license/subsetting + tabular-nums support before switching). Parked by founder: 'change color for now'."
+    },
+    {
       "id": "mobile-approval-device-auth",
       "title": "Bind proposal approval to a device, not one shared token (mobile S1)",
       "lane": "next",

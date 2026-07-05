@@ -7,7 +7,7 @@ export type ThemeId = WorkspaceTheme | string;
 
 export const WORKSPACE_THEME_LABELS: Record<WorkspaceTheme, string> = {
   carbon: "Carbon",
-  warm: "Warm",
+  warm: "Ember",
   oled: "OLED",
   light: "Light",
 };
