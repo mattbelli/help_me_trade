@@ -1,4 +1,4 @@
-"""Social mention accumulator — Reddit JSON + StockTwits trending (phase 1).
+"""Social mention accumulator — Reddit RSS + StockTwits trending (phase 1).
 
 Gentle background sampling into ``social_mentions`` SQLite buckets. No LLM, no
 scan integration. Polite client: distinctive User-Agent, 30-min cadence, bounded
@@ -8,8 +8,10 @@ requests (4 subreddit + 1 StockTwits per cycle), fail-soft on errors/429.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,7 @@ _USER_AGENT = "help_me_trade/1.0 mention-baseline"
 _HTTP_TIMEOUT = 10.0
 _LOOP_INTERVAL_SECONDS = 30 * 60
 _DEDUPE_MAX = 500
+_REDDIT_INTER_REQUEST_SECONDS = 2.5
 
 _REDDIT_SUBS = ("wallstreetbets", "stocks", "investing", "StockMarket")
 _STOCKTWITS_TRENDING_URL = "https://api.stocktwits.com/api/2/streams/trending.json"
@@ -162,42 +165,61 @@ def _http_headers() -> dict[str, str]:
     return {"User-Agent": _USER_AGENT}
 
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_ATOM_NS = "{http://www.w3.org/2005/Atom}"
+
+
+def _parse_reddit_atom(xml_text: str) -> list[tuple[str, str]]:
+    """Parse a Reddit .rss (Atom) feed into [(entry_id, text)] — pure, testable."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+    out: list[tuple[str, str]] = []
+    for entry in root.findall(f"{_ATOM_NS}entry"):
+        entry_id = (entry.findtext(f"{_ATOM_NS}id") or "").strip()
+        title = entry.findtext(f"{_ATOM_NS}title") or ""
+        content = entry.findtext(f"{_ATOM_NS}content") or ""
+        text = html.unescape(_HTML_TAG_RE.sub(" ", f"{title}\n{content}"))
+        if entry_id:
+            out.append((entry_id, text))
+    return out
+
+
 def fetch_reddit_mentions() -> dict[str, int]:
-    """Fetch new Reddit posts from finance subs; return symbol→count."""
+    """Fetch new Reddit posts from finance subs; return symbol→count.
+
+    Uses the .rss (Atom) endpoints — Reddit 403-blocks unauthenticated .json
+    and has gated self-serve OAuth app creation, but the RSS feeds serve fine
+    (verified live 2026-07-05). Titles + content HTML carry what mention
+    counting needs; entry ids drive the cross-cycle dedupe.
+    """
     counts: dict[str, int] = {}
-    for sub in _REDDIT_SUBS:
-        url = f"https://www.reddit.com/r/{sub}/new.json?limit=100"
+    for i, sub in enumerate(_REDDIT_SUBS):
+        if i:
+            # Space the per-sub requests — a 4-request burst trips Reddit's
+            # unauthenticated rate limit; runs in a worker thread, so cheap.
+            time.sleep(_REDDIT_INTER_REQUEST_SECONDS)
+        url = f"https://www.reddit.com/r/{sub}/new.rss?limit=100"
         try:
             resp = httpx.get(url, headers=_http_headers(), timeout=_HTTP_TIMEOUT)
-            if resp.status_code == 429:
-                logger.warning("Reddit rate-limited (429) on r/%s — skipping Reddit", sub)
+            if resp.status_code in (403, 429):
+                logger.warning(
+                    "Reddit blocked/rate-limited (%s) on r/%s — skipping Reddit",
+                    resp.status_code,
+                    sub,
+                )
                 return {}
             resp.raise_for_status()
-            payload = resp.json()
         except httpx.HTTPError:
             logger.warning("Reddit fetch failed for r/%s", sub, exc_info=True)
             continue
-        except (ValueError, TypeError):
-            logger.warning("Reddit JSON parse failed for r/%s", sub, exc_info=True)
-            continue
 
-        children = (
-            payload.get("data", {}).get("children")
-            if isinstance(payload, dict)
-            else None
-        )
-        for child in children or []:
-            if not isinstance(child, dict):
+        for entry_id, text in _parse_reddit_atom(resp.text):
+            if not _reddit_seen.consume(entry_id):
                 continue
-            post = child.get("data")
-            if not isinstance(post, dict):
-                continue
-            post_id = str(post.get("id") or "").strip()
-            if not post_id or not _reddit_seen.consume(post_id):
-                continue
-            title = str(post.get("title") or "")
-            selftext = str(post.get("selftext") or "")
-            text = f"{title}\n{selftext}"
             for sym in extract_symbols(text):
                 counts[sym] = counts.get(sym, 0) + 1
     return counts

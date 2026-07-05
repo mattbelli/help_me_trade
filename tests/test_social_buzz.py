@@ -141,30 +141,24 @@ def test_run_accumulator_cycle_fail_soft_on_fetcher_error(social_db):
 
 def test_dedupe_same_post_ids_across_fetch_calls():
     reset_dedupe_state_for_tests()
-    payload = {
-        "data": {
-            "children": [
-                {
-                    "data": {
-                        "id": "abc123",
-                        "title": "$TSLA breakout",
-                        "selftext": "",
-                    }
-                }
-            ]
-        }
-    }
+    atom = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<feed xmlns="http://www.w3.org/2005/Atom">'
+        "<entry><id>t3_abc123</id><title>$TSLA breakout</title></entry>"
+        "</feed>"
+    )
 
     class FakeResponse:
         status_code = 200
+        text = atom
 
         def raise_for_status(self) -> None:
             return None
 
-        def json(self) -> dict:
-            return payload
-
-    with patch("signals.social_buzz.httpx.get", return_value=FakeResponse()):
+    with (
+        patch("signals.social_buzz.httpx.get", return_value=FakeResponse()),
+        patch("signals.social_buzz.time.sleep", lambda _s: None),
+    ):
         first = fetch_reddit_mentions()
         second = fetch_reddit_mentions()
 
@@ -174,32 +168,24 @@ def test_dedupe_same_post_ids_across_fetch_calls():
 
 def test_dedupe_across_two_accumulator_cycles(social_db):
     reset_dedupe_state_for_tests()
-    payload = {
-        "data": {
-            "children": [
-                {
-                    "data": {
-                        "id": "dedupe1",
-                        "title": "$TSLA to the moon",
-                        "selftext": "",
-                    }
-                }
-            ]
-        }
-    }
+    atom = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<feed xmlns="http://www.w3.org/2005/Atom">'
+        "<entry><id>t3_dedupe1</id><title>$TSLA to the moon</title></entry>"
+        "</feed>"
+    )
 
     class FakeResponse:
         status_code = 200
+        text = atom
 
         def raise_for_status(self) -> None:
             return None
 
-        def json(self) -> dict:
-            return payload
-
     fixed_now = datetime(2026, 7, 5, 12, 0, tzinfo=_ET)
     with (
         patch("signals.social_buzz.httpx.get", return_value=FakeResponse()),
+        patch("signals.social_buzz.time.sleep", lambda _s: None),
         patch("signals.social_buzz.fetch_stocktwits_trending", lambda: {}),
         patch("signals.social_buzz.et_hour_bucket", return_value="2026-07-05T12"),
     ):
@@ -208,3 +194,23 @@ def test_dedupe_across_two_accumulator_cycles(social_db):
 
     buzz = get_buzz("TSLA", db_path=social_db, now=fixed_now)
     assert buzz["last_hour"] == 1
+
+
+def test_parse_reddit_atom_extracts_ids_and_text() -> None:
+    """RSS path (Reddit 403-blocks .json): Atom entries -> (id, tag-stripped text)."""
+    from signals.social_buzz import _parse_reddit_atom
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<feed xmlns="http://www.w3.org/2005/Atom">'
+        "<entry><id>t3_abc</id><title>$TSLA to the moon</title>"
+        "<content>&lt;p&gt;Buying more NVDA today&lt;/p&gt;</content></entry>"
+        "<entry><id>t3_def</id><title>Market thread</title></entry>"
+        "<entry><title>no id, skipped</title></entry>"
+        "</feed>"
+    )
+    parsed = _parse_reddit_atom(xml)
+    assert [p[0] for p in parsed] == ["t3_abc", "t3_def"]
+    assert "$TSLA" in parsed[0][1] and "NVDA" in parsed[0][1]
+    assert "<p>" not in parsed[0][1]
+    assert _parse_reddit_atom("not xml at all") == []
