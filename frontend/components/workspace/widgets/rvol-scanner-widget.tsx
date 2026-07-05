@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Info } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
 import { fetchRvolScanner, type RvolScannerResult } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
@@ -90,11 +94,11 @@ export function RvolScannerWidget({ config }: WidgetProps) {
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !data) {
-    return <Skeleton className="m-3 h-full min-h-24 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 1]} />;
   }
 
   if (error && !data) {
-    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
+    return <WidgetError message={error} onRetry={load} />;
   }
 
   // ── Off-hours / empty state ────────────────────────────────────────────────
@@ -120,9 +124,11 @@ export function RvolScannerWidget({ config }: WidgetProps) {
 
       {/* Off-hours / empty notice */}
       {offHours ? (
-        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          {data?.note ?? "Scanner runs during market hours (9:30–16:00 ET)."}
-        </p>
+        <WidgetEmpty
+          message={
+            data?.note ?? "Scanner runs during market hours (9:30–16:00 ET)."
+          }
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           {/* Column headers */}

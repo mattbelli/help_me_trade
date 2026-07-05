@@ -3,8 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Reorder, useDragControls } from "motion/react";
 import { Sparkline } from "@/components/trading/sparkline";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import {
   fetchOvernightTradable,
   fetchWatchlists,
@@ -622,21 +626,15 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   }, []);
 
   if (loading && !state) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 1]} />;
   }
 
   if (error && !displayList) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
-    );
+    return <WidgetError message={error} />;
   }
 
   if (!displayList || !state) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No active watchlist
-      </p>
-    );
+    return <WidgetEmpty message="No active watchlist" />;
   }
 
   return (

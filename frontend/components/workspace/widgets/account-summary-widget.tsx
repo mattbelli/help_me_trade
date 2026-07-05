@@ -4,6 +4,10 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
 import { formatMoney, type SchwabAccount } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -222,7 +226,7 @@ function findRealAccount(
 }
 
 export function AccountSummaryWidget() {
-  const { snapshot, loading } = useSnapshot();
+  const { snapshot, loading, error, refresh } = useSnapshot();
   const { selectedAccountId, privacyMode, togglePrivacy } = useDashboardPrefs();
   const {
     realAccounts,
@@ -241,12 +245,15 @@ export function AccountSummaryWidget() {
     );
   }
 
-  if (!snapshot && !selectedAccountId.startsWith("schwab_") && selectedAccountId !== "all_real") {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        Waiting for account snapshot…
-      </p>
-    );
+  const scopeNeedsSnapshot =
+    !selectedAccountId.startsWith("schwab_") && selectedAccountId !== "all_real";
+
+  if (error && !snapshot && scopeNeedsSnapshot) {
+    return <WidgetError message={error} onRetry={refresh} />;
+  }
+
+  if (!snapshot && scopeNeedsSnapshot) {
+    return <WidgetEmpty message="Waiting for account snapshot…" />;
   }
 
   const renderBody = () => {
@@ -275,9 +282,10 @@ export function AccountSummaryWidget() {
               privacyMode={privacyMode}
             />
           ) : (
-            <p className="flex min-w-0 flex-1 items-center p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-              Waiting for paper snapshot…
-            </p>
+            <WidgetEmpty
+              message="Waiting for paper snapshot…"
+              className="min-w-0 flex-1"
+            />
           )}
         </div>
       );
@@ -302,11 +310,13 @@ export function AccountSummaryWidget() {
       const acct = findRealAccount(realAccounts, selectedAccountId);
       if (!acct) {
         return (
-          <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-            {realAuthenticated
-              ? "Schwab account not found…"
-              : "Schwab not connected"}
-          </p>
+          <WidgetEmpty
+            message={
+              realAuthenticated
+                ? "Schwab account not found…"
+                : "Schwab not connected"
+            }
+          />
         );
       }
       return (
@@ -322,20 +332,12 @@ export function AccountSummaryWidget() {
     }
 
     if (!snapshot) {
-      return (
-        <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          Waiting for account snapshot…
-        </p>
-      );
+      return <WidgetEmpty message="Waiting for account snapshot…" />;
     }
 
     const view = resolveAccountView(snapshot, selectedAccountId);
     if (!view) {
-      return (
-        <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          Waiting for account snapshot…
-        </p>
-      );
+      return <WidgetEmpty message="Waiting for account snapshot…" />;
     }
 
     const title = isPaperAggregateScope(selectedAccountId)

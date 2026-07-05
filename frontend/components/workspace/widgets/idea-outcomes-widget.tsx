@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import {
   getIdeaOutcomes,
   type IdeaOutcomeRow,
@@ -144,9 +148,7 @@ function OpenTable({
   publish: (symbol: string) => void;
 }) {
   if (rows.length === 0) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">No open ideas</p>
-    );
+    return <WidgetEmpty message="No open ideas" />;
   }
 
   return (
@@ -208,11 +210,7 @@ function ResolvedTable({
   publish: (symbol: string) => void;
 }) {
   if (rows.length === 0) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No resolved ideas
-      </p>
-    );
+    return <WidgetEmpty message="No resolved ideas" />;
   }
 
   return (
@@ -306,11 +304,11 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
   }, [data]);
 
   if (loading && !data) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 1]} />;
   }
 
   if (error && !data) {
-    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
+    return <WidgetError message={error} onRetry={() => void load(false)} />;
   }
 
   if (
@@ -320,11 +318,7 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
     data.summary.resolved === 0 &&
     Object.keys(data.summary.counts).length === 0
   ) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No tracked ideas yet — run a setup scan.
-      </p>
-    );
+    return <WidgetEmpty message="No tracked ideas yet — run a setup scan." />;
   }
 
   const summary = data!.summary;

@@ -4,7 +4,11 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import {
   createPriceAlert,
   deletePriceAlert,
@@ -290,13 +294,11 @@ export function PriceAlertsWidget({ config }: WidgetProps) {
 
       <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1">
         {loading && alerts.length === 0 ? (
-          <Skeleton className="h-full min-h-24 rounded-md" />
-        ) : error ? (
-          <p className="font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+          <WidgetLoading cols={[2, 1, 1]} />
+        ) : error && alerts.length === 0 ? (
+          <WidgetError message={error} onRetry={load} className="p-0" />
         ) : alerts.length === 0 ? (
-          <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-            No price alerts configured
-          </p>
+          <WidgetEmpty message="No price alerts configured" className="p-0" />
         ) : (
           <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
             <thead>

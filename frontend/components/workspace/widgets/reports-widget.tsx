@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TerminalButton, TerminalSelect } from "@/components/ui/terminal";
 import {
+  WidgetEmpty,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
+import {
   fetchReports,
   generateReport,
   REPORT_KINDS,
@@ -207,11 +211,9 @@ export function ReportsWidget() {
       )}
 
       {loading && reports.length === 0 ? (
-        <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
+        <WidgetLoading rows={4} cols={[1]} />
       ) : reports.length === 0 ? (
-        <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          No reports yet. Use Generate or wait for a scheduled brief.
-        </p>
+        <WidgetEmpty message="No reports yet. Use Generate or wait for a scheduled brief." />
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(9rem,14rem)_1fr] overflow-hidden">
           <ul className="min-h-0 divide-y divide-[var(--border)] overflow-auto border-r border-[var(--border)]">
@@ -229,9 +231,7 @@ export function ReportsWidget() {
             {selected ? (
               <ReportViewer report={selected} />
             ) : (
-              <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-                Select a report
-              </p>
+              <WidgetEmpty message="Select a report" />
             )}
           </div>
         </div>

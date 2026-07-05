@@ -1,17 +1,21 @@
 "use client";
 
 import { PendingProposalCard } from "@/components/workspace/pending-proposal-card";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import type { ChannelId } from "@/lib/workspace/channels";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { usePendingProposals } from "@/lib/workspace/use-pending-proposals";
 
 export function AgentProposalsWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
-  const { proposals, loading, refetch } = usePendingProposals();
+  const { proposals, loading, error, refetch } = usePendingProposals();
 
   if (loading && proposals.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-24 rounded-md" />;
+    return <WidgetLoading rows={2} cols={[1]} />;
   }
 
   return (
@@ -28,7 +32,11 @@ export function AgentProposalsWidget({ config }: WidgetProps) {
       </header>
 
       {proposals.length === 0 ? (
-        <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">No pending proposals</p>
+        error ? (
+          <WidgetError message={error} onRetry={refetch} className="p-0" />
+        ) : (
+          <WidgetEmpty message="No pending proposals" className="p-0" />
+        )
       ) : (
         <div className="space-y-2">
           {proposals.map((proposal) => (

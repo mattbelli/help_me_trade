@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { TerminalButton } from "@/components/ui/terminal/terminal-button";
 import { TerminalSelect } from "@/components/ui/terminal/terminal-select";
 import {
@@ -148,11 +152,11 @@ export function ScansWidget({ config }: WidgetProps) {
   };
 
   if (presets.length === 0 && error) {
-    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
+    return <WidgetError message={error} />;
   }
 
   if (presets.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-24 rounded-md" />;
+    return <WidgetLoading rows={3} cols={[2, 1, 1]} />;
   }
 
   const showResults = data && data.preset_id === selected;
@@ -235,13 +239,15 @@ export function ScansWidget({ config }: WidgetProps) {
 
       {/* Body */}
       {!showResults ? (
-        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          {error ?? "Pick a scan and Run."}
-        </p>
+        error ? (
+          <WidgetError message={error} />
+        ) : (
+          <WidgetEmpty message="Pick a scan and Run." />
+        )
       ) : data.count === 0 ? (
-        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          No matches across {data.universe_size} screened symbols.
-        </p>
+        <WidgetEmpty
+          message={`No matches across ${data.universe_size} screened symbols.`}
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           {/* Column headers */}

@@ -7,7 +7,10 @@ import { ResearchActivityFeed } from "@/components/research/research-activity-fe
 import { ResearchArtifactListItem } from "@/components/research/research-artifact-list-item";
 import { ResearchViewerModal } from "@/components/research/research-viewer-modal";
 import { RESEARCH_DELETE_CONFIRM } from "@/components/research/research-viewer";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import {
   TerminalButton,
   TerminalField,
@@ -144,7 +147,7 @@ export function ResearchWidget({ config }: WidgetProps) {
   }
 
   if (loading && artifacts.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-24 rounded-md" />;
+    return <WidgetLoading rows={3} cols={[2, 1]} />;
   }
 
   return (
@@ -224,9 +227,7 @@ export function ResearchWidget({ config }: WidgetProps) {
           Recent
         </p>
         {artifacts.length === 0 ? (
-          <p className="px-1 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-            No research runs yet.
-          </p>
+          <WidgetEmpty message="No research runs yet." className="px-1 py-0" />
         ) : (
           <ul className="space-y-0.5">
             {artifacts.map((item) => (

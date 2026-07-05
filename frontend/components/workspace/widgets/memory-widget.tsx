@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import {
   deleteMemory,
   listMemories,
@@ -102,7 +106,7 @@ export function MemoryWidget({}: WidgetProps) {
   );
 
   if (loading && memories.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-24 rounded-md" />;
+    return <WidgetLoading cols={[3, 1]} />;
   }
 
   return (
@@ -126,15 +130,15 @@ export function MemoryWidget({}: WidgetProps) {
       </div>
 
       {error && visibleMemories.length === 0 ? (
-        <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+        <WidgetError message={error} className="p-2" />
       ) : null}
 
-      {visibleMemories.length === 0 ? (
-        <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          No memories yet — the copilot learns preferences and lessons over
-          time.
-        </p>
-      ) : (
+      {visibleMemories.length === 0 && !error ? (
+        <WidgetEmpty
+          message="No memories yet — the copilot learns preferences and lessons over time."
+          className="p-2"
+        />
+      ) : visibleMemories.length === 0 ? null : (
         <div className="min-h-0 flex-1 overflow-auto">
           {error ? (
             <p className="mb-1 px-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">

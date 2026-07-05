@@ -11,6 +11,7 @@ import { useNotificationStore } from "@/lib/workspace/use-notification-store";
 export function usePendingProposals() {
   const [proposals, setProposals] = useState<PendingProposal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const notifications = useNotificationStore((s) => s.notifications);
   const prevProposalAlertCountRef = useRef(0);
@@ -22,9 +23,11 @@ export function usePendingProposals() {
       .then((next) => {
         if (requestId !== requestIdRef.current) return;
         setProposals(next);
+        setError(null);
       })
-      .catch(() => {
+      .catch((err) => {
         if (requestId !== requestIdRef.current) return;
+        setError(err instanceof Error ? err.message : "failed to load");
       })
       .finally(() => {
         if (requestId !== requestIdRef.current) return;
@@ -51,5 +54,5 @@ export function usePendingProposals() {
     prevProposalAlertCountRef.current = proposalAlertCount;
   }, [notifications, refetch]);
 
-  return { proposals, loading, refetch };
+  return { proposals, loading, error, refetch };
 }

@@ -9,6 +9,11 @@ import {
   NewsSection,
 } from "@/components/workspace/company-info-sections";
 import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
+import {
   fetchTickerInfo,
   fetchWatchlistNews,
   type TickerInfo,
@@ -124,15 +129,18 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {mode === "symbol" ? (
           !symbol ? (
-            <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-              {channel !== "none"
-                ? "Click a ticker to load its company info"
-                : "Link a channel or pick a symbol"}
-            </p>
+            <WidgetEmpty
+              message={
+                channel !== "none"
+                  ? "Click a ticker to load its company info"
+                  : "Link a channel or pick a symbol"
+              }
+              className="p-0"
+            />
           ) : loading ? (
-            <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
+            <WidgetLoading rows={4} cols={[1]} className="p-0" />
           ) : error ? (
-            <p className="text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+            <WidgetError message={error} className="p-0" />
           ) : data ? (
             <div className="flex flex-col gap-4">
               <HeaderSection
@@ -149,9 +157,9 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
             </div>
           ) : null
         ) : newsLoading && newsItems.length === 0 ? (
-          <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
+          <WidgetLoading rows={4} cols={[1]} className="p-0" />
         ) : newsError ? (
-          <p className="text-[length:var(--fs-body)] text-[var(--c-red)]">{newsError}</p>
+          <WidgetError message={newsError} className="p-0" />
         ) : (
           <NewsSection news={newsItems} title="Watchlist news" showSymbol />
         )}

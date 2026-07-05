@@ -2,7 +2,11 @@
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { formatMoney, type Order } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -40,28 +44,24 @@ function formatQty(order: Order): string {
 export function OpenOrdersWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
-  const { snapshot, loading } = useSnapshot();
+  const { snapshot, loading, error, refresh } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
   const orders = resolveOpenOrders(snapshot, selectedAccountId);
 
   if (loading && !snapshot) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2, 2]} />;
+  }
+
+  if (error && !snapshot) {
+    return <WidgetError message={error} onRetry={refresh} />;
   }
 
   if (!snapshot) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        Waiting for orders…
-      </p>
-    );
+    return <WidgetEmpty message="Waiting for orders…" />;
   }
 
   if (orders.length === 0) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No open orders
-      </p>
-    );
+    return <WidgetEmpty message="No open orders" />;
   }
 
   return (

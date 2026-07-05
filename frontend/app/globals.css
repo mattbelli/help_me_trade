@@ -452,6 +452,10 @@
   .toast-countdown {
     display: none;
   }
+  /* Widget skeleton (N2): drop the tw-shimmer sweep → static cells. */
+  .widget-skeleton-sweep {
+    display: none;
+  }
 }
 
 @layer base {

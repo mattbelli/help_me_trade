@@ -6,6 +6,10 @@ import { Bar, BarChart, Cell, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartContainer } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceDashboard,
   type PerformancePeriod,
   type RoundTrip,
@@ -182,16 +186,12 @@ export function OutcomeDistributionWidget() {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && total === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : total === 0 ? (
-          <div className="flex h-full min-h-24 items-center justify-center">
-            <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-              No closed trades in this period
-            </p>
-          </div>
+          <WidgetEmpty message="No closed trades in this period" />
         ) : (
           <ChartContainer config={{}} className="h-full w-full aspect-auto">
             <BarChart data={buckets} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>

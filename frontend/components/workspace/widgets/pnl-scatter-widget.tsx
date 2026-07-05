@@ -14,6 +14,10 @@ import {
 import { ChartContainer } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceDashboard,
   type PerformancePeriod,
   type RoundTrip,
@@ -156,16 +160,12 @@ export function PnlScatterWidget({ config }: WidgetProps) {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && points.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : points.length === 0 ? (
-          <div className="flex h-full min-h-24 items-center justify-center">
-            <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-              No closed trades in this period
-            </p>
-          </div>
+          <WidgetEmpty message="No closed trades in this period" />
         ) : (
           <ChartContainer config={{}} className="h-full w-full aspect-auto">
             <ScatterChart margin={{ top: 4, right: 8, left: 4, bottom: 16 }}>

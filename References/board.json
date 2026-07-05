@@ -10,6 +10,131 @@
   ],
   "cards": [
     {
+      "id": "mobile-approval-device-auth",
+      "title": "Bind proposal approval to a device, not one shared token (mobile S1)",
+      "lane": "next",
+      "type": "safety",
+      "priority": "high",
+      "notes": "mobile-approval audit S1: approval authorizes on payload_hash + ONE static token — anyone holding it can approve trades, biometrics are client-side theater to the server. #34 covered settings/kill-switch, NOT approval. Interim: separate approve-scope token, header-only, rate-limited, approver identity logged; full fix = per-device key (Secure Enclave signature). This is the mission-critical path (phone approval unlock)."
+    },
+    {
+      "id": "safety-fill-attribution-orphan",
+      "title": "record_strategy_fill swallows errors → filled BUY with no stop/exit (safety M1)",
+      "lane": "next",
+      "type": "bug",
+      "priority": "high",
+      "notes": "safety-execution audit M1, code-verified still present (trading/position_ledger.py:153 bare except → return None). If the ledger insert fails after a fill, the position is unmanaged indefinitely — no stop, no target, no time-exit; only a log line. Fix: critical push on fill-with-missing-ledger-row + a reconciler vs broker positions. Adversarial-review required (trading/)."
+    },
+    {
+      "id": "safety-killswitch-blocks-exits",
+      "title": "DESIGN CALL: kill switch also blocks protective EXITS (safety M2)",
+      "lane": "founder",
+      "type": "safety",
+      "priority": "normal",
+      "owner": "founder",
+      "notes": "Code-verified: execution_service.py:56 rejects unconditionally, so flipping the kill switch strands open positions with no stop-loss execution. Your call: (a) split into 'halt new entries' (exits still allowed) vs 'hard stop everything', or (b) accept as designed (you flatten manually when you kill). Recommend (a) as default with (b) as an explicit second switch."
+    },
+    {
+      "id": "research-book-reproducibility",
+      "title": "Commit the combined-book validation pipeline (backtesting audit)",
+      "lane": "backlog",
+      "type": "research",
+      "priority": "high",
+      "notes": "The headline Sharpe 1.42 / Jensen alpha / PBO=0.000 for the armed combined book exist only in gitignored _edgehunt/ scratch — not reproducible, not CI-guarded; a sign error would never be caught. Audit's highest-value research move: commit the NAV/CAPM/PBO/DSR pipeline + golden fixture. Gates how much to trust the book's numbers at all. Whole backtesting audit is otherwise untracked (walk-forward, 2008 sample, threshold sensitivity, paper protocol — see doc)."
+    },
+    {
+      "id": "llm-eval-harness",
+      "title": "LLM eval harness: traces + golden set + calibration report (test-eval audit)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "high",
+      "notes": "Zero tracing today: a prompt change misrouting 30% of copilot queries would go unnoticed. Cheapest first step per audit: a chat_traces table (~1 day). Then a small golden query set + Brier-trend calibration report. Prerequisite for safely doing the one-Python-brain rewrite (roadmap Phase 1) and prompt iteration on the Decision Engine."
+    },
+    {
+      "id": "llm-mem0-inert",
+      "title": "mem0 semantic search is dead code — replace with FTS5 (LLM audit)",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "mem0 .search() mis-parses {results:[...]} → silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt — carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep)."
+    },
+    {
+      "id": "ci-safety-hardening",
+      "title": "CI guard: SAFETY-REVIEWED trailer on trading/ commits + pinned deps (uv.lock)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "test-eval + state-release audits both flag this as the highest risk-moved-per-hour: (1) CI check that any commit touching trading/ or db/order_executions carries a SAFETY-REVIEWED: trailer (the adversarial-review discipline, enforced mechanically); (2) requirements are all >= with no lockfile — pin via uv.lock for reproducible deploys."
+    },
+    {
+      "id": "ops-deploy-dedup-reset",
+      "title": "Mid-day restart re-fires phone alerts (in-memory dedup resets, ops MED-5)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "_rvol_alert_last_date / _schwab_health_last_date / _schwab_snapshot_last_date + profile cooldowns are in-memory; every deploy resets them → duplicate pushes. Earnings/reports already got this right (DB-backed) — move the other three to the same pattern. Alert fatigue = named mission risk."
+    },
+    {
+      "id": "mobile-card-incomplete-data",
+      "title": "Proposal card can render without limit_price/account_id/created_at (mobile M1)",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "mobile-approval audit M1: a limit order's card can read 'Market' if fields are missing — the founder approves terms he can't fully see, on the trust-critical surface. Fail-closed: card refuses to render Approve when sizing fields are absent."
+    },
+    {
+      "id": "safety-bad-tick-guard",
+      "title": "No anomaly guard on the sizing/concentration quote (safety M3)",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "A single bad tick into RiskEngine's live quote can mis-size an order or trip false concentration checks. The chart/hub already have 3x bad-tick filters (2026-07-01) — extend the same deviation-band sanity to the quote the sizing path consumes."
+    },
+    {
+      "id": "data-correctness-m-tail",
+      "title": "Data-correctness M-tail: stale-cache honesty + snapshot fallback leak + friends",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar→$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5."
+    },
+    {
+      "id": "decision-engine-phase1",
+      "title": "Roadmap Phase 1-2: one Python brain + DecisionCard/Slate Pass (scope vs 5a first)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "The architecture-level Decision Engine build (single agent loop, native tool-calling, DecisionCard contract, score_symbols batch) is unstarted. NOTE: Phase-5a structures.py + conviction lane + idea_outcomes already shipped a narrower version of the same 'deterministic owns numbers, LLM vetoes' principle — scope Phase 1 against what 5a proved before building. Gated on llm-eval-harness existing."
+    },
+    {
+      "id": "audit-low-tail",
+      "title": "Audit low-priority tail (bundled cleanup pass)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "notes": "Bundle for a slow day: mobile M2 cold-start replay / M3 VPN copy / M4 device registration / L1 unauth /docs / L2 unauth reject / L3 token-in-URL / L4 dormant Expo path; ops LOW-8 holiday calendar; safety L1-L3; state-release: notification-kind taxonomy, float-money display dataclasses, versioned migrations (schema_version), References/ sprawl, docker-compose; perception reads: rules/rule_events/notifications resources, watchlist compact quotes, sector resource (confirmed absent), research_artifacts/drawings/schwab_history reads, full-body reports."
+    },
+    {
+      "id": "statement-import",
+      "title": "Monthly Schwab PDF statement import: balance anchors + month-end positions",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "notes": "Founder ask 2026-07-05: JSON import = transactions only; API has no historical balances; daily equity snapshots only accrue since 7/1 — so period P&L has no broker-truth anchor. Parse monthly statement PDFs (text-layer, pdfplumber) from gitignored data/imports/statements/: per account extract beginning/ending value + month-end positions table. Dry-run-first. New balance-anchors table; P&L views reconcile ledger-computed change vs statement change and flag drift. Bonus: the statement at the export-window start reads the TRUE TSLA/PLTR/GME baselines (supersedes the inferred manual_adjustment pending on ledger-offsets card). Futures/ToS PDFs = separate importer (existing thread).",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "db-retention",
+      "title": "DB growth: retention runs but can't shrink the file — hourly keepers + no VACUUM (ops HIGH-3)",
+      "lane": "next",
+      "type": "ops",
+      "priority": "high",
+      "notes": "Diagnosis 2026-07-05 (corrects earlier 'no prune anywhere'): db/retention.py IS wired + runs daily (journalctl confirms). But (1) the one-time supervised VACUUM (tools/db_maintenance.py --vacuum) never ran, so freed pages are never reclaimed; (2) the design keeps one full-width snapshot per HOUR forever, incl. ~5KB snapshot_analytics JSON per keeper — that table is 294MB (half the 600MB file); (3) net intake > deletions so the file grows ~30-60MB/day. Fix: run the VACUUM in a quiet window; age hourly keepers to daily past ~90 days (or strip analytics blobs from keepers); add file-size + hours_kept to /health or the backup log so growth is visible. Verify with next-morning size delta.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
       "id": "judge-scan-ideas",
       "title": "Run setup scans + judge idea quality (~1-2 weeks)",
       "lane": "founder",
@@ -52,10 +177,10 @@
     {
       "id": "ui-polish-do-first",
       "title": "UI polish do-first batch: tick-flash, page crossfade, motion scale, toast, type ladder",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
-      "notes": "From References/UI_POLISH.md (Opus design review, 32 recs, founder-directed scope). Batch: M1 price tick-flash (the 'live terminal' signal), M2 page hot-swap crossfade (one motion.div+key), motion.ts scale + prefers-reduced-motion guard (prerequisite — codebase has zero reduced-motion handling), N3 approve/reject result-toast restyle+motion (mission-critical path), T1+T2 type-scale collapse (12 drifting sizes → one ladder) + label-tracking rule, D2 wire the already-declared-but-dead widget hover-lift. Report includes exact spring/duration values and a 7-item don't-do list (no money count-up, no blur on data panels, no CRT kitsch...).",
+      "notes": "ALL 4 ROUNDS SHIPPED 2026-07-05: (1) ticker-link-gaps, (2) motion batch (motion.ts scale + reduced-motion, M1 tick-flash, M2 crossfade, N3 toast, D2 hover-lift), (3) T1+T2 type ladder (12 sizes → 6-step --fs vars, one micro-label tracking) + T4 double-titles, (4) empty-states kit. Committed 961ba91→(round4). Deploy = build + serv-deploy back-to-back. Founder eyeball items: tick-flash needs live quotes (Monday); overall look pass in browser.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -82,10 +207,10 @@
     {
       "id": "ui-empty-states",
       "title": "Shared WidgetEmpty/WidgetLoading + empty-page CTA (audit sweep)",
-      "lane": "next",
+      "lane": "done",
       "type": "feature",
       "priority": "normal",
-      "notes": "UI_AUDIT.md systemic finding: ~20 widgets hand-roll divergent empty/loading states (padding, size, copy tone all differ) and empty workspace pages are a blank dotted canvas with no call-to-action. One shared component pair + an empty-page 'add widgets' CTA fixes all at once.",
+      "notes": "SHIPPED 2026-07-05 (round 4 of the UI series): widget-states.tsx kit (WidgetEmpty/WidgetLoading terminal shimmer skeleton/WidgetError) adopted across ~25 widgets; trust-critical fix VERIFIED by forced-error probe — positions/open-orders/notifications render 'Failed to fetch [retry]' when the API dies, never silent-empty; empty pages get a quiet add-widget CTA. Deploy pending with the full series.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -192,10 +317,10 @@
     {
       "id": "36",
       "title": "Off-box backup: verify the PC pull folder (rest of the drill PASSED)",
-      "lane": "founder",
+      "lane": "done",
       "type": "ops",
       "priority": "high",
-      "notes": "Audited 2026-07-05, destination = PC over tailnet (your call). Serv side VERIFIED: nightly 03:00 sqlite .backup + integrity_check + config tarball, 14-day retention, coverage complete (everything that matters lives in trading.db; other DBs are empty stubs, research/ is rebuildable cache). RESTORE DRILL PASSED: restored yesterday's snapshot, integrity ok, row counts exact vs live. REMAINING (you): check the PC's HMT-backup-pull folder — is the newest trading-*.db recent? sshd shows the PC connecting most days but at scattered times (looks like Task Scheduler run-on-wake, not 03:30), and serv can't see what was copied. If stale, fix the 'HMT backup pull' scheduled task on Windows.",
+      "notes": "CLOSED 2026-07-05: founder confirmed the PC pull folder holds dated trading-*.db files 6/20→7/5 (accumulating, not overwriting). Full chain verified: serv 03:00 sqlite .backup + integrity_check + config tarball (14-day retention), restore drill PASSED, PC pulls over Tailscale on wake (07:29 login observed). #36 fully done.",
       "owner": "founder",
       "updated_at": "2026-07-05"
     },
@@ -428,6 +553,16 @@
       "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 — watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles — ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence — flag if it bugs you.",
       "owner": "serv",
       "updated_at": "2026-07-04"
+    },
+    {
+      "id": "fr-1783263918",
+      "title": "info widget",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "i think info widget should be its own thing and then newsfeed should be its own thing with a switch to be watchlist/or all",
+      "owner": "founder",
+      "updated_at": "2026-07-05"
     }
   ]
 }

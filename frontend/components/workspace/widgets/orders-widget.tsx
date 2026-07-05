@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { formatMoney } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -83,17 +87,13 @@ function FilledTab({
   error: string | null;
 } & PublishProps) {
   if (loading && events.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2]} />;
   }
-  if (error) {
-    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
+  if (error && events.length === 0) {
+    return <WidgetError message={error} />;
   }
   if (events.length === 0) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No trade history
-      </p>
-    );
+    return <WidgetEmpty message="No trade history" />;
   }
 
   return (
@@ -178,21 +178,13 @@ function OpenTab({
   hasSnapshot: boolean;
 } & PublishProps) {
   if (snapshotLoading && !hasSnapshot) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2, 2]} />;
   }
   if (!hasSnapshot) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        Waiting for orders…
-      </p>
-    );
+    return <WidgetEmpty message="Waiting for orders…" />;
   }
   if (orders.length === 0) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No open orders
-      </p>
-    );
+    return <WidgetEmpty message="No open orders" />;
   }
 
   return (
@@ -270,17 +262,13 @@ function RejectedTab({
   error: string | null;
 } & PublishProps) {
   if (loading && executions.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2]} />;
   }
-  if (error) {
-    return <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>;
+  if (error && executions.length === 0) {
+    return <WidgetError message={error} />;
   }
   if (executions.length === 0) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No rejected orders
-      </p>
-    );
+    return <WidgetEmpty message="No rejected orders" />;
   }
 
   return (

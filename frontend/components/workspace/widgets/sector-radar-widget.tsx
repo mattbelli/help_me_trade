@@ -18,6 +18,10 @@ import {
 import { ChartContainer } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceSectors,
   type PerformancePeriod,
   type SectorBreakdown,
@@ -243,29 +247,20 @@ export function SectorRadarWidget() {
 
       <div className="flex-1 min-h-0 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && rows.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : rows.length === 0 ? (
-          <div className="flex h-full min-h-24 items-center justify-center px-4 text-center">
-            <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-              No sector data — no open positions or trades in range
-            </p>
-          </div>
+          <WidgetEmpty message="No sector data — no open positions or trades in range" />
         ) : (
           <div className="flex h-full flex-col gap-2">
             <div className="min-h-0 flex-1">
               {mode === "allocation" && totalMarketValue <= 0 ? (
-                <div className="flex h-full min-h-24 items-center justify-center px-4 text-center">
-                  <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-                    No open positions — allocation unavailable
-                    <br />
-                    <span className="text-[var(--fg-faint)]">
-                      Switch to P&amp;L for realized sector performance
-                    </span>
-                  </p>
-                </div>
+                <WidgetEmpty
+                  message="No open positions — allocation unavailable"
+                  hint="Switch to P&L for realized sector performance"
+                />
               ) : (
               <ChartContainer config={{}} className="h-full w-full aspect-auto">
                 {mode === "pnl" ? (

@@ -10,7 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { TerminalButton } from "@/components/ui/terminal/terminal-button";
 import {
   fetchCalibration,
@@ -200,11 +204,11 @@ export function JournalWidget({ config }: WidgetProps) {
       </div>
 
       {error ? (
-        <p className="px-2 py-1 text-[length:var(--fs-table)] text-[var(--c-red)]">{error}</p>
+        <WidgetError message={error} className="px-2 py-1" />
       ) : null}
 
       {!loaded && loading ? (
-        <Skeleton className="m-3 h-full min-h-24 rounded-md" />
+        <WidgetLoading cols={[2, 1, 1, 2]} />
       ) : view === "ai" ? (
         <AiView
           decisions={decisions ?? []}
@@ -404,9 +408,7 @@ function DecisionsView({
 }) {
   if (decisions.length === 0) {
     return (
-      <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No agent decisions yet — arm a strategy or run a paper proposal.
-      </p>
+      <WidgetEmpty message="No agent decisions yet — arm a strategy or run a paper proposal." />
     );
   }
   const strat = (stats?.by_strategy ?? []).filter((s) => s.n > 0);
@@ -519,9 +521,7 @@ function MeView({
       ) : null}
 
       {trades.length === 0 ? (
-        <p className="p-3 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          No closed round-trips in the imported history.
-        </p>
+        <WidgetEmpty message="No closed round-trips in the imported history." />
       ) : (
         trades.map((t, idx) => (
           <div

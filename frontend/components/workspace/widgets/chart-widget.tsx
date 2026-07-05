@@ -1,6 +1,7 @@
 "use client";
 
 import { TvLightChart } from "@/components/trading/tv-light-chart";
+import { WidgetEmpty } from "@/components/workspace/widget-states";
 import {
   CHART_TIMEFRAMES,
   type ChartTimeframe,
@@ -48,9 +49,7 @@ export function ChartWidget({ config }: WidgetProps) {
             marketSession={marketSession}
           />
         ) : (
-          <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-            Enter a symbol
-          </p>
+          <WidgetEmpty message="Enter a symbol" />
         )}
       </div>
     </div>

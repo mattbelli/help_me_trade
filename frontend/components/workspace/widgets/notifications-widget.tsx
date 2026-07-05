@@ -11,6 +11,11 @@ import {
   useNotificationStore,
 } from "@/lib/workspace/use-notification-store";
 import { useNotificationActivate } from "@/lib/workspace/use-notification-activate";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { cn } from "@/lib/utils";
 
 type FilterMode = "all" | "unread" | `kind:${string}`;
@@ -59,6 +64,8 @@ export function NotificationsWidget({}: WidgetProps) {
   const notifications = useNotificationStore((s) => s.notifications);
   const hydrated = useNotificationStore((s) => s.hydrated);
   const hydrate = useNotificationStore((s) => s.hydrate);
+  const error = useNotificationStore((s) => s.error);
+  const retryHydrate = useNotificationStore((s) => s.retryHydrate);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const dismiss = useNotificationStore((s) => s.dismiss);
   const activate = useNotificationActivate();
@@ -92,9 +99,11 @@ export function NotificationsWidget({}: WidgetProps) {
   };
 
   if (!hydrated) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
-    );
+    return <WidgetLoading rows={4} cols={[3, 1]} />;
+  }
+
+  if (error && notifications.length === 0) {
+    return <WidgetError message={error} onRetry={retryHydrate} />;
   }
 
   return (
@@ -167,9 +176,7 @@ export function NotificationsWidget({}: WidgetProps) {
       </div>
 
       {visible.length === 0 ? (
-        <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          No notifications
-        </p>
+        <WidgetEmpty message="No notifications" className="p-2" />
       ) : (
         <ul className="min-h-0 flex-1 space-y-1 overflow-auto">
           {visible.map((n) => {

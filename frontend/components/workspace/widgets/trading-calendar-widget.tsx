@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { WidgetError } from "@/components/workspace/widget-states";
 import {
   dailyRealizedAmount,
   dailyRealizedIsCashFlowFallback,
@@ -386,9 +387,7 @@ export function TradingCalendarWidget() {
 
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {error ? (
-          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">
-            {error}
-          </p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && !dashboard ? (
           <div className="grid grid-cols-4 gap-1.5">

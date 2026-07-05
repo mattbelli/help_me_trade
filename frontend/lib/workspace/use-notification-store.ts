@@ -31,6 +31,7 @@ export type WorkspaceNotification = {
 type NotificationState = {
   notifications: WorkspaceNotification[];
   hydrated: boolean;
+  error: string | null;
   addNotification: (n: WorkspaceNotification) => void;
   applyUpdate: (
     id: string,
@@ -41,6 +42,7 @@ type NotificationState = {
   dismiss: (id: string) => void;
   clearAll: () => void;
   hydrate: () => Promise<void>;
+  retryHydrate: () => Promise<void>;
 };
 
 export function mapServerNotification(
@@ -78,6 +80,7 @@ function maybeOsNotify(n: WorkspaceNotification): void {
 export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
   hydrated: false,
+  error: null,
 
   addNotification: (n) => {
     if (n.dismissed) return;
@@ -152,10 +155,18 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
           (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
         )
         .slice(0, MAX_NOTIFICATIONS);
-      set({ notifications, hydrated: true });
-    } catch {
-      set({ hydrated: true });
+      set({ notifications, hydrated: true, error: null });
+    } catch (err) {
+      set({
+        hydrated: true,
+        error: err instanceof Error ? err.message : "failed to load",
+      });
     }
+  },
+
+  retryHydrate: async () => {
+    set({ hydrated: false, error: null });
+    await get().hydrate();
   },
 }));
 

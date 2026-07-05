@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceDashboard,
   type PerformanceDashboard,
   type PerformancePeriod,
@@ -147,11 +151,9 @@ export function PerformanceStatsWidget() {
             ))}
           </div>
         ) : error && !dashboard ? (
-          <p className="p-1 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-1" />
         ) : !dashboard ? (
-          <p className="p-1 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-            No performance data yet.
-          </p>
+          <WidgetEmpty message="No performance data yet." className="p-1" />
         ) : (
           <div className="flex flex-wrap gap-2">
             <Stat

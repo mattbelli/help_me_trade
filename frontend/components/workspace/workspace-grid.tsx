@@ -596,6 +596,7 @@ export function WorkspaceGrid() {
     pickerOpen,
     setPickerOpen,
     setGridCols,
+    openPicker,
   } = useWorkspaceStore();
 
   // Host width (minus scroll padding), null until first measured. cols/width
@@ -751,7 +752,24 @@ export function WorkspaceGrid() {
                 }
           }
         >
-          {hydrated && cols != null && width != null ? (
+          {hydrated && layout.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 font-mono">
+              <p className="text-[length:var(--fs-body)] text-[var(--fg-faint)]">
+                empty page
+              </p>
+              <button
+                type="button"
+                onClick={openPicker}
+                className="rounded border border-[var(--border)] px-2.5 py-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+              >
+                add widget
+              </button>
+              <p className="text-[length:var(--fs-micro)] tracking-[0.08em] uppercase text-[var(--fg-faint)]">
+                or type /add in the console
+              </p>
+            </div>
+          ) : null}
+          {hydrated && layout.length > 0 && cols != null && width != null ? (
             <motion.div
               key={activePageId}
               id="workspace-grid-root"

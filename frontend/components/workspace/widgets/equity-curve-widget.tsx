@@ -11,6 +11,10 @@ import {
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPortfolioHistory,
   fetchSchwabEquityCurve,
   formatMoney,
@@ -260,14 +264,12 @@ export function EquityCurveWidget() {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && chartData.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : emptyMessage ? (
-          <div className="flex h-full min-h-24 items-center justify-center">
-            <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">{emptyMessage}</p>
-          </div>
+          <WidgetEmpty message={emptyMessage} />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart

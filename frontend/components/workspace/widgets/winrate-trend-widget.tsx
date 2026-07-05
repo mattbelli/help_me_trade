@@ -6,6 +6,10 @@ import { Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartContainer } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceDashboard,
   type PerformancePeriod,
   type RoundTrip,
@@ -179,17 +183,14 @@ export function WinrateTrendWidget() {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && sortedPnls.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : needsMoreData ? (
-          <div className="flex h-full min-h-24 items-center justify-center px-4 text-center">
-            <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-              Need more closed trades to chart a trend ({sortedPnls.length}/
-              {MIN_TRADES_TO_CHART})
-            </p>
-          </div>
+          <WidgetEmpty
+            message={`Need more closed trades to chart a trend (${sortedPnls.length}/${MIN_TRADES_TO_CHART})`}
+          />
         ) : (
           <ChartContainer config={{}} className="h-full w-full aspect-auto">
             <LineChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>

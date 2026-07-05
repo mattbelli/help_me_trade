@@ -4,7 +4,11 @@ import { useCallback, useMemo, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { formatMoney, formatQty } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -127,7 +131,7 @@ function PositionRow({
 export function PositionsWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
-  const { snapshot, loading } = useSnapshot();
+  const { snapshot, loading, error, refresh } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
   const positions = resolvePositions(snapshot, selectedAccountId);
   const [sortState, setSortState] = useState<{
@@ -151,23 +155,19 @@ export function PositionsWidget({ config }: WidgetProps) {
   }, []);
 
   if (loading && !snapshot) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[3, 2, 2, 2]} />;
+  }
+
+  if (error && !snapshot) {
+    return <WidgetError message={error} onRetry={refresh} />;
   }
 
   if (!snapshot) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        Waiting for positions…
-      </p>
-    );
+    return <WidgetEmpty message="Waiting for positions…" />;
   }
 
   if (positions.length === 0) {
-    return (
-      <p className="p-3 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-        No open positions
-      </p>
-    );
+    return <WidgetEmpty message="No open positions" />;
   }
 
   return (
