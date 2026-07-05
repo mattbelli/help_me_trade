@@ -8,6 +8,7 @@ import { RulesSection } from "@/components/rules/rules-section";
 import { AutomationsReportsSection } from "@/components/automations/automations-reports-section";
 import { RunningNow } from "@/components/automations/running-now";
 import { PriceAlertsWidget } from "@/components/workspace/widgets/price-alerts-widget";
+import { WorkspaceToastProvider } from "@/components/workspace/workspace-toast";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAutomationsOverview } from "@/lib/use-automations-overview";
@@ -85,11 +86,14 @@ export function AutomationsPage() {
       <SectionCard title="Alerts" count={overview.alerts.active}>
         <div className="overflow-hidden rounded-lg border border-border/80 bg-card/20">
           <div className="min-h-[200px]">
-            <PriceAlertsWidget
-              instanceId="legacy-alerts"
-              config={{}}
-              onConfigChange={() => {}}
-            />
+            {/* widget hooks need the workspace toast context (publish confirmations) */}
+            <WorkspaceToastProvider>
+              <PriceAlertsWidget
+                instanceId="legacy-alerts"
+                config={{}}
+                onConfigChange={() => {}}
+              />
+            </WorkspaceToastProvider>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
