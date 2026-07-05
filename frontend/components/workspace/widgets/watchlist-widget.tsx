@@ -310,9 +310,9 @@ function WatchlistSymbolRow({
             }}
             onPointerDown={(e) => e.stopPropagation()}
             aria-label={`Remove ${symbol}`}
-            className="select-none rounded font-mono text-[length:var(--fs-body)] leading-none text-[var(--c-red)] hover:bg-[var(--bg-inset)] disabled:opacity-40"
+            className="flex size-4 shrink-0 select-none items-center justify-center justify-self-center rounded-full bg-[var(--c-red)] transition-transform hover:scale-110 disabled:opacity-40"
           >
-            −
+            <span className="h-[2px] w-2 rounded-full bg-white" aria-hidden />
           </button>
         ) : (
           <button
