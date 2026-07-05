@@ -1,15 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Menu as MenuIcon } from "lucide-react";
+import { Check, Menu as MenuIcon, Plus, Trash2 } from "lucide-react";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { fetchWatchlists, type WatchlistsState } from "@/lib/api";
+import {
+  createWatchlist,
+  deleteWatchlist,
+  fetchWatchlists,
+  type WatchlistsState,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -72,6 +78,47 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
             {list.id === activeList.id ? <Check className="size-3" /> : null}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={async () => {
+            const name = window.prompt("New watchlist name");
+            if (!name?.trim()) return;
+            try {
+              const prevIds = new Set(state.lists.map((l) => l.id));
+              const next = await createWatchlist(name.trim());
+              setState(next);
+              const created = next.lists.find((l) => !prevIds.has(l.id));
+              if (created) onSelect(created.id);
+            } catch {
+              // fail-soft: list state unchanged
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 text-[var(--fg-dim)]"
+        >
+          <Plus className="size-3" />
+          New list…
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={state.lists.length <= 1}
+          onClick={async () => {
+            const count = activeList.symbols.length;
+            const ok = window.confirm(
+              `Delete watchlist "${activeList.name}" (${count} symbol${count === 1 ? "" : "s"})? This cannot be undone.`,
+            );
+            if (!ok) return;
+            try {
+              const next = await deleteWatchlist(activeList.id);
+              setState(next);
+              onSelect(next.active_id);
+            } catch {
+              // fail-soft
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 text-[var(--c-red)] data-[disabled]:opacity-40"
+        >
+          <Trash2 className="size-3" />
+          Delete {"\""}{activeList.name}{"\""}…
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
