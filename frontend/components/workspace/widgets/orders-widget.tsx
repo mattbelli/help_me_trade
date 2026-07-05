@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/api";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import {
   fetchOrderExecutions,
   fetchTradeEvents,
@@ -31,7 +35,12 @@ const TABS: { id: TabId; label: string }[] = [
 const TH =
   "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase";
 const TD = "border-b border-[var(--border)] px-2 py-1.5";
-const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
+const ROW = "group/row transition-colors hover:bg-[var(--bg-hover)]";
+
+type PublishProps = {
+  publish: (symbol: string) => void;
+  linked: boolean;
+};
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
@@ -66,11 +75,13 @@ function FilledTab({
   events,
   loading,
   error,
+  publish,
+  linked,
 }: {
   events: TradeEvent[];
   loading: boolean;
   error: string | null;
-}) {
+} & PublishProps) {
   if (loading && events.length === 0) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
@@ -101,11 +112,21 @@ function FilledTab({
         <tbody>
           {events.map((e) => {
             const amount = parseMoney(e.amount);
+            const sym = e.symbol;
             return (
               <tr key={e.id} className={ROW}>
                 <td className={cn(TD, "text-[var(--fg-dim)]")}>{e.trade_date}</td>
-                <td className={cn(TD, "font-medium", sideClass(e.side))}>
-                  {e.symbol ?? "—"}
+                <td className={cn(TD, "font-medium")}>
+                  {sym ? (
+                    <ClickableSymbol
+                      symbol={sym}
+                      linked={linked}
+                      onActivate={() => publish(sym)}
+                      className={sideClass(e.side)}
+                    />
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td
                   className={cn(
@@ -149,11 +170,13 @@ function OpenTab({
   orders,
   snapshotLoading,
   hasSnapshot,
+  publish,
+  linked,
 }: {
   orders: TaggedOrder[];
   snapshotLoading: boolean;
   hasSnapshot: boolean;
-}) {
+} & PublishProps) {
   if (snapshotLoading && !hasSnapshot) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
@@ -191,7 +214,11 @@ function OpenTab({
             <tr key={o.id} className={ROW}>
               <td className={cn(TD, "font-medium text-[var(--c-accent)]")}>
                 <span className="inline-flex items-center gap-1.5">
-                  {o.symbol}
+                  <ClickableSymbol
+                    symbol={o.symbol}
+                    linked={linked}
+                    onActivate={() => publish(o.symbol)}
+                  />
                   {o.accountLabel ? (
                     <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
                       {o.accountLabel}
@@ -235,11 +262,13 @@ function RejectedTab({
   executions,
   loading,
   error,
+  publish,
+  linked,
 }: {
   executions: OrderExecution[];
   loading: boolean;
   error: string | null;
-}) {
+} & PublishProps) {
   if (loading && executions.length === 0) {
     return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
   }
@@ -274,8 +303,13 @@ function RejectedTab({
               <td className={cn(TD, "text-[var(--fg-dim)]")}>
                 {formatDateTime(x.created_at)}
               </td>
-              <td className={cn(TD, "font-medium", sideClass(x.side))}>
-                {x.symbol}
+              <td className={cn(TD, "font-medium")}>
+                <ClickableSymbol
+                  symbol={x.symbol}
+                  linked={linked}
+                  onActivate={() => publish(x.symbol)}
+                  className={sideClass(x.side)}
+                />
               </td>
               <td
                 className={cn(
@@ -306,7 +340,9 @@ function RejectedTab({
   );
 }
 
-export function OrdersWidget() {
+export function OrdersWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
   const { snapshot, loading: snapshotLoading } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
 
@@ -414,6 +450,8 @@ export function OrdersWidget() {
             events={filledEvents}
             loading={filledLoading}
             error={filledError}
+            publish={publish}
+            linked={linked}
           />
         ) : null}
         {tab === "open" ? (
@@ -421,6 +459,8 @@ export function OrdersWidget() {
             orders={openOrders}
             snapshotLoading={snapshotLoading}
             hasSnapshot={!!snapshot}
+            publish={publish}
+            linked={linked}
           />
         ) : null}
         {tab === "rejected" ? (
@@ -428,6 +468,8 @@ export function OrdersWidget() {
             executions={rejectedExecutions}
             loading={rejectedLoading}
             error={rejectedError}
+            publish={publish}
+            linked={linked}
           />
         ) : null}
       </div>

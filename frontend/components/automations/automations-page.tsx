@@ -85,7 +85,11 @@ export function AutomationsPage() {
       <SectionCard title="Alerts" count={overview.alerts.active}>
         <div className="overflow-hidden rounded-lg border border-border/80 bg-card/20">
           <div className="min-h-[200px]">
-            <PriceAlertsWidget />
+            <PriceAlertsWidget
+              instanceId="legacy-alerts"
+              config={{}}
+              onConfigChange={() => {}}
+            />
           </div>
         </div>
         <p className="text-xs text-muted-foreground">

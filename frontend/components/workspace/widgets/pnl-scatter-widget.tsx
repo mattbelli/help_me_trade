@@ -20,7 +20,10 @@ import {
 } from "@/lib/performance-api";
 import { parseMoney } from "@/lib/trades-api";
 import { cn } from "@/lib/utils";
+import type { ChannelId } from "@/lib/workspace/channels";
 import { useDashboardPrefs } from "@/lib/workspace/use-dashboard-prefs";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import type { WidgetProps } from "@/lib/workspace/widget-registry";
 
 const PERIODS: { key: PerformancePeriod; label: string }[] = [
   { key: "month", label: "Month" },
@@ -82,7 +85,9 @@ function ScatterTooltip({
   );
 }
 
-export function PnlScatterWidget() {
+export function PnlScatterWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
   const { selectedAccountId } = useDashboardPrefs();
   const [period, setPeriod] = useState<PerformancePeriod>("all");
   const [roundTrips, setRoundTrips] = useState<RoundTrip[]>([]);
@@ -198,7 +203,15 @@ export function PnlScatterWidget() {
               />
               <ReferenceLine y={0} stroke="var(--border)" strokeDasharray="3 3" />
               <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: "3 3" }} />
-              <Scatter data={points} isAnimationActive={false}>
+              <Scatter
+                data={points}
+                isAnimationActive={false}
+                cursor={linked ? "pointer" : undefined}
+                onClick={(data: { payload?: ScatterPoint }) => {
+                  const sym = data?.payload?.symbol;
+                  if (sym) publish(sym);
+                }}
+              >
                 {points.map((point, idx) => (
                   <Cell
                     key={`${point.symbol}-${idx}`}

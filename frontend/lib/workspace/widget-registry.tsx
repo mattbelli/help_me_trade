@@ -108,7 +108,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "price-alerts",
     title: "price alerts",
     description: "Configured price alerts",
-    component: PriceAlertsWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: PriceAlertsWidget,
     defaultSize: { w: 12, h: 4, minW: 5, minH: 3 },
   },
   {
@@ -213,7 +214,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "orders",
     title: "orders",
     description: "Trade blotter — filled / open / rejected",
-    component: OrdersWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: OrdersWidget,
     defaultSize: { w: 12, h: 6, minW: 6, minH: 4 },
   },
   {
@@ -227,7 +229,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "pnl-scatter",
     title: "hold time vs p&l",
     description: "Each closed trade: holding period vs P&L",
-    component: PnlScatterWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: PnlScatterWidget,
     defaultSize: { w: 10, h: 6, minW: 6, minH: 4 },
   },
   {

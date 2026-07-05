@@ -3,6 +3,7 @@
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   createPriceAlert,
@@ -13,6 +14,9 @@ import {
   type PriceAlert,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import type { WidgetProps } from "@/lib/workspace/widget-registry";
 
 const POLL_MS = 20_000;
 
@@ -50,7 +54,9 @@ function alertToForm(alert: PriceAlert): AlertFormState {
   };
 }
 
-export function PriceAlertsWidget() {
+export function PriceAlertsWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -320,10 +326,14 @@ export function PriceAlertsWidget() {
               {alerts.map((alert) => (
                 <tr
                   key={alert.id}
-                  className="group transition-colors hover:bg-[var(--bg-hover)]"
+                  className="group group/row transition-colors hover:bg-[var(--bg-hover)]"
                 >
                   <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
-                    {alert.symbol}
+                    <ClickableSymbol
+                      symbol={alert.symbol}
+                      linked={linked}
+                      onActivate={() => publish(alert.symbol)}
+                    />
                   </td>
                   <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground">
                     {formatMoney(alert.price)}

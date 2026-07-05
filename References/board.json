@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-04T02:44:48Z",
+  "updated_at": "2026-07-05T00:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -15,7 +15,7 @@
       "lane": "founder",
       "type": "research",
       "priority": "high",
-      "notes": "Market reopens Monday. Your verdict gates #42 Setup Book \u2014 nothing arms until you say ideas are worth arming.",
+      "notes": "Market reopens Monday. Your verdict gates #42 Setup Book — nothing arms until you say ideas are worth arming.",
       "owner": "founder",
       "updated_at": "2026-07-04"
     },
@@ -31,7 +31,7 @@
     },
     {
       "id": "reddit-oauth-creds",
-      "title": "Reddit access for buzz collector \u2014 solved via RSS, no app needed",
+      "title": "Reddit access for buzz collector — solved via RSS, no app needed",
       "lane": "done",
       "type": "ops",
       "priority": "normal",
@@ -52,10 +52,10 @@
     {
       "id": "ui-polish-do-first",
       "title": "UI polish do-first batch: tick-flash, page crossfade, motion scale, toast, type ladder",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "high",
-      "notes": "From References/UI_POLISH.md (Opus design review, 32 recs, founder-directed scope). Batch: M1 price tick-flash (the 'live terminal' signal), M2 page hot-swap crossfade (one motion.div+key), motion.ts scale + prefers-reduced-motion guard (prerequisite \u2014 codebase has zero reduced-motion handling), N3 approve/reject result-toast restyle+motion (mission-critical path), T1+T2 type-scale collapse (12 drifting sizes \u2192 one ladder) + label-tracking rule, D2 wire the already-declared-but-dead widget hover-lift. Report includes exact spring/duration values and a 7-item don't-do list (no money count-up, no blur on data panels, no CRT kitsch...).",
+      "notes": "From References/UI_POLISH.md (Opus design review, 32 recs, founder-directed scope). Batch: M1 price tick-flash (the 'live terminal' signal), M2 page hot-swap crossfade (one motion.div+key), motion.ts scale + prefers-reduced-motion guard (prerequisite — codebase has zero reduced-motion handling), N3 approve/reject result-toast restyle+motion (mission-critical path), T1+T2 type-scale collapse (12 drifting sizes → one ladder) + label-tracking rule, D2 wire the already-declared-but-dead widget hover-lift. Report includes exact spring/duration values and a 7-item don't-do list (no money count-up, no blur on data panels, no CRT kitsch...).",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -72,10 +72,10 @@
     {
       "id": "ticker-link-gaps",
       "title": "Ticker click-to-chart gaps: orders blotter + price alerts (house-rule violations)",
-      "lane": "next",
+      "lane": "done",
       "type": "bug",
       "priority": "normal",
-      "notes": "UI_AUDIT.md: 2-3 widgets render tickers as plain text, violating the durable 'every ticker is click-to-focus-the-chart' rule. Small ClickableSymbol wiring round.",
+      "notes": "SHIPPED 2026-07-05: ClickableSymbol wired in orders blotter (all 3 tabs, side-coloring preserved), price-alerts rows, and pnl-scatter (point-click publishes symbol — the row-publish analog for a chart); all 3 widgets now channelAware. Bonus: fixed a pre-existing nested-<button> hydration error in the research widget list rows (caught by headless smoke). Typecheck + eslint + headless smoke green; deploy with the polish rounds.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -95,7 +95,7 @@
       "lane": "next",
       "type": "feature",
       "priority": "high",
-      "notes": "UI AUDIT (References/UI_AUDIT.md, 2026-07-05) reinforces this as the #1 UI issue: two complete UIs in two design languages are live at once, and the legacy /trading route ships a manual Buy/Sell terminal that contradicts the cockpit mission. Original scope stands: workspace at / + a few dedicated new-shell pages; fix notification/chat deep-links that exit to old routes; gaps first (memory widget create/edit/search, RunningNow roll-up). Audit adds: research page vs research widget = two looks for one feature \u2014 unify on the terminal look as part of this retirement.",
+      "notes": "UI AUDIT (References/UI_AUDIT.md, 2026-07-05) reinforces this as the #1 UI issue: two complete UIs in two design languages are live at once, and the legacy /trading route ships a manual Buy/Sell terminal that contradicts the cockpit mission. Original scope stands: workspace at / + a few dedicated new-shell pages; fix notification/chat deep-links that exit to old routes; gaps first (memory widget create/edit/search, RunningNow roll-up). Audit adds: research page vs research widget = two looks for one feature — unify on the terminal look as part of this retirement.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -105,7 +105,7 @@
       "lane": "done",
       "type": "feature",
       "priority": "high",
-      "notes": "SHIPPED on main (7b6cf03), per BUILD.md. State machine (research/idea_tracker.py: pending\u2192triggered\u2192won/lost/expired/invalidated/data_gap incl. conservative same-bar rules), storage (db/idea_outcomes.py SQLite table + win-rate summary), 30-min market-hours scheduler (api/main.py), and 13-test suite (tests/test_idea_tracker.py) all confirmed working. GET /api/ideas/outcomes exists. UI consumption split out as idea-outcomes-ui.",
+      "notes": "SHIPPED on main (7b6cf03), per BUILD.md. State machine (research/idea_tracker.py: pending→triggered→won/lost/expired/invalidated/data_gap incl. conservative same-bar rules), storage (db/idea_outcomes.py SQLite table + win-rate summary), 30-min market-hours scheduler (api/main.py), and 13-test suite (tests/test_idea_tracker.py) all confirmed working. GET /api/ideas/outcomes exists. UI consumption split out as idea-outcomes-ui.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -115,7 +115,7 @@
       "lane": "done",
       "type": "feature",
       "priority": "normal",
-      "notes": "SHIPPED + deployed 2026-07-05 (eyeball pending): `/add idea outcomes` \u2014 summary strip (resolved N + honest win rate, '\u2014' until data), per-status chips, Open/Resolved tabs, click-to-chart tickers, notes on hover, 60s poll. BONUS FIX while building: the tracker was killing weekend-registered ideas as data_gap (closed-market sweeps counted as fetch failures \u2014 all 4 day-one ideas were dead); root-caused, fixed, +2 regression tests, and all 4 ideas RESTORED to pending for Monday. Deferred as before: founder-verdict UI, conviction-lane A/B via origin.",
+      "notes": "SHIPPED + deployed 2026-07-05 (eyeball pending): `/add idea outcomes` — summary strip (resolved N + honest win rate, '—' until data), per-status chips, Open/Resolved tabs, click-to-chart tickers, notes on hover, 60s poll. BONUS FIX while building: the tracker was killing weekend-registered ideas as data_gap (closed-market sweeps counted as fetch failures — all 4 day-one ideas were dead); root-caused, fixed, +2 regression tests, and all 4 ideas RESTORED to pending for Monday. Deferred as before: founder-verdict UI, conviction-lane A/B via origin.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -125,17 +125,17 @@
       "lane": "done",
       "type": "bug",
       "priority": "high",
-      "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) \u2014 it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
+      "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) — it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
     {
       "id": "regime-sleeves",
-      "title": "Regime sleeves MERGED + deployed \u2014 dark until founder arms them",
+      "title": "Regime sleeves MERGED + deployed — dark until founder arms them",
       "lane": "done",
       "type": "safety",
       "priority": "high",
-      "notes": "Full ceremony complete: spec \u2192 PC build \u2192 serv adversarial review (4 real bugs incl. live-repro'd HIGH: disabled sleeve orphaned its open positions) \u2192 PC fix (ccbad64) \u2192 serv delta re-review w/ independent test runs (35/35) \u2192 founder squash-merge (4584356) \u2192 deployed, dormancy endpoint verified: both sleeves enabled:false, propose-only. ARM in Settings \u2192 Strategies when ready \u2014 that starts the paper clock. Follow-ups: _scan_generals pending-count fix (this week, non-gating); PC regens post-#28 research numbers.",
+      "notes": "Full ceremony complete: spec → PC build → serv adversarial review (4 real bugs incl. live-repro'd HIGH: disabled sleeve orphaned its open positions) → PC fix (ccbad64) → serv delta re-review w/ independent test runs (35/35) → founder squash-merge (4584356) → deployed, dormancy endpoint verified: both sleeves enabled:false, propose-only. ARM in Settings → Strategies when ready — that starts the paper clock. Follow-ups: _scan_generals pending-count fix (this week, non-gating); PC regens post-#28 research numbers.",
       "owner": "founder",
       "updated_at": "2026-07-04T03:37:00Z"
     },
@@ -145,7 +145,7 @@
       "lane": "done",
       "type": "bug",
       "priority": "normal",
-      "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) \u2014 pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
+      "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) — pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -155,7 +155,7 @@
       "lane": "done",
       "type": "feature",
       "priority": "high",
-      "notes": "SHIPPED + deployed 2026-07-05 (founder moved the gate up so A/B journals from judging day one). One batched LLM call per scan over no-structure candidates; up to 2 nominations, 'no conviction' fully OK; same validate_ideas pipeline (long-only, sanity bounds, no win%); origin stamped SERVER-side (LLM-provided origin ignored); fail-soft (conviction errors never touch structure lane); paper gets a labeled 'Conviction ideas (LLM-originated \u2014 unproven)' section; idea_outcomes gains origin column + by_origin win-rate split; widget shows LLM chip + per-origin summary. HARD-blocked from proposals: 5c bridge must filter origin != structure. Suite 1509 green.",
+      "notes": "SHIPPED + deployed 2026-07-05 (founder moved the gate up so A/B journals from judging day one). One batched LLM call per scan over no-structure candidates; up to 2 nominations, 'no conviction' fully OK; same validate_ideas pipeline (long-only, sanity bounds, no win%); origin stamped SERVER-side (LLM-provided origin ignored); fail-soft (conviction errors never touch structure lane); paper gets a labeled 'Conviction ideas (LLM-originated — unproven)' section; idea_outcomes gains origin column + by_origin win-rate split; widget shows LLM chip + per-origin summary. HARD-blocked from proposals: 5c bridge must filter origin != structure. Suite 1509 green.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -165,7 +165,7 @@
       "lane": "backlog",
       "type": "ops",
       "priority": "normal",
-      "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) \u2014 makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
+      "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) — makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -185,7 +185,7 @@
       "lane": "backlog",
       "type": "research",
       "priority": "low",
-      "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) \u2014 adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data \u2014 trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
+      "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) — adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data — trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
       "owner": "founder",
       "updated_at": "2026-07-05"
     },
@@ -195,7 +195,7 @@
       "lane": "founder",
       "type": "ops",
       "priority": "high",
-      "notes": "Audited 2026-07-05, destination = PC over tailnet (your call). Serv side VERIFIED: nightly 03:00 sqlite .backup + integrity_check + config tarball, 14-day retention, coverage complete (everything that matters lives in trading.db; other DBs are empty stubs, research/ is rebuildable cache). RESTORE DRILL PASSED: restored yesterday's snapshot, integrity ok, row counts exact vs live. REMAINING (you): check the PC's HMT-backup-pull folder \u2014 is the newest trading-*.db recent? sshd shows the PC connecting most days but at scattered times (looks like Task Scheduler run-on-wake, not 03:30), and serv can't see what was copied. If stale, fix the 'HMT backup pull' scheduled task on Windows.",
+      "notes": "Audited 2026-07-05, destination = PC over tailnet (your call). Serv side VERIFIED: nightly 03:00 sqlite .backup + integrity_check + config tarball, 14-day retention, coverage complete (everything that matters lives in trading.db; other DBs are empty stubs, research/ is rebuildable cache). RESTORE DRILL PASSED: restored yesterday's snapshot, integrity ok, row counts exact vs live. REMAINING (you): check the PC's HMT-backup-pull folder — is the newest trading-*.db recent? sshd shows the PC connecting most days but at scattered times (looks like Task Scheduler run-on-wake, not 03:30), and serv can't see what was copied. If stale, fix the 'HMT backup pull' scheduled task on Windows.",
       "owner": "founder",
       "updated_at": "2026-07-05"
     },
@@ -211,7 +211,7 @@
     },
     {
       "id": "37",
-      "title": "Data-correctness tail: UTC\u2192ET dates, day_pl deposits, FIFO leak",
+      "title": "Data-correctness tail: UTC→ET dates, day_pl deposits, FIFO leak",
       "lane": "next",
       "type": "bug",
       "priority": "normal",
@@ -245,7 +245,7 @@
       "lane": "in_progress",
       "type": "research",
       "priority": "normal",
-      "notes": "Founder design session 2026-07-05. Doctrine: code detects (mention-velocity anomaly = counts vs rolling 14-day same-ET-hour baseline), LLM interprets (catalyst digging, qualitative only \u2014 never sentiment scores); social text = adversarial data (pump risk) behind the untrusted-content guard, influences judgment fields only, never levels. P1 (IN PROGRESS, Composer): accumulator loop \u2014 free Reddit JSON (WSB/stocks/investing/StockMarket) + StockTwits trending \u2192 social_mentions table + /api/social/buzz|trending with honest 'warming' state until baselines exist (start collecting NOW; the denominator needs weeks). P2: social block in veto-grade + conviction prompts (reinforce/kill with named reasons). P3: buzz-anomaly symbols injected as scan CANDIDATES (capped, source-tagged for A/B) \u2014 buzz nominates, the pipeline still has to find something real. P4: buzz alerts, only if P2/P3 prove value in the outcome tracker. No paid social APIs.",
+      "notes": "Founder design session 2026-07-05. Doctrine: code detects (mention-velocity anomaly = counts vs rolling 14-day same-ET-hour baseline), LLM interprets (catalyst digging, qualitative only — never sentiment scores); social text = adversarial data (pump risk) behind the untrusted-content guard, influences judgment fields only, never levels. P1 (IN PROGRESS, Composer): accumulator loop — free Reddit JSON (WSB/stocks/investing/StockMarket) + StockTwits trending → social_mentions table + /api/social/buzz|trending with honest 'warming' state until baselines exist (start collecting NOW; the denominator needs weeks). P2: social block in veto-grade + conviction prompts (reinforce/kill with named reasons). P3: buzz-anomaly symbols injected as scan CANDIDATES (capped, source-tagged for A/B) — buzz nominates, the pipeline still has to find something real. P4: buzz alerts, only if P2/P3 prove value in the outcome tracker. No paid social APIs.",
       "owner": "serv",
       "updated_at": "2026-07-05"
     },
@@ -315,7 +315,7 @@
       "lane": "backlog",
       "type": "ops",
       "priority": "low",
-      "notes": "Rapid deploys leave open tabs on stale builds \u2192 weird nav failures. App should detect the server build changed and prompt reload.",
+      "notes": "Rapid deploys leave open tabs on stale builds → weird nav failures. App should detect the server build changed and prompt reload.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -345,7 +345,7 @@
       "lane": "backlog",
       "type": "safety",
       "priority": "low",
-      "notes": "Gates ever enabling allow_short_selling \u2014 blocked until then.",
+      "notes": "Gates ever enabling allow_short_selling — blocked until then.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -365,7 +365,7 @@
       "lane": "backlog",
       "type": "feature",
       "priority": "normal",
-      "notes": "Open thread \u2014 needed for retrospective completeness.",
+      "notes": "Open thread — needed for retrospective completeness.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -375,7 +375,7 @@
       "lane": "done",
       "type": "feature",
       "priority": "high",
-      "notes": "3 consecutive scans \u2192 identical structure sets. Code detects, LLM vetoes/grades.",
+      "notes": "3 consecutive scans → identical structure sets. Code detects, LLM vetoes/grades.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     },
@@ -415,7 +415,7 @@
       "lane": "done",
       "type": "research",
       "priority": "high",
-      "notes": "Planner\u2192specialists\u2192critic\u2192editor; proprietary data first-class; founder-approved papers.",
+      "notes": "Planner→specialists→critic→editor; proprietary data first-class; founder-approved papers.",
       "owner": "serv",
       "updated_at": "2026-07-03"
     },
@@ -425,7 +425,7 @@
       "lane": "in_progress",
       "type": "bug",
       "priority": "high",
-      "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 \u2014 watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles \u2014 ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence \u2014 flag if it bugs you.",
+      "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 — watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles — ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence — flag if it bugs you.",
       "owner": "serv",
       "updated_at": "2026-07-04"
     }

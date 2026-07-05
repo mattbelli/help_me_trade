@@ -64,7 +64,19 @@ export function ResearchArtifactListItem({
             selected && "border-[var(--border)] bg-[var(--bg-hover)]",
           )}
         >
-          <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left">
+          {/* not a <button>: the row contains ClickableSymbol's buttons (nested buttons = hydration error) */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={onSelect}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect();
+              }
+            }}
+            className="min-w-0 flex-1 cursor-pointer text-left"
+          >
             <p className="line-clamp-2 font-mono text-[11px] text-foreground">{item.topic}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-[var(--fg-faint)]">
               <span
@@ -88,7 +100,7 @@ export function ResearchArtifactListItem({
               ) : null}
               <span className="text-[var(--fg-dim)]">{item.depth}</span>
             </p>
-          </button>
+          </div>
           <div className="flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
             {item.markdown ? (
               <button
