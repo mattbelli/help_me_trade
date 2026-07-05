@@ -7,7 +7,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { fetchWatchlists, type WatchlistsState } from "@/lib/api";
@@ -16,16 +15,9 @@ import { cn } from "@/lib/utils";
 type Props = {
   watchlistId?: string;
   onSelect: (watchlistId: string) => void;
-  editing?: boolean;
-  onToggleEdit?: () => void;
 };
 
-export function WatchlistListSelector({
-  watchlistId,
-  onSelect,
-  editing,
-  onToggleEdit,
-}: Props) {
+export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
   const [state, setState] = useState<WatchlistsState | null>(null);
 
   useEffect(() => {
@@ -80,21 +72,6 @@ export function WatchlistListSelector({
             {list.id === activeList.id ? <Check className="size-3" /> : null}
           </DropdownMenuItem>
         ))}
-        {onToggleEdit ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={onToggleEdit}
-              className={cn(
-                "flex items-center justify-between gap-3 px-2 py-1.5",
-                editing ? "text-foreground" : "text-[var(--fg-dim)]",
-              )}
-            >
-              Edit list
-              {editing ? <Check className="size-3" /> : null}
-            </DropdownMenuItem>
-          </>
-        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

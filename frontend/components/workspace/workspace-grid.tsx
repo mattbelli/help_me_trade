@@ -12,7 +12,7 @@ import {
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
 import { motion } from "motion/react";
-import { Check, ChevronDown, GripVertical, Menu as MenuIcon, X } from "lucide-react";
+import { Check, ChevronDown, GripVertical, Menu as MenuIcon, SquarePen, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -469,30 +469,24 @@ function WidgetHeader({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onConfigChange({ adding: !config.adding });
+                onConfigChange({ editing: !config.editing, adding: false });
               }}
               onPointerDown={(e) => e.stopPropagation()}
-              aria-label={config.adding ? "Close add symbol" : "Add symbol"}
-              aria-pressed={config.adding ?? false}
+              aria-label={config.editing ? "Done editing" : "Edit list"}
+              aria-pressed={config.editing ?? false}
               className={cn(
-                "workspace-no-drag inline-flex size-4 items-center justify-center rounded font-mono text-[length:var(--fs-title)] leading-none outline-none hover:bg-[var(--bg-hover)]",
-                config.adding
+                "workspace-no-drag inline-flex items-center justify-center rounded p-1 outline-none hover:bg-[var(--bg-hover)]",
+                config.editing
                   ? "text-[var(--c-accent)]"
                   : "text-[var(--fg-dim)] hover:text-foreground",
               )}
             >
-              +
+              <SquarePen className="size-3.5" />
             </button>
           ) : null}
           <WatchlistListSelector
             watchlistId={watchlistId}
             onSelect={onWatchlistChange}
-            editing={config?.editing ?? false}
-            onToggleEdit={
-              config && onConfigChange
-                ? () => onConfigChange({ editing: !config.editing })
-                : undefined
-            }
           />
         </>
       ) : null}

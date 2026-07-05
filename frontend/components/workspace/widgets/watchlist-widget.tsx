@@ -300,19 +300,35 @@ function WatchlistSymbolRow({
           "group/row group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
         )}
       >
-        <button
-          type="button"
-          className="cursor-grab select-none font-mono text-[length:var(--fs-table)] leading-none text-[var(--fg-faint)] opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-          aria-label={`Reorder ${symbol}`}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            onDragStart();
-            controls.start(e);
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          ⋮⋮
-        </button>
+        {editing ? (
+          <button
+            type="button"
+            disabled={removing}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label={`Remove ${symbol}`}
+            className="select-none rounded font-mono text-[length:var(--fs-body)] leading-none text-[var(--c-red)] hover:bg-[var(--bg-inset)] disabled:opacity-40"
+          >
+            −
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="cursor-grab select-none font-mono text-[length:var(--fs-table)] leading-none text-[var(--fg-faint)] opacity-40 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+            aria-label={`Reorder ${symbol}`}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onDragStart();
+              controls.start(e);
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            ⋮⋮
+          </button>
+        )}
         <span className="inline-flex min-w-0 items-center gap-1">
           <span
             className="flex size-1.5 shrink-0 items-center justify-center"
@@ -338,23 +354,7 @@ function WatchlistSymbolRow({
               {earningsBadgeLabel(earningsDays)}
             </span>
           ) : null}
-          <button
-            type="button"
-            disabled={removing}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            className={cn(
-              "rounded px-0.5 font-mono text-[length:var(--fs-body)] leading-none transition-opacity hover:bg-[var(--bg-inset)] hover:text-[var(--c-red)] disabled:opacity-40",
-              editing
-                ? "opacity-100 text-[var(--c-red)]"
-                : "text-[var(--fg-faint)] opacity-0 group-hover:opacity-100",
-            )}
-            aria-label={`Remove ${symbol}`}
-          >
-            ×
-          </button>
+
         </span>
         <span
           className={cn(
@@ -698,7 +698,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           )}
         </div>
 
-        {config.adding ? (
+        {config.adding || config.editing ? (
           <WatchlistAddRow
             symbols={symbols}
             activeListId={displayList.id}
