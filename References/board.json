@@ -40,14 +40,44 @@
       "updated_at": "2026-07-04"
     },
     {
+      "id": "ui-polish-small",
+      "title": "UI small fixes: duplicate 'performance' picker entries, sector-radar label collisions/clipping",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "low",
+      "notes": "UI_AUDIT.md POLISH bucket quick wins. Full list with file:line refs in the report.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ticker-link-gaps",
+      "title": "Ticker click-to-chart gaps: orders blotter + price alerts (house-rule violations)",
+      "lane": "next",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "UI_AUDIT.md: 2-3 widgets render tickers as plain text, violating the durable 'every ticker is click-to-focus-the-chart' rule. Small ClickableSymbol wiring round.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ui-empty-states",
+      "title": "Shared WidgetEmpty/WidgetLoading + empty-page CTA (audit sweep)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "UI_AUDIT.md systemic finding: ~20 widgets hand-roll divergent empty/loading states (padding, size, copy tone all differ) and empty workspace pages are a blank dotted canvas with no call-to-action. One shared component pair + an empty-page 'add widgets' CTA fixes all at once.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
       "id": "retire-old-ui",
       "title": "Retire old sidebar UI: workspace becomes the main URL",
       "lane": "next",
       "type": "feature",
       "priority": "high",
-      "notes": "Founder-agreed hybrid: workspace at / + a few dedicated pages (board, maybe research) in the new shell. Fix all notification/chat deep-links that exit to old routes. Gaps first: memory widget create/edit/search, RunningNow roll-up.",
+      "notes": "UI AUDIT (References/UI_AUDIT.md, 2026-07-05) reinforces this as the #1 UI issue: two complete UIs in two design languages are live at once, and the legacy /trading route ships a manual Buy/Sell terminal that contradicts the cockpit mission. Original scope stands: workspace at / + a few dedicated new-shell pages; fix notification/chat deep-links that exit to old routes; gaps first (memory widget create/edit/search, RunningNow roll-up). Audit adds: research page vs research widget = two looks for one feature \u2014 unify on the terminal look as part of this retirement.",
       "owner": "serv",
-      "updated_at": "2026-07-04"
+      "updated_at": "2026-07-05"
     },
     {
       "id": "idea-outcomes",
