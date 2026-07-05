@@ -109,28 +109,51 @@ const REPRESENTATIVE_VAR: Record<EditableToken, string> = Object.fromEntries(
   EDITABLE_TOKENS.map((t) => [t.token, t.vars[0]]),
 ) as Record<EditableToken, string>;
 
-// ── Full per-var catalog (the "All colors" section) ──────────────────────────
-// Every themable var, individually editable, grouped for the editor. Kept in
-// sync with the [data-theme] blocks in globals.css; excludes the Tailwind
-// --color-* aliases, font/radius vars, and the non-color --panel-shadow.
+// ── Unified color hierarchy (the editor's single list) ───────────────────────
+// One vertical list: SINGLE rows for standalone colors, GROUP rows whose swatch
+// bulk-sets every member (per its bulkSet mode) and expand to per-var rows.
+// Kept in sync with the [data-theme] blocks in globals.css; excludes the
+// Tailwind --color-* aliases, font/radius vars, and the non-color
+// --panel-shadow / --grid-placeholder (derived from other vars).
 
-export type ColorVar = { var: string; label: string };
-export type ColorVarGroup = { label: string; vars: ColorVar[] };
+export type ThemeColorMember = {
+  var: string;
+  label: string;
+  /**
+   * How the group swatch writes this member. "color" (default): the picked hex
+   * verbatim; "soft": 12% color-mix wash; "glow": 1px ring at 12%; "skip":
+   * untouched by the group swatch (individually editable only).
+   */
+  bulkSet?: "color" | "soft" | "glow" | "skip";
+};
 
-export const ALL_COLOR_GROUPS: ColorVarGroup[] = [
+export type ThemeColorRow =
+  | { kind: "single"; var: string; label: string }
+  | { kind: "group"; label: string; lead: string; members: ThemeColorMember[] };
+
+export const THEME_COLOR_ROWS: ThemeColorRow[] = [
+  { kind: "single", var: "--background", label: "Background" },
   {
+    kind: "group",
     label: "Text",
-    vars: [
+    lead: "--foreground",
+    members: [
       { var: "--foreground", label: "Foreground" },
       { var: "--fg-dim", label: "Dim text" },
       { var: "--fg-faint", label: "Faint text" },
       { var: "--muted-foreground", label: "Muted text" },
+      { var: "--card-foreground", label: "Card text" },
+      { var: "--popover-foreground", label: "Popover text" },
+      { var: "--primary", label: "Primary" },
+      { var: "--secondary-foreground", label: "Secondary text" },
+      { var: "--accent-foreground", label: "Accent-surface text" },
     ],
   },
   {
+    kind: "group",
     label: "Surfaces",
-    vars: [
-      { var: "--background", label: "Background" },
+    lead: "--panel",
+    members: [
       { var: "--panel", label: "Panel" },
       { var: "--card", label: "Card" },
       { var: "--popover", label: "Popover" },
@@ -140,12 +163,14 @@ export const ALL_COLOR_GROUPS: ColorVarGroup[] = [
       { var: "--muted", label: "Muted" },
       { var: "--secondary", label: "Secondary" },
       { var: "--accent", label: "Accent surface" },
-      { var: "--scrim", label: "Scrim (overlay)" },
+      { var: "--scrim", label: "Scrim (overlay)", bulkSet: "skip" },
     ],
   },
   {
+    kind: "group",
     label: "Borders",
-    vars: [
+    lead: "--border",
+    members: [
       { var: "--border", label: "Border" },
       { var: "--border-strong", label: "Border strong" },
       { var: "--input", label: "Input" },
@@ -153,24 +178,46 @@ export const ALL_COLOR_GROUPS: ColorVarGroup[] = [
     ],
   },
   {
+    kind: "group",
     label: "Accent",
-    vars: [
+    lead: "--c-accent",
+    members: [
       { var: "--c-accent", label: "Accent" },
-      { var: "--c-accent-soft", label: "Accent soft" },
-      { var: "--c-on-accent", label: "On accent" },
-      { var: "--c-glow", label: "Glow" },
+      { var: "--c-accent-soft", label: "Accent soft", bulkSet: "soft" },
+      { var: "--c-on-accent", label: "On accent", bulkSet: "skip" },
+      { var: "--c-glow", label: "Glow", bulkSet: "glow" },
       { var: "--c-command", label: "Command" },
+      { var: "--sidebar-primary", label: "Sidebar primary" },
+      { var: "--sidebar-ring", label: "Sidebar ring" },
+      { var: "--chart-1", label: "Chart 1" },
     ],
   },
   {
-    label: "Semantic",
-    vars: [
+    kind: "group",
+    label: "Positive",
+    lead: "--c-green",
+    members: [
       { var: "--c-green", label: "Green" },
       { var: "--pnl-positive", label: "P&L positive" },
+    ],
+  },
+  {
+    kind: "group",
+    label: "Negative",
+    lead: "--c-red",
+    members: [
       { var: "--c-red", label: "Red" },
       { var: "--pnl-negative", label: "P&L negative" },
       { var: "--c-danger", label: "Danger" },
       { var: "--destructive", label: "Destructive" },
+      { var: "--chart-down", label: "Chart down" },
+    ],
+  },
+  {
+    kind: "group",
+    label: "Highlights",
+    lead: "--c-amber",
+    members: [
       { var: "--c-amber", label: "Amber (warnings)" },
       { var: "--c-yellow", label: "Yellow" },
       { var: "--c-blue", label: "Blue" },
@@ -178,12 +225,12 @@ export const ALL_COLOR_GROUPS: ColorVarGroup[] = [
     ],
   },
   {
+    kind: "group",
     label: "Chart",
-    vars: [
+    lead: "--chart-accent",
+    members: [
       { var: "--chart-background", label: "Chart bg" },
       { var: "--chart-accent", label: "Chart line" },
-      { var: "--chart-down", label: "Chart down" },
-      { var: "--chart-1", label: "Chart 1" },
       { var: "--chart-2", label: "Chart 2" },
       { var: "--chart-3", label: "Chart 3" },
       { var: "--chart-4", label: "Chart 4" },
@@ -191,18 +238,38 @@ export const ALL_COLOR_GROUPS: ColorVarGroup[] = [
     ],
   },
   {
+    kind: "group",
     label: "Sidebar",
-    vars: [
+    lead: "--sidebar",
+    members: [
       { var: "--sidebar", label: "Sidebar" },
-      { var: "--sidebar-accent", label: "Sidebar accent" },
-      { var: "--sidebar-border", label: "Sidebar border" },
       { var: "--sidebar-foreground", label: "Sidebar text" },
-      { var: "--sidebar-accent-foreground", label: "Sidebar accent text" },
       { var: "--sidebar-primary", label: "Sidebar primary" },
+      { var: "--sidebar-primary-foreground", label: "Sidebar primary text" },
+      { var: "--sidebar-accent", label: "Sidebar accent" },
+      { var: "--sidebar-accent-foreground", label: "Sidebar accent text" },
+      { var: "--sidebar-border", label: "Sidebar border" },
       { var: "--sidebar-ring", label: "Sidebar ring" },
     ],
   },
 ];
+
+/** The value a group swatch writes for one member given the picked hex. */
+export function bulkSetValue(
+  mode: ThemeColorMember["bulkSet"],
+  hex: string,
+): string | null {
+  switch (mode) {
+    case "skip":
+      return null;
+    case "soft":
+      return `color-mix(in srgb, ${hex} 12%, transparent)`;
+    case "glow":
+      return `0 0 0 1px color-mix(in srgb, ${hex} 12%, transparent)`;
+    default:
+      return hex;
+  }
+}
 
 /** True when a value can round-trip through <input type="color"> (#rgb/#rrggbb). */
 export function isHexColor(value: string): boolean {
@@ -210,12 +277,14 @@ export function isHexColor(value: string): boolean {
 }
 
 // Every var the inline preview may touch — cleared verbatim on cancel/save.
-// Union of the quick-palette groups, the full per-var catalog, and the derived
-// --c-accent-soft, deduped.
+// Union of the legacy quick-palette fan-out, the unified hierarchy, and the
+// derived --c-accent-soft, deduped.
 const PREVIEW_VARS: string[] = Array.from(
   new Set([
     ...EDITABLE_TOKENS.flatMap((t) => t.vars),
-    ...ALL_COLOR_GROUPS.flatMap((g) => g.vars.map((v) => v.var)),
+    ...THEME_COLOR_ROWS.flatMap((r) =>
+      r.kind === "single" ? [r.var] : r.members.map((m) => m.var),
+    ),
     "--c-accent-soft",
   ]),
 );

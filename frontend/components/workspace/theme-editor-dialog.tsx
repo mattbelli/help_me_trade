@@ -12,16 +12,14 @@ import {
 } from "@/components/ui/dialog";
 import { TerminalButton, TerminalInput } from "@/components/ui/terminal";
 import {
-  ALL_COLOR_GROUPS,
   applyInlinePreview,
+  bulkSetValue,
   captureThemeVars,
   clearInlinePreview,
-  deriveTokensFromVars,
-  EDITABLE_TOKENS,
   isHexColor,
-  mergeTokensIntoVars,
   normalizeHex,
-  type EditableToken,
+  THEME_COLOR_ROWS,
+  type ThemeColorMember,
 } from "@/lib/workspace/custom-themes";
 import {
   isBuiltinTheme,
@@ -44,6 +42,18 @@ function baseLabel(base: string, customName: string | undefined): string {
   return customName ?? "Custom";
 }
 
+/** Distinct current values among a group's plain-color members (chip stripes). */
+function distinctMemberColors(
+  members: ThemeColorMember[],
+  vars: Record<string, string>,
+): string[] {
+  const values = members
+    .filter((m) => (m.bulkSet ?? "color") === "color")
+    .map((m) => (vars[m.var] ?? "").trim())
+    .filter(Boolean);
+  return Array.from(new Set(values));
+}
+
 export function ThemeEditorDialog({
   open,
   onOpenChange,
@@ -62,13 +72,11 @@ export function ThemeEditorDialog({
   );
 
   const [name, setName] = useState("");
-  const [tokens, setTokens] = useState<Record<EditableToken, string>>(
-    () => ({}) as Record<EditableToken, string>,
-  );
-  const [baseVars, setBaseVars] = useState<Record<string, string>>({});
-  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  // ONE working var map: group swatches write all members, member rows write
+  // one var, last write wins. Saved verbatim (tokens re-derived at save).
+  const [vars, setVars] = useState<Record<string, string>>({});
   const [cloneBase, setCloneBase] = useState<string>("carbon");
-  const [showAll, setShowAll] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   // Seed when a fresh editor session opens (render-time adjust on prop change —
   // the React-endorsed "store previous value in state" pattern, not an effect).
@@ -80,45 +88,39 @@ export function ThemeEditorDialog({
       // closed — nothing to seed
     } else if (editing) {
       setName(editing.name);
-      setTokens(editing.tokens);
-      setBaseVars(editing.vars);
-      setOverrides({});
+      setVars({ ...editing.vars });
       setCloneBase(editing.base);
+      setExpanded({});
     } else {
       // Clone-current mode: snapshot the resolved active theme.
-      const vars = captureThemeVars();
       setName("");
-      setTokens(deriveTokensFromVars(vars));
-      setBaseVars(vars);
-      setOverrides({});
+      setVars(captureThemeVars());
       setCloneBase(theme ?? "carbon");
+      setExpanded({});
     }
   }
 
-  // The working var map: quick-palette group fan-out with individual "All
-  // colors" edits layered on top (individual edits win over group edits).
-  const previewVars = useMemo(
-    () => ({ ...mergeTokensIntoVars(baseVars, tokens), ...overrides }),
-    [baseVars, tokens, overrides],
-  );
-
   // Paint the live preview whenever the editor is open with seeded vars.
   useEffect(() => {
-    if (!open || Object.keys(baseVars).length === 0) return;
-    applyInlinePreview(previewVars);
-  }, [open, baseVars, previewVars]);
-
-  function handleColor(token: EditableToken, raw: string) {
-    const hex = normalizeHex(raw);
-    const nextTokens = { ...tokens, [token]: hex };
-    setTokens(nextTokens);
-    applyInlinePreview({ ...mergeTokensIntoVars(baseVars, nextTokens), ...overrides });
-  }
+    if (!open || Object.keys(vars).length === 0) return;
+    applyInlinePreview(vars);
+  }, [open, vars]);
 
   function handleVarChange(cssVar: string, raw: string) {
-    const nextOverrides = { ...overrides, [cssVar]: raw };
-    setOverrides(nextOverrides);
-    applyInlinePreview({ ...mergeTokensIntoVars(baseVars, tokens), ...nextOverrides });
+    const next = { ...vars, [cssVar]: raw };
+    setVars(next);
+    applyInlinePreview(next);
+  }
+
+  function handleGroupSet(members: ThemeColorMember[], raw: string) {
+    const hex = normalizeHex(raw);
+    const next = { ...vars };
+    for (const m of members) {
+      const value = bulkSetValue(m.bulkSet, hex);
+      if (value !== null) next[m.var] = value;
+    }
+    setVars(next);
+    applyInlinePreview(next);
   }
 
   function handleCancel() {
@@ -128,7 +130,7 @@ export function ThemeEditorDialog({
 
   function handleSave() {
     if (editing) {
-      updateVars(editing.id, previewVars);
+      updateVars(editing.id, vars);
       if (name.trim() && name.trim() !== editing.name) {
         rename(editing.id, name.trim());
       }
@@ -151,6 +153,35 @@ export function ThemeEditorDialog({
       setTheme(isBuiltinTheme(editing.base) ? editing.base : "carbon");
     }
     onOpenChange(false);
+  }
+
+  function renderMemberRow({ var: cssVar, label }: ThemeColorMember) {
+    const value = vars[cssVar] ?? "";
+    return (
+      <div key={cssVar} className="flex items-center gap-2 pl-5">
+        <div className="flex w-32 shrink-0 flex-col leading-tight">
+          <span className="font-mono text-[10px] text-foreground">{label}</span>
+          <span className="font-mono text-[8px] text-[var(--fg-faint)]">
+            {cssVar}
+          </span>
+        </div>
+        {isHexColor(value) ? (
+          <input
+            type="color"
+            aria-label={label}
+            value={normalizeHex(value)}
+            onChange={(e) => handleVarChange(cssVar, e.target.value)}
+            className="size-6 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
+          />
+        ) : null}
+        <TerminalInput
+          value={value}
+          onChange={(e) => handleVarChange(cssVar, e.target.value)}
+          spellCheck={false}
+          className="h-6 flex-1"
+        />
+      </div>
+    );
   }
 
   return (
@@ -186,88 +217,103 @@ export function ThemeEditorDialog({
           />
         </label>
 
-        <div className="flex flex-col gap-1.5">
-          {EDITABLE_TOKENS.map(({ token, label }) => {
-            const value = normalizeHex(tokens[token] ?? "#000000");
+        <div className="flex max-h-[min(420px,55vh)] flex-col gap-1.5 overflow-y-auto pr-1">
+          {THEME_COLOR_ROWS.map((row) => {
+            if (row.kind === "single") {
+              const value = vars[row.var] ?? "";
+              return (
+                <div key={row.var} className="flex items-center gap-2">
+                  <span className="w-2 shrink-0" />
+                  <span className="w-24 shrink-0 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
+                    {row.label}
+                  </span>
+                  {isHexColor(value) ? (
+                    <input
+                      type="color"
+                      aria-label={row.label}
+                      value={normalizeHex(value)}
+                      onChange={(e) => handleVarChange(row.var, e.target.value)}
+                      className="size-7 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
+                    />
+                  ) : null}
+                  <TerminalInput
+                    value={value}
+                    onChange={(e) => handleVarChange(row.var, e.target.value)}
+                    spellCheck={false}
+                    className="h-7 w-28"
+                  />
+                </div>
+              );
+            }
+
+            const isOpen = expanded[row.label] ?? false;
+            const distinct = distinctMemberColors(row.members, vars);
+            const uniform = distinct.length <= 1;
+            const leadValue = normalizeHex(vars[row.lead] ?? "#000000");
             return (
-              <div key={token} className="flex items-center gap-3">
-                <span className="w-20 shrink-0 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
-                  {label}
-                </span>
-                <input
-                  type="color"
-                  aria-label={label}
-                  value={value}
-                  onChange={(e) => handleColor(token, e.target.value)}
-                  className="size-7 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
-                />
-                <TerminalInput
-                  value={tokens[token] ?? ""}
-                  onChange={(e) => handleColor(token, e.target.value)}
-                  spellCheck={false}
-                  className="h-7 w-28 uppercase"
-                />
+              <div key={row.label} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.label}`}
+                    onClick={() =>
+                      setExpanded((s) => ({ ...s, [row.label]: !isOpen }))
+                    }
+                    className="w-2 shrink-0 font-mono text-[9px] text-[var(--fg-faint)] hover:text-foreground"
+                  >
+                    {isOpen ? "▾" : "▸"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpanded((s) => ({ ...s, [row.label]: !isOpen }))
+                    }
+                    className="w-24 shrink-0 text-left font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)] hover:text-foreground"
+                  >
+                    {row.label}
+                  </button>
+                  {uniform ? (
+                    <input
+                      type="color"
+                      aria-label={`${row.label} (all)`}
+                      value={leadValue}
+                      onChange={(e) => handleGroupSet(row.members, e.target.value)}
+                      className="size-7 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
+                    />
+                  ) : (
+                    <label
+                      className="relative size-7 shrink-0 cursor-pointer overflow-hidden rounded border border-[var(--border)] p-0.5"
+                      title="Multiple colors — expand to edit individually, or pick to set all"
+                    >
+                      <span className="flex size-full overflow-hidden rounded-[2px]">
+                        {distinct.slice(0, 4).map((c) => (
+                          <span
+                            key={c}
+                            className="flex-1"
+                            style={{ background: c }}
+                          />
+                        ))}
+                      </span>
+                      <input
+                        type="color"
+                        aria-label={`${row.label} (all)`}
+                        value={leadValue}
+                        onChange={(e) =>
+                          handleGroupSet(row.members, e.target.value)
+                        }
+                        className="absolute inset-0 size-full cursor-pointer opacity-0"
+                      />
+                    </label>
+                  )}
+                </div>
+                {isOpen ? (
+                  <div className="flex flex-col gap-1">
+                    {row.members.map(renderMemberRow)}
+                  </div>
+                ) : null}
               </div>
             );
           })}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => setShowAll((s) => !s)}
-            className="flex items-center gap-1.5 font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-dim)] hover:text-foreground"
-          >
-            <span className="w-2 text-[var(--fg-faint)]">
-              {showAll ? "▾" : "▸"}
-            </span>
-            All colors
-          </button>
-          {showAll ? (
-            <div className="flex max-h-[280px] flex-col gap-3 overflow-y-auto pr-1">
-              {ALL_COLOR_GROUPS.map((group) => (
-                <div key={group.label} className="flex flex-col gap-1">
-                  <div className="font-mono text-[9px] tracking-[0.1em] uppercase text-[var(--fg-faint)]">
-                    {group.label}
-                  </div>
-                  {group.vars.map(({ var: cssVar, label }) => {
-                    const value = previewVars[cssVar] ?? "";
-                    return (
-                      <div key={cssVar} className="flex items-center gap-2">
-                        <div className="flex w-32 shrink-0 flex-col leading-tight">
-                          <span className="font-mono text-[10px] text-foreground">
-                            {label}
-                          </span>
-                          <span className="font-mono text-[8px] text-[var(--fg-faint)]">
-                            {cssVar}
-                          </span>
-                        </div>
-                        {isHexColor(value) ? (
-                          <input
-                            type="color"
-                            aria-label={label}
-                            value={normalizeHex(value)}
-                            onChange={(e) =>
-                              handleVarChange(cssVar, e.target.value)
-                            }
-                            className="size-6 shrink-0 cursor-pointer rounded border border-[var(--border)] bg-transparent p-0.5"
-                          />
-                        ) : null}
-                        <TerminalInput
-                          value={value}
-                          onChange={(e) =>
-                            handleVarChange(cssVar, e.target.value)
-                          }
-                          spellCheck={false}
-                          className="h-6 flex-1"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          ) : null}
         </div>
 
         <div className="-mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t border-[var(--border)] bg-[var(--bg-inset)]/50 p-3">
