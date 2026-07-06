@@ -16,7 +16,11 @@ from db.order_executions import (
 )
 from db.paper_orders import get_proposal
 from signals.notify import notify
-from trading.position_ledger import record_session_node_managed_fill, record_strategy_fill
+from trading.position_ledger import (
+    flush_fill_attribution_orphans,
+    record_session_node_managed_fill,
+    record_strategy_fill,
+)
 from trading.proposals import _qty_str
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,14 @@ _PENDING_ORPHAN_REJECT_SECONDS = 120
 _TERMINAL_STATUSES = frozenset(
     {"filled", "partially_filled", "canceled", "expired", "rejected"}
 )
+
+
+async def _flush_attribution_orphans(db_path: Path) -> None:
+    """Fire the founder's critical page for any unmanaged-fill orphans. Never raises."""
+    try:
+        await flush_fill_attribution_orphans(db_path=db_path)
+    except Exception:
+        logger.exception("Failed to flush fill-attribution orphan notifications")
 
 
 def _map_broker_status(broker_status: str) -> str | None:
@@ -238,6 +250,9 @@ async def reconcile_open_executions(
         broker_name, account_id=account_id, db_path=db_path
     )
     if not executions:
+        # Nothing to reconcile, but still page any orphan quarantined on a prior
+        # tick (safety-M1 crash recovery — the durable row outlives the process).
+        await _flush_attribution_orphans(db_path)
         return
 
     adapter = (
@@ -345,3 +360,7 @@ async def reconcile_open_executions(
             logger.exception(
                 "Failed to send fill_report push for execution %s", execution_id
             )
+
+    # Page the founder for any fill that could not be attributed to a managed
+    # position this pass (safety-M1: an unmanaged fill must never stay silent).
+    await _flush_attribution_orphans(db_path)
