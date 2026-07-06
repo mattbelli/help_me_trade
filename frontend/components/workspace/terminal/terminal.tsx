@@ -153,6 +153,20 @@ export function Terminal() {
     [setOpen, focusInput],
   );
 
+  // Quake-style click-away: the grid above stays live, so a click on a widget
+  // both acts on it and drops the drawer. Listener doesn't preventDefault.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: globalThis.PointerEvent) => {
+      const root = wrapperRef.current;
+      if (root && e.target instanceof Node && !root.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open, setOpen]);
+
   const submitLine = useCallback(
     async (raw: string) => {
       const text = raw.trim();
@@ -454,13 +468,13 @@ export function Terminal() {
       >
         <span className="shrink-0 text-[var(--c-command)]">›</span>
 
-        <div className="relative inline-grid min-w-[16rem] max-w-[50%] flex-1 items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1">
+        <div className="relative inline-grid min-w-[16rem] flex-1 items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1">
           <span
             aria-hidden
             className="invisible col-start-1 row-start-1 whitespace-pre text-[length:var(--fs-emph)]"
           >
             {mirrorText}
-            {focused ? "▋" : ""}
+            {focused ? <span className="inline-block w-[0.55em]" /> : null}
           </span>
 
           <input
@@ -485,17 +499,17 @@ export function Terminal() {
           {focused ? (
             <span
               aria-hidden
-              className="pointer-events-none col-start-1 row-start-1 flex items-center text-[length:var(--fs-emph)] text-transparent"
+              className="pointer-events-none col-start-1 row-start-1 flex items-center whitespace-pre text-[length:var(--fs-emph)] text-transparent"
             >
               {inputValue}
+              {/* Real element, not a ▋ glyph — glyph metrics vary by font
+                  (and fallback fonts) which drifted the block off the text. */}
               <span
                 className={cn(
-                  "text-[var(--c-command)]",
+                  "inline-block h-[1.15em] w-[0.55em] self-center bg-[var(--c-command)]",
                   cursorVisible ? "opacity-100" : "opacity-0",
                 )}
-              >
-                ▋
-              </span>
+              />
             </span>
           ) : null}
         </div>

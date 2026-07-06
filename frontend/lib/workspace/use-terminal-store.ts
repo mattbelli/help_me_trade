@@ -17,7 +17,10 @@ const HISTORY_MAX = 200;
 
 const MIN_SVH = 0.25;
 const MAX_SVH = 0.85;
-const DEFAULT_SVH = 0.46;
+// Default = only the bottom band: the founder's attention gradient runs
+// top-left → bottom-right, so the summoned drawer eats the least-important
+// zone and the watchlist/top charts stay visible. Drag to taste (persisted).
+const DEFAULT_SVH = 0.36;
 
 function viewportPx(fraction: number): number {
   const h = typeof window === "undefined" ? 900 : window.innerHeight;
