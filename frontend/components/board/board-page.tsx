@@ -423,6 +423,65 @@ export function BoardPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const { lastSeen, seenCards, markAllSeen, markCardSeen } = useBoardLastSeen();
+  const laneScrollRef = useRef<HTMLDivElement>(null);
+
+  // Middle-mouse-drag pans the lane row (same gesture as the workspace canvas;
+  // scrollbars are hidden globally, so this is the desktop horizontal-scroll
+  // affordance).
+  useEffect(() => {
+    const el = laneScrollRef.current;
+    if (!el) return;
+    let panning = false;
+    let pointerId: number | null = null;
+    let start = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+
+    const onPointerDown = (e: globalThis.PointerEvent) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      panning = true;
+      pointerId = e.pointerId;
+      start = {
+        x: e.clientX,
+        y: e.clientY,
+        scrollLeft: el.scrollLeft,
+        scrollTop: el.scrollTop,
+      };
+      el.setPointerCapture(e.pointerId);
+      el.style.cursor = "grabbing";
+    };
+    const onPointerMove = (e: globalThis.PointerEvent) => {
+      if (!panning || e.pointerId !== pointerId) return;
+      el.scrollLeft = start.scrollLeft - (e.clientX - start.x);
+      el.scrollTop = start.scrollTop - (e.clientY - start.y);
+    };
+    const endPan = (e: globalThis.PointerEvent) => {
+      if (e.pointerId !== pointerId) return;
+      panning = false;
+      pointerId = null;
+      el.style.cursor = "";
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        /* not captured */
+      }
+    };
+    const onMouseDown = (e: globalThis.MouseEvent) => {
+      if (e.button === 1) e.preventDefault();
+    };
+
+    el.addEventListener("pointerdown", onPointerDown, { capture: true });
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", endPan);
+    el.addEventListener("pointercancel", endPan);
+    el.addEventListener("mousedown", onMouseDown);
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup", endPan);
+      el.removeEventListener("pointercancel", endPan);
+      el.removeEventListener("mousedown", onMouseDown);
+    };
+  }, []);
 
   const handleToggleCard = useCallback(
     (cardId: string) => {
@@ -556,7 +615,14 @@ export function BoardPage() {
             </p>
           ) : null}
 
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-center md:gap-4 md:overflow-x-auto md:pb-2">
+          {/* justify-center on a scrollable flex row makes left-side overflow
+              unreachable (scrollLeft can't go negative) — the founder/inbox
+              lanes were cut off on narrow viewports. Lanes are md:flex-1 so
+              they fill wide screens without centering. */}
+          <div
+            ref={laneScrollRef}
+            className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:pb-2"
+          >
             {lanes.map((lane) => (
               <BoardLane
                 key={lane}
