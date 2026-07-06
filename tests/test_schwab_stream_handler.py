@@ -12,9 +12,31 @@ assert the hub's QuoteState is populated — no network.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from brokers.market_stream import QuoteState
 from brokers.schwab_market_stream import SchwabMarketStreamHub
+
+
+@pytest.fixture(autouse=True)
+def _regular_session(monkeypatch):
+    """Pin the session gate to RTH so handler tests are deterministic regardless of
+    wall clock; off-hours tests re-patch `market_session` explicitly."""
+    monkeypatch.setattr(
+        "brokers.schwab_market_stream.market_session", lambda: "regular"
+    )
+
+
+async def _noop_async(*args, **kwargs):
+    return None
+
+
+async def _drain(hub: SchwabMarketStreamHub) -> None:
+    """Await the fire-and-forget broadcast/alert tasks _on_equity scheduled."""
+    if hub._inflight_ticks:
+        await asyncio.gather(*list(hub._inflight_ticks))
 
 
 def _labeled_equity_msg() -> dict:
@@ -138,3 +160,99 @@ async def test_post_tick_gates_equity_alerts_to_rth(monkeypatch) -> None:
     monkeypatch.setattr("brokers.schwab_market_stream.is_market_open", lambda: True)
     await hub._post_tick("SPY", 733.0, 728.99)
     assert calls == [("SPY", 733.0, 728.99)]
+
+
+# ---------------------------------------------------------------------------
+# Session gate: outside RTH the equity stream must freeze the regular price and
+# route ticks to the extended fields (bug: price + ext_price moved in lockstep
+# post-4pm). Patch the session function — never the wall clock.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regular_tick_drives_price_leaves_ext_untouched() -> None:
+    """RTH behavior pinned: tick updates price/change_pct/sparkline, not ext."""
+    hub = SchwabMarketStreamHub()
+    hub._on_equity(_labeled_equity_msg())
+    state = hub._quotes["AAPL"]
+    assert state.price == pytest.approx(200.5)
+    assert state.change_pct == pytest.approx(1.25)
+    assert state.sparkline == [pytest.approx(200.5)]
+    assert state.ext_price is None
+    assert state.market_session is None
+
+
+@pytest.mark.asyncio
+async def test_post_session_freezes_price_routes_to_ext(monkeypatch) -> None:
+    """Post-market tick leaves price/change_pct/sparkline frozen and fills the ext
+    fields (ext_change_pct measured vs the frozen regular close)."""
+    monkeypatch.setattr(
+        "brokers.schwab_market_stream.market_session", lambda: "post"
+    )
+    hub = SchwabMarketStreamHub()
+    monkeypatch.setattr(hub, "_broadcast_quote", _noop_async)
+    monkeypatch.setattr(hub, "_check_price_alerts", _noop_async)
+    # Frozen regular close from the last RTH tick.
+    hub._quotes["AAPL"] = QuoteState(
+        price=198.0, change_pct=0.5, sparkline=[197.0, 198.0], prev_close=196.0
+    )
+    hub._on_equity({"content": [{"key": "AAPL", "LAST_PRICE": 200.5}]})
+    await _drain(hub)
+    state = hub._quotes["AAPL"]
+    # Regular fields frozen.
+    assert state.price == pytest.approx(198.0)
+    assert state.change_pct == pytest.approx(0.5)
+    assert state.sparkline == [197.0, 198.0]
+    # Ext fields updated: (200.5 - 198.0) / 198.0 * 100 = 1.26%.
+    assert state.ext_price == pytest.approx(200.5)
+    assert state.ext_change_pct == pytest.approx(1.26)
+    assert state.market_session == "post"
+
+
+@pytest.mark.asyncio
+async def test_ext_change_pct_falls_back_to_prev_close(monkeypatch) -> None:
+    """When no frozen regular price is set, ext_change_pct measures vs prev_close."""
+    monkeypatch.setattr(
+        "brokers.schwab_market_stream.market_session", lambda: "overnight"
+    )
+    hub = SchwabMarketStreamHub()
+    monkeypatch.setattr(hub, "_broadcast_quote", _noop_async)
+    monkeypatch.setattr(hub, "_check_price_alerts", _noop_async)
+    hub._quotes["MSFT"] = QuoteState(price=0.0, prev_close=400.0)
+    hub._on_equity({"content": [{"key": "MSFT", "LAST_PRICE": 404.0}]})
+    await _drain(hub)
+    state = hub._quotes["MSFT"]
+    assert state.price == pytest.approx(0.0)  # still frozen (unset)
+    assert state.ext_price == pytest.approx(404.0)
+    assert state.ext_change_pct == pytest.approx(1.0)  # (404-400)/400*100
+    assert state.market_session == "overnight"
+
+
+@pytest.mark.asyncio
+async def test_ext_alert_fires_and_dedups_with_rest_poll(monkeypatch) -> None:
+    """Post-market ext move fires a price alert; a REST apply_extended poll of the
+    SAME price does NOT double-fire (structural dedup via shared state.ext_price)."""
+    monkeypatch.setattr(
+        "brokers.schwab_market_stream.market_session", lambda: "post"
+    )
+    hub = SchwabMarketStreamHub()
+    calls: list[tuple[str, float, float]] = []
+
+    async def _fake_check(sym, prev, current):
+        calls.append((sym, prev, current))
+
+    monkeypatch.setattr(hub, "_broadcast_quote", _noop_async)
+    monkeypatch.setattr(hub, "_check_price_alerts", _fake_check)
+    hub._quotes["SPY"] = QuoteState(price=730.0, prev_close=728.0, ext_price=730.0)
+
+    # Stream ext tick 730 -> 731.5 fires against the prior ext value.
+    hub._on_equity({"content": [{"key": "SPY", "LAST_PRICE": 731.5}]})
+    await _drain(hub)
+    assert calls == [("SPY", 730.0, 731.5)]
+
+    # REST poll applies the SAME 731.5: prev_ext == ext_price now, so no re-fire.
+    calls.clear()
+    await hub.apply_extended(
+        "SPY", ext_price=731.5, ext_change_pct=0.48, market_session="post"
+    )
+    assert calls == []

@@ -23,6 +23,7 @@ from typing import Any
 from schwab.streaming import StreamClient
 
 from brokers.errors import BrokerError
+from brokers.market_clock import market_session
 from brokers.market_stream import (
     RECONNECT_BASE_SEC,
     RECONNECT_MAX_SEC,
@@ -288,7 +289,26 @@ class SchwabMarketStreamHub(BaseMarketHub):
     # ------------------------------------------------------------------
 
     def _on_equity(self, msg: dict[str, Any]) -> None:
-        """Level-one equity handler — called synchronously by StreamClient."""
+        """Level-one equity handler — called synchronously by StreamClient.
+
+        Session-gated (computed once per message batch):
+          • regular → the tick drives state.price / change_pct / sparkline and
+            fires RTH price alerts — exactly the prior behavior.
+          • pre / post / overnight / closed → state.price / change_pct / sparkline
+            are FROZEN (the 4pm regular close outside RTH); the equity stream keeps
+            delivering after-hours trades but they must NOT drag the regular price.
+            The tick instead drives the extended fields (ext_price / ext_change_pct
+            vs the frozen close, else prev_close / market_session) — mirroring the
+            REST apply_extended poll. Bid/ask/volume still update (informative).
+
+        Boundaries need no state migration: at 09:30 the gate flips to `regular`
+        and the first regular tick overwrites the frozen price; at 16:00 the last
+        regular tick simply stays as the frozen close while later post ticks route
+        to the ext fields. Futures (_on_futures) are untouched — they trade ~23h on
+        one live last.
+        """
+        session = market_session()
+        is_regular = session == "regular"
         # StreamClient delivers a list of content dicts
         for item in msg.get("content", []):
             symbol = str(item.get("key", "")).upper()
@@ -324,13 +344,33 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 )
                 continue
 
-            state.price = price_f
+            # Bid/ask/volume update in every session (informative, harmless).
             if bid_raw is not None:
                 state.bid = float(bid_raw)
             if ask_raw is not None:
                 state.ask = float(ask_raw)
             if vol_raw is not None:
                 state.volume = float(vol_raw)
+
+            if not is_regular:
+                # Route after-hours trades to the extended fields; leave the
+                # regular price frozen. ext_change_pct is measured vs the frozen
+                # regular close (state.price) when set, else the prior daily close.
+                # Cross-detection mirrors apply_extended (needs a prior ext value);
+                # dedup vs the REST poll is structural — both write state.ext_price
+                # from the SAME Schwab quote, so a repeated price yields no move and
+                # only one path fires per distinct price.
+                prev_ext = state.ext_price
+                state.ext_price = price_f
+                base = state.price if state.price else state.prev_close
+                state.ext_change_pct = (
+                    round((price_f - base) / base * 100, 2) if base else None
+                )
+                state.market_session = session
+                self._schedule_post_tick(symbol, prev_ext, price_f, ext=True)
+                continue
+
+            state.price = price_f
             if close_raw is not None:
                 state.prev_close = float(close_raw)
             if chg_pct_raw is not None:
@@ -415,7 +455,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
             self._schedule_post_tick(symbol, prev, price_f)
 
     def _schedule_post_tick(
-        self, symbol: str, prev: float | None, current: float
+        self, symbol: str, prev: float | None, current: float, *, ext: bool = False
     ) -> None:
         """Fan a tick's broadcast+alert work off the sync stream handler.
 
@@ -423,16 +463,38 @@ class SchwabMarketStreamHub(BaseMarketHub):
         running loop is available. Failures are logged (not silently dropped) and
         a hard reference is kept until the task finishes — otherwise the GC can
         cancel the task before _broadcast_quote runs (the docs' "you must keep a
-        strong reference" rule).
+        strong reference" rule). ``ext=True`` routes to the extended-hours follow-up
+        (fires ext alerts, no RTH gate); the default is the regular-session path.
         """
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             logger.warning("Schwab tick %s: no running loop — dropping", symbol)
             return
-        task = loop.create_task(self._post_tick(symbol, prev, current))
+        coro = (
+            self._ext_post_tick(symbol, prev, current)
+            if ext
+            else self._post_tick(symbol, prev, current)
+        )
+        task = loop.create_task(coro)
         self._inflight_ticks.add(task)
         task.add_done_callback(self._inflight_ticks.discard)
+
+    async def _ext_post_tick(
+        self, symbol: str, prev_ext: float | None, current: float
+    ) -> None:
+        """Broadcast the ext quote and fire price alerts on the extended move.
+
+        Reached only outside RTH (the session gate in _on_equity routes here), so
+        there's no is_market_open() guard — off-hours ext alerts are exactly what
+        should fire, matching the REST apply_extended poll. Dedup against that poll
+        is structural: both read/write state.ext_price, so a repeated price gives
+        prev_ext == current and no fire.
+        """
+        await self._broadcast_quote(symbol)
+        if prev_ext is None or prev_ext == current:
+            return
+        await self._check_price_alerts(symbol, prev_ext, current)
 
     async def _post_tick(
         self, symbol: str, prev: float | None, current: float
