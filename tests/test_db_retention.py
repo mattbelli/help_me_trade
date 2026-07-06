@@ -332,3 +332,111 @@ def test_prune_poll_history_downsamples_and_preserves_ledger(
     assert second["orphaned_analytics_deleted"] == 0
     for table in SNAPSHOT_TABLES:
         assert second[table] == 0
+
+
+def test_keeper_aging_keeps_earliest_per_day_past_90d(retention_db: Path) -> None:
+    now = datetime.now(UTC)
+    survivors: list[int] = []
+    prunable: list[int] = []
+    with connect(retention_db) as conn:
+        # Two days, each ~100 days old, three runs per day at distinct hours.
+        for day_offset in (100, 101):
+            base = (now - timedelta(days=day_offset)).replace(
+                minute=0, second=0, microsecond=0
+            )
+            earliest = None
+            for hour in (9, 10, 11):
+                ts = base.replace(hour=hour).isoformat()
+                run_id = _seed_poll_run(
+                    conn, captured_at=ts, broker="alpaca", account_id="acct_a"
+                )
+                if hour == 9:
+                    earliest = run_id
+                else:
+                    prunable.append(run_id)
+            survivors.append(earliest)
+        conn.commit()
+
+    result = prune_poll_history(db_path=retention_db)
+
+    with connect(retention_db) as conn:
+        for run_id in survivors:
+            assert conn.execute(
+                "SELECT 1 FROM poll_runs WHERE id = ?", (run_id,)
+            ).fetchone(), f"earliest-per-day keeper {run_id} deleted"
+        for run_id in prunable:
+            assert (
+                conn.execute(
+                    "SELECT 1 FROM poll_runs WHERE id = ?", (run_id,)
+                ).fetchone()
+                is None
+            ), f"non-earliest run {run_id} survived daily aging"
+        # Exactly one run per day among the >90d rows.
+        rows = conn.execute(
+            "SELECT strftime('%Y-%m-%d', captured_at) AS d, COUNT(*) n "
+            "FROM poll_runs GROUP BY d"
+        ).fetchall()
+        assert all(int(r["n"]) == 1 for r in rows)
+
+    assert result["poll_runs"] == len(prunable)
+
+    second = prune_poll_history(db_path=retention_db)
+    assert second["poll_runs"] == 0
+
+
+def test_analytics_trim_respects_cutoff_but_keeps_skeleton(
+    retention_db: Path,
+) -> None:
+    now = datetime.now(UTC)
+    with connect(retention_db) as conn:
+        # >30d old (survives as a lone keeper): analytics should be trimmed.
+        old_ts = (now - timedelta(days=40)).replace(hour=3).isoformat()
+        old_run = _seed_poll_run(
+            conn, captured_at=old_ts, broker="alpaca", account_id="acct_a"
+        )
+        # <30d old: analytics must be kept.
+        recent_ts = (now - timedelta(days=10)).replace(hour=3).isoformat()
+        recent_run = _seed_poll_run(
+            conn, captured_at=recent_ts, broker="schwab", account_id="acct_b"
+        )
+        conn.commit()
+
+    result = prune_poll_history(db_path=retention_db)
+
+    with connect(retention_db) as conn:
+        # Old run skeleton survives, but its fat JSON is gone.
+        assert conn.execute(
+            "SELECT 1 FROM poll_runs WHERE id = ?", (old_run,)
+        ).fetchone()
+        assert (
+            conn.execute(
+                "SELECT 1 FROM snapshot_analytics WHERE poll_run_id = ?", (old_run,)
+            ).fetchone()
+            is None
+        )
+        for table in ("account_snapshots", "position_snapshots", "order_snapshots"):
+            assert conn.execute(
+                f"SELECT 1 FROM {table} WHERE poll_run_id = ?", (old_run,)
+            ).fetchone(), f"{table} skeleton for old run was deleted"
+        # Recent run keeps its analytics.
+        assert conn.execute(
+            "SELECT 1 FROM snapshot_analytics WHERE poll_run_id = ?", (recent_run,)
+        ).fetchone()
+
+    assert result["analytics_trimmed"] >= 1
+
+    second = prune_poll_history(db_path=retention_db)
+    assert second["analytics_trimmed"] == 0
+
+
+def test_prune_returns_observability_fields(retention_db: Path) -> None:
+    _seed_retention_fixture(retention_db)
+    result = prune_poll_history(db_path=retention_db)
+
+    assert isinstance(result["db_bytes"], int) and result["db_bytes"] > 0
+    assert isinstance(result["freelist_count"], int)
+    assert result["freelist_count"] >= 0
+    rows_deleted = result["rows_deleted_by_table"]
+    assert isinstance(rows_deleted, dict)
+    assert set(rows_deleted) == set(ALLOWLIST)
+    assert all(isinstance(v, int) for v in rows_deleted.values())
