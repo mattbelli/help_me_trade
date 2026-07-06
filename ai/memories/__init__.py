@@ -69,9 +69,15 @@ class MemoryService:
         return record
 
     def list(
-        self, *, memory_type: str | None = None, limit: int = 50
+        self,
+        *,
+        memory_type: str | None = None,
+        limit: int = 50,
+        include_inactive: bool = False,
     ) -> list[dict[str, Any]]:
-        return list_memories(memory_type=memory_type, limit=limit)
+        return list_memories(
+            memory_type=memory_type, limit=limit, include_inactive=include_inactive
+        )
 
     def search(
         self, query: str, *, memory_type: str | None = None, limit: int = 10
@@ -120,12 +126,20 @@ class MemoryService:
         content: str | None = None,
         memory_type: str | None = None,
         metadata: dict[str, Any] | None = None,
+        status: str | None = None,
+        pinned: bool | None = None,
+        authority: str | None = None,
+        valid_until: str | None = None,
     ) -> dict[str, Any] | None:
         record = update_memory(
             memory_id,
             content=content,
             memory_type=memory_type,
             metadata=metadata,
+            status=status,
+            pinned=pinned,
+            authority=authority,
+            valid_until=valid_until,
         )
         if record is None:
             return None

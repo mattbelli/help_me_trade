@@ -604,6 +604,7 @@ def api_list_memories(
     type: str | None = Query(None, alias="type"),
     q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    include_inactive: bool = Query(False),
 ):
     if type is not None and type not in MEMORY_TYPES:
         return JSONResponse(
@@ -617,7 +618,11 @@ def api_list_memories(
         return {
             "memories": service.search(q.strip(), memory_type=type, limit=limit)
         }
-    return {"memories": service.list(memory_type=type, limit=limit)}
+    return {
+        "memories": service.list(
+            memory_type=type, limit=limit, include_inactive=include_inactive
+        )
+    }
 
 
 @router.get("/memories/{memory_id}")
@@ -662,6 +667,11 @@ def api_patch_memory(memory_id: int, body: dict = Body(...)):
     content = body.get("content")
     memory_type = body.get("type")
     metadata = body.get("metadata")
+    status = body.get("status")
+    authority = body.get("authority")
+    valid_until = body.get("valid_until")
+    pinned_raw = body.get("pinned")
+    pinned = None if pinned_raw is None else bool(pinned_raw)
     if memory_type is not None:
         memory_type = str(memory_type).strip()
         if memory_type not in MEMORY_TYPES:
@@ -671,6 +681,12 @@ def api_patch_memory(memory_id: int, body: dict = Body(...)):
                 },
                 status_code=400,
             )
+    if status is not None:
+        status = str(status).strip()
+    if authority is not None:
+        authority = str(authority).strip()
+    if valid_until is not None:
+        valid_until = str(valid_until).strip()
     if content is not None and not str(content).strip():
         return JSONResponse({"error": "content cannot be empty"}, status_code=400)
     if metadata is not None and not isinstance(metadata, dict):
@@ -681,6 +697,10 @@ def api_patch_memory(memory_id: int, body: dict = Body(...)):
             content=str(content).strip() if content is not None else None,
             memory_type=memory_type,
             metadata=metadata,
+            status=status,
+            pinned=pinned,
+            authority=authority,
+            valid_until=valid_until,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)

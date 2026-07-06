@@ -1,0 +1,66 @@
+{
+  "_about": "Golden set for the memory overhaul (design §8). Phase 1 evaluates extraction (junk precision + recall), echo suppression, and the judge decision matrix. Retrieval cases are carried for Phase 2 (hybrid retriever + embeddings) and skipped by the Phase-1 harness.",
+  "extraction": {
+    "junk": [
+      {"user": "what's my SLB position?", "assistant": "You hold 100 shares of SLB."},
+      {"user": "buy 10 shares of AAPL", "assistant": "I've drafted a proposal to buy 10 AAPL."},
+      {"user": "set an alert on TSLA at 250", "assistant": "Alert armed: TSLA crossing 250."},
+      {"user": "how did I do last week?", "assistant": "You were up 1.2% net last week."},
+      {"user": "the market is really choppy today", "assistant": "Yes, breadth is mixed and the VIX is elevated."},
+      {"user": "run a retrospective on my Q2 trades", "assistant": "Starting the Q2 retrospective now."},
+      {"user": "what do you think about NVDA earnings?", "assistant": "NVDA reports next Wednesday; options imply a 9% move."},
+      {"user": "show me my watchlist", "assistant": "Here is your Core watchlist: AAPL, MSFT, SLB."},
+      {"user": "thanks, that's helpful", "assistant": "Anytime!"},
+      {"user": "is the market open right now?", "assistant": "Yes, regular session is open until 4pm ET."},
+      {"user": "give me a deep research report on oil services", "assistant": "Queuing a research job on oil services."},
+      {"user": "cash is only 1.6% right now, right?", "assistant": "Correct, cash is 1.6% of the portfolio."}
+    ],
+    "legit": [
+      {"user": "remember I never trade the first 15 minutes of the session", "assistant": "Got it.", "expect_type": "directive", "must_contain": ["first 15"]},
+      {"user": "cap any single name at 20% of my portfolio, always", "assistant": "Understood, 20% max per name.", "expect_type": "directive", "must_contain": ["20%"]},
+      {"user": "I prefer weekly options on indexes and monthlies on single names", "assistant": "Noted.", "expect_type": "preference", "must_contain": ["weekly"]},
+      {"user": "for context, I have 4 real Schwab accounts and they're read-only", "assistant": "Thanks, noted.", "expect_type": "fact", "must_contain": ["Schwab"]},
+      {"user": "I've learned I tend to cut my winners way too early", "assistant": "That's a useful lesson.", "expect_type": "lesson", "must_contain": ["winners"]},
+      {"user": "keep answers terse during market hours please", "assistant": "Will do.", "expect_type": "preference", "must_contain": ["terse"]},
+      {"user": "always state the stop before the target when you pitch me a trade", "assistant": "Understood.", "expect_type": "directive", "must_contain": ["stop"]},
+      {"user": "just so you know, I trade from my phone during the workday", "assistant": "Good to know.", "expect_type": "fact", "must_contain": ["phone"]},
+      {"user": "I like round-number stops, they're easier to manage", "assistant": "Noted.", "expect_type": "preference", "must_contain": ["round"]},
+      {"user": "remember that I never want to short anything", "assistant": "Got it — long-only.", "expect_type": "directive", "must_contain": ["short"]}
+    ],
+    "echo": [
+      {"seed": {"type": "directive", "content": "Cap any single name at 20% of portfolio"}, "user": "right, and like I said the cap is 20% per name", "assistant": "Yes, 20% is your standing cap."},
+      {"seed": {"type": "preference", "content": "Prefers weekly options on indexes"}, "user": "as usual, weekly options on the indexes", "assistant": "Using weeklies on the indexes, as you prefer."},
+      {"seed": {"type": "fact", "content": "Has 4 real Schwab accounts, read-only"}, "user": "yeah my Schwab accounts are read-only", "assistant": "Right, the 4 Schwab accounts are read-only."},
+      {"seed": {"type": "directive", "content": "Never trade the first 15 minutes"}, "user": "and remember I skip the first 15 minutes", "assistant": "Understood, no trades in the opening 15 minutes."},
+      {"seed": {"type": "lesson", "content": "Tends to cut winners too early"}, "user": "yeah I cut winners early, we've covered this", "assistant": "Noted — the early-exit tendency."},
+      {"seed": {"type": "preference", "content": "Wants terse answers during market hours"}, "user": "keep it terse during the day, like always", "assistant": "Terse it is."}
+    ]
+  },
+  "judge": [
+    {"name": "cap-supersede", "existing": [{"type": "directive", "content": "Cap any single name at 20% of portfolio", "authority": "user_authored"}], "candidate": {"type": "directive", "content": "Cap any single name at 25% of portfolio", "source": "user_explicit", "authority": "user_authored"}, "expect_action": "SUPERSEDE"},
+    {"name": "paraphrase-noop", "existing": [{"type": "preference", "content": "Prefers weekly options on indexes"}], "candidate": {"type": "preference", "content": "Likes weekly options on the indexes", "source": "chat_extract"}, "expect_action": "NOOP"},
+    {"name": "refinement-update", "existing": [{"type": "fact", "content": "Has Schwab accounts"}], "candidate": {"type": "fact", "content": "Has 4 real Schwab accounts, read-only", "source": "chat_extract"}, "expect_action": "UPDATE"},
+    {"name": "novel-add", "existing": [], "candidate": {"type": "directive", "content": "Always state the stop before the target", "source": "chat_extract"}, "expect_action": "ADD"},
+    {"name": "protected-directive-not-superseded", "existing": [{"type": "directive", "content": "Never propose shorts", "authority": "user_authored"}], "candidate": {"type": "directive", "content": "Shorting is acceptable in a downtrend", "source": "reflection", "authority": "agent_inferred"}, "expect_action": "ADD", "note": "containment: agent source cannot override a user_authored directive"},
+    {"name": "thesis-supersede", "existing": [{"type": "thesis", "content": "SLB: oversold on oil-capex fears; watching 43 support"}], "candidate": {"type": "thesis", "content": "SLB thesis invalidated — broke 43 support on volume", "source": "user_explicit", "authority": "user_authored"}, "expect_action": "SUPERSEDE"},
+    {"name": "duplicate-lesson-noop", "existing": [{"type": "lesson", "content": "Tends to cut winners early"}], "candidate": {"type": "lesson", "content": "Cuts winners too early", "source": "reflection"}, "expect_action": "NOOP"},
+    {"name": "explicit-always-honored", "existing": [{"type": "preference", "content": "Wants terse answers during market hours"}], "candidate": {"type": "directive", "content": "Never trade the first 15 minutes", "source": "user_explicit", "authority": "user_authored"}, "expect_action": "ADD"}
+  ],
+  "retrieval": [
+    {"query": "what's my position sizing rule?", "expect_contains": "20%", "phase": 2},
+    {"query": "keep positions small", "expect_contains": "20%", "phase": 2},
+    {"query": "what's my SLB view?", "expect_contains": "SLB", "phase": 2},
+    {"query": "how do I like my options?", "expect_contains": "weekly", "phase": 2},
+    {"query": "what did I say about the open?", "expect_contains": "first 15", "phase": 2},
+    {"query": "my Schwab setup", "expect_contains": "Schwab", "phase": 2},
+    {"query": "my recurring trading mistake", "expect_contains": "winners", "phase": 2},
+    {"query": "how should you talk to me during the day?", "expect_contains": "terse", "phase": 2},
+    {"query": "can you short for me?", "expect_contains": "short", "phase": 2},
+    {"query": "stop and target order", "expect_contains": "stop", "phase": 2},
+    {"query": "where do I trade from?", "expect_contains": "phone", "phase": 2},
+    {"query": "stop style", "expect_contains": "round", "phase": 2},
+    {"query": "SLB support level", "expect_contains": "43", "phase": 2},
+    {"query": "index option tenor", "expect_contains": "weekly", "phase": 2},
+    {"query": "stale SLB thesis check", "expect_contains": "SLB", "phase": 2, "stale": true}
+  ]
+}

@@ -59,6 +59,33 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       }),
       execute: async (input) => executePythonTool("search_memories", input),
     }),
+    save_memory: tool({
+      description:
+        "Save a durable memory: a directive (standing rule), preference, fact, lesson, or thesis. When the user says 'remember this/that ...', pass quote = their exact words (marks it as their own authored rule). Routed through the memory judge (dedup/supersede). Do NOT save risk/config limits (those live in Settings) or one-off requests. Confirm the saved id back.",
+      inputSchema: z.object({
+        content: z.string(),
+        type: z.enum([
+          "directive",
+          "preference",
+          "fact",
+          "lesson",
+          "thesis",
+        ]),
+        quote: z.string().optional(),
+        symbols: z.array(z.string()).optional(),
+        valid_until: z.string().optional(),
+      }),
+      execute: async (input) => executePythonTool("save_memory", input),
+    }),
+    forget_memory: tool({
+      description:
+        "Archive a memory by id (never a hard delete — the user can restore it from History). Use on 'forget that / that's no longer true'. Only pass an id you retrieved this session via search_memories. Tell the user it was archived and can be undone.",
+      inputSchema: z.object({
+        id: z.number().int(),
+        reason: z.string(),
+      }),
+      execute: async (input) => executePythonTool("forget_memory", input),
+    }),
     start_research: tool({
       description:
         "Enqueue deep research (portfolio, bars, memories, web). Returns a job id.",

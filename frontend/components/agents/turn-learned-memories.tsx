@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useLearnedMemories } from "@/lib/learned-memories-context";
 import {
   MEMORY_TYPE_LABELS,
-  deleteMemory,
+  archiveMemory,
   updateMemory,
   type MemoryRecord,
 } from "@/lib/memories";
@@ -71,7 +71,8 @@ function LearnedChip({
     if (busy) return;
     setBusy(true);
     try {
-      await deleteMemory(memory.id);
+      // Undo = archive (restorable from the widget's History), never a hard delete.
+      await archiveMemory(memory.id);
       onDiscarded();
     } catch {
       setBusy(false);
@@ -139,7 +140,8 @@ function LearnedChip({
               className="size-6 text-muted-foreground hover:text-destructive"
               onClick={discard}
               disabled={busy}
-              aria-label="Discard memory"
+              aria-label="Undo — archive memory"
+              title="Undo (archive — restorable from History)"
             >
               <X className="size-3.5" />
             </Button>

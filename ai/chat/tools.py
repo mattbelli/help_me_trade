@@ -89,6 +89,25 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "title": "Search memories",
         "description": "Search stored preferences, lessons, and research notes.",
     },
+    "save_memory": {
+        "title": "Save memory",
+        "description": (
+            "Save a durable memory to the long-term store: a directive (standing "
+            "rule), preference, fact, lesson, or thesis. When the user says "
+            "'remember this/that ...', pass quote = their exact words (that marks "
+            "it as the user's own, authored rule). Routed through the memory judge "
+            "(dedup/supersede). Confirm the saved id back to the user."
+        ),
+    },
+    "forget_memory": {
+        "title": "Forget memory",
+        "description": (
+            "Archive a memory by id (never a hard delete — the user can restore it "
+            "from History). Use on 'forget that / that's no longer true'. Only pass "
+            "an id you retrieved this session via search_memories. Tell the user it "
+            "was archived and can be undone."
+        ),
+    },
     "start_research": {
         "title": "Start research",
         "description": (
@@ -188,6 +207,8 @@ Available tools:
 - query — arguments: {"resource": string, "filters": object|null}
 - list_capabilities — arguments: {}
 - search_memories — arguments: {"query": string, "limit": number}
+- save_memory — arguments: {"content": string, "type": "directive"|"preference"|"fact"|"lesson"|"thesis", "quote": string|null, "symbols": string[]|null, "valid_until": string|null}
+- forget_memory — arguments: {"id": number, "reason": string}
 - start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"|"exhaustive" (optional)}
 - get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number, "account_id": string|null}
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
@@ -211,6 +232,8 @@ Rules:
 - When the user describes an alert/signal/rule, call create_rule with a validated spec (confirm parameters first — it arms immediately).
 - When the user asks to set/create an alert, call create_price_alert directly (it's safe — a notification). If they reference a level (VAL/POC/VAH/PDH/PDL/200-DMA), call get_context first to get the price.
 - Use delete_price_alert / update_price_alert to remove or change an existing alert (get its id via query('price_alerts') or get_context).
+- When the user says "remember this/that ..." call save_memory with quote = their exact words. Do NOT save risk/config limits (those live in Settings) or one-off requests.
+- When the user says "forget that" / "that's no longer true", call forget_memory with the id (find it first via search_memories).
 """
 
 
@@ -528,6 +551,89 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         limit = int(args.get("limit", 5))
         results = get_memory_service().search(query, limit=limit)
         return {"results": results}
+
+    if name == "save_memory":
+        from ai.memories.judge import Candidate, judge_and_store
+        from db.ai_tables import MEMORY_TYPES
+
+        content = str(args.get("content", "")).strip()
+        if not content:
+            return {"error": "content is required"}
+        memory_type = str(args.get("type", "")).strip()
+        if memory_type not in MEMORY_TYPES:
+            return {
+                "error": f"type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
+            }
+        quote_raw = args.get("quote")
+        quote = str(quote_raw).strip() if quote_raw else None
+        symbols_raw = args.get("symbols")
+        symbols = (
+            [str(s).strip().upper() for s in symbols_raw if str(s).strip()]
+            if isinstance(symbols_raw, list)
+            else []
+        )
+        valid_until_raw = args.get("valid_until")
+        valid_until = str(valid_until_raw).strip() if valid_until_raw else None
+        # A verbatim quote means the user explicitly asked to remember this →
+        # user-authored (may shape proposals). Otherwise the copilot's own call.
+        if quote:
+            source, authority = "user_explicit", "user_authored"
+        else:
+            source, authority = "agent_save", "agent_inferred"
+        candidate = Candidate(
+            memory_type=memory_type,
+            content=content,
+            quote=quote,
+            symbols=symbols,
+            source=source,
+            authority=authority,
+            valid_until=valid_until,
+            metadata={"source": source},
+        )
+        stored = judge_and_store([candidate])
+        if not stored:
+            return {"status": "noop", "message": "Already known — nothing saved."}
+        record = stored[0]
+        return {
+            "status": "saved",
+            "id": record["id"],
+            "action": record.get("action", "ADD"),
+            "type": record["type"],
+            "content": record["content"],
+            "message": f"Saved [mem:{record['id']}].",
+        }
+
+    if name == "forget_memory":
+        from db.ai_tables import get_memory, update_memory
+
+        mem_id_raw = args.get("id")
+        if mem_id_raw is None:
+            return {"error": "id is required"}
+        try:
+            mem_id = int(mem_id_raw)
+        except (TypeError, ValueError):
+            return {"error": "id must be an integer"}
+        existing = get_memory(mem_id, db_path=DEFAULT_DB_PATH)
+        if existing is None:
+            return {"error": "not found"}
+        reason = str(args.get("reason", "")).strip() or "forgotten via chat"
+        meta = dict(existing.get("metadata") or {})
+        meta["forget_reason"] = reason
+        update_memory(
+            mem_id,
+            metadata=meta,
+            status="archived",
+            db_path=DEFAULT_DB_PATH,
+        )
+        return {
+            "status": "archived",
+            "id": mem_id,
+            "undo": (
+                f"Archived [mem:{mem_id}] — say 'undo that' or restore it from the "
+                "memory widget's History view."
+            ),
+            "message": f"Archived [mem:{mem_id}]. This can be undone.",
+        }
 
     if name == "start_research":
         topic = str(args.get("topic", "Market research")).strip()
