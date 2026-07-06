@@ -12,7 +12,6 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { motion } from "motion/react";
 import { Check, ChevronDown, GripVertical, Menu as MenuIcon, Plus, SquarePen, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
@@ -40,9 +39,9 @@ import {
 import type {
   WidgetInstanceConfig,
   WorkspaceLayoutItem,
+  WorkspacePage,
 } from "@/lib/workspace/layout-persistence";
 import { flushWorkspaceLayoutSave, useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
-import { useMotionSafe } from "@/lib/workspace/motion";
 import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
@@ -547,6 +546,7 @@ const WidgetCard = forwardRef<
     locked: boolean;
     static?: boolean;
     flashing?: boolean;
+    domId?: string;
     onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
     onRemove: () => void;
   } & HTMLAttributes<HTMLDivElement>
@@ -556,6 +556,7 @@ const WidgetCard = forwardRef<
     locked,
     static: isStatic,
     flashing,
+    domId,
     onConfigChange,
     onRemove,
     className,
@@ -573,7 +574,7 @@ const WidgetCard = forwardRef<
   return (
     <div
       ref={ref}
-      id={`widget-${item.i}`}
+      id={domId ?? `widget-${item.i}`}
       className={cn(
         "group grain-surface flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)] hover:shadow-[var(--widget-hover-shadow)]",
         isStatic && "h-full",
@@ -625,44 +626,152 @@ type EdgeState = {
   right: boolean;
 };
 
-export function WorkspaceGrid() {
-  const activePageId = useWorkspaceStore((s) => s.activePageId);
-  const layout = useWorkspaceStore(
-    (s) => s.pages[s.activePageId]?.layout ?? [],
+type WorkspacePageGridProps = {
+  page: WorkspacePage;
+  hostWidth: number;
+  active: boolean;
+  locked: boolean;
+  flashingId: string | null;
+};
+
+// One persistent RGL grid per page. EVERY page stays mounted; inactive ones are
+// hidden with visibility+absolute — NOT display:none, which would report 0×0 to
+// each chart's ResizeObserver and force a full teardown/rebuild. Because the
+// grids never unmount, a page switch does ZERO widget reconstruction: charts and
+// watchlists are already built, laid out, and live. Each page derives cols from
+// ITS OWN layout, so a grid is never mounted with a foreign page's col count
+// (the old "charts slide left / overlap" bug that key={activePageId} guarded).
+function WorkspacePageGrid({
+  page,
+  hostWidth,
+  active,
+  locked,
+  flashingId,
+}: WorkspacePageGridProps) {
+  const updateLayout = useWorkspaceStore((s) => s.updateLayout);
+  const updateWidgetConfig = useWorkspaceStore((s) => s.updateWidgetConfig);
+  const removeWidget = useWorkspaceStore((s) => s.removeWidget);
+  const setGridCols = useWorkspaceStore((s) => s.setGridCols);
+
+  const layout = page.layout;
+  const cols = useMemo(
+    () => colsForLayout(layout, hostWidth),
+    [layout, hostWidth],
   );
+  const width = gridPixelWidth(cols);
+
+  // Only the active page feeds gridCols (drives new-widget placement).
+  useEffect(() => {
+    if (active) setGridCols(cols);
+  }, [active, cols, setGridCols]);
+
+  // Pass each item's real x,y,w,h straight through — NO clamping to window cols;
+  // the growing canvas means a widget always sits exactly where it was placed.
+  const gridLayout: Layout = useMemo(
+    () =>
+      layout.map(({ i, x, y, w, h, minW, minH }) => ({
+        i,
+        x: Math.max(0, x),
+        y: Math.max(0, y),
+        w: Math.max(1, w),
+        h: Math.max(1, h),
+        minW: minW ?? 4,
+        minH: minH ?? 2,
+      })),
+    [layout],
+  );
+
+  const persistLayout = useCallback(
+    (nextLayout: Layout) => {
+      const merged = layout.map((item) => {
+        const cell = nextLayout.find((l) => l.i === item.i);
+        if (!cell) return item;
+        return { ...item, x: cell.x, y: cell.y, w: cell.w, h: cell.h };
+      });
+      updateLayout(merged, page.id);
+    },
+    [layout, updateLayout, page.id],
+  );
+
+  if (layout.length === 0) return null;
+
+  return (
+    <div
+      id={`workspace-grid-root-${page.id}`}
+      className="relative"
+      style={
+        active
+          ? { width, position: "relative" }
+          : {
+              width,
+              position: "absolute",
+              top: 0,
+              left: 0,
+              visibility: "hidden",
+              pointerEvents: "none",
+            }
+      }
+    >
+      <ReactGridLayout
+        className="layout"
+        layout={gridLayout}
+        cols={cols}
+        rowHeight={ROW_HEIGHT_PX}
+        width={width}
+        margin={[GRID_MARGIN_PX, GRID_MARGIN_PX]}
+        containerPadding={[0, 0]}
+        compactType={null}
+        preventCollision
+        onDragStop={persistLayout}
+        onResizeStop={persistLayout}
+        draggableHandle=".workspace-drag-handle"
+        draggableCancel=".workspace-no-drag"
+        resizeHandles={["se", "sw", "ne", "nw"]}
+        isDraggable={!locked}
+        isResizable={!locked}
+        useCSSTransforms={false}
+      >
+        {layout.map((item) => (
+          <WidgetCard
+            key={item.i}
+            item={item}
+            domId={`widget-${page.id}-${item.i}`}
+            locked={locked}
+            flashing={active && item.i === flashingId}
+            onConfigChange={(patch) => updateWidgetConfig(item.i, patch, page.id)}
+            onRemove={() => removeWidget(item.i, page.id)}
+          />
+        ))}
+      </ReactGridLayout>
+    </div>
+  );
+}
+
+export function WorkspaceGrid() {
+  const pages = useWorkspaceStore((s) => s.pages);
+  const activePageId = useWorkspaceStore((s) => s.activePageId);
   const focusRequest = useWorkspaceStore((s) => s.focusRequest);
   const {
     hydrated,
     hydrate,
     locked,
-    updateLayout,
-    updateWidgetConfig,
-    removeWidget,
     pickerOpen,
     setPickerOpen,
-    setGridCols,
     openPicker,
   } = useWorkspaceStore();
 
-  // Host width (minus scroll padding), null until first measured. cols/width
-  // are DERIVED from (layout, hostWidth) synchronously in render — they must
-  // never lag the layout in state: RGL remounts on page switch, and mounting
-  // with the PREVIOUS page's col count lets its correctBounds clamp wide
-  // layouts leftward into overlap (the "charts slide left" bug), a clamp that
-  // survives the late cols correction and persists on the next drag-stop.
+  const activeLayout = pages[activePageId]?.layout ?? [];
+
+  // Host width (minus scroll padding), null until first measured.
   const [hostWidth, setHostWidth] = useState<number | null>(null);
   const [flashingId, setFlashingId] = useState<string | null>(null);
-  // Fade-in only on page hot-swap (Alt+1-5) — no exit, which would add
-  // perceived latency to a keyboard-driven switch. Collapses to instant under
-  // reduced motion.
-  const pageFade = useMotionSafe({ duration: 0.12 });
 
   useEffect(() => {
     if (!focusRequest) return;
     const { instanceId } = focusRequest;
     const raf = requestAnimationFrame(() => {
       document
-        .getElementById(`widget-${instanceId}`)
+        .getElementById(`widget-${activePageId}-${instanceId}`)
         ?.scrollIntoView({ block: "center", behavior: "smooth" });
       setFlashingId(instanceId);
     });
@@ -671,7 +780,7 @@ export function WorkspaceGrid() {
       cancelAnimationFrame(raf);
       clearTimeout(t);
     };
-  }, [focusRequest]);
+  }, [focusRequest, activePageId]);
 
   // Four-edge scroll indicators: show subtle gradient overlays when there is
   // more content in that direction (right/bottom are the important ones for
@@ -808,55 +917,12 @@ export function WorkspaceGrid() {
     return () => observer.disconnect();
   }, [hydrated]);
 
-  // Derived in render (see hostWidth note): the same render that hands RGL a
-  // page's layout always hands it that layout's col count.
-  const cols = useMemo(
-    () => (hostWidth == null ? null : colsForLayout(layout, hostWidth)),
-    [layout, hostWidth],
-  );
-  const width = cols == null ? null : gridPixelWidth(cols);
-
-  useEffect(() => {
-    if (cols != null) setGridCols(cols);
-  }, [cols, setGridCols]);
-
-  // Re-check the scroll-edge fades whenever canvas geometry changes; rAF so
+  // Re-check the scroll-edge fades on page switch or any layout change; rAF so
   // RGL has applied its DOM changes before we read scroll sizes.
   useEffect(() => {
     const id = requestAnimationFrame(measureEdges);
     return () => cancelAnimationFrame(id);
-  }, [layout, cols, measureEdges]);
-
-  // Pass each item's real x,y,w,h straight through — NO clamping to window
-  // cols. The growing canvas means a widget at x=20,w=8 on a 28-col canvas
-  // always sits exactly there, regardless of viewport width. This is what
-  // eliminates overlap when the same layout is opened on different screens.
-  const gridLayout: Layout = useMemo(
-    () =>
-      layout.map(({ i, x, y, w, h, minW, minH }) => ({
-        i,
-        // Defensive: ensure non-negative position and at least 1 wide/tall.
-        x: Math.max(0, x),
-        y: Math.max(0, y),
-        w: Math.max(1, w),
-        h: Math.max(1, h),
-        minW: minW ?? 4,
-        minH: minH ?? 2,
-      })),
-    [layout],
-  );
-
-  const persistLayout = useCallback(
-    (nextLayout: Layout) => {
-      const merged = layout.map((item) => {
-        const cell = nextLayout.find((l) => l.i === item.i);
-        if (!cell) return item;
-        return { ...item, x: cell.x, y: cell.y, w: cell.w, h: cell.h };
-      });
-      updateLayout(merged);
-    },
-    [layout, updateLayout],
-  );
+  }, [activePageId, pages, measureEdges]);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
@@ -885,7 +951,7 @@ export function WorkspaceGrid() {
                 }
           }
         >
-          {hydrated && layout.length === 0 ? (
+          {hydrated && activeLayout.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 font-mono">
               <p className="text-[length:var(--fs-body)] text-[var(--fg-faint)]">
                 empty page
@@ -902,51 +968,18 @@ export function WorkspaceGrid() {
               </p>
             </div>
           ) : null}
-          {hydrated && layout.length > 0 && cols != null && width != null ? (
-            <motion.div
-              key={activePageId}
-              id="workspace-grid-root"
-              className="relative"
-              style={{ width }}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={pageFade}
-            >
-              <ReactGridLayout
-                key={activePageId}
-                className="layout"
-                layout={gridLayout}
-                cols={cols}
-                rowHeight={ROW_HEIGHT_PX}
-                width={width}
-                margin={[GRID_MARGIN_PX, GRID_MARGIN_PX]}
-                containerPadding={[0, 0]}
-                compactType={null}
-                preventCollision
-                onDragStop={persistLayout}
-                onResizeStop={persistLayout}
-                draggableHandle=".workspace-drag-handle"
-                draggableCancel=".workspace-no-drag"
-                resizeHandles={["se", "sw", "ne", "nw"]}
-                isDraggable={!locked}
-                isResizable={!locked}
-                useCSSTransforms={false}
-              >
-                {layout.map((item) => (
-                  <WidgetCard
-                    key={item.i}
-                    item={item}
-                    locked={locked}
-                    flashing={item.i === flashingId}
-                    onConfigChange={(patch) =>
-                      updateWidgetConfig(item.i, patch)
-                    }
-                    onRemove={() => removeWidget(item.i)}
-                  />
-                ))}
-              </ReactGridLayout>
-            </motion.div>
-          ) : null}
+          {hydrated && hostWidth != null
+            ? Object.values(pages).map((page) => (
+                <WorkspacePageGrid
+                  key={page.id}
+                  page={page}
+                  hostWidth={hostWidth}
+                  active={page.id === activePageId}
+                  locked={locked}
+                  flashingId={flashingId}
+                />
+              ))
+            : null}
         </div>
 
         {/* Four-edge gradient hints — pointer-events-none so they don't block

@@ -42,13 +42,14 @@ type WorkspaceState = {
   getActiveLayout: () => WorkspaceLayoutItem[];
   setGridCols: (cols: number) => void;
   setVisibleRows: (rows: VisibleRows | null) => void;
-  updateLayout: (layout: WorkspaceLayoutItem[]) => void;
+  updateLayout: (layout: WorkspaceLayoutItem[], pageId?: string) => void;
   addWidget: (type: string) => boolean;
   updateWidgetConfig: (
     instanceId: string,
     patch: Partial<WidgetInstanceConfig>,
+    pageId?: string,
   ) => void;
-  removeWidget: (id: string) => void;
+  removeWidget: (id: string, pageId?: string) => void;
   addPage: (name?: string) => string | null;
   renamePage: (id: string, name: string) => void;
   deletePage: (id: string) => boolean;
@@ -361,14 +362,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     });
   },
 
-  updateLayout: (layout) => {
+  updateLayout: (layout, pageId) => {
     const { pages, activePageId } = get();
-    const page = pages[activePageId];
+    const targetId = pageId ?? activePageId;
+    const page = pages[targetId];
     if (!page) return;
     const resolved = resolveLayoutOverlaps(layout);
     const nextPages = {
       ...pages,
-      [activePageId]: { ...page, layout: resolved },
+      [targetId]: { ...page, layout: resolved },
     };
     set({ pages: nextPages });
     persistPages({ pages: nextPages, activePageId });
@@ -419,9 +421,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return true;
   },
 
-  updateWidgetConfig: (instanceId, patch) => {
+  updateWidgetConfig: (instanceId, patch, pageId) => {
     const { pages, activePageId } = get();
-    const page = pages[activePageId];
+    const targetId = pageId ?? activePageId;
+    const page = pages[targetId];
     if (!page) return;
     const nextLayout = page.layout.map((item) =>
       item.i === instanceId
@@ -430,21 +433,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     );
     const nextPages = {
       ...pages,
-      [activePageId]: { ...page, layout: nextLayout },
+      [targetId]: { ...page, layout: nextLayout },
     };
     set({ pages: nextPages });
     persistPages({ pages: nextPages, activePageId });
   },
 
-  removeWidget: (id) => {
+  removeWidget: (id, pageId) => {
     const { pages, activePageId } = get();
-    const page = pages[activePageId];
+    const targetId = pageId ?? activePageId;
+    const page = pages[targetId];
     if (!page) return;
     const nextLayout = page.layout.filter((item) => item.i !== id);
     if (nextLayout.length === page.layout.length) return;
     const nextPages = {
       ...pages,
-      [activePageId]: { ...page, layout: nextLayout },
+      [targetId]: { ...page, layout: nextLayout },
     };
     set({ pages: nextPages });
     persistPages({ pages: nextPages, activePageId });
