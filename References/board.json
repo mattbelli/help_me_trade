@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-06T05:13:49Z",
+ "updated_at": "2026-07-06T17:40:00Z",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,33 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "watchlist-hold-drag",
+   "title": "Watchlist: kill edit mode → hold-anywhere-to-drag + drag-to-trash delete",
+   "lane": "in_progress",
+   "type": "feature",
+   "priority": "high",
+   "owner": "serv",
+   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed; typecheck clean, zero new lint). Edit mode GONE (pencil/⋮⋮ dots/red − badges); header + opens add-row (price-alerts pattern); hold ~300ms anywhere non-link → row lifts → drag reorder; Trash2 appears next to + while held (via new use-watchlist-drag-store), pointer-drop on it deletes. Quick tap still publishes; ticker/ⓘ unaffected; pageActive remount fix untouched. FOUNDER EYEBALL pending → then commit. Brief: tools/composer-bridge/briefs/watchlist-hold-drag.md"
+  },
+  {
+   "id": "delta-audit-highs",
+   "title": "Delta-audit HIGH findings (07-06): attribution poll-gap blind spot, caps under-count partials, vetoes untracked, data-outage tombstones, memory provenance theft + judge bypass",
+   "lane": "next",
+   "type": "safety",
+   "priority": "high",
+   "owner": "serv",
+   "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill→canceled/expired within one poll gap or across a restart → held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row → quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable — register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones."
+  },
+  {
+   "id": "per-strategy-attribution",
+   "lane": "founder",
+   "type": "decision",
+   "priority": "normal",
+   "owner": "founder",
+   "title": "DESIGN CALL: per-strategy attribution — virtual sub-books, measure now / enforce at promotion",
+   "notes": "Fable decision memo 2026-07-06 → research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo."
+  },
   {
    "id": "orphan-repair-surface",
    "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
@@ -178,7 +205,7 @@
    "type": "safety",
    "priority": "normal",
    "owner": "founder",
-   "notes": "Code-verified: execution_service.py:56 rejects unconditionally, so flipping the kill switch strands open positions with no stop-loss execution. Your call: (a) split into 'halt new entries' (exits still allowed) vs 'hard stop everything', or (b) accept as designed (you flatten manually when you kill). Recommend (a) as default with (b) as an explicit second switch."
+   "notes": "Code-verified: execution_service.py:56 rejects unconditionally, so flipping the kill switch strands open positions with no stop-loss execution. Your call: (a) split into 'halt new entries' (exits still allowed) vs 'hard stop everything', or (b) accept as designed (you flatten manually when you kill). Recommend (a) as default with (b) as an explicit second switch. | 2026-07-06: Fable decision memo READY → research/fable/2026-07-06_memo-killswitch-exits.md (rec: two-state HALT/FREEZE split; breaker retargets to HALT). Needs your yes + 2 sub-calls."
   },
   {
    "id": "research-book-reproducibility",
@@ -194,7 +221,7 @@
    "lane": "backlog",
    "type": "ops",
    "priority": "high",
-   "notes": "Zero tracing today: a prompt change misrouting 30% of copilot queries would go unnoticed. Cheapest first step per audit: a chat_traces table (~1 day). Then a small golden query set + Brier-trend calibration report. Prerequisite for safely doing the one-Python-brain rewrite (roadmap Phase 1) and prompt iteration on the Decision Engine."
+   "notes": "Zero tracing today: a prompt change misrouting 30% of copilot queries would go unnoticed. Cheapest first step per audit: a chat_traces table (~1 day). Then a small golden query set + Brier-trend calibration report. Prerequisite for safely doing the one-Python-brain rewrite (roadmap Phase 1) and prompt iteration on the Decision Engine. | 2026-07-06: full Fable design now in research/fable/2026-07-06_phase1-2-execution-spec.md (Phase 1c: chat_traces + 30-50 deterministic golden cases, routing/honesty/grounding tiers, nightly on cheap tier). Build AFTER Phase 1b (one loop = one instrumentation point)."
   },
   {
    "id": "llm-mem0-inert",
@@ -251,7 +278,7 @@
    "lane": "backlog",
    "type": "feature",
    "priority": "normal",
-   "notes": "The architecture-level Decision Engine build (single agent loop, native tool-calling, DecisionCard contract, score_symbols batch) is unstarted. NOTE: Phase-5a structures.py + conviction lane + idea_outcomes already shipped a narrower version of the same 'deterministic owns numbers, LLM vetoes' principle — scope Phase 1 against what 5a proved before building. Gated on llm-eval-harness existing."
+   "notes": "The architecture-level Decision Engine build (single agent loop, native tool-calling, DecisionCard contract, score_symbols batch) is unstarted. NOTE: Phase-5a structures.py + conviction lane + idea_outcomes already shipped a narrower version of the same 'deterministic owns numbers, LLM vetoes' principle — scope Phase 1 against what 5a proved before building. Gated on llm-eval-harness existing. | 2026-07-06: scope-vs-5a RESOLVED — Fable execution spec research/fable/2026-07-06_phase1-2-execution-spec.md supersedes roadmap §7 rows 1-2. 1a tool-calling in ai/llm/, 1b one Python loop (web→proxy, delete legacy /api/chat), 1c eval harness; Phase 2 wraps 5a (DecisionCard = typed view of validated idea, bridge→create_phone_proposal), gated on 5b."
   },
   {
    "id": "audit-low-tail",
@@ -297,7 +324,7 @@
    "lane": "founder",
    "type": "bug",
    "priority": "normal",
-   "notes": "Pending your sign-off on the adjustment; options expirations also missing from sync (#16).",
+   "notes": "Pending your sign-off on the adjustment; options expirations also missing from sync (#16). | 2026-07-06: Fable decision memo READY → research/fable/2026-07-06_memo-ledger-offsets.md (rec: approve w/ #17 in same round; eyeball PLTR −630/−900 first).",
    "owner": "founder",
    "updated_at": "2026-07-04"
   },

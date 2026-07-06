@@ -238,7 +238,12 @@ def _process_triggered(
                 "mae_pct": mae_pct,
             }
 
-        if target0 is not None and _target_hit(bar_high, target0):
+        # The trigger bar itself can never prove a win: on an ambiguous bar
+        # (zone + target touched together) the run to target may have happened
+        # BEFORE the dip into our zone — the same rule _process_pending applies.
+        # Without this guard the next sweep re-reads the trigger bar and
+        # converts every ambiguous bar into a "won" (win% inflation).
+        if target0 is not None and bar_date > trigger_date and _target_hit(bar_high, target0):
             return {
                 "status": "won",
                 "resolved_at": bar_date.isoformat(),

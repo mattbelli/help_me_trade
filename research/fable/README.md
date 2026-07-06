@@ -19,6 +19,28 @@ snapshot grounded in code (file refs throughout). Reviews are candid and opinion
 
 ---
 
+## Founder decision memos (2026-07-06 — one page each, firm recommendation)
+
+| Memo | Decision | Recommendation |
+|---|---|---|
+| [Kill switch vs exits](2026-07-06_memo-killswitch-exits.md) | Does the kill switch block protective exits? (safety M2) | Two states: new HALT (blocks entries, exits flow; breaker arms THIS) + kill switch unchanged as human-only total freeze |
+| [Per-strategy attribution](2026-07-06_memo-per-strategy-attribution.md) | Many strategies in one account: caps + P&L | Virtual sub-books, two phases: measure-only view soon; RiskEngine budgets at combined-book promotion |
+| [Ledger offsets](2026-07-06_memo-ledger-offsets.md) | Approve the TSLA/PLTR/GME $0-amount quantity offsets? | Approve, with #17 nightly recon landing in the same round + eyeball the two big PLTR numbers first |
+
+## Delta audits (2026-07-06 — adversarial review of code shipped 07-02→07-06)
+
+| Audit | Verdict | Worst finding |
+|---|---|---|
+| [Money path](2026-07-06_delta-money-path.md) — 0C/2H/2M/3L | #33/#34/#41 fixes hold under attack; both new fill-side guarantees only fire on *observed* status transitions | H1: partial-fill→terminal jump across a poll gap/restart → held shares, no attribution, no quarantine, no page (fix: terminal-BUY sweep) |
+| [Idea engine](2026-07-06_delta-idea-engine.md) — 1C/2H/6M/6L | Generation lane airtight (LLM can't move a number); rot concentrated on the judging side | CRITICAL-1 **FIXED SAME DAY**: tracker converted every ambiguous trigger bar into a "won" one sweep later — win% inflation; 0 live rows poisoned |
+| [Ops/memory](2026-07-06_delta-ops-memory.md) — 1C/2H/2M/4L | db-retention correctly fenced off calibration data; memory P0/P1 shipped as promised | CRITICAL-1 **FIXED LIVE**: reauth crontab still `*/6` + skip-if-fresh → scheduled ~3.5-day Schwab outage from Jul 9; crontab switched to daily |
+
+Open HIGHs to card: money-path H1/H2 (attribution poll-gap blind spot; notional caps under-count partial fills), idea-engine H1/H2 (vetoes never outcome-tracked; 2.5h data outage tombstones open ideas), ops H1/H2 (`user_confirmed` provenance theft via agent UPDATE; `save_memory`-with-quote judge bypass into the propose-capable mobile prompt).
+
+## Phase 1–2 execution spec (2026-07-06)
+
+- [**Phase 1–2 reconciled**](2026-07-06_phase1-2-execution-spec.md) — supersedes roadmap §7 rows 1–2. Brain lives in Python (tool-calling into `ai/llm/`, ONE loop, web→proxy, legacy chat deleted; traces + golden set = the `llm-eval-harness` card). Phase 2 wraps 5a instead of rebuilding it (DecisionCard = proposal-bound view of a validated idea; conviction block becomes a type; bridge → `create_phone_proposal`). Phase 1 build-now; Phase 2 gated on the 5b verdict. Appendix: the 5b judging rubric.
+
 ## ★ Roadmap (the forward plan)
 
 - [**Decision Engine roadmap**](2026-07-02_decision-engine-roadmap.md) — *From grounded Q&A bot to an autonomous risk/reward recommendation engine.* Builds on the 9 audits. The engine's organs already exist and disconnected; connect them under one `DecisionCard` contract (deterministic code owns every number, the LLM owns fusion/narrative/ranking and can only shrink/veto, never inflate). Wide data ingested by **edge-per-effort** (regime/breadth/catalysts/news = wiring; fundamentals/insider = cheap gated adds; social hype = inverted risk-flag only; options-flow/analyst-ratings = deferred/decoration; **$0/mo new spend until the journal proves lift**). A **trade-vs-invest** differentiator (4 modes; ship swing+position, invest is the new build, day is an honest shell). Proactive daily **Slate Pass** → phone. **7 phases (crawl→walk→run)** — Phase 0 (3–5 days) wires what exists and makes it feel exceptional immediately; new data + autonomy come *after* the eval/journal loop.

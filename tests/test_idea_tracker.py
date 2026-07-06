@@ -191,6 +191,37 @@ def test_same_bar_trigger_and_target_is_only_triggered(idea_db) -> None:
     rows = list_open(db_path=idea_db)
     assert rows[0]["status"] == "triggered"
 
+    # REGRESSION (2026-07-06 audit CRITICAL-1): a second sweep over the SAME
+    # ambiguous bar must NOT convert the trigger into a win — a win needs a
+    # bar strictly after the trigger date to prove it.
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts2 = sweep_open_ideas(now=datetime(2026, 1, 8, 12, 30, 0), db_path=idea_db)
+
+    assert counts2.get("won", 0) == 0
+    rows = list_open(db_path=idea_db)
+    assert rows[0]["status"] == "triggered"
+
+
+def test_target_on_later_bar_after_ambiguous_trigger_is_won(idea_db) -> None:
+    # The flip side of the conservative rule: a bar strictly AFTER the
+    # ambiguous trigger bar that reaches the target IS a win.
+    as_of = "2026-01-06T15:00:00+00:00"
+    _register(idea_db, as_of=as_of)
+    start = date(2026, 1, 6)
+    trigger_day = start + timedelta(days=1)
+    bars = [_bar(trigger_day, low=104, high=111)]
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+
+    bars.append(_bar(trigger_day + timedelta(days=1), low=106, high=110.5))
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts.get("won", 0) == 1
+    summary = get_summary(db_path=idea_db)
+    assert summary["counts"].get("won") == 1
+
 
 def test_win_at_first_target(idea_db) -> None:
     as_of = "2026-01-06T15:00:00+00:00"
