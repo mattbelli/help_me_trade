@@ -89,19 +89,26 @@ function WatchlistAddRow({
   activeListId,
   onAdded,
   onClose,
+  onPublish,
 }: {
   symbols: string[];
   activeListId: string;
   onAdded: (state: WatchlistsState) => void;
   onClose: () => void;
+  onPublish: (symbol: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const onList = useMemo(
+    () => new Set(symbols.map((s) => s.toUpperCase())),
+    [symbols],
+  );
 
   useEffect(() => {
     const q = query.trim();
@@ -113,10 +120,12 @@ function WatchlistAddRow({
         .then((results) => {
           setSuggestions(results);
           setOpen(results.length > 0);
+          setActiveIndex(-1);
         })
         .catch(() => {
           setSuggestions([]);
           setOpen(false);
+          setActiveIndex(-1);
         })
         .finally(() => setLoading(false));
     }, 200);
@@ -139,8 +148,9 @@ function WatchlistAddRow({
       const symbol = raw.trim().toUpperCase();
       if (!symbol) return;
 
-      const current = symbols.map((s) => s.toUpperCase());
-      if (current.includes(symbol)) {
+      if (onList.has(symbol)) {
+        // Already on the list — focus its chart so the tap isn't a silent no-op.
+        onPublish(symbol);
         onClose();
         return;
       }
@@ -157,7 +167,7 @@ function WatchlistAddRow({
         setSubmitting(false);
       }
     },
-    [activeListId, onAdded, onClose, symbols],
+    [activeListId, onAdded, onClose, onList, onPublish, symbols],
   );
 
   return (
@@ -179,15 +189,30 @@ function WatchlistAddRow({
         onChange={(e) => {
           const next = e.target.value.toUpperCase();
           setQuery(next);
+          setActiveIndex(-1);
           if (!next.trim()) {
             setSuggestions([]);
             setOpen(false);
           }
         }}
         onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (suggestions.length === 0) return;
+            setOpen(true);
+            setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+            return;
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIndex((i) => Math.max(i - 1, -1));
+            return;
+          }
           if (e.key === "Enter") {
             e.preventDefault();
-            void addSymbol(query || suggestions[0] || "");
+            const picked =
+              activeIndex >= 0 ? suggestions[activeIndex] : query || suggestions[0] || "";
+            void addSymbol(picked);
           }
           if (e.key === "Escape") {
             e.preventDefault();
@@ -212,21 +237,33 @@ function WatchlistAddRow({
         ×
       </button>
       {open && suggestions.length > 0 ? (
-        <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] py-0.5 shadow-[var(--panel-shadow)] scroll-shadow-y">
-          {suggestions.map((sym) => (
-            <li key={sym}>
-              <button
-                type="button"
-                className="w-full px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--bg-hover)]"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  void addSymbol(sym);
-                }}
-              >
-                {sym}
-              </button>
-            </li>
-          ))}
+        <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border-strong)] bg-[var(--muted)] py-0.5 shadow-xl ring-1 ring-black/40 scroll-shadow-y">
+          {suggestions.map((sym, i) => {
+            const already = onList.has(sym.toUpperCase());
+            return (
+              <li key={sym}>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--c-accent-soft)]",
+                    i === activeIndex && "bg-[var(--c-accent-soft)]",
+                  )}
+                  onMouseEnter={() => setActiveIndex(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    void addSymbol(sym);
+                  }}
+                >
+                  <span>{sym}</span>
+                  {already ? (
+                    <span className="text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                      on list
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>
@@ -714,6 +751,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
             activeListId={displayList.id}
             onAdded={handleSymbolAdded}
             onClose={() => onConfigChange({ adding: false })}
+            onPublish={publish}
           />
         ) : null}
 

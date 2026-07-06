@@ -80,6 +80,7 @@ export function WatchlistPanel({
   const [addQuery, setAddQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -136,10 +137,17 @@ export function WatchlistPanel({
   async function handleAdd(symbol: string) {
     const sym = symbol.trim().toUpperCase();
     if (!sym) return;
+    const alreadyOnList = symbols.includes(sym);
     try {
-      await addWatchlistSymbol(sym);
+      setError(null);
+      if (!alreadyOnList) await addWatchlistSymbol(sym);
       await load();
       setAddQuery("");
+      setNotice(
+        alreadyOnList
+          ? `${sym} is already in ${activeList?.name ?? "this list"}`
+          : `Added ${sym}`,
+      );
       onSelect(sym);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add symbol");
@@ -268,8 +276,12 @@ export function WatchlistPanel({
         <div className="flex gap-2">
           <TickerSearch
             value={addQuery}
-            onChange={setAddQuery}
+            onChange={(v) => {
+              setAddQuery(v);
+              if (notice) setNotice(null);
+            }}
             onSelect={handleAdd}
+            existing={symbols}
             className="flex-1"
           />
           <Button
@@ -284,9 +296,11 @@ export function WatchlistPanel({
         </div>
       </div>
 
-      {error && (
+      {error ? (
         <p className="px-3 pt-2 text-xs text-destructive">{error}</p>
-      )}
+      ) : notice ? (
+        <p className="px-3 pt-2 text-xs text-muted-foreground">{notice}</p>
+      ) : null}
 
       <ScrollArea className="min-h-0 flex-1 px-2 py-2">
         {loading ? (
