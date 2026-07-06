@@ -143,6 +143,16 @@ function WatchlistAddRow({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
+  // Clear the input and keep the row open + focused so the user can add
+  // another ticker without reopening. (Escape / × closes the row.)
+  const resetForNext = useCallback(() => {
+    setQuery("");
+    setSuggestions([]);
+    setOpen(false);
+    setActiveIndex(-1);
+    inputRef.current?.focus();
+  }, []);
+
   const addSymbol = useCallback(
     async (raw: string) => {
       const symbol = raw.trim().toUpperCase();
@@ -151,7 +161,7 @@ function WatchlistAddRow({
       if (onList.has(symbol)) {
         // Already on the list — focus its chart so the tap isn't a silent no-op.
         onPublish(symbol);
-        onClose();
+        resetForNext();
         return;
       }
 
@@ -162,18 +172,18 @@ function WatchlistAddRow({
           symbols: [symbol, ...symbols],
         });
         onAdded(next);
-        onClose();
+        resetForNext();
       } finally {
         setSubmitting(false);
       }
     },
-    [activeListId, onAdded, onClose, onList, onPublish, symbols],
+    [activeListId, onAdded, onList, onPublish, resetForNext, symbols],
   );
 
   return (
     <div
       ref={wrapRef}
-      className="relative m-1.5 flex items-center gap-x-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 transition-colors focus-within:border-[var(--c-accent)]"
+      className="relative z-30 m-1.5 flex items-center gap-x-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 transition-colors focus-within:border-[var(--c-accent)]"
     >
       <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--c-accent)]">
         +
@@ -237,7 +247,12 @@ function WatchlistAddRow({
         ×
       </button>
       {open && suggestions.length > 0 ? (
-        <ul className="absolute right-0 left-0 top-full z-10 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border-strong)] bg-[var(--muted)] py-0.5 shadow-xl ring-1 ring-black/40 scroll-shadow-y">
+        <ul
+          className="absolute right-0 left-0 top-full z-50 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border-strong)] py-0.5 shadow-2xl ring-1 ring-black/50 scroll-shadow-y"
+          style={{
+            backgroundColor: "color-mix(in srgb, var(--panel) 86%, #ffffff)",
+          }}
+        >
           {suggestions.map((sym, i) => {
             const already = onList.has(sym.toUpperCase());
             return (

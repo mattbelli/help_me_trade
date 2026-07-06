@@ -127,7 +127,12 @@ export function TickerSearch({
         </span>
       )}
       {open && suggestions.length > 0 && (
-        <ul className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-[var(--border-strong)] bg-[var(--muted)] py-1 shadow-xl ring-1 ring-black/40">
+        <ul
+          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-[var(--border-strong)] py-1 shadow-2xl ring-1 ring-black/50"
+          style={{
+            backgroundColor: "color-mix(in srgb, var(--popover) 86%, #ffffff)",
+          }}
+        >
           {suggestions.map((sym, i) => {
             const already = onList.has(sym.toUpperCase());
             return (
