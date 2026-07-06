@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
 import type { ChannelId } from "@/lib/workspace/channels";
+import { usePageActive } from "@/lib/workspace/page-active-context";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -498,6 +499,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const dragOrderRef = useRef<string[] | null>(null);
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
+  const pageActive = usePageActive();
 
   useEffect(() => {
     dragOrderRef.current = dragOrder;
@@ -771,6 +773,11 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         ) : null}
 
         <Reorder.Group
+          // Remount the motion list when this page becomes visible so the rows
+          // mount fresh at their final position — otherwise the hidden→visible
+          // page-position swap makes layout="position" slide them in from the
+          // top-left on every switch.
+          key={pageActive ? "shown" : "hidden"}
           axis="y"
           values={sortedSymbols}
           onReorder={setDragOrder}

@@ -42,6 +42,7 @@ import type {
   WorkspacePage,
 } from "@/lib/workspace/layout-persistence";
 import { flushWorkspaceLayoutSave, useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import { PageActiveContext } from "@/lib/workspace/page-active-context";
 import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
@@ -696,6 +697,7 @@ function WorkspacePageGrid({
   if (layout.length === 0) return null;
 
   return (
+    <PageActiveContext.Provider value={active}>
     <div
       id={`workspace-grid-root-${page.id}`}
       className="relative"
@@ -744,6 +746,7 @@ function WorkspacePageGrid({
         ))}
       </ReactGridLayout>
     </div>
+    </PageActiveContext.Provider>
   );
 }
 
