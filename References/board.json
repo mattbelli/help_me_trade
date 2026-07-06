@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-05T00:00:00Z",
+  "updated_at": "2026-07-06T00:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,16 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "copilot-terminal-redesign",
+      "title": "Copilot rethink: kill the chat window → Claude-Code-style terminal (one input: /commands + chat, streaming, tool blocks)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder directive 2026-07-06: 'we are all about speed… the copilot window is not it… make a claude code terminal like copilot. commands could work straight out of the chat.' Fable design agent dispatched — recon of command-console + copilot dock + chat stream, then References/COPILOT_TERMINAL_DESIGN.md: where it lives (Quake-drawer vs strip), one-input dual routing (/ = deterministic, NL = LLM loop, LLM can call the same commands as tools), engineered latency budgets, scrollback spec (tool blocks / proposal cards / [mem:ID] chips / clickable tickers), grid coexistence + keyboard model, phased migration that keeps the dock alive until parity. Design due this session; build = Opus rounds w/ Fable review.",
+      "updated_at": "2026-07-06"
+    },
     {
       "id": "memory-onboarding-interview",
       "title": "Copilot onboarding interview → seeds standing memory (the copilot's CLAUDE.md)",
