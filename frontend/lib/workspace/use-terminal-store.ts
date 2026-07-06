@@ -53,6 +53,48 @@ function saveHeight(px: number): void {
   }
 }
 
+// Horizontal layout: the drawer is a partial-width panel the founder can dock
+// left / center / right (or anywhere) by dragging its header, and widen from
+// either side edge. Fractions of the workspace width, persisted.
+const WIDTH_STORAGE_KEY = "hmt-terminal-widthfrac";
+const LEFT_STORAGE_KEY = "hmt-terminal-leftfrac";
+export const MIN_WIDTH_FRAC = 0.35;
+const DEFAULT_WIDTH_FRAC = 0.6;
+// Right-anchored by default: coverage grows from the bottom-right corner —
+// the low end of the founder's top-left attention gradient.
+const DEFAULT_LEFT_FRAC = 1 - DEFAULT_WIDTH_FRAC;
+
+function clampLayout(leftFrac: number, widthFrac: number): {
+  leftFrac: number;
+  widthFrac: number;
+} {
+  const w = Math.min(1, Math.max(MIN_WIDTH_FRAC, widthFrac));
+  const l = Math.min(1 - w, Math.max(0, leftFrac));
+  return { leftFrac: l, widthFrac: w };
+}
+
+function loadLayout(): { leftFrac: number; widthFrac: number } {
+  const fallback = { leftFrac: DEFAULT_LEFT_FRAC, widthFrac: DEFAULT_WIDTH_FRAC };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const w = Number.parseFloat(localStorage.getItem(WIDTH_STORAGE_KEY) ?? "");
+    const l = Number.parseFloat(localStorage.getItem(LEFT_STORAGE_KEY) ?? "");
+    if (Number.isFinite(w) && Number.isFinite(l)) return clampLayout(l, w);
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+function saveLayout(leftFrac: number, widthFrac: number): void {
+  try {
+    localStorage.setItem(WIDTH_STORAGE_KEY, String(widthFrac));
+    localStorage.setItem(LEFT_STORAGE_KEY, String(leftFrac));
+  } catch {
+    // ignore
+  }
+}
+
 function loadHistory(): string[] {
   if (typeof window === "undefined") return [];
   try {
@@ -83,6 +125,8 @@ export type ScrollbackEntry = {
 type TerminalState = {
   open: boolean;
   height: number;
+  leftFrac: number;
+  widthFrac: number;
   hydrated: boolean;
   scrollback: ScrollbackEntry[];
   history: string[];
@@ -90,6 +134,7 @@ type TerminalState = {
   toggle: () => void;
   setOpen: (open: boolean) => void;
   setHeight: (px: number) => void;
+  setLayout: (leftFrac: number, widthFrac: number) => void;
   appendScrollback: (entry: Omit<ScrollbackEntry, "id">) => void;
   clearScrollback: () => void;
   pushHistory: (entry: string) => void;
@@ -100,17 +145,29 @@ let scrollbackSeq = 0;
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   open: false,
   height: viewportPx(DEFAULT_SVH),
+  leftFrac: DEFAULT_LEFT_FRAC,
+  widthFrac: DEFAULT_WIDTH_FRAC,
   hydrated: false,
   scrollback: [],
   history: [],
   hydrate: () =>
-    set({ height: loadHeight(), history: loadHistory(), hydrated: true }),
+    set({
+      height: loadHeight(),
+      ...loadLayout(),
+      history: loadHistory(),
+      hydrated: true,
+    }),
   toggle: () => set((s) => ({ open: !s.open })),
   setOpen: (open) => set({ open }),
   setHeight: (px) => {
     const next = clampDrawerHeight(px);
     set({ height: next });
     saveHeight(next);
+  },
+  setLayout: (leftFrac, widthFrac) => {
+    const next = clampLayout(leftFrac, widthFrac);
+    set(next);
+    saveLayout(next.leftFrac, next.widthFrac);
   },
   appendScrollback: (entry) =>
     set((s) => ({

@@ -92,11 +92,14 @@ export function Terminal() {
   const {
     open,
     height,
+    leftFrac,
+    widthFrac,
     scrollback,
     history,
     hydrate,
     setOpen,
     setHeight,
+    setLayout,
     appendScrollback,
     pushHistory,
   } = useTerminalStore();
@@ -358,6 +361,54 @@ export function Terminal() {
 
   const mirrorText = inputValue.length > 0 ? inputValue : " ";
   const bodyHeight = open ? Math.max(0, height - STRIP) : 0;
+  const partialWidth = widthFrac < 0.999;
+
+  // Horizontal layout: drag the header to slide the drawer (snaps to left /
+  // center / right), drag either side edge to resize. Fractions persisted.
+  const beginHorizDrag = useCallback(
+    (mode: "move" | "left" | "right") => (event: ReactPointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const wrap = wrapperRef.current;
+      if (!wrap) return;
+      const W = wrap.clientWidth;
+      const SNAP = 24;
+      const startX = event.clientX;
+      const startLeft = leftFrac * W;
+      const startWidth = widthFrac * W;
+
+      function onMove(e: PointerEvent) {
+        const dx = e.clientX - startX;
+        let left = startLeft;
+        let width = startWidth;
+        if (mode === "move") {
+          left = startLeft + dx;
+          if (Math.abs(left) < SNAP) left = 0;
+          else if (Math.abs(left + width - W) < SNAP) left = W - width;
+          else if (Math.abs(left + width / 2 - W / 2) < SNAP)
+            left = (W - width) / 2;
+        } else if (mode === "left") {
+          left = startLeft + dx;
+          width = startWidth - dx;
+          if (Math.abs(left) < SNAP) {
+            width += left;
+            left = 0;
+          }
+        } else {
+          width = startWidth + dx;
+          if (Math.abs(startLeft + width - W) < SNAP) width = W - startLeft;
+        }
+        setLayout(left / W, width / W);
+      }
+      function onUp() {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [leftFrac, widthFrac, setLayout],
+  );
 
   return (
     <div
@@ -368,11 +419,32 @@ export function Terminal() {
       {/* Drawer body — always mounted, clipped to 0 when collapsed (no remount). */}
       <div
         className={cn(
-          "overflow-hidden bg-[var(--bg-raised)]/90 backdrop-blur-md",
+          "relative overflow-hidden bg-[var(--bg-raised)]/90 backdrop-blur-md",
           open && "border-t border-[var(--border)] shadow-lg",
+          open && partialWidth && "border-x",
         )}
-        style={{ height: bodyHeight, transition: "height 120ms ease-out" }}
+        style={{
+          height: bodyHeight,
+          width: `${widthFrac * 100}%`,
+          marginLeft: `${leftFrac * 100}%`,
+          transition: "height 120ms ease-out",
+        }}
       >
+        {/* Side edges: drag to resize width from either side. */}
+        {open ? (
+          <>
+            <div
+              onPointerDown={beginHorizDrag("left")}
+              className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize transition-colors hover:bg-[var(--c-accent)]/40"
+              aria-label="Resize terminal width (left edge)"
+            />
+            <div
+              onPointerDown={beginHorizDrag("right")}
+              className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-ew-resize transition-colors hover:bg-[var(--c-accent)]/40"
+              aria-label="Resize terminal width (right edge)"
+            />
+          </>
+        ) : null}
         <div className="flex h-full flex-col" style={{ height: height - STRIP }}>
           {/* Drag handle */}
           <div
@@ -383,8 +455,10 @@ export function Terminal() {
             <span className="h-[2px] w-10 rounded-full bg-[var(--border-strong)] transition-colors group-hover:bg-[var(--c-accent)]" />
           </div>
 
-          {/* Header */}
-          <div className="flex shrink-0 items-center gap-2 px-4 pb-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
+          {/* Header — drag horizontally to dock the drawer left/center/right. */}
+          <div
+            onPointerDown={beginHorizDrag("move")}
+            className="flex shrink-0 cursor-grab items-center gap-2 px-4 pb-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)] active:cursor-grabbing">
             <span className="text-[var(--fg-dim)]">main thread</span>
             <span className="text-[var(--fg-faint)]">·</span>
             <span>Ch1</span>
@@ -396,6 +470,7 @@ export function Terminal() {
               ) : null}
               <button
                 type="button"
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   setOpen(false);
                   inputRef.current?.blur();
