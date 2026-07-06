@@ -359,7 +359,83 @@ export function Terminal() {
     [height, setHeight],
   );
 
-  const mirrorText = inputValue.length > 0 ? inputValue : " ";
+  // The prompt (› + input + block cursor) renders in exactly ONE place:
+  // inside the drawer above its bottom edge when open (Claude Code-style —
+  // you type where you read), or in the collapsed strip when closed.
+  const promptRow = (
+    <>
+      <span className="shrink-0 text-[var(--c-command)]">›</span>
+      <div className="relative inline-grid min-w-0 flex-1 items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1">
+        <span
+          aria-hidden
+          className="invisible col-start-1 row-start-1 whitespace-pre text-[length:var(--fs-emph)]"
+        >
+          {inputValue.length > 0 ? inputValue : " "}
+          {focused ? <span className="inline-block w-[0.55em]" /> : null}
+        </span>
+        <input
+          ref={inputRef}
+          type="text"
+          value={inputValue}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            historyIndexRef.current = null;
+            setSelIndex(-1);
+          }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onKeyDown={onInputKeyDown}
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Terminal command line"
+          className="col-start-1 row-start-1 w-full min-w-0 bg-transparent text-[length:var(--fs-emph)] text-foreground outline-none"
+          style={{ caretColor: "transparent" }}
+        />
+        {focused ? (
+          <span
+            aria-hidden
+            className="pointer-events-none col-start-1 row-start-1 flex items-center whitespace-pre text-[length:var(--fs-emph)] text-transparent"
+          >
+            {inputValue}
+            {/* Real element, not a ▋ glyph — glyph metrics vary by font
+                (and fallback fonts) which drifted the block off the text. */}
+            <span
+              className={cn(
+                "inline-block h-[1.15em] w-[0.55em] self-center bg-[var(--c-command)]",
+                cursorVisible ? "opacity-100" : "opacity-0",
+              )}
+            />
+          </span>
+        ) : null}
+      </div>
+    </>
+  );
+
+  const suggestionsList = (
+    <ul className="overflow-hidden rounded-none border border-[var(--border)] bg-[var(--bg-raised)]/95 py-1 shadow-lg backdrop-blur-md">
+      {suggestions.map((cmd, i) => (
+        <li key={cmd}>
+          <button
+            type="button"
+            className={cn(
+              "w-full px-3.5 py-1 text-left text-[length:var(--fs-body)] transition-colors",
+              i === selIndex
+                ? "bg-[var(--bg-hover)]/60 text-foreground"
+                : "text-[var(--fg-dim)] hover:bg-[var(--bg-hover)]/40 hover:text-foreground",
+            )}
+            onMouseEnter={() => setSelIndex(i)}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              completeSuggestion(cmd);
+            }}
+          >
+            <span className="text-[var(--c-command)]">{cmd}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+
   const bodyHeight = open ? Math.max(0, height - STRIP) : 0;
   const partialWidth = widthFrac < 0.999;
 
@@ -505,34 +581,29 @@ export function Terminal() {
               </div>
             )}
           </div>
+
+          {/* Prompt line inside the pane — Claude Code-style: scrollback
+              above, suggestions directly above the input, input at the
+              bottom of the drawer wherever it's docked. */}
+          <div className="shrink-0 px-3 pb-2">
+            {showAutocomplete ? (
+              <div className="mb-1">{suggestionsList}</div>
+            ) : null}
+            <form
+              onSubmit={onSubmit}
+              className="flex items-center gap-2 border-t border-[var(--border)] pt-2"
+            >
+              {open ? promptRow : null}
+            </form>
+          </div>
         </div>
       </div>
 
-      {/* Autocomplete popover — sits just above the strip in both states. */}
-      {showAutocomplete ? (
+      {/* Autocomplete popover above the strip — collapsed state only (when
+          open, suggestions render inside the drawer above the prompt). */}
+      {showAutocomplete && !open ? (
         <div className="absolute inset-x-4 z-10" style={{ bottom: STRIP + 4 }}>
-          <ul className="overflow-hidden rounded-none border border-[var(--border)] bg-[var(--bg-raised)]/95 py-1 shadow-lg backdrop-blur-md">
-            {suggestions.map((cmd, i) => (
-              <li key={cmd}>
-                <button
-                  type="button"
-                  className={cn(
-                    "w-full px-3.5 py-1 text-left text-[length:var(--fs-body)] transition-colors",
-                    i === selIndex
-                      ? "bg-[var(--bg-hover)]/60 text-foreground"
-                      : "text-[var(--fg-dim)] hover:bg-[var(--bg-hover)]/40 hover:text-foreground",
-                  )}
-                  onMouseEnter={() => setSelIndex(i)}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    completeSuggestion(cmd);
-                  }}
-                >
-                  <span className="text-[var(--c-command)]">{cmd}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {suggestionsList}
         </div>
       ) : null}
 
@@ -541,53 +612,17 @@ export function Terminal() {
         onSubmit={onSubmit}
         className="flex h-[40px] items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)]/85 px-4 backdrop-blur-md"
       >
-        <span className="shrink-0 text-[var(--c-command)]">›</span>
-
-        <div className="relative inline-grid min-w-[16rem] flex-1 items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1">
-          <span
-            aria-hidden
-            className="invisible col-start-1 row-start-1 whitespace-pre text-[length:var(--fs-emph)]"
+        {!open ? (
+          promptRow
+        ) : (
+          <button
+            type="button"
+            onClick={focusInput}
+            className="min-w-0 flex-1 cursor-text text-left text-[length:var(--fs-body)] text-[var(--fg-faint)]"
           >
-            {mirrorText}
-            {focused ? <span className="inline-block w-[0.55em]" /> : null}
-          </span>
-
-          <input
-            ref={inputRef}
-            type="text"
-            value={inputValue}
-            onChange={(e) => {
-              setInputValue(e.target.value);
-              historyIndexRef.current = null;
-              setSelIndex(-1);
-            }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onKeyDown={onInputKeyDown}
-            spellCheck={false}
-            autoComplete="off"
-            aria-label="Terminal command line"
-            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent text-[length:var(--fs-emph)] text-foreground outline-none"
-            style={{ caretColor: "transparent" }}
-          />
-
-          {focused ? (
-            <span
-              aria-hidden
-              className="pointer-events-none col-start-1 row-start-1 flex items-center whitespace-pre text-[length:var(--fs-emph)] text-transparent"
-            >
-              {inputValue}
-              {/* Real element, not a ▋ glyph — glyph metrics vary by font
-                  (and fallback fonts) which drifted the block off the text. */}
-              <span
-                className={cn(
-                  "inline-block h-[1.15em] w-[0.55em] self-center bg-[var(--c-command)]",
-                  cursorVisible ? "opacity-100" : "opacity-0",
-                )}
-              />
-            </span>
-          ) : null}
-        </div>
+            terminal open — Esc closes
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           <span className="rounded-sm border border-[var(--border)] px-1.5 py-0.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
