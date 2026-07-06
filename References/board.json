@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "copilot-terminal-redesign",
-      "title": "Copilot terminal: design DELIVERED (Quake drawer, one input, ~5-6 Opus rounds) — 4 decisions + green light needed",
-      "lane": "founder",
+      "title": "Copilot terminal: T0+T1 SHIPPED (⌘K Quake drawer live) — T2 chat-in-terminal next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Fable design pass DONE 2026-07-06 → References/COPILOT_TERMINAL_DESIGN.md (391 lines, full-code recon). Core: console strip = collapsed terminal, ⌘K Quake-expands over the grid (never reflows); one input → leading / = deterministic registry (instant), plain text = existing chat brain; LLM gets a whitelisted workspace_command tool (same registry, chokepoint untouched); scrollback = flat mono transcript w/ collapsed tool rows, inline proposal cards, [mem:ID] chips (memory §7 contract), ClickableSymbol tickers. Perf receipts: dock unmounts Thread on close; route.ts does 2 SEQUENTIAL Python round-trips pre-LLM (verified) → Promise.all + runtime cache + prewarm + optimistic echo; budgets: summon<100ms, echo<16ms, first token p50<800ms, instrumented in T0. Phases T0-T5 (~5-6 Opus rounds), dock survives until T5 parity audit. FOUNDER: (1) delete dock at T5? (rec: delete) (2) agent-initiated output: auto-summon or strip glyph? (rec: glyph) (3) Iosevka trial on terminal T1? (rec: yes) (4) keep attachments? (rec: keep). Green light starts T0+T1.",
+      "notes": "Founder approved all 4 design recs 2026-07-06 (glyph, dock dies at T5, Iosevka trial, attachments keep). T0+T1 DEPLOYED :3001 same night (first Opus-coded frontend round): console strip = collapsed terminal (always mounted), ⌘K summons 46svh drawer OVER the grid (120ms, no reflow, drag-resize 25-85svh persisted); command registry + autocomplete w/ keyboard nav in-drawer; ↑ history (200, persisted); Esc collapse; plain text → 'chat arrives in T2' breadcrumb + opens dock; Iosevka behind --font-terminal (one-line revert); T0 perf marks: Server-Timing runtime/context/convert spans + first-token log + summon/echo marks (?perf=1). command-console.tsx + use-console-store DELETED (orphaned, per design). Dock untouched (⌘J). NEXT: T2 chat streams in the terminal (needs memory P1 landed first — shared chat surface), then T3 speed pass to budgets.",
       "updated_at": "2026-07-06"
     },
     {

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { motion } from "motion/react";
 
-import { CommandConsole } from "@/components/workspace/command-console";
+import { Terminal } from "@/components/workspace/terminal/terminal";
 import { CopilotSidebar } from "@/components/workspace/copilot-sidebar";
 import { MobileWorkspace } from "@/components/workspace/mobile-workspace";
 import { NotificationBanner } from "@/components/workspace/notification-banner";
@@ -12,7 +12,7 @@ import { WorkspaceChatProviders } from "@/components/workspace/workspace-chat";
 import { WorkspaceGrid } from "@/components/workspace/workspace-grid";
 import { WorkspaceToastProvider } from "@/components/workspace/workspace-toast";
 import { WorkspaceToolbar } from "@/components/workspace/workspace-toolbar";
-import { useConsoleStore } from "@/lib/workspace/use-console-store";
+import { TERMINAL_COLLAPSED_HEIGHT } from "@/lib/workspace/use-terminal-store";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 import { usePageHotkeys } from "@/lib/workspace/use-page-hotkeys";
@@ -22,7 +22,7 @@ export default function WorkspacePageImpl() {
   usePageHotkeys();
 
   const isMobile = useIsMobile();
-  const collapsedHeight = useConsoleStore((s) => s.collapsedHeight);
+  const collapsedHeight = TERMINAL_COLLAPSED_HEIGHT;
   const open = useCopilotStore((s) => s.open);
   const pinned = useCopilotStore((s) => s.pinned);
   const width = useCopilotStore((s) => s.width);
@@ -92,7 +92,7 @@ export default function WorkspacePageImpl() {
                 </motion.div>
                 <CopilotSidebar />
               </div>
-              <CommandConsole />
+              <Terminal />
             </TickerInfoProvider>
           </WorkspaceChatProviders>
         </div>

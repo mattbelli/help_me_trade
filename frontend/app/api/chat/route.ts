@@ -89,7 +89,18 @@ function enabledToolsWithPendingApprovals(
   return [...merged] as ChatToolId[];
 }
 
+/** T0 latency instrumentation: collect named spans → a Server-Timing header. */
+type PerfSpan = { name: string; dur: number };
+function serverTimingHeader(spans: PerfSpan[]): string {
+  return spans
+    .map((s) => `${s.name};dur=${s.dur.toFixed(1)}`)
+    .join(", ");
+}
+
 export async function POST(req: Request) {
+  const tReq = performance.now();
+  const spans: PerfSpan[] = [];
+
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
@@ -117,8 +128,10 @@ export async function POST(req: Request) {
   }
 
   let runtime;
+  const tRuntime = performance.now();
   try {
     runtime = await fetchLlmRuntime(model);
+    spans.push({ name: "runtime", dur: performance.now() - tRuntime });
   } catch (err) {
     return Response.json(
       {
@@ -144,11 +157,13 @@ export async function POST(req: Request) {
 
   const userText = lastUserText(messages);
   let system = "";
+  const tContext = performance.now();
   try {
     if (userText) {
       const ctx = await fetchChatContext(userText, autoInjectMemories, true);
       system = ctx.system;
     }
+    spans.push({ name: "context", dur: performance.now() - tContext });
   } catch (err) {
     return Response.json(
       {
@@ -188,12 +203,32 @@ export async function POST(req: Request) {
     languageModel = openai.chat(resolvedModel);
   }
 
+  const tConvert = performance.now();
+  const modelMessages = await convertToModelMessages(messages);
+  spans.push({ name: "convert", dur: performance.now() - tConvert });
+
+  // Provider TTFB: wall-clock from request entry to the first streamed chunk.
+  // Logged server-side (dev-visible) and folded into the debug readout; can't
+  // ride the Server-Timing header since that flushes before streaming starts.
+  const perfDebug = process.env.NEXT_PUBLIC_PERF_DEBUG === "1";
+  let firstChunkSeen = false;
+
   const result = streamText({
     model: languageModel,
     system,
-    messages: await convertToModelMessages(messages),
+    messages: modelMessages,
     tools,
     stopWhen: stepCountIs(6),
+    onChunk: () => {
+      if (firstChunkSeen) return;
+      firstChunkSeen = true;
+      const ttfb = performance.now() - tReq;
+      if (perfDebug) {
+        console.log(
+          `[perf] chat first-token ${ttfb.toFixed(0)}ms (${serverTimingHeader(spans)})`,
+        );
+      }
+    },
     prepareStep: async ({ stepNumber }) => {
       if (stepNumber !== 0 || !orderIntent || !hasProposeOrder) {
         return {};
@@ -208,8 +243,11 @@ export async function POST(req: Request) {
     },
   });
 
+  spans.push({ name: "preamble", dur: performance.now() - tReq });
+
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    headers: { "Server-Timing": serverTimingHeader(spans) },
     onFinish: async ({ responseMessage, messages: allMessages, isAborted }) => {
       if (isAborted) return;
       const assistantText = responseMessage.parts

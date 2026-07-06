@@ -9,7 +9,7 @@ import {
   fetchWatchlists,
   updateWatchlist,
 } from "@/lib/api";
-import { useConsoleStore } from "@/lib/workspace/use-console-store";
+import { useTerminalStore } from "@/lib/workspace/use-terminal-store";
 import {
   WORKSPACE_THEME_LABELS,
   WORKSPACE_THEMES,
@@ -49,7 +49,7 @@ export function useWorkspaceCommands() {
   const { theme, setTheme } = useTheme();
   const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
   const addWidget = useWorkspaceStore((s) => s.addWidget);
-  const clearScrollback = useConsoleStore((s) => s.clearScrollback);
+  const clearScrollback = useTerminalStore((s) => s.clearScrollback);
   const customThemes = useCustomThemeStore((s) => s.themes);
   const aui = useAui();
 

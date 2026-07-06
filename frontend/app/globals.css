@@ -71,6 +71,11 @@
     /* header/display face: one-line hook for font trials (Iosevka trial
        reverted 2026-07-05 — founder preferred the house mono) */
     --font-display: var(--font-mono);
+    /* terminal surface face (T1 Iosevka trial): scrollback + input render in
+       Iosevka if the OS has it (founder's wezterm face), falling back to the
+       house mono. Revert the whole trial by setting this to var(--font-mono). */
+    --font-terminal: "Iosevka", "Iosevka Term", "Iosevka Nerd Font",
+      var(--font-mono);
     --background: #131519;
     --chart-background: var(--background);
     --foreground: #e9e7e3;
