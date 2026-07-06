@@ -685,6 +685,24 @@ def api_patch_memory(memory_id: int, body: dict = Body(...)):
         status = str(status).strip()
     if authority is not None:
         authority = str(authority).strip()
+        # §6 authority model: the ONLY server-accepted transition is the
+        # founder's Confirm tap — agent_inferred → user_confirmed. Nothing
+        # else may raise (or rewrite) authority over HTTP.
+        if authority != "user_confirmed":
+            return JSONResponse(
+                {"error": "authority may only be set to 'user_confirmed'"},
+                status_code=400,
+            )
+        current = get_memory_service().get(memory_id)
+        if current is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        if current.get("authority") != "agent_inferred":
+            return JSONResponse(
+                {
+                    "error": "only agent_inferred memories can be confirmed"
+                },
+                status_code=400,
+            )
     if valid_until is not None:
         valid_until = str(valid_until).strip()
     if content is not None and not str(content).strip():

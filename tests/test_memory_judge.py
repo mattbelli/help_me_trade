@@ -106,16 +106,14 @@ def test_supersede_links_and_retires_old_row(tmp_path: Path) -> None:
     old = ai_tables.create_memory(
         memory_type="directive",
         content="Cap any single name at 20% of portfolio",
-        authority="user_authored",
         db_path=db,
     )
     llm = StubLLM([{"index": 0, "action": "SUPERSEDE", "target_id": old["id"]}])
-    # The founder's own correction — user_explicit source clears the containment guard.
     cand = Candidate(
         memory_type="directive",
         content="Cap any single name at 25% of portfolio",
         source="user_explicit",
-        authority="user_authored",
+        authority="agent_inferred",
     )
     stored = judge_and_store([cand], db_path=db, llm=llm)
     assert len(stored) == 1
@@ -213,3 +211,31 @@ def test_judge_failure_drops_agent_but_honors_user_explicit(tmp_path: Path) -> N
 
 def test_empty_batch_returns_empty(tmp_path: Path) -> None:
     assert judge_and_store([], db_path=_db(tmp_path), llm=StubLLM([])) == []
+
+
+def test_explicit_candidate_cannot_supersede_protected_row(tmp_path: Path) -> None:
+    """GATING-1b regression: user_explicit is model-attested (unverified
+    quote), so it gets NO bypass — a protected (user_authored/pinned) row
+    degrades the decision to ADD and stays active."""
+    db = _db(tmp_path)
+    protected = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never propose shorts",
+        authority="user_authored",
+        source="widget_manual",
+        db_path=db,
+    )
+    llm = StubLLM([{"index": 0, "action": "SUPERSEDE", "target_id": protected["id"]}])
+    cand = Candidate(
+        memory_type="directive",
+        content="Shorts are fine now",
+        source="user_explicit",
+        authority="agent_inferred",
+        quote="totally real quote",
+    )
+    stored = judge_and_store([cand], db_path=db, llm=llm)
+    assert len(stored) == 1
+    untouched = ai_tables.get_memory(protected["id"], db_path=db)
+    assert untouched["status"] == "active"
+    new_row = ai_tables.get_memory(stored[0]["id"], db_path=db)
+    assert new_row.get("supersedes_id") in (None, 0)

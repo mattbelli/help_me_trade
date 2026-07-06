@@ -21,7 +21,10 @@ def tool_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return db
 
 
-async def test_save_memory_with_quote_is_user_authored(tool_db: Path) -> None:
+async def test_save_memory_with_quote_never_mints_authority(tool_db: Path) -> None:
+    """GATING-1 regression: the quote is a model-controlled argument — a
+    hallucinated quote must not create a user_authored (proposal-shaping)
+    row. Promotion happens only via the founder's Confirm tap."""
     result = await execute_tool(
         "save_memory",
         {
@@ -33,10 +36,26 @@ async def test_save_memory_with_quote_is_user_authored(tool_db: Path) -> None:
     assert result["status"] == "saved"
     assert result["message"] == f"Saved [mem:{result['id']}]."
     row = ai_tables.get_memory(result["id"], db_path=tool_db)
-    assert row["authority"] == "user_authored"
+    assert row["authority"] == "agent_inferred"
     assert row["source"] == "user_explicit"
     assert row["quote"] == "remember I never trade the first 15 minutes"
     assert row["type"] == "directive"
+
+
+async def test_forget_memory_refuses_protected_rows(tool_db: Path) -> None:
+    """GATING-2 regression: the copilot cannot archive pinned or
+    user_authored rows — that's the founder's widget-only power."""
+    protected = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never propose shorts",
+        authority="user_authored",
+        source="widget_manual",
+        db_path=tool_db,
+    )
+    result = await execute_tool("forget_memory", {"id": protected["id"]})
+    assert "error" in result
+    row = ai_tables.get_memory(protected["id"], db_path=tool_db)
+    assert row["status"] == "active"
 
 
 async def test_save_memory_without_quote_is_agent_inferred(tool_db: Path) -> None:
@@ -77,3 +96,45 @@ async def test_forget_memory_archives_with_undo(tool_db: Path) -> None:
 async def test_forget_missing_memory_errors(tool_db: Path) -> None:
     result = await execute_tool("forget_memory", {"id": 424242, "reason": "gone"})
     assert result["error"] == "not found"
+
+
+def test_patch_authority_transitions_locked_down(mutation_client) -> None:
+    """GATING-3 regression: the ONLY authority transition the API accepts is
+    the founder's Confirm tap (agent_inferred -> user_confirmed).
+
+    Rows are created in the process-default DB (conftest redirects it to a
+    pytest temp file) — the same DB the API's memory service reads."""
+    inferred = ai_tables.create_memory(
+        memory_type="preference",
+        content="Prefers batched fill pushes",
+    )
+    authored = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never propose shorts",
+        authority="user_authored",
+        source="widget_manual",
+    )
+
+    # Minting user_authored over HTTP: rejected.
+    r = mutation_client.patch(
+        f"/api/memories/{inferred['id']}", json={"authority": "user_authored"}
+    )
+    assert r.status_code == 400
+
+    # Confirming an agent_inferred row: the one legal transition.
+    r = mutation_client.patch(
+        f"/api/memories/{inferred['id']}", json={"authority": "user_confirmed"}
+    )
+    assert r.status_code == 200
+    assert (
+        ai_tables.get_memory(inferred["id"])["authority"] == "user_confirmed"
+    )
+
+    # Re-confirming a non-inferred row (incl. downgrades): rejected.
+    r = mutation_client.patch(
+        f"/api/memories/{authored['id']}", json={"authority": "user_confirmed"}
+    )
+    assert r.status_code == 400
+    assert (
+        ai_tables.get_memory(authored["id"])["authority"] == "user_authored"
+    )

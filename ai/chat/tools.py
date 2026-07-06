@@ -574,10 +574,12 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         )
         valid_until_raw = args.get("valid_until")
         valid_until = str(valid_until_raw).strip() if valid_until_raw else None
-        # A verbatim quote means the user explicitly asked to remember this →
-        # user-authored (may shape proposals). Otherwise the copilot's own call.
+        # A quote keeps user_explicit semantics (judge never NOOPs it), but
+        # authority is NEVER minted from a model-controlled tool argument — a
+        # hallucinated quote must not create a proposal-shaping directive.
+        # The founder promotes via the widget's Confirm tap (→ user_confirmed).
         if quote:
-            source, authority = "user_explicit", "user_authored"
+            source, authority = "user_explicit", "agent_inferred"
         else:
             source, authority = "agent_save", "agent_inferred"
         candidate = Candidate(
@@ -616,6 +618,13 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         existing = get_memory(mem_id, db_path=DEFAULT_DB_PATH)
         if existing is None:
             return {"error": "not found"}
+        if existing.get("pinned") or existing.get("authority") == "user_authored":
+            return {
+                "error": (
+                    f"[mem:{mem_id}] is a pinned/user-authored rule — the copilot "
+                    "can't archive it. The founder can from the memory widget."
+                )
+            }
         reason = str(args.get("reason", "")).strip() or "forgotten via chat"
         meta = dict(existing.get("metadata") or {})
         meta["forget_reason"] = reason

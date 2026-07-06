@@ -172,11 +172,12 @@ def _apply(
         if target is None:
             # Hallucinated / missing target — degrade to a safe ADD.
             action = "ADD"
-        elif (
-            target.get("pinned") or target.get("authority") == "user_authored"
-        ) and not is_explicit:
-            # Containment: an agent-side writer can't override the founder's own
-            # rule. Keep the candidate as a fresh ADD instead of touching the row.
+        elif target.get("pinned") or target.get("authority") == "user_authored":
+            # Containment: NO tool/agent-side writer may override the founder's
+            # own rule — including user_explicit candidates, whose quote is a
+            # model-attested argument, not a server-verified transcript match.
+            # (Bypass returns only if/when quotes are verified server-side.)
+            # Keep the candidate as a fresh ADD instead of touching the row.
             logger.info(
                 "Judge blocked %s of protected memory %s by agent source %s — ADD",
                 action,
