@@ -13,7 +13,13 @@ import pytest
 from db import sqlite as sqlite_mod
 from db.base import connect, now_iso
 from db.decision_journal import init_decision_journal_tables, record_decision
-from db.retention import ALLOWLIST, RAW_KEEP_DAYS, SNAPSHOT_TABLES, prune_poll_history
+from db.retention import (
+    ALLOWLIST,
+    ANALYTICS_KEEP_DAYS,
+    RAW_KEEP_DAYS,
+    SNAPSHOT_TABLES,
+    prune_poll_history,
+)
 from db.trades import init_trade_tables
 
 
@@ -260,17 +266,18 @@ def test_prune_poll_history_downsamples_and_preserves_ledger(
                 "SELECT 1 FROM poll_runs WHERE id = ?", (run_id,)
             ).fetchone()
             for table in SNAPSHOT_TABLES:
+                row = conn.execute(
+                    f"SELECT 1 FROM {table} WHERE poll_run_id = ?",  # noqa: S608
+                    (run_id,),
+                ).fetchone()
                 if table == "snapshot_analytics":
-                    row = conn.execute(
-                        "SELECT 1 FROM snapshot_analytics WHERE poll_run_id = ?",
-                        (run_id,),
-                    ).fetchone()
+                    # Fixture's old runs sit past ANALYTICS_KEEP_DAYS: the keeper
+                    # skeleton survives but its fat JSON is deliberately trimmed.
+                    assert row is None, (
+                        f"kept run {run_id} should have trimmed analytics"
+                    )
                 else:
-                    row = conn.execute(
-                        f"SELECT 1 FROM {table} WHERE poll_run_id = ?",
-                        (run_id,),
-                    ).fetchone()
-                assert row is not None, f"kept run {run_id} missing {table} child"
+                    assert row is not None, f"kept run {run_id} missing {table} child"
 
         for run_id in meta["old_pruned_runs"]:
             assert conn.execute(
@@ -389,13 +396,13 @@ def test_analytics_trim_respects_cutoff_but_keeps_skeleton(
 ) -> None:
     now = datetime.now(UTC)
     with connect(retention_db) as conn:
-        # >30d old (survives as a lone keeper): analytics should be trimmed.
-        old_ts = (now - timedelta(days=40)).replace(hour=3).isoformat()
+        # Past the analytics cutoff (survives as a lone keeper): trimmed.
+        old_ts = (now - timedelta(days=ANALYTICS_KEEP_DAYS + 10)).replace(hour=3).isoformat()
         old_run = _seed_poll_run(
             conn, captured_at=old_ts, broker="alpaca", account_id="acct_a"
         )
-        # <30d old: analytics must be kept.
-        recent_ts = (now - timedelta(days=10)).replace(hour=3).isoformat()
+        # Inside the analytics window: analytics must be kept.
+        recent_ts = (now - timedelta(days=max(1, ANALYTICS_KEEP_DAYS - 4))).replace(hour=3).isoformat()
         recent_run = _seed_poll_run(
             conn, captured_at=recent_ts, broker="schwab", account_id="acct_b"
         )

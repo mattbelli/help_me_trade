@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 
 RAW_KEEP_DAYS = 14  # raw runs downsample to one-per-hour past this age
 KEEPER_KEEP_DAYS = 90  # hourly keepers downsample to one-per-day past this age
-ANALYTICS_KEEP_DAYS = 30  # snapshot_analytics JSON trimmed past this age (skeleton stays)
+# snapshot_analytics JSON trimmed past this age (skeleton stays). The sole
+# reader (_load_analytics) only ever fetches the LATEST run per account, so
+# even 7 days is pure headroom; at ~10MB/day of blobs this constant IS the
+# table's steady-state size — raise it only if a historical reader appears.
+ANALYTICS_KEEP_DAYS = 7
 SNAPSHOT_TABLES = (
     "account_snapshots",
     "position_snapshots",
