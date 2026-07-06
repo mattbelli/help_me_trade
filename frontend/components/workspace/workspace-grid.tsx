@@ -53,6 +53,8 @@ import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
 const ROW_HEIGHT_PX = 48;
+// Scroll container's top padding (pt-4) — offsets scrollTop → grid-row space.
+const GRID_CONTENT_PADDING_TOP_PX = 16;
 
 /** Stable ancestor whose width is unaffected by docked-copilot paddingRight. */
 const GRID_HOST_ID = "workspace-grid-host";
@@ -692,6 +694,19 @@ export function WorkspaceGrid() {
     const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 2;
     const left = el.scrollLeft > 2;
     const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+
+    // Register the visible grid-row band so addWidget can place a fresh widget
+    // in view. Grid rows are ROW_HEIGHT + margin tall; scrollTop is offset by
+    // the scroll container's top padding.
+    const rowPx = ROW_HEIGHT_PX + GRID_MARGIN_PX;
+    const topPx = el.scrollTop - GRID_CONTENT_PADDING_TOP_PX;
+    const rowTop = Math.max(0, Math.floor(topPx / rowPx));
+    const rowBottom = Math.max(
+      rowTop,
+      Math.floor((topPx + el.clientHeight - 1) / rowPx),
+    );
+    useWorkspaceStore.getState().setVisibleRows({ top: rowTop, bottom: rowBottom });
+
     setEdges((prev) => {
       if (
         prev.top === top &&

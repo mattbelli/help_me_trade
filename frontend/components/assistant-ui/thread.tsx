@@ -71,6 +71,7 @@ export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
  */
 export type ThreadComponents = {
   AssistantMessage?: ComponentType | undefined;
+  UserMessage?: ComponentType | undefined;
   Welcome?: ComponentType | undefined;
   ToolFallback?: ToolCallMessagePartComponent | undefined;
   ToolGroup?:
@@ -89,6 +90,8 @@ export type ThreadProps = {
   messagesOnly?: boolean;
   /** Terminal font (JetBrains Mono) for copilot chat prose. */
   mono?: boolean;
+  /** Drop the 44rem centered column — messages fill the viewport width (terminal transcript). */
+  fullWidth?: boolean;
 };
 
 const EMPTY_COMPONENTS: ThreadComponents = {};
@@ -108,13 +111,19 @@ export const Thread: FC<ThreadProps> = ({
   components = EMPTY_COMPONENTS,
   messagesOnly = false,
   mono = false,
+  fullWidth = false,
 }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
     <ThreadComponentsContext.Provider value={components}>
       <ThreadMonoContext.Provider value={mono}>
-        <ThreadRoot isEmpty={isEmpty} messagesOnly={messagesOnly} mono={mono} />
+        <ThreadRoot
+          isEmpty={isEmpty}
+          messagesOnly={messagesOnly}
+          mono={mono}
+          fullWidth={fullWidth}
+        />
       </ThreadMonoContext.Provider>
     </ThreadComponentsContext.Provider>
   );
@@ -124,10 +133,12 @@ const ThreadRoot: FC<{
   isEmpty: boolean;
   messagesOnly?: boolean;
   mono?: boolean;
+  fullWidth?: boolean;
 }> = ({
   isEmpty,
   messagesOnly = false,
   mono = false,
+  fullWidth = false,
 }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 
@@ -138,7 +149,7 @@ const ThreadRoot: FC<{
         mono && "font-mono text-[13px] [&_pre]:text-[11px] [&_.aui-md-pre]:text-[11px]",
       )}
       style={{
-        ["--thread-max-width" as string]: "44rem",
+        ["--thread-max-width" as string]: fullWidth ? "none" : "44rem",
         ["--composer-padding" as string]: "8px",
       }}
     >
@@ -192,13 +203,15 @@ const ThreadRoot: FC<{
 };
 
 const ThreadMessage: FC = () => {
-  const { AssistantMessage: AssistantMessageComponent = AssistantMessage } =
-    useContext(ThreadComponentsContext);
+  const {
+    AssistantMessage: AssistantMessageComponent = AssistantMessage,
+    UserMessage: UserMessageComponent = UserMessage,
+  } = useContext(ThreadComponentsContext);
   const role = useAuiState((s) => s.message.role);
   const isEditing = useAuiState((s) => s.message.composer.isEditing);
 
   if (isEditing) return <EditComposer />;
-  if (role === "user") return <UserMessage />;
+  if (role === "user") return <UserMessageComponent />;
   return <AssistantMessageComponent />;
 };
 

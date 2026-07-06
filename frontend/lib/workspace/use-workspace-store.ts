@@ -26,6 +26,9 @@ import {
 const LOCKED_STORAGE_KEY = "hmt-workspace-locked";
 const MAX_PAGES = 5;
 
+/** Inclusive grid-row range currently visible in the scroll viewport. */
+type VisibleRows = { top: number; bottom: number };
+
 type WorkspaceState = {
   pages: Record<string, WorkspacePage>;
   activePageId: string;
@@ -33,10 +36,12 @@ type WorkspaceState = {
   locked: boolean;
   pickerOpen: boolean;
   gridCols: number;
+  visibleRows: VisibleRows | null;
   focusRequest: { instanceId: string; nonce: number } | null;
   hydrate: () => Promise<void>;
   getActiveLayout: () => WorkspaceLayoutItem[];
   setGridCols: (cols: number) => void;
+  setVisibleRows: (rows: VisibleRows | null) => void;
   updateLayout: (layout: WorkspaceLayoutItem[]) => void;
   addWidget: (type: string) => boolean;
   updateWidgetConfig: (
@@ -88,19 +93,32 @@ function findPlacement(
   layout: WorkspaceLayoutItem[],
   size: WidgetDefaultSize,
   cols: number,
+  visibleRows?: VisibleRows | null,
 ): { x: number; y: number } {
   const w = Math.min(size.w, cols);
   const maxY = layout.reduce((max, item) => Math.max(max, item.y + item.h), 0);
 
-  for (let y = 0; y <= maxY; y += 1) {
-    for (let x = 0; x <= cols - w; x += 1) {
-      const candidate = { x, y, w, h: size.h };
-      const blocked = layout.some((item) => rectsOverlap(candidate, item));
-      if (!blocked) return { x, y };
+  const scan = (fromY: number, toY: number): { x: number; y: number } | null => {
+    for (let y = fromY; y <= toY; y += 1) {
+      for (let x = 0; x <= cols - w; x += 1) {
+        const candidate = { x, y, w, h: size.h };
+        const blocked = layout.some((item) => rectsOverlap(candidate, item));
+        if (!blocked) return { x, y };
+      }
     }
+    return null;
+  };
+
+  // Prefer a gap that lands fully inside the currently visible scroll band so
+  // the fresh widget appears on-screen; fall back to the top-left-first scan.
+  if (visibleRows) {
+    const from = Math.max(0, visibleRows.top);
+    const to = Math.min(maxY, visibleRows.bottom - size.h + 1);
+    const hit = to >= from ? scan(from, to) : null;
+    if (hit) return hit;
   }
 
-  return { x: 0, y: maxY };
+  return scan(0, maxY) ?? { x: 0, y: maxY };
 }
 
 function nextInstanceId(type: string, layout: WorkspaceLayoutItem[]): string {
@@ -265,6 +283,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   locked: false,
   pickerOpen: false,
   gridCols: GRID_DEFAULT_COLS,
+  visibleRows: null,
   focusRequest: null,
 
   getActiveLayout: () => {
@@ -274,6 +293,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setGridCols: (gridCols) => {
     if (get().gridCols !== gridCols) set({ gridCols });
+  },
+
+  setVisibleRows: (rows) => {
+    const cur = get().visibleRows;
+    if (cur?.top === rows?.top && cur?.bottom === rows?.bottom) return;
+    set({ visibleRows: rows });
   },
 
   hydrate: async () => {
@@ -353,7 +378,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const def = getWidgetDefinition(type);
     if (!def) return false;
 
-    const { pages, activePageId, gridCols } = get();
+    const { pages, activePageId, gridCols, visibleRows } = get();
     const page = pages[activePageId];
     if (!page) return false;
     const layout = page.layout;
@@ -363,7 +388,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     const instanceId = def.multiInstance ? nextInstanceId(type, layout) : type;
-    const { x, y } = findPlacement(layout, def.defaultSize, gridCols);
+    const { x, y } = findPlacement(layout, def.defaultSize, gridCols, visibleRows);
     const config = defaultConfigForType(type);
     const w = Math.min(def.defaultSize.w, gridCols);
 
@@ -384,7 +409,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       ...pages,
       [activePageId]: { ...page, layout: merged },
     };
-    set({ pages: nextPages, pickerOpen: false });
+    // Reuse the focus channel to scroll the fresh widget into view + flash it.
+    set({
+      pages: nextPages,
+      pickerOpen: false,
+      focusRequest: { instanceId, nonce: Date.now() },
+    });
     persistPages({ pages: nextPages, activePageId });
     return true;
   },

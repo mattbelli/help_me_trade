@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FloatingPanel } from "@/components/ui/floating-panel";
 import {
   FactsSection,
   FundamentalsSection,
@@ -14,6 +15,7 @@ import {
   NewsSection,
 } from "@/components/workspace/company-info-sections";
 import { fetchTickerInfo, type TickerInfo } from "@/lib/ticker-info-api";
+import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 
 export function CompanyInfoModal({
   symbol,
@@ -31,6 +33,7 @@ export function CompanyInfoModal({
   const [data, setData] = useState<TickerInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (!open || !symbol) return;
@@ -55,6 +58,49 @@ export function CompanyInfoModal({
     };
   }, [open, symbol]);
 
+  const body = loading ? (
+    <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
+  ) : error ? (
+    <p className="text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+  ) : data ? (
+    <div className="flex flex-col gap-4">
+      <HeaderSection
+        symbol={data.symbol}
+        profile={data.profile}
+        metrics={data.metrics}
+        facts={data.facts}
+        linked={linked}
+        onPublish={() => onPublish(data.symbol)}
+      />
+      <FundamentalsSection profile={data.profile} metrics={data.metrics} />
+      <FactsSection facts={data.facts} />
+      <NewsSection news={data.news} />
+    </div>
+  ) : null;
+
+  // Desktop: float around the cockpit with magnet snap. Mobile: unchanged
+  // centered Dialog.
+  if (!isMobile) {
+    return (
+      <FloatingPanel
+        open={open}
+        onClose={onClose}
+        initialWidth={512}
+        initialHeight={560}
+        ariaLabel={symbol ?? "Company"}
+        className="w-full max-w-lg max-h-[85vh]"
+        contentClassName="overflow-y-auto p-6"
+        header={
+          <span className="font-mono text-[length:var(--fs-title)] leading-snug">
+            {symbol ?? "Company"}
+          </span>
+        }
+      >
+        {body}
+      </FloatingPanel>
+    );
+  }
+
   return (
     <Dialog
       open={open}
@@ -69,25 +115,7 @@ export function CompanyInfoModal({
           </DialogTitle>
         </DialogHeader>
 
-        {loading ? (
-          <p className="text-[length:var(--fs-body)] text-[var(--fg-dim)]">Loading…</p>
-        ) : error ? (
-          <p className="text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
-        ) : data ? (
-          <div className="flex flex-col gap-4">
-            <HeaderSection
-              symbol={data.symbol}
-              profile={data.profile}
-              metrics={data.metrics}
-              facts={data.facts}
-              linked={linked}
-              onPublish={() => onPublish(data.symbol)}
-            />
-            <FundamentalsSection profile={data.profile} metrics={data.metrics} />
-            <FactsSection facts={data.facts} />
-            <NewsSection news={data.news} />
-          </div>
-        ) : null}
+        {body}
       </DialogContent>
     </Dialog>
   );

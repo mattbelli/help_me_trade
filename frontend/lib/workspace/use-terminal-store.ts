@@ -95,6 +95,36 @@ function saveLayout(leftFrac: number, widthFrac: number): void {
   }
 }
 
+// Vertical anchor: where the OPEN drawer docks. 'bottom' = today's band (grows
+// up above the strip); 'top' = inverted band anchored to the column top (grows
+// down); a number = topFrac of the column when floating / vertically centered.
+// The collapsed strip always lives at the bottom regardless — this is the open
+// drawer only. Persisted raw-string, matching the other keys.
+export type VAnchor = "bottom" | "top" | number;
+
+const VANCHOR_STORAGE_KEY = "hmt-terminal-vanchor";
+
+function loadVAnchor(): VAnchor {
+  if (typeof window === "undefined") return "bottom";
+  try {
+    const raw = localStorage.getItem(VANCHOR_STORAGE_KEY);
+    if (raw === "top" || raw === "bottom") return raw;
+    const n = Number.parseFloat(raw ?? "");
+    if (Number.isFinite(n)) return Math.min(1, Math.max(0, n));
+  } catch {
+    // ignore
+  }
+  return "bottom";
+}
+
+function saveVAnchor(v: VAnchor): void {
+  try {
+    localStorage.setItem(VANCHOR_STORAGE_KEY, String(v));
+  } catch {
+    // ignore
+  }
+}
+
 function loadHistory(): string[] {
   if (typeof window === "undefined") return [];
   try {
@@ -120,6 +150,14 @@ export type ScrollbackEntry = {
   id: string;
   kind: "input" | "output" | "error" | "sent";
   text: string;
+  /**
+   * Command/chat interleave anchor (design §4): the current thread + the id of
+   * the last message at execution time. The transcript renders each command
+   * line beneath its anchored message; `afterMessageId: null` means it ran
+   * before any message existed (renders at the top of the thread).
+   */
+  threadId: string | null;
+  afterMessageId: string | null;
 };
 
 type TerminalState = {
@@ -127,6 +165,7 @@ type TerminalState = {
   height: number;
   leftFrac: number;
   widthFrac: number;
+  vAnchor: VAnchor;
   hydrated: boolean;
   scrollback: ScrollbackEntry[];
   history: string[];
@@ -135,6 +174,7 @@ type TerminalState = {
   setOpen: (open: boolean) => void;
   setHeight: (px: number) => void;
   setLayout: (leftFrac: number, widthFrac: number) => void;
+  setVAnchor: (v: VAnchor) => void;
   appendScrollback: (entry: Omit<ScrollbackEntry, "id">) => void;
   clearScrollback: () => void;
   pushHistory: (entry: string) => void;
@@ -147,6 +187,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   height: viewportPx(DEFAULT_SVH),
   leftFrac: DEFAULT_LEFT_FRAC,
   widthFrac: DEFAULT_WIDTH_FRAC,
+  vAnchor: "bottom",
   hydrated: false,
   scrollback: [],
   history: [],
@@ -154,6 +195,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({
       height: loadHeight(),
       ...loadLayout(),
+      vAnchor: loadVAnchor(),
       history: loadHistory(),
       hydrated: true,
     }),
@@ -168,6 +210,12 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const next = clampLayout(leftFrac, widthFrac);
     set(next);
     saveLayout(next.leftFrac, next.widthFrac);
+  },
+  setVAnchor: (v) => {
+    const next =
+      typeof v === "number" ? Math.min(1, Math.max(0, v)) : v;
+    set({ vAnchor: next });
+    saveVAnchor(next);
   },
   appendScrollback: (entry) =>
     set((s) => ({

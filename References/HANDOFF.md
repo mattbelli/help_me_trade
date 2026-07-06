@@ -10,6 +10,24 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-06 late) — terminal T2 + floating panels + float mode + spawn UX SHIPPED; founder asleep, agent working the board
+
+> Evening batch ALL DEPLOYED :3001 + committed (BUILD.md 2026-07-06 T2 row has full detail): (1) **terminal T2**
+> — chat streams in the ⌘K drawer over the SHARED runtime (dock in sync by construction), flat mono skins, flat
+> tool rows (approvals untouched), inline proposal cards, ticker links, thread switcher w/ rename/delete,
+> command/chat interleave, Esc-interrupt, dormant [mem:ID] chips; + founder polish (caret baseline, 13px
+> --fs-terminal, full-width prose). (2) **FloatingPanel/useFloatingSnap** (`components/ui/floating-panel.tsx`)
+> — company-info, research MD viewer, and "Open full report" (now in-app) float w/ 24px magnet snap to 6
+> targets + corner resize; founder-live fixes: measured-box seed clamp, cramped-axis magnet skip, 78vh MD
+> viewer. (3) **terminal float mode** — header drag both axes, snap bottom/top/center/free, persisted vAnchor;
+> collapsed strip always bottom. (4) **spawn UX** — viewport-aware findPlacement + focusRequest flash (drag-hint
+> pill built then KILLED by founder verdict — don't re-add). ⚠️ Founder eyeball pending on the whole batch
+> (went to bed): tick-flash M1 (Monday quotes), terminal feel, panel drag/resize. **Founder directive
+> (2026-07-06 night): keep knocking cards off the board one by one autonomously** — founder lane stays his
+> (kill-switch design call, ledger offsets, judge-scan-ideas). Terminal next phases: T3 speed pass → T4
+> commands-both-ways → T5 dock demolition. Briefs on disk: float-snap-viewers.md, widget-spawn-ux.md (done),
+> terminal-float-snap.md (done as float mode).
+
 ## ▶ START HERE (2026-07-05 late) — founder-live evening batch SHIPPED ×3 rounds; memory overhaul awaiting founder
 
 > Three Composer rounds shipped, deployed :3001, pushed (BUILD.md rows + board current): (1) **scroll

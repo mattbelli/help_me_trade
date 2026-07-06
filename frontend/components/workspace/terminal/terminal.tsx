@@ -10,15 +10,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ChevronDown, Lock, LockOpen, Plus } from "lucide-react";
+import { useAui, useAuiState } from "@assistant-ui/react";
+import { useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { PageSwitcher } from "@/components/workspace/page-switcher";
+import { CopilotThreadHistory } from "@/components/workspace/copilot-thread-history";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
-import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import {
   TERMINAL_COLLAPSED_HEIGHT,
   useTerminalStore,
-  type ScrollbackEntry,
 } from "@/lib/workspace/use-terminal-store";
+import { TerminalTranscript } from "./terminal-transcript";
 import {
   WORKSPACE_COMMANDS,
   useWorkspaceCommands,
@@ -27,6 +29,14 @@ import { WIDGET_REGISTRY } from "@/lib/workspace/widget-registry";
 import { isPerfDebug, markToPaint, usePerfStore } from "@/lib/workspace/perf-marks";
 
 const STRIP = TERMINAL_COLLAPSED_HEIGHT;
+const SNAP = 24; // px magnet threshold — same feel as the horizontal dock snap.
+
+/** Top-edge (in px, column coords) of the open drawer body for a given anchor. */
+function topPxFromAnchor(v: "bottom" | "top" | number, H: number, bodyH: number) {
+  if (v === "top") return 0;
+  if (v === "bottom") return H - STRIP - bodyH;
+  return v * H;
+}
 
 function getCommandSuggestions(input: string): string[] {
   const trimmed = input.trim();
@@ -65,58 +75,50 @@ function isRunnableSuggestion(cmd: string): boolean {
   return /^\/add\s+\S+$/i.test(cmd.trim());
 }
 
-function ScrollbackLine({ entry }: { entry: ScrollbackEntry }) {
-  return (
-    <div
-      className={cn(
-        "text-[length:var(--fs-title)] leading-relaxed whitespace-pre-wrap",
-        entry.kind === "input" && "text-[var(--fg-dim)]",
-        entry.kind === "output" && "text-[var(--fg-faint)]",
-        entry.kind === "error" && "text-[var(--c-danger)]",
-        entry.kind === "sent" && "text-[var(--c-accent)]",
-      )}
-    >
-      {entry.kind === "input" ? (
-        <>
-          <span className="text-[var(--c-command)]">› </span>
-          {entry.text}
-        </>
-      ) : (
-        entry.text
-      )}
-    </div>
-  );
-}
-
 export function Terminal() {
   const {
     open,
     height,
     leftFrac,
     widthFrac,
-    scrollback,
+    vAnchor,
     history,
     hydrate,
     setOpen,
     setHeight,
     setLayout,
+    setVAnchor,
     appendScrollback,
     pushHistory,
   } = useTerminalStore();
 
+  const reduce = useReducedMotion();
+  // True while a pointer drag (move or resize) is active — kills the summon
+  // height transition so the panel tracks the pointer 1:1 (brief §Constraints).
+  const [dragActive, setDragActive] = useState(false);
+
+  const isBottom = vAnchor === "bottom";
+  const isTop = vAnchor === "top";
+  const isFloat = typeof vAnchor === "number";
+
   const { runCommand } = useWorkspaceCommands();
   const { locked, toggleLock, openPicker } = useWorkspaceStore();
-  const openCopilot = useCopilotStore((s) => s.setOpen);
   const perfEnabled = usePerfStore((s) => s.enabled);
   const perfLast = usePerfStore((s) => s.last);
   const setPerfEnabled = usePerfStore((s) => s.setEnabled);
 
+  // The terminal is a renderer on the shared chat runtime (dock + terminal
+  // stay in sync by construction). Plain text routes here; slash never does.
+  const aui = useAui();
+  const isRunning = useAuiState((s) => s.thread.isRunning);
+  const threadTitle = useAuiState((s) => s.threadListItem.title);
+
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const scrollbackRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState("");
   const [focused, setFocused] = useState(false);
   const [selIndex, setSelIndex] = useState(-1);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const historyIndexRef = useRef<number | null>(null);
 
   const suggestions = getCommandSuggestions(inputValue);
@@ -128,12 +130,6 @@ export function Terminal() {
     hydrate();
     setPerfEnabled(isPerfDebug());
   }, [hydrate, setPerfEnabled]);
-
-  // Keep the scrollback pinned to the newest line.
-  useEffect(() => {
-    if (!open || !scrollbackRef.current) return;
-    scrollbackRef.current.scrollTop = scrollbackRef.current.scrollHeight;
-  }, [open, scrollback]);
 
   // Auto-grow the prompt textarea with content (capped ~6 lines).
   useEffect(() => {
@@ -162,9 +158,17 @@ export function Terminal() {
     if (!open) return;
     const onPointerDown = (e: globalThis.PointerEvent) => {
       const root = wrapperRef.current;
-      if (root && e.target instanceof Node && !root.contains(e.target)) {
-        setOpen(false);
+      if (!root || !(e.target instanceof Node)) return;
+      if (root.contains(e.target)) return;
+      // Portaled UI summoned from the terminal (thread-rename dialog, tooltips)
+      // lives outside the wrapper — don't collapse when interacting with it.
+      if (
+        e.target instanceof Element &&
+        e.target.closest("[data-radix-portal],[role=dialog]")
+      ) {
+        return;
       }
+      setOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
@@ -178,32 +182,44 @@ export function Terminal() {
       pushHistory(text);
       historyIndexRef.current = null;
 
+      // Slash → deterministic command; NEVER reaches the LLM. Capture the
+      // interleave anchor (current thread + last message) so the transcript
+      // renders these lines in context beneath that message (design §4).
       if (text.startsWith("/")) {
         markToPaint("echo");
-        appendScrollback({ kind: "input", text });
+        const messages = aui.thread().getState().messages;
+        const afterMessageId = messages.at(-1)?.id ?? null;
+        const threadId = aui.threadListItem().getState().id;
+        appendScrollback({ kind: "input", text, threadId, afterMessageId });
         setOpen(true);
 
         const result = await runCommand(text);
         if (result.output) {
-          appendScrollback({ kind: "output", text: result.output });
+          appendScrollback({
+            kind: "output",
+            text: result.output,
+            threadId,
+            afterMessageId,
+          });
         }
         if (result.error) {
-          appendScrollback({ kind: "error", text: result.error });
+          appendScrollback({
+            kind: "error",
+            text: result.error,
+            threadId,
+            afterMessageId,
+          });
         }
         return;
       }
 
-      // T1: chat still lives in the Copilot dock. Plain text routes there and
-      // leaves a breadcrumb in the scrollback (full chat lands in T2).
-      appendScrollback({ kind: "input", text });
-      appendScrollback({
-        kind: "output",
-        text: "chat arrives in T2 — routing to the Copilot (⌘J) …",
-      });
+      // Anything else → the chat brain, streamed into the same scrollback. The
+      // append renders the user line optimistically (F5) and starts the run.
+      markToPaint("echo");
       setOpen(true);
-      openCopilot(true);
+      aui.thread().append(text);
     },
-    [appendScrollback, openCopilot, pushHistory, runCommand, setOpen],
+    [aui, appendScrollback, pushHistory, runCommand, setOpen],
   );
 
   const completeSuggestion = useCallback(
@@ -312,11 +328,17 @@ export function Terminal() {
       }
       if (event.key === "Escape") {
         event.preventDefault();
+        // While streaming, Esc interrupts the run (Claude Code semantics);
+        // idle, it collapses the drawer.
+        if (isRunning) {
+          aui.thread().cancelRun();
+          return;
+        }
         setOpen(false);
         inputRef.current?.blur();
       }
     },
-    [completeSuggestion, inputValue, recallHistory, selIndex, setOpen, showAutocomplete, submitLine, suggestions],
+    [aui, completeSuggestion, inputValue, isRunning, recallHistory, selIndex, setOpen, showAutocomplete, submitLine, suggestions],
   );
 
   // ⌘K / Ctrl+K summon ⇄ dismiss; `/` on a non-typing target focuses the input.
@@ -352,17 +374,23 @@ export function Terminal() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [focusInput, open, setOpen, summon]);
 
-  // Top-edge drag resize (25–85svh, persisted). Drag up grows the drawer.
-  const onResizeStart = useCallback(
-    (event: ReactPointerEvent) => {
+  // Edge drag resize (25–85svh, persisted). The handle sits on the free edge
+  // (opposite the anchor): 'top' grows up with the bottom fixed (bottom dock),
+  // 'bottom' grows down with the top fixed (top dock / floating).
+  const beginVertResize = useCallback(
+    (edge: "top" | "bottom") => (event: ReactPointerEvent) => {
       event.preventDefault();
+      event.stopPropagation();
+      setDragActive(true);
       const startY = event.clientY;
       const startHeight = height;
 
       function onMove(e: PointerEvent) {
-        setHeight(startHeight + (startY - e.clientY));
+        const dy = e.clientY - startY;
+        setHeight(edge === "top" ? startHeight - dy : startHeight + dy);
       }
       function onUp() {
+        setDragActive(false);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
       }
@@ -377,7 +405,11 @@ export function Terminal() {
   // you type where you read), or in the collapsed strip when closed.
   const promptRow = (
     <>
-      <span className="shrink-0 self-start pt-px text-[var(--c-command)]">›</span>
+      {/* Same font-size + line-height as the textarea: identical line boxes
+          keep the glyph and the blinking caret on one baseline. */}
+      <span className="shrink-0 self-start text-[length:var(--fs-emph)] leading-snug text-[var(--c-command)]">
+        ›
+      </span>
       <textarea
         ref={inputRef}
         rows={1}
@@ -426,16 +458,15 @@ export function Terminal() {
   const bodyHeight = open ? Math.max(0, height - STRIP) : 0;
   const partialWidth = widthFrac < 0.999;
 
-  // Horizontal layout: drag the header to slide the drawer (snaps to left /
-  // center / right), drag either side edge to resize. Fractions persisted.
+  // Side-edge resize: drag either vertical edge to widen the drawer. Snaps the
+  // dragged edge to the container edge. Fractions persisted.
   const beginHorizDrag = useCallback(
-    (mode: "move" | "left" | "right") => (event: ReactPointerEvent) => {
+    (mode: "left" | "right") => (event: ReactPointerEvent) => {
       event.preventDefault();
       event.stopPropagation();
       const wrap = wrapperRef.current;
       if (!wrap) return;
       const W = wrap.clientWidth;
-      const SNAP = 24;
       const startX = event.clientX;
       const startLeft = leftFrac * W;
       const startWidth = widthFrac * W;
@@ -444,13 +475,7 @@ export function Terminal() {
         const dx = e.clientX - startX;
         let left = startLeft;
         let width = startWidth;
-        if (mode === "move") {
-          left = startLeft + dx;
-          if (Math.abs(left) < SNAP) left = 0;
-          else if (Math.abs(left + width - W) < SNAP) left = W - width;
-          else if (Math.abs(left + width / 2 - W / 2) < SNAP)
-            left = (W - width) / 2;
-        } else if (mode === "left") {
+        if (mode === "left") {
           left = startLeft + dx;
           width = startWidth - dx;
           if (Math.abs(left) < SNAP) {
@@ -473,24 +498,95 @@ export function Terminal() {
     [leftFrac, widthFrac, setLayout],
   );
 
+  // Header drag = move the open drawer on BOTH axes with magnet snap (same
+  // SNAP=24 feel). Horizontal: left / right / center dock. Vertical: top dock /
+  // bottom dock / vertical center, else free float (clamped on-screen). Snap is
+  // applied live during the drag, mirroring the horizontal dock feel.
+  const beginMove = useCallback(
+    (event: ReactPointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const wrap = wrapperRef.current;
+      if (!wrap) return;
+      const W = wrap.clientWidth;
+      const H = wrap.clientHeight;
+      const bodyH = Math.max(0, height - STRIP);
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startLeft = leftFrac * W;
+      const width = widthFrac * W;
+      const startTop = topPxFromAnchor(vAnchor, H, bodyH);
+      setDragActive(true);
+
+      function onMove(e: PointerEvent) {
+        // Horizontal — left edge / right edge / center dock (unchanged feel).
+        const dx = e.clientX - startX;
+        let left = startLeft + dx;
+        if (Math.abs(left) < SNAP) left = 0;
+        else if (Math.abs(left + width - W) < SNAP) left = W - width;
+        else if (Math.abs(left + width / 2 - W / 2) < SNAP)
+          left = (W - width) / 2;
+        setLayout(left / W, widthFrac);
+
+        // Vertical — clamp free position on-screen (above the strip), then snap.
+        const dy = e.clientY - startY;
+        const maxTop = Math.max(0, H - STRIP - bodyH);
+        const top = Math.max(0, Math.min(startTop + dy, maxTop));
+        if (Math.abs(top) < SNAP) {
+          setVAnchor("top");
+        } else if (Math.abs(top + bodyH - (H - STRIP)) < SNAP) {
+          setVAnchor("bottom");
+        } else if (Math.abs(top + bodyH / 2 - H / 2) < SNAP) {
+          setVAnchor((H - bodyH) / 2 / H);
+        } else {
+          setVAnchor(top / H);
+        }
+      }
+      function onUp() {
+        setDragActive(false);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [leftFrac, widthFrac, vAnchor, height, setLayout, setVAnchor],
+  );
+
+  // Vertical placement of the OPEN drawer body. Bottom dock sits flush above
+  // the strip (grows up); top dock is anchored to the column top (grows down);
+  // a numeric anchor floats at topFrac of the column.
+  const vStyle = isBottom
+    ? { bottom: STRIP }
+    : isTop
+      ? { top: 0 }
+      : { top: `${(vAnchor as number) * 100}%` };
+
   return (
+    // Full-column overlay, but transparent to pointers so the grid above stays
+    // live (click-away below keys off DOM containment, not hit-testing). The
+    // drawer + strip opt back in with pointer-events-auto.
     <div
       ref={wrapperRef}
-      className="absolute inset-x-0 bottom-0 z-50"
+      className="pointer-events-none absolute inset-0 z-50"
       style={{ fontFamily: "var(--font-terminal)" }}
     >
-      {/* Drawer body — always mounted, clipped to 0 when collapsed (no remount). */}
+      {/* Drawer body — always mounted, clipped to 0 when collapsed (no remount).
+          Absolutely positioned per vAnchor; the flush band mirrors top⇄bottom. */}
       <div
         className={cn(
-          "relative overflow-hidden bg-[var(--bg-raised)]/90 backdrop-blur-md",
-          open && "border-t border-[var(--border)] shadow-lg",
-          open && partialWidth && "border-x",
+          "pointer-events-auto absolute overflow-hidden bg-[var(--bg-raised)]/90 backdrop-blur-md",
+          open && "shadow-lg",
+          open && isBottom && (partialWidth ? "border-t border-x border-[var(--border)]" : "border-t border-[var(--border)]"),
+          open && isTop && (partialWidth ? "border-b border-x border-[var(--border)]" : "border-b border-[var(--border)]"),
+          open && isFloat && "border border-[var(--border)]",
         )}
         style={{
+          ...vStyle,
           height: bodyHeight,
           width: `${widthFrac * 100}%`,
-          marginLeft: `${leftFrac * 100}%`,
-          transition: "height 120ms ease-out",
+          left: `${leftFrac * 100}%`,
+          transition: dragActive || reduce ? "none" : "height 120ms ease-out",
         }}
       >
         {/* Side edges: drag to resize width from either side. */}
@@ -506,25 +602,77 @@ export function Terminal() {
               className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-ew-resize transition-colors hover:bg-[var(--c-accent)]/40"
               aria-label="Resize terminal width (right edge)"
             />
+            {/* Bottom-edge resize handle — mirror of the top pill, shown when the
+                drawer is anchored top / floating (top fixed, grows downward). */}
+            {isTop || isFloat ? (
+              <div
+                onPointerDown={beginVertResize("bottom")}
+                className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-ns-resize transition-colors hover:bg-[var(--c-accent)]/40"
+                aria-label="Resize terminal (bottom edge)"
+              />
+            ) : null}
           </>
         ) : null}
         <div className="flex h-full flex-col" style={{ height: height - STRIP }}>
-          {/* Drag handle */}
-          <div
-            onPointerDown={onResizeStart}
-            className="group flex h-2 shrink-0 cursor-ns-resize items-center justify-center"
-            aria-label="Resize terminal"
-          >
-            <span className="h-[2px] w-10 rounded-full bg-[var(--border-strong)] transition-colors group-hover:bg-[var(--c-accent)]" />
-          </div>
+          {/* Top pill resize handle — bottom-docked drawer grows upward from
+              here. Hidden when anchored top / floating (they resize from the
+              bottom edge instead); the header below stays the move handle. */}
+          {isBottom ? (
+            <div
+              onPointerDown={beginVertResize("top")}
+              className="group flex h-2 shrink-0 cursor-ns-resize items-center justify-center"
+              aria-label="Resize terminal"
+            >
+              <span className="h-[2px] w-10 rounded-full bg-[var(--border-strong)] transition-colors group-hover:bg-[var(--c-accent)]" />
+            </div>
+          ) : (
+            <div className="h-2 shrink-0" />
+          )}
 
-          {/* Header — drag horizontally to dock the drawer left/center/right. */}
+          {/* Header — drag to move the drawer on both axes (dock or float). */}
           <div
-            onPointerDown={beginHorizDrag("move")}
+            onPointerDown={beginMove}
             className="flex shrink-0 cursor-grab items-center gap-2 px-4 pb-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)] active:cursor-grabbing">
-            <span className="text-[var(--fg-dim)]">main thread</span>
+            {/* Thread switcher — reuses the dock's history list. */}
+            <div className="relative">
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="flex items-center gap-1 text-[var(--fg-dim)] transition-colors hover:text-foreground"
+                aria-label="Switch thread"
+                aria-expanded={historyOpen}
+              >
+                <span className="max-w-[12rem] truncate">
+                  {threadTitle?.trim() || "New chat"}
+                </span>
+                <ChevronDown className="size-3 shrink-0" />
+              </button>
+              {historyOpen ? (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onPointerDown={() => setHistoryOpen(false)}
+                  />
+                  <div
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="absolute left-0 top-full z-50 mt-1 max-h-72 w-60 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--bg-raised)] shadow-[var(--panel-shadow)]"
+                  >
+                    <CopilotThreadHistory
+                      onAfterSelect={() => setHistoryOpen(false)}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </div>
             <span className="text-[var(--fg-faint)]">·</span>
             <span>Ch1</span>
+            {isRunning ? (
+              <span
+                aria-label="Agent is working"
+                className="inline-block size-1.5 animate-[breathe_1.14s_ease-in-out_infinite] rounded-full bg-[var(--c-accent)] motion-reduce:animate-none"
+              />
+            ) : null}
             <div className="ml-auto flex items-center gap-3">
               {perfEnabled && perfLast ? (
                 <span className="tabular-nums text-[var(--c-accent)]">
@@ -548,25 +696,11 @@ export function Terminal() {
 
           <div className="mx-4 border-t border-[var(--border)]" />
 
-          {/* Scrollback */}
-          <div
-            ref={scrollbackRef}
-            className="min-h-0 flex-1 overflow-y-auto px-4 py-2"
-            style={{ contentVisibility: "auto" }}
-          >
-            {scrollback.length > 0 ? (
-              <div className="flex flex-col gap-1">
-                {scrollback.map((entry) => (
-                  <ScrollbackLine key={entry.id} entry={entry} />
-                ))}
-              </div>
-            ) : (
-              <div className="text-[length:var(--fs-body)] text-[var(--fg-faint)]">
-                Type <span className="text-[var(--c-command)]">/</span> for
-                commands · <span className="text-[var(--c-command)]">/help</span>{" "}
-                to list them · chat arrives in T2
-              </div>
-            )}
+          {/* Scrollback — the chat transcript (flat mono skin) with command
+              lines interleaved. Always mounted; the drawer clips when collapsed
+              so a running stream keeps painting and reopens live. */}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <TerminalTranscript />
           </div>
 
           {/* Prompt line inside the pane — Claude Code-style: scrollback
@@ -589,15 +723,15 @@ export function Terminal() {
       {/* Autocomplete popover above the strip — collapsed state only (when
           open, suggestions render inside the drawer above the prompt). */}
       {showAutocomplete && !open ? (
-        <div className="absolute inset-x-4 z-10" style={{ bottom: STRIP + 4 }}>
+        <div className="pointer-events-auto absolute inset-x-4 z-10" style={{ bottom: STRIP + 4 }}>
           {suggestionsList}
         </div>
       ) : null}
 
-      {/* Input strip — always visible (the collapsed terminal). */}
+      {/* Input strip — always visible at the bottom (the collapsed terminal). */}
       <form
         onSubmit={onSubmit}
-        className="flex h-[40px] items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)]/85 px-4 backdrop-blur-md"
+        className="pointer-events-auto absolute inset-x-0 bottom-0 flex h-[40px] items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)]/85 px-4 backdrop-blur-md"
       >
         <button
           type="button"
@@ -609,6 +743,13 @@ export function Terminal() {
           <kbd className="rounded-sm border border-[var(--border)] px-1 py-px text-[length:var(--fs-micro)]">
             ⌘K
           </kbd>
+          {/* A run that started before collapse keeps streaming; glyph only. */}
+          {isRunning ? (
+            <span
+              aria-label="Agent is working"
+              className="inline-block size-1.5 animate-[breathe_1.14s_ease-in-out_infinite] rounded-full bg-[var(--c-accent)] motion-reduce:animate-none"
+            />
+          ) : null}
         </button>
 
         <div className="ml-auto flex items-center gap-2">

@@ -6,6 +6,7 @@ import { Download, ExternalLink, FileText, Trash2 } from "lucide-react";
 import { downloadResearchMarkdown } from "@/components/research/research-download";
 import { ResearchMarkdown } from "@/components/research/research-markdown";
 import { Button } from "@/components/ui/button";
+import { FloatingPanel } from "@/components/ui/floating-panel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { apiFetch } from "@/lib/api";
@@ -135,12 +136,15 @@ export function ResearchViewerActionBar({
   onDelete?: (id: number) => void;
   className?: string;
 }) {
+  const [fullReportOpen, setFullReportOpen] = useState(false);
+
   if (!artifact) return null;
 
   const actionBtnClass =
     "h-6 gap-1 px-2 py-1 font-mono text-[length:var(--fs-body)] [&_svg:not([class*='size-'])]:size-3.5";
 
   return (
+    <>
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {artifact.markdown ? (
         <>
@@ -186,15 +190,16 @@ export function ResearchViewerActionBar({
           >
             HTML
           </Button>
-          <a
-            href={researchHtmlUrl(artifact.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-6 items-center gap-1 rounded-[min(var(--radius-md),10px)] border border-border bg-background px-2 py-1 font-mono text-[length:var(--fs-body)] font-medium hover:bg-muted"
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className={actionBtnClass}
+            onClick={() => setFullReportOpen(true)}
           >
             <ExternalLink className="size-3.5" />
             Open full report
-          </a>
+          </Button>
         </>
       ) : null}
       {onDelete ? (
@@ -210,6 +215,43 @@ export function ResearchViewerActionBar({
         </Button>
       ) : null}
     </div>
+    {artifact.html ? (
+      <FloatingPanel
+        open={fullReportOpen}
+        onClose={() => setFullReportOpen(false)}
+        seedKey={artifact.id}
+        initialWidth={900}
+        initialHeight={640}
+        ariaLabel={artifact.topic}
+        className="w-[min(900px,90vw)] h-[85vh]"
+        contentClassName="flex"
+        header={
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="line-clamp-1 min-w-0 flex-1 font-mono text-[length:var(--fs-title)] leading-snug">
+              {artifact.topic}
+            </span>
+            <a
+              href={researchHtmlUrl(artifact.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onPointerDown={(e) => e.stopPropagation()}
+              className="inline-flex shrink-0 items-center gap-1 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)] hover:text-foreground"
+            >
+              open in tab
+              <ExternalLink className="size-3.5" />
+            </a>
+          </div>
+        }
+      >
+        <ResearchReportViewer
+          artifactId={artifact.id}
+          html={artifact.html}
+          title={artifact.topic}
+          className="h-full w-full"
+        />
+      </FloatingPanel>
+    ) : null}
+    </>
   );
 }
 

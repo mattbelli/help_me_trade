@@ -15,12 +15,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FloatingPanel } from "@/components/ui/floating-panel";
 import {
   deleteResearchArtifact,
   getResearchArtifact,
   type ResearchArtifact,
 } from "@/lib/research";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 
 function statusChipClass(status: string): string {
   switch (status) {
@@ -63,6 +65,7 @@ export function ResearchViewerModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useResearchViewMode(artifact, artifactId);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (!open || artifactId == null) {
@@ -109,6 +112,87 @@ export function ResearchViewerModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete research");
     }
+  }
+
+  const titleBlock = (
+    <>
+      <div className="line-clamp-2 font-mono text-[length:var(--fs-title)] leading-snug">
+        {title}
+      </div>
+      {artifact && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          {artifact.symbol ? (
+            <span className="rounded border border-[var(--border)] px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--c-accent)]">
+              {artifact.symbol}
+            </span>
+          ) : null}
+          <span
+            className={cn(
+              "rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] uppercase",
+              statusChipClass(artifact.status),
+            )}
+          >
+            {artifact.status}
+          </span>
+          {metaLine ? (
+            <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
+              {metaLine}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </>
+  );
+
+  // Interactive; must not start a panel drag when it lives inside the handle.
+  const actionBar = artifact ? (
+    <div onPointerDown={(e) => e.stopPropagation()}>
+      <ResearchViewerActionBar
+        artifact={artifact}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onDelete={(id) => void handleDelete(id)}
+      />
+    </div>
+  ) : null;
+
+  const body = loading ? (
+    <div className="flex items-center justify-center gap-2 py-12 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
+      <Loader2 className="size-4 animate-spin" />
+      Loading report…
+    </div>
+  ) : error ? (
+    <p className="py-8 text-center text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
+  ) : (
+    <ResearchViewerBody
+      artifact={artifact}
+      viewMode={viewMode}
+      bodyClassName="min-h-[240px]"
+    />
+  );
+
+  // Desktop: floating, magnet-snapping panel. Mobile: unchanged fullscreen Dialog.
+  if (!isMobile) {
+    return (
+      <FloatingPanel
+        open={open}
+        onClose={onClose}
+        seedKey={artifactId}
+        initialWidth={768}
+        initialHeight={640}
+        ariaLabel={title}
+        className="w-full sm:max-w-3xl max-h-[78vh]"
+        contentClassName="overflow-auto"
+        header={
+          <div className="flex flex-col gap-2">
+            <div className="min-w-0">{titleBlock}</div>
+            {actionBar}
+          </div>
+        }
+      >
+        {body}
+      </FloatingPanel>
+    );
   }
 
   return (
@@ -167,22 +251,7 @@ export function ResearchViewerModal({
           ) : null}
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-auto">
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-              <Loader2 className="size-4 animate-spin" />
-              Loading report…
-            </div>
-          ) : error ? (
-            <p className="py-8 text-center text-[length:var(--fs-body)] text-[var(--c-red)]">{error}</p>
-          ) : (
-            <ResearchViewerBody
-              artifact={artifact}
-              viewMode={viewMode}
-              bodyClassName="min-h-[240px]"
-            />
-          )}
-        </div>
+        <div className="min-h-0 flex-1 overflow-auto">{body}</div>
       </DialogContent>
     </Dialog>
   );
