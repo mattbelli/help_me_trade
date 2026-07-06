@@ -12,12 +12,19 @@ import { AnimatePresence, motion } from "motion/react";
 
 import { motionExit, motionStd, useMotionSafe } from "@/lib/workspace/motion";
 
-type ToastKind = "success" | "error";
+type ToastKind = "success" | "error" | "info";
 
-type ToastState = { message: string; kind: ToastKind; id: number };
+type ToastAction = { label: string; onClick: () => void };
+
+type ToastState = {
+  message: string;
+  kind: ToastKind;
+  id: number;
+  action?: ToastAction;
+};
 
 type ToastContextValue = {
-  showToast: (message: string, kind?: ToastKind) => void;
+  showToast: (message: string, kind?: ToastKind, action?: ToastAction) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -28,14 +35,16 @@ export function WorkspaceToastProvider({ children }: { children: ReactNode }) {
   const exit = useMotionSafe(motionExit);
 
   const showToast = useCallback(
-    (message: string, kind: ToastKind = "success") => {
-      setToast({ message, kind, id: Date.now() });
+    (message: string, kind: ToastKind = "success", action?: ToastAction) => {
+      setToast({ message, kind, id: Date.now(), action });
     },
     [],
   );
 
   useEffect(() => {
-    if (!toast) return;
+    // "info" toasts are persistent (used for the reload-to-update prompt) —
+    // they stay until acted on. success/error keep the 2.8s auto-dismiss.
+    if (!toast || toast.kind === "info") return;
     const id = setTimeout(() => setToast(null), 2800);
     return () => clearTimeout(id);
   }, [toast]);
@@ -62,16 +71,29 @@ export function WorkspaceToastProvider({ children }: { children: ReactNode }) {
               }}
             >
               {toast.message}
-              <span
-                aria-hidden
-                className="toast-countdown"
-                style={{
-                  background:
-                    toast.kind === "error"
-                      ? "var(--c-red)"
-                      : "var(--c-accent)",
-                }}
-              />
+              {toast.action ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.action?.onClick();
+                    setToast(null);
+                  }}
+                  className="pointer-events-auto ml-3 rounded border border-[var(--border)] px-2 py-0.5 font-mono text-[length:var(--fs-table)] font-semibold text-[var(--c-accent)] transition-colors hover:bg-[var(--c-accent-soft)]"
+                >
+                  {toast.action.label}
+                </button>
+              ) : (
+                <span
+                  aria-hidden
+                  className="toast-countdown"
+                  style={{
+                    background:
+                      toast.kind === "error"
+                        ? "var(--c-red)"
+                        : "var(--c-accent)",
+                  }}
+                />
+              )}
             </motion.div>
           ) : null}
         </AnimatePresence>

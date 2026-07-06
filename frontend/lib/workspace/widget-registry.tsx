@@ -152,7 +152,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   },
   {
     id: "performance",
-    title: "performance",
+    title: "performance (legacy)",
     description: "Trade analytics — P&L charts, calendar, win rate, and round-trips",
     component: PerformanceWidget,
     defaultSize: { w: 16, h: 12, minW: 8, minH: 6 },
@@ -198,7 +198,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   },
   {
     id: "performance-stats",
-    title: "performance",
+    title: "performance stats",
     description: "Realized/unrealized P&L, win rate, trades, fees",
     component: PerformanceStatsWidget as WidgetDefinition["component"],
     defaultSize: { w: 16, h: 3, minW: 8, minH: 2 },

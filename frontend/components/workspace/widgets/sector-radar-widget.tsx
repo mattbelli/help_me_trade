@@ -39,6 +39,25 @@ const PERIODS: { key: PerformancePeriod; label: string }[] = [
 
 type Mode = "allocation" | "pnl";
 
+// Radar axis labels sit at the widget edges — full GICS names ("Consumer
+// Discretionary") clip. Abbreviate for the axis only; tooltip + legend keep
+// the full name.
+const SECTOR_ABBREV: Record<string, string> = {
+  "Information Technology": "Info. Tech.",
+  "Consumer Discretionary": "Cons. Disc.",
+  "Consumer Staples": "Cons. Stpl.",
+  "Communication Services": "Comm. Svcs.",
+  "Health Care": "Health",
+  "Real Estate": "Real Est.",
+  Unclassified: "Unclass.",
+};
+
+function abbreviateSector(name: string): string {
+  const mapped = SECTOR_ABBREV[name];
+  if (mapped) return mapped;
+  return name.length > 10 ? `${name.slice(0, 10)}…` : name;
+}
+
 // Below this many categories a radar polygon degenerates into a wedge/line,
 // so allocation mode falls back to a horizontal bar chart instead.
 const MIN_SECTORS_FOR_RADAR = 3;
@@ -336,12 +355,13 @@ export function SectorRadarWidget() {
                 ) : (
                   <RadarChart
                     data={chartData}
-                    outerRadius="72%"
-                    margin={{ top: 8, right: 16, bottom: 8, left: 16 }}
+                    outerRadius="64%"
+                    margin={{ top: 8, right: 24, bottom: 8, left: 24 }}
                   >
                     <PolarGrid stroke="var(--border)" />
                     <PolarAngleAxis
                       dataKey="sector"
+                      tickFormatter={abbreviateSector}
                       tick={{ fill: "var(--fg-faint)", fontSize: 9 }}
                     />
                     <Radar

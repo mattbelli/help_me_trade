@@ -16,7 +16,14 @@ import { TERMINAL_COLLAPSED_HEIGHT } from "@/lib/workspace/use-terminal-store";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 import { usePageHotkeys } from "@/lib/workspace/use-page-hotkeys";
+import { useVersionCheck } from "@/lib/workspace/use-version-check";
 import { motionStd } from "@/lib/workspace/motion";
+
+// Mounted inside WorkspaceToastProvider so the version-skew check can toast.
+function VersionCheck() {
+  useVersionCheck();
+  return null;
+}
 
 export default function WorkspacePageImpl() {
   usePageHotkeys();
@@ -60,6 +67,7 @@ export default function WorkspacePageImpl() {
   if (isMobile) {
     return (
       <WorkspaceToastProvider>
+        <VersionCheck />
         <WorkspaceChatProviders>
           <TickerInfoProvider>
             <MobileWorkspace />
@@ -71,6 +79,7 @@ export default function WorkspacePageImpl() {
 
   return (
     <WorkspaceToastProvider>
+      <VersionCheck />
       <div className="flex h-svh min-h-[640px] flex-col overflow-hidden bg-background">
         <WorkspaceToolbar />
         <NotificationBanner />
