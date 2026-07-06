@@ -28,7 +28,6 @@ import {
   createDrawing,
   createPriceAlert,
   deleteDrawing,
-  fetchBars,
   fetchDrawings,
   fetchPriceAlerts,
   fetchSessionLevels,
@@ -38,6 +37,7 @@ import {
   type SessionLevel,
   type StockBar,
 } from "@/lib/api";
+import { fetchBarsCached } from "@/lib/bars-cache";
 import { cn } from "@/lib/utils";
 import {
   CHART_TIMEFRAMES,
@@ -806,7 +806,7 @@ export function TvLightChart({
       ? null
       : (chartRef.current?.timeScale().getVisibleLogicalRange() ?? null);
 
-    fetchBars(symbol, { timeframe: timeframe.value, days: timeframe.days })
+    fetchBarsCached(symbol, { timeframe: timeframe.value, days: timeframe.days })
       .then((data) => {
         if (cancelled) return;
         const accent = resolveCssColor("--chart-accent", "#5ad1be");
