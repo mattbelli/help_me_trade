@@ -437,6 +437,97 @@ def test_origin_migration_adds_column_to_old_db(tmp_path) -> None:
     assert "origin" in cols
 
 
+def test_data_gap_recovers_when_bars_return(idea_db) -> None:
+    """H2: a market-hours outage must NOT permanently tombstone an idea. Once a
+    later fetch succeeds, the data_gap row is restored to its open status and
+    resumes tracking — daily bars mean nothing is lost by waiting."""
+    _register(idea_db)
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=None):
+        for _ in range(DATA_GAP_FAIL_STREAK):
+            sweep_open_ideas(db_path=idea_db)
+    assert not list_open(db_path=idea_db)  # parked as data_gap
+
+    # Bars come back (quiet, no zone touch) -> restored to pending, streak clear.
+    start = date(2026, 1, 6)
+    bars = [_bar(start + timedelta(days=1), low=106, high=108)]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+
+    rows = list_open(db_path=idea_db)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "pending"
+    assert int(rows[0]["fetch_fail_streak"] or 0) == 0
+
+
+def test_data_gap_recovers_to_triggered(idea_db) -> None:
+    """H2: recovery restores the PRIOR open status — a row that had already
+    triggered before the outage comes back as triggered, not pending."""
+    _register(idea_db)
+    start = date(2026, 1, 6)
+    trigger_bars = [_bar(start + timedelta(days=1), low=104, high=106)]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=trigger_bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+    assert list_open(db_path=idea_db)[0]["status"] == "triggered"
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=None):
+        for _ in range(DATA_GAP_FAIL_STREAK):
+            sweep_open_ideas(db_path=idea_db)
+    assert not list_open(db_path=idea_db)  # gapped
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=trigger_bars):
+        sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+    rows = list_open(db_path=idea_db)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "triggered"
+
+
+def test_register_stores_veto_reason(idea_db) -> None:
+    """H1: vetoed structures carry their veto reason into the outcome row;
+    ordinary ideas store an empty reason."""
+    vetoed = _sample_idea(symbol="VETOD")
+    vetoed["origin"] = "structure_vetoed"
+    vetoed["veto_reason"] = "already extended > 3 ATR above support"
+    ok = _sample_idea(symbol="OKIDEA")
+    register_ideas(1, [ok, vetoed], db_path=idea_db)
+
+    rows = {r["symbol"]: r for r in list_open(db_path=idea_db)}
+    assert rows["VETOD"]["origin"] == "structure_vetoed"
+    assert rows["VETOD"]["veto_reason"] == "already extended > 3 ATR above support"
+    assert rows["OKIDEA"]["origin"] == "structure"
+    assert (rows["OKIDEA"]["veto_reason"] or "") == ""
+
+
+def test_vetoed_idea_tracked_but_excluded_from_headline(idea_db) -> None:
+    """H1 end-to-end (DB/tracker layer): a vetoed structure is swept the same
+    way, appears under by_origin (calibration-INCLUDED), but is kept OUT of the
+    headline paper win-rate (display-excluded — vetoed != recommended)."""
+    struct = _sample_idea(symbol="STRUCT")
+    vetoed = _sample_idea(symbol="VETOD")
+    vetoed["origin"] = "structure_vetoed"
+    vetoed["veto_reason"] = "poor R/R vs prevailing trend"
+    # Single call -> unique idea_index (mirrors setup_scan's combined register).
+    register_ideas(1, [struct, vetoed], db_path=idea_db)
+
+    start = date(2026, 1, 6)
+    bars = [
+        _bar(start + timedelta(days=1), low=102, high=103),  # trigger both
+        _bar(start + timedelta(days=2), low=104, high=111),  # target both
+    ]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    summary = get_summary(db_path=idea_db)
+    # Headline lane sees ONLY the recommended (non-vetoed) win.
+    assert summary["counts"].get("won") == 1
+    assert summary["resolved"] == 1
+    assert summary["win_rate"] == 1.0
+    # Calibration read: both lanes measurable, veto has its own report card.
+    assert summary["by_origin"]["structure"]["counts"]["won"] == 1
+    assert summary["by_origin"]["structure_vetoed"]["counts"]["won"] == 1
+    assert summary["by_origin"]["structure_vetoed"]["win_rate"] == 1.0
+
+
 def test_get_summary_splits_by_origin(idea_db) -> None:
     struct_idea = _sample_idea(symbol="STRUCT")
     struct_idea["origin"] = "structure"

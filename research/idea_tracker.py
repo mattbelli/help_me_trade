@@ -9,13 +9,17 @@ from pathlib import Path
 from typing import Any
 
 from ai.research.data_sources import _bar_date, fetch_daily_bars_since
-from db.idea_outcomes import list_open, update_outcome
+from db.idea_outcomes import list_sweepable, update_outcome
 
 logger = logging.getLogger(__name__)
 
 IDEA_TTL_DAYS = 10  # trading days after as_of before pre-trigger expiry
 RESOLVE_TTL_DAYS = 20  # trading days after trigger before post-trigger expiry
-DATA_GAP_FAIL_STREAK = 5  # consecutive bar-fetch failures before data_gap
+# Consecutive bar-fetch FAILURES (None, not empty) before an idea is parked as
+# data_gap. At the 30-min market-hours sweep this is ~one full trading day of
+# outage — a Schwab WAF episode (hours) no longer trips it, and data_gap is now
+# RECOVERABLE (a later successful fetch restores the idea), so nothing is lost.
+DATA_GAP_FAIL_STREAK = 13
 
 __all__ = ["sweep_open_ideas"]
 
@@ -292,6 +296,9 @@ def _sweep_row(row: dict[str, Any], *, now_date: date, db_path: Path | None = No
     db_kwargs = {} if db_path is None else {"db_path": db_path}
 
     if bars is None:
+        if status == "data_gap":
+            # Already parked and the fetch is still failing — leave it parked.
+            return None
         streak = int(row.get("fetch_fail_streak") or 0) + 1
         if streak >= DATA_GAP_FAIL_STREAK:
             update_outcome(
@@ -305,6 +312,17 @@ def _sweep_row(row: dict[str, Any], *, now_date: date, db_path: Path | None = No
             return "data_gap"
         update_outcome(outcome_id, fetch_fail_streak=streak, **db_kwargs)
         return None
+
+    if status == "data_gap":
+        # Bars are back (fetch succeeded — empty or not): the outage is over, so
+        # RESTORE the idea to its prior open status and let it resume tracking.
+        # Daily bars mean the missed window is fully recoverable. Prior status is
+        # derivable: triggered if it had already fired, else pending.
+        status = "triggered" if row.get("triggered_at") else "pending"
+        row = {**row, "status": status}
+        update_outcome(
+            outcome_id, status=status, fetch_fail_streak=0, **db_kwargs
+        )
 
     if not bars:
         # Fetch succeeded but no trading session on/after as_of yet (weekend/
@@ -383,7 +401,7 @@ def sweep_open_ideas(
         "errors": 0,
     }
 
-    for row in list_open(**db_kwargs):
+    for row in list_sweepable(**db_kwargs):
         counts["examined"] += 1
         try:
             result = _sweep_row(row, now_date=now_date, db_path=db_path)

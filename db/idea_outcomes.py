@@ -15,10 +15,18 @@ from db.schema_helpers import _add_column_if_missing
 logger = logging.getLogger(__name__)
 
 OPEN_STATUSES = frozenset({"pending", "triggered"})
+# Rows the mechanical sweep re-examines each pass. data_gap is included so a
+# later successful fetch can RESTORE it to an open status (H2 recovery) — an
+# outage must never permanently tombstone an idea.
+SWEEPABLE_STATUSES = frozenset({"pending", "triggered", "data_gap"})
 TERMINAL_STATUSES = frozenset(
     {"won", "lost", "expired", "invalidated", "data_gap"}
 )
 RESOLVED_WIN_LOSS = frozenset({"won", "lost"})
+# Journal-only lane: vetoed structures are outcome-tracked for calibration but
+# are NOT recommended — excluded from the headline paper win-rate (see
+# get_summary), still visible per-origin.
+VETOED_ORIGIN = "structure_vetoed"
 
 
 def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -59,6 +67,9 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         )
         _add_column_if_missing(
             conn, "idea_outcomes", "origin", "TEXT NOT NULL DEFAULT 'structure'"
+        )
+        _add_column_if_missing(
+            conn, "idea_outcomes", "veto_reason", "TEXT NOT NULL DEFAULT ''"
         )
         conn.commit()
 
@@ -107,14 +118,15 @@ def register_ideas(
             as_of = str(idea.get("as_of") or now).strip() or now
             targets_json = json.dumps([str(t) for t in targets])
             origin = str(idea.get("origin", "structure")).strip() or "structure"
+            veto_reason = str(idea.get("veto_reason", "")).strip()
 
             cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO idea_outcomes (
                     artifact_id, idea_index, symbol, as_of,
                     entry_low, entry_high, stop, targets_json,
-                    status, origin, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                    status, origin, veto_reason, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
                 """,
                 (
                     int(artifact_id),
@@ -126,6 +138,7 @@ def register_ideas(
                     stop,
                     targets_json,
                     origin,
+                    veto_reason,
                     now,
                 ),
             )
@@ -149,6 +162,24 @@ def list_open(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
     return [_row_to_outcome(r) for r in rows]
 
 
+def list_sweepable(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    """Rows the mechanical sweep advances: open rows PLUS data_gap rows (so an
+    outage can be recovered when bars reappear). data_gap stays out of
+    list_open, so the widget/win-rate still treat it as closed."""
+    init_idea_outcomes_tables(db_path)
+    placeholders = ",".join("?" * len(SWEEPABLE_STATUSES))
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM idea_outcomes
+            WHERE status IN ({placeholders})
+            ORDER BY updated_at ASC, id ASC
+            """,
+            tuple(SWEEPABLE_STATUSES),
+        ).fetchall()
+    return [_row_to_outcome(r) for r in rows]
+
+
 def list_recent_open(
     *, limit: int = 50, db_path: Path = DEFAULT_DB_PATH
 ) -> list[dict[str, Any]]:
@@ -159,11 +190,11 @@ def list_recent_open(
         rows = conn.execute(
             f"""
             SELECT * FROM idea_outcomes
-            WHERE status IN ({placeholders})
+            WHERE status IN ({placeholders}) AND origin != ?
             ORDER BY updated_at DESC, id DESC
             LIMIT ?
             """,
-            (*OPEN_STATUSES, lim),
+            (*OPEN_STATUSES, VETOED_ORIGIN, lim),
         ).fetchall()
     return [_row_to_outcome(r) for r in rows]
 
@@ -178,11 +209,11 @@ def list_recent_resolved(
         rows = conn.execute(
             f"""
             SELECT * FROM idea_outcomes
-            WHERE status IN ({placeholders})
+            WHERE status IN ({placeholders}) AND origin != ?
             ORDER BY resolved_at DESC, updated_at DESC, id DESC
             LIMIT ?
             """,
-            (*TERMINAL_STATUSES, lim),
+            (*TERMINAL_STATUSES, VETOED_ORIGIN, lim),
         ).fetchall()
     return [_row_to_outcome(r) for r in rows]
 
@@ -251,8 +282,13 @@ def update_outcome(
 def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     init_idea_outcomes_tables(db_path)
     with _connect(db_path) as conn:
+        # Headline counts/win-rate cover the RECOMMENDED lanes only. Vetoed
+        # structures are journal-only (calibration) and must never flatter or
+        # pollute the paper's win% — they surface under by_origin instead.
         rows = conn.execute(
-            "SELECT status, COUNT(*) AS n FROM idea_outcomes GROUP BY status"
+            "SELECT status, COUNT(*) AS n FROM idea_outcomes "
+            "WHERE origin != ? GROUP BY status",
+            (VETOED_ORIGIN,),
         ).fetchall()
         origin_rows = conn.execute(
             """

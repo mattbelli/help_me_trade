@@ -455,9 +455,31 @@ async def _assess_candidate(
         decision = str(verdict.get("decision", "")).strip().lower()
         if decision == "veto":
             veto_reason = str(verdict.get("veto_reason", "")).strip() or "unspecified"
+            # Calibration counts EVERYTHING: track the vetoed structure too, so
+            # the veto half of veto-and-grade gets a report card. The
+            # deterministic levels are already in hand; the thesis/risks the LLM
+            # never wrote are synthesized from the veto reason (journal-only,
+            # never recommended — see origin="structure_vetoed" at registration).
+            vetoed_structure = _choose_structure(
+                structures,
+                str(verdict.get("structure_type")).strip()
+                if verdict.get("structure_type") is not None
+                else None,
+            )
+            vetoed_raw_idea = _build_raw_idea_from_structure(
+                symbol=symbol,
+                structure=vetoed_structure,
+                llm_fields={
+                    "thesis": f"LLM vetoed this structure: {veto_reason}",
+                    "confidence": "low",
+                    "confidence_reason": veto_reason,
+                    "risks": [veto_reason],
+                },
+            )
             return {
                 **base_result,
                 "veto_reason": veto_reason,
+                "vetoed_raw_idea": vetoed_raw_idea,
             }
 
         if decision != "accept":
@@ -1017,6 +1039,26 @@ async def run_setup_scan(
         structure_ideas = validated_ideas
         validated_ideas = structure_ideas + conviction_ideas
 
+        # Vetoed-structure shadow lane: outcome-tracked for calibration, but
+        # NEVER placed in report["ideas"]/the paper (vetoed != recommended).
+        # Passes through validate_ideas the same way; origin stamped separately.
+        vetoed_raw_ideas = [
+            a["vetoed_raw_idea"] for a in assessments if a.get("vetoed_raw_idea")
+        ]
+        vetoed_ideas, _ = validate_ideas(
+            vetoed_raw_ideas,
+            last_prices,
+            allowed_symbols=set(candidates),
+            origin="structure_vetoed",
+        )
+        veto_reason_by_symbol = {
+            a["symbol"]: a.get("veto_reason", "")
+            for a in assessments
+            if a.get("vetoed_raw_idea")
+        }
+        for vi in vetoed_ideas:
+            vi["veto_reason"] = veto_reason_by_symbol.get(vi["symbol"], "")
+
         emit("writing", {"ideas": len(validated_ideas)})
         _check_cancelled(cancel_event)
 
@@ -1079,15 +1121,20 @@ async def run_setup_scan(
             artifact_id=int(created_artifact_id),
         )
 
-        if validated_ideas:
+        # Register recommended ideas AND vetoed shadows in ONE call so their
+        # idea_index values don't collide (UNIQUE(artifact_id, idea_index)).
+        # Vetoed rows are tracked but stay out of report["ideas"] above.
+        trackable_ideas = validated_ideas + vetoed_ideas
+        if trackable_ideas:
             try:
                 from db.idea_outcomes import register_ideas
 
-                registered = register_ideas(int(created_artifact_id), validated_ideas)
+                registered = register_ideas(int(created_artifact_id), trackable_ideas)
                 logger.info(
-                    "Registered %d idea outcome(s) for artifact %s",
+                    "Registered %d idea outcome(s) for artifact %s (%d vetoed)",
                     registered,
                     created_artifact_id,
+                    len(vetoed_ideas),
                 )
             except Exception as exc:
                 logger.warning(
