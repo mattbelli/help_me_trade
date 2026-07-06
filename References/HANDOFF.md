@@ -10,6 +10,20 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-06 overnight) — autonomous board sweep: 6 cards shipped while founder slept
+
+> Per founder directive ("keep knocking stuff off the kanban one by one without me"): **safety-M1**
+> (unattributable strategy fills now quarantine + critically page — adversarial-reviewed, its MAJOR fixed),
+> **db-retention** (keeper aging + 7d analytics trim; live VACUUM took trading.db **652MB→481MB**), **#41
+> done_for_day** (fill-progress-branched mapping — the naive alias was REJECTED by review for silently
+> skipping partial-fill attribution), **RVOL dedup persistence** (restarts no longer re-fire pushes),
+> **ui-polish-small**, **version-skew reload toast** (armed from next deploy). All committed separately
+> (33ca3c3→f01a8e2), pushed, deployed (backend + frontend). BUILD.md row has full detail. New backlog card
+> `orphan-repair-surface` (repair flow + dead /executions deep-link + earnings_alerts_sent pruning); card #32
+> annotated (proposal-intake tests fail on clean main — env leakage). Founder-morning eyeballs: the whole
+> 2026-07-06 evening UI batch (terminal T2 chat, floating panels, float mode, spawn UX) + tonight's radar
+> labels/picker titles; founder lane unchanged (kill-switch design call, ledger offsets, Monday scan judging).
+
 ## ▶ START HERE (2026-07-06 late) — terminal T2 + floating panels + float mode + spawn UX SHIPPED; founder asleep, agent working the board
 
 > Evening batch ALL DEPLOYED :3001 + committed (BUILD.md 2026-07-06 T2 row has full detail): (1) **terminal T2**

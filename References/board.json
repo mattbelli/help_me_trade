@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-06T03:58:38Z",
+ "updated_at": "2026-07-06T05:13:49Z",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,15 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "orphan-repair-surface",
+   "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
+   "lane": "backlog",
+   "type": "feature",
+   "priority": "normal",
+   "owner": "serv",
+   "notes": "Follow-up from safety-M1 adversarial review nits: fill_attribution_orphans rows sit \"notified\" forever with no in-app surface (no repair flow writes status=repaired), and the critical push deep-links to /executions/{id} which has no frontend route (404). Small round: an orphans view (settings or notifications) + mark-repaired action + fix or drop the link. Also: earnings_alerts_sent now grows ~1 row/symbol/day from RVOL dedup — add pruning here."
+  },
   {
    "id": "terminal-float-mode",
    "title": "Terminal float mode: DEPLOYED (drag both axes, snap bottom/top/center/free)",
@@ -157,10 +166,10 @@
   {
    "id": "safety-fill-attribution-orphan",
    "title": "record_strategy_fill swallows errors → filled BUY with no stop/exit (safety M1)",
-   "lane": "next",
+   "lane": "done",
    "type": "bug",
    "priority": "high",
-   "notes": "safety-execution audit M1, code-verified still present (trading/position_ledger.py:153 bare except → return None). If the ledger insert fails after a fill, the position is unmanaged indefinitely — no stop, no target, no time-exit; only a log line. Fix: critical push on fill-with-missing-ledger-row + a reconciler vs broker positions. Adversarial-review required (trading/)."
+   "notes": "SHIPPED 33ca3c3 (2026-07-06 overnight): retry → durable quarantine (fill_attribution_orphans) → critical page from the reconcile loop; adversarial review SAFE-WITH-NITS, its MAJOR (lost page on notify persist failure) fixed + regression test. Follow-up card orphan-repair-surface. safety-execution audit M1, code-verified still present (trading/position_ledger.py:153 bare except → return None). If the ledger insert fails after a fill, the position is unmanaged indefinitely — no stop, no target, no time-exit; only a log line. Fix: critical push on fill-with-missing-ledger-row +"
   },
   {
    "id": "safety-killswitch-blocks-exits",
@@ -207,10 +216,10 @@
   {
    "id": "ops-deploy-dedup-reset",
    "title": "Mid-day restart re-fires phone alerts (in-memory dedup resets, ops MED-5)",
-   "lane": "backlog",
+   "lane": "done",
    "type": "ops",
    "priority": "normal",
-   "notes": "_rvol_alert_last_date / _schwab_health_last_date / _schwab_snapshot_last_date + profile cooldowns are in-memory; every deploy resets them → duplicate pushes. Earnings/reports already got this right (DB-backed) — move the other three to the same pattern. Alert fatigue = named mission risk."
+   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): RVOL dedup persisted to earnings_alerts_sent (rvol:{symbol}:{ET-date}); restarts no longer re-fire phone alerts (earnings/price already persisted). _rvol_alert_last_date / _schwab_health_last_date / _schwab_snapshot_last_date + profile cooldowns are in-memory; every deploy resets them → duplicate pushes. Earnings/reports already got this right (DB-backed) — move the other three to the same pattern. Alert fatigue = named mission risk."
   },
   {
    "id": "mobile-card-incomplete-data",
@@ -265,10 +274,10 @@
   {
    "id": "db-retention",
    "title": "DB growth: retention runs but can't shrink the file — hourly keepers + no VACUUM (ops HIGH-3)",
-   "lane": "next",
+   "lane": "done",
    "type": "ops",
    "priority": "high",
-   "notes": "Diagnosis 2026-07-05 (corrects earlier 'no prune anywhere'): db/retention.py IS wired + runs daily (journalctl confirms). But (1) the one-time supervised VACUUM (tools/db_maintenance.py --vacuum) never ran, so freed pages are never reclaimed; (2) the design keeps one full-width snapshot per HOUR forever, incl. ~5KB snapshot_analytics JSON per keeper — that table is 294MB (half the 600MB file); (3) net intake > deletions so the file grows ~30-60MB/day. Fix: run the VACUUM in a quiet window; age hourly keepers to daily past ~90 days (or strip analytics blobs from keepers); add file-size + hours_kept to /health or the backup log so growth is visible. Verify with next-morning size delta.",
+   "notes": "SHIPPED c5b183d+ae937c7 (2026-07-06 overnight): keeper aging 90d→daily, analytics trim 7d (sole reader is latest-only — verified), observability in retention log. Live: prune trimmed 22,615 blobs, supervised VACUUM+checkpoint took trading.db 652MB→481MB. File now plateaus. pre-memory-p0.db snapshot (639MB) still in data/ — founder may delete for another ~640MB disk. Diagnosis 2026-07-05 (corrects earlier 'no prune anywhere'): db/retention.py IS wired + runs daily (journalctl confirms). But (1) the one-time supervised VACUUM (tools/db_maintenance.py --vacuum) never ran, so freed pages are never reclaimed; (2) the design keeps one full-width snapshot per HOUR for",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -325,10 +334,10 @@
   {
    "id": "ui-polish-small",
    "title": "UI small fixes: duplicate 'performance' picker entries, sector-radar label collisions/clipping",
-   "lane": "backlog",
+   "lane": "done",
    "type": "bug",
    "priority": "low",
-   "notes": "UI_AUDIT.md POLISH bucket quick wins. Full list with file:line refs in the report.",
+   "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): picker titles disambiguated (performance (legacy) / performance stats), sector-radar labels abbreviated w/ full names in tooltip+legend. UI_AUDIT.md POLISH bucket quick wins. Full list with file:line refs in the report.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -465,10 +474,10 @@
   {
    "id": "41",
    "title": "fill_tracker: done_for_day status never maps terminal",
-   "lane": "next",
+   "lane": "done",
    "type": "bug",
    "priority": "normal",
-   "notes": "Fill reports for orders resting at day-end never fire; found in #35 H3 review.",
+   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): done_for_day branches on fill progress — partial→partially_filled (attribution fires, keeps polling per Alpaca docs), zero-fill→expired. Naive alias REJECTED by adversarial review (would have silently skipped attribution on partials). Fill reports for orders resting at day-end never fire; found in #35 H3 review.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -558,7 +567,7 @@
    "lane": "backlog",
    "type": "ops",
    "priority": "low",
-   "notes": "Make suite hermetic.",
+   "notes": "2026-07-06 overnight data point: tests/test_proposal_intake.py + test_phone_proposals fail on CLEAN main too (risk_blocked vs proposed, TTL None) — env/settings leakage into tests, same non-hermetic class as the live-Schwab hang. Make suite hermetic.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -575,10 +584,10 @@
   {
    "id": "version-skew-reload",
    "title": "Version-skew detection: 'reload to update' toast after deploys",
-   "lane": "backlog",
+   "lane": "done",
    "type": "ops",
    "priority": "low",
-   "notes": "Rapid deploys leave open tabs on stale builds → weird nav failures. App should detect the server build changed and prompt reload.",
+   "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): /api/version + 5-min/tab-focus check + persistent reload toast (one per session, fails soft in dev). Armed from the NEXT deploy onward. Rapid deploys leave open tabs on stale builds → weird nav failures. App should detect the server build changed and prompt reload.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
