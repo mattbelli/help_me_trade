@@ -1,6 +1,12 @@
 import { API_BASE, apiFetch } from "./api";
 
-export type MemoryType = "preference" | "lesson" | "research";
+export type MemoryType =
+  | "directive"
+  | "preference"
+  | "fact"
+  | "lesson"
+  | "thesis"
+  | "research";
 
 export type MemoryRecord = {
   id: number;
@@ -16,8 +22,11 @@ export type SessionMemoryRecord = MemoryRecord & {
 };
 
 export const MEMORY_TYPE_LABELS: Record<MemoryType, string> = {
+  directive: "Directive",
   preference: "Preference",
+  fact: "Fact",
   lesson: "Lesson",
+  thesis: "Thesis",
   research: "Research",
 };
 

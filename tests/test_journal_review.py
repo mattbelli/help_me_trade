@@ -176,7 +176,12 @@ class _FakeMemory:
         self.added: list[dict[str, Any]] = []
 
     def add(
-        self, content: str, *, memory_type: str, metadata: dict[str, Any] | None = None
+        self,
+        content: str,
+        *,
+        memory_type: str,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         self.added.append(
             {"content": content, "memory_type": memory_type, "metadata": metadata}

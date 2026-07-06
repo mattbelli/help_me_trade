@@ -41,13 +41,13 @@
     },
     {
       "id": "memory-overhaul",
-      "title": "Memory overhaul: elite design doc READY (Fable-reviewed) — Phase 0 fixes an ACTIVE correction-swallowing bug",
-      "lane": "founder",
+      "title": "Memory overhaul: Phase 0 SHIPPED (clean slate live) — Phase 1 (judge + tools + provenance) next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Fable design review DONE 2026-07-05 → References/MEMORY_OVERHAUL_DESIGN.md (521 lines, implementation-grade; supersedes the report's 3 phases with 4 independently-shippable phases). Verdict: report's root causes all confirmed; review found MORE: (1) ACTIVE BUG — dedup-on-write swallows corrections (db/ai_tables.py:250-269: 'cap is now 25%' Jaccard-matches stored '20% cap', new content DISCARDED, stale fact re-stamped fresh) — orchestrator re-verified in code; ships in Phase 0 regardless. (2) Cross-subsystem echo loop (research rows citing memories that were research summaries). Design: authority model (user_authored/confirmed/agent_inferred — only user-authored/confirmed directives shape proposals; chokepoint never reads memory); 5-type taxonomy (directive/preference/fact/lesson/thesis w/ per-type staleness); SUPERSEDE-linked corrections; FTS5 + local Ollama nomic-embed-text hybrid (mem0 REMOVED, no sqlite-vec); [mem:ID] citations + provenance chips + pin/confirm in widget; 40-case golden eval, kill criteria, one-flag rollback. FOUNDER DECISIONS (doc §10): (a) are the 20%-cap / 5%-risk rows (ids 138-142, test-fixture session ids) REAL rules? (b) sign off 29-row migration (reversible); (c) may copilot archive on 'forget that' (default yes, confirm+undo).",
-      "updated_at": "2026-07-05"
+      "notes": "Phase 0 DEPLOYED 2026-07-06: junk writers deleted, correction-swallowing dedup deleted (+named regression test), 12-col schema + FTS5 index live, all 29 legacy rows archived (founder: 138-142 'I did not say those'), Active set = clean empty, widget type chips updated. Opus adversarial review caught 2 gating bugs pre-deploy (no-op FTS backfill → index corruption on every update/delete; migration missing schema init) + archived-row NOOP trap — all fixed, live-verified (probe create/delete, FTS MATCH, integrity ok). Pre-migration snapshot: data/trading.pre-memory-p0.db. NEXT: Phase 1 per MEMORY_OVERHAUL_DESIGN.md §4/§7 — judge, save_memory/forget_memory tools, widget provenance/pin/confirm; first Opus-coded round, Fable reviews the judge+authority rules (user-trust surface).",
+      "updated_at": "2026-07-06"
     },
     {
       "id": "scroll-ergonomics",

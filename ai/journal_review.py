@@ -233,6 +233,7 @@ def run_journal_review(
                     text,
                     memory_type="lesson",
                     metadata={"source": "journal_calibration"},
+                    source="reflection",
                 )
         return {
             "n_resolved": calibration["n_resolved"],

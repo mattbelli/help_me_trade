@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from ai.chat.alert_intent import looks_like_alert_intent
@@ -12,48 +11,8 @@ from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
-from db.ai_tables import _is_duplicate, _memory_tokens
 
 logger = logging.getLogger(__name__)
-
-
-def _heuristic_memories(user_text: str, assistant_text: str) -> list[dict[str, str]]:
-    items: list[dict[str, str]] = []
-    lower = user_text.lower()
-
-    pref_patterns = [
-        r"i prefer (.+)",
-        r"i like to (.+)",
-        r"my risk (?:is|tolerance is) (.+)",
-        r"i usually (.+)",
-        r"remember that i (.+)",
-    ]
-    for pattern in pref_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            items.append(
-                {
-                    "type": "preference",
-                    "content": f"User preference: {match.group(1).strip()}",
-                }
-            )
-            break
-
-    if any(word in lower for word in ("lesson", "learned", "mistake", "should have")):
-        snippet = user_text.strip()[:300]
-        if len(snippet) > 20:
-            items.append({"type": "lesson", "content": snippet})
-
-    if not items and len(assistant_text) > 80:
-        if any(word in lower for word in ("always", "never", "rule", "strategy")):
-            items.append(
-                {
-                    "type": "preference",
-                    "content": f"From chat: {user_text.strip()[:200]}",
-                }
-            )
-
-    return items[:2]
 
 
 def _parse_llm_memories(raw: str) -> list[dict[str, str]]:
@@ -69,7 +28,7 @@ def _parse_llm_memories(raw: str) -> list[dict[str, str]]:
             continue
         mtype = str(item.get("type", "")).strip()
         content = str(item.get("content", "")).strip()
-        if mtype in ("preference", "lesson", "research") and content:
+        if mtype in ("preference", "lesson") and content:
             out.append({"type": mtype, "content": content})
     return out[:3]
 
@@ -124,11 +83,12 @@ def extract_memories_from_turn(
         raw = complete_for_extraction(llm, messages, max_tokens=300)
         candidates = _parse_llm_memories(raw)
     except Exception as exc:
-        logger.warning("LLM memory extraction failed, using heuristics: %s", exc)
-        candidates = []
+        logger.warning("LLM memory extraction failed: %s", exc)
+        return []
 
     if not candidates:
-        candidates = _heuristic_memories(user_text, assistant_text)
+        logger.warning("LLM memory extraction returned no candidates")
+        return []
 
     memory = get_memory_service()
     metadata: dict[str, Any] = {"source": "chat", "session_id": session_id}
@@ -136,17 +96,11 @@ def extract_memories_from_turn(
         metadata["source_message_id"] = source_message_id
     saved: list[dict[str, Any]] = []
     for item in candidates:
-        candidate_tokens = _memory_tokens(item["content"])
-        existing = memory.list(memory_type=item["type"], limit=200)
-        if any(
-            _is_duplicate(candidate_tokens, _memory_tokens(row["content"]))
-            for row in existing
-        ):
-            continue
         record = memory.add(
             item["content"],
             memory_type=item["type"],
             metadata=metadata,
+            source="chat_extract",
         )
         saved.append(record)
     return saved

@@ -171,6 +171,7 @@ def generate_retrospective_report(
             text,
             memory_type="lesson",
             metadata={"source": "retrospective", "period": period},
+            source="retrospective",
         )
         lessons_seeded += 1
 

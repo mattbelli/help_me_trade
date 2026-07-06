@@ -25,17 +25,25 @@ type TypeFilter = "all" | MemoryType;
 
 const TYPE_FILTERS: { id: TypeFilter; label: string }[] = [
   { id: "all", label: "All" },
+  { id: "directive", label: "Dir" },
   { id: "preference", label: "Pref" },
+  { id: "fact", label: "Fact" },
   { id: "lesson", label: "Lesson" },
-  { id: "research", label: "Research" },
+  { id: "thesis", label: "Thesis" },
 ];
 
 function typeChipClass(type: MemoryType): string {
   switch (type) {
+    case "directive":
+      return "text-[var(--c-red)] border-[color-mix(in_srgb,var(--c-red)_35%,transparent)]";
     case "preference":
       return "text-[var(--c-accent)] border-[color-mix(in_srgb,var(--c-accent)_35%,transparent)]";
+    case "fact":
+      return "text-[var(--c-green)] border-[color-mix(in_srgb,var(--c-green)_35%,transparent)]";
     case "lesson":
       return "text-[var(--c-amber)] border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)]";
+    case "thesis":
+      return "text-[var(--c-purple)] border-[color-mix(in_srgb,var(--c-purple)_35%,transparent)]";
     case "research":
       return "text-[var(--c-blue)] border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)]";
   }

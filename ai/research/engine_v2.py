@@ -12,7 +12,6 @@ from typing import Any
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
-from ai.memories import get_memory_service
 from ai.research.citations import enrich_report_citations
 from ai.research.errors import ResearchCancelled
 from ai.research.report import (
@@ -482,18 +481,6 @@ def run_research_v2(
             sources=all_sources,
             depth=preset_name,
             artifact_id=int(created_artifact_id),
-        )
-        summary = str(report.get("summary") or markdown or topic).strip()[:500]
-        if not summary:
-            summary = f"Research complete: {topic}"[:500]
-        get_memory_service().add(
-            summary,
-            memory_type="research",
-            metadata={
-                "artifact_id": created_artifact_id,
-                "symbol": sym,
-                "depth": preset_name,
-            },
         )
         emit(
             "completed",

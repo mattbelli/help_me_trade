@@ -646,7 +646,11 @@ def api_create_memory(body: dict = Body(...)):
         return JSONResponse({"error": "metadata must be an object"}, status_code=400)
     try:
         record = get_memory_service().add(
-            content, memory_type=memory_type, metadata=metadata
+            content,
+            memory_type=memory_type,
+            metadata=metadata,
+            source="widget_manual",
+            authority="user_authored",
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)

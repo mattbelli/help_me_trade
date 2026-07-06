@@ -14,7 +14,7 @@ from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
 
-MEMORY_TYPES = frozenset({"preference", "lesson", "research"})
+MEMORY_TYPES = frozenset({"directive", "preference", "fact", "lesson", "thesis"})
 
 
 def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -82,6 +82,18 @@ def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             "ALTER TABLE research_artifacts ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE research_artifacts ADD COLUMN depth TEXT NOT NULL DEFAULT 'standard'",
             "ALTER TABLE research_artifacts ADD COLUMN updated_at TEXT",
+            "ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+            "ALTER TABLE memories ADD COLUMN supersedes_id INTEGER",
+            "ALTER TABLE memories ADD COLUMN valid_until TEXT",
+            "ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'",
+            "ALTER TABLE memories ADD COLUMN authority TEXT NOT NULL DEFAULT 'agent_inferred'",
+            "ALTER TABLE memories ADD COLUMN quote TEXT",
+            "ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE memories ADD COLUMN last_used_at TEXT",
+            "ALTER TABLE memories ADD COLUMN use_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE memories ADD COLUMN symbols TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE memories ADD COLUMN embedding BLOB",
+            "ALTER TABLE memories ADD COLUMN embedding_model TEXT",
         ):
             try:
                 conn.execute(ddl)
@@ -94,10 +106,88 @@ def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             WHERE updated_at IS NULL OR updated_at = ''
             """
         )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memories_status
+                ON memories(status, memory_type)
+            """
+        )
+        fts_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memories_fts'"
+        ).fetchone()
+        if fts_exists:
+            return
+        conn.executescript(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                content, quote, symbols,
+                content='memories', content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories BEGIN
+                INSERT INTO memories_fts(rowid, content, quote, symbols)
+                VALUES (
+                    new.id,
+                    new.content,
+                    new.quote,
+                    COALESCE(new.symbols, '[]')
+                );
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories BEGIN
+                INSERT INTO memories_fts(
+                    memories_fts, rowid, content, quote, symbols
+                )
+                VALUES (
+                    'delete',
+                    old.id,
+                    old.content,
+                    old.quote,
+                    COALESCE(old.symbols, '[]')
+                );
+                INSERT INTO memories_fts(rowid, content, quote, symbols)
+                VALUES (
+                    new.id,
+                    new.content,
+                    new.quote,
+                    COALESCE(new.symbols, '[]')
+                );
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories BEGIN
+                INSERT INTO memories_fts(
+                    memories_fts, rowid, content, quote, symbols
+                )
+                VALUES (
+                    'delete',
+                    old.id,
+                    old.content,
+                    old.quote,
+                    COALESCE(old.symbols, '[]')
+                );
+            END;
+            """
+        )
+        # One-time index build for pre-existing rows. NOTE: a manual
+        # "WHERE NOT EXISTS (... WHERE f.rowid = m.id)" backfill is a silent
+        # no-op on an external-content FTS5 table (rowid lookups proxy to the
+        # content table), which leaves the index empty and makes the delete/
+        # update triggers corrupt the index ("database disk image is
+        # malformed"). FTS5's own rebuild is correct and idempotent; the
+        # triggers keep it in sync from here on.
+        conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
 
 
 def _row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
-    return {
+    keys = row.keys()
+    symbols_raw = row["symbols"] if "symbols" in keys else "[]"
+    try:
+        symbols = json.loads(symbols_raw or "[]")
+    except json.JSONDecodeError:
+        symbols = []
+    if not isinstance(symbols, list):
+        symbols = []
+    out: dict[str, Any] = {
         "id": int(row["id"]),
         "type": row["memory_type"],
         "content": row["content"],
@@ -105,6 +195,29 @@ def _row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+    if "status" in keys:
+        out["status"] = row["status"]
+    if "supersedes_id" in keys and row["supersedes_id"] is not None:
+        out["supersedes_id"] = int(row["supersedes_id"])
+    if "valid_until" in keys and row["valid_until"]:
+        out["valid_until"] = row["valid_until"]
+    if "source" in keys:
+        out["source"] = row["source"]
+    if "authority" in keys:
+        out["authority"] = row["authority"]
+    if "quote" in keys and row["quote"]:
+        out["quote"] = row["quote"]
+    if "pinned" in keys:
+        out["pinned"] = bool(row["pinned"])
+    if "last_used_at" in keys and row["last_used_at"]:
+        out["last_used_at"] = row["last_used_at"]
+    if "use_count" in keys:
+        out["use_count"] = int(row["use_count"] or 0)
+    if symbols:
+        out["symbols"] = symbols
+    if "embedding_model" in keys and row["embedding_model"]:
+        out["embedding_model"] = row["embedding_model"]
+    return out
 
 
 def _normalize_memory_content(text: str) -> str:
@@ -114,126 +227,15 @@ def _normalize_memory_content(text: str) -> str:
     return normalized.strip(string.punctuation + " ")
 
 
-_MEMORY_STOPWORDS = frozenset(
-    {
-        "a",
-        "an",
-        "the",
-        "to",
-        "of",
-        "at",
-        "in",
-        "on",
-        "for",
-        "my",
-        "i",
-        "is",
-        "are",
-        "be",
-        "was",
-        "were",
-        "been",
-        "being",
-        "have",
-        "has",
-        "had",
-        "do",
-        "does",
-        "did",
-        "will",
-        "would",
-        "could",
-        "should",
-        "may",
-        "might",
-        "must",
-        "shall",
-        "can",
-        "it",
-        "its",
-        "this",
-        "that",
-        "these",
-        "those",
-        "me",
-        "we",
-        "you",
-        "your",
-        "he",
-        "she",
-        "they",
-        "them",
-        "their",
-        "our",
-        "or",
-        "and",
-        "but",
-        "if",
-        "as",
-        "by",
-        "from",
-        "with",
-        "about",
-        "into",
-        "no",
-        "not",
-        "than",
-        "per",
-    }
-)
-
-_JACCARD_DEDUP_THRESHOLD = 0.5
-_MIN_SHARED_TOKENS = 2
-_MIN_SHARED_NON_NUMERIC = 1
-
-
-def _memory_tokens(text: str) -> frozenset[str]:
-    """Token set for semantic dedup: lowercase, strip punctuation, drop stopwords."""
-    normalized = re.sub(r"\s+", " ", text.strip().lower())
-    raw_tokens = normalized.split()
-    tokens: set[str] = set()
-    for raw in raw_tokens:
-        token = raw.strip(string.punctuation)
-        if not token or len(token) == 1 or token in _MEMORY_STOPWORDS:
-            continue
-        tokens.add(token)
-    return frozenset(tokens)
-
-
-def _is_numeric_token(token: str) -> bool:
-    stripped = token.rstrip("%")
-    if not stripped:
-        return False
-    return stripped.replace(".", "", 1).isdigit()
-
-
-def _token_set(value: str | frozenset[str]) -> frozenset[str]:
-    if isinstance(value, frozenset):
-        return value
-    return _memory_tokens(value)
-
-
-def _is_duplicate(a: str | frozenset[str], b: str | frozenset[str]) -> bool:
-    """True when two memory texts express the same fact (token-set similarity)."""
-    tokens_a = _token_set(a)
-    tokens_b = _token_set(b)
-    if not tokens_a or not tokens_b:
-        return False
-    intersection = tokens_a & tokens_b
-    if len(intersection) < _MIN_SHARED_TOKENS:
-        return False
-    non_numeric = {t for t in intersection if not _is_numeric_token(t)}
-    if len(non_numeric) < _MIN_SHARED_NON_NUMERIC:
-        return False
-    union = tokens_a | tokens_b
-    return len(intersection) / len(union) >= _JACCARD_DEDUP_THRESHOLD
-
-
 def create_memory(
     *,
     memory_type: str,
     content: str,
     metadata: dict[str, Any] | None = None,
+    source: str = "legacy",
+    authority: str = "agent_inferred",
+    quote: str | None = None,
+    symbols: list[str] | None = None,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
     if memory_type not in MEMORY_TYPES:
@@ -247,32 +249,36 @@ def create_memory(
     now = _now()
     meta = metadata or {}
     norm = _normalize_memory_content(text)
+    symbols_json = json.dumps(symbols or [], ensure_ascii=False)
     with _connect(resolved_db) as conn:
-        # Dedup-on-write: refresh an existing same-type memory when the new content
-        # is semantically the same fact (exact or token-set similarity).
-        new_tokens = _memory_tokens(text)
+        # Exact-match NOOP guard scoped to ACTIVE rows only: an archived
+        # memory is not "already known" — matching it here would make a
+        # founder re-add silently vanish from the (active-only) widget.
         for row in conn.execute(
-            "SELECT * FROM memories WHERE memory_type = ?", (memory_type,)
+            "SELECT * FROM memories WHERE memory_type = ? AND status = 'active'",
+            (memory_type,),
         ).fetchall():
-            existing = row["content"]
-            if _normalize_memory_content(existing) == norm or _is_duplicate(
-                new_tokens, _memory_tokens(existing)
-            ):
-                conn.execute(
-                    "UPDATE memories SET updated_at = ? WHERE id = ?",
-                    (now, row["id"]),
-                )
-                refreshed = conn.execute(
-                    "SELECT * FROM memories WHERE id = ?", (row["id"],)
-                ).fetchone()
-                conn.commit()
-                return _row_to_memory(refreshed)
+            if _normalize_memory_content(row["content"]) == norm:
+                return _row_to_memory(row)
         cursor = conn.execute(
             """
-            INSERT INTO memories (memory_type, content, metadata_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO memories (
+                memory_type, content, metadata_json, created_at, updated_at,
+                source, authority, quote, symbols
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (memory_type, text, json.dumps(meta), now, now),
+            (
+                memory_type,
+                text,
+                json.dumps(meta),
+                now,
+                now,
+                source,
+                authority,
+                quote,
+                symbols_json,
+            ),
         )
         row = conn.execute(
             "SELECT * FROM memories WHERE id = ?", (cursor.lastrowid,)
@@ -285,21 +291,19 @@ def list_memories(
     *,
     memory_type: str | None = None,
     limit: int = 50,
+    include_inactive: bool = False,
     db_path: Path | None = None,
 ) -> list[dict[str, Any]]:
     resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
     init_ai_tables(resolved_db)
     limit = max(1, min(limit, 200))
+    status_clause = "" if include_inactive else " AND status = 'active'"
     with _connect(resolved_db) as conn:
         if memory_type:
-            if memory_type not in MEMORY_TYPES:
-                raise ValueError(
-                    f"memory_type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
-                )
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM memories
-                WHERE memory_type = ?
+                WHERE memory_type = ?{status_clause}
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
@@ -307,8 +311,9 @@ def list_memories(
             ).fetchall()
         else:
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM memories
+                WHERE 1=1{status_clause}
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
@@ -322,20 +327,27 @@ def search_memories(
     *,
     memory_type: str | None = None,
     limit: int = 10,
+    include_inactive: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     """Simple keyword search for local memory store."""
     init_ai_tables(db_path)
     q = query.strip().lower()
     if not q:
-        return list_memories(memory_type=memory_type, limit=limit, db_path=db_path)
+        return list_memories(
+            memory_type=memory_type,
+            limit=limit,
+            include_inactive=include_inactive,
+            db_path=db_path,
+        )
 
+    status_clause = "" if include_inactive else " AND status = 'active'"
     with _connect(db_path) as conn:
         if memory_type:
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM memories
-                WHERE memory_type = ? AND LOWER(content) LIKE ?
+                WHERE memory_type = ? AND LOWER(content) LIKE ?{status_clause}
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
@@ -343,9 +355,9 @@ def search_memories(
             ).fetchall()
         else:
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM memories
-                WHERE LOWER(content) LIKE ?
+                WHERE LOWER(content) LIKE ?{status_clause}
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,

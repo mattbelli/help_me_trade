@@ -511,6 +511,10 @@ feeds proposals — run the adversarial Sonnet review on the judge + authority r
 
 ## 10. Founder decisions required (the only genuine product calls)
 
+> **ANSWERED 2026-07-05 (chat):** (1) rows 138–142 are NOT his — "I did not say those" → archive all five,
+> no advisory collapse, nothing he didn't say survives as a rule in any form; (2) migration disposition
+> approved; (3) "forget that" approved with the archive-only + confirm/undo default. Phase 0 dispatched.
+
 1. **Are rows 138–142 real?** Their session ids (`sess_echo`, `sess_new`, `chat_abc`) look like test
    fixtures. Confirm "20% single-name cap" and "5% risk per trade" are your actual standing rules → they
    become `user_confirmed` directives (allowed to shape proposals). If not confirmed, they migrate as

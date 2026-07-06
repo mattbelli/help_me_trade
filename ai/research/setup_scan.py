@@ -14,7 +14,6 @@ from typing import Any
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
-from ai.memories import get_memory_service
 from ai.research.data_sources import (
     fetch_earnings_source,
     fetch_fundamentals_source,
@@ -1098,23 +1097,6 @@ async def run_setup_scan(
                 )
 
         idea_count = len(validated_ideas)
-        candidate_count = len(candidates)
-        top_syms = ", ".join(i["symbol"] for i in validated_ideas[:2])
-        summary = (
-            f"Setup scan: {idea_count} ideas from {candidate_count} candidates"
-            + (f" (top: {top_syms})" if top_syms else "")
-        )
-        get_memory_service().add(
-            summary,
-            memory_type="research",
-            metadata={
-                "artifact_id": created_artifact_id,
-                "symbol": None,
-                "depth": preset_name,
-                "recipe": "setup_scan",
-            },
-        )
-
         emit(
             "completed",
             {

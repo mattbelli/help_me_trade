@@ -41,6 +41,10 @@ class MemoryService:
         *,
         memory_type: str,
         metadata: dict[str, Any] | None = None,
+        source: str = "legacy",
+        authority: str = "agent_inferred",
+        quote: str | None = None,
+        symbols: list[str] | None = None,
     ) -> dict[str, Any]:
         meta = dict(metadata or {})
         meta["type"] = memory_type
@@ -48,6 +52,10 @@ class MemoryService:
             memory_type=memory_type,
             content=content,
             metadata=meta,
+            source=source,
+            authority=authority,
+            quote=quote,
+            symbols=symbols,
         )
         if self._mem0 is not None:
             try:

@@ -221,18 +221,9 @@ def patch_sources(monkeypatch: pytest.MonkeyPatch):
     )
 
 
-@pytest.fixture
-def patch_memory(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        "ai.research.engine_v2.get_memory_service",
-        lambda: type("MS", (), {"add": lambda *a, **k: None})(),
-    )
-
-
 def test_standard_happy_path(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
 ) -> None:
     from ai.research.engine_v2 import run_research_v2
@@ -265,7 +256,6 @@ def test_standard_happy_path(
 def test_effort_scaling_quick_and_deep(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -299,7 +289,6 @@ def test_effort_scaling_quick_and_deep(
 def test_self_stop_cap_on_exhaustive(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -323,7 +312,6 @@ def test_self_stop_cap_on_exhaustive(
 def test_standard_never_exceeds_rounds_per_specialist(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -347,7 +335,6 @@ def test_standard_never_exceeds_rounds_per_specialist(
 def test_one_specialist_failure_does_not_kill_run(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -380,7 +367,6 @@ def test_one_specialist_failure_does_not_kill_run(
 def test_all_specialists_fail_marks_artifact_failed(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -417,7 +403,6 @@ def test_role_model_resolution(
     isolated_settings,
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
 ) -> None:
     settings_mod.apply_settings_patch(
@@ -445,7 +430,6 @@ def test_role_model_resolution(
 def test_planner_garbage_uses_fallback(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
 ) -> None:
     patch_llm.planner_response = "<<<not json>>>"
@@ -488,7 +472,6 @@ def test_graph_run_research_depth_mapping(
     isolated_settings,
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -658,7 +641,6 @@ def test_specialist_partial_credit_on_distill_failure(
 def test_cancel_event_stops_specialist_and_fails_run(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -839,7 +821,6 @@ def test_editor_sources_overwritten_from_catalog(
 def test_editor_all_garbage_falls_back_to_analyst_sections(
     patch_llm,
     patch_sources,
-    patch_memory,
     research_db,
 ) -> None:
     patch_llm.editor_all_garbage = True

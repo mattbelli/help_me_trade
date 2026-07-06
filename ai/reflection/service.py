@@ -58,6 +58,7 @@ def run_reflection() -> dict[str, Any]:
                 f"{title}: {content}",
                 memory_type="lesson",
                 metadata={"source": "reflection"},
+                source="reflection",
             )
 
     # J3 — journal calibration review (surface-only, fail-soft): compare the agent's
