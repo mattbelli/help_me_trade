@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "copilot-terminal-redesign",
-      "title": "Copilot rethink: kill the chat window → Claude-Code-style terminal (one input: /commands + chat, streaming, tool blocks)",
-      "lane": "in_progress",
+      "title": "Copilot terminal: design DELIVERED (Quake drawer, one input, ~5-6 Opus rounds) — 4 decisions + green light needed",
+      "lane": "founder",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Founder directive 2026-07-06: 'we are all about speed… the copilot window is not it… make a claude code terminal like copilot. commands could work straight out of the chat.' Fable design agent dispatched — recon of command-console + copilot dock + chat stream, then References/COPILOT_TERMINAL_DESIGN.md: where it lives (Quake-drawer vs strip), one-input dual routing (/ = deterministic, NL = LLM loop, LLM can call the same commands as tools), engineered latency budgets, scrollback spec (tool blocks / proposal cards / [mem:ID] chips / clickable tickers), grid coexistence + keyboard model, phased migration that keeps the dock alive until parity. Design due this session; build = Opus rounds w/ Fable review.",
+      "notes": "Fable design pass DONE 2026-07-06 → References/COPILOT_TERMINAL_DESIGN.md (391 lines, full-code recon). Core: console strip = collapsed terminal, ⌘K Quake-expands over the grid (never reflows); one input → leading / = deterministic registry (instant), plain text = existing chat brain; LLM gets a whitelisted workspace_command tool (same registry, chokepoint untouched); scrollback = flat mono transcript w/ collapsed tool rows, inline proposal cards, [mem:ID] chips (memory §7 contract), ClickableSymbol tickers. Perf receipts: dock unmounts Thread on close; route.ts does 2 SEQUENTIAL Python round-trips pre-LLM (verified) → Promise.all + runtime cache + prewarm + optimistic echo; budgets: summon<100ms, echo<16ms, first token p50<800ms, instrumented in T0. Phases T0-T5 (~5-6 Opus rounds), dock survives until T5 parity audit. FOUNDER: (1) delete dock at T5? (rec: delete) (2) agent-initiated output: auto-summon or strip glyph? (rec: glyph) (3) Iosevka trial on terminal T1? (rec: yes) (4) keep attachments? (rec: keep). Green light starts T0+T1.",
       "updated_at": "2026-07-06"
     },
     {
