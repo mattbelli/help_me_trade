@@ -51,12 +51,12 @@
     },
     {
       "id": "memory-overhaul",
-      "title": "Memory overhaul: Phase 0 SHIPPED (clean slate live) — Phase 1 (judge + tools + provenance) next",
+      "title": "Memory overhaul: P0+P1 SHIPPED (judge + tools + trust surface live) — P2 retrieval/injection next",
       "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Phase 0 DEPLOYED 2026-07-06: junk writers deleted, correction-swallowing dedup deleted (+named regression test), 12-col schema + FTS5 index live, all 29 legacy rows archived (founder: 138-142 'I did not say those'), Active set = clean empty, widget type chips updated. Opus adversarial review caught 2 gating bugs pre-deploy (no-op FTS backfill → index corruption on every update/delete; migration missing schema init) + archived-row NOOP trap — all fixed, live-verified (probe create/delete, FTS MATCH, integrity ok). Pre-migration snapshot: data/trading.pre-memory-p0.db. NEXT: Phase 1 per MEMORY_OVERHAUL_DESIGN.md §4/§7 — judge, save_memory/forget_memory tools, widget provenance/pin/confirm; first Opus-coded round, Fable reviews the judge+authority rules (user-trust surface).",
+      "notes": "Phase 1 DEPLOYED 2026-07-06 (Opus-coded, Fable adversarial review FIX-FIRST→fixed in-round): LLM judge w/ code-enforced containment behind all writers; save_memory/forget_memory tools (authority NEVER minted from model args — hallucinated-quote attack closed; forget refuses founder rules); widget provenance/pin/Confirm/History/restore; PATCH locked to agent_inferred→user_confirmed; 40-case eval harness; hermetic tests (was silently grading with live gemma). Live-verified: real-LLM save→agent_inferred, PATCH mint→400, FTS ok. NEXT: Phase 2 per design §5 — ollama pull nomic-embed-text, hybrid FTS5+cosine retrieval, mem0 REMOVED, injection ON (after terminal T2 — shared chat surface). Phase 3 = lifecycle/thesis expiry.",
       "updated_at": "2026-07-06"
     },
     {
