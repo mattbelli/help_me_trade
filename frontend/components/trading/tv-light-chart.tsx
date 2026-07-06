@@ -37,7 +37,7 @@ import {
   type SessionLevel,
   type StockBar,
 } from "@/lib/api";
-import { fetchBarsCached } from "@/lib/bars-cache";
+import { fetchBarsCached, invalidateBars } from "@/lib/bars-cache";
 import { cn } from "@/lib/utils";
 import {
   CHART_TIMEFRAMES,
@@ -258,6 +258,17 @@ export function TvLightChart({
   const [session, setSession] = useState(sessionLabel());
   const [themeNonce, setThemeNonce] = useState(0);
   const [barsVersion, setBarsVersion] = useState(0);
+  // Bumped by the live-tick layer to force the data effect to refetch when it
+  // detects the cached tail has gone stale (backgrounded past the freshness
+  // window). The ref de-dupes a burst of ticks into ONE refetch; it's cleared
+  // when the fresh data lands so a later staleness can trigger again.
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const staleRefetchPendingRef = useRef(false);
+  // Off-hours the tail stays legitimately old (no new intraday bars overnight)
+  // while ext ticks keep arriving — without a cooldown, every post-refetch tick
+  // would fire another cache-busting fetch all night. A staleness episode may
+  // only re-fire after a cooldown when the refetch didn't heal it.
+  const staleRefetchLastSecRef = useRef(0);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -880,12 +891,15 @@ export function TvLightChart({
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+        // The (possibly cache-invalidating) refetch has landed — allow the
+        // live-tick layer to trigger another staleness refetch if needed.
+        staleRefetchPendingRef.current = false;
       });
 
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe, style, themeNonce]);
+  }, [symbol, timeframe, style, themeNonce, refreshNonce]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -1191,6 +1205,34 @@ export function TvLightChart({
 
     const last = bars[bars.length - 1];
 
+    // Freshness gate (before any merge/rollover branch): if the cached tail is
+    // ≥2 intervals behind the wall clock — the page was backgrounded past the
+    // freshness window — merging the live tick would fuse the whole gap into one
+    // candle (the long-candle artifact) or fabricate a jumped bucket. Instead,
+    // drop the stale cache entry and refetch real bars: ONE refetch per staleness
+    // episode, de-duped by staleRefetchPendingRef (cleared when the fetch lands).
+    // Intraday only (numeric bar time); daily+ use object times with different
+    // interval semantics and aren't affected by this bug.
+    const staleIntervalSec = timeframe.intraday
+      ? timeframeSeconds(timeframe.value)
+      : 0;
+    if (staleIntervalSec > 0 && typeof last.time === "number") {
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (nowSec - (last.time as number) >= 2 * staleIntervalSec) {
+        const cooldownSec = Math.max(2 * staleIntervalSec, 300);
+        if (
+          !staleRefetchPendingRef.current &&
+          nowSec - staleRefetchLastSecRef.current >= cooldownSec
+        ) {
+          staleRefetchPendingRef.current = true;
+          staleRefetchLastSecRef.current = nowSec;
+          invalidateBars(symbol, timeframe.value, timeframe.days);
+          setRefreshNonce((n) => n + 1);
+        }
+        return;
+      }
+    }
+
     // Reject an implausible live tick (bad print / crossed quote): a value >3× or
     // <1/3 of the last COMPLETED bar's close is never a real intraday move and would
     // spike the forming candle's wick (e.g. a $52 stock printing $750). Reference the
@@ -1208,6 +1250,17 @@ export function TvLightChart({
       const lastTime = last.time as number;
       if (nowSec >= lastTime + intervalSec) {
         const steps = Math.floor((nowSec - lastTime) / intervalSec);
+        if (steps > 1) {
+          // Unreachable: the freshness gate above already catches ≥2 intervals
+          // stale. Belt-and-suspenders — never fabricate a jumped bucket; route
+          // to the same real refetch instead.
+          if (!staleRefetchPendingRef.current) {
+            staleRefetchPendingRef.current = true;
+            invalidateBars(symbol, timeframe.value, timeframe.days);
+            setRefreshNonce((n) => n + 1);
+          }
+          return;
+        }
         const newTime = (lastTime + steps * intervalSec) as Time;
         const newBar: Ohlcv = {
           time: newTime,
@@ -1237,7 +1290,15 @@ export function TvLightChart({
     } else {
       series.update(last);
     }
-  }, [livePrice, loading, style, timeframe.value, timeframe.intraday]);
+  }, [
+    livePrice,
+    loading,
+    style,
+    symbol,
+    timeframe.value,
+    timeframe.days,
+    timeframe.intraday,
+  ]);
 
   return (
     <div className="relative flex h-full w-full min-h-0 flex-col">

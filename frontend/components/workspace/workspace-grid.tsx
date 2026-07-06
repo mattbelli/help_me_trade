@@ -12,7 +12,7 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { Check, ChevronDown, GripVertical, Menu as MenuIcon, Plus, SquarePen, X } from "lucide-react";
+import { Check, ChevronDown, GripVertical, Menu as MenuIcon, Plus, Trash2, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -28,6 +28,7 @@ import {
 } from "@/lib/chart-time";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
+import { useWatchlistDragStore } from "@/lib/use-watchlist-drag-store";
 import { useSymbolQuote } from "@/lib/use-symbol-quote";
 import { cn } from "@/lib/utils";
 import {
@@ -410,8 +411,77 @@ function WidgetRemoveButton({
   );
 }
 
+// Watchlist header: a "+" toggles the inline add-symbol row, and a trash
+// drop-target appears (bridged from the widget via useWatchlistDragStore) only
+// while one of this widget instance's rows is being held/dragged.
+function WatchlistHeaderControls({
+  instanceId,
+  adding,
+  onToggleAdding,
+}: {
+  instanceId: string;
+  adding: boolean;
+  onToggleAdding: () => void;
+}) {
+  const dragging = useWatchlistDragStore(
+    (s) => s.draggingWidget === instanceId,
+  );
+  const overTrash = useWatchlistDragStore((s) => s.overTrash);
+  const setTrashRect = useWatchlistDragStore((s) => s.setTrashRect);
+  const trashRef = useRef<HTMLSpanElement>(null);
+
+  // Register the trash button's rect when it appears (drag start) so the widget
+  // can hit-test the pointer against it during the drag.
+  useEffect(() => {
+    if (!dragging) return;
+    const measure = () =>
+      setTrashRect(trashRef.current?.getBoundingClientRect() ?? null);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [dragging, setTrashRect]);
+
+  return (
+    <>
+      {dragging ? (
+        <span
+          ref={trashRef}
+          aria-label="Drop here to remove"
+          className={cn(
+            "inline-flex items-center justify-center rounded p-1 transition-colors",
+            overTrash
+              ? "scale-110 bg-[var(--bg-hover)] text-[var(--c-red)]"
+              : "text-[var(--fg-dim)]",
+          )}
+        >
+          <Trash2 className="size-3.5" />
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleAdding();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label={adding ? "Close add symbol form" : "Add symbol"}
+        aria-pressed={adding}
+        className={cn(
+          "workspace-no-drag inline-flex items-center justify-center rounded p-1 outline-none hover:bg-[var(--bg-hover)]",
+          adding
+            ? "text-[var(--c-accent)]"
+            : "text-[var(--fg-dim)] hover:text-foreground",
+        )}
+      >
+        <Plus className="size-3.5" />
+      </button>
+    </>
+  );
+}
+
 function WidgetHeader({
   widgetType,
+  instanceId,
   channelAware,
   channel,
   onChannelChange,
@@ -424,6 +494,7 @@ function WidgetHeader({
   static: isStatic,
 }: {
   widgetType: string;
+  instanceId: string;
   channelAware?: boolean;
   channel: ChannelId;
   onChannelChange: (channel: ChannelId) => void;
@@ -476,24 +547,13 @@ function WidgetHeader({
       {widgetType === "watchlist" && onWatchlistChange ? (
         <>
           {config && onConfigChange ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfigChange({ editing: !config.editing, adding: false });
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              aria-label={config.editing ? "Done editing" : "Edit list"}
-              aria-pressed={config.editing ?? false}
-              className={cn(
-                "workspace-no-drag inline-flex items-center justify-center rounded p-1 outline-none hover:bg-[var(--bg-hover)]",
-                config.editing
-                  ? "text-[var(--c-accent)]"
-                  : "text-[var(--fg-dim)] hover:text-foreground",
-              )}
-            >
-              <SquarePen className="size-3.5" />
-            </button>
+            <WatchlistHeaderControls
+              instanceId={instanceId}
+              adding={config.adding ?? false}
+              onToggleAdding={() =>
+                onConfigChange({ adding: !config.adding })
+              }
+            />
           ) : null}
           <WatchlistListSelector
             watchlistId={watchlistId}
@@ -588,6 +648,7 @@ const WidgetCard = forwardRef<
     >
       <WidgetHeader
         widgetType={item.type}
+        instanceId={item.i}
         channelAware={def?.channelAware}
         channel={channel}
         onChannelChange={(next) => onConfigChange({ channel: next })}

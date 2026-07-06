@@ -9,13 +9,15 @@ import {
   WidgetError,
   WidgetLoading,
 } from "@/components/workspace/widget-states";
-import { formatMoney, formatQty } from "@/lib/api";
+import { formatMoney, formatQty, type SchwabAccount } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import { usePriceFlash } from "@/lib/workspace/use-price-flash";
+import { useRealAccounts } from "@/lib/workspace/use-real-accounts";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 import {
+  isRealScope,
   resolvePositions,
   useDashboardPrefs,
   type TaggedPosition,
@@ -128,9 +130,13 @@ function PositionRow({
   );
 }
 
-export function PositionsWidget({ config }: WidgetProps) {
-  const channel: ChannelId = config.channel ?? "none";
-  const { publish, linked } = usePublishSymbol(channel);
+function PaperPositions({
+  linked,
+  publish,
+}: {
+  linked: boolean;
+  publish: (symbol: string) => void;
+}) {
   const { snapshot, loading, error, refresh } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
   const positions = resolvePositions(snapshot, selectedAccountId);
@@ -215,5 +221,158 @@ export function PositionsWidget({ config }: WidgetProps) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+const REAL_COLUMNS: { label: string; align: "left" | "right" }[] = [
+  { label: "Symbol", align: "left" },
+  { label: "Qty", align: "right" },
+  { label: "Price", align: "right" },
+  { label: "Unrealized", align: "right" },
+  { label: "Day P/L", align: "right" },
+];
+
+type RealRow = {
+  symbol: string;
+  qty: number;
+  current_price: number;
+  unrealized_pl: number;
+  day_pl: number;
+  accountLast4?: string;
+};
+
+function realRows(
+  accounts: SchwabAccount[],
+  selectedAccountId: string,
+): RealRow[] {
+  const scoped =
+    selectedAccountId === "all_real"
+      ? accounts
+      : accounts.filter((a) => a.id === selectedAccountId);
+  const multi = scoped.length > 1;
+  return scoped.flatMap((a) =>
+    (a.positions ?? []).map((p) => ({
+      symbol: p.symbol,
+      qty: p.qty,
+      current_price: p.current_price,
+      unrealized_pl: p.unrealized_pl,
+      day_pl: p.day_pl,
+      accountLast4: multi ? a.last4 : undefined,
+    })),
+  );
+}
+
+function RealPositions({
+  linked,
+  publish,
+}: {
+  linked: boolean;
+  publish: (symbol: string) => void;
+}) {
+  const { selectedAccountId } = useDashboardPrefs();
+  const { realAccounts, realAuthenticated, realLoading } = useRealAccounts();
+
+  const rows = useMemo(
+    () => realRows(realAccounts, selectedAccountId),
+    [realAccounts, selectedAccountId],
+  );
+
+  if (realLoading && realAccounts.length === 0) {
+    return <WidgetLoading cols={[3, 2, 2, 2]} />;
+  }
+
+  if (!realAuthenticated) {
+    return <WidgetEmpty message="Schwab not connected" />;
+  }
+
+  if (rows.length === 0) {
+    return <WidgetEmpty message="No open positions" />;
+  }
+
+  return (
+    <div className="h-full overflow-auto px-1.5 py-1 scroll-shadow-y">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
+        <thead>
+          <tr>
+            {REAL_COLUMNS.map(({ label, align }) => (
+              <th
+                key={label}
+                className={cn(
+                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
+                  align === "left" ? "text-left" : "text-right",
+                )}
+              >
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p, idx) => (
+            <tr
+              key={`${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}
+              className="group/row transition-colors hover:bg-[var(--bg-hover)]"
+            >
+              <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <ClickableSymbol
+                    symbol={p.symbol}
+                    linked={linked}
+                    onActivate={() => publish(p.symbol)}
+                  />
+                  {p.accountLast4 ? (
+                    <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                      ••{p.accountLast4}
+                    </span>
+                  ) : null}
+                </span>
+              </td>
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+                {formatQty(p.qty)}
+              </td>
+              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+                {formatMoney(p.current_price)}
+              </td>
+              <td
+                className={cn(
+                  "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+                  p.unrealized_pl >= 0
+                    ? "text-[var(--c-green)]"
+                    : "text-[var(--c-red)]",
+                )}
+              >
+                {p.unrealized_pl >= 0 ? "+" : ""}
+                {formatMoney(p.unrealized_pl)}
+              </td>
+              <td
+                className={cn(
+                  "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+                  p.day_pl >= 0
+                    ? "text-[var(--c-green)]"
+                    : "text-[var(--c-red)]",
+                )}
+              >
+                {p.day_pl >= 0 ? "+" : ""}
+                {formatMoney(p.day_pl)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function PositionsWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
+  const { selectedAccountId } = useDashboardPrefs();
+
+  // Toolbar scope is the ONLY switch — no in-widget chrome. Real scopes read
+  // Schwab; overview and paper scopes keep the original snapshot behavior.
+  return isRealScope(selectedAccountId) ? (
+    <RealPositions linked={linked} publish={publish} />
+  ) : (
+    <PaperPositions linked={linked} publish={publish} />
   );
 }

@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-06T17:40:00Z",
+ "updated_at": "2026-07-06T20:15:00Z",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,24 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "chart-stale-merge-fix",
+   "title": "Chart candle gaps + long-candle artifacts: stale cache tail fused by live-tick merge",
+   "lane": "in_progress",
+   "type": "bug",
+   "priority": "high",
+   "owner": "serv",
+   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed + one hand-fix). Root cause: bars-cache hit returns stale tail; live merge fused the gap (long candle) or fabricated one jumped bucket (gap). Fix: invalidateBars() export + freshness gate in live merge (intraday, ≥2 intervals stale → ONE cache-busting refetch, no merge; de-duped by ref cleared when fetch lands); steps>1 rollover now unreachable + defensive-returns to refetch; Fable review added an off-hours cooldown (max(2×interval,300s)) — without it, overnight/pre-market ext ticks on an unhealable stale tail (no new intraday bars) would refetch-loop all night per chart (backend spam/WAF risk). Forming-bar updates + single-step rollover byte-identical; daily exempt (interval=0 + object-time guard). Typecheck clean, zero new lint. FOUNDER VERIFY: watch for gaps/long candles through the session; round-trip workaround no longer needed. UNCOMMITTED pending eyeball."
+  },
+  {
+   "id": "positions-widget-schwab",
+   "title": "Positions widget follows account scope → shows real Schwab positions (Stage B)",
+   "lane": "in_progress",
+   "type": "feature",
+   "priority": "high",
+   "owner": "serv",
+   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck clean, zero backend diffs, id format schwab_<last4> verified against brokers/schwab_accounts.py:154). Widget follows toolbar scope: real scopes read useRealAccounts()→/api/schwab/accounts (30s TTL, no new poller; all_real shows ••last4 badges); paper scopes unchanged; overview = REAL/PAPER toggle, never blends (equity-curve pattern); REAL/PAPER header badge; ClickableSymbol tickers. FOUNDER EYEBALL pending (he is live in a real trade). Follow-up carded separately: open-orders widget same treatment. UNCOMMITTED until founder approves (rides with watchlist-hold-drag in the tree). | Founder correction same day: REAL/PAPER header bar REMOVED (second-header rule, now a memory: no-second-widget-headers) — toolbar scope is the only switch; overview keeps original paper behavior. Redeployed."
+  },
   {
    "id": "watchlist-hold-drag",
    "title": "Watchlist: kill edit mode → hold-anywhere-to-drag + drag-to-trash delete",

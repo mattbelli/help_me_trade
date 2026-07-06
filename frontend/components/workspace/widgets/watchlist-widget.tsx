@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Reorder, useDragControls } from "motion/react";
 import { Sparkline } from "@/components/trading/sparkline";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
@@ -16,6 +24,7 @@ import {
   updateWatchlist,
   type WatchlistsState,
 } from "@/lib/api";
+import { useWatchlistDragStore } from "@/lib/use-watchlist-drag-store";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePageActive } from "@/lib/workspace/page-active-context";
@@ -26,10 +35,8 @@ import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
 
-function rowGrid(editing: boolean): string {
-  return editing
-    ? "grid grid-cols-[1.25rem_minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1"
-    : "grid grid-cols-[minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
+function rowGrid(): string {
+  return "grid grid-cols-[minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
 }
 
 function rvolColor(value: number): string {
@@ -295,30 +302,88 @@ const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
   closed: { label: "EXT", title: "Last extended-hours trade (market closed)" },
 };
 
+const HOLD_MS = 300;
+const MOVE_CANCEL_PX = 6;
+
+function pointInRect(x: number, y: number, rect: DOMRect | null): boolean {
+  return (
+    rect != null &&
+    x >= rect.left &&
+    x <= rect.right &&
+    y >= rect.top &&
+    y <= rect.bottom
+  );
+}
+
 function WatchlistSymbolRow({
   symbol,
   quote,
   isOvernight,
   linked,
-  removing,
-  editing,
+  instanceId,
   onPublish,
-  onRemove,
   onDragStart,
-  onDragEnd,
+  onReorderEnd,
+  onDelete,
 }: {
   symbol: string;
   quote: Quote | undefined;
   isOvernight: boolean;
   linked: boolean;
-  removing: boolean;
-  editing: boolean;
+  instanceId: string;
   onPublish: () => void;
-  onRemove: () => void;
   onDragStart: () => void;
-  onDragEnd: () => void;
+  onReorderEnd: () => void;
+  onDelete: () => void;
 }) {
   const controls = useDragControls();
+  // Hold-anywhere-to-drag: a ~300ms hold on a non-interactive part of the row
+  // lifts it into a drag; a quick tap (timer never fires) publishes as usual.
+  const holdTimer = useRef<number | null>(null);
+  const savedEvent = useRef<ReactPointerEvent | null>(null);
+  const startPos = useRef<{ x: number; y: number } | null>(null);
+  const didDrag = useRef(false);
+
+  const clearHold = useCallback(() => {
+    if (holdTimer.current != null) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    savedEvent.current = null;
+    startPos.current = null;
+  }, []);
+
+  const handlePointerDown = useCallback(
+    (e: ReactPointerEvent) => {
+      // Never start a drag from a ticker button, ⓘ button, or any link.
+      if ((e.target as HTMLElement).closest("button, a")) return;
+      didDrag.current = false;
+      savedEvent.current = e;
+      startPos.current = { x: e.clientX, y: e.clientY };
+      holdTimer.current = window.setTimeout(() => {
+        holdTimer.current = null;
+        const saved = savedEvent.current;
+        if (!saved) return;
+        didDrag.current = true;
+        onDragStart();
+        useWatchlistDragStore.getState().setDragging(instanceId);
+        controls.start(saved);
+      }, HOLD_MS);
+    },
+    [controls, instanceId, onDragStart],
+  );
+
+  const handlePointerMove = useCallback((e: ReactPointerEvent) => {
+    if (holdTimer.current == null || !startPos.current) return;
+    const dx = e.clientX - startPos.current.x;
+    const dy = e.clientY - startPos.current.y;
+    if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+      savedEvent.current = null;
+      startPos.current = null;
+    }
+  }, []);
 
   const session = quote?.market_session;
   const extBadge =
@@ -345,32 +410,43 @@ function WatchlistSymbolRow({
       layout="position"
       dragListener={false}
       dragControls={controls}
-      onDragEnd={onDragEnd}
+      whileDrag={{
+        scale: 1.02,
+        zIndex: 20,
+        boxShadow: "0 6px 20px rgba(0, 0, 0, 0.45)",
+      }}
+      onDrag={(_, info) => {
+        const { trashRect, setOverTrash } = useWatchlistDragStore.getState();
+        setOverTrash(pointInRect(info.point.x, info.point.y, trashRect));
+      }}
+      onDragEnd={(_, info) => {
+        const { trashRect, setDragging } = useWatchlistDragStore.getState();
+        const onTrash = pointInRect(info.point.x, info.point.y, trashRect);
+        setDragging(null);
+        if (onTrash) onDelete();
+        else onReorderEnd();
+      }}
       className="border-b border-[var(--border)]"
-      onClick={onPublish}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={clearHold}
+      onPointerCancel={clearHold}
+      onClick={() => {
+        // Suppress the publish for the pointerup that ended a drag.
+        if (didDrag.current) {
+          didDrag.current = false;
+          return;
+        }
+        onPublish();
+      }}
       style={{ cursor: linked ? "pointer" : "default" }}
     >
       <div
         className={cn(
-          rowGrid(editing),
+          rowGrid(),
           "group/row group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
         )}
       >
-        {editing ? (
-          <button
-            type="button"
-            className="cursor-grab select-none font-mono text-[length:var(--fs-table)] leading-none text-[var(--fg-faint)] active:cursor-grabbing"
-            aria-label={`Reorder ${symbol}`}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              onDragStart();
-              controls.start(e);
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            ⋮⋮
-          </button>
-        ) : null}
         <span className="inline-flex min-w-0 items-center gap-1">
           <span
             className="flex size-1.5 shrink-0 items-center justify-center"
@@ -443,47 +519,33 @@ function WatchlistSymbolRow({
         ) : (
           <span className="text-right tabular-nums text-[var(--fg-faint)]">—</span>
         )}
-        {editing ? (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              disabled={removing}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove();
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              aria-label={`Remove ${symbol}`}
-              className="flex size-4 shrink-0 select-none items-center justify-center rounded-full bg-[var(--c-red)] transition-transform hover:scale-110 disabled:opacity-40"
-            >
-              <span className="h-[2px] w-2 rounded-full bg-white" aria-hidden />
-            </button>
-          </div>
-        ) : (
-          <div className="flex justify-end">
-            <Sparkline
-              values={
-                (quote?.intraday?.length ? quote.intraday : quote?.sparkline) ??
-                []
-              }
-              width={48}
-              height={18}
-              className={
-                quote
-                  ? positive
-                    ? "text-[var(--c-green)]"
-                    : "text-[var(--c-red)]"
-                  : "text-[var(--fg-faint)]"
-              }
-            />
-          </div>
-        )}
+        <div className="flex justify-end">
+          <Sparkline
+            values={
+              (quote?.intraday?.length ? quote.intraday : quote?.sparkline) ??
+              []
+            }
+            width={48}
+            height={18}
+            className={
+              quote
+                ? positive
+                  ? "text-[var(--c-green)]"
+                  : "text-[var(--c-red)]"
+                : "text-[var(--fg-faint)]"
+            }
+          />
+        </div>
       </div>
     </Reorder.Item>
   );
 }
 
-export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
+export function WatchlistWidget({
+  config,
+  onConfigChange,
+  instanceId,
+}: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -621,7 +683,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
 
   const removeSymbol = useCallback(
     async (symbol: string) => {
-      if (!displayList) return;
+      if (!displayList || removing) return;
       setRemoving(symbol);
       try {
         const next = await updateWatchlist(displayList.id, {
@@ -636,7 +698,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         setRemoving(null);
       }
     },
-    [displayList],
+    [displayList, removing],
   );
 
   const persistReorder = useCallback(
@@ -706,8 +768,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     return <WidgetEmpty message="No active watchlist" />;
   }
 
-  const editing = config.editing ?? false;
-
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {marketLoading ? (
@@ -719,18 +779,17 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y">
         <div
           className={cn(
-            rowGrid(editing),
+            rowGrid(),
             "gap-x-1 border-b border-[var(--border)] px-2 py-1.5",
           )}
         >
-          {editing ? <span /> : null}
           {(
             [
               { label: "Sym", key: "symbol" as const },
               { label: "Last", key: "price" as const },
               { label: "Δ%", key: "change_pct" as const },
               { label: "RVOL", key: "rvol" as const },
-              { label: editing ? "" : "1d" },
+              { label: "1d" },
             ] as const
           ).map((h, idx) =>
             "key" in h ? (
@@ -762,7 +821,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           )}
         </div>
 
-        {config.adding || config.editing ? (
+        {config.adding ? (
           <WatchlistAddRow
             symbols={symbols}
             activeListId={displayList.id}
@@ -790,12 +849,11 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               quote={quotes[symbol]}
               isOvernight={overnightSymbols.has(symbol.toUpperCase())}
               linked={linked}
-              removing={removing === symbol}
-              editing={editing}
+              instanceId={instanceId}
               onPublish={() => publish(symbol)}
-              onRemove={() => void removeSymbol(symbol)}
               onDragStart={() => setSortState(null)}
-              onDragEnd={handleReorderEnd}
+              onReorderEnd={handleReorderEnd}
+              onDelete={() => void removeSymbol(symbol)}
             />
           ))}
         </Reorder.Group>

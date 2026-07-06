@@ -79,3 +79,17 @@ export async function fetchBarsCached(
   inflight.set(key, promise);
   return promise;
 }
+
+/**
+ * Drop a cached entry so the next fetchBarsCached for this key hits the network.
+ * Used by the chart when its live-tick layer detects the cached tail has gone
+ * stale (page was backgrounded past the freshness window) and needs a real
+ * refetch rather than merging across the gap.
+ */
+export function invalidateBars(
+  symbol: string,
+  timeframe: string,
+  days: number,
+): void {
+  cache.delete(keyOf(symbol, timeframe, days));
+}
