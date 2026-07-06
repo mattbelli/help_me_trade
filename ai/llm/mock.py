@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Iterator
 
 from ai.llm.base import LLMMessage
+
+_CANDIDATE_RE = re.compile(r"Candidate (\d+):")
 
 
 class MockLLM:
@@ -38,6 +41,18 @@ class MockLLM:
     def _synthesize(self, messages: list[LLMMessage]) -> str:
         combined = " ".join(m.content for m in messages).lower()
         user_text = " ".join(m.content for m in messages if m.role == "user")
+        if "memory-write judge" in combined:
+            # Deterministic judge stub: ADD every candidate (empty store → no dedup).
+            indices = sorted({int(i) for i in _CANDIDATE_RE.findall(user_text)})
+            return json.dumps(
+                {
+                    "decisions": [
+                        {"index": i, "action": "ADD", "target_id": None,
+                         "content": None, "reason": "mock"}
+                        for i in indices
+                    ]
+                }
+            )
         if "tool planner" in combined:
             user_lower = user_text.lower()
             if any(

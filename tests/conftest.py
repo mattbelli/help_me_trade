@@ -19,6 +19,24 @@ for _suffix in ("", "-wal", "-shm"):
     except OSError:
         pass
 
+# Hermetic LLM: point persistent settings at a nonexistent temp file so tests
+# never inherit the box's data/settings.json (whose default_llm may be a live
+# local Ollama model — the Phase-1 suite silently ran ~40 live gemma calls and
+# graded tests with a real model). With no settings file, get_llm() falls back
+# to MockLLM everywhere; a test that wants a specific LLM stubs it explicitly.
+import pathlib  # noqa: E402
+
+from config import settings as _settings_mod  # noqa: E402
+
+_settings_mod.SETTINGS_PATH = pathlib.Path(tempfile.gettempdir()) / (
+    "hmt_pytest_settings_missing.json"
+)
+try:
+    _settings_mod.SETTINGS_PATH.unlink()
+except OSError:
+    pass
+_settings_mod.clear_settings_cache()
+
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 

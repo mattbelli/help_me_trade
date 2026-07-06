@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import string
@@ -13,6 +14,8 @@ import db.base as db_base
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+
+logger = logging.getLogger(__name__)
 
 MEMORY_TYPES = frozenset({"directive", "preference", "fact", "lesson", "thesis"})
 
@@ -227,6 +230,60 @@ def _normalize_memory_content(text: str) -> str:
     return normalized.strip(string.punctuation + " ")
 
 
+_FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9]{2,}")
+
+
+def _fts_match_query(text: str, symbols: list[str] | None) -> str | None:
+    """Build a safe FTS5 OR-of-terms query from free text + symbols. Each term is
+    double-quoted so numbers/tickers can't be parsed as FTS operators."""
+    tokens: list[str] = _FTS_TOKEN_RE.findall(text or "")
+    for sym in symbols or []:
+        tokens.extend(_FTS_TOKEN_RE.findall(str(sym)))
+    seen: list[str] = []
+    for tok in tokens:
+        low = tok.lower()
+        if low not in seen:
+            seen.append(low)
+    seen = seen[:24]
+    if not seen:
+        return None
+    return " OR ".join(f'"{tok}"' for tok in seen)
+
+
+def nearest_memories(
+    text: str,
+    *,
+    symbols: list[str] | None = None,
+    limit: int = 8,
+    db_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Active memories lexically nearest to ``text`` (FTS5 bm25) — the judge's
+    dedup/contradiction context. Fail-soft: an empty query or an FTS error falls
+    back to the most-recent active rows so the judge always gets some context."""
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    init_ai_tables(resolved_db)
+    lim = max(1, min(limit, 20))
+    match = _fts_match_query(text, symbols)
+    if match is None:
+        return list_memories(limit=lim, db_path=resolved_db)
+    with _connect(resolved_db) as conn:
+        try:
+            rows = conn.execute(
+                """
+                SELECT m.* FROM memories_fts
+                JOIN memories m ON m.id = memories_fts.rowid
+                WHERE memories_fts MATCH ? AND m.status = 'active'
+                ORDER BY bm25(memories_fts)
+                LIMIT ?
+                """,
+                (match, lim),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            logger.warning("FTS neighbor query failed; using recent-active fallback")
+            return list_memories(limit=lim, db_path=resolved_db)
+    return [_row_to_memory(r) for r in rows]
+
+
 def create_memory(
     *,
     memory_type: str,
@@ -236,6 +293,8 @@ def create_memory(
     authority: str = "agent_inferred",
     quote: str | None = None,
     symbols: list[str] | None = None,
+    supersedes_id: int | None = None,
+    valid_until: str | None = None,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
     if memory_type not in MEMORY_TYPES:
@@ -264,9 +323,9 @@ def create_memory(
             """
             INSERT INTO memories (
                 memory_type, content, metadata_json, created_at, updated_at,
-                source, authority, quote, symbols
+                source, authority, quote, symbols, supersedes_id, valid_until
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 memory_type,
@@ -278,6 +337,8 @@ def create_memory(
                 authority,
                 quote,
                 symbols_json,
+                supersedes_id,
+                valid_until,
             ),
         )
         row = conn.execute(
@@ -377,14 +438,33 @@ def get_memory(
     return _row_to_memory(row) if row else None
 
 
+_MEMORY_STATUSES = frozenset({"active", "superseded", "archived", "expired"})
+_MEMORY_AUTHORITIES = frozenset({"user_authored", "user_confirmed", "agent_inferred"})
+
+
 def update_memory(
     memory_id: int,
     *,
     content: str | None = None,
     memory_type: str | None = None,
     metadata: dict[str, Any] | None = None,
+    status: str | None = None,
+    pinned: bool | None = None,
+    authority: str | None = None,
+    valid_until: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any] | None:
+    """Patch a memory. Content/type/metadata plus the lifecycle + trust fields
+    (status, pinned, authority, valid_until) the widget trust surface and the
+    judge's supersede path need. Any field left None is unchanged."""
+    if status is not None and status not in _MEMORY_STATUSES:
+        raise ValueError(
+            f"status must be one of: {', '.join(sorted(_MEMORY_STATUSES))}"
+        )
+    if authority is not None and authority not in _MEMORY_AUTHORITIES:
+        raise ValueError(
+            f"authority must be one of: {', '.join(sorted(_MEMORY_AUTHORITIES))}"
+        )
     init_ai_tables(db_path)
     with _connect(db_path) as conn:
         row = conn.execute(
@@ -402,14 +482,29 @@ def update_memory(
         if not new_content:
             raise ValueError("content is required")
         new_meta = metadata if metadata is not None else current["metadata"]
-        now = _now()
+        sets: list[str] = [
+            "memory_type = ?",
+            "content = ?",
+            "metadata_json = ?",
+            "updated_at = ?",
+        ]
+        params: list[Any] = [new_type, new_content, json.dumps(new_meta), _now()]
+        if status is not None:
+            sets.append("status = ?")
+            params.append(status)
+        if pinned is not None:
+            sets.append("pinned = ?")
+            params.append(1 if pinned else 0)
+        if authority is not None:
+            sets.append("authority = ?")
+            params.append(authority)
+        if valid_until is not None:
+            sets.append("valid_until = ?")
+            params.append(valid_until)
+        params.append(memory_id)
         conn.execute(
-            """
-            UPDATE memories
-            SET memory_type = ?, content = ?, metadata_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (new_type, new_content, json.dumps(new_meta), now, memory_id),
+            f"UPDATE memories SET {', '.join(sets)} WHERE id = ?",
+            tuple(params),
         )
         updated = conn.execute(
             "SELECT * FROM memories WHERE id = ?", (memory_id,)

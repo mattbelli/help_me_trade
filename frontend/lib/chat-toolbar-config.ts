@@ -36,6 +36,16 @@ export const CHAT_TOOL_OPTIONS = [
     description: "Search saved preferences and lessons",
   },
   {
+    id: "save_memory",
+    label: "Save memory",
+    description: "Remember a directive, preference, fact, lesson, or thesis",
+  },
+  {
+    id: "forget_memory",
+    label: "Forget memory",
+    description: "Archive a memory (restorable from History)",
+  },
+  {
     id: "start_research",
     label: "Research",
     description: "Enqueue deep research jobs",
