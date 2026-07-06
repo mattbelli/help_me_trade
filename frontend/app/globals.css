@@ -683,3 +683,9 @@
   height: 0;
   display: none; /* Chrome / Safari */
 }
+/* Terminal prompt caret: native block caret in the command color —
+   caret-shape is Chromium-first; others fall back to a colored bar. */
+.terminal-caret {
+  caret-color: var(--c-command);
+  caret-shape: block;
+}

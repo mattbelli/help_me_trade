@@ -112,11 +112,10 @@ export function Terminal() {
   const setPerfEnabled = usePerfStore((s) => s.setEnabled);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollbackRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState("");
   const [focused, setFocused] = useState(false);
-  const [cursorVisible, setCursorVisible] = useState(true);
   const [selIndex, setSelIndex] = useState(-1);
   const historyIndexRef = useRef<number | null>(null);
 
@@ -130,18 +129,19 @@ export function Terminal() {
     setPerfEnabled(isPerfDebug());
   }, [hydrate, setPerfEnabled]);
 
-  // Blinking caret only while focused.
-  useEffect(() => {
-    if (!focused) return;
-    const id = setInterval(() => setCursorVisible((v) => !v), 530);
-    return () => clearInterval(id);
-  }, [focused]);
-
   // Keep the scrollback pinned to the newest line.
   useEffect(() => {
     if (!open || !scrollbackRef.current) return;
     scrollbackRef.current.scrollTop = scrollbackRef.current.scrollHeight;
   }, [open, scrollback]);
+
+  // Auto-grow the prompt textarea with content (capped ~6 lines).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [inputValue, open]);
 
   const focusInput = useCallback(() => {
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -261,7 +261,19 @@ export function Terminal() {
   );
 
   const onInputKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (showAutocomplete && selIndex >= 0 && suggestions[selIndex]) {
+          completeSuggestion(suggestions[selIndex]);
+          return;
+        }
+        const text = inputValue;
+        setInputValue("");
+        void submitLine(text);
+        return;
+      }
+
       if (showAutocomplete) {
         if (event.key === "ArrowDown") {
           event.preventDefault();
@@ -288,12 +300,12 @@ export function Terminal() {
         return;
       }
 
-      if (event.key === "ArrowUp") {
+      if (event.key === "ArrowUp" && !inputValue.includes("\n")) {
         event.preventDefault();
         recallHistory(-1);
         return;
       }
-      if (event.key === "ArrowDown") {
+      if (event.key === "ArrowDown" && !inputValue.includes("\n")) {
         event.preventDefault();
         recallHistory(1);
         return;
@@ -304,7 +316,7 @@ export function Terminal() {
         inputRef.current?.blur();
       }
     },
-    [completeSuggestion, recallHistory, selIndex, setOpen, showAutocomplete, suggestions],
+    [completeSuggestion, inputValue, recallHistory, selIndex, setOpen, showAutocomplete, submitLine, suggestions],
   );
 
   // ⌘K / Ctrl+K summon ⇄ dismiss; `/` on a non-typing target focuses the input.
@@ -331,7 +343,8 @@ export function Terminal() {
         !isTypingTarget(event.target)
       ) {
         event.preventDefault();
-        focusInput();
+        summon(true);
+        setInputValue("/");
       }
     }
 
@@ -364,50 +377,24 @@ export function Terminal() {
   // you type where you read), or in the collapsed strip when closed.
   const promptRow = (
     <>
-      <span className="shrink-0 text-[var(--c-command)]">›</span>
-      <div className="relative inline-grid min-w-0 flex-1 items-center rounded-none border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-1">
-        <span
-          aria-hidden
-          className="invisible col-start-1 row-start-1 whitespace-pre text-[length:var(--fs-emph)]"
-        >
-          {inputValue.length > 0 ? inputValue : " "}
-          {focused ? <span className="inline-block w-[0.55em]" /> : null}
-        </span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            historyIndexRef.current = null;
-            setSelIndex(-1);
-          }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={onInputKeyDown}
-          spellCheck={false}
-          autoComplete="off"
-          aria-label="Terminal command line"
-          className="col-start-1 row-start-1 w-full min-w-0 bg-transparent text-[length:var(--fs-emph)] text-foreground outline-none"
-          style={{ caretColor: "transparent" }}
-        />
-        {focused ? (
-          <span
-            aria-hidden
-            className="pointer-events-none col-start-1 row-start-1 flex items-center whitespace-pre text-[length:var(--fs-emph)] text-transparent"
-          >
-            {inputValue}
-            {/* Real element, not a ▋ glyph — glyph metrics vary by font
-                (and fallback fonts) which drifted the block off the text. */}
-            <span
-              className={cn(
-                "inline-block h-[1.15em] w-[0.55em] self-center bg-[var(--c-command)]",
-                cursorVisible ? "opacity-100" : "opacity-0",
-              )}
-            />
-          </span>
-        ) : null}
-      </div>
+      <span className="shrink-0 self-start pt-px text-[var(--c-command)]">›</span>
+      <textarea
+        ref={inputRef}
+        rows={1}
+        value={inputValue}
+        onChange={(e) => {
+          setInputValue(e.target.value);
+          historyIndexRef.current = null;
+          setSelIndex(-1);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={onInputKeyDown}
+        spellCheck={false}
+        autoComplete="off"
+        aria-label="Terminal command line"
+        className="terminal-caret max-h-40 min-w-0 flex-1 resize-none bg-transparent text-[length:var(--fs-emph)] leading-snug text-foreground outline-none"
+      />
     </>
   );
 
@@ -591,7 +578,7 @@ export function Terminal() {
             ) : null}
             <form
               onSubmit={onSubmit}
-              className="flex items-center gap-2 border-t border-[var(--border)] pt-2"
+              className="flex items-start gap-2 border-t border-[var(--border)] pt-2"
             >
               {open ? promptRow : null}
             </form>
@@ -612,17 +599,17 @@ export function Terminal() {
         onSubmit={onSubmit}
         className="flex h-[40px] items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)]/85 px-4 backdrop-blur-md"
       >
-        {!open ? (
-          promptRow
-        ) : (
-          <button
-            type="button"
-            onClick={focusInput}
-            className="min-w-0 flex-1 cursor-text text-left text-[length:var(--fs-body)] text-[var(--fg-faint)]"
-          >
-            terminal open — Esc closes
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => summon(true)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left text-[length:var(--fs-body)] text-[var(--fg-faint)] transition-colors hover:text-[var(--fg-dim)]"
+          aria-label="Open terminal"
+        >
+          <span className="text-[var(--c-command)]">›</span>
+          <kbd className="rounded-sm border border-[var(--border)] px-1 py-px text-[length:var(--fs-micro)]">
+            ⌘K
+          </kbd>
+        </button>
 
         <div className="ml-auto flex items-center gap-2">
           <span className="rounded-sm border border-[var(--border)] px-1.5 py-0.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
