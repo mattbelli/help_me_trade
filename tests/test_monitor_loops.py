@@ -7,6 +7,7 @@ the loop iteration helpers, without exercising network or APNs plumbing.
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,21 +16,29 @@ _ET = ZoneInfo("America/New_York")
 
 # ---------------------------------------------------------------------------
 # RVOL dedup helpers  (_should_rvol_alert / _mark_rvol_alerted)
+#
+# Dedup now persists in the earnings_alerts_sent key store (ops MED-5), so each
+# test points the DB at a fresh tmp path to stay hermetic.
 # ---------------------------------------------------------------------------
 
 
-def test_should_rvol_alert_new_symbol():
-    """A symbol never seen before should always trigger an alert."""
-    from api.main import _rvol_alert_last_date, _should_rvol_alert
+@pytest.fixture()
+def _rvol_alert_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    db = tmp_path / "rvol_alerts.db"
+    monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
+    monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
+    return db
 
-    # Ensure clean state for this symbol.
-    _rvol_alert_last_date.pop("NEWTEST", None)
+
+def test_should_rvol_alert_new_symbol(_rvol_alert_db: Path):
+    """A symbol never seen before should always trigger an alert."""
+    from api.main import _should_rvol_alert
 
     today = date(2026, 6, 24)
     assert _should_rvol_alert("NEWTEST", today) is True
 
 
-def test_should_rvol_alert_same_day_blocks():
+def test_should_rvol_alert_same_day_blocks(_rvol_alert_db: Path):
     """After marking alerted, the same symbol should NOT alert again the same day."""
     from api.main import _mark_rvol_alerted, _should_rvol_alert
 
@@ -40,7 +49,7 @@ def test_should_rvol_alert_same_day_blocks():
     assert _should_rvol_alert(sym, today) is False
 
 
-def test_should_rvol_alert_next_day_allows():
+def test_should_rvol_alert_next_day_allows(_rvol_alert_db: Path):
     """The next ET day the symbol should be allowed to alert again."""
     from api.main import _mark_rvol_alerted, _should_rvol_alert
 
@@ -53,24 +62,22 @@ def test_should_rvol_alert_next_day_allows():
     assert _should_rvol_alert(sym, today) is True
 
 
-def test_mark_rvol_alerted_updates_state():
-    """_mark_rvol_alerted should update the module-level dict."""
-    from api.main import _mark_rvol_alerted, _rvol_alert_last_date
+def test_mark_rvol_alerted_persists(_rvol_alert_db: Path):
+    """_mark_rvol_alerted should persist so a later read suppresses the re-alert."""
+    from api.main import _mark_rvol_alerted, _should_rvol_alert
 
     today = date(2026, 6, 24)
     sym = "MARK_TEST"
 
     _mark_rvol_alerted(sym, today)
-    assert _rvol_alert_last_date[sym] == today
+    assert _should_rvol_alert(sym, today) is False
 
 
-def test_multiple_symbols_dedup_independently():
+def test_multiple_symbols_dedup_independently(_rvol_alert_db: Path):
     """Marking one symbol does not affect another symbol's dedup state."""
-    from api.main import _mark_rvol_alerted, _rvol_alert_last_date, _should_rvol_alert
+    from api.main import _mark_rvol_alerted, _should_rvol_alert
 
     today = date(2026, 6, 24)
-    _rvol_alert_last_date.pop("SYM_A", None)
-    _rvol_alert_last_date.pop("SYM_B", None)
 
     _mark_rvol_alerted("SYM_A", today)
 
@@ -81,11 +88,11 @@ def test_multiple_symbols_dedup_independently():
 
 
 @pytest.mark.asyncio
-async def test_rvol_alert_once_calls_notify_with_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rvol_alert_once_calls_notify_with_kind(
+    monkeypatch: pytest.MonkeyPatch, _rvol_alert_db: Path
+) -> None:
     """RVOL spike path emits through notify() with kind=rvol and push enabled."""
-    from api.main import _rvol_alert_last_date, _rvol_alert_once
-
-    _rvol_alert_last_date.pop("AAPL", None)
+    from api.main import _rvol_alert_once
 
     notify_calls: list[dict] = []
 

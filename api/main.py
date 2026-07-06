@@ -818,18 +818,27 @@ async def _poll_ext_quotes_for_alerts(symbols: set[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# RVOL-spike alert state: last-alert date per symbol (ET day, resets each day)
+# RVOL-spike alert dedup: persisted in the earnings_alerts_sent key store (a
+# generic one-row-per-key table) under key rvol:{symbol}:{ET-date} so a mid-day
+# restart does not re-fire already-sent alerts (ops MED-5). The job runs at most
+# once per RVOL_ALERT_INTERVAL_SECONDS (default 300s), so a plain DB read per
+# symbol per tick is cheap — no in-memory memo needed.
 # ---------------------------------------------------------------------------
-_rvol_alert_last_date: dict[str, date] = {}
+def _rvol_alert_key(symbol: str, today_et: date) -> str:
+    return f"rvol:{symbol}:{today_et.isoformat()}"
 
 
 def _should_rvol_alert(symbol: str, today_et: date) -> bool:
     """Return True if we have NOT already sent an RVOL alert for this symbol today."""
-    return _rvol_alert_last_date.get(symbol) != today_et
+    from db.earnings_alerts import was_sent
+
+    return not was_sent(_rvol_alert_key(symbol, today_et))
 
 
 def _mark_rvol_alerted(symbol: str, today_et: date) -> None:
-    _rvol_alert_last_date[symbol] = today_et
+    from db.earnings_alerts import mark_sent
+
+    mark_sent(_rvol_alert_key(symbol, today_et))
 
 
 async def _rvol_alert_once() -> None:

@@ -32,6 +32,16 @@ _TERMINAL_STATUSES = frozenset(
     {"filled", "partially_filled", "canceled", "expired", "rejected"}
 )
 
+# Alpaca's `done_for_day` ends a day order's SESSION, but per Alpaca's docs the
+# order "will not receive further updates until the next trading day" — it is NOT
+# declared final like expired/canceled (board #41 + adversarial review). So the
+# mapping branches on fill progress:
+#   filled_qty > 0  → "partially_filled": attribution opens the managed position
+#                     for the real shares bought, the row STAYS in the reconcile
+#                     pool, and the phone push waits for the true terminal status.
+#   filled_qty == 0 → "expired": nothing to attribute; the resting order died at
+#                     day end (the original stuck-"submitted" bug scenario).
+
 
 async def _flush_attribution_orphans(db_path: Path) -> None:
     """Fire the founder's critical page for any unmanaged-fill orphans. Never raises."""
@@ -41,8 +51,10 @@ async def _flush_attribution_orphans(db_path: Path) -> None:
         logger.exception("Failed to flush fill-attribution orphan notifications")
 
 
-def _map_broker_status(broker_status: str) -> str | None:
+def _map_broker_status(broker_status: str, filled_qty: object = None) -> str | None:
     normalized = broker_status.strip().lower()
+    if normalized == "done_for_day":
+        normalized = "partially_filled" if _filled_qty_positive(filled_qty) else "expired"
     if normalized in _TERMINAL_STATUSES:
         return normalized
     return None
@@ -279,7 +291,9 @@ async def reconcile_open_executions(
             )
             continue
 
-        new_status = _map_broker_status(order.status)
+        new_status = _map_broker_status(
+            order.status, getattr(order, "filled_qty", None)
+        )
         if new_status is None or new_status == row.get("status"):
             # Unchanged since last reconcile — don't re-write the row, re-record the
             # managed fill, or re-broadcast a "fill" event. (partially_filled now stays
