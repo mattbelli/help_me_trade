@@ -15,7 +15,7 @@ from ai.chat.context import (
     turn_memory_context,
 )
 from ai.chat.messages import last_user_text, ui_messages_to_llm
-from ai.chat.tools import execute_tool, plan_tools
+from ai.chat.tools import CHAT_SESSION_ID, execute_tool, plan_tools
 from ai.llm.factory import get_llm
 
 _EMPTY_GREETING = "Send a message to start chatting with your trading copilot."
@@ -40,6 +40,10 @@ async def run_mobile_chat_stream(
     result: ChatRunResult,
 ) -> AsyncIterator[dict[str, Any]]:
     del mode  # persistence handled by the route via finalize_chat_turn
+
+    # Ambient session id for per-session tool fences (e.g. the quote-save cap).
+    # Task-scoped: each request streams in its own task, so sessions can't bleed.
+    CHAT_SESSION_ID.set(session_id)
 
     message_id = uuid.uuid4().hex
     yield {"type": "start"}

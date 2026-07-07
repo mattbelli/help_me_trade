@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-08T05:10:00Z",
+  "updated_at": "2026-07-08T07:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "memory-founder-correction-lane",
+      "title": "Founder chat-correction loses to his own stale confirmed rule (contradictory pair, both active)",
+      "lane": "founder",
+      "type": "design",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Adversarial M-1 from the memory-fence round (safe direction, shipped as-is): you say 'update my cap rule to 25%' in chat -> containment stores it as a NEW agent-inferred row NEXT TO the old confirmed 20% rule; at injection the chips tell the model to trust the stale confirmed one. Proposed fix: a 'confirm this change to a confirmed rule?' review item in the memory widget (supersede-with-founder-review lane). Needs your call on the UX before we build - until then, correct confirmed rules via the widget, not chat."
+    },
+    {
+      "id": "memory-fence-followups",
+      "title": "Memory fence follow-ups: PATCH content-rewrite keeps confirmed badge (L-3); search_memories results lack provenance chips (L-4)",
+      "lane": "backlog",
+      "type": "safety",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Both founder-only or agent-initiated (not injection authority) - low blast radius. L-3: widget edit of a confirmed row should re-enter review. L-4: extend the chip shape to the search tool result."
+    },
     {
       "id": "alert-refire-ext",
       "title": "Price alert re-fire: one NVDA cross alert fired 3x with different prices (ext path dedup?)",
@@ -160,7 +178,7 @@
       "type": "safety",
       "priority": "high",
       "owner": "serv",
-      "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill\u2192canceled/expired within one poll gap or across a restart \u2192 held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row \u2192 quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable \u2014 register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2. money-path H1+H2 DONE 2026-07-07; remaining: idea-engine 2H, ops-memory 2H (memory fences brief ready)."
+      "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill\u2192canceled/expired within one poll gap or across a restart \u2192 held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row \u2192 quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable \u2014 register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2. money-path H1+H2 DONE 2026-07-07; remaining: idea-engine 2H, ops-memory 2H (memory fences brief ready). ops-memory 2H DONE 2026-07-08 (fences + flood cap + wired-fence test); remaining: idea-engine 2H (in progress overnight)."
     },
     {
       "id": "per-strategy-attribution",

@@ -156,6 +156,108 @@ def test_agent_cannot_supersede_user_authored_rule(tmp_path: Path) -> None:
     assert len(ai_tables.list_memories(db_path=db)) == 2
 
 
+def test_agent_update_cannot_steal_user_confirmed_provenance(tmp_path: Path) -> None:
+    """HIGH-2 regression (provenance theft): an agent-sourced UPDATE targeting a
+    ``user_confirmed`` row must NOT rewrite that row's content while keeping its
+    founder-confirmed badge. It degrades to a fresh ADD (agent authority); the
+    confirmed original is left byte-for-byte intact."""
+    db = _db(tmp_path)
+    confirmed = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never trade earnings weeks",
+        authority="user_confirmed",
+        source="widget_confirm",
+        db_path=db,
+    )
+    llm = StubLLM(
+        [
+            {
+                "index": 0,
+                "action": "UPDATE",
+                "target_id": confirmed["id"],
+                "content": "Earnings weeks are fine when IV is cheap",
+            }
+        ]
+    )
+    cand = Candidate(
+        memory_type="directive",
+        content="Earnings weeks are fine when IV is cheap",
+        source="reflection",
+        authority="agent_inferred",
+    )
+    stored = judge_and_store([cand], db_path=db, llm=llm)
+    assert len(stored) == 1
+    assert stored[0]["action"] == "ADD"
+    # Original untouched: same content, still active, still founder-confirmed.
+    original = ai_tables.get_memory(confirmed["id"], db_path=db)
+    assert original["content"] == "Never trade earnings weeks"
+    assert original["status"] == "active"
+    assert original["authority"] == "user_confirmed"
+    # The agent's version landed as its own agent_inferred row, not the badge.
+    new_row = ai_tables.get_memory(stored[0]["id"], db_path=db)
+    assert new_row["authority"] == "agent_inferred"
+    assert len(ai_tables.list_memories(db_path=db)) == 2
+
+
+def test_agent_cannot_supersede_user_confirmed_rule(tmp_path: Path) -> None:
+    """HIGH-2 regression (silent retirement): an agent candidate can't mark a
+    founder-confirmed directive ``superseded`` — the SUPERSEDE degrades to ADD and
+    the confirmed row stays active."""
+    db = _db(tmp_path)
+    confirmed = ai_tables.create_memory(
+        memory_type="directive",
+        content="Cap any single name at 20% of portfolio",
+        authority="user_confirmed",
+        source="widget_confirm",
+        db_path=db,
+    )
+    llm = StubLLM([{"index": 0, "action": "SUPERSEDE", "target_id": confirmed["id"]}])
+    cand = Candidate(
+        memory_type="directive",
+        content="30% concentration is fine",
+        source="retrospective",
+        authority="agent_inferred",
+    )
+    stored = judge_and_store([cand], db_path=db, llm=llm)
+    assert len(stored) == 1
+    assert stored[0]["action"] == "ADD"
+    still = ai_tables.get_memory(confirmed["id"], db_path=db)
+    assert still["status"] == "active"  # not retired
+    assert still["authority"] == "user_confirmed"
+
+
+def test_explicit_quote_cannot_rewrite_user_confirmed(tmp_path: Path) -> None:
+    """HIGH-2/HIGH-3 seam — the exact bypass walk. A ``save_memory``-style
+    ``user_explicit`` candidate (model-attested quote, NOT a verified transcript
+    match) targeting a ``user_confirmed`` row is contained just like a pinned/
+    user_authored target: it degrades to ADD, so a hallucinated quote can never
+    rewrite founder-confirmed content while keeping the badge."""
+    db = _db(tmp_path)
+    confirmed = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never trade the first 15 minutes",
+        authority="user_confirmed",
+        source="widget_confirm",
+        db_path=db,
+    )
+    llm = StubLLM([{"index": 0, "action": "UPDATE", "target_id": confirmed["id"],
+                    "content": "Trading the open is fine"}])
+    cand = Candidate(
+        memory_type="directive",
+        content="Trading the open is fine",
+        source="user_explicit",
+        authority="agent_inferred",
+        quote="totally real quote the founder never said",
+    )
+    stored = judge_and_store([cand], db_path=db, llm=llm)
+    assert len(stored) == 1
+    assert stored[0]["action"] == "ADD"
+    original = ai_tables.get_memory(confirmed["id"], db_path=db)
+    assert original["content"] == "Never trade the first 15 minutes"
+    assert original["status"] == "active"
+    assert original["authority"] == "user_confirmed"
+
+
 def test_user_explicit_never_noops(tmp_path: Path) -> None:
     db = _db(tmp_path)
     llm = StubLLM([{"index": 0, "action": "NOOP"}])

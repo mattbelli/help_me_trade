@@ -52,6 +52,77 @@ def test_build_turn_context_injects_memories_when_enabled(monkeypatch):
     assert len(ctx["memories"]) == 1
 
 
+def test_injection_fence_wired_end_to_end(monkeypatch, tmp_path):
+    """HIGH-3 integration: the injection fence + provenance chips are WIRED, not
+    just defined. A real store (no stubs) holds an active user_confirmed row, an
+    active agent_inferred row, an archived row, and an active unknown-authority
+    row — build_turn_context(inject_memories=True) must emit the first two with
+    their chips and never the last two."""
+    import json
+    import sqlite3
+
+    import db.ai_tables as ai_tables
+    import db.base as db_base
+
+    db = tmp_path / "fence.db"
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
+    ai_tables.init_ai_tables(db)
+
+    confirmed = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never trade earnings weeks",
+        authority="user_confirmed",
+        source="widget_confirm",
+        db_path=db,
+    )
+    inferred = ai_tables.create_memory(
+        memory_type="lesson",
+        content="Tends to oversize earnings trades",
+        authority="agent_inferred",
+        source="reflection",
+        db_path=db,
+    )
+    archived = ai_tables.create_memory(
+        memory_type="directive",
+        content="Earnings plays require defined risk",
+        authority="user_authored",
+        source="widget_manual",
+        db_path=db,
+    )
+    ai_tables.update_memory(archived["id"], status="archived", db_path=db)
+    spoofed = ai_tables.create_memory(
+        memory_type="fact",
+        content="Earnings volatility spoofed row",
+        db_path=db,
+    )
+    # update_memory validates authority, so plant the unknown tier directly.
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE memories SET authority = 'totally_trusted' WHERE id = ?",
+            (spoofed["id"],),
+        )
+
+    ctx = build_turn_context(
+        "how should I handle earnings trades this week?", inject_memories=True
+    )
+    system = ctx["system"]
+
+    # The two fenced-in rows are present...
+    assert confirmed["content"] in system
+    assert inferred["content"] in system
+    # ...the archived and unknown-authority rows never reach the prompt.
+    assert archived["content"] not in system
+    assert spoofed["content"] not in system
+
+    # Provenance chips are bound to the right rows (parse the emitted JSON).
+    tail = system.split("Relevant memories for this turn", 1)[1]
+    emitted = json.loads(tail[tail.index("[") :])
+    provenance = {item["content"]: item["provenance"] for item in emitted}
+    assert provenance[confirmed["content"]] == "founder-confirmed"
+    assert provenance[inferred["content"]] == "agent-inferred (unverified)"
+    assert set(provenance) == {confirmed["content"], inferred["content"]}
+
+
 def test_build_turn_context_injects_journal_when_enabled(monkeypatch):
     monkeypatch.setattr(
         "ai.chat.brain.turn_journal_context",

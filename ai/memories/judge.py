@@ -14,11 +14,15 @@ Phase 1; semantic in Phase 2) and decides, with meaning rather than token sets:
                the old Jaccard dedup used to silently destroy.
 - NOOP       — already known, or below the admission bar; store nothing.
 
-Authority containment (poisoning defence): the judge may never target a ``pinned``
-or ``user_authored`` row with UPDATE/SUPERSEDE unless the candidate's own source is
-``user_explicit`` — only the founder's own words can override the founder's own
-rules. NOOP is disabled for ``user_explicit`` candidates (an explicit "remember
-this" is always honoured).
+Authority containment (poisoning defence): the judge may never target a founder-owned
+row — ``pinned``, ``authority == "user_authored"``, or ``authority ==
+"user_confirmed"`` — with UPDATE/SUPERSEDE from ANY tool/agent candidate, including a
+``user_explicit`` one (its quote is a model-attested argument, not a server-verified
+transcript match). Such a decision degrades to a fresh ADD so an agent-written memory
+can never rewrite the founder's own rule while keeping its badge (provenance theft).
+``user_confirmed`` is only ever minted by the founder's explicit Confirm tap
+(``api/ai_routes.py``), never by the judge. NOOP is disabled for ``user_explicit``
+candidates (an explicit "remember this" is always honoured).
 
 Fail-soft: a judge LLM/parse failure drops agent candidates (prefer forgetting to
 fabricating) but still honours ``user_explicit`` ones with a plain ADD. It never
@@ -172,16 +176,25 @@ def _apply(
         if target is None:
             # Hallucinated / missing target — degrade to a safe ADD.
             action = "ADD"
-        elif target.get("pinned") or target.get("authority") == "user_authored":
-            # Containment: NO tool/agent-side writer may override the founder's
-            # own rule — including user_explicit candidates, whose quote is a
-            # model-attested argument, not a server-verified transcript match.
-            # (Bypass returns only if/when quotes are verified server-side.)
-            # Keep the candidate as a fresh ADD instead of touching the row.
+        elif target.get("pinned") or target.get("authority") in (
+            "user_authored",
+            "user_confirmed",
+        ):
+            # Containment: NO tool/agent-side writer may rewrite/retire a
+            # founder-owned row — pinned, user_authored, OR user_confirmed —
+            # including user_explicit candidates, whose quote is a model-attested
+            # argument, not a server-verified transcript match. Rewriting content
+            # while keeping the badge would mint founder-confirmed/authored text
+            # the founder never confirmed (provenance theft). user_confirmed is
+            # reached only via the founder's explicit Confirm tap, never the judge.
+            # Keep the candidate as a fresh ADD (agent authority) instead of
+            # touching the row. (A user_explicit bypass returns only if/when quotes
+            # are verified server-side.)
             logger.info(
-                "Judge blocked %s of protected memory %s by agent source %s — ADD",
+                "Judge blocked %s of protected memory %s (%s) by source %s — ADD",
                 action,
                 target_id,
+                target.get("authority"),
                 cand.source,
             )
             action = "ADD"

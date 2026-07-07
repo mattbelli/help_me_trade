@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,42 @@ from db.trades import list_trade_events, trade_summary_stats
 from signals.rule_schema import Group, Leaf, RuleSpec
 
 logger = logging.getLogger(__name__)
+
+# Ambient chat-session id for the current request task. Set by the chat
+# orchestrators (mobile stream today) so per-session fences like the quote-save
+# cap can bucket by session without threading a session_id through every tool
+# call site. Unset (None) callers share the anonymous bucket below.
+CHAT_SESSION_ID: ContextVar[str | None] = ContextVar(
+    "hmt_chat_session_id", default=None
+)
+
+# Per-session cap on quote-backed save_memory calls. A quote grants the
+# never-NOOP privilege lane (the judge can't drop it), and exact-match dedup is
+# trivially bypassed by varied content — so an attacker-steered session could
+# otherwise flood the store with durable "his exact words" rows. Judge-mediated
+# non-quote candidates are NOT capped. Callers without a session id share a
+# day-scoped anonymous bucket: still capped (deny-by-default), but a long-lived
+# process is never permanently locked out.
+_QUOTE_SAVE_CAP = 5
+_QUOTE_SAVE_BUCKETS_MAX = 4096  # bound the in-memory dict on long uptimes
+_quote_save_counts: dict[str, int] = {}
+
+
+def _quote_save_over_cap(session_id: str | None) -> bool:
+    """Count this quote-save attempt against its session bucket; True once the
+    session has exhausted its allowance (the attempt itself is counted, so
+    rejected retries can't probe forever)."""
+    from datetime import UTC, datetime
+
+    key = session_id or f"anon:{datetime.now(UTC).date().isoformat()}"
+    used = _quote_save_counts.get(key, 0)
+    if used >= _QUOTE_SAVE_CAP:
+        return True
+    if key not in _quote_save_counts and len(_quote_save_counts) >= _QUOTE_SAVE_BUCKETS_MAX:
+        _quote_save_counts.clear()  # stale session buckets; each key re-caps at 5
+    _quote_save_counts[key] = used + 1
+    return False
+
 
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_portfolio_snapshot": {
@@ -579,6 +616,18 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         # hallucinated quote must not create a proposal-shaping directive.
         # The founder promotes via the widget's Confirm tap (→ user_confirmed).
         if quote:
+            chat_session = CHAT_SESSION_ID.get()
+            if _quote_save_over_cap(chat_session):
+                logger.warning(
+                    "save_memory quote cap hit (session=%s) — save rejected",
+                    chat_session or "anon",
+                )
+                return {
+                    "error": (
+                        "memory save limit reached this session — ask the "
+                        "founder to save it from the memory widget"
+                    )
+                }
             source, authority = "user_explicit", "agent_inferred"
         else:
             source, authority = "agent_save", "agent_inferred"
@@ -618,11 +667,15 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         existing = get_memory(mem_id, db_path=DEFAULT_DB_PATH)
         if existing is None:
             return {"error": "not found"}
-        if existing.get("pinned") or existing.get("authority") == "user_authored":
+        if existing.get("pinned") or existing.get("authority") in (
+            "user_authored",
+            "user_confirmed",
+        ):
             return {
                 "error": (
-                    f"[mem:{mem_id}] is a pinned/user-authored rule — the copilot "
-                    "can't archive it. The founder can from the memory widget."
+                    f"[mem:{mem_id}] is a pinned/founder-authored/founder-confirmed "
+                    "rule — the copilot can't archive it. The founder can from the "
+                    "memory widget."
                 )
             }
         reason = str(args.get("reason", "")).strip() or "forgotten via chat"

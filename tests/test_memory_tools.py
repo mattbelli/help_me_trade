@@ -93,6 +93,116 @@ async def test_forget_memory_archives_with_undo(tool_db: Path) -> None:
     assert len(ai_tables.list_memories(include_inactive=True, db_path=tool_db)) == 1
 
 
+async def test_forget_memory_refuses_user_confirmed_rows(tool_db: Path) -> None:
+    """HIGH-2 regression: the copilot cannot archive a founder-confirmed rule on a
+    hallucinated 'forget that' — only the founder can, from the widget."""
+    confirmed = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never trade earnings weeks",
+        authority="user_confirmed",
+        source="widget_confirm",
+        db_path=tool_db,
+    )
+    result = await execute_tool("forget_memory", {"id": confirmed["id"]})
+    assert "error" in result
+    row = ai_tables.get_memory(confirmed["id"], db_path=tool_db)
+    assert row["status"] == "active"
+
+
+async def test_save_memory_with_quote_still_runs_the_judge(
+    tool_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HIGH-3 regression: a quote keeps never-NOOP semantics but does NOT skip the
+    judge — the judge's LLM call must fire so dedup/UPDATE containment still runs.
+    Here the judge NOOPs; never-NOOP still stores it, and the judge WAS invoked."""
+    calls: list[int] = []
+
+    class RecordingJudgeLLM:
+        provider = "recording"
+
+        def complete_json(self, messages, *, max_tokens=1024, temperature=0.1) -> str:
+            calls.append(1)
+            return '{"decisions": [{"index": 0, "action": "NOOP"}]}'
+
+        def complete(self, messages, *, max_tokens=1024) -> str:
+            calls.append(1)
+            return '{"decisions": [{"index": 0, "action": "NOOP"}]}'
+
+    monkeypatch.setattr("ai.memories.judge.get_llm", lambda *a, **k: RecordingJudgeLLM())
+    result = await execute_tool(
+        "save_memory",
+        {
+            "content": "Never trade the first 15 minutes",
+            "type": "directive",
+            "quote": "remember I never trade the first 15 minutes",
+        },
+    )
+    # never-NOOP: the explicit save still lands even though the judge said NOOP...
+    assert result["status"] == "saved"
+    # ...but the judge's LLM was invoked — the quote did not bypass it.
+    assert calls, "judge LLM was not called for a quote-carrying save_memory"
+
+
+async def test_quote_save_capped_per_session(
+    tool_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-2 regression: quote-backed saves ride the never-NOOP privilege lane, so
+    they are capped at 5 per session — the 6th is rejected with a clear tool
+    result and nothing stored. A different session is unaffected, and non-quote
+    (judge-mediated) saves are never capped."""
+    import ai.chat.tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "_quote_save_counts", {})
+    token = tools_mod.CHAT_SESSION_ID.set("session-a")
+    try:
+        for i in range(5):
+            result = await execute_tool(
+                "save_memory",
+                {
+                    "content": f"Directive number {i}: avoid overnight holds",
+                    "type": "directive",
+                    "quote": f"remember rule {i}",
+                },
+            )
+            assert result["status"] == "saved", f"save {i} unexpectedly blocked"
+
+        # 6th quote-save in the same session: rejected, nothing stored.
+        before = len(ai_tables.list_memories(db_path=tool_db))
+        result = await execute_tool(
+            "save_memory",
+            {
+                "content": "Directive number 6: flooded row",
+                "type": "directive",
+                "quote": "remember rule 6",
+            },
+        )
+        assert "error" in result
+        assert "limit" in result["error"]
+        assert len(ai_tables.list_memories(db_path=tool_db)) == before
+
+        # A different session has its own allowance.
+        tools_mod.CHAT_SESSION_ID.set("session-b")
+        result = await execute_tool(
+            "save_memory",
+            {
+                "content": "Directive from another chat: size down on Fridays",
+                "type": "directive",
+                "quote": "size down on fridays",
+            },
+        )
+        assert result["status"] == "saved"
+
+        # Non-quote saves (judge-mediated lane) are not capped, even past the cap.
+        tools_mod.CHAT_SESSION_ID.set("session-a")
+        result = await execute_tool(
+            "save_memory",
+            {"content": "SLB thesis: watching 43 support", "type": "thesis"},
+        )
+        assert result["status"] == "saved"
+    finally:
+        tools_mod.CHAT_SESSION_ID.reset(token)
+
+
 async def test_forget_missing_memory_errors(tool_db: Path) -> None:
     result = await execute_tool("forget_memory", {"id": 424242, "reason": "gone"})
     assert result["error"] == "not found"
