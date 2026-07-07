@@ -1,807 +1,861 @@
 {
- "updated_at": "2026-07-06T22:50:00Z",
- "lanes": [
-  "inbox",
-  "founder",
-  "in_progress",
-  "next",
-  "backlog",
-  "done"
- ],
- "cards": [
-  {
-   "id": "backend-coldstart-schwab-burst",
-   "title": "Backend restart fires an immediate bulk Schwab bar burst → 429/403 WAF episodes on deploy-heavy days",
-   "lane": "next",
-   "type": "ops",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "2026-07-06 evening: 3 backend deploys in ~90min each re-ran the cold-start daily-bars refresh (hundreds of pricehistory calls at once) → Schwab 429s on marketdata + 403 on trader/accountNumbers (Akamai). Stream stayed connected (ticks fine); REST bars/accounts degraded until the window cleared. Fix: jitter/stagger the bars refresher after boot (e.g. random 5-15min delay + trickle batches), skip refresh if store is <24h fresh, and consider pacing the accounts TTL fetch on reconnect storms. Memory schwab-data-ops already warns 'never burst-request Schwab' — the cold-start path violates it structurally."
-  },
-  {
-   "id": "ui-screenshot-smoke",
-   "title": "Headless screenshot smoke check for UI rounds (founder: 'are we checking our implementations?')",
-   "lane": "next",
-   "type": "tooling",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "2026-07-06: round-2 watchlist shipped an illegible (transparent) delete-confirm — passed diff review + typecheck + build because nothing RENDERS the UI before the founder. Build: headless chromium (playwright) script that loads :3001/workspace (or a component harness page), drives basic flows, and drops screenshots the orchestrator eyeballs before deploy. Dev-only tool, no CI gate initially. Port rules: dev servers 3005+."
-  },
-  {
-   "id": "chart-stale-merge-fix",
-   "title": "Chart candle gaps + long-candle artifacts: stale cache tail fused by live-tick merge",
-   "lane": "in_progress",
-   "type": "bug",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed + one hand-fix). Root cause: bars-cache hit returns stale tail; live merge fused the gap (long candle) or fabricated one jumped bucket (gap). Fix: invalidateBars() export + freshness gate in live merge (intraday, ≥2 intervals stale → ONE cache-busting refetch, no merge; de-duped by ref cleared when fetch lands); steps>1 rollover now unreachable + defensive-returns to refetch; Fable review added an off-hours cooldown (max(2×interval,300s)) — without it, overnight/pre-market ext ticks on an unhealable stale tail (no new intraday bars) would refetch-loop all night per chart (backend spam/WAF risk). Forming-bar updates + single-step rollover byte-identical; daily exempt (interval=0 + object-time guard). Typecheck clean, zero new lint. FOUNDER VERIFY: watch for gaps/long candles through the session; round-trip workaround no longer needed. UNCOMMITTED pending eyeball."
-  },
-  {
-   "id": "positions-widget-schwab",
-   "title": "Positions widget follows account scope → shows real Schwab positions (Stage B)",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck clean, zero backend diffs, id format schwab_<last4> verified against brokers/schwab_accounts.py:154). Widget follows toolbar scope: real scopes read useRealAccounts()→/api/schwab/accounts (30s TTL, no new poller; all_real shows ••last4 badges); paper scopes unchanged; overview = REAL/PAPER toggle, never blends (equity-curve pattern); REAL/PAPER header badge; ClickableSymbol tickers. FOUNDER EYEBALL pending (he is live in a real trade). Follow-up carded separately: open-orders widget same treatment. UNCOMMITTED until founder approves (rides with watchlist-hold-drag in the tree). | Founder correction same day: REAL/PAPER header bar REMOVED (second-header rule, now a memory: no-second-widget-headers) — toolbar scope is the only switch; overview keeps original paper behavior. Redeployed."
-  },
-  {
-   "id": "per-strat-pnl-view",
-   "title": "Per-strategy P&L/exposure view (attribution Phase 1 — measure only)",
-   "lane": "next",
-   "type": "feature",
-   "priority": "normal",
-   "owner": "serv",
-   "notes": "Approved 2026-07-06 (memo Option B Phase 1). Read-only view over managed_positions + order_executions keyed by strategy_id (realized per closed managed position, open exposure, win rate, journal calibration tie-in). No RiskEngine change, no execution-path risk. Enforcement (budgets in RiskEngine) is Phase 2 AT PROMOTION, not now."
-  },
-  {
-   "id": "watchlist-hold-drag",
-   "title": "Watchlist: kill edit mode → hold-anywhere-to-drag + drag-to-trash delete",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed; typecheck clean, zero new lint). Edit mode GONE (pencil/⋮⋮ dots/red − badges); header + opens add-row (price-alerts pattern); hold ~300ms anywhere non-link → row lifts → drag reorder; Trash2 appears next to + while held (via new use-watchlist-drag-store), pointer-drop on it deletes. Quick tap still publishes; ticker/ⓘ unaffected; pageActive remount fix untouched. FOUNDER EYEBALL pending → then commit. Brief: tools/composer-bridge/briefs/watchlist-hold-drag.md | Round 3 in flight: opaque confirm pill + confirm-on-drag-out + row-follows-pointer (founder round-2 feedback: confirm illegible, wants confirm on drag path, row should come with pointer; likes the red)."
-  },
-  {
-   "id": "delta-audit-highs",
-   "title": "Delta-audit HIGH findings (07-06): attribution poll-gap blind spot, caps under-count partials, vetoes untracked, data-outage tombstones, memory provenance theft + judge bypass",
-   "lane": "next",
-   "type": "safety",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill→canceled/expired within one poll gap or across a restart → held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row → quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable — register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2."
-  },
-  {
-   "id": "per-strategy-attribution",
-   "lane": "done",
-   "type": "decision",
-   "priority": "normal",
-   "owner": "founder",
-   "title": "DESIGN CALL: per-strategy attribution — virtual sub-books, measure now / enforce at promotion",
-   "notes": "Fable decision memo 2026-07-06 → research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo. | FOUNDER APPROVED Option B 2026-07-06 (virtual sub-books, two phases; memo sub-recs accepted: $ notional budgets, same-symbol-across-strategies allowed). Phase 1 measure-view carded → per-strat-pnl-view; Phase 2 enforcement rides the combined-book promotion round."
-  },
-  {
-   "id": "orphan-repair-surface",
-   "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "normal",
-   "owner": "serv",
-   "notes": "Follow-up from safety-M1 adversarial review nits: fill_attribution_orphans rows sit \"notified\" forever with no in-app surface (no repair flow writes status=repaired), and the critical push deep-links to /executions/{id} which has no frontend route (404). Small round: an orphans view (settings or notifications) + mark-repaired action + fix or drop the link. Also: earnings_alerts_sent now grows ~1 row/symbol/day from RVOL dedup — add pruning here."
-  },
-  {
-   "id": "terminal-float-mode",
-   "title": "Terminal float mode: DEPLOYED (drag both axes, snap bottom/top/center/free)",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "medium",
-   "owner": "serv",
-   "notes": "DEPLOYED :3001 + committed 2026-07-06 late. Header drag moves the open drawer on both axes, live 24px snap to bottom dock / top dock / v-center / free float; persisted hmt-terminal-vanchor; collapsed strip byte-identical at the bottom. FOUNDER EYEBALL pending."
-  },
-  {
-   "id": "float-snap-viewers",
-   "title": "Floating viewers w/ magnet snap: BUILT + DEPLOYED (founder eyeball pending)",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "Founder-live fixes shipped same night: corner RESIZE grip added (all panels), spawn-off-screen fixed (measured-box clamp), bottom-edge \"latching\" fixed (cramped-axis magnet skip), MD viewer 78vh. DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck green, zero new lint). New FloatingPanel/useFloatingSnap (portal, z-65 above terminal, no backdrop — cockpit stays live behind it; drag by header; 24px magnet, 6 targets: L/R/h-center + toolbar-top/bottom/v-center; settle-on-release ≤120ms, instant under reduced motion). Applied: company-info modal (desktop; mobile Dialog unchanged), research MD viewer (desktop; mobile fullscreen unchanged), \"Open full report\" now opens the report iframe IN-APP in a floating panel (~900px×85vh) w/ open-in-tab ↗ escape hatch (was a new-tab link — founder can veto). dialog.tsx untouched (settings etc. pixel-identical). Deferred: theme editor not moved onto the shared hook; per-surface position memory. Same deploy carries terminal T2 polish round (caret baseline fix, 13px --fs-terminal, full-width prose via Thread fullWidth prop)."
-  },
-  {
-   "id": "copilot-terminal-redesign",
-   "title": "Copilot terminal: T2 chat-in-terminal BUILT + DEPLOYED (founder eyeball pending)",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "T2 DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed — shared thread.tsx/markdown-text.tsx changes verified additive, dock/mobile default paths byte-identical; typecheck green, new files lint-clean). Shipped: flat mono transcript over the SHARED runtime (dock+terminal same thread by construction), plain text→chat (stub dead), flat tool rows (approvals reuse ToolFallbackApproval untouched), inline proposal cards via toolUI, $SYM/known-ticker links→Ch1, thread switcher (CopilotThreadHistory), command interleave anchors, Esc=interrupt while streaming, activity glyph on strip+header, [mem:ID] chips dormant (NEXT_PUBLIC_MEM_CHIPS / hmt-mem-chips / ?memchips=1). FOUNDER EYEBALL: ⌘K feel, propose→approve in terminal (paper), Esc interrupt, flat-skin look. Known deferrals: mem-chip session deep-link nav; 44rem thread column width (widening = thread.tsx layout edit, punted); transcript uses built-in Thread autoscroll. NEXT: T3 speed pass to budgets, then T4 commands-both-ways, T5 dock demolition.",
-   "updated_at": "2026-07-06"
-  },
-  {
-   "id": "memory-onboarding-interview",
-   "title": "Copilot onboarding interview → seeds standing memory (the copilot's CLAUDE.md)",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "medium",
-   "owner": "serv",
-   "notes": "Founder-sparked 2026-07-05: first-run guided conversation (who you are, goals, risk comfort, schedule, communication style) writing user_authored preference/directive rows with verbatim-quote provenance; skippable + revisitable from Settings. Rides the memory-overhaul write path (Phase 1+) and renders via the design doc's Standing Memory block (Tier A, ≤8 directives / ~700 tok). Behavioral-pattern memories stay agent_inferred+(unconfirmed) per the authority model; no stored emotional-state reads (tone-adapt only). GATED ON: memory-overhaul Phase 0/1 shipping first.",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "widget-polish-batch",
-   "title": "Widget polish: watchlist edit-mode drag + flush rows, legible earnings badge, open-orders/price-alerts header cleanup",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (commit 68d40d1, deployed :3001): grab dots only in edit mode (reorder = edit-mode handle, red − replaces sparkline while editing, rows flush-left like positions); earnings badge 9→10px font-medium; '0 open' meta dropped; price-alerts + moved into widget header (config.adding), second header row deleted. Pending founder in-browser confirm.",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "theme-round-fg-bg-green",
-   "title": "Theme round: green fills vs text split, widget-title/column-header vars, custom-theme dark: fix, clearer editor descs",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "Composer run dispatched 2026-07-05 (brief: theme-round.md): --c-green-bg (badge fills/dots/tick-flash) separate from --c-green text; --fg-widget-title + --fg-table-header rows so the founder can recolor watchlist headers; custom themes get the dark: variant (base-aware .dark class toggle); Text-group descs rewritten w/ concrete examples. Settings dialog itself audited = fully var-driven (only gaps: --panel-shadow not editable, --scrim bulk-skip, dark: variant).",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "memory-overhaul",
-   "title": "Memory overhaul: P0+P1 SHIPPED (judge + tools + trust surface live) — P2 retrieval/injection next",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "Phase 1 DEPLOYED 2026-07-06 (Opus-coded, Fable adversarial review FIX-FIRST→fixed in-round): LLM judge w/ code-enforced containment behind all writers; save_memory/forget_memory tools (authority NEVER minted from model args — hallucinated-quote attack closed; forget refuses founder rules); widget provenance/pin/Confirm/History/restore; PATCH locked to agent_inferred→user_confirmed; 40-case eval harness; hermetic tests (was silently grading with live gemma). Live-verified: real-LLM save→agent_inferred, PATCH mint→400, FTS ok. NEXT: Phase 2 per design §5 — ollama pull nomic-embed-text, hybrid FTS5+cosine retrieval, mem0 REMOVED, injection ON (after terminal T2 — shared chat surface). Phase 3 = lifecycle/thesis expiry.",
-   "updated_at": "2026-07-06"
-  },
-  {
-   "id": "scroll-ergonomics",
-   "title": "Workspace scroll ergonomics: Ctrl+wheel chart zoom (plain wheel = page scroll) + middle-mouse canvas pan",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (commit 6548251, deployed :3001): Ctrl/⌘+wheel zooms charts, plain wheel scrolls page (+hint pill); middle-mouse-drag pans canvas; header-title centering regression fixed same night (descender paint room, screenshot-verified). Founder confirmed charts fine.",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "widget-spawn-ux",
-   "title": "Widget spawn UX: DEPLOYED (viewport placement + flash; hint pill killed per founder)",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "medium",
-   "owner": "serv",
-   "notes": "Founder verdict 2026-07-06: drag-hint pill was noise — REMOVED same night (do not re-add). Viewport-aware placement + scroll+flash stay, deployed + committed. Card can move to done after founder morning eyeball.",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "brand-overhaul-ui",
-   "title": "Brand design overhaul: logo-as-channel-button, HMT wordmark, logo placements",
-   "lane": "in_progress",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "UNBLOCKED + phase 1 SHIPPED 2026-07-05: StandInMark component (mono/currentColor + duo fg-dim/foreground cuts per brand README); channel selector = the mark, channel-tinted, real 24px hit area (was a 10px square); toolbar = mark + HMT (gradient ▰ + help_me_trade retired); Settings dialog title mark; favicon = stand_in-small (app/icon.svg). REMAINING: boot moment (P1) with the mark, empty-page CTA watermark, app-icon pass + the color question (brand README says greyscale-first, color deliberate later).",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "push-phone-brand-doc",
-   "title": "Push the RN phone branch with brand/readme.md (mac side)",
-   "lane": "done",
-   "type": "ops",
-   "priority": "high",
-   "owner": "founder",
-   "notes": "DONE 2026-07-05 — founder pushed brand/ to main (stand_in mark: README + 4 SVG cuts + exploration doc).",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "theme-editor-floating",
-   "title": "Theme editor: kill the scrim/blur — draggable floating window over the live workspace",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): Base-UI modal Dialog (scrim + backdrop-blur-xs + scroll-lock + focus-trap) → non-modal floating window via createPortal: no scrim/blur, title-bar pointer-capture drag with viewport clamping, z-[65] (above console/picker, below banner/toast), motionStd fade-scale open, Escape closes without trapping. Verified: body scroll unlocked, Alt+2 page-switch works with editor open. Editor internals untouched. ROUND 2 (founder feedback): var rows renamed to what they actually drive — Chart group is now Canvas / Candle up / Candle down (dead shadcn chart-1..5 slots removed from the editor; editing them did nothing); redundant var-name sublines replaced by real one-line descriptions (var name moved to tooltip); --grain-opacity is an editable GRAIN row; clones now capture --grain/--grain-opacity.",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "theme-ember",
-   "title": "Ember theme (replace warm) from founder's wezterm + grain texture + uniform header sizes",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): warm theme replaced by Ember (id kept, label swapped) — bg #242321, panels #2b2925, chrome #17181a, amber accent #d99a52, soft green/red #a3b565/#d9705c; fg-faint lifted to #7f766a (3.5:1) for 9px readability, wezterm #4e4840 kept for borders/decoration. Film grain = inline SVG fractalNoise tile via --grain/--grain-opacity (0.08) + .grain-surface util, applied to canvas + widget headers (one-liner to extend). All widget headers unified to the chart's 14px scale. Orchestrator fix: --chart-accent reverted to green #a3b565 (candle guardrail — agent had set amber). Founder eyeball pending; grain-behind-everything trial = add .grain-surface to WidgetCard. ROUND 2 (founder feedback 2026-07-05): surfaces neutralized to carbon grey (#202020/#262626/#2d2d2c — warmth now lives only in text/accent, no brown cast), candles muted (#97a06e/#c47767), grain extended to ALL widget panels (.grain-surface on WidgetCard; header layer removed to avoid doubling).",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "iosevka-font-trial",
-   "title": "Trial Iosevka as the terminal mono font",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "low",
-   "owner": "serv",
-   "notes": "Founder uses Iosevka Nerd Font in wezterm and likes it. Trial as the app's mono (self-hosted woff2 — CSP blocks external fonts; check license/subsetting + tabular-nums support before switching). Parked by founder: 'change color for now'."
-  },
-  {
-   "id": "mobile-approval-device-auth",
-   "title": "Bind proposal approval to a device, not one shared token (mobile S1)",
-   "lane": "next",
-   "type": "safety",
-   "priority": "high",
-   "notes": "mobile-approval audit S1: approval authorizes on payload_hash + ONE static token — anyone holding it can approve trades, biometrics are client-side theater to the server. #34 covered settings/kill-switch, NOT approval. Interim: separate approve-scope token, header-only, rate-limited, approver identity logged; full fix = per-device key (Secure Enclave signature). This is the mission-critical path (phone approval unlock)."
-  },
-  {
-   "id": "safety-fill-attribution-orphan",
-   "title": "record_strategy_fill swallows errors → filled BUY with no stop/exit (safety M1)",
-   "lane": "done",
-   "type": "bug",
-   "priority": "high",
-   "notes": "SHIPPED 33ca3c3 (2026-07-06 overnight): retry → durable quarantine (fill_attribution_orphans) → critical page from the reconcile loop; adversarial review SAFE-WITH-NITS, its MAJOR (lost page on notify persist failure) fixed + regression test. Follow-up card orphan-repair-surface. safety-execution audit M1, code-verified still present (trading/position_ledger.py:153 bare except → return None). If the ledger insert fails after a fill, the position is unmanaged indefinitely — no stop, no target, no time-exit; only a log line. Fix: critical push on fill-with-missing-ledger-row +"
-  },
-  {
-   "id": "safety-killswitch-blocks-exits",
-   "title": "BUILD: HALT state (entries_halted) — kill-switch/exits split per approved memo (Option C)",
-   "lane": "next",
-   "type": "safety",
-   "priority": "normal",
-   "owner": "founder",
-   "notes": "FOUNDER APPROVED Option C 2026-07-06 (memo research/fable/2026-07-06_memo-killswitch-exits.md): new HALT state blocks exposure-increasing orders, reduce-only exits keep flowing; breaker hard stage (risk_engine.py:426) retargets to HALT instead of kill switch; kill switch unchanged = human-only total freeze (+ critical page w/ open-position count when armed). Memo sub-recs accepted: HALT pauses momentum rebalance entirely; HALT disarm = normal token. trading/ change → full adversarial review. Queue after delta-audit money-path HIGHs (same neighborhood, separate rounds)."
-  },
-  {
-   "id": "research-book-reproducibility",
-   "title": "Commit the combined-book validation pipeline (backtesting audit)",
-   "lane": "backlog",
-   "type": "research",
-   "priority": "high",
-   "notes": "The headline Sharpe 1.42 / Jensen alpha / PBO=0.000 for the armed combined book exist only in gitignored _edgehunt/ scratch — not reproducible, not CI-guarded; a sign error would never be caught. Audit's highest-value research move: commit the NAV/CAPM/PBO/DSR pipeline + golden fixture. Gates how much to trust the book's numbers at all. Whole backtesting audit is otherwise untracked (walk-forward, 2008 sample, threshold sensitivity, paper protocol — see doc)."
-  },
-  {
-   "id": "llm-eval-harness",
-   "title": "LLM eval harness: traces + golden set + calibration report (test-eval audit)",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "high",
-   "notes": "Zero tracing today: a prompt change misrouting 30% of copilot queries would go unnoticed. Cheapest first step per audit: a chat_traces table (~1 day). Then a small golden query set + Brier-trend calibration report. Prerequisite for safely doing the one-Python-brain rewrite (roadmap Phase 1) and prompt iteration on the Decision Engine. | 2026-07-06: full Fable design now in research/fable/2026-07-06_phase1-2-execution-spec.md (Phase 1c: chat_traces + 30-50 deterministic golden cases, routing/honesty/grounding tiers, nightly on cheap tier). Build AFTER Phase 1b (one loop = one instrumentation point)."
-  },
-  {
-   "id": "llm-mem0-inert",
-   "title": "mem0 semantic search is dead code — replace with FTS5 (LLM audit)",
-   "lane": "backlog",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "mem0 .search() mis-parses {results:[...]} → silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt — carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep). → 2026-07-05: ABSORBED into memory-overhaul Phase 2 (founder lane) — the write-side junk was the bigger half (see References/MEMORY_SYSTEM_REPORT.md); FTS5-vs-sqlite-vec is decided there, not here.",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "ci-safety-hardening",
-   "title": "CI guard: SAFETY-REVIEWED trailer on trading/ commits + pinned deps (uv.lock)",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "normal",
-   "notes": "test-eval + state-release audits both flag this as the highest risk-moved-per-hour: (1) CI check that any commit touching trading/ or db/order_executions carries a SAFETY-REVIEWED: trailer (the adversarial-review discipline, enforced mechanically); (2) requirements are all >= with no lockfile — pin via uv.lock for reproducible deploys."
-  },
-  {
-   "id": "ops-deploy-dedup-reset",
-   "title": "Mid-day restart re-fires phone alerts (in-memory dedup resets, ops MED-5)",
-   "lane": "done",
-   "type": "ops",
-   "priority": "normal",
-   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): RVOL dedup persisted to earnings_alerts_sent (rvol:{symbol}:{ET-date}); restarts no longer re-fire phone alerts (earnings/price already persisted). _rvol_alert_last_date / _schwab_health_last_date / _schwab_snapshot_last_date + profile cooldowns are in-memory; every deploy resets them → duplicate pushes. Earnings/reports already got this right (DB-backed) — move the other three to the same pattern. Alert fatigue = named mission risk."
-  },
-  {
-   "id": "mobile-card-incomplete-data",
-   "title": "Proposal card can render without limit_price/account_id/created_at (mobile M1)",
-   "lane": "backlog",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "mobile-approval audit M1: a limit order's card can read 'Market' if fields are missing — the founder approves terms he can't fully see, on the trust-critical surface. Fail-closed: card refuses to render Approve when sizing fields are absent."
-  },
-  {
-   "id": "safety-bad-tick-guard",
-   "title": "No anomaly guard on the sizing/concentration quote (safety M3)",
-   "lane": "backlog",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "A single bad tick into RiskEngine's live quote can mis-size an order or trip false concentration checks. The chart/hub already have 3x bad-tick filters (2026-07-01) — extend the same deviation-band sanity to the quote the sizing path consumes."
-  },
-  {
-   "id": "data-correctness-m-tail",
-   "title": "Data-correctness M-tail: stale-cache honesty + snapshot fallback leak + friends",
-   "lane": "backlog",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar→$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5."
-  },
-  {
-   "id": "decision-engine-phase1",
-   "title": "Roadmap Phase 1-2: one Python brain + DecisionCard/Slate Pass (scope vs 5a first)",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "normal",
-   "notes": "The architecture-level Decision Engine build (single agent loop, native tool-calling, DecisionCard contract, score_symbols batch) is unstarted. NOTE: Phase-5a structures.py + conviction lane + idea_outcomes already shipped a narrower version of the same 'deterministic owns numbers, LLM vetoes' principle — scope Phase 1 against what 5a proved before building. Gated on llm-eval-harness existing. | 2026-07-06: scope-vs-5a RESOLVED — Fable execution spec research/fable/2026-07-06_phase1-2-execution-spec.md supersedes roadmap §7 rows 1-2. 1a tool-calling in ai/llm/, 1b one Python loop (web→proxy, delete legacy /api/chat), 1c eval harness; Phase 2 wraps 5a (DecisionCard = typed view of validated idea, bridge→create_phone_proposal), gated on 5b."
-  },
-  {
-   "id": "audit-low-tail",
-   "title": "Audit low-priority tail (bundled cleanup pass)",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "low",
-   "notes": "Bundle for a slow day: mobile M2 cold-start replay / M3 VPN copy / M4 device registration / L1 unauth /docs / L2 unauth reject / L3 token-in-URL / L4 dormant Expo path; ops LOW-8 holiday calendar; safety L1-L3; state-release: notification-kind taxonomy, float-money display dataclasses, versioned migrations (schema_version), References/ sprawl, docker-compose; perception reads: rules/rule_events/notifications resources, watchlist compact quotes, sector resource (confirmed absent), research_artifacts/drawings/schwab_history reads, full-body reports."
-  },
-  {
-   "id": "statement-import",
-   "title": "Monthly Schwab PDF statement import: balance anchors + month-end positions",
-   "lane": "next",
-   "type": "feature",
-   "priority": "high",
-   "notes": "Founder ask 2026-07-05: JSON import = transactions only; API has no historical balances; daily equity snapshots only accrue since 7/1 — so period P&L has no broker-truth anchor. Parse monthly statement PDFs (text-layer, pdfplumber) from gitignored data/imports/statements/: per account extract beginning/ending value + month-end positions table. Dry-run-first. New balance-anchors table; P&L views reconcile ledger-computed change vs statement change and flag drift. Bonus: the statement at the export-window start reads the TRUE TSLA/PLTR/GME baselines (supersedes the inferred manual_adjustment pending on ledger-offsets card). Futures/ToS PDFs = separate importer (existing thread).",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "db-retention",
-   "title": "DB growth: retention runs but can't shrink the file — hourly keepers + no VACUUM (ops HIGH-3)",
-   "lane": "done",
-   "type": "ops",
-   "priority": "high",
-   "notes": "SHIPPED c5b183d+ae937c7 (2026-07-06 overnight): keeper aging 90d→daily, analytics trim 7d (sole reader is latest-only — verified), observability in retention log. Live: prune trimmed 22,615 blobs, supervised VACUUM+checkpoint took trading.db 652MB→481MB. File now plateaus. pre-memory-p0.db snapshot (639MB) still in data/ — founder may delete for another ~640MB disk. Diagnosis 2026-07-05 (corrects earlier 'no prune anywhere'): db/retention.py IS wired + runs daily (journalctl confirms). But (1) the one-time supervised VACUUM (tools/db_maintenance.py --vacuum) never ran, so freed pages are never reclaimed; (2) the design keeps one full-width snapshot per HOUR for",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "judge-scan-ideas",
-   "title": "Run setup scans + judge idea quality (~1-2 weeks)",
-   "lane": "founder",
-   "type": "research",
-   "priority": "high",
-   "notes": "Market reopens Monday. Your verdict gates #42 Setup Book — nothing arms until you say ideas are worth arming.",
-   "owner": "founder",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "ledger-offsets",
-   "title": "Approve TSLA/PLTR/GME ledger quantity offsets",
-   "lane": "done",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "RESOLVED WITHOUT ADJUSTMENT 2026-07-06: founder approved the $0 offsets, but live ledger check showed the residuals SELF-RESOLVED since 07-02 (H5 leg-summing repair + sync work): TSLA nets 0.0 through 2026-07-02, PLTR/GME zero in all accounts. No manual_adjustment inserted. Today's TSLA -200 = live trading, buy leg pending hourly sync (expected self-heal; #17 nightly recon is the permanent watchdog — still worth building). Founder PDF question answered: transaction-level statement backfill IS possible later if wanted; offsets don't block it.",
-   "owner": "founder",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "reddit-oauth-creds",
-   "title": "Reddit access for buzz collector — solved via RSS, no app needed",
-   "lane": "done",
-   "type": "ops",
-   "priority": "normal",
-   "notes": "RESOLVED 2026-07-05 without credentials: Reddit gated self-serve app creation (the 'Responsible Builder Policy' wall you hit), but their public .rss Atom feeds serve fine from serv. Fetcher switched to /r/<sub>/new.rss with stdlib XML parsing, 2.5s spacing between subs (a 4-request burst trips the anonymous rate limit), 403 treated like 429. Deployed; verification of a full clean cycle in progress. Nothing for you to do.",
-   "owner": "founder",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "research-widget-feed",
-   "title": "Research widget: live feed + reattach + viewer parity",
-   "lane": "done",
-   "type": "bug",
-   "priority": "high",
-   "notes": "Widget reuses page components (feed, viewer, delete/download). Feed now survives navigation/reload and follows chat-started runs (job-based polling, shared hook). Headless-verified.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "ui-polish-do-first",
-   "title": "UI polish do-first batch: tick-flash, page crossfade, motion scale, toast, type ladder",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "notes": "ALL 4 ROUNDS SHIPPED 2026-07-05: (1) ticker-link-gaps, (2) motion batch (motion.ts scale + reduced-motion, M1 tick-flash, M2 crossfade, N3 toast, D2 hover-lift), (3) T1+T2 type ladder (12 sizes → 6-step --fs vars, one micro-label tracking) + T4 double-titles, (4) empty-states kit. Committed 961ba91→(round4). Deploy = build + serv-deploy back-to-back. Founder eyeball items: tick-flash needs live quotes (Monday); overall look pass in browser.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "ui-polish-small",
-   "title": "UI small fixes: duplicate 'performance' picker entries, sector-radar label collisions/clipping",
-   "lane": "done",
-   "type": "bug",
-   "priority": "low",
-   "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): picker titles disambiguated (performance (legacy) / performance stats), sector-radar labels abbreviated w/ full names in tooltip+legend. UI_AUDIT.md POLISH bucket quick wins. Full list with file:line refs in the report.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "ticker-link-gaps",
-   "title": "Ticker click-to-chart gaps: orders blotter + price alerts (house-rule violations)",
-   "lane": "done",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "SHIPPED 2026-07-05: ClickableSymbol wired in orders blotter (all 3 tabs, side-coloring preserved), price-alerts rows, and pnl-scatter (point-click publishes symbol — the row-publish analog for a chart); all 3 widgets now channelAware. Bonus: fixed a pre-existing nested-<button> hydration error in the research widget list rows (caught by headless smoke). Typecheck + eslint + headless smoke green; deploy with the polish rounds.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "ui-empty-states",
-   "title": "Shared WidgetEmpty/WidgetLoading + empty-page CTA (audit sweep)",
-   "lane": "done",
-   "type": "feature",
-   "priority": "normal",
-   "notes": "SHIPPED 2026-07-05 (round 4 of the UI series): widget-states.tsx kit (WidgetEmpty/WidgetLoading terminal shimmer skeleton/WidgetError) adopted across ~25 widgets; trust-critical fix VERIFIED by forced-error probe — positions/open-orders/notifications render 'Failed to fetch [retry]' when the API dies, never silent-empty; empty pages get a quiet add-widget CTA. Deploy pending with the full series.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "retire-old-ui",
-   "title": "Retire old sidebar UI: workspace becomes the main URL",
-   "lane": "next",
-   "type": "feature",
-   "priority": "high",
-   "notes": "UI AUDIT (References/UI_AUDIT.md, 2026-07-05) reinforces this as the #1 UI issue: two complete UIs in two design languages are live at once, and the legacy /trading route ships a manual Buy/Sell terminal that contradicts the cockpit mission. Original scope stands: workspace at / + a few dedicated new-shell pages; fix notification/chat deep-links that exit to old routes; gaps first (memory widget create/edit/search, RunningNow roll-up). Audit adds: research page vs research widget = two looks for one feature — unify on the terminal look as part of this retirement.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "idea-outcomes",
-   "title": "Idea shadow-tracker: mechanical outcomes for EVERY scan idea",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "notes": "SHIPPED on main (7b6cf03), per BUILD.md. State machine (research/idea_tracker.py: pending→triggered→won/lost/expired/invalidated/data_gap incl. conservative same-bar rules), storage (db/idea_outcomes.py SQLite table + win-rate summary), 30-min market-hours scheduler (api/main.py), and 13-test suite (tests/test_idea_tracker.py) all confirmed working. GET /api/ideas/outcomes exists. UI consumption split out as idea-outcomes-ui.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "idea-outcomes-ui",
-   "title": "Idea outcomes UI: win% dashboard / shadow-tracker view",
-   "lane": "done",
-   "type": "feature",
-   "priority": "normal",
-   "notes": "SHIPPED + deployed 2026-07-05 (eyeball pending): `/add idea outcomes` — summary strip (resolved N + honest win rate, '—' until data), per-status chips, Open/Resolved tabs, click-to-chart tickers, notes on hover, 60s poll. BONUS FIX while building: the tracker was killing weekend-registered ideas as data_gap (closed-market sweeps counted as fetch failures — all 4 day-one ideas were dead); root-caused, fixed, +2 regression tests, and all 4 ideas RESTORED to pending for Monday. Deferred as before: founder-verdict UI, conviction-lane A/B via origin.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "copilot-grid-shift",
-   "title": "Charts slide/overlap after pinning+unpinning the copilot",
-   "lane": "done",
-   "type": "bug",
-   "priority": "high",
-   "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) — it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "regime-sleeves",
-   "title": "Regime sleeves MERGED + deployed — dark until founder arms them",
-   "lane": "done",
-   "type": "safety",
-   "priority": "high",
-   "notes": "Full ceremony complete: spec → PC build → serv adversarial review (4 real bugs incl. live-repro'd HIGH: disabled sleeve orphaned its open positions) → PC fix (ccbad64) → serv delta re-review w/ independent test runs (35/35) → founder squash-merge (4584356) → deployed, dormancy endpoint verified: both sleeves enabled:false, propose-only. ARM in Settings → Strategies when ready — that starts the paper clock. Follow-ups: _scan_generals pending-count fix (this week, non-gating); PC regens post-#28 research numbers.",
-   "owner": "founder",
-   "updated_at": "2026-07-04T03:37:00Z"
-  },
-  {
-   "id": "generals-pending-count",
-   "title": "_scan_generals: pending buys don't count toward max-5 concurrency",
-   "lane": "done",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) — pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "44",
-   "title": "Conviction lane: LLM-originated ideas (A/B vs structure lane)",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "notes": "SHIPPED + deployed 2026-07-05 (founder moved the gate up so A/B journals from judging day one). One batched LLM call per scan over no-structure candidates; up to 2 nominations, 'no conviction' fully OK; same validate_ideas pipeline (long-only, sanity bounds, no win%); origin stamped SERVER-side (LLM-provided origin ignored); fail-soft (conviction errors never touch structure lane); paper gets a labeled 'Conviction ideas (LLM-originated — unproven)' section; idea_outcomes gains origin column + by_origin win-rate split; widget shows LLM chip + per-origin summary. HARD-blocked from proposals: 5c bridge must filter origin != structure. Suite 1509 green.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "quotes-extraction-broker-protocol",
-   "title": "Extract quotes/watchlist cluster from main.py + promote quotes/streaming into the broker protocol",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "normal",
-   "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) — makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "mainpy-lifecycle-split",
-   "title": "main.py strangler step 2: lifecycle/app-state module (19 bg loops, 35 module globals)",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "normal",
-   "notes": "The audit's real 'architectural fragility': startup side effects + shared mutable state in the same namespace as 52 request handlers. Deliberate round (opportunism won't reach it): background loops + module-level caches/state into a lifecycle module; main.py ends as ~500 lines of app wiring. After quotes-extraction-broker-protocol.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "ship-it-multi-tenant",
-   "title": "Someday/ship-it: multi-user = Alpaca Broker API + per-user data entitlements (not just adapters)",
-   "lane": "backlog",
-   "type": "research",
-   "priority": "low",
-   "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) — adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data — trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
-   "owner": "founder",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "36",
-   "title": "Off-box backup: verify the PC pull folder (rest of the drill PASSED)",
-   "lane": "done",
-   "type": "ops",
-   "priority": "high",
-   "notes": "CLOSED 2026-07-05: founder confirmed the PC pull folder holds dated trading-*.db files 6/20→7/5 (accumulating, not overwriting). Full chain verified: serv 03:00 sqlite .backup + integrity_check + config tarball (14-day retention), restore drill PASSED, PC pulls over Tailscale on wake (07:29 login observed). #36 fully done.",
-   "owner": "founder",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "41",
-   "title": "fill_tracker: done_for_day status never maps terminal",
-   "lane": "done",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): done_for_day branches on fill progress — partial→partially_filled (attribution fires, keeps polling per Alpaca docs), zero-fill→expired. Naive alias REJECTED by adversarial review (would have silently skipped attribution on partials). Fill reports for orders resting at day-end never fire; found in #35 H3 review.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "37",
-   "title": "Data-correctness tail: UTC→ET dates, day_pl deposits, FIFO leak",
-   "lane": "next",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "42",
-   "title": "Setup Book: armed setups, entry monitoring, revalidate-at-trigger",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "high",
-   "notes": "GATED on founder judging 5a ideas worth arming. 5c proposal bridge = full adversarial ceremony.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "30",
-   "title": "Scheduled recipes + copilot schedule_research tool (morning briefing)",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "normal",
-   "notes": "Phase 6: 'morning briefing every weekday 8am' as one chat sentence.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "31",
-   "title": "Social buzz: Reddit/StockTwits breadth for the conviction lane (4 phases)",
-   "lane": "in_progress",
-   "type": "research",
-   "priority": "normal",
-   "notes": "Founder design session 2026-07-05. Doctrine: code detects (mention-velocity anomaly = counts vs rolling 14-day same-ET-hour baseline), LLM interprets (catalyst digging, qualitative only — never sentiment scores); social text = adversarial data (pump risk) behind the untrusted-content guard, influences judgment fields only, never levels. P1 (IN PROGRESS, Composer): accumulator loop — free Reddit JSON (WSB/stocks/investing/StockMarket) + StockTwits trending → social_mentions table + /api/social/buzz|trending with honest 'warming' state until baselines exist (start collecting NOW; the denominator needs weeks). P2: social block in veto-grade + conviction prompts (reinforce/kill with named reasons). P3: buzz-anomaly symbols injected as scan CANDIDATES (capped, source-tagged for A/B) — buzz nominates, the pipeline still has to find something real. P4: buzz alerts, only if P2/P3 prove value in the outcome tracker. No paid social APIs.",
-   "owner": "serv",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "16",
-   "title": "Options expirations missing from Schwab sync",
-   "lane": "backlog",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "Unrecorded realized losses in the ledger.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "17",
-   "title": "Nightly ledger-vs-broker quantity reconciliation job",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "normal",
-   "notes": "",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "14",
-   "title": "data_suspect flag: bad-bars sanity check",
-   "lane": "backlog",
-   "type": "bug",
-   "priority": "low",
-   "notes": "",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "24",
-   "title": "Harden research web-search + chat-initiated job path",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "low",
-   "notes": "",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "32",
-   "title": "Tests hit live Schwab (suite hung 66min on WAF block)",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "low",
-   "notes": "2026-07-06 overnight data point: tests/test_proposal_intake.py + test_phone_proposals fail on CLEAN main too (risk_blocked vs proposed, TTL None) — env/settings leakage into tests, same non-hermetic class as the live-Schwab hang. Make suite hermetic.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "font-size-setting",
-   "title": "User-adjustable font scale (accessibility)",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "low",
-   "notes": "Founder: app font is deliberately small/dense; add a size setting for users who can't see well. Global scale factor in Settings, not per-widget.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "version-skew-reload",
-   "title": "Version-skew detection: 'reload to update' toast after deploys",
-   "lane": "done",
-   "type": "ops",
-   "priority": "low",
-   "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): /api/version + 5-min/tab-focus check + persistent reload toast (one per session, fails soft in dev). Armed from the NEXT deploy onward. Rapid deploys leave open tabs on stale builds → weird nav failures. App should detect the server build changed and prompt reload.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "38",
-   "title": "Stop writing real account figures into tracked docs",
-   "lane": "backlog",
-   "type": "ops",
-   "priority": "normal",
-   "notes": "State-audit P0 hygiene.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "39",
-   "title": "Breaker session-open re-baseline job",
-   "lane": "backlog",
-   "type": "safety",
-   "priority": "low",
-   "notes": "Promotion-gated (matters when auto-execution scales).",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "40",
-   "title": "Buy-to-cover in-flight gap",
-   "lane": "backlog",
-   "type": "safety",
-   "priority": "low",
-   "notes": "Gates ever enabling allow_short_selling — blocked until then.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "43",
-   "title": "Silent content-available push at proposal-create",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "low",
-   "notes": "Optional R2 hardening; only if stuck approval cards appear in real use.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "futures-import",
-   "title": "Import futures trade history (Schwab/ToS PDFs, point multipliers)",
-   "lane": "backlog",
-   "type": "feature",
-   "priority": "normal",
-   "notes": "Open thread — needed for retrospective completeness.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "29",
-   "title": "Phase 5a: setup_scan recipe + deterministic structures + validated ideas[]",
-   "lane": "done",
-   "type": "feature",
-   "priority": "high",
-   "notes": "3 consecutive scans → identical structure sets. Code detects, LLM vetoes/grades.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "35",
-   "title": "#35 Mobile phone-approval delivery shell (R1-R3, H1-H3)",
-   "lane": "done",
-   "type": "safety",
-   "priority": "high",
-   "notes": "All six audit findings, both sides, device-verified.",
-   "owner": "serv+mac",
-   "updated_at": "2026-07-03"
-  },
-  {
-   "id": "34",
-   "title": "#34 Auth hardening: fail-closed mutations, admin scope, asymmetric kill switch",
-   "lane": "done",
-   "type": "safety",
-   "priority": "high",
-   "notes": "Adversarial review: zero bypasses.",
-   "owner": "serv",
-   "updated_at": "2026-07-03"
-  },
-  {
-   "id": "33",
-   "title": "#33 Execution-safety: paper-endpoint guarantee, daily-loss breaker, notional caps",
-   "lane": "done",
-   "type": "safety",
-   "priority": "high",
-   "notes": "5 adversarial-review bugs fixed pre-ship.",
-   "owner": "serv",
-   "updated_at": "2026-07-03"
-  },
-  {
-   "id": "research-v2",
-   "title": "Research Engine v2 core (Phases 1-4: specialists, data, viewer, quality)",
-   "lane": "done",
-   "type": "research",
-   "priority": "high",
-   "notes": "Planner→specialists→critic→editor; proprietary data first-class; founder-approved papers.",
-   "owner": "serv",
-   "updated_at": "2026-07-03"
-  },
-  {
-   "id": "fr-1783133088",
-   "title": "Quotes Bugs",
-   "lane": "in_progress",
-   "type": "bug",
-   "priority": "high",
-   "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 — watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles — ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence — flag if it bugs you.",
-   "owner": "serv",
-   "updated_at": "2026-07-04"
-  },
-  {
-   "id": "fr-1783263918",
-   "title": "info widget",
-   "lane": "inbox",
-   "type": "idea",
-   "priority": "normal",
-   "notes": "i think info widget should be its own thing and then newsfeed should be its own thing with a switch to be watchlist/or all",
-   "owner": "founder",
-   "updated_at": "2026-07-05"
-  },
-  {
-   "id": "fr-1783306826",
-   "title": "open full report",
-   "lane": "inbox",
-   "type": "idea",
-   "priority": "normal",
-   "notes": "brings you to an outdated html...looks worse than the md viewer",
-   "owner": "founder",
-   "updated_at": "2026-07-06"
-  },
-  {
-   "id": "fr-1783306917",
-   "title": "md viewer",
-   "lane": "inbox",
-   "type": "idea",
-   "priority": "normal",
-   "notes": "i dont think it should blur the background and should be able to be moved and sized",
-   "owner": "founder",
-   "updated_at": "2026-07-06"
-  }
- ]
+  "updated_at": "2026-07-07T04:30:00Z",
+  "lanes": [
+    "inbox",
+    "founder",
+    "in_progress",
+    "next",
+    "backlog",
+    "done"
+  ],
+  "cards": [
+    {
+      "id": "cockpit-polish-round3",
+      "title": "Polish round 3: terminal thread persistence (MUST) + center-magnet removal, panel bring-to-front, alert-note clamp, watchlist dot centering, toast spawn fix, fonts +1 again",
+      "lane": "in_progress",
+      "type": "ui",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder-live batch 2026-07-07 evening. Opus coding in background; wick investigation running read-only in parallel."
+    },
+    {
+      "id": "chart-wick-artifacts",
+      "title": "Chart: phantom giant wicks on the forming candle (TSLA ~750 on all 3 timeframes; clears on refetch)",
+      "lane": "done",
+      "type": "bug",
+      "priority": "critical",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-07 after full adversarial ceremony (FIX-FIRST -> SAFE-WITH-NITS). Guard rebuilt: last-admitted band ref + 5% one-tick corroboration + 10x absolute backstop; apply_extended one-poll corroboration; chart mirror + wick heal; streak-20 FROZEN alarm. 22 tests. Deployed with the evening batch."
+    },
+    {
+      "id": "terminal-chat-tabs",
+      "title": "Terminal chat tabs: + next to the thread title, multiple chats open at once",
+      "lane": "next",
+      "type": "ui",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Founder ask 2026-07-07 (convenience, after the persistence MUST ships). Tab strip in the drawer header over the shared assistant-ui runtime; pairs with hmt-terminal-thread persistence from round 3."
+    },
+    {
+      "id": "live-mark-positions",
+      "title": "Positions + portfolio numbers tick in real time (stream-marked, zero extra REST)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder ask 2026-07-07. Subscribe held symbols on the existing market WS (use-watchlist-market pattern); REST snapshot (30s) = baseline for qty/cost/day_pl; per tick apply delta qty*(px-px_snap) to value/unrealized/day_pl (exact; poll re-baselines mid-window trades). Applies to positions widget (paper+real) and toolbar/portfolio aggregates. No new REST traffic - WAF-safe. Dispatch AFTER legibility round 2 lands (one tree-writer). DEPLOYED :3001 2026-07-07 \u2014 new useLiveMarks hook (WS, regular price only, ignores ext frames); paper value/unrealized + real unrealized/day_pl delta-marked with tick flash; awaiting founder eyeball before commit (batch with legibility rounds)."
+    },
+    {
+      "id": "chart-ext-hours-candles",
+      "title": "Chart: extended-hours candles (price header moves but no pre/post candles render)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder pain 2026-07-07. Bars fetch never passes Schwab priceHistory needExtendedHoursData=true \u2014 ext bars likely available (no overnight per WAF memory). Work: backend ext-bars fetch + chart session shading (ToS-style) + merge ext stream ticks into ext candles only (respect the frozen-regular-price split shipped b41731b). Alternative if Schwab ext bars disappoint: Alpaca SIP (Algo Trader Plus ~$99/mo \u2014 free tier is IEX-only, WORSE); data-source seam = backend bars fetch + quote stream."
+    },
+    {
+      "id": "cockpit-legibility-round",
+      "title": "Cockpit legibility round: type-scale floor +1, terminal 15px + IosevkaTerm Nerd Font + min-width 15%, channel-3 cyan, drag z-order, MD paper tint + footer-aware floating panel",
+      "lane": "in_progress",
+      "type": "ui",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "DEPLOYED :3001 2026-07-07 \u2014 awaiting founder eyeball before commit. Founder-approved: raise the floor keep the ceiling (micro/table/body/title +1px). FloatingPanel now clamps+snaps to the footer strip top; ResizeObserver reclamp fixes the 10%-off-screen spawn. Ch3 = new --c-cyan per theme (warm had amber==yellow same hex). ROUND 2 in progress: ceiling +1 (emph 15/hero 20/widget-title 14), MD paper v2 (near-neutral + film grain, green killed), prose cap 100ch, focusRequest consumed (fixes widget re-flash on page switch)."
+    },
+    {
+      "id": "backend-coldstart-schwab-burst",
+      "title": "Backend restart fires an immediate bulk Schwab bar burst \u2192 429/403 WAF episodes on deploy-heavy days",
+      "lane": "next",
+      "type": "ops",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-06 evening: 3 backend deploys in ~90min each re-ran the cold-start daily-bars refresh (hundreds of pricehistory calls at once) \u2192 Schwab 429s on marketdata + 403 on trader/accountNumbers (Akamai). Stream stayed connected (ticks fine); REST bars/accounts degraded until the window cleared. Fix: jitter/stagger the bars refresher after boot (e.g. random 5-15min delay + trickle batches), skip refresh if store is <24h fresh, and consider pacing the accounts TTL fetch on reconnect storms. Memory schwab-data-ops already warns 'never burst-request Schwab' \u2014 the cold-start path violates it structurally. NEW EVIDENCE 2026-07-07: 429 bursts in logs ~01:05 traced to batch bar fetch + /api/watchlist/market + /api/bars - FRONTEND deploys also trigger client-reload REST bursts (3 deploys tonight); batch frontend deploys and jitter cold-start."
+    },
+    {
+      "id": "ui-screenshot-smoke",
+      "title": "Headless screenshot smoke check for UI rounds (founder: 'are we checking our implementations?')",
+      "lane": "next",
+      "type": "tooling",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-06: round-2 watchlist shipped an illegible (transparent) delete-confirm \u2014 passed diff review + typecheck + build because nothing RENDERS the UI before the founder. Build: headless chromium (playwright) script that loads :3001/workspace (or a component harness page), drives basic flows, and drops screenshots the orchestrator eyeballs before deploy. Dev-only tool, no CI gate initially. Port rules: dev servers 3005+."
+    },
+    {
+      "id": "chart-stale-merge-fix",
+      "title": "Chart candle gaps + long-candle artifacts: stale cache tail fused by live-tick merge",
+      "lane": "in_progress",
+      "type": "bug",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed + one hand-fix). Root cause: bars-cache hit returns stale tail; live merge fused the gap (long candle) or fabricated one jumped bucket (gap). Fix: invalidateBars() export + freshness gate in live merge (intraday, \u22652 intervals stale \u2192 ONE cache-busting refetch, no merge; de-duped by ref cleared when fetch lands); steps>1 rollover now unreachable + defensive-returns to refetch; Fable review added an off-hours cooldown (max(2\u00d7interval,300s)) \u2014 without it, overnight/pre-market ext ticks on an unhealable stale tail (no new intraday bars) would refetch-loop all night per chart (backend spam/WAF risk). Forming-bar updates + single-step rollover byte-identical; daily exempt (interval=0 + object-time guard). Typecheck clean, zero new lint. FOUNDER VERIFY: watch for gaps/long candles through the session; round-trip workaround no longer needed. UNCOMMITTED pending eyeball."
+    },
+    {
+      "id": "positions-widget-schwab",
+      "title": "Positions widget follows account scope \u2192 shows real Schwab positions (Stage B)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck clean, zero backend diffs, id format schwab_<last4> verified against brokers/schwab_accounts.py:154). Widget follows toolbar scope: real scopes read useRealAccounts()\u2192/api/schwab/accounts (30s TTL, no new poller; all_real shows \u2022\u2022last4 badges); paper scopes unchanged; overview = REAL/PAPER toggle, never blends (equity-curve pattern); REAL/PAPER header badge; ClickableSymbol tickers. FOUNDER EYEBALL pending (he is live in a real trade). Follow-up carded separately: open-orders widget same treatment. UNCOMMITTED until founder approves (rides with watchlist-hold-drag in the tree). | Founder correction same day: REAL/PAPER header bar REMOVED (second-header rule, now a memory: no-second-widget-headers) \u2014 toolbar scope is the only switch; overview keeps original paper behavior. Redeployed."
+    },
+    {
+      "id": "per-strat-pnl-view",
+      "title": "Per-strategy P&L/exposure view (attribution Phase 1 \u2014 measure only)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Approved 2026-07-06 (memo Option B Phase 1). Read-only view over managed_positions + order_executions keyed by strategy_id (realized per closed managed position, open exposure, win rate, journal calibration tie-in). No RiskEngine change, no execution-path risk. Enforcement (budgets in RiskEngine) is Phase 2 AT PROMOTION, not now."
+    },
+    {
+      "id": "watchlist-hold-drag",
+      "title": "Watchlist: kill edit mode \u2192 hold-anywhere-to-drag + drag-to-trash delete",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed; typecheck clean, zero new lint). Edit mode GONE (pencil/\u22ee\u22ee dots/red \u2212 badges); header + opens add-row (price-alerts pattern); hold ~300ms anywhere non-link \u2192 row lifts \u2192 drag reorder; Trash2 appears next to + while held (via new use-watchlist-drag-store), pointer-drop on it deletes. Quick tap still publishes; ticker/\u24d8 unaffected; pageActive remount fix untouched. FOUNDER EYEBALL pending \u2192 then commit. Brief: tools/composer-bridge/briefs/watchlist-hold-drag.md | Round 3 in flight: opaque confirm pill + confirm-on-drag-out + row-follows-pointer (founder round-2 feedback: confirm illegible, wants confirm on drag path, row should come with pointer; likes the red)."
+    },
+    {
+      "id": "delta-audit-highs",
+      "title": "Delta-audit HIGH findings (07-06): attribution poll-gap blind spot, caps under-count partials, vetoes untracked, data-outage tombstones, memory provenance theft + judge bypass",
+      "lane": "next",
+      "type": "safety",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill\u2192canceled/expired within one poll gap or across a restart \u2192 held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row \u2192 quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable \u2014 register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2."
+    },
+    {
+      "id": "per-strategy-attribution",
+      "lane": "done",
+      "type": "decision",
+      "priority": "normal",
+      "owner": "founder",
+      "title": "DESIGN CALL: per-strategy attribution \u2014 virtual sub-books, measure now / enforce at promotion",
+      "notes": "Fable decision memo 2026-07-06 \u2192 research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo. | FOUNDER APPROVED Option B 2026-07-06 (virtual sub-books, two phases; memo sub-recs accepted: $ notional budgets, same-symbol-across-strategies allowed). Phase 1 measure-view carded \u2192 per-strat-pnl-view; Phase 2 enforcement rides the combined-book promotion round."
+    },
+    {
+      "id": "orphan-repair-surface",
+      "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Follow-up from safety-M1 adversarial review nits: fill_attribution_orphans rows sit \"notified\" forever with no in-app surface (no repair flow writes status=repaired), and the critical push deep-links to /executions/{id} which has no frontend route (404). Small round: an orphans view (settings or notifications) + mark-repaired action + fix or drop the link. Also: earnings_alerts_sent now grows ~1 row/symbol/day from RVOL dedup \u2014 add pruning here."
+    },
+    {
+      "id": "terminal-float-mode",
+      "title": "Terminal float mode: DEPLOYED (drag both axes, snap bottom/top/center/free)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "DEPLOYED :3001 + committed 2026-07-06 late. Header drag moves the open drawer on both axes, live 24px snap to bottom dock / top dock / v-center / free float; persisted hmt-terminal-vanchor; collapsed strip byte-identical at the bottom. FOUNDER EYEBALL pending."
+    },
+    {
+      "id": "float-snap-viewers",
+      "title": "Floating viewers w/ magnet snap: BUILT + DEPLOYED (founder eyeball pending)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder-live fixes shipped same night: corner RESIZE grip added (all panels), spawn-off-screen fixed (measured-box clamp), bottom-edge \"latching\" fixed (cramped-axis magnet skip), MD viewer 78vh. DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck green, zero new lint). New FloatingPanel/useFloatingSnap (portal, z-65 above terminal, no backdrop \u2014 cockpit stays live behind it; drag by header; 24px magnet, 6 targets: L/R/h-center + toolbar-top/bottom/v-center; settle-on-release \u2264120ms, instant under reduced motion). Applied: company-info modal (desktop; mobile Dialog unchanged), research MD viewer (desktop; mobile fullscreen unchanged), \"Open full report\" now opens the report iframe IN-APP in a floating panel (~900px\u00d785vh) w/ open-in-tab \u2197 escape hatch (was a new-tab link \u2014 founder can veto). dialog.tsx untouched (settings etc. pixel-identical). Deferred: theme editor not moved onto the shared hook; per-surface position memory. Same deploy carries terminal T2 polish round (caret baseline fix, 13px --fs-terminal, full-width prose via Thread fullWidth prop)."
+    },
+    {
+      "id": "copilot-terminal-redesign",
+      "title": "Copilot terminal: T2 chat-in-terminal BUILT + DEPLOYED (founder eyeball pending)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "T2 DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed \u2014 shared thread.tsx/markdown-text.tsx changes verified additive, dock/mobile default paths byte-identical; typecheck green, new files lint-clean). Shipped: flat mono transcript over the SHARED runtime (dock+terminal same thread by construction), plain text\u2192chat (stub dead), flat tool rows (approvals reuse ToolFallbackApproval untouched), inline proposal cards via toolUI, $SYM/known-ticker links\u2192Ch1, thread switcher (CopilotThreadHistory), command interleave anchors, Esc=interrupt while streaming, activity glyph on strip+header, [mem:ID] chips dormant (NEXT_PUBLIC_MEM_CHIPS / hmt-mem-chips / ?memchips=1). FOUNDER EYEBALL: \u2318K feel, propose\u2192approve in terminal (paper), Esc interrupt, flat-skin look. Known deferrals: mem-chip session deep-link nav; 44rem thread column width (widening = thread.tsx layout edit, punted); transcript uses built-in Thread autoscroll. NEXT: T3 speed pass to budgets, then T4 commands-both-ways, T5 dock demolition.",
+      "updated_at": "2026-07-06"
+    },
+    {
+      "id": "memory-onboarding-interview",
+      "title": "Copilot onboarding interview \u2192 seeds standing memory (the copilot's CLAUDE.md)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Founder-sparked 2026-07-05: first-run guided conversation (who you are, goals, risk comfort, schedule, communication style) writing user_authored preference/directive rows with verbatim-quote provenance; skippable + revisitable from Settings. Rides the memory-overhaul write path (Phase 1+) and renders via the design doc's Standing Memory block (Tier A, \u22648 directives / ~700 tok). Behavioral-pattern memories stay agent_inferred+(unconfirmed) per the authority model; no stored emotional-state reads (tone-adapt only). GATED ON: memory-overhaul Phase 0/1 shipping first.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "widget-polish-batch",
+      "title": "Widget polish: watchlist edit-mode drag + flush rows, legible earnings badge, open-orders/price-alerts header cleanup",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-05 (commit 68d40d1, deployed :3001): grab dots only in edit mode (reorder = edit-mode handle, red \u2212 replaces sparkline while editing, rows flush-left like positions); earnings badge 9\u219210px font-medium; '0 open' meta dropped; price-alerts + moved into widget header (config.adding), second header row deleted. Pending founder in-browser confirm.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "theme-round-fg-bg-green",
+      "title": "Theme round: green fills vs text split, widget-title/column-header vars, custom-theme dark: fix, clearer editor descs",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Composer run dispatched 2026-07-05 (brief: theme-round.md): --c-green-bg (badge fills/dots/tick-flash) separate from --c-green text; --fg-widget-title + --fg-table-header rows so the founder can recolor watchlist headers; custom themes get the dark: variant (base-aware .dark class toggle); Text-group descs rewritten w/ concrete examples. Settings dialog itself audited = fully var-driven (only gaps: --panel-shadow not editable, --scrim bulk-skip, dark: variant).",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "memory-overhaul",
+      "title": "Memory overhaul: P0+P1 SHIPPED (judge + tools + trust surface live) \u2014 P2 retrieval/injection next",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Phase 1 DEPLOYED 2026-07-06 (Opus-coded, Fable adversarial review FIX-FIRST\u2192fixed in-round): LLM judge w/ code-enforced containment behind all writers; save_memory/forget_memory tools (authority NEVER minted from model args \u2014 hallucinated-quote attack closed; forget refuses founder rules); widget provenance/pin/Confirm/History/restore; PATCH locked to agent_inferred\u2192user_confirmed; 40-case eval harness; hermetic tests (was silently grading with live gemma). Live-verified: real-LLM save\u2192agent_inferred, PATCH mint\u2192400, FTS ok. NEXT: Phase 2 per design \u00a75 \u2014 ollama pull nomic-embed-text, hybrid FTS5+cosine retrieval, mem0 REMOVED, injection ON (after terminal T2 \u2014 shared chat surface). Phase 3 = lifecycle/thesis expiry.",
+      "updated_at": "2026-07-06"
+    },
+    {
+      "id": "scroll-ergonomics",
+      "title": "Workspace scroll ergonomics: Ctrl+wheel chart zoom (plain wheel = page scroll) + middle-mouse canvas pan",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-05 (commit 6548251, deployed :3001): Ctrl/\u2318+wheel zooms charts, plain wheel scrolls page (+hint pill); middle-mouse-drag pans canvas; header-title centering regression fixed same night (descender paint room, screenshot-verified). Founder confirmed charts fine.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "widget-spawn-ux",
+      "title": "Widget spawn UX: DEPLOYED (viewport placement + flash; hint pill killed per founder)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Founder verdict 2026-07-06: drag-hint pill was noise \u2014 REMOVED same night (do not re-add). Viewport-aware placement + scroll+flash stay, deployed + committed. Card can move to done after founder morning eyeball.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "brand-overhaul-ui",
+      "title": "Brand design overhaul: logo-as-channel-button, HMT wordmark, logo placements",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "UNBLOCKED + phase 1 SHIPPED 2026-07-05: StandInMark component (mono/currentColor + duo fg-dim/foreground cuts per brand README); channel selector = the mark, channel-tinted, real 24px hit area (was a 10px square); toolbar = mark + HMT (gradient \u25b0 + help_me_trade retired); Settings dialog title mark; favicon = stand_in-small (app/icon.svg). REMAINING: boot moment (P1) with the mark, empty-page CTA watermark, app-icon pass + the color question (brand README says greyscale-first, color deliberate later).",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "push-phone-brand-doc",
+      "title": "Push the RN phone branch with brand/readme.md (mac side)",
+      "lane": "done",
+      "type": "ops",
+      "priority": "high",
+      "owner": "founder",
+      "notes": "DONE 2026-07-05 \u2014 founder pushed brand/ to main (stand_in mark: README + 4 SVG cuts + exploration doc).",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "theme-editor-floating",
+      "title": "Theme editor: kill the scrim/blur \u2014 draggable floating window over the live workspace",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): Base-UI modal Dialog (scrim + backdrop-blur-xs + scroll-lock + focus-trap) \u2192 non-modal floating window via createPortal: no scrim/blur, title-bar pointer-capture drag with viewport clamping, z-[65] (above console/picker, below banner/toast), motionStd fade-scale open, Escape closes without trapping. Verified: body scroll unlocked, Alt+2 page-switch works with editor open. Editor internals untouched. ROUND 2 (founder feedback): var rows renamed to what they actually drive \u2014 Chart group is now Canvas / Candle up / Candle down (dead shadcn chart-1..5 slots removed from the editor; editing them did nothing); redundant var-name sublines replaced by real one-line descriptions (var name moved to tooltip); --grain-opacity is an editable GRAIN row; clones now capture --grain/--grain-opacity.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "theme-ember",
+      "title": "Ember theme (replace warm) from founder's wezterm + grain texture + uniform header sizes",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): warm theme replaced by Ember (id kept, label swapped) \u2014 bg #242321, panels #2b2925, chrome #17181a, amber accent #d99a52, soft green/red #a3b565/#d9705c; fg-faint lifted to #7f766a (3.5:1) for 9px readability, wezterm #4e4840 kept for borders/decoration. Film grain = inline SVG fractalNoise tile via --grain/--grain-opacity (0.08) + .grain-surface util, applied to canvas + widget headers (one-liner to extend). All widget headers unified to the chart's 14px scale. Orchestrator fix: --chart-accent reverted to green #a3b565 (candle guardrail \u2014 agent had set amber). Founder eyeball pending; grain-behind-everything trial = add .grain-surface to WidgetCard. ROUND 2 (founder feedback 2026-07-05): surfaces neutralized to carbon grey (#202020/#262626/#2d2d2c \u2014 warmth now lives only in text/accent, no brown cast), candles muted (#97a06e/#c47767), grain extended to ALL widget panels (.grain-surface on WidgetCard; header layer removed to avoid doubling).",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "iosevka-font-trial",
+      "title": "Trial Iosevka as the terminal mono font",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "Founder uses Iosevka Nerd Font in wezterm and likes it. Trial as the app's mono (self-hosted woff2 \u2014 CSP blocks external fonts; check license/subsetting + tabular-nums support before switching). Parked by founder: 'change color for now'."
+    },
+    {
+      "id": "mobile-approval-device-auth",
+      "title": "Bind proposal approval to a device, not one shared token (mobile S1)",
+      "lane": "next",
+      "type": "safety",
+      "priority": "high",
+      "notes": "mobile-approval audit S1: approval authorizes on payload_hash + ONE static token \u2014 anyone holding it can approve trades, biometrics are client-side theater to the server. #34 covered settings/kill-switch, NOT approval. Interim: separate approve-scope token, header-only, rate-limited, approver identity logged; full fix = per-device key (Secure Enclave signature). This is the mission-critical path (phone approval unlock)."
+    },
+    {
+      "id": "safety-fill-attribution-orphan",
+      "title": "record_strategy_fill swallows errors \u2192 filled BUY with no stop/exit (safety M1)",
+      "lane": "done",
+      "type": "bug",
+      "priority": "high",
+      "notes": "SHIPPED 33ca3c3 (2026-07-06 overnight): retry \u2192 durable quarantine (fill_attribution_orphans) \u2192 critical page from the reconcile loop; adversarial review SAFE-WITH-NITS, its MAJOR (lost page on notify persist failure) fixed + regression test. Follow-up card orphan-repair-surface. safety-execution audit M1, code-verified still present (trading/position_ledger.py:153 bare except \u2192 return None). If the ledger insert fails after a fill, the position is unmanaged indefinitely \u2014 no stop, no target, no time-exit; only a log line. Fix: critical push on fill-with-missing-ledger-row +"
+    },
+    {
+      "id": "safety-killswitch-blocks-exits",
+      "title": "BUILD: HALT state (entries_halted) \u2014 kill-switch/exits split per approved memo (Option C)",
+      "lane": "next",
+      "type": "safety",
+      "priority": "normal",
+      "owner": "founder",
+      "notes": "FOUNDER APPROVED Option C 2026-07-06 (memo research/fable/2026-07-06_memo-killswitch-exits.md): new HALT state blocks exposure-increasing orders, reduce-only exits keep flowing; breaker hard stage (risk_engine.py:426) retargets to HALT instead of kill switch; kill switch unchanged = human-only total freeze (+ critical page w/ open-position count when armed). Memo sub-recs accepted: HALT pauses momentum rebalance entirely; HALT disarm = normal token. trading/ change \u2192 full adversarial review. Queue after delta-audit money-path HIGHs (same neighborhood, separate rounds)."
+    },
+    {
+      "id": "research-book-reproducibility",
+      "title": "Commit the combined-book validation pipeline (backtesting audit)",
+      "lane": "backlog",
+      "type": "research",
+      "priority": "high",
+      "notes": "The headline Sharpe 1.42 / Jensen alpha / PBO=0.000 for the armed combined book exist only in gitignored _edgehunt/ scratch \u2014 not reproducible, not CI-guarded; a sign error would never be caught. Audit's highest-value research move: commit the NAV/CAPM/PBO/DSR pipeline + golden fixture. Gates how much to trust the book's numbers at all. Whole backtesting audit is otherwise untracked (walk-forward, 2008 sample, threshold sensitivity, paper protocol \u2014 see doc)."
+    },
+    {
+      "id": "llm-eval-harness",
+      "title": "LLM eval harness: traces + golden set + calibration report (test-eval audit)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "high",
+      "notes": "Zero tracing today: a prompt change misrouting 30% of copilot queries would go unnoticed. Cheapest first step per audit: a chat_traces table (~1 day). Then a small golden query set + Brier-trend calibration report. Prerequisite for safely doing the one-Python-brain rewrite (roadmap Phase 1) and prompt iteration on the Decision Engine. | 2026-07-06: full Fable design now in research/fable/2026-07-06_phase1-2-execution-spec.md (Phase 1c: chat_traces + 30-50 deterministic golden cases, routing/honesty/grounding tiers, nightly on cheap tier). Build AFTER Phase 1b (one loop = one instrumentation point)."
+    },
+    {
+      "id": "llm-mem0-inert",
+      "title": "mem0 semantic search is dead code \u2014 replace with FTS5 (LLM audit)",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "mem0 .search() mis-parses {results:[...]} \u2192 silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt \u2014 carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep). \u2192 2026-07-05: ABSORBED into memory-overhaul Phase 2 (founder lane) \u2014 the write-side junk was the bigger half (see References/MEMORY_SYSTEM_REPORT.md); FTS5-vs-sqlite-vec is decided there, not here.",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ci-safety-hardening",
+      "title": "CI guard: SAFETY-REVIEWED trailer on trading/ commits + pinned deps (uv.lock)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "test-eval + state-release audits both flag this as the highest risk-moved-per-hour: (1) CI check that any commit touching trading/ or db/order_executions carries a SAFETY-REVIEWED: trailer (the adversarial-review discipline, enforced mechanically); (2) requirements are all >= with no lockfile \u2014 pin via uv.lock for reproducible deploys."
+    },
+    {
+      "id": "ops-deploy-dedup-reset",
+      "title": "Mid-day restart re-fires phone alerts (in-memory dedup resets, ops MED-5)",
+      "lane": "done",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "SHIPPED 64123b4 (2026-07-06 overnight): RVOL dedup persisted to earnings_alerts_sent (rvol:{symbol}:{ET-date}); restarts no longer re-fire phone alerts (earnings/price already persisted). _rvol_alert_last_date / _schwab_health_last_date / _schwab_snapshot_last_date + profile cooldowns are in-memory; every deploy resets them \u2192 duplicate pushes. Earnings/reports already got this right (DB-backed) \u2014 move the other three to the same pattern. Alert fatigue = named mission risk."
+    },
+    {
+      "id": "mobile-card-incomplete-data",
+      "title": "Proposal card can render without limit_price/account_id/created_at (mobile M1)",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "mobile-approval audit M1: a limit order's card can read 'Market' if fields are missing \u2014 the founder approves terms he can't fully see, on the trust-critical surface. Fail-closed: card refuses to render Approve when sizing fields are absent."
+    },
+    {
+      "id": "safety-bad-tick-guard",
+      "title": "No anomaly guard on the sizing/concentration quote (safety M3)",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "A single bad tick into RiskEngine's live quote can mis-size an order or trip false concentration checks. The chart/hub already have 3x bad-tick filters (2026-07-01) \u2014 extend the same deviation-band sanity to the quote the sizing path consumes."
+    },
+    {
+      "id": "data-correctness-m-tail",
+      "title": "Data-correctness M-tail: stale-cache honesty + snapshot fallback leak + friends",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar\u2192$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5."
+    },
+    {
+      "id": "decision-engine-phase1",
+      "title": "Roadmap Phase 1-2: one Python brain + DecisionCard/Slate Pass (scope vs 5a first)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "The architecture-level Decision Engine build (single agent loop, native tool-calling, DecisionCard contract, score_symbols batch) is unstarted. NOTE: Phase-5a structures.py + conviction lane + idea_outcomes already shipped a narrower version of the same 'deterministic owns numbers, LLM vetoes' principle \u2014 scope Phase 1 against what 5a proved before building. Gated on llm-eval-harness existing. | 2026-07-06: scope-vs-5a RESOLVED \u2014 Fable execution spec research/fable/2026-07-06_phase1-2-execution-spec.md supersedes roadmap \u00a77 rows 1-2. 1a tool-calling in ai/llm/, 1b one Python loop (web\u2192proxy, delete legacy /api/chat), 1c eval harness; Phase 2 wraps 5a (DecisionCard = typed view of validated idea, bridge\u2192create_phone_proposal), gated on 5b."
+    },
+    {
+      "id": "audit-low-tail",
+      "title": "Audit low-priority tail (bundled cleanup pass)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "notes": "Bundle for a slow day: mobile M2 cold-start replay / M3 VPN copy / M4 device registration / L1 unauth /docs / L2 unauth reject / L3 token-in-URL / L4 dormant Expo path; ops LOW-8 holiday calendar; safety L1-L3; state-release: notification-kind taxonomy, float-money display dataclasses, versioned migrations (schema_version), References/ sprawl, docker-compose; perception reads: rules/rule_events/notifications resources, watchlist compact quotes, sector resource (confirmed absent), research_artifacts/drawings/schwab_history reads, full-body reports."
+    },
+    {
+      "id": "statement-import",
+      "title": "Monthly Schwab PDF statement import: balance anchors + month-end positions",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "notes": "Founder ask 2026-07-05: JSON import = transactions only; API has no historical balances; daily equity snapshots only accrue since 7/1 \u2014 so period P&L has no broker-truth anchor. Parse monthly statement PDFs (text-layer, pdfplumber) from gitignored data/imports/statements/: per account extract beginning/ending value + month-end positions table. Dry-run-first. New balance-anchors table; P&L views reconcile ledger-computed change vs statement change and flag drift. Bonus: the statement at the export-window start reads the TRUE TSLA/PLTR/GME baselines (supersedes the inferred manual_adjustment pending on ledger-offsets card). Futures/ToS PDFs = separate importer (existing thread).",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "db-retention",
+      "title": "DB growth: retention runs but can't shrink the file \u2014 hourly keepers + no VACUUM (ops HIGH-3)",
+      "lane": "done",
+      "type": "ops",
+      "priority": "high",
+      "notes": "SHIPPED c5b183d+ae937c7 (2026-07-06 overnight): keeper aging 90d\u2192daily, analytics trim 7d (sole reader is latest-only \u2014 verified), observability in retention log. Live: prune trimmed 22,615 blobs, supervised VACUUM+checkpoint took trading.db 652MB\u2192481MB. File now plateaus. pre-memory-p0.db snapshot (639MB) still in data/ \u2014 founder may delete for another ~640MB disk. Diagnosis 2026-07-05 (corrects earlier 'no prune anywhere'): db/retention.py IS wired + runs daily (journalctl confirms). But (1) the one-time supervised VACUUM (tools/db_maintenance.py --vacuum) never ran, so freed pages are never reclaimed; (2) the design keeps one full-width snapshot per HOUR for",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "judge-scan-ideas",
+      "title": "Run setup scans + judge idea quality (~1-2 weeks)",
+      "lane": "founder",
+      "type": "research",
+      "priority": "high",
+      "notes": "Market reopens Monday. Your verdict gates #42 Setup Book \u2014 nothing arms until you say ideas are worth arming.",
+      "owner": "founder",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "ledger-offsets",
+      "title": "Approve TSLA/PLTR/GME ledger quantity offsets",
+      "lane": "done",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "RESOLVED WITHOUT ADJUSTMENT 2026-07-06: founder approved the $0 offsets, but live ledger check showed the residuals SELF-RESOLVED since 07-02 (H5 leg-summing repair + sync work): TSLA nets 0.0 through 2026-07-02, PLTR/GME zero in all accounts. No manual_adjustment inserted. Today's TSLA -200 = live trading, buy leg pending hourly sync (expected self-heal; #17 nightly recon is the permanent watchdog \u2014 still worth building). Founder PDF question answered: transaction-level statement backfill IS possible later if wanted; offsets don't block it.",
+      "owner": "founder",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "reddit-oauth-creds",
+      "title": "Reddit access for buzz collector \u2014 solved via RSS, no app needed",
+      "lane": "done",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "RESOLVED 2026-07-05 without credentials: Reddit gated self-serve app creation (the 'Responsible Builder Policy' wall you hit), but their public .rss Atom feeds serve fine from serv. Fetcher switched to /r/<sub>/new.rss with stdlib XML parsing, 2.5s spacing between subs (a 4-request burst trips the anonymous rate limit), 403 treated like 429. Deployed; verification of a full clean cycle in progress. Nothing for you to do.",
+      "owner": "founder",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "research-widget-feed",
+      "title": "Research widget: live feed + reattach + viewer parity",
+      "lane": "done",
+      "type": "bug",
+      "priority": "high",
+      "notes": "Widget reuses page components (feed, viewer, delete/download). Feed now survives navigation/reload and follows chat-started runs (job-based polling, shared hook). Headless-verified.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "ui-polish-do-first",
+      "title": "UI polish do-first batch: tick-flash, page crossfade, motion scale, toast, type ladder",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "notes": "ALL 4 ROUNDS SHIPPED 2026-07-05: (1) ticker-link-gaps, (2) motion batch (motion.ts scale + reduced-motion, M1 tick-flash, M2 crossfade, N3 toast, D2 hover-lift), (3) T1+T2 type ladder (12 sizes \u2192 6-step --fs vars, one micro-label tracking) + T4 double-titles, (4) empty-states kit. Committed 961ba91\u2192(round4). Deploy = build + serv-deploy back-to-back. Founder eyeball items: tick-flash needs live quotes (Monday); overall look pass in browser.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ui-polish-small",
+      "title": "UI small fixes: duplicate 'performance' picker entries, sector-radar label collisions/clipping",
+      "lane": "done",
+      "type": "bug",
+      "priority": "low",
+      "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): picker titles disambiguated (performance (legacy) / performance stats), sector-radar labels abbreviated w/ full names in tooltip+legend. UI_AUDIT.md POLISH bucket quick wins. Full list with file:line refs in the report.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ticker-link-gaps",
+      "title": "Ticker click-to-chart gaps: orders blotter + price alerts (house-rule violations)",
+      "lane": "done",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "SHIPPED 2026-07-05: ClickableSymbol wired in orders blotter (all 3 tabs, side-coloring preserved), price-alerts rows, and pnl-scatter (point-click publishes symbol \u2014 the row-publish analog for a chart); all 3 widgets now channelAware. Bonus: fixed a pre-existing nested-<button> hydration error in the research widget list rows (caught by headless smoke). Typecheck + eslint + headless smoke green; deploy with the polish rounds.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ui-empty-states",
+      "title": "Shared WidgetEmpty/WidgetLoading + empty-page CTA (audit sweep)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "SHIPPED 2026-07-05 (round 4 of the UI series): widget-states.tsx kit (WidgetEmpty/WidgetLoading terminal shimmer skeleton/WidgetError) adopted across ~25 widgets; trust-critical fix VERIFIED by forced-error probe \u2014 positions/open-orders/notifications render 'Failed to fetch [retry]' when the API dies, never silent-empty; empty pages get a quiet add-widget CTA. Deploy pending with the full series.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "retire-old-ui",
+      "title": "Retire old sidebar UI: workspace becomes the main URL",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "notes": "UI AUDIT (References/UI_AUDIT.md, 2026-07-05) reinforces this as the #1 UI issue: two complete UIs in two design languages are live at once, and the legacy /trading route ships a manual Buy/Sell terminal that contradicts the cockpit mission. Original scope stands: workspace at / + a few dedicated new-shell pages; fix notification/chat deep-links that exit to old routes; gaps first (memory widget create/edit/search, RunningNow roll-up). Audit adds: research page vs research widget = two looks for one feature \u2014 unify on the terminal look as part of this retirement.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "idea-outcomes",
+      "title": "Idea shadow-tracker: mechanical outcomes for EVERY scan idea",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "notes": "SHIPPED on main (7b6cf03), per BUILD.md. State machine (research/idea_tracker.py: pending\u2192triggered\u2192won/lost/expired/invalidated/data_gap incl. conservative same-bar rules), storage (db/idea_outcomes.py SQLite table + win-rate summary), 30-min market-hours scheduler (api/main.py), and 13-test suite (tests/test_idea_tracker.py) all confirmed working. GET /api/ideas/outcomes exists. UI consumption split out as idea-outcomes-ui.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "idea-outcomes-ui",
+      "title": "Idea outcomes UI: win% dashboard / shadow-tracker view",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "SHIPPED + deployed 2026-07-05 (eyeball pending): `/add idea outcomes` \u2014 summary strip (resolved N + honest win rate, '\u2014' until data), per-status chips, Open/Resolved tabs, click-to-chart tickers, notes on hover, 60s poll. BONUS FIX while building: the tracker was killing weekend-registered ideas as data_gap (closed-market sweeps counted as fetch failures \u2014 all 4 day-one ideas were dead); root-caused, fixed, +2 regression tests, and all 4 ideas RESTORED to pending for Monday. Deferred as before: founder-verdict UI, conviction-lane A/B via origin.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "copilot-grid-shift",
+      "title": "Charts slide/overlap after pinning+unpinning the copilot",
+      "lane": "done",
+      "type": "bug",
+      "priority": "high",
+      "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) \u2014 it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "regime-sleeves",
+      "title": "Regime sleeves MERGED + deployed \u2014 dark until founder arms them",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "notes": "Full ceremony complete: spec \u2192 PC build \u2192 serv adversarial review (4 real bugs incl. live-repro'd HIGH: disabled sleeve orphaned its open positions) \u2192 PC fix (ccbad64) \u2192 serv delta re-review w/ independent test runs (35/35) \u2192 founder squash-merge (4584356) \u2192 deployed, dormancy endpoint verified: both sleeves enabled:false, propose-only. ARM in Settings \u2192 Strategies when ready \u2014 that starts the paper clock. Follow-ups: _scan_generals pending-count fix (this week, non-gating); PC regens post-#28 research numbers.",
+      "owner": "founder",
+      "updated_at": "2026-07-04T03:37:00Z"
+    },
+    {
+      "id": "generals-pending-count",
+      "title": "_scan_generals: pending buys don't count toward max-5 concurrency",
+      "lane": "done",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) \u2014 pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "44",
+      "title": "Conviction lane: LLM-originated ideas (A/B vs structure lane)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "notes": "SHIPPED + deployed 2026-07-05 (founder moved the gate up so A/B journals from judging day one). One batched LLM call per scan over no-structure candidates; up to 2 nominations, 'no conviction' fully OK; same validate_ideas pipeline (long-only, sanity bounds, no win%); origin stamped SERVER-side (LLM-provided origin ignored); fail-soft (conviction errors never touch structure lane); paper gets a labeled 'Conviction ideas (LLM-originated \u2014 unproven)' section; idea_outcomes gains origin column + by_origin win-rate split; widget shows LLM chip + per-origin summary. HARD-blocked from proposals: 5c bridge must filter origin != structure. Suite 1509 green.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "quotes-extraction-broker-protocol",
+      "title": "Extract quotes/watchlist cluster from main.py + promote quotes/streaming into the broker protocol",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) \u2014 makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "mainpy-lifecycle-split",
+      "title": "main.py strangler step 2: lifecycle/app-state module (19 bg loops, 35 module globals)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "The audit's real 'architectural fragility': startup side effects + shared mutable state in the same namespace as 52 request handlers. Deliberate round (opportunism won't reach it): background loops + module-level caches/state into a lifecycle module; main.py ends as ~500 lines of app wiring. After quotes-extraction-broker-protocol.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "ship-it-multi-tenant",
+      "title": "Someday/ship-it: multi-user = Alpaca Broker API + per-user data entitlements (not just adapters)",
+      "lane": "backlog",
+      "type": "research",
+      "priority": "low",
+      "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) \u2014 adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data \u2014 trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
+      "owner": "founder",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "36",
+      "title": "Off-box backup: verify the PC pull folder (rest of the drill PASSED)",
+      "lane": "done",
+      "type": "ops",
+      "priority": "high",
+      "notes": "CLOSED 2026-07-05: founder confirmed the PC pull folder holds dated trading-*.db files 6/20\u21927/5 (accumulating, not overwriting). Full chain verified: serv 03:00 sqlite .backup + integrity_check + config tarball (14-day retention), restore drill PASSED, PC pulls over Tailscale on wake (07:29 login observed). #36 fully done.",
+      "owner": "founder",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "41",
+      "title": "fill_tracker: done_for_day status never maps terminal",
+      "lane": "done",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "SHIPPED 64123b4 (2026-07-06 overnight): done_for_day branches on fill progress \u2014 partial\u2192partially_filled (attribution fires, keeps polling per Alpaca docs), zero-fill\u2192expired. Naive alias REJECTED by adversarial review (would have silently skipped attribution on partials). Fill reports for orders resting at day-end never fire; found in #35 H3 review.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "37",
+      "title": "Data-correctness tail: UTC\u2192ET dates, day_pl deposits, FIFO leak",
+      "lane": "next",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "42",
+      "title": "Setup Book: armed setups, entry monitoring, revalidate-at-trigger",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "high",
+      "notes": "GATED on founder judging 5a ideas worth arming. 5c proposal bridge = full adversarial ceremony.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "30",
+      "title": "Scheduled recipes + copilot schedule_research tool (morning briefing)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "Phase 6: 'morning briefing every weekday 8am' as one chat sentence.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "31",
+      "title": "Social buzz: Reddit/StockTwits breadth for the conviction lane (4 phases)",
+      "lane": "in_progress",
+      "type": "research",
+      "priority": "normal",
+      "notes": "Founder design session 2026-07-05. Doctrine: code detects (mention-velocity anomaly = counts vs rolling 14-day same-ET-hour baseline), LLM interprets (catalyst digging, qualitative only \u2014 never sentiment scores); social text = adversarial data (pump risk) behind the untrusted-content guard, influences judgment fields only, never levels. P1 (IN PROGRESS, Composer): accumulator loop \u2014 free Reddit JSON (WSB/stocks/investing/StockMarket) + StockTwits trending \u2192 social_mentions table + /api/social/buzz|trending with honest 'warming' state until baselines exist (start collecting NOW; the denominator needs weeks). P2: social block in veto-grade + conviction prompts (reinforce/kill with named reasons). P3: buzz-anomaly symbols injected as scan CANDIDATES (capped, source-tagged for A/B) \u2014 buzz nominates, the pipeline still has to find something real. P4: buzz alerts, only if P2/P3 prove value in the outcome tracker. No paid social APIs.",
+      "owner": "serv",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "16",
+      "title": "Options expirations missing from Schwab sync",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "Unrecorded realized losses in the ledger.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "17",
+      "title": "Nightly ledger-vs-broker quantity reconciliation job",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "14",
+      "title": "data_suspect flag: bad-bars sanity check",
+      "lane": "backlog",
+      "type": "bug",
+      "priority": "low",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "24",
+      "title": "Harden research web-search + chat-initiated job path",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "notes": "",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "32",
+      "title": "Tests hit live Schwab (suite hung 66min on WAF block)",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "notes": "2026-07-06 overnight data point: tests/test_proposal_intake.py + test_phone_proposals fail on CLEAN main too (risk_blocked vs proposed, TTL None) \u2014 env/settings leakage into tests, same non-hermetic class as the live-Schwab hang. Make suite hermetic.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "font-size-setting",
+      "title": "User-adjustable font scale (accessibility)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "low",
+      "notes": "Founder: app font is deliberately small/dense; add a size setting for users who can't see well. Global scale factor in Settings, not per-widget.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "version-skew-reload",
+      "title": "Version-skew detection: 'reload to update' toast after deploys",
+      "lane": "done",
+      "type": "ops",
+      "priority": "low",
+      "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): /api/version + 5-min/tab-focus check + persistent reload toast (one per session, fails soft in dev). Armed from the NEXT deploy onward. Rapid deploys leave open tabs on stale builds \u2192 weird nav failures. App should detect the server build changed and prompt reload.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "38",
+      "title": "Stop writing real account figures into tracked docs",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "notes": "State-audit P0 hygiene.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "39",
+      "title": "Breaker session-open re-baseline job",
+      "lane": "backlog",
+      "type": "safety",
+      "priority": "low",
+      "notes": "Promotion-gated (matters when auto-execution scales).",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "40",
+      "title": "Buy-to-cover in-flight gap",
+      "lane": "backlog",
+      "type": "safety",
+      "priority": "low",
+      "notes": "Gates ever enabling allow_short_selling \u2014 blocked until then.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "43",
+      "title": "Silent content-available push at proposal-create",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "low",
+      "notes": "Optional R2 hardening; only if stuck approval cards appear in real use.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "futures-import",
+      "title": "Import futures trade history (Schwab/ToS PDFs, point multipliers)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "notes": "Open thread \u2014 needed for retrospective completeness.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "29",
+      "title": "Phase 5a: setup_scan recipe + deterministic structures + validated ideas[]",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "notes": "3 consecutive scans \u2192 identical structure sets. Code detects, LLM vetoes/grades.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "35",
+      "title": "#35 Mobile phone-approval delivery shell (R1-R3, H1-H3)",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "notes": "All six audit findings, both sides, device-verified.",
+      "owner": "serv+mac",
+      "updated_at": "2026-07-03"
+    },
+    {
+      "id": "34",
+      "title": "#34 Auth hardening: fail-closed mutations, admin scope, asymmetric kill switch",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "notes": "Adversarial review: zero bypasses.",
+      "owner": "serv",
+      "updated_at": "2026-07-03"
+    },
+    {
+      "id": "33",
+      "title": "#33 Execution-safety: paper-endpoint guarantee, daily-loss breaker, notional caps",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "notes": "5 adversarial-review bugs fixed pre-ship.",
+      "owner": "serv",
+      "updated_at": "2026-07-03"
+    },
+    {
+      "id": "research-v2",
+      "title": "Research Engine v2 core (Phases 1-4: specialists, data, viewer, quality)",
+      "lane": "done",
+      "type": "research",
+      "priority": "high",
+      "notes": "Planner\u2192specialists\u2192critic\u2192editor; proprietary data first-class; founder-approved papers.",
+      "owner": "serv",
+      "updated_at": "2026-07-03"
+    },
+    {
+      "id": "fr-1783133088",
+      "title": "Quotes Bugs",
+      "lane": "in_progress",
+      "type": "bug",
+      "priority": "high",
+      "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 \u2014 watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles \u2014 ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence \u2014 flag if it bugs you.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "fr-1783263918",
+      "title": "info widget",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "i think info widget should be its own thing and then newsfeed should be its own thing with a switch to be watchlist/or all",
+      "owner": "founder",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "fr-1783306826",
+      "title": "open full report",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "brings you to an outdated html...looks worse than the md viewer",
+      "owner": "founder",
+      "updated_at": "2026-07-06"
+    },
+    {
+      "id": "fr-1783306917",
+      "title": "md viewer",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "i dont think it should blur the background and should be able to be moved and sized",
+      "owner": "founder",
+      "updated_at": "2026-07-06"
+    }
+  ]
 }

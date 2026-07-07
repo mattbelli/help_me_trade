@@ -44,6 +44,21 @@ MAX_WS_SYMBOLS = 30
 RECONNECT_BASE_SEC = 2.0
 RECONNECT_MAX_SEC = 60.0
 
+# Suspect-print guard parameters (shared by the Schwab stream handlers and the
+# REST apply_extended poll): a price outside ±TICK_BAND_PCT of the reference —
+# the LAST ADMITTED price, seeded from the prior close — is "suspect" and held
+# until corroborated within TICK_CONFIRM_TOL of the immediately preceding raw
+# value. Referencing last-admitted (not prev_close) means a legitimately gapped
+# stock re-centers the band after its one-tick confirmation and then flows.
+TICK_BAND_PCT = 0.50
+TICK_CONFIRM_TOL = 0.05
+# Absolute backstop vs prev_close: the rolling last-admitted reference is
+# self-corroborating, so a corrupt feed drifting in ≤5% steps could walk it
+# arbitrarily far with every tick "admitting" (no freeze alarm would fire).
+# Nothing real trades at 10x / 0.1x yesterday's close intraday without a
+# corporate action — hold those prints unconditionally, corroborated or not.
+TICK_ABS_CEILING = 10.0
+
 # Per-symbol broadcast coalescing window. Schwab's level-one stream can fire
 # 30–100 ticks/sec on a hot name; sending each one to the phone WS would burn
 # battery (radio + JS render) for no human-visible benefit. We send the first
@@ -99,6 +114,9 @@ class BaseMarketHub:
         #   _pending_broadcast[sym] — the in-flight trailing broadcast (if any)
         self._last_broadcast_ms: dict[str, float] = {}
         self._pending_broadcast: dict[str, asyncio.Task] = {}
+        # Last raw ext price seen per symbol by apply_extended — one-poll
+        # corroboration state for the suspect-ext-print guard (see apply_extended).
+        self._pending_ext: dict[str, float] = {}
 
     async def start(self) -> None:
         if self._running:
@@ -325,6 +343,40 @@ class BaseMarketHub:
         if not state:
             state = QuoteState()
             self._quotes[sym] = state
+        # Suspect-ext-print guard with ONE-POLL corroboration. Reference = the last
+        # ADMITTED ext price (state.ext_price only updates on admitted polls), falling
+        # back to the prior close before the first ext write — the natural
+        # last-admitted analogue of the stream guard. An out-of-band ext price is HELD
+        # on the first poll (WARNING) and admitted on the next poll if it corroborates
+        # the held value within TICK_CONFIRM_TOL. Worst case for a real ±60% AH gap:
+        # the ext price + its alert are delayed one poll cycle (~30–60s); a transient
+        # bogus REST value is dropped and never reaches state.ext_price (feeds the
+        # phone headline + off-hours alerts).
+        if ext_price is not None:
+            ref = state.ext_price if state.ext_price else state.prev_close
+            pending = self._pending_ext.get(sym)
+            self._pending_ext[sym] = ext_price
+            if (
+                ref
+                and ref > 0
+                and not (
+                    ref * (1 - TICK_BAND_PCT)
+                    <= ext_price
+                    <= ref * (1 + TICK_BAND_PCT)
+                )
+                and (
+                    pending is None
+                    or abs(ext_price - pending) > ext_price * TICK_CONFIRM_TOL
+                )
+            ):
+                logger.warning(
+                    "Holding suspect %s ext price %.4f (ref %.2f, pending %s)",
+                    sym,
+                    ext_price,
+                    ref,
+                    f"{pending:.4f}" if pending is not None else "none",
+                )
+                return
         prev_ext = state.ext_price
         state.ext_price = ext_price
         state.ext_change_pct = ext_change_pct

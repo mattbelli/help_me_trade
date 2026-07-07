@@ -1233,13 +1233,14 @@ export function TvLightChart({
       }
     }
 
-    // Reject an implausible live tick (bad print / crossed quote): a value >3× or
-    // <1/3 of the last COMPLETED bar's close is never a real intraday move and would
-    // spike the forming candle's wick (e.g. a $52 stock printing $750). Reference the
-    // prior completed bar — not `last`, which live ticks mutate — so one bad tick
-    // can't poison the reference and freeze the chart.
+    // Reject an implausible live tick (bad print / crossed quote): a value >1.5× or
+    // <1/2 of the last COMPLETED bar's close is never a real intraday move and would
+    // spike the forming candle's wick (e.g. a $52 stock printing $750). Mirrors the
+    // server's ±50% band (the primary guard). Reference the prior completed bar — not
+    // `last`, which live ticks mutate — so one bad tick can't poison the reference and
+    // freeze the chart.
     const ref = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
-    if (ref > 0 && (livePrice > ref * 3 || livePrice * 3 < ref)) return;
+    if (ref > 0 && (livePrice > ref * 1.5 || livePrice * 2 < ref)) return;
 
     // Intraday: when the wall clock crosses into the next interval bucket, roll the
     // forming candle over to a NEW bar (the live tick has no timestamp, so bucket off
@@ -1279,6 +1280,21 @@ export function TvLightChart({
         volumeRef.current?.update({ time: newTime, value: 0 });
         return;
       }
+    }
+
+    // Heal a still-FORMING bar already poisoned by an earlier spike: if its high sits
+    // >1.5× (or its low <1/2 — the −50% mirror) off BOTH the reference close and the
+    // current live price, that wick came from a bad print baked in before this guard
+    // tightened — collapse it back onto the real OHLC before extending. Only the
+    // forming bar is healed here; completed bars heal via refetch, and the server
+    // ±50% band is the primary fix. Accepted residual: a legit extreme V-wick could
+    // be eaten here — display-only, rare, and a refetch RESTORES a real wick since it
+    // exists in Schwab's bars.
+    if (ref > 0 && last.high > ref * 1.5 && last.high > livePrice * 1.5) {
+      last.high = Math.max(last.open, last.close, livePrice);
+    }
+    if (ref > 0 && last.low > 0 && last.low * 2 < ref && last.low * 2 < livePrice) {
+      last.low = Math.min(last.open, last.close, livePrice);
     }
 
     last.close = livePrice;
