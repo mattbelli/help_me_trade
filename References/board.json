@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T16:45:00Z",
+  "updated_at": "2026-07-07T16:58:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -10,13 +10,31 @@
   ],
   "cards": [
     {
+      "id": "stream-staleness-detector",
+      "title": "Detect + self-heal a degraded Schwab stream (repeating stale prices, no error)",
+      "lane": "next",
+      "type": "ops",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-07: after the 12h streamer outage, the reconnected stream delivered REPEATING STALE prices (TSLA pinned 407.305 vs REST 407.59; NVDA $1 stale) with no error - stale ticks kept overwriting fresh REST quotes in the UI. Manual restart fixed it. Build: per-symbol divergence check (stream last vs REST poll, e.g. >0.3% sustained 2+ polls) -> force stream reconnect/resubscribe + WARNING; quote path = adversarial-adjacent review."
+    },
+    {
+      "id": "ticker-underline-gaps",
+      "title": "Hover underline inconsistent across tickers (some ClickableSymbol, some plain text)",
+      "lane": "next",
+      "type": "ui",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "Founder 2026-07-07: some tickers underline on hover, some don't. House rule: EVERY rendered ticker is click-to-chart (ClickableSymbol). Sweep known gaps (proposals/scans/research/reports/memory/chat surfaces) + unify hover affordance."
+    },
+    {
       "id": "chat-schwab-visibility",
       "title": "Chat brain sees real Schwab accounts (read-only) + proposal-intake deny-by-default guard",
       "lane": "done",
       "type": "safety",
       "priority": "high",
       "owner": "serv",
-      "notes": "SHIPPED 2026-07-07 (founder report: agent said 'all in cash' while he held real Schwab positions). Snapshot folds in Schwab from the shared TTL cache (no new REST, last4 only, tradeable=false). Adversarial SAFE-WITH-NITS: bonus gap closed - phone proposals could be created against Schwab ids (approve-time-only rejection) -> deny-by-default guard at build_order_proposal_from_args; cold-cache GETs moved off the event loop in-round. DEPLOY PENDING (batched)."
+      "notes": "SHIPPED 2026-07-07 (founder report: agent said 'all in cash' while he held real Schwab positions). Snapshot folds in Schwab from the shared TTL cache (no new REST, last4 only, tradeable=false). Adversarial SAFE-WITH-NITS: bonus gap closed - phone proposals could be created against Schwab ids (approve-time-only rejection) -> deny-by-default guard at build_order_proposal_from_args; cold-cache GETs moved off the event loop in-round. DEPLOYED 2026-07-07 ~12:50 ET (batched with day-pnl, orders columns, dup-diagnostic)."
     },
     {
       "id": "chat-dup-responses",
