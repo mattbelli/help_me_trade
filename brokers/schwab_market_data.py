@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -57,6 +58,14 @@ _STATE_HALF_OPEN = "half_open"
 # Clock indirection so tests can inject a fake monotonic clock (breaker + throttle log).
 _monotonic = time.monotonic
 
+# The breaker state is mutated from BOTH the event loop (_waf_gate, in acquire) and
+# worker threads (_waf_check, inside the to_thread'd HTTP call). A real OS lock — not
+# an asyncio.Lock — is required to make the read-modify-write of (state, deadline) a
+# single critical section across threads. Held only for a few assignments, never
+# across IO/await, so it can't stall the loop (adversarial finding: without it a
+# preempt between "set OPEN" and "set deadline" let a concurrent gate read OPEN with a
+# stale 0.0 deadline and fire a probe immediately instead of waiting the cooldown).
+_waf_lock = threading.Lock()
 _waf_state = _STATE_CLOSED
 _waf_blocked_until = 0.0
 
@@ -88,20 +97,21 @@ def _waf_gate() -> bool:
     open or a probe is already in flight.
     """
     global _waf_state
-    state = _waf_state
-    if state == _STATE_CLOSED:
-        return False
-    if state == _STATE_HALF_OPEN:
-        # A probe is already in flight for this cooldown — fail fast, don't pile on.
-        raise BrokerError("Schwab WAF probe in flight — skipping request")
-    # OPEN: fail fast until the cooldown elapses, then claim the one probe.
-    remaining = _waf_blocked_until - _monotonic()
-    if remaining > 0:
-        raise BrokerError(
-            f"Schwab WAF cooldown active ({remaining:.0f}s left) — skipping request"
-        )
-    _waf_state = _STATE_HALF_OPEN
-    return True
+    with _waf_lock:
+        state = _waf_state
+        if state == _STATE_CLOSED:
+            return False
+        if state == _STATE_HALF_OPEN:
+            # A probe is already in flight for this cooldown — fail fast, don't pile on.
+            raise BrokerError("Schwab WAF probe in flight — skipping request")
+        # OPEN: fail fast until the cooldown elapses, then claim the one probe.
+        remaining = _waf_blocked_until - _monotonic()
+        if remaining > 0:
+            raise BrokerError(
+                f"Schwab WAF cooldown active ({remaining:.0f}s left) — skipping request"
+            )
+        _waf_state = _STATE_HALF_OPEN
+        return True
 
 
 def _waf_check(response: Any) -> None:
@@ -114,8 +124,9 @@ def _waf_check(response: Any) -> None:
     global _waf_state, _waf_blocked_until
     status = getattr(response, "status_code", None)
     if status in _WAF_STATUS:
-        _waf_state = _STATE_OPEN
-        _waf_blocked_until = _monotonic() + _WAF_COOLDOWN_S
+        with _waf_lock:
+            _waf_state = _STATE_OPEN
+            _waf_blocked_until = _monotonic() + _WAF_COOLDOWN_S
         logger.warning(
             "Schwab WAF %s — circuit breaker OPEN for %.0fs (serving fallback)",
             status,
@@ -123,8 +134,11 @@ def _waf_check(response: Any) -> None:
         )
         response.raise_for_status()
         return
-    if _waf_state != _STATE_CLOSED:
-        _waf_state = _STATE_CLOSED
+    with _waf_lock:
+        closed = _waf_state != _STATE_CLOSED
+        if closed:
+            _waf_state = _STATE_CLOSED
+    if closed:
         logger.info("Schwab WAF probe succeeded — circuit breaker CLOSED")
     response.raise_for_status()
 
@@ -135,9 +149,10 @@ def _waf_probe_aborted() -> None:
     if the probe already resolved the state (closed on success, re-opened on 403/429).
     """
     global _waf_state, _waf_blocked_until
-    if _waf_state == _STATE_HALF_OPEN:
-        _waf_state = _STATE_OPEN
-        _waf_blocked_until = _monotonic() + _WAF_COOLDOWN_S
+    with _waf_lock:
+        if _waf_state == _STATE_HALF_OPEN:
+            _waf_state = _STATE_OPEN
+            _waf_blocked_until = _monotonic() + _WAF_COOLDOWN_S
 
 
 class _RateLimiter:
