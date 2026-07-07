@@ -421,6 +421,7 @@ class BaseMarketHub:
                 severity="info",
                 ref_type="alert",
                 ref_id=str(alert.get("id")),
+                group_key=f"price_alert:{alert.get('id')}",
                 action_url=f"/watchlist/{symbol}",
                 data={
                     "symbol": symbol,

@@ -51,6 +51,37 @@ async def test_price_alert_calls_notify_with_kind_and_push(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_price_alert_notify_includes_group_key(monkeypatch) -> None:
+    """Repeat fires of the same alert collapse onto one toast via group_key."""
+    hub = MarketStreamHub()
+
+    triggered_alert = {
+        "id": 42,
+        "symbol": "AAPL",
+        "price": 200.0,
+        "direction": "above",
+        "note": "",
+        "trigger_price": 200.5,
+    }
+    monkeypatch.setattr(
+        "api.alert_checker.check_alerts",
+        lambda quotes, prev_quotes: [triggered_alert],
+    )
+
+    notify_calls: list[dict] = []
+
+    async def _fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "notif-test", **kwargs}
+
+    monkeypatch.setattr("signals.notify.notify", _fake_notify)
+
+    await hub._check_price_alerts("AAPL", prev=199.0, current=200.5)
+
+    assert notify_calls[0]["group_key"] == "price_alert:42"
+
+
+@pytest.mark.asyncio
 async def test_price_alert_notify_persists_and_broadcasts(monkeypatch) -> None:
     hub = MarketStreamHub()
 

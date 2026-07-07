@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-08T09:00:00Z",
+  "updated_at": "2026-07-08T10:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -47,12 +47,12 @@
     },
     {
       "id": "alert-refire-ext",
-      "title": "Alert spam root-caused: repeat alerts need re-arm price hysteresis + toast group_key; off-hours ext band too loose for 3-8% junk prints",
+      "title": "Ext-path suspect band tightening (~10% + one-poll corroboration) - the remaining half of the alert-spam fix",
       "lane": "next",
       "type": "bug",
       "priority": "normal",
       "owner": "serv",
-      "notes": "INVESTIGATED 2026-07-08 (read-only, conclusive): alert id=18 (NVDA cross 193.95, repeat=1, founder-created 06-25) fired ~34x; the 07-06 cluster = bad post-market prints ALL below the day's regular low (183.37 = -6.2%, no news) crossing the level each snap-back; 60s cooldown worked as designed. The 50% wick-guard band does NOT catch 3-8% junk. FIX QUEUE: (small) alert_checker.py re-arm hysteresis (price must leave the level, e.g. max(0.3%, ATR-frac) before re-arm) + notify group_key=price_alert:{id} + conditional-UPDATE race fix on one-shots; (careful, adversarial) TICK_BAND_PCT_EXT ~0.10 on the ext path reusing one-poll corroboration (real AH gap = 1 poll late, junk print = dropped). Dispatches after Phase 1a frees the writer slot."
+      "notes": "Hysteresis + group_key + one-shot race SHIPPED 2026-07-08 (see BUILD row). REMAINING: TICK_BAND_PCT_EXT ~0.10 so 3-8% junk ext prints never reach alerts/ext fields; real AH gap admitted one poll late via existing corroboration. Adversarial review required (quote path). "
     },
     {
       "id": "strip-padding-fullbleed",
