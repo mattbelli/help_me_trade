@@ -22,7 +22,6 @@ import time
 from typing import Any
 
 from schwab.streaming import StreamClient
-from websockets.exceptions import ConnectionClosedOK
 
 from brokers.errors import BrokerError
 from brokers.market_clock import market_session
@@ -335,19 +334,6 @@ class SchwabMarketStreamHub(BaseMarketHub):
                     )
 
                 while self._running:
-                    # Third reconnect trigger (alongside connection-error and
-                    # message-timeout): the staleness detector saw a frozen stream
-                    # vs a moving REST price. Consume the event and reconnect once;
-                    # the detector's own per-cooldown cap prevents a storm. A frozen
-                    # stream keeps delivering messages, so handle_message returns
-                    # promptly and this top-of-loop check fires within a tick.
-                    if self._force_reconnect_event.is_set():
-                        self._force_reconnect_event.clear()
-                        logger.info(
-                            "Schwab stream: reconnecting on staleness signal"
-                        )
-                        break
-
                     await self._apply_stream_changes(stream)
 
                     try:
@@ -364,16 +350,6 @@ class SchwabMarketStreamHub(BaseMarketHub):
 
             except asyncio.CancelledError:
                 raise
-            except ConnectionClosedOK:
-                # Schwab intermittently closes the streamer session CLEANLY (code
-                # 1000, server-initiated normal close) in bursts post-outage — not a
-                # failure. Reconnect IMMEDIATELY (no backoff sleep, don't grow the
-                # counter): a clean close means Schwab is ready for a fresh session
-                # now, so skipping the 2-3s backoff removes the quote gap during
-                # session churn. Genuine errors below still back off.
-                logger.info(
-                    "Schwab market stream closed cleanly (code 1000); reconnecting now"
-                )
             except Exception as exc:
                 exc_type = type(exc).__name__
                 logger.warning(
@@ -478,11 +454,6 @@ class SchwabMarketStreamHub(BaseMarketHub):
             ):
                 continue
 
-            # Feed the silently-degraded-stream detector: this admitted tick is the
-            # stream's current price for the active session (regular → state.price,
-            # off-hours → ext), the value the REST poll compares against.
-            self._record_stream_tick(symbol, price_f)
-
             # Bid/ask/volume update in every session (informative, harmless).
             if bid_raw is not None:
                 state.bid = float(bid_raw)
@@ -559,8 +530,6 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 symbol, price_f, state.prev_close, label="futures tick"
             ):
                 continue
-
-            self._record_stream_tick(symbol, price_f)
 
             state.price = price_f
             if bid_raw is not None:

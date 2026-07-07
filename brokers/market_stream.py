@@ -67,33 +67,6 @@ TICK_ABS_CEILING = 10.0
 # ceiling: ~10 Hz / symbol / client. Alerts are NOT throttled.
 BROADCAST_THROTTLE_MS = 100.0
 
-# ---------------------------------------------------------------------------
-# Silently-degraded-stream detector (see SchwabMarketStreamHub._upstream_loop).
-# A recovered Schwab stream can keep DELIVERING ticks while their prices are
-# FROZEN — no connection error, no message-timeout, so the existing reconnect
-# triggers stay blind. The fresh REST poll (apply_extended) is ground truth: when
-# the stream's last-tick price sits still while the REST price moves away from it,
-# the stream is degraded. Each clause below is a false-positive / storm guard:
-#   DIVERGENCE_PCT  — the REST price must have moved this far from the frozen
-#                     stream tick (a quiet market where both sit still never trips).
-#   POLLS_REQUIRED  — the same symbol must stay frozen+diverged across this many
-#                     consecutive REST polls (a one-poll blip never trips).
-#   SYMBOLS_REQUIRED— this many DISTINCT symbols must be frozen+diverged at once
-#                     (a single untraded/quirky name never trips; a degraded
-#                     stream freezes many at once).
-#   LIVE_WINDOW_S   — only judge a symbol whose stream is *supposed* to be live
-#                     (a tick arrived this recently). A silent stream is the
-#                     message-timeout trigger's job, not this one.
-#   COOLDOWN_S      — at most ONE forced reconnect per this window. A persistently
-#                     degraded stream reconnects once per cooldown and otherwise
-#                     rides the REST poll — never a reconnect storm (a storm would
-#                     re-trip the Akamai WAF the REST rate governor just tamed).
-STALE_DIVERGENCE_PCT = 0.003
-STALE_POLLS_REQUIRED = 2
-STALE_SYMBOLS_REQUIRED = 3
-STALE_STREAM_LIVE_WINDOW_S = 60.0
-FORCE_RECONNECT_COOLDOWN_S = 120.0
-
 
 @dataclass
 class QuoteState:
@@ -144,23 +117,6 @@ class BaseMarketHub:
         # Last raw ext price seen per symbol by apply_extended — one-poll
         # corroboration state for the suspect-ext-print guard (see apply_extended).
         self._pending_ext: dict[str, float] = {}
-        # Silently-degraded-stream detector state (see the module constants and
-        # _note_stream_staleness). Injectable monotonic clock so tests never sleep.
-        self._clock = time.monotonic
-        # Last admitted stream-tick price + arrival stamp per symbol, written by
-        # _record_stream_tick from the stream handlers (subclass). The REST poll
-        # compares against these in apply_extended.
-        self._stream_tick_price: dict[str, float] = {}
-        self._stream_tick_ts: dict[str, float] = {}
-        # Cross-poll detector memory: the stream-tick price seen at the previous
-        # poll (to prove "frozen") and the count of consecutive frozen+diverged
-        # polls per symbol.
-        self._stale_prev_stream_price: dict[str, float] = {}
-        self._stale_poll_count: dict[str, int] = {}
-        self._last_force_reconnect_ts = 0.0
-        # Set by the detector, consumed by the Schwab _upstream_loop to break and
-        # reconnect. Created without a running loop (safe since Python 3.10).
-        self._force_reconnect_event = asyncio.Event()
 
     async def start(self) -> None:
         if self._running:
@@ -373,76 +329,6 @@ class BaseMarketHub:
         """Drive the upstream broker connection.  Override in each subclass."""
         raise NotImplementedError
 
-    # ------------------------------------------------------------------
-    # Silently-degraded-stream detector
-    # ------------------------------------------------------------------
-
-    def _record_stream_tick(self, symbol: str, price: float) -> None:
-        """Record the stream's last admitted tick price + arrival stamp.
-
-        Called by the Schwab handlers on every admitted tick (regular or ext).
-        The REST poll compares against this in _note_stream_staleness to spot a
-        stream that keeps delivering but with a frozen price.
-        """
-        self._stream_tick_price[symbol] = price
-        self._stream_tick_ts[symbol] = self._clock()
-
-    def _note_stream_staleness(self, symbol: str, rest_price: float) -> None:
-        """Judge one symbol's fresh REST price against its last stream tick.
-
-        A symbol counts as stale-diverged this poll when the stream's last-tick
-        price is FROZEN (unchanged since the previous poll) AND the REST price has
-        DIVERGED from it by more than STALE_DIVERGENCE_PCT. Only symbols whose
-        stream is *supposed* to be live (a tick arrived within
-        STALE_STREAM_LIVE_WINDOW_S) are judged. When enough distinct symbols stay
-        stale-diverged across enough consecutive polls, force a paced reconnect.
-        """
-        if rest_price <= 0:
-            return
-        stream_price = self._stream_tick_price.get(symbol)
-        stream_ts = self._stream_tick_ts.get(symbol)
-        if (
-            stream_price is None
-            or stream_ts is None
-            or self._clock() - stream_ts > STALE_STREAM_LIVE_WINDOW_S
-        ):
-            # Stream not live for this symbol → not our signal; drop its history.
-            self._stale_poll_count.pop(symbol, None)
-            self._stale_prev_stream_price.pop(symbol, None)
-            return
-        prev_stream = self._stale_prev_stream_price.get(symbol)
-        self._stale_prev_stream_price[symbol] = stream_price
-        diverged = abs(rest_price - stream_price) / rest_price > STALE_DIVERGENCE_PCT
-        frozen = prev_stream is not None and prev_stream == stream_price
-        if diverged and frozen:
-            self._stale_poll_count[symbol] = self._stale_poll_count.get(symbol, 0) + 1
-            self._maybe_force_reconnect()
-        else:
-            self._stale_poll_count[symbol] = 0
-
-    def _maybe_force_reconnect(self) -> None:
-        """Trip a rate-limited forced reconnect when the multi-symbol gate is met."""
-        stale = [
-            sym
-            for sym, count in self._stale_poll_count.items()
-            if count >= STALE_POLLS_REQUIRED
-        ]
-        if len(stale) < STALE_SYMBOLS_REQUIRED:
-            return
-        now = self._clock()
-        if now - self._last_force_reconnect_ts < FORCE_RECONNECT_COOLDOWN_S:
-            return  # one forced reconnect per cooldown — never a storm
-        self._last_force_reconnect_ts = now
-        logger.warning(
-            "Schwab stream stale — %d symbols frozen vs REST, forcing reconnect: %s",
-            len(stale),
-            ", ".join(sorted(stale)),
-        )
-        self._force_reconnect_event.set()
-        # Re-evaluate fresh after the reconnect.
-        self._stale_poll_count.clear()
-        self._stale_prev_stream_price.clear()
-
     async def apply_extended(
         self,
         symbol: str,
@@ -451,7 +337,6 @@ class BaseMarketHub:
         ext_change_pct: float | None,
         market_session: str | None,
         broadcast: bool = True,
-        rest_price: float | None = None,
     ) -> None:
         """Update a symbol's extended-hours fields and (optionally) broadcast.
 
@@ -460,11 +345,6 @@ class BaseMarketHub:
         headlines — the Schwab level-one stream doesn't emit ext fields. Creates a
         QuoteState if none exists yet. Also drives price-alert evaluation off the
         extended price (see below).
-
-        ``rest_price`` is the fresh regular REST price from the same poll; it feeds
-        the silently-degraded-stream detector (_note_stream_staleness) so the
-        RTH frozen-stream case is caught too. Off-hours the live ext price is the
-        current price and is used instead.
         """
         sym = str(symbol).strip().upper()
         if not sym:
@@ -519,15 +399,6 @@ class BaseMarketHub:
         # Cross-detection needs a prior value and an actual move.
         if ext_price is not None and prev_ext is not None and prev_ext != ext_price:
             await self._check_price_alerts(sym, prev_ext, ext_price)
-
-        # Silently-degraded-stream detector: compare this poll's fresh price to the
-        # stream's last-tick price. Off-hours the live ext price is the current
-        # price; during RTH ext_price is None and the regular rest_price is used.
-        # A held-suspect ext price returned above, so we never feed the detector a
-        # bogus price.
-        rest_effective = ext_price if ext_price is not None else rest_price
-        if rest_effective is not None:
-            self._note_stream_staleness(sym, float(rest_effective))
 
     async def _check_price_alerts(
         self, symbol: str, prev: float, current: float
