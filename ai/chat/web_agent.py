@@ -33,6 +33,8 @@ from ai.chat.loop import (
     ApprovalRequest,
     LoopError,
     TextChunk,
+    TextDelta,
+    TextEnd,
     ToolCallStarted,
     ToolResult,
     assemble_system_prompt,
@@ -314,10 +316,30 @@ async def _drive_loop(
     text_acc: list[str],
 ) -> AsyncIterator[str]:
     """Encode loop events → UIMessageStream chunks + persisted parts."""
+    # Live-text framing state: a streamed text block spans TextDelta..TextEnd,
+    # sharing one id; its fragments accumulate into a single persisted part.
+    text_id: str | None = None
+    text_buf: list[str] = []
     async for event in run_chat_loop(llm, convo, tools, execute=execute_tool):
         if isinstance(event, TextChunk):
             for line in _emit_text(stream, parts, text_acc, event.text):
                 yield line
+        elif isinstance(event, TextDelta):
+            if text_id is None:
+                text_id = f"text_{uuid.uuid4().hex}"
+                text_buf = []
+                yield stream.text_start(text_id)
+            text_buf.append(event.text)
+            yield stream.text_delta(text_id, event.text)
+        elif isinstance(event, TextEnd):
+            if text_id is not None:
+                yield stream.text_end(text_id)
+                full = "".join(text_buf)
+                if full:
+                    parts.append({"type": "text", "text": full})
+                    text_acc.append(full)
+                text_id = None
+                text_buf = []
         elif isinstance(event, ToolCallStarted):
             yield stream.tool_input_start(
                 tool_call_id=event.tool_call_id, tool_name=event.tool_name

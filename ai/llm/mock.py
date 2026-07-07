@@ -7,7 +7,14 @@ import json
 import re
 from collections.abc import AsyncIterator, Iterator
 
-from ai.llm.base import LLMMessage, ToolCallResult, ToolSpec
+from ai.llm.base import (
+    LLMMessage,
+    StreamEvent,
+    StreamFinish,
+    StreamTextDelta,
+    ToolCallResult,
+    ToolSpec,
+)
 
 _CANDIDATE_RE = re.compile(r"Candidate (\d+):")
 
@@ -33,6 +40,24 @@ class MockLLM:
         return ToolCallResult(
             text=self._synthesize(messages), tool_calls=(), finish_reason="stop"
         )
+
+    async def stream_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolSpec],
+        *,
+        tool_choice: str = "auto",
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        # Streaming twin of complete_tools: no tools to run, so it streams the
+        # synthesized answer as word-level text deltas, then finishes.
+        text = self._synthesize(messages)
+        words = text.split()
+        for i, word in enumerate(words):
+            await asyncio.sleep(0)
+            yield StreamTextDelta(word if i == 0 else " " + word)
+        yield StreamFinish(finish_reason="stop")
 
     def stream(
         self, messages: list[LLMMessage], *, max_tokens: int = 1024

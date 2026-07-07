@@ -13,6 +13,10 @@ import httpx
 
 from ai.llm.base import (
     LLMMessage,
+    StreamEvent,
+    StreamFinish,
+    StreamTextDelta,
+    StreamToolCall,
     ToolArgumentError,
     ToolCall,
     ToolCallResult,
@@ -321,6 +325,151 @@ class OpenAICompatibleLLM:
             max_tokens=max_tokens,
             temperature=temperature,
         )
+
+    def _stream_tools_sync(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolSpec],
+        *,
+        tool_choice: str,
+        max_tokens: int,
+        temperature: float | None,
+    ) -> Iterator[StreamEvent]:
+        """Blocking SSE reader for the streaming tool-call round-trip.
+
+        Yields text deltas the moment they arrive, then the fully reassembled
+        tool calls, then a final ``StreamFinish``. Tool-call deltas carry an
+        ``index``; id/name land on the first fragment for that index and the
+        argument string accumulates across fragments (multiple parallel calls
+        are tracked by index).
+        """
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [_serialize_message(m) for m in messages],
+            "max_tokens": max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if tools:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters or {"type": "object", "properties": {}},
+                    },
+                }
+                for t in tools
+            ]
+            payload["tool_choice"] = tool_choice
+        if temperature is not None:
+            payload["temperature"] = temperature
+
+        # index -> {"id", "name", "args"} reassembly buffers (insertion-ordered).
+        frags: dict[int, dict[str, str]] = {}
+        finish_reason: str | None = None
+        usage: dict[str, Any] | None = None
+        with httpx.Client(timeout=120.0) as client:
+            with client.stream(
+                "POST", self._endpoint(), headers=self._headers(), json=payload
+            ) as resp:
+                if resp.is_error:
+                    resp.read()
+                    detail = _http_error_detail(resp)
+                    raise httpx.HTTPStatusError(
+                        f"{resp.status_code} {resp.reason_phrase} from {self.provider}: {detail}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    chunk = line[len("data:") :].strip()
+                    if chunk == "[DONE]":
+                        break
+                    parsed = json.loads(chunk)
+                    if parsed.get("usage"):
+                        usage = parsed["usage"]
+                    choices = parsed.get("choices") or []
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    delta = choice.get("delta") or {}
+                    text = delta.get("content")
+                    if text:
+                        yield StreamTextDelta(text)
+                    for tc in delta.get("tool_calls") or []:
+                        idx = tc.get("index", 0)
+                        frag = frags.setdefault(idx, {"id": "", "name": "", "args": ""})
+                        if tc.get("id"):
+                            frag["id"] = str(tc["id"])
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            frag["name"] = str(fn["name"])
+                        if fn.get("arguments"):
+                            frag["args"] += str(fn["arguments"])
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+        if finish_reason == "length":
+            logger.warning(
+                "%s tool stream truncated at max_tokens=%d (finish_reason=length)",
+                self.provider,
+                max_tokens,
+            )
+        for idx in sorted(frags):
+            frag = frags[idx]
+            yield StreamToolCall(
+                _parse_tool_call(
+                    {
+                        "id": frag["id"],
+                        "function": {"name": frag["name"], "arguments": frag["args"]},
+                    }
+                )
+            )
+        yield StreamFinish(finish_reason=finish_reason, usage=usage)
+
+    async def stream_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolSpec],
+        *,
+        tool_choice: str = "auto",
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        """Async streaming variant of ``complete_tools``.
+
+        Bridges the blocking SSE reader to async via an executor + queue (same
+        pattern as ``astream``). A provider/transport error mid-stream is
+        surfaced by re-raising into the consumer so callers can terminate the
+        stream cleanly instead of hanging.
+        """
+        queue: asyncio.Queue[StreamEvent | Exception | None] = asyncio.Queue()
+
+        def _producer() -> None:
+            try:
+                for event in self._stream_tools_sync(
+                    messages,
+                    tools,
+                    tool_choice=tool_choice,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                ):
+                    queue.put_nowait(event)
+            except Exception as exc:  # surfaced to the consumer, not swallowed
+                queue.put_nowait(exc)
+            finally:
+                queue.put_nowait(None)
+
+        asyncio.get_running_loop().run_in_executor(None, _producer)
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
 
     def stream(
         self, messages: list[LLMMessage], *, max_tokens: int = 1024

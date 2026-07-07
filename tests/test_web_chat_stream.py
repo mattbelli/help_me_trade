@@ -11,13 +11,20 @@ Covers the Phase-1b non-negotiables:
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 
 from ai.chat.agent import ChatRunResult
 from ai.chat.web_agent import run_web_chat_stream
-from ai.llm.base import ToolCall, ToolCallResult
+from ai.llm.base import (
+    StreamFinish,
+    StreamTextDelta,
+    StreamToolCall,
+    ToolCall,
+    ToolCallResult,
+)
 
 
 class ScriptedLLM:
@@ -38,6 +45,34 @@ class ScriptedLLM:
 
     def complete(self, messages, *, max_tokens=1024):
         return self._final_text
+
+
+class StreamingScriptedLLM:
+    """Native streaming stub: replays a queue of per-turn StreamEvent lists via
+    stream_tools. complete_tools must never be called (the loop must prefer the
+    streaming path); complete backs the iteration-cap wrap-up only."""
+
+    provider = "streaming-scripted"
+
+    def __init__(self, turns: list[list], *, final_text: str = "done") -> None:
+        self._turns = list(turns)
+        self._i = 0
+        self._final_text = final_text
+
+    def complete_tools(self, *a, **k):
+        raise AssertionError("streaming path must use stream_tools, not complete_tools")
+
+    def complete(self, messages, *, max_tokens=1024):
+        return self._final_text
+
+    async def stream_tools(self, messages, tools, *, tool_choice="auto", max_tokens=1024, temperature=None):
+        turn = self._turns[self._i]
+        self._i += 1
+        for ev in turn:
+            await asyncio.sleep(0)
+            if isinstance(ev, Exception):
+                raise ev
+            yield ev
 
 
 def _events(lines: list[str]) -> list[dict]:
@@ -414,6 +449,139 @@ async def test_execute_raising_mid_loop_emits_error_output_and_finishes(monkeypa
     assert out["output"] == {"error": "db down"}
     assert run.assistant_text == "Something went wrong reading status."
     assert [e["type"] for e in events[-2:]] == ["finish-step", "finish"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_text_before_and_after_a_tool_round(monkeypatch):
+    """Live streaming across two turns: preamble text (deltas) -> tool round ->
+    final text (deltas). Each fragment surfaces as its own text-delta the moment
+    it arrives, and both text segments persist as separate text parts."""
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_execute(name, args):
+        calls.append((name, args))
+        return {"symbol": "AAPL", "quote": 123.0}
+
+    llm = StreamingScriptedLLM(
+        [
+            [
+                StreamTextDelta("Checking "),
+                StreamTextDelta("AAPL. "),
+                StreamToolCall(ToolCall(id="c1", name="get_context", arguments={"symbol": "AAPL"})),
+                StreamFinish(finish_reason="tool_calls"),
+            ],
+            [
+                StreamTextDelta("AAPL "),
+                StreamTextDelta("is 123."),
+                StreamFinish(finish_reason="stop"),
+            ],
+        ]
+    )
+    events, run = await _collect(
+        [_user("how is AAPL")], llm=llm, monkeypatch=monkeypatch, execute=fake_execute
+    )
+
+    assert [e["type"] for e in events] == [
+        "start",
+        "start-step",
+        "text-start",
+        "text-delta",
+        "text-delta",
+        "text-end",
+        "tool-input-start",
+        "tool-input-available",
+        "tool-output-available",
+        "text-start",
+        "text-delta",
+        "text-delta",
+        "text-end",
+        "finish-step",
+        "finish",
+    ]
+    # deltas arrive raw (token-live), not re-chunked post-hoc
+    deltas = [e["delta"] for e in events if e["type"] == "text-delta"]
+    assert deltas == ["Checking ", "AAPL. ", "AAPL ", "is 123."]
+    assert calls == [("get_context", {"symbol": "AAPL"})]
+    assert run.assistant_text == "Checking AAPL. AAPL is 123."
+
+    parts = run.assistant_message["parts"]
+    text_parts = [p for p in parts if p["type"] == "text"]
+    assert [p["text"] for p in text_parts] == ["Checking AAPL. ", "AAPL is 123."]
+    tool_parts = [p for p in parts if p["type"] == "tool-get_context"]
+    assert tool_parts and tool_parts[0]["state"] == "output-available"
+
+
+@pytest.mark.asyncio
+async def test_streaming_midstream_error_terminates_cleanly(monkeypatch):
+    """A provider disconnect after partial text closes the open text block, emits
+    an error chunk, and still finishes the stream — never a hang."""
+
+    async def fake_execute(name, args):
+        return {}
+
+    llm = StreamingScriptedLLM(
+        [[StreamTextDelta("Partial ans"), RuntimeError("stream disconnected")]]
+    )
+    events, run = await _collect(
+        [_user("hi")], llm=llm, monkeypatch=monkeypatch, execute=fake_execute
+    )
+
+    assert [e["type"] for e in events] == [
+        "start",
+        "start-step",
+        "text-start",
+        "text-delta",
+        "text-end",
+        "error",
+        "finish-step",
+        "finish",
+    ]
+    assert next(e for e in events if e["type"] == "text-delta")["delta"] == "Partial ans"
+    assert "stream disconnected" in next(e for e in events if e["type"] == "error")["errorText"]
+    assert run.assistant_text == "Partial ans"  # partial text preserved
+
+
+@pytest.mark.asyncio
+async def test_streaming_approval_pause_framing_matches_nonstreaming(monkeypatch):
+    """Golden: a propose_order call frames byte-identically whether the model's
+    output streamed or not — same chunk sequence, same approval part, and it
+    still PAUSES without executing."""
+    executed: list = []
+
+    async def fake_execute(name, args):
+        executed.append(name)
+        return {"status": "should-not-happen"}
+
+    propose = ToolCall(
+        id="c1", name="propose_order", arguments={"symbol": "AAPL", "side": "buy", "qty": 1}
+    )
+
+    ns_llm = ScriptedLLM([ToolCallResult(text=None, tool_calls=(propose,))])
+    ns_events, ns_run = await _collect(
+        [_user("buy 1 AAPL")], llm=ns_llm, monkeypatch=monkeypatch, execute=fake_execute
+    )
+
+    st_llm = StreamingScriptedLLM(
+        [[StreamToolCall(propose), StreamFinish(finish_reason="tool_calls")]]
+    )
+    st_events, st_run = await _collect(
+        [_user("buy 1 AAPL")], llm=st_llm, monkeypatch=monkeypatch, execute=fake_execute
+    )
+
+    # Identical chunk-type sequence (approval framing unchanged under streaming).
+    assert [e["type"] for e in st_events] == [e["type"] for e in ns_events]
+    # Neither path executed the proposal.
+    assert executed == []
+    for events in (ns_events, st_events):
+        approval = next(e for e in events if e["type"] == "tool-approval-request")
+        assert set(approval) == {"type", "approvalId", "toolCallId"}
+        assert approval["toolCallId"] == "c1"
+        assert not any(e["type"] == "tool-output-available" for e in events)
+    # Identical persisted approval part (bar the random approval id).
+    ns_part = next(p for p in ns_run.assistant_message["parts"] if p["type"] == "tool-propose_order")
+    st_part = next(p for p in st_run.assistant_message["parts"] if p["type"] == "tool-propose_order")
+    assert ns_part["state"] == st_part["state"] == "approval-requested"
+    assert ns_part["input"] == st_part["input"] == {"symbol": "AAPL", "side": "buy", "qty": 1}
 
 
 def test_mockllm_endpoint_round_trip(monkeypatch, mutation_client):

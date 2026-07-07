@@ -37,6 +37,19 @@ class UIMessageStream:
     def error(self, error_text: str) -> str:
         return self._event({"type": "error", "errorText": error_text})
 
+    # --- Live text framing (token-streamed) ---------------------------------
+    # Same chunk shapes as ``text_chunks`` but split across calls so a caller
+    # can open a text block, forward deltas the moment they arrive, then close
+    # it — instead of chunking a whole post-hoc answer.
+    def text_start(self, text_id: str) -> str:
+        return self._event({"type": "text-start", "id": text_id})
+
+    def text_delta(self, text_id: str, delta: str) -> str:
+        return self._event({"type": "text-delta", "id": text_id, "delta": delta})
+
+    def text_end(self, text_id: str) -> str:
+        return self._event({"type": "text-end", "id": text_id})
+
     def text_chunks(self, text: str, *, chunk_size: int = 12) -> Iterator[str]:
         text_id = _new_id("text")
         yield self._event({"type": "text-start", "id": text_id})

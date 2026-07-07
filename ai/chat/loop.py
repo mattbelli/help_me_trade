@@ -34,7 +34,14 @@ from ai.chat.context import (
     turn_memory_context,
 )
 from ai.chat.tool_specs import APPROVAL_TOOLS, chat_tool_specs
-from ai.llm.base import LLMMessage, ToolCall, ToolSpec
+from ai.llm.base import (
+    LLMMessage,
+    StreamFinish,
+    StreamTextDelta,
+    StreamToolCall,
+    ToolCall,
+    ToolSpec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +57,22 @@ class TextChunk:
     """Final (or interim) assistant text. Encoders chunk it into text-deltas."""
 
     text: str
+
+
+@dataclass
+class TextDelta:
+    """A token-live fragment of assistant text (streaming providers only).
+
+    The encoder opens a text block on the first delta of a segment, forwards
+    each fragment as a real-time text-delta, and closes it on ``TextEnd``.
+    """
+
+    text: str
+
+
+@dataclass
+class TextEnd:
+    """Marks the end of a streamed text segment so the encoder closes its block."""
 
 
 @dataclass
@@ -83,7 +106,9 @@ class LoopError:
     message: str
 
 
-LoopEvent = TextChunk | ToolCallStarted | ToolResult | ApprovalRequest | LoopError
+LoopEvent = (
+    TextChunk | TextDelta | TextEnd | ToolCallStarted | ToolResult | ApprovalRequest | LoopError
+)
 
 
 @dataclass
@@ -141,6 +166,58 @@ def _tool_result_message(call: ToolCall, output: Any) -> LLMMessage:
     )
 
 
+async def _model_turn(
+    llm: Any,
+    convo: list[LLMMessage],
+    tools: list[ToolSpec],
+    *,
+    max_tokens: int,
+    holder: dict[str, Any],
+) -> AsyncIterator[LoopEvent]:
+    """Run one provider turn, live-streaming text when supported.
+
+    Providers exposing ``stream_tools`` surface text token-live (yielding
+    ``TextDelta`` per fragment, then ``TextEnd`` if any text opened) while tool
+    calls arrive fully reassembled; others make one blocking ``complete_tools``
+    call and stream nothing here. Either way the turn's result is written to
+    ``holder`` (``text`` preamble/answer, ``calls`` tuple, ``streamed`` flag) for
+    the driver to act on — the tool round-trip is identical for both paths.
+    """
+    stream_tools = getattr(llm, "stream_tools", None)
+    if callable(stream_tools):
+        text_parts: list[str] = []
+        calls: list[ToolCall] = []
+        opened = False
+        async for ev in stream_tools(
+            convo, tools, tool_choice="auto", max_tokens=max_tokens
+        ):
+            if isinstance(ev, StreamTextDelta):
+                text_parts.append(ev.text)
+                opened = True
+                yield TextDelta(ev.text)
+            elif isinstance(ev, StreamToolCall):
+                calls.append(ev.call)
+            elif isinstance(ev, StreamFinish):
+                pass  # finish_reason logging lives in the provider
+        if opened:
+            yield TextEnd()
+        holder["text"] = "".join(text_parts)
+        holder["calls"] = tuple(calls)
+        holder["streamed"] = opened
+        return
+
+    result = await asyncio.to_thread(
+        llm.complete_tools,
+        convo,
+        tools,
+        tool_choice="auto",
+        max_tokens=max_tokens,
+    )
+    holder["text"] = result.text or ""
+    holder["calls"] = tuple(result.tool_calls)
+    holder["streamed"] = False
+
+
 async def run_chat_loop(
     llm: Any,
     convo: list[LLMMessage],
@@ -168,26 +245,36 @@ async def run_chat_loop(
         return
 
     for _iteration in range(max_iterations):
+        holder: dict[str, Any] = {}
+        text_open = False
         try:
-            result = await asyncio.to_thread(
-                llm.complete_tools,
-                convo,
-                tools,
-                tool_choice="auto",
-                max_tokens=max_tokens,
-            )
+            async for event in _model_turn(llm, convo, tools, max_tokens=max_tokens, holder=holder):
+                if isinstance(event, TextDelta):
+                    text_open = True
+                elif isinstance(event, TextEnd):
+                    text_open = False
+                yield event
         except Exception as exc:
-            logger.exception("complete_tools failed")
+            logger.exception("model turn failed")
+            if text_open:  # close the partially-streamed block before erroring
+                yield TextEnd()
             yield LoopError(str(exc))
             return
 
-        if result.is_final:
-            yield TextChunk(result.text or "")
+        text = holder["text"]
+        calls = holder["calls"]
+        streamed = holder["streamed"]
+
+        if not calls:
+            # Final answer. Streamed providers already emitted live deltas + a
+            # TextEnd; non-streaming (or empty) turns emit the whole block here.
+            if not streamed:
+                yield TextChunk(text)
             return
 
-        convo.append(_assistant_toolcall_message(result.text or "", result.tool_calls))
+        convo.append(_assistant_toolcall_message(text, calls))
 
-        for call in result.tool_calls:
+        for call in calls:
             if call.name in approval_tools:
                 # Pause: emit the input + an approval request, execute nothing.
                 yield ToolCallStarted(call.id, call.name, call.arguments)

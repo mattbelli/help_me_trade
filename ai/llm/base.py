@@ -59,6 +59,30 @@ class ToolCallResult:
         return not self.tool_calls
 
 
+# --- Streaming tool-call events -----------------------------------------------
+# Typed events yielded by a provider's optional ``stream_tools()`` async
+# generator so text surfaces token-live while native tool-calling still works.
+# ``ToolCall``s are emitted fully reassembled (id/name on the first SSE fragment,
+# arguments accumulated across fragments) — never partial.
+@dataclass(frozen=True)
+class StreamTextDelta:
+    text: str
+
+
+@dataclass(frozen=True)
+class StreamToolCall:
+    call: ToolCall
+
+
+@dataclass(frozen=True)
+class StreamFinish:
+    finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
+
+
+StreamEvent = StreamTextDelta | StreamToolCall | StreamFinish
+
+
 class ToolArgumentError(ValueError):
     """Raised when a tool-call's arguments are not a valid JSON object.
 
