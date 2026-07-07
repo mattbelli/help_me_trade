@@ -106,14 +106,16 @@ function PositionRow({
       <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatMoney(p.current_price)}
       </td>
-      <td
-        className={cn(
-          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground",
-          valueFlash === "up" && "tick-flash-up",
-          valueFlash === "down" && "tick-flash-down",
-        )}
-      >
-        {formatMoney(p.market_value)}
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground">
+        <span
+          className={cn(
+            "-mx-0.5 inline-flex w-fit rounded px-0.5",
+            valueFlash === "up" && "tick-flash-up",
+            valueFlash === "down" && "tick-flash-down",
+          )}
+        >
+          {formatMoney(p.market_value)}
+        </span>
       </td>
       <td
         className={cn(

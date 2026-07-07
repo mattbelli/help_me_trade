@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Reorder, useDragControls } from "motion/react";
@@ -24,7 +26,6 @@ import {
   updateWatchlist,
   type WatchlistsState,
 } from "@/lib/api";
-import { useWatchlistDragStore } from "@/lib/use-watchlist-drag-store";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePageActive } from "@/lib/workspace/page-active-context";
@@ -320,23 +321,42 @@ function WatchlistSymbolRow({
   quote,
   isOvernight,
   linked,
-  instanceId,
+  selected,
+  confirming,
   onPublish,
+  onSelect,
   onDragStart,
   onReorderEnd,
-  onDelete,
+  onDragOutRelease,
+  onConfirmAccept,
+  onConfirmCancel,
+  getWidgetRect,
 }: {
   symbol: string;
   quote: Quote | undefined;
   isOvernight: boolean;
   linked: boolean;
-  instanceId: string;
+  selected: boolean;
+  confirming: boolean;
   onPublish: () => void;
+  onSelect: () => void;
   onDragStart: () => void;
   onReorderEnd: () => void;
-  onDelete: () => void;
+  onDragOutRelease: () => void;
+  onConfirmAccept: () => void;
+  onConfirmCancel: () => void;
+  getWidgetRect: () => DOMRect | null;
 }) {
   const controls = useDragControls();
+  // While a held row is dragged OUTSIDE the widget's bounding box it becomes a
+  // "release to delete" gesture; back inside, it's a normal reorder.
+  const [willDelete, setWillDelete] = useState(false);
+  const itemRef = useRef<HTMLLIElement>(null);
+
+  // Keep the keyboard-selected row in view as arrows move the selection.
+  useEffect(() => {
+    if (selected) itemRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
   // Hold-anywhere-to-drag: a ~300ms hold on a non-interactive part of the row
   // lifts it into a drag; a quick tap (timer never fires) publishes as usual.
   const holdTimer = useRef<number | null>(null);
@@ -366,11 +386,10 @@ function WatchlistSymbolRow({
         if (!saved) return;
         didDrag.current = true;
         onDragStart();
-        useWatchlistDragStore.getState().setDragging(instanceId);
         controls.start(saved);
       }, HOLD_MS);
     },
-    [controls, instanceId, onDragStart],
+    [controls, onDragStart],
   );
 
   const handlePointerMove = useCallback((e: ReactPointerEvent) => {
@@ -406,8 +425,16 @@ function WatchlistSymbolRow({
 
   return (
     <Reorder.Item
+      ref={itemRef}
       value={symbol}
       layout="position"
+      // Unlock BOTH axes so a dragged-out row follows the pointer horizontally.
+      // The framer-motion Reorder.Item source spreads a `drag` prop AFTER its
+      // internal `drag: axis` default, so this overrides the group's y-lock
+      // (the lib documents `<Reorder.Item drag />` for both-axes). onReorder is
+      // unaffected: the internal onDrag keys off point[axis]/velocity[axis] (y),
+      // and dragSnapToOrigin (forced true by the lib) snaps x back to 0 on drop.
+      drag
       dragListener={false}
       dragControls={controls}
       whileDrag={{
@@ -416,14 +443,21 @@ function WatchlistSymbolRow({
         boxShadow: "0 6px 20px rgba(0, 0, 0, 0.45)",
       }}
       onDrag={(_, info) => {
-        const { trashRect, setOverTrash } = useWatchlistDragStore.getState();
-        setOverTrash(pointInRect(info.point.x, info.point.y, trashRect));
+        // Pointer outside the widget box => release will delete.
+        setWillDelete(
+          !pointInRect(info.point.x, info.point.y, getWidgetRect()),
+        );
       }}
       onDragEnd={(_, info) => {
-        const { trashRect, setDragging } = useWatchlistDragStore.getState();
-        const onTrash = pointInRect(info.point.x, info.point.y, trashRect);
-        setDragging(null);
-        if (onTrash) onDelete();
+        const outside = !pointInRect(
+          info.point.x,
+          info.point.y,
+          getWidgetRect(),
+        );
+        setWillDelete(false);
+        // Release outside no longer deletes — it arms the confirm pill (the row
+        // snaps back via dragSnapToOrigin + layout). Release inside = reorder.
+        if (outside) onDragOutRelease();
         else onReorderEnd();
       }}
       className="border-b border-[var(--border)]"
@@ -432,6 +466,8 @@ function WatchlistSymbolRow({
       onPointerUp={clearHold}
       onPointerCancel={clearHold}
       onClick={() => {
+        // A click always marks the row keyboard-selected (even after a drag).
+        onSelect();
         // Suppress the publish for the pointerup that ended a drag.
         if (didDrag.current) {
           didDrag.current = false;
@@ -444,9 +480,53 @@ function WatchlistSymbolRow({
       <div
         className={cn(
           rowGrid(),
-          "group/row group px-2 py-1.5 hover:bg-[var(--bg-hover)]",
+          "group/row group relative px-2 py-1.5 hover:bg-[var(--bg-hover)]",
+          selected &&
+            "bg-[var(--c-accent-soft)] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--c-accent)]",
+          willDelete &&
+            "rounded opacity-50 ring-1 ring-[var(--c-red)] bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]",
+          confirming &&
+            "bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]",
         )}
       >
+        {confirming ? (
+          <div
+            role="group"
+            aria-label={`Delete ${symbol}?`}
+            // Opaque, legible confirm pill. bg uses --bg-inset, a solid hex on
+            // EVERY theme (ember #0e1013 / carbon #0e1013 / warm #161617 /
+            // oled #000000 / light #eceef1) — never a color-mix-with-transparent
+            // — so it fully covers the red-tinted row underneath. Absolute so it
+            // isn't crushed into the 3.25rem sparkline grid cell.
+            className="absolute inset-y-1 right-1.5 z-10 flex items-center gap-1.5 rounded border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 font-mono text-[length:var(--fs-table)] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+          >
+            <span className="whitespace-nowrap text-[var(--c-red)]">
+              delete {symbol}?
+            </span>
+            <button
+              type="button"
+              aria-label={`Confirm delete ${symbol}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfirmAccept();
+              }}
+              className="flex size-4 items-center justify-center rounded leading-none text-[var(--c-red)] ring-1 ring-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]"
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              aria-label={`Cancel delete ${symbol}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfirmCancel();
+              }}
+              className="flex size-4 items-center justify-center rounded leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
         <span className="inline-flex min-w-0 items-center gap-1">
           <span
             className="flex size-1.5 shrink-0 items-center justify-center"
@@ -474,21 +554,22 @@ function WatchlistSymbolRow({
           ) : null}
 
         </span>
-        <span
-          className={cn(
-            "inline-flex items-center justify-end gap-0.5 rounded tabular-nums text-foreground",
-            priceFlash === "up" && "tick-flash-up",
-            priceFlash === "down" && "tick-flash-down",
-          )}
-          title={extBadge?.title}
-        >
-          {quote ? formatPrice(displayPrice) : "—"}
-          {extBadge ? (
-            <span className="rounded px-0.5 font-mono text-[length:var(--fs-micro)] leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)]">
-              {extBadge.label}
-            </span>
-          ) : null}
-        </span>
+        <div className="flex justify-end" title={extBadge?.title}>
+          <span
+            className={cn(
+              "-mx-0.5 inline-flex w-fit items-center justify-end gap-0.5 rounded px-0.5 tabular-nums text-foreground",
+              priceFlash === "up" && "tick-flash-up",
+              priceFlash === "down" && "tick-flash-down",
+            )}
+          >
+            {quote ? formatPrice(displayPrice) : "—"}
+            {extBadge ? (
+              <span className="rounded px-0.5 font-mono text-[length:var(--fs-micro)] leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)]">
+                {extBadge.label}
+              </span>
+            ) : null}
+          </span>
+        </div>
         <span
           className={cn(
             "text-right tabular-nums",
@@ -541,16 +622,18 @@ function WatchlistSymbolRow({
   );
 }
 
-export function WatchlistWidget({
-  config,
-  onConfigChange,
-  instanceId,
-}: WidgetProps) {
+export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const widgetRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const widgetRectRef = useRef<DOMRect | null>(null);
   const [sortState, setSortState] = useState<{
     key: "symbol" | "price" | "change_pct" | "rvol";
     dir: "asc" | "desc";
@@ -701,6 +784,33 @@ export function WatchlistWidget({
     [displayList, removing],
   );
 
+  // Confirm-accept (✓ / Enter): remove the armed symbol. The round-2 hand-fix
+  // — clearing the stale drag order (it still contains this symbol, and
+  // sortedSymbols renders baseOrder unfiltered) — now lives here on the accept
+  // path per the brief.
+  const acceptConfirmDelete = useCallback(() => {
+    if (!confirmDelete) return;
+    const sym = confirmDelete;
+    setConfirmDelete(null);
+    setDragOrder(null);
+    void removeSymbol(sym);
+  }, [confirmDelete, removeSymbol]);
+
+  // Confirm-cancel (✕ / Esc): un-arm; the row un-tints.
+  const cancelConfirmDelete = useCallback(() => {
+    setConfirmDelete(null);
+  }, []);
+
+  // Release outside the widget: arm the confirm instead of deleting. Drop the
+  // in-progress drag order so the list renders the persisted order under the
+  // armed row, then focus the list so Enter/Esc act without a click.
+  const armDeleteFromDrag = useCallback((symbol: string) => {
+    setIsDragging(false);
+    setDragOrder(null);
+    setConfirmDelete(symbol);
+    listRef.current?.focus();
+  }, []);
+
   const persistReorder = useCallback(
     async (reordered: string[]) => {
       setSortState(null);
@@ -743,10 +853,94 @@ export function WatchlistWidget({
   );
 
   const handleReorderEnd = useCallback(() => {
+    setIsDragging(false);
     const reordered = dragOrderRef.current;
     setDragOrder(null);
     if (reordered) void persistReorder(reordered);
   }, [persistReorder]);
+
+  // Lift: clear any active sort, snapshot the widget box (for the drag-out-to-
+  // delete hit-test), suppress sibling text-selection, and drop any stray
+  // selection the hold already started.
+  const handleDragStart = useCallback(() => {
+    setSortState(null);
+    setIsDragging(true);
+    widgetRectRef.current =
+      widgetRef.current?.getBoundingClientRect() ?? null;
+    window.getSelection()?.removeAllRanges();
+  }, []);
+
+  const getWidgetRect = useCallback(() => widgetRectRef.current, []);
+
+  const handleListKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      const list = sortedSymbols;
+      if (list.length === 0) return;
+
+      // Confirm mode: only Enter (confirm) / Esc (cancel) act.
+      if (confirmDelete) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          acceptConfirmDelete();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          cancelConfirmDelete();
+        }
+        return;
+      }
+
+      const cur = selectedSymbol ? list.indexOf(selectedSymbol) : -1;
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          setSelectedSymbol(
+            list[cur < 0 ? 0 : Math.min(cur + 1, list.length - 1)],
+          );
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setSelectedSymbol(
+            list[cur < 0 ? list.length - 1 : Math.max(cur - 1, 0)],
+          );
+          break;
+        case "Enter":
+          if (cur >= 0) {
+            e.preventDefault();
+            publish(list[cur]);
+          }
+          break;
+        case "Delete":
+        case "Backspace":
+          if (cur >= 0) {
+            e.preventDefault();
+            setConfirmDelete(list[cur]);
+          }
+          break;
+        case "Escape":
+          e.preventDefault();
+          setSelectedSymbol(null);
+          break;
+      }
+    },
+    [
+      sortedSymbols,
+      selectedSymbol,
+      confirmDelete,
+      publish,
+      acceptConfirmDelete,
+      cancelConfirmDelete,
+    ],
+  );
+
+  const handleListBlur = useCallback(
+    (e: ReactFocusEvent<HTMLDivElement>) => {
+      // Focus truly left the list => drop any armed delete confirm.
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+        setConfirmDelete(null);
+      }
+    },
+    [],
+  );
 
   // A freshly added symbol is pinned to the top of the persisted order — clear
   // any active column sort / in-progress drag so it's visible at the top.
@@ -769,14 +963,23 @@ export function WatchlistWidget({
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
+    <div
+      ref={widgetRef}
+      className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]"
+    >
       {marketLoading ? (
         <div className="border-b border-[var(--border)] px-3 py-0.5">
           <span className="text-[length:var(--fs-table)] text-[var(--fg-faint)]">loading…</span>
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y">
+      <div
+        ref={listRef}
+        tabIndex={0}
+        onKeyDown={handleListKeyDown}
+        onBlur={handleListBlur}
+        className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--border-strong)]"
+      >
         <div
           className={cn(
             rowGrid(),
@@ -840,7 +1043,7 @@ export function WatchlistWidget({
           axis="y"
           values={sortedSymbols}
           onReorder={setDragOrder}
-          className="m-0 list-none p-0"
+          className={cn("m-0 list-none p-0", isDragging && "select-none")}
         >
           {sortedSymbols.map((symbol) => (
             <WatchlistSymbolRow
@@ -849,11 +1052,16 @@ export function WatchlistWidget({
               quote={quotes[symbol]}
               isOvernight={overnightSymbols.has(symbol.toUpperCase())}
               linked={linked}
-              instanceId={instanceId}
+              selected={selectedSymbol === symbol}
+              confirming={confirmDelete === symbol}
               onPublish={() => publish(symbol)}
-              onDragStart={() => setSortState(null)}
+              onSelect={() => setSelectedSymbol(symbol)}
+              onDragStart={handleDragStart}
               onReorderEnd={handleReorderEnd}
-              onDelete={() => void removeSymbol(symbol)}
+              onDragOutRelease={() => armDeleteFromDrag(symbol)}
+              onConfirmAccept={acceptConfirmDelete}
+              onConfirmCancel={cancelConfirmDelete}
+              getWidgetRect={getWidgetRect}
             />
           ))}
         </Reorder.Group>

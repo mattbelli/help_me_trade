@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-06T20:15:00Z",
+ "updated_at": "2026-07-06T22:50:00Z",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,24 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "backend-coldstart-schwab-burst",
+   "title": "Backend restart fires an immediate bulk Schwab bar burst → 429/403 WAF episodes on deploy-heavy days",
+   "lane": "next",
+   "type": "ops",
+   "priority": "high",
+   "owner": "serv",
+   "notes": "2026-07-06 evening: 3 backend deploys in ~90min each re-ran the cold-start daily-bars refresh (hundreds of pricehistory calls at once) → Schwab 429s on marketdata + 403 on trader/accountNumbers (Akamai). Stream stayed connected (ticks fine); REST bars/accounts degraded until the window cleared. Fix: jitter/stagger the bars refresher after boot (e.g. random 5-15min delay + trickle batches), skip refresh if store is <24h fresh, and consider pacing the accounts TTL fetch on reconnect storms. Memory schwab-data-ops already warns 'never burst-request Schwab' — the cold-start path violates it structurally."
+  },
+  {
+   "id": "ui-screenshot-smoke",
+   "title": "Headless screenshot smoke check for UI rounds (founder: 'are we checking our implementations?')",
+   "lane": "next",
+   "type": "tooling",
+   "priority": "high",
+   "owner": "serv",
+   "notes": "2026-07-06: round-2 watchlist shipped an illegible (transparent) delete-confirm — passed diff review + typecheck + build because nothing RENDERS the UI before the founder. Build: headless chromium (playwright) script that loads :3001/workspace (or a component harness page), drives basic flows, and drops screenshots the orchestrator eyeballs before deploy. Dev-only tool, no CI gate initially. Port rules: dev servers 3005+."
+  },
   {
    "id": "chart-stale-merge-fix",
    "title": "Chart candle gaps + long-candle artifacts: stale cache tail fused by live-tick merge",
@@ -28,13 +46,22 @@
    "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck clean, zero backend diffs, id format schwab_<last4> verified against brokers/schwab_accounts.py:154). Widget follows toolbar scope: real scopes read useRealAccounts()→/api/schwab/accounts (30s TTL, no new poller; all_real shows ••last4 badges); paper scopes unchanged; overview = REAL/PAPER toggle, never blends (equity-curve pattern); REAL/PAPER header badge; ClickableSymbol tickers. FOUNDER EYEBALL pending (he is live in a real trade). Follow-up carded separately: open-orders widget same treatment. UNCOMMITTED until founder approves (rides with watchlist-hold-drag in the tree). | Founder correction same day: REAL/PAPER header bar REMOVED (second-header rule, now a memory: no-second-widget-headers) — toolbar scope is the only switch; overview keeps original paper behavior. Redeployed."
   },
   {
+   "id": "per-strat-pnl-view",
+   "title": "Per-strategy P&L/exposure view (attribution Phase 1 — measure only)",
+   "lane": "next",
+   "type": "feature",
+   "priority": "normal",
+   "owner": "serv",
+   "notes": "Approved 2026-07-06 (memo Option B Phase 1). Read-only view over managed_positions + order_executions keyed by strategy_id (realized per closed managed position, open exposure, win rate, journal calibration tie-in). No RiskEngine change, no execution-path risk. Enforcement (budgets in RiskEngine) is Phase 2 AT PROMOTION, not now."
+  },
+  {
    "id": "watchlist-hold-drag",
    "title": "Watchlist: kill edit mode → hold-anywhere-to-drag + drag-to-trash delete",
    "lane": "in_progress",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed; typecheck clean, zero new lint). Edit mode GONE (pencil/⋮⋮ dots/red − badges); header + opens add-row (price-alerts pattern); hold ~300ms anywhere non-link → row lifts → drag reorder; Trash2 appears next to + while held (via new use-watchlist-drag-store), pointer-drop on it deletes. Quick tap still publishes; ticker/ⓘ unaffected; pageActive remount fix untouched. FOUNDER EYEBALL pending → then commit. Brief: tools/composer-bridge/briefs/watchlist-hold-drag.md"
+   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed; typecheck clean, zero new lint). Edit mode GONE (pencil/⋮⋮ dots/red − badges); header + opens add-row (price-alerts pattern); hold ~300ms anywhere non-link → row lifts → drag reorder; Trash2 appears next to + while held (via new use-watchlist-drag-store), pointer-drop on it deletes. Quick tap still publishes; ticker/ⓘ unaffected; pageActive remount fix untouched. FOUNDER EYEBALL pending → then commit. Brief: tools/composer-bridge/briefs/watchlist-hold-drag.md | Round 3 in flight: opaque confirm pill + confirm-on-drag-out + row-follows-pointer (founder round-2 feedback: confirm illegible, wants confirm on drag path, row should come with pointer; likes the red)."
   },
   {
    "id": "delta-audit-highs",
@@ -43,16 +70,16 @@
    "type": "safety",
    "priority": "high",
    "owner": "serv",
-   "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill→canceled/expired within one poll gap or across a restart → held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row → quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable — register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones."
+   "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill→canceled/expired within one poll gap or across a restart → held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row → quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable — register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2."
   },
   {
    "id": "per-strategy-attribution",
-   "lane": "founder",
+   "lane": "done",
    "type": "decision",
    "priority": "normal",
    "owner": "founder",
    "title": "DESIGN CALL: per-strategy attribution — virtual sub-books, measure now / enforce at promotion",
-   "notes": "Fable decision memo 2026-07-06 → research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo."
+   "notes": "Fable decision memo 2026-07-06 → research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo. | FOUNDER APPROVED Option B 2026-07-06 (virtual sub-books, two phases; memo sub-recs accepted: $ notional budgets, same-symbol-across-strategies allowed). Phase 1 measure-view carded → per-strat-pnl-view; Phase 2 enforcement rides the combined-book promotion round."
   },
   {
    "id": "orphan-repair-surface",
@@ -218,12 +245,12 @@
   },
   {
    "id": "safety-killswitch-blocks-exits",
-   "title": "DESIGN CALL: kill switch also blocks protective EXITS (safety M2)",
-   "lane": "founder",
+   "title": "BUILD: HALT state (entries_halted) — kill-switch/exits split per approved memo (Option C)",
+   "lane": "next",
    "type": "safety",
    "priority": "normal",
    "owner": "founder",
-   "notes": "Code-verified: execution_service.py:56 rejects unconditionally, so flipping the kill switch strands open positions with no stop-loss execution. Your call: (a) split into 'halt new entries' (exits still allowed) vs 'hard stop everything', or (b) accept as designed (you flatten manually when you kill). Recommend (a) as default with (b) as an explicit second switch. | 2026-07-06: Fable decision memo READY → research/fable/2026-07-06_memo-killswitch-exits.md (rec: two-state HALT/FREEZE split; breaker retargets to HALT). Needs your yes + 2 sub-calls."
+   "notes": "FOUNDER APPROVED Option C 2026-07-06 (memo research/fable/2026-07-06_memo-killswitch-exits.md): new HALT state blocks exposure-increasing orders, reduce-only exits keep flowing; breaker hard stage (risk_engine.py:426) retargets to HALT instead of kill switch; kill switch unchanged = human-only total freeze (+ critical page w/ open-position count when armed). Memo sub-recs accepted: HALT pauses momentum rebalance entirely; HALT disarm = normal token. trading/ change → full adversarial review. Queue after delta-audit money-path HIGHs (same neighborhood, separate rounds)."
   },
   {
    "id": "research-book-reproducibility",
@@ -339,10 +366,10 @@
   {
    "id": "ledger-offsets",
    "title": "Approve TSLA/PLTR/GME ledger quantity offsets",
-   "lane": "founder",
+   "lane": "done",
    "type": "bug",
    "priority": "normal",
-   "notes": "Pending your sign-off on the adjustment; options expirations also missing from sync (#16). | 2026-07-06: Fable decision memo READY → research/fable/2026-07-06_memo-ledger-offsets.md (rec: approve w/ #17 in same round; eyeball PLTR −630/−900 first).",
+   "notes": "RESOLVED WITHOUT ADJUSTMENT 2026-07-06: founder approved the $0 offsets, but live ledger check showed the residuals SELF-RESOLVED since 07-02 (H5 leg-summing repair + sync work): TSLA nets 0.0 through 2026-07-02, PLTR/GME zero in all accounts. No manual_adjustment inserted. Today's TSLA -200 = live trading, buy leg pending hourly sync (expected self-heal; #17 nightly recon is the permanent watchdog — still worth building). Founder PDF question answered: transaction-level statement backfill IS possible later if wanted; offsets don't block it.",
    "owner": "founder",
    "updated_at": "2026-07-04"
   },

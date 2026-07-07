@@ -70,7 +70,7 @@
     --fs-widget-title: 13px;
     /* terminal transcript body (T2): founder found title(12) too small in the
        drawer scrollback; matches the dock's mono chat size */
-    --fs-terminal: 13px;
+    --fs-terminal: 14px;
     /* header/display face: one-line hook for font trials (Iosevka trial
        reverted 2026-07-05 — founder preferred the house mono) */
     --font-display: var(--font-mono);

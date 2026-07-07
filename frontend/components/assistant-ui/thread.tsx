@@ -92,6 +92,12 @@ export type ThreadProps = {
   mono?: boolean;
   /** Drop the 44rem centered column — messages fill the viewport width (terminal transcript). */
   fullWidth?: boolean;
+  /**
+   * Viewport scroll anchoring. "top" (default) = new user turns jump to the top
+   * for focused reading (docked copilot + mobile). "bottom" = classic chat: send
+   * and streaming pin to the bottom, respecting a manual scroll-up (terminal).
+   */
+  turnAnchor?: "top" | "bottom";
 };
 
 const EMPTY_COMPONENTS: ThreadComponents = {};
@@ -112,6 +118,7 @@ export const Thread: FC<ThreadProps> = ({
   messagesOnly = false,
   mono = false,
   fullWidth = false,
+  turnAnchor = "top",
 }) => {
   const isEmpty = useAuiState(isNewChatView);
 
@@ -123,6 +130,7 @@ export const Thread: FC<ThreadProps> = ({
           messagesOnly={messagesOnly}
           mono={mono}
           fullWidth={fullWidth}
+          turnAnchor={turnAnchor}
         />
       </ThreadMonoContext.Provider>
     </ThreadComponentsContext.Provider>
@@ -134,11 +142,13 @@ const ThreadRoot: FC<{
   messagesOnly?: boolean;
   mono?: boolean;
   fullWidth?: boolean;
+  turnAnchor?: "top" | "bottom";
 }> = ({
   isEmpty,
   messagesOnly = false,
   mono = false,
   fullWidth = false,
+  turnAnchor = "top",
 }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 
@@ -154,7 +164,7 @@ const ThreadRoot: FC<{
       }}
     >
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
+        turnAnchor={turnAnchor}
         data-slot="aui_thread-viewport"
         className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
       >

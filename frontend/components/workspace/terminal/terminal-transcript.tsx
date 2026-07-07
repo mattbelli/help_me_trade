@@ -315,10 +315,11 @@ export function TerminalTranscript() {
 
   return (
     <TransformContext.Provider value={transform}>
-      <div className="h-full min-h-0 text-[length:var(--fs-terminal)] [&_.aui-thread-root]:bg-transparent">
+      <div className="h-full min-h-0 text-[length:var(--fs-terminal)] [font-synthesis-weight:none] [&_.aui-thread-root]:bg-transparent">
         <Thread
           messagesOnly
           fullWidth
+          turnAnchor="bottom"
           components={{
             UserMessage: TerminalUserMessage,
             AssistantMessage: TerminalAssistantMessage,
