@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T13:10:00Z",
+  "updated_at": "2026-07-07T13:20:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -25,7 +25,7 @@
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "BUILT + REVIEWED 2026-07-07 (SAFE-WITH-NITS -> approval ledger added: server-side single-consume binding kills mutated/forged/replayed approvals - STRICTLY safer than the TS route). COMMITTED; DEPLOY HELD for after-close founder flip. Known trade-offs at flip: web loses live token streaming this cut (follow-up round); mobile internals swap deferred. CHAT_BRAIN=ts = one-line revert."
+      "notes": "BUILT + REVIEWED 2026-07-07 (SAFE-WITH-NITS -> approval ledger added: server-side single-consume binding kills mutated/forged/replayed approvals - STRICTLY safer than the TS route). COMMITTED bb71011; deploy READY, batched with the terminal history sidebar - awaiting founder go (his call: mid-morning between trades or after close). Known trade-offs at flip: web loses live token streaming this cut (follow-up round); mobile internals swap deferred. CHAT_BRAIN=ts = one-line revert."
     },
     {
       "id": "schwab-streamer-outage-0707",
@@ -128,12 +128,12 @@
     },
     {
       "id": "terminal-chat-tabs",
-      "title": "Terminal chat tabs: + next to the thread title, multiple chats open at once",
-      "lane": "next",
+      "title": "Terminal chat tabs + history sidebar (founder redesign: hamburger quake slide-out, title dropdown killed)",
+      "lane": "done",
       "type": "ui",
       "priority": "medium",
       "owner": "serv",
-      "notes": "Founder ask 2026-07-07 (convenience, after the persistence MUST ships). Tab strip in the drawer header over the shared assistant-ui runtime; pairs with hmt-terminal-thread persistence from round 3."
+      "notes": "Tabs shipped in the 07-07 UI mega-batch; founder redesign same morning: hamburger top-left opens a quake sidebar over the transcript - threads newest-first, click=open-as-tab, hover-pencil inline rename, inline delete-confirm, + new chat; redundant thread-title dropdown removed (the active tab IS the title). Esc order rename>confirm>sidebar>drawer; min(240px,85%) width at the 15% drawer. BUILT 2026-07-07, typecheck+lint clean, in-browser check pending; deploys BATCHED with the Phase 1b flip."
     },
     {
       "id": "live-mark-positions",

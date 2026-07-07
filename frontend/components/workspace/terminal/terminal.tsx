@@ -9,12 +9,12 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronDown, Lock, LockOpen, Plus, X } from "lucide-react";
+import { ChevronDown, Lock, LockOpen, Menu, Plus, X } from "lucide-react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import { useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { PageSwitcher } from "@/components/workspace/page-switcher";
-import { CopilotThreadHistory } from "@/components/workspace/copilot-thread-history";
+import { TerminalHistorySidebar } from "./terminal-history-sidebar";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   TERMINAL_COLLAPSED_HEIGHT,
@@ -120,7 +120,6 @@ export function Terminal() {
   // stay in sync by construction). Plain text routes here; slash never does.
   const aui = useAui();
   const isRunning = useAuiState((s) => s.thread.isRunning);
-  const threadTitle = useAuiState((s) => s.threadListItem.title);
   const activeRemoteId = useAuiState((s) => s.threadListItem.remoteId);
   const threadsLoading = useAuiState((s) => s.threads.isLoading);
   const threadItems = useAuiState((s) => s.threads.threadItems);
@@ -131,7 +130,8 @@ export function Terminal() {
   const [inputValue, setInputValue] = useState("");
   const [focused, setFocused] = useState(false);
   const [selIndex, setSelIndex] = useState(-1);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
   const historyIndexRef = useRef<number | null>(null);
 
   const suggestions = getCommandSuggestions(inputValue);
@@ -251,6 +251,59 @@ export function Terminal() {
       }
     },
     [aui, tabIds, activeRemoteId, removeTab],
+  );
+
+  // ── History sidebar — a quake-style slide-out over the transcript listing all
+  // server threads (the data the old title dropdown showed). Transient: closed
+  // whenever the drawer closes. Closing refocuses the prompt so a follow-up Esc
+  // falls through to the drawer's own close handler. ──────────────────────────
+  // Drop the sidebar the moment the drawer closes (render-time reset — reopening
+  // the drawer never reshows a stale sidebar).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (!open && sidebarOpen) setSidebarOpen(false);
+  }
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+    focusInput();
+  }, [focusInput]);
+
+  // Newest-first, and only threads that actually exist server-side (a remoteId).
+  const sidebarThreads = threadItems
+    .filter((t) => Boolean(t.remoteId))
+    .map((t) => ({
+      id: t.remoteId as string,
+      title: t.title?.trim() || "New chat",
+      lastMessageAt: t.lastMessageAt,
+    }))
+    .sort(
+      (a, b) =>
+        (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0),
+    );
+
+  const selectFromSidebar = useCallback(
+    (id: string) => {
+      selectTab(id);
+      closeSidebar();
+    },
+    [selectTab, closeSidebar],
+  );
+
+  const newChatFromSidebar = useCallback(() => {
+    openNewTab();
+    setSidebarOpen(false);
+  }, [openNewTab]);
+
+  const renameThread = useCallback(
+    (id: string, title: string) => aui.threads().item({ id }).rename(title),
+    [aui],
+  );
+
+  const deleteThread = useCallback(
+    (id: string) => aui.threads().item({ id }).delete(),
+    [aui],
   );
 
   // Quake-style click-away: the grid above stays live, so a click on a widget
@@ -736,38 +789,22 @@ export function Terminal() {
           <div
             onPointerDown={beginMove}
             className="flex shrink-0 cursor-grab items-center gap-2 px-4 pb-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)] active:cursor-grabbing">
-            {/* Thread switcher — reuses the dock's history list. */}
-            <div className="relative">
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => setHistoryOpen((v) => !v)}
-                className="flex items-center gap-1 text-[var(--fg-dim)] transition-colors hover:text-foreground"
-                aria-label="Switch thread"
-                aria-expanded={historyOpen}
-              >
-                <span className="max-w-[12rem] truncate text-[length:var(--fs-emph)]">
-                  {threadTitle?.trim() || "New chat"}
-                </span>
-                <ChevronDown className="size-3 shrink-0" />
-              </button>
-              {historyOpen ? (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onPointerDown={() => setHistoryOpen(false)}
-                  />
-                  <div
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className="absolute left-0 top-full z-50 mt-1 max-h-72 w-60 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--bg-raised)] shadow-[var(--panel-shadow)]"
-                  >
-                    <CopilotThreadHistory
-                      onAfterSelect={() => setHistoryOpen(false)}
-                    />
-                  </div>
-                </>
-              ) : null}
-            </div>
+            {/* Hamburger — toggles the chat-history sidebar (slides over the
+                transcript). The active tab is the title; the sidebar is history. */}
+            <button
+              ref={hamburgerRef}
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setSidebarOpen((v) => !v)}
+              className={cn(
+                "shrink-0 rounded-sm p-0.5 transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground",
+                sidebarOpen ? "text-foreground" : "text-[var(--fg-faint)]",
+              )}
+              aria-label="Chat history"
+              aria-expanded={sidebarOpen}
+            >
+              <Menu className="size-3.5" />
+            </button>
             {/* Tab strip — one quiet tab per open thread; overflows to a
                 horizontal scroll when the drawer is narrow. */}
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -886,26 +923,43 @@ export function Terminal() {
 
           <div className="mx-4 border-t border-[var(--border)]" />
 
-          {/* Scrollback — the chat transcript (flat mono skin) with command
-              lines interleaved. Always mounted; the drawer clips when collapsed
-              so a running stream keeps painting and reopens live. */}
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <TerminalTranscript />
-          </div>
+          {/* Transcript + prompt, with the history sidebar overlaying from the
+              left edge (no reflow). */}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {/* Scrollback — the chat transcript (flat mono skin) with command
+                lines interleaved. Always mounted; the drawer clips when collapsed
+                so a running stream keeps painting and reopens live. */}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <TerminalTranscript />
+            </div>
 
-          {/* Prompt line inside the pane — Claude Code-style: scrollback
-              above, suggestions directly above the input, input at the
-              bottom of the drawer wherever it's docked. */}
-          <div className="shrink-0 px-3 pb-2">
-            {showAutocomplete ? (
-              <div className="mb-1">{suggestionsList}</div>
-            ) : null}
-            <form
-              onSubmit={onSubmit}
-              className="flex items-start gap-2 border-t border-[var(--border)] pt-2"
-            >
-              {open ? promptRow : null}
-            </form>
+            {/* Prompt line inside the pane — Claude Code-style: scrollback
+                above, suggestions directly above the input, input at the
+                bottom of the drawer wherever it's docked. */}
+            <div className="shrink-0 px-3 pb-2">
+              {showAutocomplete ? (
+                <div className="mb-1">{suggestionsList}</div>
+              ) : null}
+              <form
+                onSubmit={onSubmit}
+                className="flex items-start gap-2 border-t border-[var(--border)] pt-2"
+              >
+                {open ? promptRow : null}
+              </form>
+            </div>
+
+            <TerminalHistorySidebar
+              open={sidebarOpen}
+              threads={sidebarThreads}
+              activeId={activeRemoteId ?? null}
+              reduce={Boolean(reduce)}
+              hamburgerRef={hamburgerRef}
+              onClose={closeSidebar}
+              onSelectThread={selectFromSidebar}
+              onNewChat={newChatFromSidebar}
+              onRename={renameThread}
+              onDelete={deleteThread}
+            />
           </div>
         </div>
       </div>
