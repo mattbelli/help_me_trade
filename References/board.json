@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T15:05:00Z",
+  "updated_at": "2026-07-07T16:05:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "fill-time-on-orders",
+      "title": "Filled orders: real fill TIME (schema+sync round - trade_date is date-only)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Founder wants time on the orders widget Filled tab. Data gap: Alpaca transaction_time is truncated to .date() at import (imports/alpaca_activities.py); imported_at = batch time (misleading). Needs nullable fill-time column on trade_events + preserve transaction_time at import + backfill/re-sync + widget render. Schwab side: check what the trade sync carries. Touches sync paths - adversarial-adjacent review."
+    },
     {
       "id": "chart-perf-1fps-meltdown",
       "title": "App-wide 1-FPS freeze (ext-hours session bands x live ticks) - FIXED + deployed",

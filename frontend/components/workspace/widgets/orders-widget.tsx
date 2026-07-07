@@ -103,7 +103,7 @@ function FilledTab({
           <tr>
             <th className={cn(TH, "text-left")}>Date</th>
             <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-left", "w-full")}>Side</th>
             <th className={cn(TH, "text-right")}>Qty</th>
             <th className={cn(TH, "text-right")}>Price</th>
             <th className={cn(TH, "text-right")}>Amount</th>
@@ -115,7 +115,11 @@ function FilledTab({
             const sym = e.symbol;
             return (
               <tr key={e.id} className={ROW}>
-                <td className={cn(TD, "text-[var(--fg-dim)]")}>{e.trade_date}</td>
+                <td
+                  className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}
+                >
+                  {e.trade_date}
+                </td>
                 <td className={cn(TD, "font-medium")}>
                   {sym ? (
                     <ClickableSymbol
@@ -131,7 +135,7 @@ function FilledTab({
                 <td
                   className={cn(
                     TD,
-                    "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
+                    "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
                     sideClass(e.side),
                   )}
                 >
@@ -193,7 +197,7 @@ function OpenTab({
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-left", "w-full")}>Side</th>
             <th className={cn(TH, "text-right")}>Qty</th>
             <th className={cn(TH, "text-right")}>Filled</th>
             <th className={cn(TH, "text-left")}>Type</th>
@@ -221,7 +225,7 @@ function OpenTab({
               <td
                 className={cn(
                   TD,
-                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
+                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
                   sideClass(o.side),
                 )}
               >
@@ -278,7 +282,7 @@ function RejectedTab({
           <tr>
             <th className={cn(TH, "text-left")}>Time</th>
             <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-left", "w-full")}>Side</th>
             <th className={cn(TH, "text-right")}>Qty</th>
             <th className={cn(TH, "text-left")}>Type</th>
             <th className={cn(TH, "text-left")}>Mode</th>
@@ -288,7 +292,7 @@ function RejectedTab({
         <tbody>
           {executions.map((x) => (
             <tr key={x.id} className={ROW}>
-              <td className={cn(TD, "text-[var(--fg-dim)]")}>
+              <td className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}>
                 {formatDateTime(x.created_at)}
               </td>
               <td className={cn(TD, "font-medium")}>
@@ -302,7 +306,7 @@ function RejectedTab({
               <td
                 className={cn(
                   TD,
-                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
+                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
                   sideClass(x.side),
                 )}
               >

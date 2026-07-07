@@ -37,6 +37,31 @@ def api_performance_dashboard(
     }
 
 
+@router.get("/day-pnl")
+def api_performance_day_pnl(account_id: str | None = None) -> dict[str, Any]:
+    """Today's realized (ET-day, net-cash) P&L for the selected account.
+
+    Same source as the trading calendar's per-day figure (``daily_realized``),
+    so the toolbar DAY tile agrees with the calendar by construction for any
+    ledger-backed account.
+    """
+    scope = resolve_perf_scope(account_id)
+    dashboard = performance_dashboard(
+        account_id=scope.ledger_account_id,
+        real_only=scope.real_only,
+        paper_only=scope.paper_only,
+        period="day",
+    )
+    daily = dashboard.get("daily_realized") or []
+    entry = daily[-1] if daily else None
+    raw = (entry.get("realized") or entry.get("net_amount")) if entry else None
+    return {
+        "day_pnl": float(raw) if raw is not None else 0.0,
+        "has_activity": entry is not None,
+        "scope_fallback": scope.fallback,
+    }
+
+
 @router.get("/ai-context")
 def api_ai_performance_context(
     account_id: str | None = None,

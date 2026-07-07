@@ -21,7 +21,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
-import { useDayPnl } from "@/lib/workspace/use-day-pnl";
+import { useDayPnl, useLedgerDayPnl } from "@/lib/workspace/use-day-pnl";
 import {
   isRealScope,
   maskMoney,
@@ -179,6 +179,14 @@ export function WorkspaceToolbar() {
   } = useDashboardPrefs();
 
   const { realAccounts, realSummary } = useRealAccounts();
+
+  // Real (Schwab) DAY P&L follows the selected account off our own ledger —
+  // same per-ET-day realized net-cash figure the trading calendar shows, so the
+  // two agree by construction (Schwab's own snapshot day_pl is intraday MTM and
+  // disagreed). Skips fetching for non-real scopes.
+  const { dayPnl: realDayPnl, loading: realDayLoading } = useLedgerDayPnl(
+    isRealScope(selectedAccountId) ? selectedAccountId : "",
+  );
 
   const view = resolveAccountView(snapshot, selectedAccountId);
   // Real (Schwab) balances for the toolbar tiles when a real scope is selected —
@@ -445,15 +453,17 @@ export function WorkspaceToolbar() {
                   />
                   <ToolbarTile
                     label="DAY"
-                    value={maskMoney(
-                      realView.day_pl,
-                      privacyMode,
-                      formatSignedPnl,
-                    )}
-                    flashValue={privacyMode ? null : realView.day_pl}
+                    value={
+                      realDayLoading && realDayPnl == null
+                        ? "—"
+                        : realDayPnl != null
+                          ? maskMoney(realDayPnl, privacyMode, formatSignedPnl)
+                          : "—"
+                    }
+                    flashValue={privacyMode ? null : realDayPnl}
                     valueClassName={
-                      !privacyMode && realView.day_pl !== 0
-                        ? realView.day_pl >= 0
+                      !privacyMode && realDayPnl != null && realDayPnl !== 0
+                        ? realDayPnl >= 0
                           ? "text-[var(--c-green)]"
                           : "text-[var(--c-red)]"
                         : undefined

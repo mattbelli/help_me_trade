@@ -99,6 +99,16 @@ export async function fetchPerformanceDashboard(params: {
   return res.json();
 }
 
+export async function fetchDayPnl(params: {
+  account_id?: string;
+}): Promise<{ day_pnl: number; has_activity: boolean }> {
+  const qs = new URLSearchParams();
+  if (params.account_id) qs.set("account_id", params.account_id);
+  const res = await apiFetch(`${API_BASE}/api/performance/day-pnl?${qs}`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
 export async function fetchPerformanceCalendar(params: {
   account_id?: string;
   from_date?: string;
