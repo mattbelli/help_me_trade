@@ -2103,6 +2103,7 @@ async def api_watchlist_market(symbols: str = ""):
                 ext_change_pct=ext_change_val,
                 market_session=session,
                 broadcast=True,
+                rest_price=price,
             )
         except Exception:
             logger.debug("apply_extended failed for %s", sym, exc_info=True)
