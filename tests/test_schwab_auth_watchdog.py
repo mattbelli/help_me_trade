@@ -295,6 +295,12 @@ def test_factory_cache_invalidates_on_token_mtime_change(
         "brokers.factory.SchwabMarketData",
         _FakeSchwabMarketData,
     )
+    # This test exercises the token-mtime cache heal, not config loading; make the
+    # "is Schwab configured" precondition hermetic so it holds in CI (no settings.json
+    # / real creds) exactly as it does locally.
+    monkeypatch.setattr(
+        "brokers.factory.broker_is_configured", lambda name: name == "schwab"
+    )
 
     first = factory.get_market_data_provider("schwab")
     second = factory.get_market_data_provider("schwab")

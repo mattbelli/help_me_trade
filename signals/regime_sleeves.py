@@ -1022,7 +1022,9 @@ async def _scan_vol_event(
 
             if not _trigger_enabled(strategy, TRIGGER_TERM_FLIP):
                 parts.append("term_flip disabled (kill line)")
-            elif not vix3m_is_fresh(db_path=db_path):
+            elif not vix3m_is_fresh(
+                db_path=db_path, now=date.fromisoformat(eval_date)
+            ):
                 parts.append("term_flip dormant (vix3m stale)")
             else:
                 v3m_obs = recent_observations(VIX3M_SERIES, limit=60, db_path=db_path)
