@@ -440,12 +440,16 @@ class OpenAICompatibleLLM:
     ) -> AsyncIterator[StreamEvent]:
         """Async streaming variant of ``complete_tools``.
 
-        Bridges the blocking SSE reader to async via an executor + queue (same
-        pattern as ``astream``). A provider/transport error mid-stream is
-        surfaced by re-raising into the consumer so callers can terminate the
-        stream cleanly instead of hanging.
+        Bridges the blocking SSE reader to async via an executor + queue. The
+        producer thread must hand events over with ``call_soon_threadsafe`` —
+        ``asyncio.Queue.put_nowait`` from a foreign thread doesn't wake the
+        event-loop consumer, so deltas pile up and flush in one late burst
+        (verified live: token-live became post-hoc). A provider/transport error
+        mid-stream is surfaced by re-raising into the consumer so callers can
+        terminate the stream cleanly instead of hanging.
         """
         queue: asyncio.Queue[StreamEvent | Exception | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def _producer() -> None:
             try:
@@ -456,13 +460,13 @@ class OpenAICompatibleLLM:
                     max_tokens=max_tokens,
                     temperature=temperature,
                 ):
-                    queue.put_nowait(event)
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
             except Exception as exc:  # surfaced to the consumer, not swallowed
-                queue.put_nowait(exc)
+                loop.call_soon_threadsafe(queue.put_nowait, exc)
             finally:
-                queue.put_nowait(None)
+                loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        asyncio.get_running_loop().run_in_executor(None, _producer)
+        loop.run_in_executor(None, _producer)
         while True:
             item = await queue.get()
             if item is None:
@@ -504,15 +508,18 @@ class OpenAICompatibleLLM:
         self, messages: list[LLMMessage], *, max_tokens: int = 1024
     ) -> AsyncIterator[str]:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def _producer() -> None:
+            # call_soon_threadsafe: put_nowait from a foreign thread doesn't
+            # wake the event-loop consumer (chunks flush in one late burst).
             try:
                 for chunk in self.stream(messages, max_tokens=max_tokens):
-                    queue.put_nowait(chunk)
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
             finally:
-                queue.put_nowait(None)
+                loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        asyncio.get_running_loop().run_in_executor(None, _producer)
+        loop.run_in_executor(None, _producer)
         while True:
             item = await queue.get()
             if item is None:
