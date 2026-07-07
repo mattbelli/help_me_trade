@@ -20,6 +20,7 @@ from db.order_executions import (
     create_execution_record,
     get_execution,
     init_execution_tables,
+    sum_inflight_notional,
     sum_today_notional,
     update_execution_status,
 )
@@ -385,6 +386,42 @@ async def test_daily_notional_cap_includes_short_open(
     assert sum_today_notional(db_path=db) == Decimal("49000")
 
     result = await RiskEngine.validate(_intent(qty=Decimal("10")), db_path=db)
+    assert result.passed is False
+    assert result.blocked_reason == "daily notional cap exceeded"
+
+
+@pytest.mark.asyncio
+async def test_partial_fill_counts_in_both_notional_caps(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """H2: a partially_filled order is a LIVE working order (remainder still resting at
+    the broker) whose full notional must keep counting in BOTH the in-flight reservation
+    and the daily cap. Before the fix its notional vanished from both sums the instant it
+    partially filled — so the daily rebalance below would have wrongly PASSED."""
+    db = tmp_path / "partial_cap.db"
+    _patch_risk_env(
+        monkeypatch,
+        db,
+        max_daily_notional_usd=50_000,
+        max_order_value_usd=50_000,
+    )
+    _seed_execution(
+        db,
+        execution_id="p1",
+        status="partially_filled",
+        notional_usd=Decimal("49000"),
+    )
+
+    # Concrete cap math: the full $49k of the partial is counted in BOTH sums
+    # (each was $0 before the fix, because 'partially_filled' was in neither status list).
+    assert sum_inflight_notional(db_path=db) == Decimal("49000")
+    assert sum_today_notional(db_path=db) == Decimal("49000")
+
+    # ...so the daily cap now blocks the next order, exactly as a 'filled' row would.
+    result = await RiskEngine.validate(
+        _intent(qty=Decimal("10"), rebalance=True),
+        db_path=db,
+    )
     assert result.passed is False
     assert result.blocked_reason == "daily notional cap exceeded"
 

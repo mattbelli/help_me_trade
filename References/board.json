@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T05:50:00Z",
+  "updated_at": "2026-07-07T09:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -10,9 +10,18 @@
   ],
   "cards": [
     {
+      "id": "money-path-highs",
+      "title": "Money-path HIGHs from the 07-06 delta audit: partial-fill terminal jump escapes attribution+quarantine; notional caps under-count partials",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-07 (commit pending push). Full ceremony: SAFE-WITH-NITS, 5 findings fixed in-round incl. the F1 cry-wolf bug (folded add + closed position = false CRITICAL page) via lifetime-bounded managed lookup. Sweep: 30d lookback, SQL orphan screen, batched one-page, idempotent. H2: partially_filled counted in both caps. 68 tests. DEPLOY PENDING - batches with next backend round (ext-hours candles)."
+    },
+    {
       "id": "cockpit-polish-round3",
       "title": "Polish round 3: terminal thread persistence (MUST) + center-magnet removal, panel bring-to-front, alert-note clamp, watchlist dot centering, toast spawn fix, fonts +1 again",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "ui",
       "priority": "high",
       "owner": "serv",
@@ -39,7 +48,7 @@
     {
       "id": "live-mark-positions",
       "title": "Positions + portfolio numbers tick in real time (stream-marked, zero extra REST)",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
@@ -57,7 +66,7 @@
     {
       "id": "cockpit-legibility-round",
       "title": "Cockpit legibility round: type-scale floor +1, terminal 15px + IosevkaTerm Nerd Font + min-width 15%, channel-3 cyan, drag z-order, MD paper tint + footer-aware floating panel",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "ui",
       "priority": "high",
       "owner": "serv",
@@ -84,7 +93,7 @@
     {
       "id": "chart-stale-merge-fix",
       "title": "Chart candle gaps + long-candle artifacts: stale cache tail fused by live-tick merge",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "bug",
       "priority": "high",
       "owner": "serv",
@@ -93,7 +102,7 @@
     {
       "id": "positions-widget-schwab",
       "title": "Positions widget follows account scope \u2192 shows real Schwab positions (Stage B)",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
@@ -111,7 +120,7 @@
     {
       "id": "watchlist-hold-drag",
       "title": "Watchlist: kill edit mode \u2192 hold-anywhere-to-drag + drag-to-trash delete",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
@@ -124,7 +133,7 @@
       "type": "safety",
       "priority": "high",
       "owner": "serv",
-      "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill\u2192canceled/expired within one poll gap or across a restart \u2192 held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row \u2192 quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable \u2014 register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2."
+      "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill\u2192canceled/expired within one poll gap or across a restart \u2192 held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row \u2192 quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable \u2014 register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2. money-path H1+H2 DONE 2026-07-07; remaining: idea-engine 2H, ops-memory 2H (memory fences brief ready)."
     },
     {
       "id": "per-strategy-attribution",
@@ -147,7 +156,7 @@
     {
       "id": "terminal-float-mode",
       "title": "Terminal float mode: DEPLOYED (drag both axes, snap bottom/top/center/free)",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "medium",
       "owner": "serv",
@@ -156,7 +165,7 @@
     {
       "id": "float-snap-viewers",
       "title": "Floating viewers w/ magnet snap: BUILT + DEPLOYED (founder eyeball pending)",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
@@ -225,7 +234,7 @@
     {
       "id": "widget-spawn-ux",
       "title": "Widget spawn UX: DEPLOYED (viewport placement + flash; hint pill killed per founder)",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "medium",
       "owner": "serv",

@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -38,12 +40,35 @@ _STRATEGY_SOURCE_PREFIX = "strategy:"
 _WRITE_RETRIES = 3
 _WRITE_RETRY_SLEEP_S = 0.05
 
+# How far back the unmanaged-fill sweep looks (by execution created_at). 30 days
+# covers any realistic outage (adversarial F2: 7 days missed an order created just
+# before a longer-than-a-week downtime) while keeping the per-cycle scan cheap at
+# our volume. KNOWN RESIDUAL horizon: a fill stranded across an outage LONGER than
+# this is permanently outside the sweep's window.
+_SWEEP_LOOKBACK_DAYS = 30
+
 
 def _strategy_id_from_source(source: str | None) -> str | None:
     if not source or not source.startswith(_STRATEGY_SOURCE_PREFIX):
         return None
     strategy_id = source[len(_STRATEGY_SOURCE_PREFIX) :].strip()
     return strategy_id or None
+
+
+def _resolve_strategy_id(proposal_id: str, *, db_path: Path) -> str | None:
+    """Map a fill's proposal_id to the owning strategy id, or None if not
+    strategy-attributable (a non-strategy source, or a missing proposal row).
+
+    Single source of truth for "which strategy owns this fill", shared by
+    ``record_strategy_fill`` (attribution at fill time) and the unmanaged-fill sweep
+    (backstop) so the two can never disagree on what counts as strategy-owned."""
+    if proposal_id.startswith("auto_entry|"):
+        parts = proposal_id.split("|")
+        return parts[1] if len(parts) >= 2 else None
+    proposal = get_proposal(proposal_id, db_path=db_path)
+    if proposal is None:
+        return None
+    return _strategy_id_from_source(proposal.get("source"))
 
 
 def _journal_entry_fill(
@@ -153,14 +178,7 @@ def record_strategy_fill(
             db_path=db_path,
         )
 
-        if proposal_id.startswith("auto_entry|"):
-            parts = proposal_id.split("|")
-            strategy_id = parts[1] if len(parts) >= 2 else None
-        else:
-            proposal = get_proposal(proposal_id, db_path=db_path)
-            if proposal is None:
-                return None
-            strategy_id = _strategy_id_from_source(proposal.get("source"))
+        strategy_id = _resolve_strategy_id(proposal_id, db_path=db_path)
         if strategy_id is None:
             return None
         # From here on this IS a strategy-attributable BUY fill. Any failure to open
@@ -318,6 +336,151 @@ async def flush_fill_attribution_orphans(*, db_path: Path = DEFAULT_DB_PATH) -> 
             mark_orphan_notified(str(orphan["id"]), db_path=db_path)
             paged += 1
     return paged
+
+
+async def sweep_unmanaged_terminal_fills(
+    *,
+    lookback_days: int = _SWEEP_LOOKBACK_DAYS,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Backstop (audit H1/M1): quarantine + page any strategy BUY holding real filled
+    shares that has NEITHER a managed-position row NOR an orphan row.
+
+    ``record_strategy_fill`` only fires on a status transition the poller actually
+    observes. So a partial fill that jumps straight to canceled/expired within one poll
+    gap, or a fill whose attribution write is lost to a restart between the status write
+    and the attribution call (deploys kill the process at arbitrary times), leaves real
+    shares held with NO exit rules and NO page — the exact silent orphan safety-M1 was
+    built to make impossible. This sweep closes that seam durably by scanning terminal
+    BUYs with real fills and quarantining any that attribution never accounted for.
+
+    Idempotent: a fill already attributed (managed row) or already quarantined (orphan
+    row of ANY status) is skipped, so re-running across restarts never double-quarantines
+    or double-pages. Backfill-safe: the first run may find historical rows — it pages
+    ONCE with a count, not once per row. Returns the number of NEW orphans quarantined
+    this pass. Never raises into the caller (best-effort per row)."""
+    from db.fill_attribution import orphan_exists_for_execution
+    from db.managed_positions import is_execution_managed
+    from db.order_executions import list_terminal_partial_buys
+
+    cutoff = (datetime.now(UTC) - timedelta(days=lookback_days)).isoformat()
+    new_orphans: list[dict[str, Any]] = []
+    for row in list_terminal_partial_buys(since_iso=cutoff, db_path=db_path):
+        try:
+            execution_id = str(row.get("id") or "") or None
+            if not execution_id:
+                continue
+            filled_qty = row.get("filled_qty")
+            try:
+                if Decimal(str(filled_qty)) <= 0:
+                    continue  # no real shares — nothing to manage
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+            raw_proposal_id = row.get("proposal_id")
+            if not raw_proposal_id:
+                continue  # non-strategy order — unmanaged by design
+            proposal_id = str(raw_proposal_id)
+            strategy_id = _resolve_strategy_id(proposal_id, db_path=db_path)
+            if strategy_id is None:
+                continue  # not strategy-attributable — legitimately has no managed row
+            symbol = str(row.get("symbol", "")).strip().upper() or None
+
+            # Shares live in the EXECUTION's account (fall back to the strategy's bound
+            # account) — same authority order as record_strategy_fill.
+            account_id = row.get("account_id")
+            if not account_id:
+                strategy = get_strategy(strategy_id, db_path=db_path)
+                account_id = strategy.get("account_id") if strategy else None
+            account_id = str(account_id) if account_id else None
+
+            # Belt to the candidate SQL's NOT EXISTS orphan exclusion (F3) — cheap,
+            # and keeps idempotency even if the SQL screen ever regresses.
+            if orphan_exists_for_execution(execution_id, db_path=db_path):
+                continue  # already quarantined (open/notified/repaired) — idempotent
+            if symbol and is_execution_managed(
+                execution_id,
+                account_id=account_id,
+                symbol=symbol,
+                strategy_id=strategy_id,
+                exec_created_at=str(row.get("created_at") or ""),
+                db_path=db_path,
+            ):
+                continue  # attribution opened a row, or the fill folded into a
+                # triple row alive at the execution's creation (even if since closed)
+
+            orphan_id = record_orphan(
+                execution_id=execution_id,
+                reason="unmanaged_terminal_fill",
+                symbol=symbol,
+                account_id=account_id,
+                strategy_id=strategy_id,
+                proposal_id=proposal_id,
+                qty=str(filled_qty),
+                detail=(
+                    f"sweep: terminal BUY status={row.get('status')} "
+                    f"filled_qty={filled_qty} with no managed row and no orphan "
+                    "(poll-gap / restart attribution seam)"
+                ),
+                db_path=db_path,
+            )
+            if orphan_id is not None:
+                new_orphans.append(
+                    {
+                        "orphan_id": orphan_id,
+                        "execution_id": execution_id,
+                        "symbol": symbol or "?",
+                    }
+                )
+        except Exception:
+            logger.exception(
+                "Unmanaged-fill sweep failed on execution %s", row.get("id")
+            )
+
+    if new_orphans:
+        await _page_sweep_batch(new_orphans, db_path=db_path)
+    return len(new_orphans)
+
+
+async def _page_sweep_batch(
+    orphans: list[dict[str, Any]], *, db_path: Path
+) -> None:
+    """Send ONE critical page for a batch of sweep-quarantined fills, then mark them
+    notified so the per-row ``flush_fill_attribution_orphans`` does not re-page them.
+
+    On a notify persist failure (notify() returns {}), leave them 'open' so the per-row
+    flush still pages them next tick — degraded but never lost, matching the module's
+    'a duplicate page beats a permanently lost one' stance."""
+    from db.fill_attribution import mark_orphan_notified
+    from signals.notify import notify
+
+    count = len(orphans)
+    symbols = sorted({o["symbol"] for o in orphans})
+    sample = ", ".join(symbols[:8]) + ("…" if len(symbols) > 8 else "")
+    plural = "s" if count != 1 else ""
+    sent = await notify(
+        kind="attribution_orphan",
+        title=f"{count} unmanaged fill{plural} found by sweep",
+        body=(
+            f"{count} strategy BUY fill{plural} hold real shares with NO exit "
+            f"management — detected by the poll-gap/restart sweep ({sample}). Each "
+            "needs manual repair."
+        ),
+        severity="critical",
+        ref_type="execution",
+        ref_id=orphans[0]["execution_id"],
+        data={
+            "type": "attribution_orphan_sweep",
+            "count": count,
+            "orphans": orphans,
+        },
+        push=True,
+        db_path=db_path,
+    )
+    # notify() swallows persist failures and returns {} — only mark notified once the
+    # page is durably persisted, else leave 'open' for the per-row flush fallback.
+    if sent:
+        for orphan in orphans:
+            mark_orphan_notified(str(orphan["orphan_id"]), db_path=db_path)
 
 
 def record_session_node_managed_fill(

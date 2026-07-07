@@ -161,6 +161,52 @@ def list_open_positions(
     return [_row_to_dict(r) for r in rows]
 
 
+def is_execution_managed(
+    execution_id: str,
+    *,
+    account_id: str | None,
+    symbol: str,
+    strategy_id: str,
+    exec_created_at: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
+    """True if this fill's shares are (or were) covered by a managed-position row.
+
+    Used by the unmanaged-fill sweep (audit H1/M1) to avoid re-quarantining a fill that
+    attribution already handled. Covered when EITHER a managed row was opened directly
+    from this execution (``entry_execution_id`` match, ANY status — an opener later
+    closed by the exit engine still counts as attributed, not orphaned), OR a managed
+    row for this fill's (account, symbol, strategy) triple was ALIVE when the execution
+    was created: ``entry_date <= exec_created_at`` and the row is still open or was
+    closed at/after ``exec_created_at``. A later add folds into the existing open row
+    via the idempotent upsert WITHOUT storing its own entry_execution_id, so its shares
+    ARE managed — and the lifetime bound keeps that true even after the position closes
+    (adversarial F1: a plain status='open' triple check false-quarantined + falsely
+    CRITICAL-paged a folded add whose position had since been correctly sold).
+    Timestamps here and in order_executions are the uniform ``db.base.now_iso`` ISO
+    strings, so lexicographic compare is safe."""
+    init_managed_position_tables(db_path)
+    symbol = symbol.strip().upper()
+    with _connect(db_path) as conn:
+        by_exec = conn.execute(
+            "SELECT 1 FROM managed_positions WHERE entry_execution_id = ? LIMIT 1",
+            (execution_id,),
+        ).fetchone()
+        if by_exec is not None:
+            return True
+        if account_id is None:
+            return False
+        by_triple = conn.execute(
+            "SELECT 1 FROM managed_positions "
+            "WHERE account_id = ? AND symbol = ? AND strategy_id = ? "
+            "AND entry_date <= ? "
+            "AND (status = 'open' OR (closed_at IS NOT NULL AND closed_at >= ?)) "
+            "LIMIT 1",
+            (account_id, symbol, strategy_id, exec_created_at, exec_created_at),
+        ).fetchone()
+    return by_triple is not None
+
+
 def update_exit_state(
     position_id: str,
     *,

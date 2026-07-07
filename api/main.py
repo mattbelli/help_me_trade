@@ -433,6 +433,23 @@ async def _poll_once() -> None:
         poll_health.record_success()
         mark_alive("poll")
 
+    # Unmanaged-fill sweep (audit H1/M1) — ONCE per cycle, cross-account, AFTER the
+    # per-account reconciles above (so any fill attributed this cycle already has its
+    # managed/orphan row). A partial fill that jumped terminal across a poll gap, or a
+    # fill whose attribution was lost to a restart, holds real shares with NO exit
+    # management + NO page; this quarantines + pages them. Additive to the reconcile
+    # loop, not a new bg loop; fail-isolated so it can never break the poll.
+    try:
+        from trading.position_ledger import sweep_unmanaged_terminal_fills
+
+        swept = await sweep_unmanaged_terminal_fills()
+        if swept:
+            logger.warning(
+                "Unmanaged-fill sweep quarantined %d new orphan fill(s)", swept
+            )
+    except Exception:
+        logger.exception("Unmanaged-fill sweep pass failed")
+
     # Exit engine — ONE pass after all snapshots are saved + fills reconciled this
     # cycle, so it reads fresh per-account snapshots and a current managed ledger. It
     # walks open managed positions and dispatches sells per each strategy's exit_mode

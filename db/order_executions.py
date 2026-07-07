@@ -273,10 +273,15 @@ def sum_inflight_notional(
     account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> Decimal:
-    """Sum notional of pending/submitted exposure-increasing orders (Decimal-safe)."""
+    """Sum notional of in-flight exposure-increasing orders (Decimal-safe).
+
+    Counts pending/submitted AND partially_filled: a partially filled order is a
+    LIVE working order (the unfilled remainder is still resting at the broker) whose
+    notional_usd holds the full order notional, so the reservation must keep counting
+    it until it reaches a terminal status (audit H2)."""
     init_execution_tables(db_path)
     clauses = [
-        "status IN ('pending', 'submitted')",
+        "status IN ('pending', 'submitted', 'partially_filled')",
         "(side = 'buy' OR (side = 'sell' AND short_open = 1))",
     ]
     params: list[Any] = []
@@ -300,12 +305,22 @@ def sum_today_notional(
     account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> Decimal:
-    """Sum today's exposure-increasing notional (UTC day, matching count_executions_today bounds)."""
+    """Sum today's exposure-increasing notional (UTC day, matching count_executions_today bounds).
+
+    Counts pending/submitted/partially_filled/filled: a partially_filled order's full
+    notional counts toward the daily cap while it works (audit H2).
+
+    KNOWN RESIDUAL (accepted, do not silently "fix"): a partial that later CANCELS
+    lands on status 'canceled' and drops out of this sum entirely, even though its
+    filled shares were really bought — under-counting the day by the filled portion.
+    Counting it correctly needs a filled-portion notional (filled_qty x avg_fill_price)
+    we do not cleanly have at cap time; the full-notional alternative over-counts.
+    Adversarial-review F4 accepted this residual explicitly."""
     init_execution_tables(db_path)
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     clauses = [
         "created_at >= ?",
-        "status IN ('pending', 'submitted', 'filled')",
+        "status IN ('pending', 'submitted', 'partially_filled', 'filled')",
         "(side = 'buy' OR (side = 'sell' AND short_open = 1))",
     ]
     params: list[Any] = [f"{today}T00:00:00"]
@@ -371,6 +386,48 @@ def list_submitted_executions(
             ORDER BY created_at ASC
             """,
             params,
+        ).fetchall()
+    return [_row_to_execution(row) for row in rows]
+
+
+def list_terminal_partial_buys(
+    *,
+    since_iso: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """BUY executions holding real filled shares that are no longer pre-fill — the
+    unmanaged-fill sweep's candidate set (audit H1/M1).
+
+    A partial fill that jumped straight to canceled/expired within one poll gap, or a
+    fill whose attribution write was lost to a restart, holds real shares with no
+    managed-position row. Such rows have side='buy', a non-empty filled_qty, and a
+    status that is neither 'pending' nor 'submitted' (those are pre-fill / actively
+    reconciling; 'partially_filled' is kept — a crash between its status write and
+    attribution can strand it too). Rows that already have an orphan of ANY status are
+    excluded here in SQL (adversarial F3) so already-quarantined executions don't re-run
+    the per-row managed/orphan lookups on every poll cycle forever. filled_qty is TEXT
+    (Decimal): the SQL only screens NULL/empty; the caller applies the Decimal ``> 0``
+    test and the managed-row lookup. Bounded by created_at >= ``since_iso`` for query
+    cost."""
+    from db.fill_attribution import init_fill_attribution_tables
+
+    init_execution_tables(db_path)
+    init_fill_attribution_tables(db_path)  # the NOT EXISTS below needs the table
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM order_executions AS oe
+            WHERE oe.side = 'buy'
+              AND oe.status NOT IN ('pending', 'submitted')
+              AND oe.filled_qty IS NOT NULL AND TRIM(oe.filled_qty) != ''
+              AND oe.created_at >= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM fill_attribution_orphans AS fo
+                  WHERE fo.execution_id = oe.id
+              )
+            ORDER BY oe.created_at ASC
+            """,
+            (since_iso,),
         ).fetchall()
     return [_row_to_execution(row) for row in rows]
 

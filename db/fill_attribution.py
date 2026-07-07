@@ -127,6 +127,23 @@ def record_orphan(
         return None
 
 
+def orphan_exists_for_execution(
+    execution_id: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> bool:
+    """True if ANY orphan row exists for this execution, regardless of status.
+
+    The unmanaged-fill sweep uses this to stay idempotent across restarts: an execution
+    already quarantined — even one since marked 'repaired' (which the live-orphan unique
+    index no longer covers) — must never be re-quarantined."""
+    init_fill_attribution_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM fill_attribution_orphans WHERE execution_id = ? LIMIT 1",
+            (execution_id,),
+        ).fetchone()
+    return row is not None
+
+
 def list_open_orphans(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
     """Orphans that still need to page the founder (status='open')."""
     init_fill_attribution_tables(db_path)
