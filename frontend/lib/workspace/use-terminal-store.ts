@@ -58,7 +58,7 @@ function saveHeight(px: number): void {
 // either side edge. Fractions of the workspace width, persisted.
 const WIDTH_STORAGE_KEY = "hmt-terminal-widthfrac";
 const LEFT_STORAGE_KEY = "hmt-terminal-leftfrac";
-export const MIN_WIDTH_FRAC = 0.35;
+export const MIN_WIDTH_FRAC = 0.15;
 const DEFAULT_WIDTH_FRAC = 0.6;
 // Right-anchored by default: coverage grows from the bottom-right corner —
 // the low end of the founder's top-left attention gradient.
@@ -146,6 +146,53 @@ function saveHistory(history: string[]): void {
   }
 }
 
+// Drawer lock: when on, clicking away does NOT collapse the open drawer (Esc and
+// ⌘K still do). Lets the founder keep the terminal parked while working the grid.
+const LOCKED_STORAGE_KEY = "hmt-terminal-locked";
+
+function loadLocked(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(LOCKED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveLocked(locked: boolean): void {
+  try {
+    localStorage.setItem(LOCKED_STORAGE_KEY, locked ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+// Open-tabs strip: the ordered set of threads (by remoteId) shown as tabs in the
+// drawer header. Closing a tab leaves the strip but never deletes the thread.
+const TABS_STORAGE_KEY = "hmt-terminal-tabs";
+
+function loadTabs(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(TABS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((x): x is string => typeof x === "string");
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+function saveTabs(ids: string[]): void {
+  try {
+    localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // ignore
+  }
+}
+
 export type ScrollbackEntry = {
   id: string;
   kind: "input" | "output" | "error" | "sent";
@@ -166,11 +213,17 @@ type TerminalState = {
   leftFrac: number;
   widthFrac: number;
   vAnchor: VAnchor;
+  drawerLocked: boolean;
+  tabIds: string[];
   hydrated: boolean;
   scrollback: ScrollbackEntry[];
   history: string[];
   hydrate: () => void;
   toggle: () => void;
+  toggleDrawerLock: () => void;
+  addTab: (id: string) => void;
+  removeTab: (id: string) => void;
+  pruneTabs: (keep: Set<string>, activeId?: string) => void;
   setOpen: (open: boolean) => void;
   setHeight: (px: number) => void;
   setLayout: (leftFrac: number, widthFrac: number) => void;
@@ -188,6 +241,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   leftFrac: DEFAULT_LEFT_FRAC,
   widthFrac: DEFAULT_WIDTH_FRAC,
   vAnchor: "bottom",
+  drawerLocked: false,
+  tabIds: [],
   hydrated: false,
   scrollback: [],
   history: [],
@@ -196,10 +251,38 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       height: loadHeight(),
       ...loadLayout(),
       vAnchor: loadVAnchor(),
+      drawerLocked: loadLocked(),
+      tabIds: loadTabs(),
       history: loadHistory(),
       hydrated: true,
     }),
   toggle: () => set((s) => ({ open: !s.open })),
+  toggleDrawerLock: () =>
+    set((s) => {
+      const next = !s.drawerLocked;
+      saveLocked(next);
+      return { drawerLocked: next };
+    }),
+  addTab: (id) => {
+    if (get().tabIds.includes(id)) return;
+    const next = [...get().tabIds, id];
+    set({ tabIds: next });
+    saveTabs(next);
+  },
+  removeTab: (id) => {
+    const prev = get().tabIds;
+    if (!prev.includes(id)) return;
+    const next = prev.filter((t) => t !== id);
+    set({ tabIds: next });
+    saveTabs(next);
+  },
+  pruneTabs: (keep, activeId) => {
+    const prev = get().tabIds;
+    const next = prev.filter((id) => keep.has(id) || id === activeId);
+    if (next.length === prev.length) return;
+    set({ tabIds: next });
+    saveTabs(next);
+  },
   setOpen: (open) => set({ open }),
   setHeight: (px) => {
     const next = clampDrawerHeight(px);

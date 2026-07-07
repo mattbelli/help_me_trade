@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronDown, Lock, LockOpen, Plus } from "lucide-react";
+import { ChevronDown, Lock, LockOpen, Plus, X } from "lucide-react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import { useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,9 @@ import { isPerfDebug, markToPaint, usePerfStore } from "@/lib/workspace/perf-mar
 
 const STRIP = TERMINAL_COLLAPSED_HEIGHT;
 const SNAP = 24; // px magnet threshold — same feel as the horizontal dock snap.
+// The last-active chat thread, so close/reopen (or a full reload) returns to the
+// same conversation instead of booting into a fresh chat.
+const THREAD_STORAGE_KEY = "hmt-terminal-thread";
 
 /** Top-edge (in px, column coords) of the open drawer body for a given anchor. */
 function topPxFromAnchor(v: "bottom" | "top" | number, H: number, bodyH: number) {
@@ -82,12 +85,18 @@ export function Terminal() {
     leftFrac,
     widthFrac,
     vAnchor,
+    drawerLocked,
+    tabIds,
     history,
     hydrate,
     setOpen,
     setHeight,
     setLayout,
     setVAnchor,
+    toggleDrawerLock,
+    addTab,
+    removeTab,
+    pruneTabs,
     appendScrollback,
     pushHistory,
   } = useTerminalStore();
@@ -112,6 +121,10 @@ export function Terminal() {
   const aui = useAui();
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const threadTitle = useAuiState((s) => s.threadListItem.title);
+  const activeRemoteId = useAuiState((s) => s.threadListItem.remoteId);
+  const threadsLoading = useAuiState((s) => s.threads.isLoading);
+  const threadItems = useAuiState((s) => s.threads.threadItems);
+  const restoredThreadRef = useRef(false);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -130,6 +143,34 @@ export function Terminal() {
     hydrate();
     setPerfEnabled(isPerfDebug());
   }, [hydrate, setPerfEnabled]);
+
+  // Persist the active chat thread whenever it changes, so the terminal can
+  // return to the same conversation after a close/reopen or a full reload.
+  useEffect(() => {
+    if (!activeRemoteId) return;
+    try {
+      localStorage.setItem(THREAD_STORAGE_KEY, activeRemoteId);
+    } catch {
+      // ignore
+    }
+  }, [activeRemoteId]);
+
+  // On first load the runtime boots into a fresh main thread; once the server
+  // thread list resolves, switch back to the last-active thread if it still
+  // exists (deleted → stay on the default new chat). Runs exactly once.
+  useEffect(() => {
+    if (restoredThreadRef.current || threadsLoading) return;
+    restoredThreadRef.current = true;
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(THREAD_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    if (!saved || saved === activeRemoteId) return;
+    if (!threadItems.some((t) => t.remoteId === saved)) return;
+    void aui.threads().switchToThread(saved);
+  }, [aui, activeRemoteId, threadItems, threadsLoading]);
 
   // Auto-grow the prompt textarea with content (capped ~6 lines).
   useEffect(() => {
@@ -152,11 +193,74 @@ export function Terminal() {
     [setOpen, focusInput],
   );
 
+  // ── Terminal tabs — one tab per open thread (closing a tab leaves the strip
+  // but never deletes the thread; it stays in the history switcher). The open
+  // set + persistence live in the terminal store; these effects keep it in sync
+  // with the runtime's thread list (add-active / prune-deleted). ──────────────
+
+  // The active thread is always a tab (opening from the history switcher, the
+  // restored last-thread, or a new thread once it earns a remoteId all land here).
+  useEffect(() => {
+    if (activeRemoteId) addTab(activeRemoteId);
+  }, [activeRemoteId, addTab]);
+
+  // Drop tabs whose thread no longer exists server-side (deleted from history).
+  // The active thread is kept even if the list hasn't caught up to a fresh id.
+  useEffect(() => {
+    if (threadsLoading) return;
+    const existing = new Set(
+      threadItems
+        .map((t) => t.remoteId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    pruneTabs(existing, activeRemoteId);
+  }, [threadsLoading, threadItems, activeRemoteId, pruneTabs]);
+
+  const titleFor = useCallback(
+    (id: string) =>
+      threadItems.find((t) => t.remoteId === id)?.title?.trim() || "New chat",
+    [threadItems],
+  );
+
+  const openNewTab = useCallback(() => {
+    void aui.threads().switchToNewThread();
+    setOpen(true);
+    focusInput();
+  }, [aui, setOpen, focusInput]);
+
+  const selectTab = useCallback(
+    (id: string) => {
+      if (id !== activeRemoteId) void aui.threads().switchToThread(id);
+      setOpen(true);
+    },
+    [aui, activeRemoteId, setOpen],
+  );
+
+  const closeTab = useCallback(
+    (id: string) => {
+      const idx = tabIds.indexOf(id);
+      if (idx === -1) return;
+      removeTab(id);
+      // Closing the active tab hands focus to a neighbor, or a fresh thread if
+      // the strip is now empty. The closed thread is untouched server-side.
+      if (id === activeRemoteId) {
+        const rest = tabIds.filter((t) => t !== id);
+        const fallback = rest[idx] ?? rest[idx - 1] ?? null;
+        if (fallback) void aui.threads().switchToThread(fallback);
+        else void aui.threads().switchToNewThread();
+      }
+    },
+    [aui, tabIds, activeRemoteId, removeTab],
+  );
+
   // Quake-style click-away: the grid above stays live, so a click on a widget
   // both acts on it and drops the drawer. Listener doesn't preventDefault.
   useEffect(() => {
-    if (!open) return;
+    if (!open || drawerLocked) return;
     const onPointerDown = (e: globalThis.PointerEvent) => {
+      // Only a primary (left) click collapses. A middle-button pan or a
+      // right-click anywhere must never drop the drawer (founder report).
+      if (e.button !== 0) return;
       const root = wrapperRef.current;
       if (!root || !(e.target instanceof Node)) return;
       if (root.contains(e.target)) return;
@@ -172,7 +276,7 @@ export function Terminal() {
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open, setOpen]);
+  }, [open, drawerLocked, setOpen]);
 
   const submitLine = useCallback(
     async (raw: string) => {
@@ -499,9 +603,10 @@ export function Terminal() {
   );
 
   // Header drag = move the open drawer on BOTH axes with magnet snap (same
-  // SNAP=24 feel). Horizontal: left / right / center dock. Vertical: top dock /
-  // bottom dock / vertical center, else free float (clamped on-screen). Snap is
-  // applied live during the drag, mirroring the horizontal dock feel.
+  // SNAP=24 feel). Horizontal: left / right edge. Vertical: top dock / bottom
+  // dock, else free float (clamped on-screen) — no center magnets. Snap is
+  // applied live during the drag, mirroring the horizontal dock feel. A numeric
+  // vAnchor persisted from the old center magnet simply floats (isFloat).
   const beginMove = useCallback(
     (event: ReactPointerEvent) => {
       event.preventDefault();
@@ -519,16 +624,16 @@ export function Terminal() {
       setDragActive(true);
 
       function onMove(e: PointerEvent) {
-        // Horizontal — left edge / right edge / center dock (unchanged feel).
+        // Horizontal — left / right edge only (no center magnet: the founder
+        // wants magnets on the top, bottom and sides, not the middle).
         const dx = e.clientX - startX;
         let left = startLeft + dx;
         if (Math.abs(left) < SNAP) left = 0;
         else if (Math.abs(left + width - W) < SNAP) left = W - width;
-        else if (Math.abs(left + width / 2 - W / 2) < SNAP)
-          left = (W - width) / 2;
         setLayout(left / W, widthFrac);
 
-        // Vertical — clamp free position on-screen (above the strip), then snap.
+        // Vertical — clamp free position on-screen (above the strip), then snap
+        // to the top or bottom dock only (no vertical-center magnet).
         const dy = e.clientY - startY;
         const maxTop = Math.max(0, H - STRIP - bodyH);
         const top = Math.max(0, Math.min(startTop + dy, maxTop));
@@ -536,8 +641,6 @@ export function Terminal() {
           setVAnchor("top");
         } else if (Math.abs(top + bodyH - (H - STRIP)) < SNAP) {
           setVAnchor("bottom");
-        } else if (Math.abs(top + bodyH / 2 - H / 2) < SNAP) {
-          setVAnchor((H - bodyH) / 2 / H);
         } else {
           setVAnchor(top / H);
         }
@@ -643,7 +746,7 @@ export function Terminal() {
                 aria-label="Switch thread"
                 aria-expanded={historyOpen}
               >
-                <span className="max-w-[12rem] truncate">
+                <span className="max-w-[12rem] truncate text-[length:var(--fs-emph)]">
                   {threadTitle?.trim() || "New chat"}
                 </span>
                 <ChevronDown className="size-3 shrink-0" />
@@ -665,20 +768,107 @@ export function Terminal() {
                 </>
               ) : null}
             </div>
-            <span className="text-[var(--fg-faint)]">·</span>
-            <span>Ch1</span>
-            {isRunning ? (
-              <span
-                aria-label="Agent is working"
-                className="inline-block size-1.5 animate-[breathe_1.14s_ease-in-out_infinite] rounded-full bg-[var(--c-accent)] motion-reduce:animate-none"
-              />
-            ) : null}
+            {/* Tab strip — one quiet tab per open thread; overflows to a
+                horizontal scroll when the drawer is narrow. */}
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+              {tabIds.map((id) => {
+                const active = id === activeRemoteId;
+                const label = titleFor(id);
+                return (
+                  <span
+                    key={id}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className={cn(
+                      "group/tab flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[length:var(--fs-micro)] transition-colors",
+                      active
+                        ? "border-[var(--border-strong)] bg-[var(--bg-hover)]/60 text-foreground"
+                        : "border-transparent text-[var(--fg-faint)] hover:bg-[var(--bg-hover)]/40 hover:text-[var(--fg-dim)]",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => selectTab(id)}
+                      onAuxClick={(e) => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          closeTab(id);
+                        }
+                      }}
+                      className="max-w-[9rem] truncate text-left"
+                      title={label}
+                    >
+                      {label}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => closeTab(id)}
+                      aria-label="Close tab"
+                      className={cn(
+                        "shrink-0 rounded-sm transition-opacity hover:text-foreground",
+                        active
+                          ? "opacity-70 hover:opacity-100"
+                          : "opacity-0 group-hover/tab:opacity-100",
+                      )}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                );
+              })}
+              {/* A brand-new thread has no remoteId yet — show it as an active,
+                  non-closable tab until its first message persists it. */}
+              {!activeRemoteId ? (
+                <span
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="flex shrink-0 items-center rounded-sm border border-[var(--border-strong)] bg-[var(--bg-hover)]/60 px-1.5 py-0.5 text-[length:var(--fs-micro)] text-foreground"
+                >
+                  New chat
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={openNewTab}
+                aria-label="New chat"
+                title="New chat"
+                className="shrink-0 rounded-sm p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+              >
+                <Plus className="size-3" />
+              </button>
+            </div>
             <div className="ml-auto flex items-center gap-3">
+              {isRunning ? (
+                <span
+                  aria-label="Agent is working"
+                  className="inline-block size-1.5 animate-[breathe_1.14s_ease-in-out_infinite] rounded-full bg-[var(--c-accent)] motion-reduce:animate-none"
+                />
+              ) : null}
+              <span className="shrink-0">Ch1</span>
               {perfEnabled && perfLast ? (
                 <span className="tabular-nums text-[var(--c-accent)]">
                   ⏱ {perfLast.label} {perfLast.ms.toFixed(0)}ms
                 </span>
               ) : null}
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={toggleDrawerLock}
+                className={cn(
+                  "rounded p-0.5 transition-colors",
+                  drawerLocked
+                    ? "text-[var(--c-accent)]"
+                    : "text-[var(--fg-faint)] hover:text-foreground",
+                )}
+                aria-label="Keep open when clicking away"
+                aria-pressed={drawerLocked}
+                title="Keep open when clicking away"
+              >
+                {drawerLocked ? (
+                  <Lock className="size-3.5" />
+                ) : (
+                  <LockOpen className="size-3.5" />
+                )}
+              </button>
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}

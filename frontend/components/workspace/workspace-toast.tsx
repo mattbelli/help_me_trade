@@ -53,7 +53,10 @@ export function WorkspaceToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ showToast }}>
       {children}
       <div className="pointer-events-none fixed bottom-20 left-1/2 z-[80] -translate-x-1/2">
-        <AnimatePresence>
+        {/* initial={false}: a toast already queued when the shell mounts (e.g. a
+            latched version-skew prompt after a hard refresh) appears in place
+            rather than flying in from an offset. Live toasts still animate. */}
+        <AnimatePresence initial={false}>
           {toast ? (
             <motion.div
               key={toast.id}

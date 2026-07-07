@@ -87,7 +87,10 @@ export function NotificationBanner() {
 
   return (
     <div className="pointer-events-none fixed top-14 right-4 z-[70] flex w-[min(100vw-2rem,22rem)] flex-col gap-2">
-      <AnimatePresence mode="popLayout">
+      {/* initial={false}: notifications already present when the shell mounts
+          (after a hard refresh) render in their final slot instead of paint-
+          then-nudge from the off-screen enter offset. Live ones still slide in. */}
+      <AnimatePresence mode="popLayout" initial={false}>
         {active.map((banner) => (
           <motion.div
             key={banner.key}

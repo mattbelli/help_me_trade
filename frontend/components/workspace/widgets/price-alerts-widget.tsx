@@ -1,7 +1,7 @@
 "use client";
 
 import { Pencil, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
@@ -56,6 +56,48 @@ function alertToForm(alert: PriceAlert): AlertFormState {
     repeat: Boolean(alert.repeat),
     note: alert.note ?? "",
   };
+}
+
+/**
+ * Note cell — an AI-written note can be long enough to dominate the widget, so
+ * it clamps to two lines with an inline more/less toggle. Expand state is local
+ * (not persisted); the toggle only appears when the note actually overflows.
+ */
+function NoteCell({ note }: { note?: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return;
+    setClamped(el.scrollHeight > el.clientHeight + 1);
+  }, [note, expanded]);
+
+  if (!note) {
+    return (
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
+        —
+      </td>
+    );
+  }
+
+  return (
+    <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
+      <p ref={ref} className={cn("break-words", !expanded && "line-clamp-2")}>
+        {note}
+      </p>
+      {clamped || expanded ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-0.5 text-[length:var(--fs-micro)] text-[var(--c-accent)] transition-colors hover:underline"
+        >
+          {expanded ? "less" : "more"}
+        </button>
+      ) : null}
+    </td>
+  );
 }
 
 export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
@@ -360,9 +402,7 @@ export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
                         ? "triggered"
                         : "active"}
                   </td>
-                  <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
-                    {alert.note || "—"}
-                  </td>
+                  <NoteCell note={alert.note} />
                   <td className="border-b border-[var(--border)] px-1 py-1.5">
                     <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                       <button

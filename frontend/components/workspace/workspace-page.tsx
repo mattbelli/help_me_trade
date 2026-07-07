@@ -3,14 +3,10 @@
 import { useEffect } from "react";
 import { motion } from "motion/react";
 
-import { Terminal } from "@/components/workspace/terminal/terminal";
 import { CopilotSidebar } from "@/components/workspace/copilot-sidebar";
 import { MobileWorkspace } from "@/components/workspace/mobile-workspace";
 import { NotificationBanner } from "@/components/workspace/notification-banner";
-import { TickerInfoProvider } from "@/components/workspace/ticker-info-provider";
-import { WorkspaceChatProviders } from "@/components/workspace/workspace-chat";
 import { WorkspaceGrid } from "@/components/workspace/workspace-grid";
-import { WorkspaceToastProvider } from "@/components/workspace/workspace-toast";
 import { WorkspaceToolbar } from "@/components/workspace/workspace-toolbar";
 import { TERMINAL_COLLAPSED_HEIGHT } from "@/lib/workspace/use-terminal-store";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
@@ -19,7 +15,8 @@ import { usePageHotkeys } from "@/lib/workspace/use-page-hotkeys";
 import { useVersionCheck } from "@/lib/workspace/use-version-check";
 import { motionStd } from "@/lib/workspace/motion";
 
-// Mounted inside WorkspaceToastProvider so the version-skew check can toast.
+// Rendered under AppShell's WorkspaceToastProvider so the version-skew check
+// can toast.
 function VersionCheck() {
   useVersionCheck();
   return null;
@@ -62,50 +59,43 @@ export default function WorkspacePageImpl() {
   const dockedPadding = open && pinned ? width : 0;
 
   // Phones get a purpose-built bottom-tab shell instead of the desktop widget
-  // grid. It still lives inside the chat providers so the Agent tab's thread
-  // works. AppShell's notification stream keeps the store live for the Activity tab.
+  // grid. The chat providers now live in AppShell (so chat persists across
+  // routes) — the Agent tab's thread reads the same shared runtime.
   if (isMobile) {
     return (
-      <WorkspaceToastProvider>
+      <>
         <VersionCheck />
-        <WorkspaceChatProviders>
-          <TickerInfoProvider>
-            <MobileWorkspace />
-          </TickerInfoProvider>
-        </WorkspaceChatProviders>
-      </WorkspaceToastProvider>
+        <MobileWorkspace />
+      </>
     );
   }
 
   return (
-    <WorkspaceToastProvider>
+    <>
       <VersionCheck />
       <div className="flex h-svh min-h-[640px] flex-col overflow-hidden bg-background">
         <WorkspaceToolbar />
         <NotificationBanner />
 
+        {/* paddingBottom reserves the collapsed terminal strip's height — the
+            Terminal itself is now a fixed viewport overlay mounted in AppShell. */}
         <div
           className="relative flex min-h-0 flex-1 flex-col"
           style={{ paddingBottom: collapsedHeight }}
         >
-          <WorkspaceChatProviders>
-            <TickerInfoProvider>
-              <div id="workspace-grid-host" className="relative min-h-0 flex-1">
-                <motion.div
-                  className="h-full min-h-0"
-                  initial={false}
-                  animate={{ paddingRight: dockedPadding }}
-                  transition={motionStd}
-                >
-                  <WorkspaceGrid />
-                </motion.div>
-                <CopilotSidebar />
-              </div>
-              <Terminal />
-            </TickerInfoProvider>
-          </WorkspaceChatProviders>
+          <div id="workspace-grid-host" className="relative min-h-0 flex-1">
+            <motion.div
+              className="h-full min-h-0"
+              initial={false}
+              animate={{ paddingRight: dockedPadding }}
+              transition={motionStd}
+            >
+              <WorkspaceGrid />
+            </motion.div>
+            <CopilotSidebar />
+          </div>
         </div>
       </div>
-    </WorkspaceToastProvider>
+    </>
   );
 }

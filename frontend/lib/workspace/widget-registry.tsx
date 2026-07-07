@@ -28,6 +28,7 @@ import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcom
 import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
 import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
 import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
+import { ChatWidget } from "@/components/workspace/widgets/chat-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
 
@@ -255,6 +256,14 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: CompanyInfoWidget,
     defaultSize: { w: 12, h: 9, minW: 6, minH: 5 },
+  },
+  {
+    id: "chat",
+    title: "chat",
+    description: "The agent chat — same conversation as the terminal drawer",
+    multiInstance: false,
+    component: ChatWidget as WidgetDefinition["component"],
+    defaultSize: { w: 12, h: 6, minW: 5, minH: 4 },
   },
 ];
 

@@ -10,6 +10,7 @@ import {
   WidgetLoading,
 } from "@/components/workspace/widget-states";
 import { formatMoney, formatQty, type SchwabAccount } from "@/lib/api";
+import { useLiveMarks } from "@/lib/use-live-marks";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import { usePriceFlash } from "@/lib/workspace/use-price-flash";
@@ -63,6 +64,23 @@ function sortPositions(
 
     return mul * ((va as number) - (vb as number));
   });
+}
+
+// Delta-adjust a snapshot row from a live regular-session mark. `current_price`
+// is the REST baseline; each poll re-baselines it, so the delta never walks.
+function markPaper(
+  p: TaggedPosition,
+  marks: Record<string, number>,
+): TaggedPosition {
+  const px = marks[p.symbol];
+  if (px == null || px === p.current_price) return p;
+  const delta = p.qty * (px - p.current_price);
+  return {
+    ...p,
+    current_price: px,
+    market_value: p.market_value + delta,
+    unrealized_pl: p.unrealized_pl + delta,
+  };
 }
 
 function PositionRow({
@@ -147,9 +165,20 @@ function PaperPositions({
     dir: "asc" | "desc";
   } | null>(null);
 
+  const symbols = useMemo(
+    () => Array.from(new Set(positions.map((p) => p.symbol))),
+    [positions],
+  );
+  const marks = useLiveMarks(symbols);
+
+  const markedPositions = useMemo(
+    () => positions.map((p) => markPaper(p, marks)),
+    [positions, marks],
+  );
+
   const sortedPositions = useMemo(
-    () => sortPositions(positions, sortState),
-    [positions, sortState],
+    () => sortPositions(markedPositions, sortState),
+    [markedPositions, sortState],
   );
 
   const handleSortHeaderClick = useCallback((key: SortKey) => {
@@ -264,6 +293,95 @@ function realRows(
   );
 }
 
+function markReal(p: RealRow, marks: Record<string, number>): RealRow {
+  const px = marks[p.symbol];
+  if (px == null || px === p.current_price) return p;
+  const delta = p.qty * (px - p.current_price);
+  return {
+    ...p,
+    current_price: px,
+    unrealized_pl: p.unrealized_pl + delta,
+    day_pl: p.day_pl + delta,
+  };
+}
+
+function RealPositionRow({
+  p,
+  idx,
+  linked,
+  publish,
+}: {
+  p: RealRow;
+  idx: number;
+  linked: boolean;
+  publish: (symbol: string) => void;
+}) {
+  const unrealizedFlash = usePriceFlash(p.unrealized_pl);
+  const dayFlash = usePriceFlash(p.day_pl);
+
+  return (
+    <tr
+      key={`${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}
+      className="group/row transition-colors hover:bg-[var(--bg-hover)]"
+    >
+      <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <ClickableSymbol
+            symbol={p.symbol}
+            linked={linked}
+            onActivate={() => publish(p.symbol)}
+          />
+          {p.accountLast4 ? (
+            <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+              ••{p.accountLast4}
+            </span>
+          ) : null}
+        </span>
+      </td>
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+        {formatQty(p.qty)}
+      </td>
+      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+        {formatMoney(p.current_price)}
+      </td>
+      <td
+        className={cn(
+          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+          p.unrealized_pl >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+        )}
+      >
+        <span
+          className={cn(
+            "-mx-0.5 inline-flex w-fit rounded px-0.5",
+            unrealizedFlash === "up" && "tick-flash-up",
+            unrealizedFlash === "down" && "tick-flash-down",
+          )}
+        >
+          {p.unrealized_pl >= 0 ? "+" : ""}
+          {formatMoney(p.unrealized_pl)}
+        </span>
+      </td>
+      <td
+        className={cn(
+          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+          p.day_pl >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+        )}
+      >
+        <span
+          className={cn(
+            "-mx-0.5 inline-flex w-fit rounded px-0.5",
+            dayFlash === "up" && "tick-flash-up",
+            dayFlash === "down" && "tick-flash-down",
+          )}
+        >
+          {p.day_pl >= 0 ? "+" : ""}
+          {formatMoney(p.day_pl)}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 function RealPositions({
   linked,
   publish,
@@ -274,9 +392,20 @@ function RealPositions({
   const { selectedAccountId } = useDashboardPrefs();
   const { realAccounts, realAuthenticated, realLoading } = useRealAccounts();
 
-  const rows = useMemo(
+  const baseRows = useMemo(
     () => realRows(realAccounts, selectedAccountId),
     [realAccounts, selectedAccountId],
+  );
+
+  const symbols = useMemo(
+    () => Array.from(new Set(baseRows.map((p) => p.symbol))),
+    [baseRows],
+  );
+  const marks = useLiveMarks(symbols);
+
+  const rows = useMemo(
+    () => baseRows.map((p) => markReal(p, marks)),
+    [baseRows, marks],
   );
 
   if (realLoading && realAccounts.length === 0) {
@@ -311,53 +440,13 @@ function RealPositions({
         </thead>
         <tbody>
           {rows.map((p, idx) => (
-            <tr
+            <RealPositionRow
               key={`${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}
-              className="group/row transition-colors hover:bg-[var(--bg-hover)]"
-            >
-              <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
-                <span className="inline-flex items-center gap-1.5">
-                  <ClickableSymbol
-                    symbol={p.symbol}
-                    linked={linked}
-                    onActivate={() => publish(p.symbol)}
-                  />
-                  {p.accountLast4 ? (
-                    <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-                      ••{p.accountLast4}
-                    </span>
-                  ) : null}
-                </span>
-              </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-                {formatQty(p.qty)}
-              </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-                {formatMoney(p.current_price)}
-              </td>
-              <td
-                className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
-                  p.unrealized_pl >= 0
-                    ? "text-[var(--c-green)]"
-                    : "text-[var(--c-red)]",
-                )}
-              >
-                {p.unrealized_pl >= 0 ? "+" : ""}
-                {formatMoney(p.unrealized_pl)}
-              </td>
-              <td
-                className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
-                  p.day_pl >= 0
-                    ? "text-[var(--c-green)]"
-                    : "text-[var(--c-red)]",
-                )}
-              >
-                {p.day_pl >= 0 ? "+" : ""}
-                {formatMoney(p.day_pl)}
-              </td>
-            </tr>
+              p={p}
+              idx={idx}
+              linked={linked}
+              publish={publish}
+            />
           ))}
         </tbody>
       </table>

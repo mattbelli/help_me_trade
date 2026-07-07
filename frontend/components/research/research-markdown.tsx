@@ -15,7 +15,7 @@ export function ResearchMarkdown({
   return (
     <div
       className={cn(
-        "research-md mx-auto max-w-prose font-mono text-[length:var(--fs-title)] leading-relaxed text-[var(--fg-dim)]",
+        "research-md mx-auto max-w-[100ch] font-mono text-[length:var(--fs-title)] leading-relaxed text-[var(--fg-dim)]",
         "[&_h1]:mb-4 [&_h1]:font-heading [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:text-foreground",
         "[&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:font-heading [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-foreground",
         "[&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-foreground",

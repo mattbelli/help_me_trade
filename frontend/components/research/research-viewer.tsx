@@ -279,7 +279,12 @@ export function ResearchViewerBody({
 
   if (artifact.markdown && viewMode === "markdown") {
     return (
-      <ScrollArea className={cn("p-6", bodyClassName)}>
+      <ScrollArea
+        className={cn(
+          "grain-surface md-paper bg-[var(--md-paper-bg)] p-6",
+          bodyClassName,
+        )}
+      >
         <ResearchMarkdown markdown={artifact.markdown} />
       </ScrollArea>
     );

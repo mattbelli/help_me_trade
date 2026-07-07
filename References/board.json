@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-08T10:00:00Z",
+  "updated_at": "2026-07-08T09:35:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "schwab-streamer-outage-0707",
+      "title": "OPS: Schwab streamer gateway 404 since ~1:38am ET (their side; REST healthy; self-heals on reconnect)",
+      "lane": "inbox",
+      "type": "ops",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Verified 5:25am ET: wss://streamer-api.schwab.com/ws (their own advertised URL, fresh from user-preferences) rejects handshake HTTP 404 while REST serves 200s. Our loop refetches prefs + retries every 60s - reconnects automatically when they recover. Impact meanwhile: no tick streaming (watchlist/chart/positions update on the ~6s REST poll instead); alerts covered by the ext REST poll. If still down at 9:30 open, escalate - that would be a major Schwab outage."
+    },
     {
       "id": "flaky-propose-order-test",
       "title": "tests/test_chat_brain.py::test_run_tool_propose_order_ok fails on clean tree ('rejected' vs 'dry_run')",

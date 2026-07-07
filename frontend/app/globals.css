@@ -58,27 +58,30 @@
 :root {
     color-scheme: dark;
     /* Type scale (T1): a fixed 6-step ladder, theme-independent.
-       9=micro-labels/badges, 10=table body & secondary, 11=primary body/rows,
-       12=widget & section titles, 14=toolbar tiles / chart price, 19=hero. */
-    --fs-micro: 9px;
-    --fs-table: 10px;
-    --fs-body: 11px;
-    --fs-title: 12px;
-    --fs-emph: 14px;
-    --fs-hero: 19px;
-    /* widget header title: between title(12) and emph(14) by founder taste */
-    --fs-widget-title: 13px;
-    /* terminal transcript body (T2): founder found title(12) too small in the
-       drawer scrollback; matches the dock's mono chat size */
+       10=micro-labels/badges, 11=table body & secondary, 12=primary body/rows,
+       13=widget & section titles, 15=toolbar tiles / chart price, 20=hero.
+       (settled 2026-07-07: went +1, then +2, then founder discovered he'd been
+       judging at 90% browser zoom — final call "drop the font back 1" = net +1
+       from the original ladder. Don't retune without a zoom check first.) */
+    --fs-micro: 10px;
+    --fs-table: 11px;
+    --fs-body: 12px;
+    --fs-title: 13px;
+    --fs-emph: 15px;
+    --fs-hero: 20px;
+    /* widget header title: one step above title(13) — kept as its own token so
+       widget headers can diverge again without a component sweep */
+    --fs-widget-title: 14px;
+    /* terminal transcript body (T2): founder-tuned at 90% zoom where 15px read
+       as ~13.5 effective; 14px at 100% is the closest match to what he approved */
     --fs-terminal: 14px;
     /* header/display face: one-line hook for font trials (Iosevka trial
        reverted 2026-07-05 — founder preferred the house mono) */
     --font-display: var(--font-mono);
-    /* terminal surface face (T1 Iosevka trial): scrollback + input render in
-       Iosevka if the OS has it (founder's wezterm face), falling back to the
-       house mono. Revert the whole trial by setting this to var(--font-mono). */
-    --font-terminal: "Iosevka", "Iosevka Term", "Iosevka Nerd Font",
-      var(--font-mono);
+    /* terminal surface face: the house mono. The Iosevka trial (resolving the
+       founder's local wezterm face) was reverted 2026-07-07 — it rendered
+       blurry with faux-bold; the house mono is crisp with real bold weights. */
+    --font-terminal: var(--font-mono);
     --background: #131519;
     --chart-background: var(--background);
     --foreground: #e9e7e3;
@@ -128,6 +131,7 @@
     --c-accent-soft: rgba(90, 209, 190, 0.12);
     --c-violet: #b08cff;
     --c-blue: #6cb0ff;
+    --c-cyan: #2fc4e0;
     --c-green: #5bc98a;
     --c-green-bg: #5bc98a;
     --c-red: #ef6f6c;
@@ -137,6 +141,12 @@
     --c-danger: #ef6f6c;
     --c-on-accent: #0b0d10;
     --chart-down: #ef6f6c;
+    /* Research markdown "paper": derived one subtle step off --panel toward
+       --foreground so it tracks ANY active theme, including custom ones (which
+       set their own --panel/--foreground). 98/2 reproduces the old dark
+       #1c1f26 lift; every built-in dark theme now inherits this (light theme
+       overrides it below — a derived mix on white goes muddy gray). */
+    --md-paper-bg: color-mix(in srgb, var(--panel) 98%, var(--foreground) 2%);
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
     --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
@@ -200,6 +210,7 @@
     --c-accent-soft: rgba(90, 209, 190, 0.12);
     --c-violet: #b08cff;
     --c-blue: #6cb0ff;
+    --c-cyan: #2fc4e0;
     --c-green: #5bc98a;
     --c-green-bg: #5bc98a;
     --c-red: #ef6f6c;
@@ -209,6 +220,7 @@
     --c-danger: #ef6f6c;
     --c-on-accent: #0b0d10;
     --chart-down: #ef6f6c;
+    /* --md-paper-bg inherited from :root (derived off --panel/--foreground). */
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
     --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
@@ -270,6 +282,7 @@
     --c-accent-soft: rgba(217, 154, 82, 0.12);
     --c-violet: #c07a8f;
     --c-blue: #6f97a8;
+    --c-cyan: #5cb4aa;
     --c-green: #a3b565;
     --c-green-bg: #a3b565;
     --c-red: #d9705c;
@@ -278,6 +291,7 @@
     --c-command: #e8a24a;
     --c-danger: #d9705c;
     --c-on-accent: #161617;
+    /* --md-paper-bg inherited from :root (derived off --panel/--foreground). */
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 8px 30px rgba(0, 0, 0, 0.4);
     --c-glow: 0 0 0 1px rgba(217, 154, 82, 0.12);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
@@ -340,6 +354,7 @@
     --c-accent-soft: rgba(155, 107, 255, 0.16);
     --c-violet: #b08cff;
     --c-blue: #6cb0ff;
+    --c-cyan: #2fc4e0;
     --c-green: #5bc98a;
     --c-green-bg: #5bc98a;
     --c-red: #ef6f6c;
@@ -348,6 +363,7 @@
     --c-command: #ff8c42;
     --c-danger: #ef6f6c;
     --c-on-accent: #000000;
+    /* --md-paper-bg inherited from :root (derived off --panel/--foreground). */
     --panel-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
     --c-glow: 0 0 0 1px rgba(155, 107, 255, 0.16);
     --widget-hover-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
@@ -407,6 +423,7 @@
     --c-accent-soft: rgba(37, 99, 235, 0.12);
     --c-violet: #7c5cd0;
     --c-blue: #3b82c4;
+    --c-cyan: #0e97b0;
     --c-green: #1f9d57;
     --c-green-bg: #1f9d57;
     --c-red: #d23b34;
@@ -415,6 +432,7 @@
     --c-command: #c2410c;
     --c-danger: #d23b34;
     --c-on-accent: #ffffff;
+    --md-paper-bg: #f6f3ec;
     --panel-shadow: 0 1px 2px rgba(20, 24, 31, 0.06), 0 8px 24px rgba(20, 24, 31, 0.08);
     --c-glow: 0 0 0 1px rgba(37, 99, 235, 0.16);
     --widget-hover-shadow: 0 2px 10px rgba(20, 24, 31, 0.10);
@@ -538,6 +556,16 @@
     background-size: 128px 128px;
     background-repeat: repeat;
     opacity: var(--grain-opacity, 0);
+  }
+
+  /* Research markdown "paper": scope film-grain locally (paired with
+     .grain-surface on the same element) so the viewer reads as a textured sheet
+     on every theme, without switching the whole theme's grain on. A soft inset
+     ring lifts the sheet off the surrounding panel. */
+  .md-paper {
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.33 0.33 0.33 0 0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23g)'/%3E%3C/svg%3E");
+    --grain-opacity: 0.06;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
   }
 }
 

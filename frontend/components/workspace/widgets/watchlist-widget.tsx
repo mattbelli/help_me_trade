@@ -541,7 +541,10 @@ function WatchlistSymbolRow({
             symbol={symbol}
             linked={linked}
             onActivate={onPublish}
-            className="truncate font-medium"
+            // leading-none collapses the text line-box to its cap-height so the
+            // live dot (items-center'd against this cluster) sits optically
+            // centered on the ticker at any --fs size, not low toward the baseline.
+            className="truncate font-medium leading-none"
           />
           {showEarningsBadge && nextEarningsDate ? (
             <span
@@ -649,6 +652,24 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   useEffect(() => {
     dragOrderRef.current = dragOrder;
   }, [dragOrder]);
+
+  // A dragged-out row lives inside this widget's react-grid-item, each of which
+  // is a transformed sibling / stacking context — so the row paints BEHIND
+  // neighboring grid items (e.g. the chart) unless our own grid item wins the
+  // z-order. While a row drag is active, raise the grid-item ancestor's
+  // z-index, restoring the prior inline value when the drag ends.
+  useEffect(() => {
+    if (!isDragging) return;
+    const gridItem = widgetRef.current?.closest(
+      ".react-grid-item",
+    ) as HTMLElement | null;
+    if (!gridItem) return;
+    const prev = gridItem.style.zIndex;
+    gridItem.style.zIndex = "40";
+    return () => {
+      gridItem.style.zIndex = prev;
+    };
+  }, [isDragging]);
 
   useEffect(() => {
     let cancelled = false;

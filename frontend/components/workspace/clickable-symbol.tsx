@@ -19,7 +19,10 @@ export function ClickableSymbol({
   const { openTickerInfo } = useTickerInfo();
 
   return (
-    <span className="group/sym inline-flex items-center gap-0.5">
+    // leading-none: without it this wrapper's line box is ~1.5x the font size,
+    // so siblings aligned against it (the watchlist live dot) center on the
+    // inflated invisible box instead of the visible glyphs.
+    <span className="group/sym inline-flex items-center gap-0.5 leading-none">
       {linked ? (
         <button
           type="button"
