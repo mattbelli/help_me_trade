@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-08T07:00:00Z",
+  "updated_at": "2026-07-08T09:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "flaky-propose-order-test",
+      "title": "tests/test_chat_brain.py::test_run_tool_propose_order_ok fails on clean tree ('rejected' vs 'dry_run')",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "Pre-existing, stash-verified by 3 independent agents 2026-07-08; passes under full-suite ordering (#32 env-leakage family). Deselected in targeted runs. Fix with #32."
+    },
+    {
+      "id": "phase1a-tool-calling",
+      "title": "Decision Engine Phase 1a: native tool-calling in ai/llm/ (brain-in-Python step 1)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Per research/fable/2026-07-06_phase1-2-execution-spec.md: additive native tool-call support in the provider-agnostic LLM client layer (openai_compat first, DeepSeek live target) + hermetic golden tests. Does NOT flip any chat loop (that is 1b). Overnight round 2026-07-08. SHIPPED 2026-07-08 overnight: complete_tools on openai_compat+anthropic+mock, run_tool_loop driver, 19 hermetic tests, pure-additive (no live path flipped). 1b next - founder-visible flip."
+    },
     {
       "id": "memory-founder-correction-lane",
       "title": "Founder chat-correction loses to his own stale confirmed rule (contradictory pair, both active)",
@@ -29,12 +47,12 @@
     },
     {
       "id": "alert-refire-ext",
-      "title": "Price alert re-fire: one NVDA cross alert fired 3x with different prices (ext path dedup?)",
+      "title": "Alert spam root-caused: repeat alerts need re-arm price hysteresis + toast group_key; off-hours ext band too loose for 3-8% junk prints",
       "lane": "next",
       "type": "bug",
       "priority": "normal",
       "owner": "serv",
-      "notes": "Seen 2026-07-08 00:51 screenshot: three toasts 'NVDA cross $193.95 - now 191.61/191.23/183.37'. Ext alert path (apply_extended/_ext_post_tick) should dedup crosses; check re-arm semantics + whether the 183.37 print predates the one-poll corroboration deploy. Investigate in daylight."
+      "notes": "INVESTIGATED 2026-07-08 (read-only, conclusive): alert id=18 (NVDA cross 193.95, repeat=1, founder-created 06-25) fired ~34x; the 07-06 cluster = bad post-market prints ALL below the day's regular low (183.37 = -6.2%, no news) crossing the level each snap-back; 60s cooldown worked as designed. The 50% wick-guard band does NOT catch 3-8% junk. FIX QUEUE: (small) alert_checker.py re-arm hysteresis (price must leave the level, e.g. max(0.3%, ATR-frac) before re-arm) + notify group_key=price_alert:{id} + conditional-UPDATE race fix on one-shots; (careful, adversarial) TICK_BAND_PCT_EXT ~0.10 on the ext path reusing one-poll corroboration (real AH gap = 1 poll late, junk print = dropped). Dispatches after Phase 1a frees the writer slot."
     },
     {
       "id": "strip-padding-fullbleed",
@@ -174,11 +192,11 @@
     {
       "id": "delta-audit-highs",
       "title": "Delta-audit HIGH findings (07-06): attribution poll-gap blind spot, caps under-count partials, vetoes untracked, data-outage tombstones, memory provenance theft + judge bypass",
-      "lane": "next",
+      "lane": "done",
       "type": "safety",
       "priority": "high",
       "owner": "serv",
-      "notes": "From research/fable/2026-07-06_delta-*.md (both CRITICALs already fixed+deployed same day). Money-path H1: strategy BUY partial-fill\u2192canceled/expired within one poll gap or across a restart \u2192 held shares, NO managed row, NO orphan row, NO page (fix: periodic sweep of terminal BUYs with filled_qty>0 lacking managed/orphan row \u2192 quarantine; closes M1 crash seam too). H2: #33 notional caps under-count by full notional of partially filled orders (two one-line status-list adds in db/order_executions.py:280,308). Idea-engine H1: LLM vetoes never outcome-tracked (the veto half of veto-and-grade is uncalibratable \u2014 register vetoed structures in idea_outcomes too). H2: ~2.5h market-hours data outage permanently tombstones every open idea (data_gap fail streak too aggressive). Ops H1: agent UPDATE on a user_confirmed memory keeps the badge = stolen provenance (containment must downgrade or refuse). H2: save_memory-with-quote = judge-bypassing guaranteed ADD injected into the propose-capable mobile prompt. Each fix small; adversarial review for the trading/ ones. | idea-engine H1+H2 SHIPPED 2026-07-06 (ede29ec): veto lane journaled (origin=structure_vetoed, widget-excluded), data_gap recoverable (streak 13 + restore). Remaining: money-path H1/H2, memory H1/H2. money-path H1+H2 DONE 2026-07-07; remaining: idea-engine 2H, ops-memory 2H (memory fences brief ready). ops-memory 2H DONE 2026-07-08 (fences + flood cap + wired-fence test); remaining: idea-engine 2H (in progress overnight)."
+      "notes": "ALL CLOSED 2026-07-08: money-path 2H (132e779), ops-memory 2H (0d46a53), idea-engine 1C+2H (fc1d8d7 + ede29ec - verified already-shipped, no churn). The 07-06 delta audits are fully worked off."
     },
     {
       "id": "per-strategy-attribution",

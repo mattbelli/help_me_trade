@@ -7,7 +7,7 @@ import json
 import re
 from collections.abc import AsyncIterator, Iterator
 
-from ai.llm.base import LLMMessage
+from ai.llm.base import LLMMessage, ToolCallResult, ToolSpec
 
 _CANDIDATE_RE = re.compile(r"Candidate (\d+):")
 
@@ -17,6 +17,22 @@ class MockLLM:
 
     def complete(self, messages: list[LLMMessage], *, max_tokens: int = 1024) -> str:
         return self._synthesize(messages)
+
+    def complete_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolSpec],
+        *,
+        tool_choice: str = "auto",
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+    ) -> ToolCallResult:
+        # Deterministic + offline: the mock has no tools to run, so it always
+        # answers directly (final text, zero tool calls). Tests exercising the
+        # multi-round loop use a purpose-built scripted stub instead.
+        return ToolCallResult(
+            text=self._synthesize(messages), tool_calls=(), finish_reason="stop"
+        )
 
     def stream(
         self, messages: list[LLMMessage], *, max_tokens: int = 1024
