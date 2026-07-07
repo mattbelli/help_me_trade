@@ -110,7 +110,6 @@ class MarketDataProvider(Protocol):
         timeframe: str = "1Day",
         days: int = 180,
         extended_hours: bool = False,
-        background: bool = False,
     ) -> list[StockBar]: ...
 
     async def aget_stock_bars_range(

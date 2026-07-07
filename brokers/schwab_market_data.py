@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -18,201 +17,51 @@ from brokers.schwab_auth import create_client
 
 logger = logging.getLogger(__name__)
 
-# --- Global Schwab REST rate governor + WAF circuit breaker ---------------------
-# Schwab sits behind an Akamai WAF that rate-blocks the SERVER IP (403/429) when we
-# burst. The root cause of repeated outages: NO global budget — every subsystem
-# (watchlist RVOL fan-out, chart /api/bars, the bars prewarm loop, the stream baseline
-# seeder, quote polls) fired independently, so a deploy cold-start could push ~500-900
-# pricehistory calls/min and trip the WAF; with no backoff the retry storm sustained
-# the block. The durable fix is ONE module-level token bucket that ALL Schwab REST
-# traffic passes through (the block is IP-level, so the budget is shared across every
-# SchwabMarketData instance), with the WAF circuit breaker unified at the SAME
-# chokepoint. This makes bursts impossible by construction — a cold-start prewarm of
-# 40 symbols is naturally spread over ~10s instead of firing at once, so the boot
-# warm-up ramp comes free from the bucket (no separate ramp is written).
+_BATCH_CONCURRENCY = 6
 
-# Rate numbers (named for easy tuning). Anchor: the watchlist TTL-cache fix ran stably
-# at ~20 req/min (~0.33/s); the incident tripped at ~10-15/s. 4/s sustained keeps us
-# well under the trip point while charts stay responsive; an 8-token burst absorbs a
-# handful of simultaneous interactive requests without waiting.
-_RATE_PER_SEC = 4.0          # sustained Schwab REST budget (IP-wide)
-_RATE_BURST = 8.0            # bucket capacity (short burst allowance)
-# Background callers (prewarm loop, baseline seeder) may draw a token only while the
-# bucket still holds this many spare tokens for interactive requests — so background
-# work spends only spare budget and can never starve a live user's chart/quote.
-_BACKGROUND_RESERVE = 4.0
-_MIN_WAIT_S = 0.01           # floor on the recheck sleep so we never busy-spin
-
-# WAF circuit breaker (evolves the incident hotfix into a 3-state machine). The first
-# 403/429 opens a cooldown during which every call fails fast WITHOUT hitting Schwab
-# (callers fall back to Alpaca/cache); after the cooldown a SINGLE half-open probe is
-# allowed — success closes it, another 403/429 re-opens. Module-level = shared across
-# instances + both the quotes and pricehistory paths (the block is IP-level).
+# --- Akamai WAF circuit breaker -------------------------------------------------
+# Schwab sits behind an Akamai WAF that rate-blocks the server IP with a 403 (or
+# 429) burst when we request too hard — and once blocked, every chart refetch and
+# the bars prewarm loop keep hammering the blocked endpoint with ZERO backoff,
+# which SUSTAINS the block (self-inflicted outage, 2026-07-07: a deploy cold-start
+# burst tripped it and it never recovered on its own). The breaker converts that
+# storm into one probe per cooldown: the first 403/429 opens it, and while open we
+# raise immediately WITHOUT calling Schwab (callers fall back to Alpaca / cache),
+# letting the WAF cool. Module-level = shared across every instance + both the
+# quotes and pricehistory paths (the block is IP-level, not per-endpoint).
 _WAF_COOLDOWN_S = 90.0
 _WAF_STATUS = frozenset({403, 429})
-_STATE_CLOSED = "closed"
-_STATE_OPEN = "open"
-_STATE_HALF_OPEN = "half_open"
-
-# Clock indirection so tests can inject a fake monotonic clock (breaker + throttle log).
-_monotonic = time.monotonic
-
-_waf_state = _STATE_CLOSED
 _waf_blocked_until = 0.0
 
-# Observability (rate-limited so it can't spam the log).
-_throttled_total = 0
-_last_throttle_log = 0.0
-_THROTTLE_LOG_INTERVAL_S = 30.0
 
+def _waf_gate() -> None:
+    """Raise immediately if the WAF breaker is open (no Schwab call is made)."""
+    import time as _time
 
-def _note_throttled() -> None:
-    """Count a paced (waited) acquire; emit a rate-limited INFO summary."""
-    global _throttled_total, _last_throttle_log
-    _throttled_total += 1
-    now = _monotonic()
-    if now - _last_throttle_log >= _THROTTLE_LOG_INTERVAL_S:
-        _last_throttle_log = now
-        logger.info(
-            "Schwab rate governor throttled %d requests (pacing to %.0f req/s)",
-            _throttled_total,
-            _RATE_PER_SEC,
-        )
-
-
-def _waf_gate() -> bool:
-    """Breaker gate, called at the START of a token acquire (before any token is spent).
-
-    Returns True iff THIS call is the single half-open probe for the current cooldown.
-    Raises BrokerError immediately — making ZERO Schwab calls — while the breaker is
-    open or a probe is already in flight.
-    """
-    global _waf_state
-    state = _waf_state
-    if state == _STATE_CLOSED:
-        return False
-    if state == _STATE_HALF_OPEN:
-        # A probe is already in flight for this cooldown — fail fast, don't pile on.
-        raise BrokerError("Schwab WAF probe in flight — skipping request")
-    # OPEN: fail fast until the cooldown elapses, then claim the one probe.
-    remaining = _waf_blocked_until - _monotonic()
+    remaining = _waf_blocked_until - _time.monotonic()
     if remaining > 0:
         raise BrokerError(
             f"Schwab WAF cooldown active ({remaining:.0f}s left) — skipping request"
         )
-    _waf_state = _STATE_HALF_OPEN
-    return True
 
 
 def _waf_check(response: Any) -> None:
-    """Inspect an HTTP response at the sync boundary, then defer to raise_for_status().
+    """Open the breaker on a WAF status, then defer to raise_for_status().
 
-    A 403/429 opens the breaker and raises (→ Alpaca/cache fallback) in one step; any
-    other status closes it — a half-open probe that got a real response has proven the
-    WAF is done blocking us.
+    Called in place of a bare ``response.raise_for_status()`` so a 403/429 both
+    arms the cooldown AND raises (→ Alpaca/cache fallback) in one step.
     """
-    global _waf_state, _waf_blocked_until
-    status = getattr(response, "status_code", None)
-    if status in _WAF_STATUS:
-        _waf_state = _STATE_OPEN
-        _waf_blocked_until = _monotonic() + _WAF_COOLDOWN_S
+    import time as _time
+
+    global _waf_blocked_until
+    if getattr(response, "status_code", None) in _WAF_STATUS:
+        _waf_blocked_until = _time.monotonic() + _WAF_COOLDOWN_S
         logger.warning(
             "Schwab WAF %s — circuit breaker OPEN for %.0fs (serving fallback)",
-            status,
+            response.status_code,
             _WAF_COOLDOWN_S,
         )
-        response.raise_for_status()
-        return
-    if _waf_state != _STATE_CLOSED:
-        _waf_state = _STATE_CLOSED
-        logger.info("Schwab WAF probe succeeded — circuit breaker CLOSED")
     response.raise_for_status()
-
-
-def _waf_probe_aborted() -> None:
-    """A half-open probe raised WITHOUT a WAF verdict (e.g. a network error before any
-    response) — stay cautious and re-open so we don't hammer a still-blocked WAF. No-op
-    if the probe already resolved the state (closed on success, re-opened on 403/429).
-    """
-    global _waf_state, _waf_blocked_until
-    if _waf_state == _STATE_HALF_OPEN:
-        _waf_state = _STATE_OPEN
-        _waf_blocked_until = _monotonic() + _WAF_COOLDOWN_S
-
-
-class _RateLimiter:
-    """Async token bucket pacing ALL Schwab REST calls to a sustained rate + small burst.
-
-    Two tiers: interactive acquires need 1 token; background acquires need
-    ``1 + reserve``, so they yield the reserve to live requests and spend only spare
-    budget (background can never starve a live chart/quote). The WAF breaker is checked
-    inside ``acquire`` so an open-breaker call fails fast without consuming a token.
-    ``clock``/``sleep`` are injectable so the limiter can be tested without wall-clock
-    sleeps.
-    """
-
-    def __init__(
-        self,
-        rate: float,
-        burst: float,
-        *,
-        reserve: float = _BACKGROUND_RESERVE,
-        clock: Any = None,
-        sleep: Any = None,
-    ) -> None:
-        self._rate = float(rate)
-        self._capacity = float(burst)
-        self._reserve = float(reserve)
-        self._tokens = float(burst)
-        self._clock = clock or time.monotonic
-        self._sleep = sleep or asyncio.sleep
-        self._updated = self._clock()
-        self._lock = asyncio.Lock()
-
-    def _refill(self) -> None:
-        now = self._clock()
-        delta = now - self._updated
-        if delta > 0:
-            self._tokens = min(self._capacity, self._tokens + delta * self._rate)
-            self._updated = now
-
-    async def acquire(self, *, background: bool = False) -> bool:
-        probe = _waf_gate()  # breaker check first — no token spent while open
-        needed = 1.0 + (self._reserve if background else 0.0)
-        waited = False
-        try:
-            while True:
-                async with self._lock:
-                    self._refill()
-                    if self._tokens >= needed:
-                        self._tokens -= 1.0
-                        if waited:
-                            _note_throttled()
-                        return probe
-                    deficit = needed - self._tokens
-                waited = True
-                await self._sleep(max(deficit / self._rate, _MIN_WAIT_S))
-        except BaseException:
-            # Cancelled/errored while waiting for a token — release a claimed probe so
-            # the breaker can't wedge in half-open.
-            if probe:
-                _waf_probe_aborted()
-            raise
-
-
-_LIMITER = _RateLimiter(_RATE_PER_SEC, _RATE_BURST)
-
-
-def _reset_governor() -> None:
-    """Test hook: reset the breaker + refill the shared limiter (hermetic isolation)."""
-    global _waf_state, _waf_blocked_until, _throttled_total, _last_throttle_log
-    _waf_state = _STATE_CLOSED
-    _waf_blocked_until = 0.0
-    _throttled_total = 0
-    _last_throttle_log = 0.0
-    _LIMITER._tokens = _LIMITER._capacity
-    _LIMITER._updated = _LIMITER._clock()
-
 
 _TIMEFRAME_MINUTE: dict[str, Client.PriceHistory.Frequency] = {
     "1Min": Client.PriceHistory.Frequency.EVERY_MINUTE,
@@ -237,22 +86,6 @@ class SchwabMarketData:
         except Exception as exc:
             raise SchwabError(f"Failed to create Schwab client: {exc}") from exc
         return cls(client)
-
-    @staticmethod
-    async def _governed_call(fn: Any, *args: Any, background: bool = False, **kwargs: Any) -> Any:
-        """The single chokepoint every Schwab REST call funnels through: acquire a
-        token from the global limiter (which gates on the WAF breaker first, so an
-        open breaker fails fast without spending a token), dispatch the sync HTTP call
-        on a worker thread, and release a claimed half-open probe if the call errored
-        without a WAF verdict. No retries — the governor only PACES existing calls.
-        """
-        probe = await _LIMITER.acquire(background=background)
-        try:
-            return await asyncio.to_thread(fn, *args, **kwargs)
-        except BaseException:
-            if probe:
-                _waf_probe_aborted()
-            raise
 
     @staticmethod
     def _resolve_timeframe(timeframe: str) -> dict[str, Any]:
@@ -436,6 +269,7 @@ class SchwabMarketData:
         if not symbol:
             raise BrokerError("Symbol is required")
 
+        _waf_gate()
         params = self._resolve_timeframe(timeframe)
         response = self._client.get_price_history(
             symbol,
@@ -458,60 +292,54 @@ class SchwabMarketData:
         start: datetime,
         end: datetime,
         extended_hours: bool = False,
-        background: bool = False,
     ) -> list[StockBar]:
         if timeframe == "1Hour":
-            bars = await self._governed_call(
+            bars = await asyncio.to_thread(
                 self._fetch_bars_sync,
                 symbol,
                 timeframe="30Min",
                 start=start,
                 end=end,
                 extended_hours=extended_hours,
-                background=background,
             )
             return self._aggregate_to_hourly(bars)
         if timeframe == "4Hour":
-            bars = await self._governed_call(
+            bars = await asyncio.to_thread(
                 self._fetch_bars_sync,
                 symbol,
                 timeframe="30Min",
                 start=start,
                 end=end,
                 extended_hours=extended_hours,
-                background=background,
             )
             return self._aggregate_to_4hourly(bars)
         if timeframe == "1Week":
-            bars = await self._governed_call(
+            bars = await asyncio.to_thread(
                 self._fetch_bars_sync,
                 symbol,
                 timeframe="1Day",
                 start=start,
                 end=end,
                 extended_hours=extended_hours,
-                background=background,
             )
             return self._aggregate_to_weekly(bars)
         if timeframe == "1Month":
-            bars = await self._governed_call(
+            bars = await asyncio.to_thread(
                 self._fetch_bars_sync,
                 symbol,
                 timeframe="1Day",
                 start=start,
                 end=end,
                 extended_hours=extended_hours,
-                background=background,
             )
             return self._aggregate_to_monthly(bars)
-        return await self._governed_call(
+        return await asyncio.to_thread(
             self._fetch_bars_sync,
             symbol,
             timeframe=timeframe,
             start=start,
             end=end,
             extended_hours=extended_hours,
-            background=background,
         )
 
     async def aget_stock_bars(
@@ -521,7 +349,6 @@ class SchwabMarketData:
         timeframe: str = "1Day",
         days: int = 180,
         extended_hours: bool = False,
-        background: bool = False,
     ) -> list[StockBar]:
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
@@ -531,7 +358,6 @@ class SchwabMarketData:
             start=start,
             end=end,
             extended_hours=extended_hours,
-            background=background,
         )
 
     async def _fetch_symbol_batch(
@@ -541,30 +367,28 @@ class SchwabMarketData:
         timeframe: str,
         start: datetime,
         end: datetime,
+        semaphore: asyncio.Semaphore,
         extended_hours: bool = False,
-        background: bool = False,
     ) -> tuple[str, list[StockBar] | None]:
-        # No local concurrency semaphore: the global rate limiter (acquired per symbol
-        # inside aget_stock_bars_range) is now the sole pacing authority, so a batch of
-        # N symbols naturally spends N tokens paced to the shared budget.
-        try:
-            bars = await self.aget_stock_bars_range(
-                symbol,
-                timeframe=timeframe,
-                start=start,
-                end=end,
-                extended_hours=extended_hours,
-                background=background,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Schwab batch bar fetch failed for %s: %s", symbol, exc
-            )
-            return symbol, None
-        return symbol, bars
+        async with semaphore:
+            try:
+                bars = await self.aget_stock_bars_range(
+                    symbol,
+                    timeframe=timeframe,
+                    start=start,
+                    end=end,
+                    extended_hours=extended_hours,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Schwab batch bar fetch failed for %s: %s", symbol, exc
+                )
+                return symbol, None
+            return symbol, bars
 
     def _fetch_quotes_sync(self, symbols: list[str]) -> dict[str, dict]:
         """Sync inner: call get_quotes, parse regular/extended/quote blocks."""
+        _waf_gate()
         response = self._client.get_quotes(symbols)
         _waf_check(response)
         payload = response.json()
@@ -694,9 +518,7 @@ class SchwabMarketData:
             }
         return out
 
-    async def aget_quotes(
-        self, symbols: list[str], *, background: bool = False
-    ) -> dict[str, dict]:
+    async def aget_quotes(self, symbols: list[str]) -> dict[str, dict]:
         """Batch quote fetch; returns {SYMBOL: {regular_last, regular_change_pct,
         ext_last, ext_change_pct, prev_close, total_volume, pe_ratio, eps, div_yield,
         shares_outstanding, last_earnings_date}} with None for absent fields.
@@ -714,9 +536,7 @@ class SchwabMarketData:
         if not cleaned:
             return {}
         try:
-            return await self._governed_call(
-                self._fetch_quotes_sync, cleaned, background=background
-            )
+            return await asyncio.to_thread(self._fetch_quotes_sync, cleaned)
         except (BrokerError, SchwabError):
             raise
         except Exception as exc:
@@ -729,7 +549,6 @@ class SchwabMarketData:
         timeframe: str = "1Day",
         days: int = 12,
         extended_hours: bool = False,
-        background: bool = False,
     ) -> dict[str, list[StockBar]]:
         cleaned: list[str] = []
         seen: set[str] = set()
@@ -744,6 +563,7 @@ class SchwabMarketData:
 
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
+        semaphore = asyncio.Semaphore(_BATCH_CONCURRENCY)
         results = await asyncio.gather(
             *(
                 self._fetch_symbol_batch(
@@ -751,8 +571,8 @@ class SchwabMarketData:
                     timeframe=timeframe,
                     start=start,
                     end=end,
+                    semaphore=semaphore,
                     extended_hours=extended_hours,
-                    background=background,
                 )
                 for symbol in cleaned
             )

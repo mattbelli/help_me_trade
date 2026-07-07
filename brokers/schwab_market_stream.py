@@ -254,11 +254,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 from brokers.schwab_market_data import SchwabMarketData
 
                 md = await asyncio.to_thread(SchwabMarketData.from_settings)
-                # Background: baseline seeding must yield to live chart/quote requests
-                # and only draw spare rate-limiter budget (never starve a user).
-                bars_by_symbol = await md.aget_stock_bars_batch(
-                    missing_eq, days=12, background=True
-                )
+                bars_by_symbol = await md.aget_stock_bars_batch(missing_eq, days=12)
             except Exception as exc:
                 logger.warning(
                     "Schwab baseline fetch failed (%s); trying Alpaca fallback", exc

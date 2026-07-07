@@ -2768,12 +2768,7 @@ async def api_bars(
 
 
 async def _get_bars_cached(
-    sym: str,
-    timeframe: str,
-    days: int,
-    extended: bool | None = None,
-    *,
-    background: bool = False,
+    sym: str, timeframe: str, days: int, extended: bool | None = None
 ) -> dict | None:
     """Cache-read → Schwab fetch (→ Alpaca fallback) → cache-write for chart bars.
 
@@ -2798,7 +2793,7 @@ async def _get_bars_cached(
 
     try:
         bars = await provider.aget_stock_bars(
-            sym, timeframe=timeframe, days=days, extended_hours=ext, background=background
+            sym, timeframe=timeframe, days=days, extended_hours=ext
         )
     except Exception as exc:
         # Any provider failure (BrokerError, Schwab outage, httpx error) falls back
@@ -2865,9 +2860,7 @@ async def _bars_prewarm_once() -> None:
             try:
                 # Shared fetch core — refetches (cache miss/expiring) + writes _BARS_CACHE
                 # with the exact same key/shape, WITHOUT recording request-recency.
-                # background=True: the prewarm loop only draws spare Schwab budget so a
-                # live /api/bars request is never starved behind the warm-up fan-out.
-                await _get_bars_cached(sym, timeframe, int(days), background=True)
+                await _get_bars_cached(sym, timeframe, int(days))
             except Exception:
                 logger.debug("bars prewarm failed for %s %s", sym, timeframe, exc_info=True)
             await asyncio.sleep(_BARS_PREWARM_PACE)
