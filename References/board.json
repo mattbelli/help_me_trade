@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T19:00:00Z",
+  "updated_at": "2026-07-07T20:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -10,13 +10,22 @@
   ],
   "cards": [
     {
+      "id": "sip-hybrid-data",
+      "title": "SIP hybrid data routing SHIPPED + flipped live \u2014 equities/ETFs -> Alpaca SIP, futures -> Schwab",
+      "lane": "done",
+      "type": "ops",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED + flipped live 2026-07-07 (founder-dispatched Opus round). New MARKET_DATA_PROVIDER=hybrid: one shared classify_symbol + HybridMarketData (REST, fault-isolated per-leg partition/merge, deny-by-default if Alpaca unconfigured) + HybridMarketStreamHub (reuses Alpaca-SIP + Schwab-futures upstreams verbatim, shared quotes/clients, cap 30->100). Adversarial review (Sonnet) caught a BLOCKER (batch-bars discarded good equity bars on a Schwab-leg failure -> 502 the whole watchlist + retry-storm) + MAJOR (crypto/option silently hit the stock endpoint) -> both fixed + regression-tested pre-flip. Flip gotcha: settings.json brokers.alpaca.data_feed outranks APCA_DATA_FEED env and was iex; verified SIP entitlement at API level (feed=sip -> HTTP 200 consolidated tape) then set data_feed=sip. Verified live: 75 equity bar fetches on feed=sip (0 iex), Alpaca stream connected, futures still Schwab, founder eyeball=snappier. Removes equities from the Schwab REST+stream surface ENTIRELY = the root drain for the WAF + silent-freeze cards. crypto/option classified+REST-routed, their streams DEFERRED (extension points). .env+settings.json backed up for instant revert to schwab."
+    },
+    {
       "id": "schwab-waf-breaker",
       "title": "Schwab REST rate governor \u2014 REVERTED (regressed watchlist cold-start); needs recalibration + off-hours load test",
-      "lane": "next",
+      "lane": "backlog",
       "type": "ops",
-      "priority": "critical",
+      "priority": "low",
       "owner": "serv",
-      "notes": "DEPLOYED then REVERTED 2026-07-07 ~2:50pm ET. The 4/s global limit was too low for real cold-start load (multiple devices x watchlist bars + prewarm), serializing what was parallel-6 -> watchlist REST timed out at 30s. Rolled back to the WAF-hotfix breaker; app restored (18ms watchlist). Root fix is the SIP hybrid (equities off Schwab drains the WAF surface), making the governor mostly moot. If still needed for futures: much higher rate, real interactive priority, off-hours load test. Adversarial review had passed SAFE-WITH-NITS; the miss was rate calibration + deploying during market hours."
+      "notes": "DEPLOYED then REVERTED 2026-07-07 ~2:50pm ET. The 4/s global limit was too low for real cold-start load (multiple devices x watchlist bars + prewarm), serializing what was parallel-6 -> watchlist REST timed out at 30s. Rolled back to the WAF-hotfix breaker; app restored (18ms watchlist). Root fix is the SIP hybrid (equities off Schwab drains the WAF surface), making the governor mostly moot. If still needed for futures: much higher rate, real interactive priority, off-hours load test. Adversarial review had passed SAFE-WITH-NITS; the miss was rate calibration + deploying during market hours. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 governor now MOSTLY MOOT (equities no longer touch Schwab REST); only relevant if the futures-only remainder ever needs pacing. Moved to backlog."
     },
     {
       "id": "schwab-boot-burst-ramp",
@@ -34,7 +43,7 @@
       "type": "ops",
       "priority": "high",
       "owner": "serv",
-      "notes": "BUILT + tested, but REVERTED as collateral with the governor (same deploy). Innocent/additive - re-introduce SEPARATELY (no governor) to auto-heal the frozen Schwab stream. Or moot once equities move to Alpaca SIP."
+      "notes": "BUILT + tested, but REVERTED as collateral with the governor (same deploy). Innocent/additive - re-introduce SEPARATELY (no governor) to auto-heal the frozen Schwab stream. Or moot once equities move to Alpaca SIP. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 the silent Schwab-stream freeze that motivated this now only affects the ~2 futures symbols (equities stream from Alpaca SIP). Scope shrunk to futures-only; keep as a low canary or drop."
     },
     {
       "id": "ticker-underline-gaps",
@@ -250,7 +259,7 @@
       "type": "ops",
       "priority": "high",
       "owner": "serv",
-      "notes": "ROOT CAUSE FOUND 2026-07-07 01:45: /api/watchlist/market fanned out ~48 uncached pricehistory calls per poll = ~480 req/min 24/7 - THE source of the WAF 429/403 episodes. Hotfixed with per-(symbol,timeframe) TTL cache (daily 300s / 5Min 90s, empties cached), ~96% reduction. Remaining work: (1) why does the frontend poll every ~6s (multiple pollers?) + price-alerts OPTIONS spam every 1-5s; (2) jitter/stagger cold-start bulk refresh; (3) relocate cache per no-new-code-in-main.py ratchet."
+      "notes": "ROOT CAUSE FOUND 2026-07-07 01:45: /api/watchlist/market fanned out ~48 uncached pricehistory calls per poll = ~480 req/min 24/7 - THE source of the WAF 429/403 episodes. Hotfixed with per-(symbol,timeframe) TTL cache (daily 300s / 5Min 90s, empties cached), ~96% reduction. Remaining work: (1) why does the frontend poll every ~6s (multiple pollers?) + price-alerts OPTIONS spam every 1-5s; (2) jitter/stagger cold-start bulk refresh; (3) relocate cache per no-new-code-in-main.py ratchet. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 the equity pricehistory flood is now GONE from Schwab (routes to Alpaca SIP batch); remaining items are frontend-poll hygiene (~6s cadence, price-alerts OPTIONS spam, move cache out of main.py) which are unaffected by the hybrid."
     },
     {
       "id": "ui-screenshot-smoke",

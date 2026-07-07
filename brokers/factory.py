@@ -98,8 +98,19 @@ def _create_market_data_provider(name: str) -> MarketDataProvider:
                 "Schwab is not configured. Add app credentials in Settings or .env."
             )
         return SchwabMarketData.from_settings()
+    if name == "hybrid":
+        # Deny-by-default: equities MUST have a live Alpaca (SIP) source, else we'd
+        # silently route them to Schwab and re-flood the WAF the hybrid exists to drain.
+        if not broker_is_configured("alpaca"):
+            raise BrokerError(
+                "Hybrid market data requires Alpaca (SIP). Add Alpaca API keys "
+                "in Settings or .env, or set MARKET_DATA_PROVIDER=schwab."
+            )
+        from brokers.hybrid_market_data import HybridMarketData
+
+        return HybridMarketData()
     raise BrokerError(
-        f"Unknown market data provider {name!r}. Use alpaca or schwab."
+        f"Unknown market data provider {name!r}. Use alpaca, schwab, or hybrid."
     )
 
 

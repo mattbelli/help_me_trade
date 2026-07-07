@@ -229,11 +229,18 @@ logger = logging.getLogger(__name__)
 # NB: the live-quote hub follows the DATA provider (MARKET_DATA_PROVIDER), NOT the
 # execution broker. Keeps Schwab data/streaming decoupled from order routing —
 # Schwab stays read-only; activating Schwab streaming must never imply Schwab execution.
-market_hub: BaseMarketHub = (
-    SchwabMarketStreamHub()
-    if market_data_provider_name() == "schwab"
-    else AlpacaMarketStreamHub()
-)
+def _build_market_hub() -> BaseMarketHub:
+    provider = market_data_provider_name()
+    if provider == "hybrid":
+        from brokers.hybrid_market_stream import HybridMarketStreamHub
+
+        return HybridMarketStreamHub()
+    if provider == "schwab":
+        return SchwabMarketStreamHub()
+    return AlpacaMarketStreamHub()
+
+
+market_hub: BaseMarketHub = _build_market_hub()
 
 # The trading path (execution_service/fill_tracker/exit_engine/proposals) imports
 # `brokers.market_stream.market_hub` to broadcast alerts. Point that alias at THIS live hub
@@ -811,9 +818,10 @@ async def _poll_ext_quotes_for_alerts(symbols: set[str]) -> None:
         provider = get_market_data_provider()
     except BrokerError:
         return
+    from brokers.hybrid_market_data import HybridMarketData
     from brokers.schwab_market_data import SchwabMarketData
 
-    if not isinstance(provider, SchwabMarketData):
+    if not isinstance(provider, (SchwabMarketData, HybridMarketData)):
         return
     session = _market_session()
     try:
@@ -883,9 +891,10 @@ async def _rvol_alert_once() -> None:
     if not hasattr(provider, "aget_quotes"):
         return
 
+    from brokers.hybrid_market_data import HybridMarketData
     from brokers.schwab_market_data import SchwabMarketData
 
-    if not isinstance(provider, SchwabMarketData):
+    if not isinstance(provider, (SchwabMarketData, HybridMarketData)):
         return
 
     try:
@@ -1980,9 +1989,10 @@ async def api_watchlist_market(symbols: str = ""):
     ext_quotes: dict[str, dict] = {}
     if hasattr(provider, "aget_quotes"):
         try:
+            from brokers.hybrid_market_data import HybridMarketData
             from brokers.schwab_market_data import SchwabMarketData
 
-            if isinstance(provider, SchwabMarketData):
+            if isinstance(provider, (SchwabMarketData, HybridMarketData)):
                 ext_quotes = await provider.aget_quotes(symbol_list)
         except Exception:
             logger.warning("Extended-hours quote fetch failed; continuing without", exc_info=True)
@@ -2219,6 +2229,7 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     Returns 400 if the active provider is not Schwab.
     Returns an empty results list (not an error) outside RTH (pre/post/closed/overnight).
     """
+    from brokers.hybrid_market_data import HybridMarketData
     from brokers.schwab_market_data import SchwabMarketData
 
     if limit < 1 or limit > 200:
@@ -2231,12 +2242,13 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
-    if not isinstance(provider, SchwabMarketData):
+    if not isinstance(provider, (SchwabMarketData, HybridMarketData)):
         return JSONResponse(
             {
                 "error": (
                     "RVOL scanner requires Schwab as the market data provider "
-                    "(needs quote.totalVolume). Set MARKET_DATA_PROVIDER=schwab."
+                    "(needs quote.totalVolume). Set MARKET_DATA_PROVIDER=schwab "
+                    "or hybrid."
                 )
             },
             status_code=400,
