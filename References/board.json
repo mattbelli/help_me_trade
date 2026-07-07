@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T17:55:00Z",
+  "updated_at": "2026-07-07T19:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "schwab-waf-breaker",
-      "title": "Schwab REST rate governor (global budget + 3-state breaker) \u2014 COMMITTED, deploy gated on adversarial review",
-      "lane": "done",
+      "title": "Schwab REST rate governor \u2014 REVERTED (regressed watchlist cold-start); needs recalibration + off-hours load test",
+      "lane": "next",
       "type": "ops",
       "priority": "critical",
       "owner": "serv",
-      "notes": "COMMITTED 2026-07-07 (evolves the incident breaker). Global token bucket, all Schwab REST funnels through one chokepoint; 2-tier (background yields to interactive); 3-state breaker with single recovery probe. 12 governor tests + 54 regression green. DEPLOY GATED on mandatory adversarial review of the quote path."
+      "notes": "DEPLOYED then REVERTED 2026-07-07 ~2:50pm ET. The 4/s global limit was too low for real cold-start load (multiple devices x watchlist bars + prewarm), serializing what was parallel-6 -> watchlist REST timed out at 30s. Rolled back to the WAF-hotfix breaker; app restored (18ms watchlist). Root fix is the SIP hybrid (equities off Schwab drains the WAF surface), making the governor mostly moot. If still needed for futures: much higher rate, real interactive priority, off-hours load test. Adversarial review had passed SAFE-WITH-NITS; the miss was rate calibration + deploying during market hours."
     },
     {
       "id": "schwab-boot-burst-ramp",
@@ -30,11 +30,11 @@
     {
       "id": "stream-staleness-detector",
       "title": "Detect + self-heal a degraded Schwab stream (repeating stale prices, no error)",
-      "lane": "in_progress",
+      "lane": "next",
       "type": "ops",
       "priority": "high",
       "owner": "serv",
-      "notes": "IN PROGRESS 2026-07-07 (URGENT: hit the founder 3x today, each needing a manual restart). Reconnected stream delivers FROZEN prices with no error (TSLA pinned 408.855 vs REST 409.03); reconnect triggers are blind to it (messages keep arriving). Detector: compare stream tick vs REST poll (ground truth) - force ONE reconnect when M>=3 symbols frozen+diverged across N>=2 polls, rate-limited 1/120s (storm would re-trip WAF). Coder dispatched; adversarial review before deploy."
+      "notes": "BUILT + tested, but REVERTED as collateral with the governor (same deploy). Innocent/additive - re-introduce SEPARATELY (no governor) to auto-heal the frozen Schwab stream. Or moot once equities move to Alpaca SIP."
     },
     {
       "id": "ticker-underline-gaps",
