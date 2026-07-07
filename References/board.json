@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T17:00:00Z",
+  "updated_at": "2026-07-07T17:10:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -16,16 +16,16 @@
       "type": "ops",
       "priority": "critical",
       "owner": "serv",
-      "notes": "2026-07-07 incident: deploy cold-start burst tripped Akamai WAF (403/429 on server IP); zero backoff meant charts+prewarm kept hammering, sustaining the block -> all quotes stale, futures+charts 502. Hotfix: module-level 90s circuit breaker (quotes+pricehistory, IP-level) - first 403/429 opens, gate skips Schwab entirely -> Alpaca/cache, one probe per cooldown. Recovered live. FOLLOW-UP: adversarial review of the quote path + hermetic breaker tests (open/gate/close/probe); currently untested code shipped under incident."
+      "notes": "2026-07-07 incident: deploy cold-start burst tripped Akamai WAF (403/429 on server IP); zero backoff meant charts+prewarm kept hammering, sustaining the block -> all quotes stale, futures+charts 502. Hotfix: module-level 90s circuit breaker (quotes+pricehistory, IP-level) - first 403/429 opens, gate skips Schwab entirely -> Alpaca/cache, one probe per cooldown. Recovered live. Being folded into the rate-governor round (schwab-boot-burst-ramp): breaker gets hermetic tests + unification with the global limiter there."
     },
     {
       "id": "schwab-boot-burst-ramp",
-      "title": "Prewarm + baseline seeding cold-start bursts Schwab on every restart (the recurring WAF trigger)",
-      "lane": "next",
+      "title": "Schwab REST rate governor: one global budget in front of ALL calls (bursts impossible by construction) + fully-tested breaker",
+      "lane": "in_progress",
       "type": "ops",
       "priority": "high",
       "owner": "serv",
-      "notes": "Root cause under the WAF incidents: on boot the bars prewarm loop + S&P baseline seeder fire a large Schwab burst that trips Akamai. Breaker now catches it, but the burst shouldn't happen: ramp prewarm gently on boot (small first batch, widen over minutes), stagger baseline seeding, respect a global Schwab req/sec budget. Pairs with the stream-staleness detector card."
+      "notes": "IN PROGRESS 2026-07-07 (founder go: implement warmup + fully test cooldown + better way). Design chosen: single global async token-bucket limiter gating all 4 Schwab async entry points + the 2 background loops (prewarm, baseline seeder); interactive requests preempt background so live charts never starve; the boot ramp falls out for free (no separate ramp code). Circuit breaker unified at the same chokepoint as backstop, now with hermetic tests (open/gate/half-open/close, injected clock). ~4/sec sustained, burst ~8. Coder dispatched; mandatory adversarial review of the quote path before deploy."
     },
     {
       "id": "stream-staleness-detector",
