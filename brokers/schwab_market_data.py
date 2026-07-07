@@ -19,6 +19,50 @@ logger = logging.getLogger(__name__)
 
 _BATCH_CONCURRENCY = 6
 
+# --- Akamai WAF circuit breaker -------------------------------------------------
+# Schwab sits behind an Akamai WAF that rate-blocks the server IP with a 403 (or
+# 429) burst when we request too hard — and once blocked, every chart refetch and
+# the bars prewarm loop keep hammering the blocked endpoint with ZERO backoff,
+# which SUSTAINS the block (self-inflicted outage, 2026-07-07: a deploy cold-start
+# burst tripped it and it never recovered on its own). The breaker converts that
+# storm into one probe per cooldown: the first 403/429 opens it, and while open we
+# raise immediately WITHOUT calling Schwab (callers fall back to Alpaca / cache),
+# letting the WAF cool. Module-level = shared across every instance + both the
+# quotes and pricehistory paths (the block is IP-level, not per-endpoint).
+_WAF_COOLDOWN_S = 90.0
+_WAF_STATUS = frozenset({403, 429})
+_waf_blocked_until = 0.0
+
+
+def _waf_gate() -> None:
+    """Raise immediately if the WAF breaker is open (no Schwab call is made)."""
+    import time as _time
+
+    remaining = _waf_blocked_until - _time.monotonic()
+    if remaining > 0:
+        raise BrokerError(
+            f"Schwab WAF cooldown active ({remaining:.0f}s left) — skipping request"
+        )
+
+
+def _waf_check(response: Any) -> None:
+    """Open the breaker on a WAF status, then defer to raise_for_status().
+
+    Called in place of a bare ``response.raise_for_status()`` so a 403/429 both
+    arms the cooldown AND raises (→ Alpaca/cache fallback) in one step.
+    """
+    import time as _time
+
+    global _waf_blocked_until
+    if getattr(response, "status_code", None) in _WAF_STATUS:
+        _waf_blocked_until = _time.monotonic() + _WAF_COOLDOWN_S
+        logger.warning(
+            "Schwab WAF %s — circuit breaker OPEN for %.0fs (serving fallback)",
+            response.status_code,
+            _WAF_COOLDOWN_S,
+        )
+    response.raise_for_status()
+
 _TIMEFRAME_MINUTE: dict[str, Client.PriceHistory.Frequency] = {
     "1Min": Client.PriceHistory.Frequency.EVERY_MINUTE,
     "5Min": Client.PriceHistory.Frequency.EVERY_FIVE_MINUTES,
@@ -225,6 +269,7 @@ class SchwabMarketData:
         if not symbol:
             raise BrokerError("Symbol is required")
 
+        _waf_gate()
         params = self._resolve_timeframe(timeframe)
         response = self._client.get_price_history(
             symbol,
@@ -233,7 +278,7 @@ class SchwabMarketData:
             need_extended_hours_data=extended_hours,
             **params,
         )
-        response.raise_for_status()
+        _waf_check(response)
         payload = response.json()
         if not isinstance(payload, dict):
             raise SchwabError(f"Unexpected price history response for {symbol}")
@@ -343,8 +388,9 @@ class SchwabMarketData:
 
     def _fetch_quotes_sync(self, symbols: list[str]) -> dict[str, dict]:
         """Sync inner: call get_quotes, parse regular/extended/quote blocks."""
+        _waf_gate()
         response = self._client.get_quotes(symbols)
-        response.raise_for_status()
+        _waf_check(response)
         payload = response.json()
         if not isinstance(payload, dict):
             raise SchwabError(f"Unexpected get_quotes response type: {type(payload)}")
