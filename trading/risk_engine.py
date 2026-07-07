@@ -15,6 +15,7 @@ from brokers.market_stream import market_hub
 from config.settings import (
     DEFAULT_SETTINGS,
     apply_settings_patch,
+    is_entries_halted,
     is_kill_switch_active,
     trading_config,
 )
@@ -392,8 +393,30 @@ class RiskEngine:
 
         exposure_increasing = (intent.side == "buy" and not is_buy_to_cover) or is_short_open
 
+        # HALT (entries_halted) — blocks every exposure-INCREASING order (strategy
+        # entries, adds, short-opens) while app-managed reduce-only EXITS keep
+        # flowing. A plain sell closing a long (and a buy-to-cover) is
+        # exposure-DECREASING, so it skips this gate entirely — that is the point
+        # of HALT vs. the kill switch (gate #1 above, a total freeze that also
+        # stops exits). Deny-by-default: is_entries_halted() returns True if the
+        # flag is unreadable, so ambiguous state halts entries. This is the first
+        # exposure-gated check — ordered before the breaker and buying-power.
+        if exposure_increasing and is_entries_halted():
+            checks["entries_halted"] = "fail: entries halted"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="entries halted",
+                is_short_open=is_short_open,
+                risk_notional=risk_notional,
+            )
+        checks["entries_halted"] = (
+            "pass" if exposure_increasing else "pass: reduce-only exempt"
+        )
+
         # Daily-loss breaker — exposure-increasing orders only; closes/exits never
-        # blocked (two-stage: soft halts entries, hard arms kill switch).
+        # blocked (two-stage: soft halts entries, hard arms HALT — not the kill
+        # switch — so protective exits keep flowing on a bleeding day).
         # A bad snapshot (portfolio_value <= 0) must never write a 0/negative
         # baseline — that would make `loss` negative all day and the breaker
         # inert. Skip it; the concentration gate below rejects on the same
@@ -423,16 +446,19 @@ class RiskEngine:
                 max_daily_loss = Decimal(str(cfg["max_daily_loss_usd"]))
                 if loss >= max_daily_loss * Decimal("1.5"):
                     trip(account_key, "hard", db_path=db_path)
-                    apply_settings_patch({"trading": {"kill_switch_active": True}})
-                    # M2 tradeoff: hard-trip kill switch also blocks protective exits
-                    # until manually cleared — pending halt-entries-only switch state.
+                    apply_settings_patch({"trading": {"entries_halted": True}})
+                    # Hard breaker arms HALT (entries only) — NEVER the kill switch.
+                    # Protective exits must keep flowing on a bleeding day; the kill
+                    # switch (total freeze incl. exits) stays reachable by human
+                    # action only. The per-account breaker stage (trip 'hard' above)
+                    # also independently blocks exposure-increasing orders.
                     try:
                         await notify(
                             kind="risk_breaker",
                             title="Daily loss breaker — HARD trip",
                             body=(
                                 f"Account {account_key}: loss {loss} >= "
-                                f"{max_daily_loss * Decimal('1.5')} — kill switch armed"
+                                f"{max_daily_loss * Decimal('1.5')} — entries halted"
                             ),
                             severity="critical",
                             account_id=intent.account_id,

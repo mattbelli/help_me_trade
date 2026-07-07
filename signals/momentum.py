@@ -12,7 +12,7 @@ from typing import Any
 
 from brokers.errors import BrokerError
 from brokers.factory import get_market_data_provider
-from config.settings import trading_config
+from config.settings import is_entries_halted, trading_config
 from db.accounts import get_account
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.managed_positions import close_position, list_open_positions
@@ -386,6 +386,19 @@ async def execute_rebalance(
     # cached in the hub. Defer to the first regular-session scan, when the whole universe prices.
     if not is_market_open():
         return {"status": "market_closed", "month": month}
+
+    # HALT pauses the rebalance ENTIRELY — sells and buys alike. A rebalance is
+    # not a protective exit: letting its sell legs flow while RiskEngine blocks
+    # the buy legs would sell winners to raise cash for buys that never happen
+    # (a lopsided book). Placed before any run state is created or resumed, so
+    # zero legs dispatch; the month is never stamped and the run defers to a
+    # later scan (same shape as market_closed). Protective exits keep flowing
+    # through the exit engine — this guard is rebalance-only.
+    if is_entries_halted():
+        logger.warning(
+            "Momentum rebalance deferred for %s month=%s — entries halted", sid, month
+        )
+        return {"status": "entries_halted", "month": month}
 
     if existing_run is not None and existing_run.get("status") == "executing":
         plan = existing_run.get("plan") or {}

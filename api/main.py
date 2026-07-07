@@ -72,6 +72,8 @@ from config.settings import (
     get_chart_layout,
     get_watchlist,
     get_watchlists_state,
+    is_entries_halted,
+    is_kill_switch_active,
     load_settings,
     mask_settings,
     primary_broker,
@@ -1570,6 +1572,11 @@ def health() -> dict[str, int | str | float | bool | list | None]:
         "jobs": jobs_health(),
         "db_size_bytes": db_size_bytes,
         "newest_backup_age_s": newest_backup_age_s(),
+        # Both safety states, reported independently. kill_switch = total freeze
+        # (human-only); entries_halted = HALT (blocks exposure-increasing orders,
+        # exits still flow; armed by the daily-loss breaker or a human).
+        "kill_switch_active": is_kill_switch_active(),
+        "entries_halted": is_entries_halted(),
     }
 
 
@@ -1716,6 +1723,11 @@ def api_put_settings(request: Request, patch: dict = Body(...)):
                 {"error": "use /api/kill-switch"},
                 status_code=400,
             )
+        if isinstance(trading, dict) and "entries_halted" in trading:
+            return JSONResponse(
+                {"error": "use /api/entries-halt"},
+                status_code=400,
+            )
         try:
             verify_admin_token(request)
         except HTTPException as exc:
@@ -1767,6 +1779,50 @@ async def api_kill_switch(request: Request, body: dict = Body(...)):
     )
 
     return {"kill_switch_active": state}
+
+
+@app.post("/api/entries-halt")
+async def api_entries_halt(request: Request, body: dict = Body(...)):
+    active = body.get("active")
+    if not isinstance(active, bool):
+        return JSONResponse(
+            {"error": "active must be a boolean"},
+            status_code=400,
+        )
+    # HALT uses symmetric normal-token auth (no admin gate on disarm): it is
+    # far less dangerous than the kill switch — it only blocks exposure-
+    # increasing orders (exits keep flowing), and after a hard breaker trip the
+    # per-account breaker stage independently keeps entries blocked until the ET
+    # day rolls, so disarming HALT alone cannot resume entries mid-bleed.
+    try:
+        updated = apply_settings_patch({"trading": {"entries_halted": active}})
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    state = bool(updated.get("trading", {}).get("entries_halted", active))
+
+    from signals.notify import notify
+
+    if active:
+        title = "Entries halted"
+        body_text = "New entries and adds are blocked; protective exits still flow."
+    else:
+        title = "Entries resumed"
+        body_text = "New entries may resume, subject to current risk limits."
+    # The state change already persisted — a notify failure must not 500 the
+    # request (state and response must agree). Log and return the real state.
+    try:
+        await notify(
+            kind="entries_halt",
+            title=title,
+            body=body_text,
+            severity="critical",
+            push=True,
+        )
+    except Exception:
+        logger.warning("entries-halt notify failed (state persisted)", exc_info=True)
+
+    return {"entries_halted": state}
 
 
 @app.get("/api/watchlist")

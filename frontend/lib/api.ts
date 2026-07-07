@@ -279,6 +279,10 @@ export type ResearchSettings = {
 export type TradingSettings = {
   execution_mode: "dry_run" | "paper" | "live";
   kill_switch_active: boolean;
+  // HALT state — blocks exposure-increasing entries while exits still flow.
+  // Toggled only via POST /api/entries-halt (rejected by PUT /api/settings),
+  // same as kill_switch_active.
+  entries_halted: boolean;
   max_order_value_usd: number;
   max_position_pct: number;
   max_open_orders: number;

@@ -26,6 +26,7 @@ const ADMIN_TOKEN_SESSION_KEY = "hmt-admin-token";
 const DEFAULT_TRADING: TradingSettings = {
   execution_mode: "dry_run",
   kill_switch_active: false,
+  entries_halted: false,
   max_order_value_usd: 50000,
   max_position_pct: 30,
   max_open_orders: 10,

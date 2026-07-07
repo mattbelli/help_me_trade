@@ -138,8 +138,11 @@ export function SettingsDialog({ collapsed = false }: Props) {
           brokers: settings.brokers,
         };
       case "execution": {
-        const { kill_switch_active: _ignored, ...trading } =
-          settings.trading ?? DEFAULT_TRADING;
+        const {
+          kill_switch_active: _ignored,
+          entries_halted: _ignored2,
+          ...trading
+        } = settings.trading ?? DEFAULT_TRADING;
         return { trading: trading as TradingSettings };
       }
       case "reports":

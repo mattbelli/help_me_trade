@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
 import tempfile
@@ -15,6 +16,8 @@ from typing import Any
 from dotenv import load_dotenv
 
 from config.ai_providers import DEFAULT_AI_SETTINGS, SECRET_AI_KEY_FIELDS, VALID_PROVIDERS
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "data" / "settings.json"
@@ -92,6 +95,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "trading": {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
+        # HALT: blocks exposure-INCREASING orders (entries/adds/short-opens)
+        # while app-managed reduce-only EXITS keep flowing. Distinct from the
+        # kill switch (total freeze). Armed by the daily-loss breaker's hard
+        # stage OR by a human; never auto-arms the kill switch.
+        "entries_halted": False,
         "agent_proposals_enabled": True,
         # deprecated: see strategies registry (db/strategies.py)
         "dip_strategy_enabled": False,
@@ -277,8 +285,9 @@ def _is_masked(value: Any) -> bool:
 def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     """Merge patch into saved settings, preserving secrets when masked/empty.
 
-    Route-level auth guards trading.* and kill_switch_active; this function
-    remains callable internally (e.g. risk-engine hard-trip kill switch).
+    Route-level auth guards trading.*, kill_switch_active, and entries_halted;
+    this function remains callable internally (e.g. the risk-engine hard-trip
+    arming entries_halted).
     """
     current = load_settings()
 
@@ -412,6 +421,8 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
         for key, value in trading_patch.items():
             if key == "kill_switch_active":
                 current["trading"]["kill_switch_active"] = bool(value)
+            elif key == "entries_halted":
+                current["trading"]["entries_halted"] = bool(value)
             elif key == "execution_mode" and str(value).strip() in (
                 "dry_run",
                 "paper",
@@ -802,6 +813,9 @@ def trading_config() -> dict[str, Any]:
         "kill_switch_active": bool(
             cfg.get("kill_switch_active", defaults["kill_switch_active"])
         ),
+        "entries_halted": bool(
+            cfg.get("entries_halted", defaults["entries_halted"])
+        ),
         "agent_proposals_enabled": bool(
             cfg.get("agent_proposals_enabled", defaults["agent_proposals_enabled"])
         ),
@@ -930,6 +944,38 @@ def is_kill_switch_active() -> bool:
 
 def set_kill_switch(active: bool) -> None:
     apply_settings_patch({"trading": {"kill_switch_active": active}})
+
+
+def is_entries_halted() -> bool:
+    """True when exposure-increasing entries are halted (the HALT state).
+
+    Distinct from the kill switch: HALT blocks only orders that ADD exposure
+    (entries/adds/short-opens); app-managed reduce-only exits keep flowing.
+    Deny-by-default — if trading settings are unreadable/ambiguous for ANY
+    reason, return True so entries are denied (the safe direction to fail;
+    exits are gated on exposure direction elsewhere and are never affected).
+    """
+    try:
+        with _settings_lock:
+            settings = (
+                _settings_cache if _settings_cache is not None else _build_settings()
+            )
+        cfg = settings.get("trading")
+        if not isinstance(cfg, dict):
+            return True
+        return bool(
+            cfg.get("entries_halted", DEFAULT_SETTINGS["trading"]["entries_halted"])
+        )
+    except Exception:
+        logger.warning(
+            "entries_halted state unreadable — denying entries (deny-by-default)",
+            exc_info=True,
+        )
+        return True
+
+
+def set_entries_halted(active: bool) -> None:
+    apply_settings_patch({"trading": {"entries_halted": active}})
 
 
 def broker_is_configured(name: str) -> bool:

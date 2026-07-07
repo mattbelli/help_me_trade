@@ -719,19 +719,25 @@ async def test_breaker_soft_trip_blocks_buy_allows_sell(
 
 
 @pytest.mark.asyncio
-async def test_breaker_hard_trip_arms_kill_switch(
+async def test_breaker_hard_trip_arms_halt_not_kill_switch(
     monkeypatch, tmp_path: Path
 ) -> None:
+    # Retargeted behavior: the hard daily-loss breaker arms HALT (entries only),
+    # NEVER the kill switch — protective exits must keep flowing on a bleeding
+    # day. The kill switch stays reachable by human action only.
     db = tmp_path / "hard.db"
     _patch_risk_env(monkeypatch, db, max_daily_loss_usd=2500)
     _save_fresh_snapshot(db, portfolio_value=95_000.0)
     notify_mock = AsyncMock(return_value={})
     monkeypatch.setattr("trading.risk_engine.notify", notify_mock)
-    kill_switch = {"active": False}
+    armed = {"kill_switch_active": False, "entries_halted": False}
 
     def _apply_patch(patch):
-        if patch.get("trading", {}).get("kill_switch_active"):
-            kill_switch["active"] = True
+        trading = patch.get("trading", {})
+        if "kill_switch_active" in trading:
+            armed["kill_switch_active"] = bool(trading["kill_switch_active"])
+        if "entries_halted" in trading:
+            armed["entries_halted"] = bool(trading["entries_halted"])
         return settings_mod.load_settings()
 
     monkeypatch.setattr("trading.risk_engine.apply_settings_patch", _apply_patch)
@@ -745,7 +751,8 @@ async def test_breaker_hard_trip_arms_kill_switch(
 
     result = await RiskEngine.validate(_intent(), db_path=db)
     assert result.passed is False
-    assert kill_switch["active"] is True
+    assert armed["entries_halted"] is True
+    assert armed["kill_switch_active"] is False
     critical = [c for c in notify_mock.call_args_list if c.kwargs.get("kind") == "risk_breaker"]
     assert critical
     assert critical[0].kwargs["severity"] == "critical"
@@ -938,3 +945,240 @@ async def test_alpaca_is_paper_endpoint_property() -> None:
     )
     assert paper.is_paper_endpoint is True
     assert live.is_paper_endpoint is False
+
+
+# ── HALT (entries_halted) — blocks exposure-increasing orders, exits keep flowing ──
+
+
+@pytest.mark.asyncio
+async def test_halt_blocks_buy_entry(monkeypatch, tmp_path: Path) -> None:
+    # A strategy BUY into a name with no existing position — a fresh entry.
+    db = tmp_path / "halt_entry.db"
+    _patch_risk_env(monkeypatch, db)
+    account = Account(
+        id="acc1",
+        status="ACTIVE",
+        cash=50_000.0,
+        buying_power=100_000.0,
+        portfolio_value=100_000.0,
+    )
+    sqlite_mod.save_snapshot(account, [], [], broker="alpaca", db_path=db)
+    monkeypatch.setattr("trading.risk_engine.is_entries_halted", lambda: True)
+
+    result = await RiskEngine.validate(
+        _intent(side="buy", qty=Decimal("1")), db_path=db
+    )
+    assert result.passed is False
+    assert result.blocked_reason == "entries halted"
+    assert result.checks["entries_halted"] == "fail: entries halted"
+
+
+@pytest.mark.asyncio
+async def test_halt_blocks_add(monkeypatch, tmp_path: Path) -> None:
+    # A BUY that ADDS to an already-held long is exposure-increasing → blocked.
+    db = tmp_path / "halt_add.db"
+    _patch_risk_env(monkeypatch, db)  # snapshot holds 10 AAPL long
+    monkeypatch.setattr("trading.risk_engine.is_entries_halted", lambda: True)
+
+    result = await RiskEngine.validate(
+        _intent(side="buy", qty=Decimal("1")), db_path=db
+    )
+    assert result.passed is False
+    assert result.blocked_reason == "entries halted"
+
+
+@pytest.mark.asyncio
+async def test_halt_does_not_block_exit_sell(monkeypatch, tmp_path: Path) -> None:
+    # A reduce-only exit (sell closing a held long) is exposure-DECREASING and
+    # must flow through HALT untouched — the whole point of the state.
+    db = tmp_path / "halt_exit.db"
+    _patch_risk_env(monkeypatch, db)  # snapshot holds 10 AAPL long
+    monkeypatch.setattr("trading.risk_engine.is_entries_halted", lambda: True)
+
+    result = await RiskEngine.validate(
+        _intent(side="sell", qty=Decimal("5")), db_path=db
+    )
+    assert result.passed is True
+    assert result.checks["entries_halted"] == "pass: reduce-only exempt"
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_still_blocks_exit_sell(monkeypatch, tmp_path: Path) -> None:
+    # The kill switch is a TOTAL freeze — it blocks even protective exits.
+    # Unchanged: "off means OFF".
+    db = tmp_path / "kill_exit.db"
+    _patch_risk_env(monkeypatch, db)  # snapshot holds 10 AAPL long
+    monkeypatch.setattr("trading.risk_engine.is_kill_switch_active", lambda: True)
+
+    result = await RiskEngine.validate(
+        _intent(side="sell", qty=Decimal("5")), db_path=db
+    )
+    assert result.passed is False
+    assert result.blocked_reason == "kill switch active"
+    assert result.checks["kill_switch"] == "fail: kill switch active"
+
+
+def test_halt_persists_across_restart(monkeypatch, tmp_path: Path) -> None:
+    # HALT persists via data/settings.json — same family as the kill switch.
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    assert settings_mod.is_entries_halted() is False
+    settings_mod.set_entries_halted(True)
+    assert settings_mod.is_entries_halted() is True
+    assert settings_path.exists()
+
+    # Simulate a process restart: drop the in-memory cache, re-read from disk.
+    settings_mod.clear_settings_cache()
+    assert settings_mod.is_entries_halted() is True
+
+
+def test_ambiguous_state_denies_entries(monkeypatch) -> None:
+    # Deny-by-default: if trading settings are unreadable, HALT reads True.
+    settings_mod.clear_settings_cache()
+
+    def _boom() -> dict:
+        raise RuntimeError("settings unreadable")
+
+    monkeypatch.setattr(settings_mod, "_build_settings", _boom)
+    assert settings_mod.is_entries_halted() is True
+
+
+def test_halt_human_arm_disarm_round_trip(monkeypatch, tmp_path: Path) -> None:
+    # The human disarm path: arm then disarm via the setter clears the state.
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+
+    settings_mod.set_entries_halted(True)
+    assert settings_mod.is_entries_halted() is True
+    settings_mod.set_entries_halted(False)
+    assert settings_mod.is_entries_halted() is False
+
+
+@pytest.mark.asyncio
+async def test_disarming_halt_mid_bleed_does_not_resume_entries(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The pin that justifies symmetric (normal-token) disarm auth for HALT.
+
+    Full real-path walk, no stubs on the HALT machinery: the hard breaker trip
+    persists BOTH a settings-level HALT flag AND a per-account et_date breaker
+    stage. Disarming HALT (what a normal-token /api/entries-halt does) clears
+    only the flag — the breaker stage must INDEPENDENTLY keep blocking
+    exposure-increasing orders for that account until the ET day rolls. A future
+    refactor that clears the stage on disarm would turn this test red.
+    """
+    db = tmp_path / "midbleed.db"
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+    settings_mod.clear_settings_cache()
+    _patch_risk_env(monkeypatch, db, max_daily_loss_usd=2500)
+    # Real persistence end-to-end: un-stub nothing — apply_settings_patch and
+    # is_entries_halted in the risk engine are the real functions here.
+    init_risk_breaker_tables(db)
+    account_key = "alpaca:primary"
+    get_or_create_baseline(account_key, Decimal("100000"), db_path=db)
+    # Bleeding day: equity 95k vs 100k baseline → loss 5000 >= 2500*1.5 → hard.
+    _save_fresh_snapshot(db, portfolio_value=95_000.0)
+
+    # 1. The hard trip fires: order blocked, HALT armed (persisted), kill switch NOT.
+    first = await RiskEngine.validate(_intent(), db_path=db)
+    assert first.passed is False
+    assert first.blocked_reason == "hard daily loss limit breached"
+    assert settings_mod.is_entries_halted() is True
+    assert settings_mod.load_settings()["trading"]["kill_switch_active"] is False
+
+    # 2. While HALT is armed, the HALT gate blocks before the breaker even runs.
+    second = await RiskEngine.validate(_intent(), db_path=db)
+    assert second.passed is False
+    assert second.blocked_reason == "entries halted"
+
+    # 3. Human disarms HALT mid-bleed (the normal-token /api/entries-halt path).
+    settings_mod.set_entries_halted(False)
+    assert settings_mod.is_entries_halted() is False
+
+    # 4. THE PIN: the same buy is STILL blocked — the per-account breaker stage
+    # holds independently until the ET day rolls.
+    third = await RiskEngine.validate(_intent(), db_path=db)
+    assert third.passed is False
+    assert "daily loss breaker tripped" in (third.blocked_reason or "")
+    assert "daily loss breaker" in third.checks["daily_loss_breaker"]
+
+    # 5. And protective exits flowed through ALL of it.
+    exit_sell = await RiskEngine.validate(
+        _intent(side="sell", qty=Decimal("5")), db_path=db
+    )
+    assert exit_sell.passed is True
+
+
+@pytest.mark.asyncio
+async def test_halt_pauses_momentum_rebalance_entirely(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # A rebalance is not a protective exit: under HALT it must dispatch ZERO
+    # legs — sells AND buys — or it would sell winners to raise cash for buys
+    # that never happen. The run defers (month not stamped), it is not abandoned.
+    from db.accounts import default_execution_account
+    from db.momentum_rebalance import get_run, init_rebalance_table, start_run
+    from db.multi_account import migrate_multi_account
+    from db.paper_orders import init_paper_order_tables
+    from db.sqlite import init_db
+    from db.strategies import (
+        get_strategy,
+        init_strategy_tables,
+        seed_default_strategies,
+        update_strategy,
+    )
+    from db.trades import init_trade_tables
+    from signals.momentum import _current_rebalance_month, execute_rebalance
+
+    db = tmp_path / "halt_rebal.db"
+    init_db(db)
+    init_trade_tables(db)
+    init_execution_tables(db)
+    init_paper_order_tables(db)
+    migrate_multi_account(db)
+    init_strategy_tables(db)
+    init_rebalance_table(db)
+    seed_default_strategies(db_path=db)
+    account_id = default_execution_account(db_path=db)["id"]
+    update_strategy(
+        "momentum_sp500",
+        enabled=True,
+        account_id=account_id,
+        entry_mode="auto",
+        db_path=db,
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr("signals.momentum.is_market_open", lambda: True)
+    monkeypatch.setattr("signals.momentum.is_entries_halted", lambda: True)
+    monkeypatch.setattr("signals.momentum.notify", AsyncMock(return_value={}))
+    submit_mock = AsyncMock()
+    monkeypatch.setattr(
+        "trading.execution_service.ExecutionService.submit", submit_mock
+    )
+    # An in-flight run with BOTH directions pending — a resume WOULD dispatch
+    # these legs if HALT didn't pause the whole rebalance.
+    month = _current_rebalance_month()
+    start_run(
+        "momentum_sp500",
+        month,
+        {
+            "sells": [{"symbol": "AAPL", "qty": "5"}],
+            "buys": [{"symbol": "MSFT", "qty": "3", "est_price": "100"}],
+        },
+        db_path=db,
+    )
+
+    strategy = get_strategy("momentum_sp500", db_path=db)
+    result = await execute_rebalance(strategy, db_path=db)
+
+    assert result["status"] == "entries_halted"
+    submit_mock.assert_not_awaited()  # zero legs, both directions
+    run = get_run("momentum_sp500", month, db_path=db)
+    assert run is not None
+    assert run.get("status") != "complete"  # deferred, not stamped/abandoned
+    fresh = get_strategy("momentum_sp500", db_path=db)
+    assert fresh.get("last_rebalanced_month") != month

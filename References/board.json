@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T09:00:00Z",
+  "updated_at": "2026-07-08T03:55:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "settings-rmw-race",
+      "title": "Settings apply_settings_patch read-modify-write race can lost-update kill_switch/entries_halted",
+      "lane": "backlog",
+      "type": "ops",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Adversarial finding (HALT review, pre-existing): no lock spans the full load->merge->save sequence, so a concurrent PUT can clobber a breaker-armed flag back to False in a narrow window. Fix = hold _settings_lock across the whole RMW. More exposed now that the breaker arms HALT (frequent) vs manual kill switch (rare)."
+    },
     {
       "id": "money-path-highs",
       "title": "Money-path HIGHs from the 07-06 delta audit: partial-fill terminal jump escapes attribution+quarantine; notional caps under-count partials",
@@ -309,11 +318,11 @@
     {
       "id": "safety-killswitch-blocks-exits",
       "title": "BUILD: HALT state (entries_halted) \u2014 kill-switch/exits split per approved memo (Option C)",
-      "lane": "next",
+      "lane": "done",
       "type": "safety",
       "priority": "normal",
       "owner": "founder",
-      "notes": "FOUNDER APPROVED Option C 2026-07-06 (memo research/fable/2026-07-06_memo-killswitch-exits.md): new HALT state blocks exposure-increasing orders, reduce-only exits keep flowing; breaker hard stage (risk_engine.py:426) retargets to HALT instead of kill switch; kill switch unchanged = human-only total freeze (+ critical page w/ open-position count when armed). Memo sub-recs accepted: HALT pauses momentum rebalance entirely; HALT disarm = normal token. trading/ change \u2192 full adversarial review. Queue after delta-audit money-path HIGHs (same neighborhood, separate rounds)."
+      "notes": "FOUNDER APPROVED Option C 2026-07-06 (memo research/fable/2026-07-06_memo-killswitch-exits.md): new HALT state blocks exposure-increasing orders, reduce-only exits keep flowing; breaker hard stage (risk_engine.py:426) retargets to HALT instead of kill switch; kill switch unchanged = human-only total freeze (+ critical page w/ open-position count when armed). Memo sub-recs accepted: HALT pauses momentum rebalance entirely; HALT disarm = normal token. trading/ change \u2192 full adversarial review. Queue after delta-audit money-path HIGHs (same neighborhood, separate rounds). SHIPPED 2026-07-07: HALT/FREEZE split live in code (commit pending); breaker hard stage arms HALT (exits keep flowing), kill switch human-only total; mid-bleed disarm pinned by test; momentum rebalance fully paused under HALT."
     },
     {
       "id": "research-book-reproducibility",
@@ -849,20 +858,20 @@
     {
       "id": "fr-1783306826",
       "title": "open full report",
-      "lane": "inbox",
+      "lane": "done",
       "type": "idea",
       "priority": "normal",
-      "notes": "brings you to an outdated html...looks worse than the md viewer",
+      "notes": "brings you to an outdated html...looks worse than the md viewer | DONE: Open full report now renders IN-APP (floating ~900px iframe, open-in-tab escape hatch) and the report HTML gets the active theme injected (no more outdated legacy look). If a specific report still renders ugly, reopen with a pointer to it.",
       "owner": "founder",
       "updated_at": "2026-07-06"
     },
     {
       "id": "fr-1783306917",
       "title": "md viewer",
-      "lane": "inbox",
+      "lane": "done",
       "type": "idea",
       "priority": "normal",
-      "notes": "i dont think it should blur the background and should be able to be moved and sized",
+      "notes": "i dont think it should blur the background and should be able to be moved and sized | DONE: MD viewer is a FloatingPanel now \u2014 no backdrop blur (cockpit stays live behind it), header-drag movable, corner-resize, magnet snap; this week: bottom clamped to the footer bar + off-screen spawn fixed + theme-derived paper bg + grain + 100ch prose.",
       "owner": "founder",
       "updated_at": "2026-07-06"
     }

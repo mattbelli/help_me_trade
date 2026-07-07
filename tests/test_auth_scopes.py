@@ -246,6 +246,68 @@ def test_settings_put_rejects_kill_switch_key(
     assert response.json()["error"] == "use /api/kill-switch"
 
 
+# --- 4b. Entries-halt (HALT) endpoint — symmetric normal-token auth ---
+
+
+def test_entries_halt_arm_disarm_normal_token(
+    scoped_client: TestClient,
+    auth_token: str,
+    isolated_settings,
+    mock_notify: AsyncMock,
+) -> None:
+    # HALT is less dangerous than the kill switch — a normal token both arms AND
+    # disarms it (no admin gate on disarm), the human resume path.
+    arm = scoped_client.post(
+        "/api/entries-halt",
+        headers=_headers(auth_token),
+        json={"active": True},
+    )
+    assert arm.status_code == 200
+    assert arm.json()["entries_halted"] is True
+
+    disarm = scoped_client.post(
+        "/api/entries-halt",
+        headers=_headers(auth_token),
+        json={"active": False},
+    )
+    assert disarm.status_code == 200
+    assert disarm.json()["entries_halted"] is False
+
+
+def test_entries_halt_rejects_non_bool(
+    scoped_client: TestClient, auth_token: str, isolated_settings
+) -> None:
+    response = scoped_client.post(
+        "/api/entries-halt",
+        headers=_headers(auth_token),
+        json={"active": "yes"},
+    )
+    assert response.status_code == 400
+
+
+def test_settings_put_rejects_entries_halted_key(
+    scoped_client: TestClient, admin_token: str
+) -> None:
+    response = scoped_client.put(
+        "/api/settings",
+        headers=_headers(admin_token),
+        json={"trading": {"entries_halted": False}},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "use /api/entries-halt"
+
+
+def test_health_reports_both_safety_states(
+    authed_client: TestClient, isolated_settings
+) -> None:
+    resp = authed_client.get("/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    # Both states surfaced independently.
+    assert body["kill_switch_active"] is False
+    assert body["entries_halted"] is False
+
+
 # --- 5. Admin ⊃ normal ---
 
 
