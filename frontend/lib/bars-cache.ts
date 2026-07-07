@@ -29,8 +29,16 @@ type Entry = { data: BarsResponse; fetchedAt: number };
 const cache = new Map<string, Entry>();
 const inflight = new Map<string, Promise<BarsResponse>>();
 
-function keyOf(symbol: string, timeframe: string, days: number): string {
-  return `${symbol}|${timeframe}|${days}`;
+// The ext flag is part of the key: an ext-inclusive series and an RTH-only series
+// for the same symbol/timeframe/days are different payloads, so a timeframe or ETH
+// round-trip must not serve the wrong variant from cache.
+function keyOf(
+  symbol: string,
+  timeframe: string,
+  days: number,
+  extended: boolean,
+): string {
+  return `${symbol}|${timeframe}|${days}|${extended ? "ext" : "rth"}`;
 }
 
 function evictOldestIfFull(): void {
@@ -53,10 +61,10 @@ function evictOldestIfFull(): void {
  */
 export async function fetchBarsCached(
   symbol: string,
-  options: { timeframe: string; days: number },
+  options: { timeframe: string; days: number; extended: boolean },
 ): Promise<BarsResponse> {
-  const { timeframe, days } = options;
-  const key = keyOf(symbol, timeframe, days);
+  const { timeframe, days, extended } = options;
+  const key = keyOf(symbol, timeframe, days, extended);
   const ttl = TTL_MS[timeframe] ?? DEFAULT_TTL_MS;
 
   const entry = cache.get(key);
@@ -67,7 +75,7 @@ export async function fetchBarsCached(
   const existing = inflight.get(key);
   if (existing) return existing;
 
-  const promise = fetchBars(symbol, { timeframe, days })
+  const promise = fetchBars(symbol, { timeframe, days, extended })
     .then((data) => {
       evictOldestIfFull();
       cache.set(key, { data, fetchedAt: Date.now() });
@@ -90,6 +98,7 @@ export function invalidateBars(
   symbol: string,
   timeframe: string,
   days: number,
+  extended: boolean,
 ): void {
-  cache.delete(keyOf(symbol, timeframe, days));
+  cache.delete(keyOf(symbol, timeframe, days, extended));
 }

@@ -338,6 +338,27 @@ function ChartHeaderMenus({
             Session Nodes
             {config.showSessionNodes ? <Check className="size-3" /> : null}
           </DropdownMenuItem>
+          {timeframe.intraday ? (
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              onClick={() =>
+                onConfigChange({
+                  extendedHours: !(config.extendedHours ?? true),
+                })
+              }
+              className={cn(
+                "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
+                (config.extendedHours ?? true)
+                  ? "text-foreground"
+                  : "text-[var(--fg-dim)]",
+              )}
+            >
+              Extended Hours
+              {(config.extendedHours ?? true) ? (
+                <Check className="size-3" />
+              ) : null}
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </>
@@ -775,6 +796,7 @@ export function WorkspaceGrid() {
   const pages = useWorkspaceStore((s) => s.pages);
   const activePageId = useWorkspaceStore((s) => s.activePageId);
   const focusRequest = useWorkspaceStore((s) => s.focusRequest);
+  const clearFocusRequest = useWorkspaceStore((s) => s.clearFocusRequest);
   const {
     hydrated,
     hydrate,
@@ -799,12 +821,17 @@ export function WorkspaceGrid() {
         ?.scrollIntoView({ block: "center", behavior: "smooth" });
       setFlashingId(instanceId);
     });
-    const t = setTimeout(() => setFlashingId(null), 1200);
+    // Consume the request once the flash completes so a later page-switch back
+    // to this page doesn't re-run this effect against the stale request.
+    const t = setTimeout(() => {
+      setFlashingId(null);
+      clearFocusRequest();
+    }, 1200);
     return () => {
       cancelAnimationFrame(raf);
       clearTimeout(t);
     };
-  }, [focusRequest, activePageId]);
+  }, [focusRequest, activePageId, clearFocusRequest]);
 
   // Four-edge scroll indicators: show subtle gradient overlays when there is
   // more content in that direction (right/bottom are the important ones for

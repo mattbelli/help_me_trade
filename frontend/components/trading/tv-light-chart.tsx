@@ -60,6 +60,7 @@ import {
 import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
 import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { DrawingShape, type LPoint } from "@/lib/chart-trendline";
+import { SessionBands } from "@/lib/chart-session-bands";
 import { macdSeries, rsiSeries } from "@/lib/indicators";
 
 type Ohlcv = {
@@ -175,6 +176,9 @@ type Props = {
   /** Controlled session-node levels toggle (driven by the frame's Studies dropdown). */
   showLevels?: boolean;
   studies?: string[];
+  /** Controlled ETH (extended-hours) toggle — pre/post candles + session shading.
+      Defaults ON for intraday when uncontrolled; ignored on daily+ timeframes. */
+  extended?: boolean;
 };
 
 export function TvLightChart({
@@ -187,6 +191,7 @@ export function TvLightChart({
   compact = false,
   showLevels: showLevelsProp,
   studies,
+  extended: extendedProp,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -196,6 +201,7 @@ export function TvLightChart({
   const levelLinesRef = useRef<IPriceLine[]>([]);
   const sessionLevelLinesRef = useRef<IPriceLine[]>([]);
   const extPriceLineRef = useRef<IPriceLine | null>(null);
+  const sessionBandsRef = useRef<SessionBands | null>(null);
   const studySeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const oscSeriesRef = useRef<ISeriesApi<"Line" | "Histogram">[]>([]);
   const barsRef = useRef<Ohlcv[]>([]);
@@ -253,6 +259,11 @@ export function TvLightChart({
   // frame's Studies dropdown drives it via the `showLevels` prop (controlled).
   const [internalShowLevels, setInternalShowLevels] = useState(false);
   const showLevels = showLevelsProp ?? internalShowLevels;
+  // ETH (extended-hours) toggle. Defaults ON for intraday when uncontrolled; on
+  // daily+ there is no intraday session so ext is always off (and the toggle hides).
+  const [internalExtended, setInternalExtended] = useState(true);
+  const extended = extendedProp ?? internalExtended;
+  const showExt = timeframe.intraday && extended;
   const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([]);
   const [legend, setLegend] = useState<string>("");
   const [session, setSession] = useState(sessionLabel());
@@ -817,7 +828,11 @@ export function TvLightChart({
       ? null
       : (chartRef.current?.timeScale().getVisibleLogicalRange() ?? null);
 
-    fetchBarsCached(symbol, { timeframe: timeframe.value, days: timeframe.days })
+    fetchBarsCached(symbol, {
+      timeframe: timeframe.value,
+      days: timeframe.days,
+      extended: showExt,
+    })
       .then((data) => {
         if (cancelled) return;
         const accent = resolveCssColor("--chart-accent", "#5ad1be");
@@ -899,7 +914,7 @@ export function TvLightChart({
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe, style, themeNonce, refreshNonce]);
+  }, [symbol, timeframe, style, themeNonce, refreshNonce, showExt]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -1016,6 +1031,40 @@ export function TvLightChart({
 
     return removeExtPriceLine;
   }, [extPrice, marketSession, loading, timeframe.value, style, symbol, themeNonce]);
+
+  // Session shading: subtle pre/post background bands, drawn beneath the candles.
+  // The primitive reads barsRef live, so bands recompute automatically as live ext
+  // ticks roll new post/pre candles (the chart re-renders on each series.update).
+  useEffect(() => {
+    const series = mainRef.current;
+
+    const detach = () => {
+      if (sessionBandsRef.current && series) {
+        try {
+          series.detachPrimitive(sessionBandsRef.current);
+        } catch {
+          /* series removed */
+        }
+      }
+      sessionBandsRef.current = null;
+    };
+
+    if (!showExt || !series || loading) {
+      detach();
+      return detach;
+    }
+
+    detach();
+    const tint = resolveCssColor("--fg-faint", "#616873");
+    const prim = new SessionBands(
+      () => barsRef.current as unknown as ReadonlyArray<{ time: number }>,
+      { pre: withAlpha(tint, 0.05), post: withAlpha(tint, 0.08) },
+    );
+    series.attachPrimitive(prim);
+    sessionBandsRef.current = prim;
+
+    return detach;
+  }, [showExt, loading, symbol, timeframe.value, style, themeNonce, barsVersion]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -1197,11 +1246,28 @@ export function TvLightChart({
   }, [shapes, barsVersion, timeframe.value, style, themeNonce, editingId]);
 
   useEffect(() => {
-    if (livePrice == null || loading) return;
+    if (loading) return;
     const bars = barsRef.current;
     if (bars.length === 0) return;
     const series = mainRef.current;
     if (!series) return;
+
+    // Which field drives the forming candle depends on the session (commit b41731b
+    // froze the regular `price` outside RTH and routes stream ticks to `ext_price`):
+    //   regular / unknown → livePrice drives the RTH candle (byte-identical to before)
+    //   pre / post        → ext_price drives the forming ext candle, but only when ext
+    //                       bars are actually shown (ETH on); ETH off = dashed line only
+    //   overnight / closed→ no candle merge at all (Schwab has no overnight candles)
+    const sess = marketSession ?? "regular";
+    let tick: number | undefined;
+    if (sess === "pre" || sess === "post") {
+      tick = showExt ? (extPrice ?? undefined) : undefined;
+    } else if (sess === "overnight" || sess === "closed") {
+      tick = undefined;
+    } else {
+      tick = livePrice ?? undefined;
+    }
+    if (tick == null) return;
 
     const last = bars[bars.length - 1];
 
@@ -1226,7 +1292,7 @@ export function TvLightChart({
         ) {
           staleRefetchPendingRef.current = true;
           staleRefetchLastSecRef.current = nowSec;
-          invalidateBars(symbol, timeframe.value, timeframe.days);
+          invalidateBars(symbol, timeframe.value, timeframe.days, showExt);
           setRefreshNonce((n) => n + 1);
         }
         return;
@@ -1240,7 +1306,7 @@ export function TvLightChart({
     // `last`, which live ticks mutate — so one bad tick can't poison the reference and
     // freeze the chart.
     const ref = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
-    if (ref > 0 && (livePrice > ref * 1.5 || livePrice * 2 < ref)) return;
+    if (ref > 0 && (tick > ref * 1.5 || tick * 2 < ref)) return;
 
     // Intraday: when the wall clock crosses into the next interval bucket, roll the
     // forming candle over to a NEW bar (the live tick has no timestamp, so bucket off
@@ -1257,7 +1323,7 @@ export function TvLightChart({
           // to the same real refetch instead.
           if (!staleRefetchPendingRef.current) {
             staleRefetchPendingRef.current = true;
-            invalidateBars(symbol, timeframe.value, timeframe.days);
+            invalidateBars(symbol, timeframe.value, timeframe.days, showExt);
             setRefreshNonce((n) => n + 1);
           }
           return;
@@ -1265,15 +1331,15 @@ export function TvLightChart({
         const newTime = (lastTime + steps * intervalSec) as Time;
         const newBar: Ohlcv = {
           time: newTime,
-          open: livePrice,
-          high: livePrice,
-          low: livePrice,
-          close: livePrice,
+          open: tick,
+          high: tick,
+          low: tick,
+          close: tick,
           volume: 0,
         };
         bars.push(newBar);
         if (style === "line") {
-          series.update({ time: newTime, value: livePrice });
+          series.update({ time: newTime, value: tick });
         } else {
           series.update(newBar);
         }
@@ -1290,24 +1356,27 @@ export function TvLightChart({
     // ±50% band is the primary fix. Accepted residual: a legit extreme V-wick could
     // be eaten here — display-only, rare, and a refetch RESTORES a real wick since it
     // exists in Schwab's bars.
-    if (ref > 0 && last.high > ref * 1.5 && last.high > livePrice * 1.5) {
-      last.high = Math.max(last.open, last.close, livePrice);
+    if (ref > 0 && last.high > ref * 1.5 && last.high > tick * 1.5) {
+      last.high = Math.max(last.open, last.close, tick);
     }
-    if (ref > 0 && last.low > 0 && last.low * 2 < ref && last.low * 2 < livePrice) {
-      last.low = Math.min(last.open, last.close, livePrice);
+    if (ref > 0 && last.low > 0 && last.low * 2 < ref && last.low * 2 < tick) {
+      last.low = Math.min(last.open, last.close, tick);
     }
 
-    last.close = livePrice;
-    last.high = Math.max(last.high, livePrice);
-    last.low = Math.min(last.low, livePrice);
+    last.close = tick;
+    last.high = Math.max(last.high, tick);
+    last.low = Math.min(last.low, tick);
 
     if (style === "line") {
-      series.update({ time: last.time, value: livePrice });
+      series.update({ time: last.time, value: tick });
     } else {
       series.update(last);
     }
   }, [
     livePrice,
+    extPrice,
+    marketSession,
+    showExt,
     loading,
     style,
     symbol,
@@ -1368,6 +1437,20 @@ export function TvLightChart({
         >
           Session Nodes
         </Button>
+        {timeframe.intraday && (
+          <Button
+            type="button"
+            size="sm"
+            variant={extended ? "secondary" : "ghost"}
+            className="h-7 px-2 text-xs"
+            title="Extended hours (pre/post-market candles)"
+            onClick={() => {
+              if (extendedProp == null) setInternalExtended((on) => !on);
+            }}
+          >
+            ETH
+          </Button>
+        )}
         <span className="ml-auto text-[11px] text-muted-foreground">
           {session} · ET · Schwab
         </span>

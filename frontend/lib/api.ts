@@ -239,11 +239,14 @@ export async function fetchPortfolioHistory(
 
 export async function fetchBars(
   symbol: string,
-  options?: { timeframe?: string; days?: number },
+  options?: { timeframe?: string; days?: number; extended?: boolean },
 ): Promise<BarsResponse> {
   const params = new URLSearchParams({ symbol });
   if (options?.timeframe) params.set("timeframe", options.timeframe);
   if (options?.days) params.set("days", String(options.days));
+  if (options?.extended != null) {
+    params.set("extended", options.extended ? "true" : "false");
+  }
 
   const res = await apiFetch(`${API_BASE}/api/bars?${params}`, {
     cache: "no-store",

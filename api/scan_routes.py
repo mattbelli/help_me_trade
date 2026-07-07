@@ -77,7 +77,11 @@ def _make_bars_getter():
     from api.main import _get_bars_cached  # lazy: avoid circular import
 
     async def _get(symbol: str) -> list[Bar] | None:
-        response = await _get_bars_cached(symbol, _SCAN_BARS_TIMEFRAME, _SCAN_BARS_DAYS)
+        # RTH-only, pinned explicitly: the scan's daily inputs (200-DMA, 52-week
+        # range) must stay regular-session-consistent, never ext-inclusive.
+        response = await _get_bars_cached(
+            symbol, _SCAN_BARS_TIMEFRAME, _SCAN_BARS_DAYS, extended=False
+        )
         if not response:
             return None
         return [

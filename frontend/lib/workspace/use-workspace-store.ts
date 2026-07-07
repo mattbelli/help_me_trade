@@ -59,6 +59,7 @@ type WorkspaceState = {
   openPicker: () => void;
   focusWidget: (type: string) => boolean;
   focusSymbol: (symbol: string) => boolean;
+  clearFocusRequest: () => void;
 };
 
 function loadLocked(): boolean {
@@ -562,4 +563,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ focusRequest: { instanceId: chart.i, nonce: Date.now() } });
     return true;
   },
+
+  // Consume the one-shot focus request once the grid has scrolled + flashed, so
+  // returning to the page later doesn't re-fire the stale request.
+  clearFocusRequest: () => set({ focusRequest: null }),
 }));

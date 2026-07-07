@@ -2693,6 +2693,16 @@ _BARS_CACHE_TTL = {
     "1Month": 300.0,
 }
 
+# Timeframes with no intraday session (daily/weekly/monthly) — pre/post-market data
+# is meaningless for them, so extended-hours defaults OFF. Everything else is intraday
+# and defaults ON so the chart shows pre/post candles (the founder's headline ask).
+_NON_INTRADAY_TIMEFRAMES = frozenset({"1Day", "1Week", "1Month"})
+
+
+def _bars_extended_default(timeframe: str) -> bool:
+    """Extended-hours default for a timeframe: ON for intraday, OFF for daily+."""
+    return timeframe not in _NON_INTRADAY_TIMEFRAMES
+
 # Recency of chart-bar requests, used to keep the cache warm (prewarm loop below).
 # spec = (timeframe, days) the frontend actually requests — capturing it avoids
 # hardcoding the frontend's per-timeframe `days` here (they must match the cache key).
@@ -2706,24 +2716,34 @@ _BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {("1Day", 365)}  # the defau
 
 
 @app.get("/api/bars")
-async def api_bars(symbol: str, timeframe: str = "1Day", days: int = 180):
+async def api_bars(
+    symbol: str,
+    timeframe: str = "1Day",
+    days: int = 180,
+    extended: bool | None = None,
+):
     if days < 1 or days > 3650:
         return JSONResponse({"error": "days must be 1–3650"}, status_code=400)
 
     sym = symbol.strip().upper()
+    # Explicit override wins; otherwise intraday → ext ON, daily+ → ext OFF. The chart
+    # sends the flag per its ETH toggle so the pre/post candle set is unambiguous.
+    ext = extended if extended is not None else _bars_extended_default(timeframe)
     now = time.monotonic()
     # Record what's actually viewed so the prewarm loop keeps it warm. Real requests
     # only — the loop calls _get_bars_cached directly so it can't self-refresh recency.
     _BARS_SEEN_SYMBOLS[sym] = now
     _BARS_SEEN_SPECS[(timeframe, int(days))] = now
 
-    response = await _get_bars_cached(sym, timeframe, int(days))
+    response = await _get_bars_cached(sym, timeframe, int(days), ext)
     if response is None:
         return JSONResponse({"error": "failed to load bars"}, status_code=502)
     return response
 
 
-async def _get_bars_cached(sym: str, timeframe: str, days: int) -> dict | None:
+async def _get_bars_cached(
+    sym: str, timeframe: str, days: int, extended: bool | None = None
+) -> dict | None:
     """Cache-read → Schwab fetch (→ Alpaca fallback) → cache-write for chart bars.
 
     Returns the response dict, or None on total failure. Shared by the /api/bars
@@ -2731,7 +2751,10 @@ async def _get_bars_cached(sym: str, timeframe: str, days: int) -> dict | None:
     prewarmed symbol would keep refreshing its own recency and never age out), so the
     fetch core lives here, separate from the endpoint's recency bookkeeping.
     """
-    cache_key = (sym, timeframe, int(days))
+    ext = extended if extended is not None else _bars_extended_default(timeframe)
+    # ext is part of the cache key: an ext-inclusive and an RTH-only series for the
+    # same (symbol, timeframe, days) are different payloads and must not alias.
+    cache_key = (sym, timeframe, int(days), ext)
     now = time.monotonic()
     cached = _BARS_CACHE.get(cache_key)
     if cached is not None and cached[0] > now:
@@ -2744,7 +2767,7 @@ async def _get_bars_cached(sym: str, timeframe: str, days: int) -> dict | None:
 
     try:
         bars = await provider.aget_stock_bars(
-            sym, timeframe=timeframe, days=days, extended_hours=True
+            sym, timeframe=timeframe, days=days, extended_hours=ext
         )
     except Exception as exc:
         # Any provider failure (BrokerError, Schwab outage, httpx error) falls back

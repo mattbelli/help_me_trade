@@ -15,6 +15,9 @@ export type WidgetInstanceConfig = {
   /** Chart studies toggled from the frame toolbar's Studies dropdown. */
   showSessionNodes?: boolean;
   studies?: string[];
+  /** Chart: ETH (extended-hours) toggle — pre/post candles + session shading.
+      Undefined = default ON for intraday; hidden/ignored on daily+ timeframes. */
+  extendedHours?: boolean;
 };
 
 export type WorkspaceLayoutItem = {

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-08T03:55:00Z",
+  "updated_at": "2026-07-08T05:10:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "alert-refire-ext",
+      "title": "Price alert re-fire: one NVDA cross alert fired 3x with different prices (ext path dedup?)",
+      "lane": "next",
+      "type": "bug",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Seen 2026-07-08 00:51 screenshot: three toasts 'NVDA cross $193.95 - now 191.61/191.23/183.37'. Ext alert path (apply_extended/_ext_post_tick) should dedup crosses; check re-arm semantics + whether the 183.37 print predates the one-poll corroboration deploy. Investigate in daylight."
+    },
+    {
+      "id": "strip-padding-fullbleed",
+      "title": "Board/research pages: reserve bottom padding for the terminal strip (40px overlay on scroll end)",
+      "lane": "next",
+      "type": "ui",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "Cosmetic follow-up from the chat-everywhere round: workspace reserves paddingBottom=collapsedHeight, /board and /research do not - last 40px of content sits under the fixed strip."
+    },
     {
       "id": "settings-rmw-race",
       "title": "Settings apply_settings_patch read-modify-write race can lost-update kill_switch/entries_halted",
@@ -66,11 +84,11 @@
     {
       "id": "chart-ext-hours-candles",
       "title": "Chart: extended-hours candles (price header moves but no pre/post candles render)",
-      "lane": "next",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Founder pain 2026-07-07. Bars fetch never passes Schwab priceHistory needExtendedHoursData=true \u2014 ext bars likely available (no overnight per WAF memory). Work: backend ext-bars fetch + chart session shading (ToS-style) + merge ext stream ticks into ext candles only (respect the frozen-regular-price split shipped b41731b). Alternative if Schwab ext bars disappoint: Alpaca SIP (Algo Trader Plus ~$99/mo \u2014 free tier is IEX-only, WORSE); data-source seam = backend bars fetch + quote stream."
+      "notes": "SHIPPED overnight 2026-07-08 ~00:50 ET: pre/post candles + session shading + ext-tick live merge (guarded) + ETH toolbar toggle + ext-aware cache keys; daily scan pinned to RTH (was accidentally ext). Screenshot-verified post-market candles on SPY 1m. Overnight stays a dashed line (no Schwab overnight bars - Alpaca SIP is the paid path if wanted)."
     },
     {
       "id": "cockpit-legibility-round",
