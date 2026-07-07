@@ -10,6 +10,20 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-07 ~9:30 ET) — Phase 1b brain + history sidebar DEPLOYED on founder go
+
+> **HEAD b8d9201 is LIVE** (batched deploy, backend + frontend, on the founder's "go" right at the open):
+> **Phase 1b one-Python-chat-brain** (bb71011 — web /api/chat proxies to `ai/chat/loop.py`; `CHAT_BRAIN=ts`
+> in frontend env = one-line revert; web temporarily loses live token streaming — `chat-streaming-followup`
+> carded HIGH) + **terminal chat-history sidebar** (b8d9201 — ☰ quake slide-out replaces the title dropdown).
+> Post-deploy smoke GREEN: /api/chat streams field-exact UIMessageStream from the Python loop, and a native
+> tool round-trip (get_context → tool-input/output chunks → answer) rendered end-to-end; zero errors in both
+> service journals. Founder in-browser eyeball pending on the sidebar. **Ops watch: Schwab streamer gateway
+> 404 since ~1:38am ET 07-07, still down through the open** (their side; loop self-heals every 60s; REST
+> fallback covering ticks; a monitor is armed for "market stream connected"). Zero Schwab 429/403 since the
+> WAF TTL-cache fix; Finnhub free-tier 429s on scanner profile fetches are known/cosmetic. Full detail:
+> BUILD.md 2026-07-07 rows; board.json current.
+
 ## ▶ START HERE (2026-07-06 overnight) — autonomous board sweep: 6 cards shipped while founder slept
 
 > Per founder directive ("keep knocking stuff off the kanban one by one without me"): **safety-M1**

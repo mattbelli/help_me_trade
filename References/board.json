@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T13:20:00Z",
+  "updated_at": "2026-07-07T13:35:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -21,11 +21,11 @@
     {
       "id": "phase1b-one-brain",
       "title": "Phase 1b: ONE Python chat brain (native tools) - web becomes a proxy, legacy /api/chat dies",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "BUILT + REVIEWED 2026-07-07 (SAFE-WITH-NITS -> approval ledger added: server-side single-consume binding kills mutated/forged/replayed approvals - STRICTLY safer than the TS route). COMMITTED bb71011; deploy READY, batched with the terminal history sidebar - awaiting founder go (his call: mid-morning between trades or after close). Known trade-offs at flip: web loses live token streaming this cut (follow-up round); mobile internals swap deferred. CHAT_BRAIN=ts = one-line revert."
+      "notes": "BUILT + REVIEWED 2026-07-07 (SAFE-WITH-NITS -> approval ledger added: server-side single-consume binding kills mutated/forged/replayed approvals - STRICTLY safer than the TS route). DEPLOYED 2026-07-07 ~9:30 ET on founder go (batched with the history sidebar); live smoke green: web /api/chat streams field-exact UIMessageStream from the Python loop AND a native tool round-trip (get_context) rendered end-to-end. Known trade-offs at flip: web loses live token streaming this cut (follow-up round); mobile internals swap deferred. CHAT_BRAIN=ts = one-line revert."
     },
     {
       "id": "schwab-streamer-outage-0707",
@@ -133,7 +133,7 @@
       "type": "ui",
       "priority": "medium",
       "owner": "serv",
-      "notes": "Tabs shipped in the 07-07 UI mega-batch; founder redesign same morning: hamburger top-left opens a quake sidebar over the transcript - threads newest-first, click=open-as-tab, hover-pencil inline rename, inline delete-confirm, + new chat; redundant thread-title dropdown removed (the active tab IS the title). Esc order rename>confirm>sidebar>drawer; min(240px,85%) width at the 15% drawer. BUILT 2026-07-07, typecheck+lint clean, in-browser check pending; deploys BATCHED with the Phase 1b flip."
+      "notes": "Tabs shipped in the 07-07 UI mega-batch; founder redesign same morning: hamburger top-left opens a quake sidebar over the transcript - threads newest-first, click=open-as-tab, hover-pencil inline rename, inline delete-confirm, + new chat; redundant thread-title dropdown removed (the active tab IS the title). Esc order rename>confirm>sidebar>drawer; min(240px,85%) width at the 15% drawer. DEPLOYED 2026-07-07 ~9:30 ET with the Phase 1b flip; founder in-browser eyeball pending."
     },
     {
       "id": "live-mark-positions",
