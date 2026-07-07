@@ -12,11 +12,11 @@
     {
       "id": "chat-streaming-followup",
       "title": "Restore live token streaming on the one-brain web chat (post-1b UX regression)",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "1b ships with the final answer post-hoc chunked (complete_tools is non-streaming). Fix = streaming tool-call delta reassembly in ai/llm (the piece 1a consciously deferred) or stream() for the final no-tools round. Dispatch after the founder has felt the flip."
+      "notes": "Founder go 2026-07-07 right after the 1b flip. Coding round dispatched: streaming tool-call delta reassembly in ai/llm (openai_compat SSE, index-based fragment reassembly), one streaming-aware tool loop, web_agent forwards real-time text-delta chunks (same validated UIMessageStream shapes - only timing changes), approval PAUSE framing byte-identical, post-hoc chunking stays as fallback. Hermetic SSE-fixture tests incl. split/parallel tool calls + mid-stream disconnect."
     },
     {
       "id": "phase1b-one-brain",

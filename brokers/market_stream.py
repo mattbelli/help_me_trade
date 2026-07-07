@@ -171,6 +171,16 @@ class BaseMarketHub:
     async def _send_quotes(
         self, ws: WebSocket, quotes: dict[str, QuoteState]
     ) -> None:
+        # Never send a row with no admitted price and no ext price — it carries no
+        # information, and the client's bulk merge would clobber its REST-derived
+        # quote with zeros. (A restart during RTH while the tick stream is down
+        # leaves poll-created rows at the QuoteState default price=0.0: the ext
+        # poll creates the row, so the baseline seeder skips it as "present".)
+        quotes = {
+            sym: state
+            for sym, state in quotes.items()
+            if state.price > 0 or state.ext_price
+        }
         if not quotes:
             return
         await ws.send_json(
