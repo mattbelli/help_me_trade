@@ -589,7 +589,10 @@ class AlpacaAdapter:
         timeframe: str = "1Day",
         days: int = 180,
         extended_hours: bool = False,
+        background: bool = False,
     ) -> list[StockBar]:
+        # `background` is a no-op here: only Schwab is behind the rate governor. Accepted
+        # so the provider-agnostic /api/bars cache layer can pass it uniformly.
         # Free IEX feed is regular-hours only; extended_hours is ignored.
         end = datetime.now(UTC)
         start = end - timedelta(days=days)

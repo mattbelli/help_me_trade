@@ -111,6 +111,17 @@ def _clear_broker_caches():
 
 
 @pytest.fixture(autouse=True)
+def _reset_schwab_governor():
+    """Reset the module-level Schwab rate limiter + WAF breaker between tests so the
+    shared token bucket starts full (fast, hermetic) and breaker state can't leak."""
+    from brokers import schwab_market_data
+
+    schwab_market_data._reset_governor()
+    yield
+    schwab_market_data._reset_governor()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_poll_health(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reset global poll health between tests."""
     import sys

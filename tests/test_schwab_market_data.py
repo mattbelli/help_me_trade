@@ -342,6 +342,7 @@ async def test_aget_stock_bars_uses_days_window() -> None:
         start: datetime,
         end: datetime,
         extended_hours: bool = False,
+        background: bool = False,
     ) -> list:
         captured["symbol"] = symbol
         captured["timeframe"] = timeframe

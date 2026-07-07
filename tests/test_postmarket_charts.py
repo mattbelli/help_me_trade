@@ -274,7 +274,7 @@ def test_api_bars_uses_provider_with_extended_hours(
     assert len(data["bars"]) == 1
 
     provider.aget_stock_bars.assert_awaited_once_with(
-        "AAPL", timeframe="5Min", days=10, extended_hours=True
+        "AAPL", timeframe="5Min", days=10, extended_hours=True, background=False
     )
 
 
@@ -356,7 +356,7 @@ async def test_get_bars_cached_threads_extended_to_provider(
     # Daily → ext OFF by default.
     await main._get_bars_cached("QDLY", "1Day", 365)
     provider.aget_stock_bars.assert_awaited_once_with(
-        "QDLY", timeframe="1Day", days=365, extended_hours=False
+        "QDLY", timeframe="1Day", days=365, extended_hours=False, background=False
     )
     assert ("QDLY", "1Day", 365, False) in main._BARS_CACHE
 
@@ -364,7 +364,7 @@ async def test_get_bars_cached_threads_extended_to_provider(
     provider.aget_stock_bars.reset_mock()
     await main._get_bars_cached("QINT", "5Min", 10)
     provider.aget_stock_bars.assert_awaited_once_with(
-        "QINT", timeframe="5Min", days=10, extended_hours=True
+        "QINT", timeframe="5Min", days=10, extended_hours=True, background=False
     )
     assert ("QINT", "5Min", 10, True) in main._BARS_CACHE
 
@@ -372,6 +372,6 @@ async def test_get_bars_cached_threads_extended_to_provider(
     provider.aget_stock_bars.reset_mock()
     await main._get_bars_cached("QINT", "5Min", 10, extended=False)
     provider.aget_stock_bars.assert_awaited_once_with(
-        "QINT", timeframe="5Min", days=10, extended_hours=False
+        "QINT", timeframe="5Min", days=10, extended_hours=False, background=False
     )
     assert ("QINT", "5Min", 10, False) in main._BARS_CACHE
