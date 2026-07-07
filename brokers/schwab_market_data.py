@@ -398,9 +398,26 @@ class SchwabMarketData:
             _e_last = _f(extended.get("lastPrice")) or _f(extended.get("mark"))
             _e_time = _f(extended.get("tradeTime"))
             _cands = []
-            if _q_last is not None and _q_time is not None:
+            # A quote-block lastPrice that merely ECHOES the regular close carries
+            # no ext information — pre-market Schwab keeps bumping quote.tradeTime
+            # while lastPrice stays frozen at yesterday's close, so the stale close
+            # won the timestamp race against live extended trades. The REST poll
+            # then ping-ponged state.ext_price against the stream's real ext ticks
+            # (each disagreement = a phantom alert "cross": 195.55 vs ~191 on NVDA,
+            # 2026-07-07 pre-market spam). Only exclude the echo when a LIVE
+            # extended candidate exists — with no ext market at all, echoing the
+            # close is stable and harmless.
+            _q_echoes_close = (
+                _q_last is not None and reg_last is not None and _q_last == reg_last
+            )
+            _e_cand_ok = _e_last is not None and _e_time is not None and _e_live
+            if (
+                _q_last is not None
+                and _q_time is not None
+                and not (_q_echoes_close and _e_cand_ok)
+            ):
                 _cands.append((_q_time, _q_last))
-            if _e_last is not None and _e_time is not None and _e_live:
+            if _e_cand_ok:
                 _cands.append((_e_time, _e_last))
             if _cands:
                 ext_last = max(_cands, key=lambda c: c[0])[1]
