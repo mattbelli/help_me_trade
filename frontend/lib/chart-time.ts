@@ -137,20 +137,34 @@ export type BarSession = "pre" | "regular" | "post" | "closed";
 // to the session its start falls in — so the 09:30 open bar is "regular" and the
 // 15:xx→16:00 boundary bar's session is decided by where it opened. Weekend/holiday
 // bars don't exist in Schwab's ext data, so "closed" is effectively unreachable here.
+// One shared formatter + a per-timestamp memo: the session-bands primitive
+// classifies EVERY bar on EVERY chart repaint (each live tick, pan, crosshair
+// move). Constructing an Intl.DateTimeFormat per call cost ~0.2ms × thousands
+// of bars × tick rate — it pinned the main thread at ~1 FPS across the whole
+// app the first time live ticks flowed over ext-hours charts (2026-07-07).
+const ET_HM_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: ET,
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: false,
+});
+const sessionMemo = new Map<number, BarSession>();
+
 export function intradayBarSession(unixSec: number): BarSession {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: ET,
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(unixSec * 1000));
+  const memo = sessionMemo.get(unixSec);
+  if (memo !== undefined) return memo;
+  const parts = ET_HM_FMT.formatToParts(new Date(unixSec * 1000));
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
   const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
   const mins = (hour % 24) * 60 + minute;
-  if (mins >= 4 * 60 && mins < 9 * 60 + 30) return "pre";
-  if (mins >= 9 * 60 + 30 && mins < 16 * 60) return "regular";
-  if (mins >= 16 * 60 && mins < 20 * 60) return "post";
-  return "closed";
+  let session: BarSession;
+  if (mins >= 4 * 60 && mins < 9 * 60 + 30) session = "pre";
+  else if (mins >= 9 * 60 + 30 && mins < 16 * 60) session = "regular";
+  else if (mins >= 16 * 60 && mins < 20 * 60) session = "post";
+  else session = "closed";
+  if (sessionMemo.size > 50_000) sessionMemo.clear();
+  sessionMemo.set(unixSec, session);
+  return session;
 }
 
 export function sessionLabel(now = new Date()): string {
