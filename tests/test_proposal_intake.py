@@ -719,6 +719,57 @@ async def test_propose_trade_non_exec_account_denied(monkeypatch, tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_build_proposal_rejects_read_only_schwab_account(tmp_path: Path) -> None:
+    """The shared proposal intake (chat tool + mobile phone proposal both flow
+    through build_order_proposal_from_args) denies a read-only Schwab account_id at
+    creation — no proposal row is ever built for real money."""
+    from datetime import UTC, datetime
+
+    from db.base import connect
+
+    db = _migrated_db(tmp_path)
+    now = datetime.now(UTC).isoformat()
+    schwab_id = "acct_schwab_ro"
+    with connect(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_accounts (
+                id, label, broker, created_at,
+                enabled, execution_capable, is_default
+            ) VALUES (?, 'Schwab Individual', 'schwab', ?, 1, 0, 0)
+            """,
+            (schwab_id, now),
+        )
+        conn.commit()
+
+    built = build_order_proposal_from_args(
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 1,
+            "order_type": "market",
+            "account_id": schwab_id,
+        },
+        db_path=db,
+    )
+    assert "error" in built
+    assert "read-only" in built["error"]
+
+    # Same rejection through the mobile phone-proposal entry point.
+    phone = await create_phone_proposal(
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 1,
+            "order_type": "market",
+            "account_id": schwab_id,
+        },
+        db_path=db,
+    )
+    assert "error" in phone
+
+
+@pytest.mark.asyncio
 async def test_propose_trade_per_account_dedup(monkeypatch, tmp_path: Path) -> None:
     db = _migrated_db(tmp_path)
     strat1_id = _seed_strat1_account(db)

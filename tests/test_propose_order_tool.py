@@ -218,6 +218,61 @@ async def test_propose_order_option_sell_builds_intent(
 
 
 @pytest.mark.asyncio
+async def test_propose_order_read_only_schwab_account_rejected(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A real read-only Schwab account_id is rejected before any proposal or
+    execution row is created — the copilot can never trade real money."""
+    from datetime import UTC, datetime
+
+    from db import base as db_base
+    from db.base import connect
+    from db.multi_account import migrate_multi_account
+    from db.order_executions import init_execution_tables
+    from db.paper_orders import init_paper_order_tables, list_paper_order_proposals
+    from db.trades import init_trade_tables
+
+    db = tmp_path / "schwab_reject.db"
+    sqlite_mod.init_db(db)
+    init_trade_tables(db)
+    init_execution_tables(db)
+    init_paper_order_tables(db)
+    now = datetime.now(UTC).isoformat()
+    schwab_id = "acct_schwab_ro"
+    with connect(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_accounts (id, label, broker, created_at)
+            VALUES (?, 'Schwab Individual', 'schwab', ?)
+            """,
+            (schwab_id, now),
+        )
+        conn.commit()
+    migrate_multi_account(db)
+
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(sqlite_mod, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(paper_orders_mod, "DEFAULT_DB_PATH", db)
+
+    result = await execute_tool(
+        "propose_order",
+        {
+            "symbol": "AAPL",
+            "side": "buy",
+            "qty": 1,
+            "order_type": "market",
+            "account_id": schwab_id,
+        },
+    )
+
+    assert "error" in result
+    assert "read-only" in result["error"]
+    # Deny-by-default: nothing was recorded.
+    assert list_paper_order_proposals(db_path=db) == []
+
+
+@pytest.mark.asyncio
 async def test_propose_order_equity_sell_includes_held_qty(
     monkeypatch, tmp_path: Path
 ) -> None:

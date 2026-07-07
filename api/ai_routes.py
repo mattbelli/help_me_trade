@@ -543,6 +543,22 @@ async def api_chat(body: dict = Body(...)):
     run = ChatRunResult()
     user_text = last_user_text(messages)
 
+    # Diagnostic for the 2026-07-07 duplicate-responses report (one user row,
+    # four assistant rows persisted): log the request SHAPE (roles/ids/trigger,
+    # never content) so the next occurrence shows exactly what the client sent.
+    # Remove once root-caused.
+    logger.info(
+        "chat turn shape: session=%s trigger=%s messageId=%s msgs=%s",
+        session_id,
+        body.get("trigger"),
+        body.get("messageId"),
+        [
+            (m.get("role"), str(m.get("id"))[:20])
+            for m in messages
+            if isinstance(m, dict)
+        ],
+    )
+
     async def event_generator():
         try:
             async for chunk in run_web_chat_stream(

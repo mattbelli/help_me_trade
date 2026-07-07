@@ -23,6 +23,17 @@ from db.paper_orders import create_pending_proposal, list_paper_order_proposals
 from db.strategies import init_strategy_tables, seed_default_strategies, update_strategy
 
 
+@pytest.fixture(autouse=True)
+def _stub_schwab_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default Schwab to NOT authenticated so get_portfolio_snapshot never issues a
+    live Schwab fetch during tests (this box may hold a real token). Tests that want
+    Schwab visible override this with their own get_schwab_accounts_sync stub."""
+    monkeypatch.setattr(
+        "brokers.schwab_accounts.get_schwab_accounts_sync",
+        lambda force=False: {"authenticated": False, "accounts": [], "totals": {}},
+    )
+
+
 def _account(
     *,
     cash: float = 10_000.0,
@@ -251,6 +262,79 @@ async def test_get_portfolio_snapshot_day_pl_fail_safe(
     assert by_id[alpaca["id"]]["day_pl"] is None
     assert by_id[alpaca["id"]]["day_pl_pct"] is None
     assert result["aggregate"]["total_day_pl"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_get_portfolio_snapshot_includes_read_only_schwab(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Real Schwab accounts (synced-cache read, NOT poll_runs) surface in the
+    snapshot as read-only real money, never tradeable, with their positions."""
+    db = _migrated_db(tmp_path, schwab_count=0)
+    _patch_db(monkeypatch, db)
+
+    alpaca = get_default_account("alpaca", db_path=db)
+    assert alpaca is not None
+    sqlite_mod.save_snapshot(
+        _account(cash=5_000.0, account_id=alpaca["id"]),
+        [],  # paper account is flat — the founder's real money is at Schwab
+        [],
+        broker="alpaca",
+        account_id=alpaca["id"],
+        db_path=db,
+    )
+    _patch_day_pl_broker(monkeypatch, day_pl=0.0, day_pl_pct=0.0)
+
+    # Shared cached reader returns the founder's real Schwab holdings (masked).
+    monkeypatch.setattr(
+        "brokers.schwab_accounts.get_schwab_accounts_sync",
+        lambda force=False: {
+            "authenticated": True,
+            "accounts": [
+                {
+                    "id": "schwab_1234",
+                    "label": "Schwab ••1234",
+                    "account_type": "MARGIN",
+                    "liquidation_value": 82_000.0,
+                    "cash": 2_000.0,
+                    "long_market_value": 80_000.0,
+                    "day_pl": 640.0,
+                    "unrealized_pl": 12_000.0,
+                    "positions": [
+                        {
+                            "symbol": "NVDA",
+                            "qty": 100.0,
+                            "avg_price": 500.0,
+                            "market_value": 80_000.0,
+                            "unrealized_pl": 12_000.0,
+                        }
+                    ],
+                    "open_orders": [],
+                }
+            ],
+            "totals": {},
+        },
+    )
+
+    result = await execute_tool("get_portfolio_snapshot", {})
+
+    by_id = {a["account_id"]: a for a in result["accounts"]}
+    schwab = by_id["schwab_1234"]
+    assert schwab["broker"] == "schwab"
+    assert schwab["read_only"] is True
+    assert schwab["real_money"] is True
+    assert schwab["tradeable"] is False
+    assert schwab["equity"] == 82_000.0
+    assert schwab["day_pl"] == 640.0
+    assert schwab["position_count"] == 1
+    assert schwab["positions"][0]["symbol"] == "NVDA"
+    assert schwab["positions"][0]["qty"] == 100.0
+
+    agg = result["aggregate"]
+    # Schwab equity rolls into total_equity but NEVER tradeable_equity.
+    assert agg["total_equity"] == pytest.approx(10_000.0 + 82_000.0)
+    assert agg["tradeable_equity"] == pytest.approx(10_000.0)
+    assert agg["total_day_pl"] == pytest.approx(640.0)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T16:05:00Z",
+  "updated_at": "2026-07-07T16:45:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "chat-schwab-visibility",
+      "title": "Chat brain sees real Schwab accounts (read-only) + proposal-intake deny-by-default guard",
+      "lane": "done",
+      "type": "safety",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-07 (founder report: agent said 'all in cash' while he held real Schwab positions). Snapshot folds in Schwab from the shared TTL cache (no new REST, last4 only, tradeable=false). Adversarial SAFE-WITH-NITS: bonus gap closed - phone proposals could be created against Schwab ids (approve-time-only rejection) -> deny-by-default guard at build_order_proposal_from_args; cold-cache GETs moved off the event loop in-round. DEPLOY PENDING (batched)."
+    },
+    {
+      "id": "chat-dup-responses",
+      "title": "Chat duplicated responses (one user row, 4 assistant rows persisted) - diagnostic armed, awaiting repro",
+      "lane": "in_progress",
+      "type": "bug",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-07 15:43 session: follow-up user messages never persisted; model re-answered Q1 repeatedly. Real-UI CDP repro is CLEAN (transport sends full history, both turns persist). Request-shape log added to /api/chat (roles/ids/trigger, no content) - deploys with the batch; next occurrence pins it. Suspects: second window/device on same thread, or client retry after long tool-turns."
+    },
     {
       "id": "fill-time-on-orders",
       "title": "Filled orders: real fill TIME (schema+sync round - trade_date is date-only)",

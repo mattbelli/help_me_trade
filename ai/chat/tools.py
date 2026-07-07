@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextvars import ContextVar
 from pathlib import Path
@@ -75,9 +76,12 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_portfolio_snapshot": {
         "title": "Portfolio snapshot",
         "description": (
-            "All accounts (Alpaca paper + read-only Schwab): equity, cash, positions, "
-            "open orders — per account plus an aggregate. Includes today's day P&L per "
-            "account + aggregate, plus cumulative unrealized P&L on positions."
+            "All accounts — Alpaca PAPER (tradeable) plus the founder's REAL Schwab "
+            "accounts (broker=schwab, real_money=true, read_only=true, "
+            "tradeable=false): equity, cash, positions, open orders — per account "
+            "plus an aggregate, with today's day P&L and cumulative unrealized P&L. "
+            "Discuss the Schwab holdings freely, but they are READ-ONLY real money — "
+            "propose_order can NEVER target them (proposals stay paper/Alpaca only)."
         ),
     },
     "get_agent_status": {
@@ -190,6 +194,8 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Propose a paper trade for user approval (symbol, side buy|sell, qty, "
             "order_type market|limit). Optionally set account_id to target a specific "
             "paper account (STRAT1/STRAT2); defaults to the primary paper account. "
+            "PAPER/Alpaca accounts ONLY — a real read-only Schwab account is never a "
+            "valid target and is rejected. "
             "Options: long-only buy-to-open calls/puts, limit-only — limit_price is "
             "per-share premium (max loss = premium × 100 × contracts). Use "
             "option_underlying, option_expiration (YYYY-MM-DD), option_strike, "
@@ -303,8 +309,11 @@ _ALLOWED_TOOLS = frozenset(TOOL_DEFINITIONS.keys())
 _MULTI_ACCOUNT_NOTE = (
     "Per-position `unrealized_pl` is CUMULATIVE since entry — NOT today. "
     "`day_pl` / `day_pl_pct` (per account) and `total_day_pl` (aggregate) are "
-    "TODAY's change. Alpaca = paper (tradeable); Schwab = real money, read-only "
-    "(no day P&L shown)."
+    "TODAY's change. Alpaca accounts are PAPER money (tradeable). Schwab accounts "
+    "are the founder's REAL funded money — read_only/real_money, tradeable=false: "
+    "discuss them, but propose_order can NEVER target a Schwab account (proposals "
+    "are paper/Alpaca only). `tradeable_equity` counts paper accounts only; "
+    "`total_equity` includes the real Schwab balances."
 )
 
 
@@ -387,6 +396,64 @@ def _multi_account_context(
     }
 
 
+def _schwab_snapshot_accounts() -> list[dict[str, Any]]:
+    """Read-only snapshot rows for the founder's REAL Schwab accounts.
+
+    Reuses ``brokers.schwab_accounts.get_schwab_accounts_sync`` — the SAME
+    TTL-cached reader the cockpit's 30s poll and the perception ``query`` layer
+    already share, so this adds no new Schwab REST call path (it serves whatever
+    the running app last fetched). Schwab is real funded money, READ-ONLY: every
+    row is flagged ``tradeable=False`` and ``propose_order`` can never target it.
+    Returns [] when Schwab is not authenticated (fail-soft — never raises)."""
+    from brokers.schwab_accounts import get_schwab_accounts_sync
+
+    data = get_schwab_accounts_sync()
+    if not data.get("authenticated"):
+        return []
+    accounts_out: list[dict[str, Any]] = []
+    for a in data.get("accounts", []):
+        positions = [
+            {
+                "symbol": p.get("symbol"),
+                "qty": p.get("qty"),
+                "avg_price": p.get("avg_price"),
+                "market_value": p.get("market_value"),
+                "unrealized_pl": p.get("unrealized_pl"),
+            }
+            for p in (a.get("positions") or [])
+        ]
+        open_orders = [
+            {
+                "symbol": o.get("symbol"),
+                "side": o.get("side"),
+                "qty": o.get("qty"),
+                "type": o.get("order_type"),
+                "limit_price": o.get("limit_price"),
+                "status": o.get("status"),
+            }
+            for o in (a.get("open_orders") or [])[:20]
+        ]
+        accounts_out.append(
+            {
+                "account_id": a.get("id"),
+                "label": a.get("label"),
+                "broker": "schwab",
+                "tradeable": False,
+                "read_only": True,
+                "real_money": True,
+                "equity": a.get("liquidation_value"),
+                "cash": a.get("cash"),
+                "long_market_value": a.get("long_market_value"),
+                "day_pl": a.get("day_pl"),
+                "unrealized_pl": a.get("unrealized_pl"),
+                "position_count": len(positions),
+                "positions": positions[:20],
+                "open_orders": open_orders,
+            }
+        )
+    return accounts_out
+
+
 def _account_label_map(*, db_path: Path | None = None) -> dict[str, str]:
     from db.base import DEFAULT_DB_PATH
 
@@ -456,8 +523,6 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         from brokers.factory import get_broker_for_account
 
         snaps = get_all_latest_snapshots(db_path=DEFAULT_DB_PATH)
-        if not snaps:
-            return {"error": "No snapshot yet — broker poll has not run."}
         meta = {a["id"]: a for a in list_accounts(db_path=DEFAULT_DB_PATH)}
 
         day_pl_by_account: dict[str, dict[str, Any]] = {}
@@ -478,7 +543,27 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             except Exception:
                 logger.exception("day P&L fetch failed for account %s", a.get("id"))
 
-        return _multi_account_context(snaps, meta, day_pl_by_account)
+        context = _multi_account_context(snaps, meta, day_pl_by_account)
+
+        # Real Schwab accounts don't poll into poll_runs (read-only iron rule), so
+        # fold them in from the shared cached reader. Mirrors _multi_account_context:
+        # equity/cash/day_pl roll into the aggregate, but NEVER tradeable_equity
+        # (Schwab is not tradeable). to_thread: on a cold TTL cache the sync reader
+        # does real Schwab GETs — never block the event loop (adversarial finding).
+        schwab_accounts = await asyncio.to_thread(_schwab_snapshot_accounts)
+        if schwab_accounts:
+            agg = context["aggregate"]
+            for acct in schwab_accounts:
+                agg["total_equity"] += float(acct.get("equity") or 0)
+                agg["total_cash"] += float(acct.get("cash") or 0)
+                if acct.get("day_pl") is not None:
+                    agg["total_day_pl"] += float(acct["day_pl"])
+            context["accounts"].extend(schwab_accounts)
+            agg["account_count"] = len(context["accounts"])
+
+        if not context["accounts"]:
+            return {"error": "No snapshot yet — broker poll has not run."}
+        return context
 
     if name == "get_agent_status":
         from signals.strategy_stats import get_strategy_stats
