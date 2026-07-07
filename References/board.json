@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T13:35:00Z",
+  "updated_at": "2026-07-07T15:05:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "chart-perf-1fps-meltdown",
+      "title": "App-wide 1-FPS freeze (ext-hours session bands x live ticks) - FIXED + deployed",
+      "lane": "done",
+      "type": "bug",
+      "priority": "critical",
+      "owner": "serv",
+      "notes": "2026-07-07 mid-morning: Intl.DateTimeFormat built per bar per chart repaint in intradayBarSession; SessionBands classifies all bars every repaint; repaints per live tick -> main thread pinned at 1 FPS on all devices once the streamer reconnected 13:48. Fixed 9049d8f (shared formatter + session memo); measured 60 FPS / 0 long tasks post-deploy via CDP profiling."
+    },
+    {
+      "id": "hydration-418-followup",
+      "title": "React #418 hydration mismatch in founder console - unreproduced, re-check post perf fix",
+      "lane": "next",
+      "type": "bug",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Seen in founder Edge console during the 1-FPS incident. Not reproduced headlessly even with seeded terminal/theme localStorage (terminal store is properly hydrate()-gated). May need his exact localStorage or was incident noise. Ask founder if console still shows error 418 on a hard refresh; if yes, grab his localStorage dump and bisect."
+    },
     {
       "id": "chat-streaming-followup",
       "title": "Restore live token streaming on the one-brain web chat (post-1b UX regression)",
