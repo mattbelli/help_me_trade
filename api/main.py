@@ -24,6 +24,7 @@ from api.auth import (
     auth_enabled,
     frontend_origins,
     verify_admin_token,
+    verify_mutation_token,
     verify_websocket_auth,
 )
 from api.device_routes import router as device_router
@@ -2609,6 +2610,31 @@ def api_idea_outcomes():
         "open": list_recent_open(),
         "resolved": list_recent_resolved(limit=50),
     }
+
+
+@app.post("/api/ideas/outcomes/{outcome_id}/grade")
+def api_grade_idea_outcome(
+    outcome_id: int, request: Request, body: dict = Body(...)
+):
+    """Founder-only 5b judging: grade a RESOLVED idea against the rubric.
+    Re-grading overwrites (the founder can revise)."""
+    verify_mutation_token(request)
+    from db.idea_outcomes import grade_outcome, normalize_verdict
+
+    try:
+        verdict = normalize_verdict(body)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    result = grade_outcome(outcome_id, verdict)
+    if result == "not_found":
+        return JSONResponse({"error": "Idea outcome not found"}, status_code=404)
+    if result == "not_gradeable":
+        return JSONResponse(
+            {"error": "Only resolved ideas (won/lost/expired) can be graded"},
+            status_code=400,
+        )
+    return {"ok": True, "verdict": verdict}
 
 
 @app.get("/api/reports")

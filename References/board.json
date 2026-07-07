@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T12:30:00Z",
+  "updated_at": "2026-07-07T12:50:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "phase1b-one-brain",
+      "title": "Phase 1b: ONE Python chat brain (native tools) - web becomes a proxy, legacy /api/chat dies",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "FOUNDER GO 2026-07-07. Brief ready (phase1b-one-brain.md): one loop on ai/llm/tool_loop + UIMessageStream SSE endpoint + web proxy behind CHAT_BRAIN env flag (one-line revert) + mobile switches + legacy route deleted. Adversarial review (borders the proposal path). Deploy timed OFF market hours with founder. Dispatches when the idea-grading round frees the writer slot."
+    },
     {
       "id": "schwab-streamer-outage-0707",
       "title": "OPS: Schwab streamer gateway 404 since ~1:38am ET (their side; REST healthy; self-heals on reconnect)",

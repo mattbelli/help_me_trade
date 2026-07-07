@@ -28,6 +28,80 @@ RESOLVED_WIN_LOSS = frozenset({"won", "lost"})
 # get_summary), still visible per-origin.
 VETOED_ORIGIN = "structure_vetoed"
 
+# The founder grades JUDGMENT (5b): only fully resolved ideas can be graded —
+# never pending/triggered (still open), never invalidated/data_gap (no clean
+# outcome to judge), never the vetoed journal-only lane.
+GRADEABLE_STATUSES = frozenset({"won", "lost", "expired"})
+
+# founder_verdict JSON shape — the 5b rubric (spec appendix): four 1–5 scores.
+#   take_it          (a) would you have taken it?
+#   entry_honest     (b) did price actually offer the entry zone?
+#   stop_survivable  (c) did the stop survive (not wicked out before the move)?
+#   thesis_quality   (d) did the stated reason play out, even if it lost?
+VERDICT_SCORE_KEYS = ("take_it", "entry_honest", "stop_survivable", "thesis_quality")
+
+# 5b gate (spec appendix): ≥10 graded, mean take-it ≥3, zero numbers-wrong.
+# A "numbers were wrong" fail is a bottom score (==1) on a b/c-type dimension —
+# the entry zone never existed, or the stop was un-survivable.
+GATE_MIN_GRADED = 10
+GATE_MIN_MEAN_TAKE_IT = 3.0
+_NUMBERS_WRONG_KEYS = ("entry_honest", "stop_survivable")
+
+
+def normalize_verdict(payload: Any) -> dict[str, Any]:
+    """Validate + normalize a founder grade into the stored JSON shape.
+
+    Raises ValueError on any malformed field (endpoint maps this to 400)."""
+    if not isinstance(payload, dict):
+        raise ValueError("verdict must be an object")
+    verdict: dict[str, Any] = {}
+    for key in VERDICT_SCORE_KEYS:
+        raw = payload.get(key)
+        if isinstance(raw, bool):  # bool is an int subclass — reject explicitly
+            raise ValueError(f"{key} must be an integer 1-5")
+        try:
+            score = int(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be an integer 1-5")
+        if not 1 <= score <= 5:
+            raise ValueError(f"{key} must be between 1 and 5")
+        verdict[key] = score
+    note = payload.get("note")
+    if note is not None:
+        note_str = str(note).strip()
+        if note_str:
+            verdict["note"] = note_str[:500]
+    verdict["graded_at"] = _now()
+    return verdict
+
+
+def grade_outcome(
+    outcome_id: int,
+    verdict: dict[str, Any],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> str:
+    """Persist a founder verdict onto a resolved idea. Idempotent overwrite
+    (re-grade allowed). Returns 'graded' | 'not_found' | 'not_gradeable'."""
+    init_idea_outcomes_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status, origin FROM idea_outcomes WHERE id = ?",
+            (int(outcome_id),),
+        ).fetchone()
+        if row is None:
+            return "not_found"
+        status = str(row["status"])
+        origin = str(row["origin"] or "structure")
+        if origin == VETOED_ORIGIN or status not in GRADEABLE_STATUSES:
+            return "not_gradeable"
+        conn.execute(
+            "UPDATE idea_outcomes SET founder_verdict = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(verdict), _now(), int(outcome_id)),
+        )
+        conn.commit()
+    return "graded"
+
 
 def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as conn:
@@ -84,6 +158,15 @@ def _row_to_outcome(row: Any) -> dict[str, Any]:
             out["targets"] = []
     else:
         out["targets"] = []
+    raw_verdict = out.get("founder_verdict")
+    if raw_verdict:
+        try:
+            parsed = json.loads(raw_verdict)
+            out["verdict"] = parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            out["verdict"] = None
+    else:
+        out["verdict"] = None
     return out
 
 
@@ -297,6 +380,14 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
             GROUP BY origin, status
             """
         ).fetchall()
+        # Founder grades — vetoed journal-only lane is never founder-facing, so
+        # it never counts toward the 5b gate.
+        verdict_rows = conn.execute(
+            "SELECT founder_verdict FROM idea_outcomes "
+            "WHERE origin != ? AND founder_verdict IS NOT NULL "
+            "AND founder_verdict != ''",
+            (VETOED_ORIGIN,),
+        ).fetchall()
 
     counts: dict[str, int] = {}
     for row in rows:
@@ -328,9 +419,56 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
             "win_rate": (origin_won / origin_win_loss) if origin_win_loss else None,
         }
 
+    grading = _grading_summary(verdict_rows)
+
     return {
         "counts": counts,
         "resolved": resolved,
         "win_rate": win_rate,
         "by_origin": by_origin,
+        "grading": grading,
+    }
+
+
+def _grading_summary(verdict_rows: list[Any]) -> dict[str, Any]:
+    """Aggregate founder grades into the 5b gate view."""
+    graded = 0
+    sums = dict.fromkeys(VERDICT_SCORE_KEYS, 0.0)
+    numbers_wrong = 0
+    for row in verdict_rows:
+        try:
+            verdict = json.loads(row["founder_verdict"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(verdict, dict):
+            continue
+        graded += 1
+        for key in VERDICT_SCORE_KEYS:
+            val = verdict.get(key)
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                sums[key] += float(val)
+        if any(verdict.get(k) == 1 for k in _NUMBERS_WRONG_KEYS):
+            numbers_wrong += 1
+
+    means = {
+        key: (sums[key] / graded if graded else None) for key in VERDICT_SCORE_KEYS
+    }
+    mean_take_it = means["take_it"]
+    gate_pass = (
+        graded >= GATE_MIN_GRADED
+        and mean_take_it is not None
+        and mean_take_it >= GATE_MIN_MEAN_TAKE_IT
+        and numbers_wrong == 0
+    )
+    return {
+        "graded": graded,
+        "means": means,
+        "mean_take_it": mean_take_it,
+        "numbers_wrong": numbers_wrong,
+        "gate": {
+            "min_graded": GATE_MIN_GRADED,
+            "min_mean_take_it": GATE_MIN_MEAN_TAKE_IT,
+            "max_numbers_wrong": 0,
+        },
+        "gate_pass": gate_pass,
     }

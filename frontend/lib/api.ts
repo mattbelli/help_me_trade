@@ -1389,14 +1389,38 @@ export type IdeaOutcomeRow = {
   mfe_pct: number | null;
   mae_pct: number | null;
   founder_verdict: string | null;
+  verdict: IdeaVerdict | null;
   notes: string | null;
   updated_at: string;
+};
+
+export type IdeaVerdict = {
+  take_it: number;
+  entry_honest: number;
+  stop_survivable: number;
+  thesis_quality: number;
+  note?: string;
+  graded_at?: string;
+};
+
+export type IdeaGradingSummary = {
+  graded: number;
+  means: Record<string, number | null>;
+  mean_take_it: number | null;
+  numbers_wrong: number;
+  gate: {
+    min_graded: number;
+    min_mean_take_it: number;
+    max_numbers_wrong: number;
+  };
+  gate_pass: boolean;
 };
 
 export type IdeaOutcomesSummary = {
   counts: Record<string, number>;
   resolved: number;
   win_rate: number | null;
+  grading?: IdeaGradingSummary;
   by_origin?: Record<
     string,
     {
@@ -1419,4 +1443,38 @@ export async function getIdeaOutcomes(): Promise<IdeaOutcomesResponse> {
   });
   if (!res.ok) throw new Error(`Idea outcomes error ${res.status}`);
   return res.json();
+}
+
+export type IdeaGradeInput = {
+  take_it: number;
+  entry_honest: number;
+  stop_survivable: number;
+  thesis_quality: number;
+  note?: string;
+};
+
+export async function gradeIdeaOutcome(
+  outcomeId: number,
+  grade: IdeaGradeInput,
+): Promise<IdeaVerdict> {
+  const res = await apiFetch(
+    `${API_BASE}/api/ideas/outcomes/${outcomeId}/grade`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(grade),
+    },
+  );
+  if (!res.ok) {
+    let detail = `Grade error ${res.status}`;
+    try {
+      const data = await res.json();
+      detail = data.error ?? data.detail ?? detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  const data = await res.json();
+  return data.verdict as IdeaVerdict;
 }
