@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T16:58:00Z",
+  "updated_at": "2026-07-07T17:00:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "schwab-waf-breaker",
+      "title": "Schwab WAF circuit breaker \u2014 stop hammering a rate-blocked endpoint (SHIPPED, needs review+tests)",
+      "lane": "done",
+      "type": "ops",
+      "priority": "critical",
+      "owner": "serv",
+      "notes": "2026-07-07 incident: deploy cold-start burst tripped Akamai WAF (403/429 on server IP); zero backoff meant charts+prewarm kept hammering, sustaining the block -> all quotes stale, futures+charts 502. Hotfix: module-level 90s circuit breaker (quotes+pricehistory, IP-level) - first 403/429 opens, gate skips Schwab entirely -> Alpaca/cache, one probe per cooldown. Recovered live. FOLLOW-UP: adversarial review of the quote path + hermetic breaker tests (open/gate/close/probe); currently untested code shipped under incident."
+    },
+    {
+      "id": "schwab-boot-burst-ramp",
+      "title": "Prewarm + baseline seeding cold-start bursts Schwab on every restart (the recurring WAF trigger)",
+      "lane": "next",
+      "type": "ops",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Root cause under the WAF incidents: on boot the bars prewarm loop + S&P baseline seeder fire a large Schwab burst that trips Akamai. Breaker now catches it, but the burst shouldn't happen: ramp prewarm gently on boot (small first batch, widen over minutes), stagger baseline seeding, respect a global Schwab req/sec budget. Pairs with the stream-staleness detector card."
+    },
     {
       "id": "stream-staleness-detector",
       "title": "Detect + self-heal a degraded Schwab stream (repeating stale prices, no error)",
