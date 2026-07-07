@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T04:30:00Z",
+  "updated_at": "2026-07-07T05:50:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -65,12 +65,12 @@
     },
     {
       "id": "backend-coldstart-schwab-burst",
-      "title": "Backend restart fires an immediate bulk Schwab bar burst \u2192 429/403 WAF episodes on deploy-heavy days",
+      "title": "Schwab REST hygiene: watchlist-poll flood HOTFIXED (TTL cache); remaining = frontend ~6s poll cadence + /api/price-alerts OPTIONS spam + cold-start jitter + move cache out of main.py",
       "lane": "next",
       "type": "ops",
       "priority": "high",
       "owner": "serv",
-      "notes": "2026-07-06 evening: 3 backend deploys in ~90min each re-ran the cold-start daily-bars refresh (hundreds of pricehistory calls at once) \u2192 Schwab 429s on marketdata + 403 on trader/accountNumbers (Akamai). Stream stayed connected (ticks fine); REST bars/accounts degraded until the window cleared. Fix: jitter/stagger the bars refresher after boot (e.g. random 5-15min delay + trickle batches), skip refresh if store is <24h fresh, and consider pacing the accounts TTL fetch on reconnect storms. Memory schwab-data-ops already warns 'never burst-request Schwab' \u2014 the cold-start path violates it structurally. NEW EVIDENCE 2026-07-07: 429 bursts in logs ~01:05 traced to batch bar fetch + /api/watchlist/market + /api/bars - FRONTEND deploys also trigger client-reload REST bursts (3 deploys tonight); batch frontend deploys and jitter cold-start."
+      "notes": "ROOT CAUSE FOUND 2026-07-07 01:45: /api/watchlist/market fanned out ~48 uncached pricehistory calls per poll = ~480 req/min 24/7 - THE source of the WAF 429/403 episodes. Hotfixed with per-(symbol,timeframe) TTL cache (daily 300s / 5Min 90s, empties cached), ~96% reduction. Remaining work: (1) why does the frontend poll every ~6s (multiple pollers?) + price-alerts OPTIONS spam every 1-5s; (2) jitter/stagger cold-start bulk refresh; (3) relocate cache per no-new-code-in-main.py ratchet."
     },
     {
       "id": "ui-screenshot-smoke",

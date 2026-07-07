@@ -18,6 +18,17 @@ import pytest
 from brokers.alpaca import StockBar
 
 
+@pytest.fixture(autouse=True)
+def _clear_wl_bars_cache():
+    """The watchlist endpoint's TTL bars cache is module-level; without clearing
+    it, bars cached by one test's mock provider leak into the next test."""
+    from api import main as api_main
+
+    api_main._wl_bars_cache.clear()
+    yield
+    api_main._wl_bars_cache.clear()
+
+
 def _bar(t: str, close: float, volume: float = 1_000_000.0) -> StockBar:
     return StockBar(time=t, open=close, high=close + 1, low=close - 1, close=close, volume=volume)
 

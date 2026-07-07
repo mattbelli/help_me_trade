@@ -1817,6 +1817,43 @@ def api_delete_watchlist(list_id: str):
     return state
 
 
+# Per-(symbol, timeframe) TTL cache for the watchlist poll ONLY. The frontend
+# polls /api/watchlist/market every few seconds and each uncached poll fanned
+# out one Schwab pricehistory call per symbol per timeframe (~480 req/min on a
+# 24-symbol watchlist) — the actual source of the Akamai WAF 429/403 episodes.
+# Daily bars move once a day and RVOL only changes per 5-minute bucket, so
+# short TTLs cost nothing functionally. Scoped here on purpose: RiskEngine /
+# execution paths keep their own always-fresh fetches.
+_wl_bars_cache: dict[tuple[str, str], tuple[float, list]] = {}
+_WL_BARS_TTL_S = {"1Day": 300.0, "5Min": 90.0}
+
+
+async def _wl_cached_bars_batch(
+    provider, symbols: list[str], *, timeframe: str = "1Day", days: int = 12
+) -> dict[str, list[StockBar]]:
+    now = time.time()
+    ttl = _WL_BARS_TTL_S.get(timeframe, 90.0)
+    out: dict[str, list[StockBar]] = {}
+    missing: list[str] = []
+    for sym in symbols:
+        hit = _wl_bars_cache.get((sym, timeframe))
+        if hit is not None and now - hit[0] < ttl:
+            out[sym] = hit[1]
+        else:
+            missing.append(sym)
+    if missing:
+        fetched = await provider.aget_stock_bars_batch(
+            missing, timeframe=timeframe, days=days
+        )
+        for sym in missing:
+            bars = fetched.get(sym) or []
+            # Cache empty results too — an unfetchable symbol otherwise
+            # re-fetches on every poll (the retry-storm shape).
+            _wl_bars_cache[(sym, timeframe)] = (now, bars)
+            out[sym] = bars
+    return out
+
+
 @app.get("/api/watchlist/market")
 async def api_watchlist_market(symbols: str = ""):
     try:
@@ -1843,7 +1880,7 @@ async def api_watchlist_market(symbols: str = ""):
             _schedule_profile_build(provider, sym, session=session_type)
 
     try:
-        bars_by_symbol = await provider.aget_stock_bars_batch(symbol_list, days=12)
+        bars_by_symbol = await _wl_cached_bars_batch(provider, symbol_list, days=12)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
@@ -1859,8 +1896,8 @@ async def api_watchlist_market(symbols: str = ""):
 
     intraday_by_symbol: dict[str, list[StockBar]] = {}
     try:
-        intraday_by_symbol = await provider.aget_stock_bars_batch(
-            symbol_list, timeframe="5Min", days=4
+        intraday_by_symbol = await _wl_cached_bars_batch(
+            provider, symbol_list, timeframe="5Min", days=4
         )
     except BrokerError as exc:
         logger.warning("Watchlist intraday bars failed: %s", exc)
