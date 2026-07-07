@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T17:10:00Z",
+  "updated_at": "2026-07-07T17:25:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -57,11 +57,11 @@
     {
       "id": "chat-dup-responses",
       "title": "Chat duplicated responses (one user row, 4 assistant rows persisted) - diagnostic armed, awaiting repro",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "bug",
       "priority": "high",
       "owner": "serv",
-      "notes": "2026-07-07 15:43 session: follow-up user messages never persisted; model re-answered Q1 repeatedly. Real-UI CDP repro is CLEAN (transport sends full history, both turns persist). Request-shape log added to /api/chat (roles/ids/trigger, no content) - deploys with the batch; next occurrence pins it. Suspects: second window/device on same thread, or client retry after long tool-turns."
+      "notes": "ROOT-CAUSED + FIXED + DEPLOYED 2026-07-07. Diagnostic log caught it: client re-sent trigger=submit-message with the conversation ending in a tool-complete assistant message (no new user turn). Cause: use-trading-chat-runtime.ts sendAutomaticallyWhen included lastAssistantMessageIsCompleteWithToolCalls - correct for a CLIENT-side tool loop, but the Phase 1b Python brain runs the whole loop server-side and returns tools+text in one message, so the client auto-re-ran the turn (stormed until a no-tool turn). Fix: keep only lastAssistantMessageIsCompleteWithApprovalResponses (approval resume still works). DB was never duplicated (idempotent persist) - only the live UI storm. Diagnostic log can be removed in a cleanup pass."
     },
     {
       "id": "fill-time-on-orders",
