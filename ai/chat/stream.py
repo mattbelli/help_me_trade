@@ -82,3 +82,58 @@ class UIMessageStream:
                 "dynamic": True,
             }
         )
+
+    # --- Static-tool chunks (the one Python loop) ---------------------------
+    # These mirror the AI-SDK `streamText().toUIMessageStreamResponse()` wire
+    # chunks for *statically* declared tools (the web chat's tools are static —
+    # `frontend/lib/chat-tools.ts` — so the client builds `tool-<name>` parts and
+    # `makeAssistantToolUI({toolName})` matches them). Therefore NO `dynamic`
+    # flag (that would produce `dynamic-tool` parts the custom cards don't match).
+    # Field sets are exact: the client validates each chunk with `z.strictObject`,
+    # so an extra key rejects the whole stream (AI SDK v6, verified in node_modules).
+
+    def tool_input_start(self, *, tool_call_id: str, tool_name: str) -> str:
+        return self._event(
+            {
+                "type": "tool-input-start",
+                "toolCallId": tool_call_id,
+                "toolName": tool_name,
+            }
+        )
+
+    def tool_input_available(
+        self, *, tool_call_id: str, tool_name: str, tool_input: dict[str, Any]
+    ) -> str:
+        return self._event(
+            {
+                "type": "tool-input-available",
+                "toolCallId": tool_call_id,
+                "toolName": tool_name,
+                "input": tool_input,
+            }
+        )
+
+    def tool_approval_request(self, *, approval_id: str, tool_call_id: str) -> str:
+        return self._event(
+            {
+                "type": "tool-approval-request",
+                "approvalId": approval_id,
+                "toolCallId": tool_call_id,
+            }
+        )
+
+    def tool_output_available(self, *, tool_call_id: str, output: Any) -> str:
+        # UI chunks are JSON — `undefined` would drop; the SDK coerces to null.
+        return self._event(
+            {
+                "type": "tool-output-available",
+                "toolCallId": tool_call_id,
+                "output": output if output is not None else None,
+            }
+        )
+
+    def tool_output_denied(self, *, tool_call_id: str) -> str:
+        # Deliberately toolCallId-only — the SDK drops toolName on this chunk.
+        return self._event(
+            {"type": "tool-output-denied", "toolCallId": tool_call_id}
+        )

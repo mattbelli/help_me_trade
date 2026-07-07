@@ -20,10 +20,20 @@ import {
   fetchChatContext,
   fetchLlmRuntime,
   finalizeChatTurn,
-  proxyLegacyPythonChat,
+  proxyPythonChat,
 } from "@/lib/python-server";
 
 export const maxDuration = 120;
+
+/**
+ * Which chat brain serves this route. `python` (default) proxies the whole turn
+ * to the ONE Python loop (`POST /api/chat`) — native tools, approval HITL, and
+ * session persistence all live there. `ts` keeps the legacy in-route AI-SDK
+ * `streamText` loop below (kept intact for a one-line revert; it will be removed
+ * once the Python path is proven). Non-native providers proxy to Python in both
+ * modes (the Python loop degrades to a no-tools completion for them).
+ */
+const CHAT_BRAIN = (process.env.CHAT_BRAIN ?? "python").toLowerCase();
 
 /** Thinking/reasoning models on these providers reject forced tool_choice. */
 const NO_FORCED_TOOL_CHOICE = new Set(["deepseek"]);
@@ -113,6 +123,14 @@ export async function POST(req: Request) {
     return Response.json({ error: "messages must be a list" }, { status: 400 });
   }
 
+  // Default path: the ONE Python brain. Forward the full body (messages,
+  // session, mode, model, enabledTools, autoInjectMemories) and stream its
+  // UIMessageStream bytes straight through — no TS loop, no context/finalize
+  // round-trips (Python owns all of it).
+  if (CHAT_BRAIN === "python") {
+    return proxyPythonChat(body);
+  }
+
   const sessionId =
     body.sessionId ?? body.session_id ?? body.id ?? null;
   const mode = normalizeMode(body.mode);
@@ -147,12 +165,10 @@ export async function POST(req: Request) {
   const isNative =
     runtime.openai_compatible || runtime.provider === "anthropic";
   if (!isNative) {
-    return proxyLegacyPythonChat({
-      messages,
-      sessionId,
-      mode,
-      model,
-    });
+    // Non-native provider (e.g. ollama): the TS AI-SDK loop can't tool-call it,
+    // so hand the whole turn to the Python loop, which degrades to a no-tools
+    // completion. Forward the full body for parity (enabledTools etc.).
+    return proxyPythonChat(body);
   }
 
   const userText = lastUserText(messages);

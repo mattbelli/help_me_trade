@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ai.chat.agent import ChatRunResult, finalize_chat_turn, run_chat_stream
+from ai.chat.agent import ChatRunResult, finalize_chat_turn
 from ai.chat.brain import (
     build_turn_context,
     finalize_turn,
@@ -26,6 +26,7 @@ from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.messages import last_user_text
 from ai.chat.mobile_agent import run_mobile_chat_stream
 from ai.chat.mobile_stream import sse
+from ai.chat.web_agent import run_web_chat_stream
 from ai.llm.config import get_default_llm
 from ai.llm.factory import get_llm, get_llm_provider_name
 from ai.llm.models import list_chat_models, list_default_model_options
@@ -502,43 +503,63 @@ async def api_chat_stream(body: dict = Body(...)):
 
 @router.post("/chat")
 async def api_chat(body: dict = Body(...)):
+    """The one Python chat brain, encoded as an AI-SDK UIMessageStream.
+
+    This is what the Next.js `/api/chat` route proxies to under `CHAT_BRAIN=python`
+    (the default). It runs native tool-calling, streams `tool-<name>` parts, and
+    reproduces the Approve/Reject HITL handshake for `propose_order`/`create_rule`
+    — replacing BOTH the old in-route TS `streamText` loop and the retired
+    no-tools legacy path (which advertised tools it could never run).
+    """
     messages = body.get("messages")
     if not isinstance(messages, list):
         return JSONResponse({"error": "messages must be a list"}, status_code=400)
 
-    session_id = body.get("sessionId") or body.get("session_id")
-    mode = str(body.get("mode", "quick")).strip().lower()
+    # Match the retired TS route's resolution: the AssistantChatTransport carries
+    # the session id as `id` (saved-mode remoteId); keep that fallback so thread
+    # persistence lands on the same chat_sessions row as before.
+    session_id = (
+        body.get("sessionId") or body.get("session_id") or body.get("id")
+    )
+    mode = normalize_chat_mode(str(body.get("mode", "temporary")))
     model = body.get("model")
     chat_model = str(model).strip() if model else None
-    if mode not in CHAT_MODES:
-        return JSONResponse(
-            {"error": f"mode must be one of: {', '.join(sorted(CHAT_MODES))}"},
-            status_code=400,
-        )
     if session_id is not None:
         session_id = str(session_id).strip()
-    if mode in ("standard", "private", "saved") and not session_id:
+    if mode == "saved" and not session_id:
         return JSONResponse(
             {"error": "sessionId is required for saved chats"},
             status_code=400,
         )
+
+    enabled_raw = body.get("enabledTools") or body.get("enabled_tools")
+    enabled_tools = (
+        {str(t) for t in enabled_raw} if isinstance(enabled_raw, list) else None
+    )
+    inject_memories = bool(
+        body.get("autoInjectMemories") or body.get("auto_inject_memories")
+    )
 
     run = ChatRunResult()
     user_text = last_user_text(messages)
 
     async def event_generator():
         try:
-            for chunk in run_chat_stream(
+            async for chunk in run_web_chat_stream(
                 messages,
                 session_id=session_id,
                 mode=mode,
                 model=chat_model,
+                enabled_tools=enabled_tools,
+                inject_memories=inject_memories,
                 result=run,
             ):
                 yield chunk
                 await asyncio.sleep(0)
+        except Exception:
+            logging.getLogger(__name__).exception("web chat stream failed")
         finally:
-            if user_text and run.assistant_text:
+            if user_text and (run.assistant_text or run.assistant_message):
                 finalize_chat_turn(
                     messages=messages,
                     user_text=user_text,
@@ -547,6 +568,7 @@ async def api_chat(body: dict = Body(...)):
                     mode=mode,
                     model=chat_model,
                     run=run,
+                    assistant_message=run.assistant_message,
                     extract=should_learn_from_turn(mode=mode),
                 )
 

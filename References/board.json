@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07T12:50:00Z",
+  "updated_at": "2026-07-07T13:10:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -10,13 +10,22 @@
   ],
   "cards": [
     {
+      "id": "chat-streaming-followup",
+      "title": "Restore live token streaming on the one-brain web chat (post-1b UX regression)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "1b ships with the final answer post-hoc chunked (complete_tools is non-streaming). Fix = streaming tool-call delta reassembly in ai/llm (the piece 1a consciously deferred) or stream() for the final no-tools round. Dispatch after the founder has felt the flip."
+    },
+    {
       "id": "phase1b-one-brain",
       "title": "Phase 1b: ONE Python chat brain (native tools) - web becomes a proxy, legacy /api/chat dies",
       "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "FOUNDER GO 2026-07-07. Brief ready (phase1b-one-brain.md): one loop on ai/llm/tool_loop + UIMessageStream SSE endpoint + web proxy behind CHAT_BRAIN env flag (one-line revert) + mobile switches + legacy route deleted. Adversarial review (borders the proposal path). Deploy timed OFF market hours with founder. Dispatches when the idea-grading round frees the writer slot."
+      "notes": "BUILT + REVIEWED 2026-07-07 (SAFE-WITH-NITS -> approval ledger added: server-side single-consume binding kills mutated/forged/replayed approvals - STRICTLY safer than the TS route). COMMITTED; DEPLOY HELD for after-close founder flip. Known trade-offs at flip: web loses live token streaming this cut (follow-up round); mobile internals swap deferred. CHAT_BRAIN=ts = one-line revert."
     },
     {
       "id": "schwab-streamer-outage-0707",
