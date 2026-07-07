@@ -10,6 +10,7 @@ from db.ai_tables import (
     delete_memory,
     get_memory,
     list_memories,
+    resolve_memory_proposal,
     update_memory,
 )
 
@@ -157,6 +158,14 @@ class MemoryService:
             except Exception as exc:
                 logger.warning("Mem0 update mirror failed (local saved): %s", exc)
         return record
+
+    def resolve_proposal(
+        self, memory_id: int, *, action: str
+    ) -> dict[str, Any] | None:
+        """Founder Accept/Keep-old on a pending supersede proposal (M-1). The
+        accept path IS the founder Confirm gesture, so it legally mints
+        user_confirmed inside the atomic DB transition."""
+        return resolve_memory_proposal(memory_id, action=action)
 
     def delete(self, memory_id: int) -> bool:
         deleted = delete_memory(memory_id)

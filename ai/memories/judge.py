@@ -149,6 +149,10 @@ def _apply(
     (or None for NOOP / dropped)."""
     by_id = {int(m["id"]): m for m in neighbors}
     is_explicit = cand.source == "user_explicit"
+    # Set only when a protected-target UPDATE/SUPERSEDE degrades to ADD: the new
+    # row is parked as a founder-review proposal against this protected row id
+    # (M-1). A hallucinated-target degradation leaves it None (no proposal).
+    proposed_supersedes_id: int | None = None
 
     action = str(decision.get("action", "")).strip().upper() if decision else ""
     if action not in _VALID_ACTIONS:
@@ -198,6 +202,11 @@ def _apply(
                 cand.source,
             )
             action = "ADD"
+            # Park the correction as a founder-review proposal so the widget can
+            # surface the contradiction (M-1) instead of silently holding a
+            # stale-confirmed / fresh-agent pair. Containment is unchanged — the
+            # protected row is never touched here.
+            proposed_supersedes_id = target_id
 
     record: dict[str, Any] | None = None
     if action == "ADD":
@@ -209,6 +218,7 @@ def _apply(
             authority=cand.authority,
             quote=cand.quote,
             symbols=cand.symbols,
+            proposed_supersedes_id=proposed_supersedes_id,
             valid_until=cand.valid_until,
             db_path=db_path,
         )

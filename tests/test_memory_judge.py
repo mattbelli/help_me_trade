@@ -258,6 +258,53 @@ def test_explicit_quote_cannot_rewrite_user_confirmed(tmp_path: Path) -> None:
     assert original["authority"] == "user_confirmed"
 
 
+def test_degraded_supersede_stamps_proposed_supersedes_id(tmp_path: Path) -> None:
+    """M-1: when the judge degrades an UPDATE/SUPERSEDE off a protected
+    (user_confirmed) row into an ADD, the fresh row is stamped with
+    ``proposed_supersedes_id`` = the protected row id, parking it as a
+    founder-review proposal. Containment is unchanged — the protected row stays
+    active and untouched."""
+    db = _db(tmp_path)
+    confirmed = ai_tables.create_memory(
+        memory_type="directive",
+        content="Cap any single name at 20% of portfolio",
+        authority="user_confirmed",
+        source="widget_confirm",
+        db_path=db,
+    )
+    llm = StubLLM([{"index": 0, "action": "SUPERSEDE", "target_id": confirmed["id"]}])
+    cand = Candidate(
+        memory_type="directive",
+        content="Cap any single name at 30% of portfolio",
+        source="chat_extract",
+        authority="agent_inferred",
+    )
+    stored = judge_and_store([cand], db_path=db, llm=llm)
+    assert len(stored) == 1
+    assert stored[0]["action"] == "ADD"
+    new_row = ai_tables.get_memory(stored[0]["id"], db_path=db)
+    assert new_row["proposed_supersedes_id"] == confirmed["id"]
+    assert new_row.get("supersedes_id") in (None, 0)
+    assert new_row["authority"] == "agent_inferred"
+    # Protected row untouched.
+    still = ai_tables.get_memory(confirmed["id"], db_path=db)
+    assert still["status"] == "active"
+    assert still["authority"] == "user_confirmed"
+
+
+def test_hallucinated_target_does_not_stamp_proposal(tmp_path: Path) -> None:
+    """A degradation caused by a missing/hallucinated target is a plain ADD —
+    it must NOT carry ``proposed_supersedes_id`` (there is no protected row to
+    review against)."""
+    db = _db(tmp_path)
+    llm = StubLLM([{"index": 0, "action": "SUPERSEDE", "target_id": 99999}])
+    cand = Candidate(memory_type="fact", content="Works a day job")
+    stored = judge_and_store([cand], db_path=db, llm=llm)
+    assert stored[0]["action"] == "ADD"
+    new_row = ai_tables.get_memory(stored[0]["id"], db_path=db)
+    assert "proposed_supersedes_id" not in new_row
+
+
 def test_user_explicit_never_noops(tmp_path: Path) -> None:
     db = _db(tmp_path)
     llm = StubLLM([{"index": 0, "action": "NOOP"}])

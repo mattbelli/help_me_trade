@@ -60,6 +60,33 @@ def test_turn_memory_context_fences_injection(monkeypatch) -> None:
     assert kept == {1, 2}
 
 
+def test_turn_memory_context_excludes_pending_proposal(monkeypatch) -> None:
+    """M-1: a row carrying ``proposed_supersedes_id`` is a founder-review
+    proposal under review — it is excluded from injection, while the OLD
+    protected row it targets keeps injecting as today."""
+    rows = [
+        {
+            "id": 10,
+            "content": "Cap any single name at 20%",
+            "authority": "user_confirmed",
+            "status": "active",
+        },
+        {
+            "id": 11,
+            "content": "Cap any single name at 30%",
+            "authority": "agent_inferred",
+            "status": "active",
+            "proposed_supersedes_id": 10,
+        },
+    ]
+    monkeypatch.setattr(
+        "ai.chat.context.retrieve_relevant_memories", lambda *a, **k: rows
+    )
+    out = turn_memory_context("concentration cap")
+    kept = {m["id"] for m in out}
+    assert kept == {10}
+
+
 def test_api_chat_context_passes_inject_journal(monkeypatch, mutation_client) -> None:
     captured: dict = {}
 

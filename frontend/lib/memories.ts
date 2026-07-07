@@ -37,6 +37,9 @@ export type MemoryRecord = {
   quote?: string;
   pinned?: boolean;
   supersedes_id?: number;
+  /** Pending founder-review proposal (M-1): id of the protected row this row
+   * proposes to replace. Set only while awaiting the founder's Accept/Keep-old. */
+  proposed_supersedes_id?: number;
   valid_until?: string;
   symbols?: string[];
   last_used_at?: string;
@@ -140,6 +143,31 @@ export function restoreMemory(id: number): Promise<MemoryRecord> {
 /** Archive a memory (soft delete — restorable from History). */
 export function archiveMemory(id: number): Promise<MemoryRecord> {
   return updateMemory(id, { status: "archived" });
+}
+
+/**
+ * Founder resolution of a pending supersede proposal (M-1 review lane).
+ * `accept` archives+supersedes the old protected row and promotes this proposal
+ * to user_confirmed (this call IS the founder Confirm gesture); `reject`
+ * ("keep old") archives the proposal and leaves the old row untouched.
+ */
+export async function resolveMemoryProposal(
+  id: number,
+  action: "accept" | "reject",
+): Promise<MemoryRecord> {
+  const res = await apiFetch(
+    `${API_BASE}/api/memories/${id}/resolve-proposal`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Failed to resolve proposal (${res.status})`);
+  }
+  return res.json() as Promise<MemoryRecord>;
 }
 
 export async function deleteMemory(id: number): Promise<void> {

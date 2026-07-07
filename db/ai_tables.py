@@ -97,6 +97,14 @@ def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             "ALTER TABLE memories ADD COLUMN symbols TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE memories ADD COLUMN embedding BLOB",
             "ALTER TABLE memories ADD COLUMN embedding_model TEXT",
+            # Founder-review supersede lane (M-1): when the judge degrades a
+            # tool/agent UPDATE/SUPERSEDE off a protected row into a fresh ADD,
+            # the new row is stamped with the protected row's id here so the
+            # widget can surface it as a pending correction for the founder to
+            # accept (promote + supersede) or reject (archive). Distinct from
+            # ``supersedes_id`` (an already-effected supersede); this is only a
+            # *proposal* awaiting the founder's tap.
+            "ALTER TABLE memories ADD COLUMN proposed_supersedes_id INTEGER",
         ):
             try:
                 conn.execute(ddl)
@@ -202,6 +210,11 @@ def _row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
         out["status"] = row["status"]
     if "supersedes_id" in keys and row["supersedes_id"] is not None:
         out["supersedes_id"] = int(row["supersedes_id"])
+    if (
+        "proposed_supersedes_id" in keys
+        and row["proposed_supersedes_id"] is not None
+    ):
+        out["proposed_supersedes_id"] = int(row["proposed_supersedes_id"])
     if "valid_until" in keys and row["valid_until"]:
         out["valid_until"] = row["valid_until"]
     if "source" in keys:
@@ -294,6 +307,7 @@ def create_memory(
     quote: str | None = None,
     symbols: list[str] | None = None,
     supersedes_id: int | None = None,
+    proposed_supersedes_id: int | None = None,
     valid_until: str | None = None,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -323,9 +337,10 @@ def create_memory(
             """
             INSERT INTO memories (
                 memory_type, content, metadata_json, created_at, updated_at,
-                source, authority, quote, symbols, supersedes_id, valid_until
+                source, authority, quote, symbols, supersedes_id,
+                proposed_supersedes_id, valid_until
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 memory_type,
@@ -338,6 +353,7 @@ def create_memory(
                 quote,
                 symbols_json,
                 supersedes_id,
+                proposed_supersedes_id,
                 valid_until,
             ),
         )
@@ -519,6 +535,76 @@ def delete_memory(memory_id: int, db_path: Path = DEFAULT_DB_PATH) -> bool:
         cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+def resolve_memory_proposal(
+    memory_id: int,
+    *,
+    action: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Founder resolution of a pending supersede proposal (M-1 review lane).
+
+    ``memory_id`` must be a row carrying ``proposed_supersedes_id`` (a fresh ADD
+    the judge parked because it tried to rewrite a protected founder row). Both
+    paths run in a single transaction:
+
+    - ``accept``: this IS the founder's Confirm gesture, so the legal
+      agent_inferred → user_confirmed transition is minted here. The proposed
+      row is promoted to ``user_confirmed``, links the old row via
+      ``supersedes_id``, and clears its ``proposed_supersedes_id``; the targeted
+      old row is retired (``status='superseded'``).
+    - ``reject`` ("keep old"): the proposed row is archived and its
+      ``proposed_supersedes_id`` cleared; the old row is left untouched.
+
+    Returns the updated proposed row, or ``None`` if it does not exist / carries
+    no pending proposal.
+    """
+    if action not in ("accept", "reject"):
+        raise ValueError("action must be 'accept' or 'reject'")
+    init_ai_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+        if not row or row["proposed_supersedes_id"] is None:
+            return None
+        old_id = int(row["proposed_supersedes_id"])
+        if action == "accept":
+            conn.execute(
+                """
+                UPDATE memories
+                SET authority = 'user_confirmed',
+                    status = 'active',
+                    supersedes_id = ?,
+                    proposed_supersedes_id = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (old_id, now, memory_id),
+            )
+            conn.execute(
+                "UPDATE memories SET status = 'superseded', updated_at = ? "
+                "WHERE id = ?",
+                (now, old_id),
+            )
+        else:  # reject — archive the proposal, leave the old row alone.
+            conn.execute(
+                """
+                UPDATE memories
+                SET status = 'archived',
+                    proposed_supersedes_id = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, memory_id),
+            )
+        updated = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+        conn.commit()
+    return _row_to_memory(updated)
 
 
 def create_research_run(

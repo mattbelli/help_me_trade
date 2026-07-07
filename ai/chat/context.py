@@ -43,12 +43,19 @@ def turn_memory_context(user_text: str, *, limit: int = 5) -> list[dict[str, Any
     model's system prompt: active rows with a recognised authority only. The retriever
     already scopes to status='active'; this re-asserts it (deny-by-default) so an
     unexpected row can never reach the propose-order-capable prompt on either the web
-    or mobile path."""
+    or mobile path.
+
+    A row carrying ``proposed_supersedes_id`` is a founder-review proposal (M-1) —
+    a correction the judge parked against a protected row that is still awaiting
+    the founder's Accept/Keep-old tap. It is under review, not established fact,
+    so it is excluded here; the OLD protected row it targets keeps injecting as
+    today until the founder resolves the proposal."""
     return [
         m
         for m in retrieve_relevant_memories(user_text, limit=limit)
         if m.get("status", "active") == "active"
         and m.get("authority") in _INJECTABLE_AUTHORITIES
+        and m.get("proposed_supersedes_id") is None
     ]
 
 

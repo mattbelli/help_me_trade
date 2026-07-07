@@ -734,6 +734,29 @@ def api_delete_memory(memory_id: int):
     return {"ok": True}
 
 
+@router.post("/memories/{memory_id}/resolve-proposal")
+def api_resolve_memory_proposal(memory_id: int, body: dict = Body(...)):
+    """Founder resolution of a pending supersede proposal (M-1 review lane).
+
+    ``action='accept'`` retires the targeted protected row and promotes this
+    proposal to ``user_confirmed`` (this endpoint IS the founder Confirm gesture,
+    so the mint is legal); ``action='reject'`` archives the proposal and leaves
+    the protected row untouched. Mutating route — the security middleware already
+    gates it behind the founder API token, so a non-founder request 401s before
+    reaching here."""
+    action = str(body.get("action", "")).strip().lower()
+    if action not in ("accept", "reject"):
+        return JSONResponse(
+            {"error": "action must be 'accept' or 'reject'"}, status_code=400
+        )
+    record = get_memory_service().resolve_proposal(memory_id, action=action)
+    if record is None:
+        return JSONResponse(
+            {"error": "no pending proposal for this memory"}, status_code=404
+        )
+    return record
+
+
 @router.post("/memory/extract")
 def api_memory_extract(body: dict = Body(...)):
     """Extract durable memories from a finished chat turn; return saved records.

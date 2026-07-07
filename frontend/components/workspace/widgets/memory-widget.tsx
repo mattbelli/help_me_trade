@@ -14,6 +14,7 @@ import {
   deleteMemory,
   listMemories,
   MEMORY_TYPE_LABELS,
+  resolveMemoryProposal,
   restoreMemory,
   setMemoryPinned,
   type MemoryRecord,
@@ -211,6 +212,34 @@ export function MemoryWidget({}: WidgetProps) {
     [patchLocal],
   );
 
+  const handleResolveProposal = useCallback(
+    async (memory: MemoryRecord, action: "accept" | "reject") => {
+      const oldId = memory.proposed_supersedes_id;
+      try {
+        await resolveMemoryProposal(memory.id, action);
+        if (action === "accept") {
+          // Proposal promoted to founder-confirmed; the old row it replaced is
+          // retired (leaves the active view).
+          patchLocal(memory.id, {
+            authority: "user_confirmed",
+            proposed_supersedes_id: undefined,
+            supersedes_id: oldId,
+          });
+          if (oldId != null) removeLocal(oldId);
+        } else {
+          // Keep old: the proposal is archived (leaves the active view).
+          removeLocal(memory.id);
+        }
+        setError(null);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to resolve proposal",
+        );
+      }
+    },
+    [patchLocal, removeLocal],
+  );
+
   const toggleExpanded = useCallback((id: number) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -221,6 +250,11 @@ export function MemoryWidget({}: WidgetProps) {
   }, []);
 
   const visibleMemories = useMemo(() => sortNewestFirst(memories), [memories]);
+  const byId = useMemo(() => {
+    const map = new Map<number, MemoryRecord>();
+    for (const m of memories) map.set(m.id, m);
+    return map;
+  }, [memories]);
   const history = statusView === "history";
 
   if (loading && memories.length === 0) {
@@ -297,6 +331,16 @@ export function MemoryWidget({}: WidgetProps) {
               const unconfirmed =
                 (memory.authority ?? "agent_inferred") === "agent_inferred";
               const inactive = (memory.status ?? "active") !== "active";
+              const proposal = !inactive && memory.proposed_supersedes_id != null;
+              const oldRow =
+                proposal && memory.proposed_supersedes_id != null
+                  ? byId.get(memory.proposed_supersedes_id)
+                  : undefined;
+              const oldPreview = oldRow
+                ? oldRow.content.length > 90
+                  ? `${oldRow.content.slice(0, 90)}…`
+                  : oldRow.content
+                : `memory #${memory.proposed_supersedes_id}`;
 
               return (
                 <li
@@ -385,6 +429,39 @@ export function MemoryWidget({}: WidgetProps) {
                         saved from: “{memory.quote}”
                       </p>
                     ) : null}
+
+                    {proposal ? (
+                      <div className="space-y-1 rounded border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-amber)_8%,transparent)] px-1.5 py-1">
+                        <p className="font-mono text-[length:var(--fs-micro)] leading-snug text-[var(--fg-dim)]">
+                          <span className="text-[var(--c-amber)]">
+                            proposes replacing:
+                          </span>{" "}
+                          {oldPreview}
+                        </p>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            className="rounded border border-[color-mix(in_srgb,var(--c-green)_45%,transparent)] px-1.5 py-0.5 font-mono text-[length:var(--fs-micro)] text-[var(--c-green)] hover:bg-[color-mix(in_srgb,var(--c-green)_12%,transparent)]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleResolveProposal(memory, "accept");
+                            }}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-[var(--border)] px-1.5 py-0.5 font-mono text-[length:var(--fs-micro)] text-[var(--fg-dim)] hover:bg-[var(--bg-hover)]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleResolveProposal(memory, "reject");
+                            }}
+                          >
+                            Keep old
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="mt-0.5 flex shrink-0 flex-col items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -401,7 +478,7 @@ export function MemoryWidget({}: WidgetProps) {
                       >
                         ↩
                       </button>
-                    ) : (
+                    ) : proposal ? null : (
                       <>
                         <button
                           type="button"

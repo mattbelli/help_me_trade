@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-08T09:35:00Z",
+  "updated_at": "2026-07-07T12:30:00Z",
   "lanes": [
     "inbox",
     "founder",
@@ -39,11 +39,11 @@
     {
       "id": "memory-founder-correction-lane",
       "title": "Founder chat-correction loses to his own stale confirmed rule (contradictory pair, both active)",
-      "lane": "founder",
+      "lane": "done",
       "type": "design",
       "priority": "high",
       "owner": "serv",
-      "notes": "Adversarial M-1 from the memory-fence round (safe direction, shipped as-is): you say 'update my cap rule to 25%' in chat -> containment stores it as a NEW agent-inferred row NEXT TO the old confirmed 20% rule; at injection the chips tell the model to trust the stale confirmed one. Proposed fix: a 'confirm this change to a confirmed rule?' review item in the memory widget (supersede-with-founder-review lane). Needs your call on the UX before we build - until then, correct confirmed rules via the widget, not chat."
+      "notes": "SHIPPED 2026-07-07 on founder go: judge stamps proposed_supersedes_id, widget Accept/Keep-old, atomic resolve endpoint (founder Confirm gesture), pending proposals excluded from injection. Correct confirmed rules in chat freely now - the widget will ask you to ratify."
     },
     {
       "id": "memory-fence-followups",
