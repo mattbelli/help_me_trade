@@ -16,9 +16,9 @@ export const CHART_TIMEFRAMES: ChartTimeframe[] = [
   { label: "15m", value: "15Min", days: 60, intraday: true },
   { label: "1H", value: "1Hour", days: 180, intraday: true },
   { label: "4H", value: "4Hour", days: 180, intraday: true },
-  { label: "1D", value: "1Day", days: 365, intraday: false },
-  { label: "1W", value: "1Week", days: 365, intraday: false },
-  { label: "1M", value: "1Month", days: 1825, intraday: false },
+  { label: "1D", value: "1Day", days: 1825, intraday: false },
+  { label: "1W", value: "1Week", days: 3650, intraday: false },
+  { label: "1M", value: "1Month", days: 3650, intraday: false },
 ];
 
 const ET = "America/New_York";

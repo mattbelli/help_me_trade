@@ -2750,7 +2750,7 @@ _BARS_SEEN_TTL = 30 * 60.0          # forget a symbol/spec 30 min after last req
 _BARS_PREWARM_REFRESH_LEAD = 25.0   # refetch when <25s of cache TTL remains (never go cold mid-use)
 _BARS_PREWARM_MAX_SYMBOLS = 40      # cap Schwab load for big watchlists
 _BARS_PREWARM_PACE = 0.25           # sleep between actual fetches (s)
-_BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {("1Day", 365)}  # the default chart view, warm from boot
+_BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {("1Day", 1825)}  # the default chart view, warm from boot
 
 
 @app.get("/api/bars")
