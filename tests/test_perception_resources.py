@@ -82,6 +82,20 @@ async def test_query_unknown_resource() -> None:
 
 
 @pytest.mark.asyncio
+async def test_query_resource_aliases_resolve(resources_db: Path) -> None:
+    # Weaker models (DeepSeek on mobile) guess natural names that differ from the
+    # registered keys — the tool guidance itself says "market regime"/"trades"/"alerts".
+    # Aliases must resolve, not return {"error":"unknown resource"} and show FAILED (the
+    # market_regime-fails-on-mobile-works-on-web bug).
+    for alias in ("market_regime", "regime", "trades", "alerts", "journal", "accounts"):
+        result = await query(alias, db_path=resources_db)
+        assert result.get("error") != "unknown resource", f"alias {alias!r} did not resolve"
+    # the market-regime family maps to the real "market" resource and reads cleanly
+    for alias in ("market_regime", "regime"):
+        assert (await query(alias, db_path=resources_db)).get("resource") == "market"
+
+
+@pytest.mark.asyncio
 async def test_query_strategies(
     resources_db: Path,
     monkeypatch: pytest.MonkeyPatch,

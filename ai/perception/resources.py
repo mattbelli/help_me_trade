@@ -680,6 +680,22 @@ def list_resources() -> dict[str, dict[str, Any]]:
     }
 
 
+# Natural-language synonyms the LLM guesses for resource keys (weaker models like
+# DeepSeek especially): the tool guidance says "market regime", "trades", "alerts", but
+# the registered keys are "market", "my_trades", "price_alerts". Without these, a
+# reasonable guess returns {"error": "unknown resource"} and the tool shows FAILED — the
+# "market_regime fails on mobile (works on web)" bug: the stronger web model recovers off
+# the returned `available` list, the weaker mobile model doesn't. Map guesses -> real key.
+_RESOURCE_ALIASES = {
+    "market_regime": "market",
+    "regime": "market",
+    "trades": "my_trades",
+    "alerts": "price_alerts",
+    "journal": "decision_journal",
+    "accounts": "schwab_accounts",
+}
+
+
 async def query(
     resource: str,
     filters: dict | None = None,
@@ -688,6 +704,7 @@ async def query(
 ) -> dict[str, Any]:
     """Dispatch a read-only query to a registered resource (fail-soft)."""
     key = resource.strip().lower()
+    key = _RESOURCE_ALIASES.get(key, key)
     if key not in RESOURCES:
         return {
             "error": "unknown resource",

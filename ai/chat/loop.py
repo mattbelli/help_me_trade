@@ -226,7 +226,11 @@ async def run_chat_loop(
     execute: ToolExecutor,
     approval_tools: frozenset[str] = APPROVAL_TOOLS,
     max_iterations: int = MAX_ITERATIONS,
-    max_tokens: int = 1200,
+    # 4000, not 1200: DeepSeek hit finish_reason=length mid-report at 1200 (report-style
+    # answers with tables / multi-tool synthesis exceed it) — truncated answers on BOTH
+    # web and mobile. Applies per model turn; tool-call turns are tiny, so the ceiling
+    # only bites the long final answer. Mobile passes 4000 explicitly too (belt).
+    max_tokens: int = 4000,
 ) -> AsyncIterator[LoopEvent]:
     """Drive one chat turn to a final text answer (or an approval pause).
 
