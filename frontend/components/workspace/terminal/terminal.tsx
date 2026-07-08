@@ -13,6 +13,7 @@ import { ChevronDown, Lock, LockOpen, Menu, Plus, X } from "lucide-react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import { useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
+import { useChatSettings } from "@/lib/chat-settings-context";
 import { PageSwitcher } from "@/components/workspace/page-switcher";
 import { TerminalHistorySidebar } from "./terminal-history-sidebar";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
@@ -128,6 +129,7 @@ export function Terminal() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = useState("");
+  const { settings } = useChatSettings();
   const [focused, setFocused] = useState(false);
   const [selIndex, setSelIndex] = useState(-1);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -945,6 +947,16 @@ export function Terminal() {
                 className="flex items-start gap-2 border-t border-[var(--border)] pt-2"
               >
                 {open ? promptRow : null}
+                {/* Active chat model — bottom-right of the command line (muted,
+                    truncates so a long provider/model key can't crowd the input). */}
+                {open ? (
+                  <span
+                    className="shrink-0 self-end max-w-[45%] truncate text-[length:var(--fs-micro)] leading-snug text-[var(--fg-faint)]"
+                    title={`Active chat model: ${settings.model || "default"}`}
+                  >
+                    {settings.model || "default"}
+                  </span>
+                ) : null}
               </form>
             </div>
 
