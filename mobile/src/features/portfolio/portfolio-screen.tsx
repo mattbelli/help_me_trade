@@ -11,7 +11,7 @@ import { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
-import { usePendingProposals, usePortfolioHistory, useSnapshot } from '@/api/queries';
+import { useDayPnl, usePendingProposals, usePortfolioHistory, useSnapshot } from '@/api/queries';
 import type { BrokerSnapshot, PortfolioRange, Position, Snapshot } from '@/api/types';
 import {
   Card,
@@ -21,7 +21,6 @@ import {
   Eyebrow,
   Money,
   PageHeading,
-  Pct,
   PressableScale,
   Row,
   Screen,
@@ -49,23 +48,23 @@ export function PortfolioScreen() {
   const [chartWidth, setChartWidth] = useState(0);
 
   const snapshot = useSnapshot();
-  const today = usePortfolioHistory('1D');
+  // Realized (net-cash, ET-day) day P&L — matches the web DAY tile and fixes the
+  // after-hours leak the equity-curve MTM carried. `all_paper` = this screen's scope.
+  const dayPnlQ = useDayPnl('all_paper');
   const curve = usePortfolioHistory(range);
   const pending = usePendingProposals();
   const pendingCount = pending.data?.proposals.length ?? 0;
 
   const { refreshing, onRefresh } = usePullRefresh(() =>
-    Promise.all([snapshot.refetch(), today.refetch(), curve.refetch()]),
+    Promise.all([snapshot.refetch(), dayPnlQ.refetch(), curve.refetch()]),
   );
 
   const summary = snapshot.data?.all_accounts_summary;
   const account = snapshot.data?.account;
   const value = summary?.portfolio_value ?? account?.portfolio_value ?? 0;
 
-  const todayPts = today.data?.points ?? [];
-  const todayLast = todayPts.length ? todayPts[todayPts.length - 1] : undefined;
-  const todayPl = todayLast?.profit_loss ?? 0;
-  const todayPct = todayLast?.profit_loss_pct ?? 0;
+  const dayPnl = dayPnlQ.data?.day_pnl ?? 0;
+  const unrealizedPl = summary?.unrealized_pl ?? 0;
 
   const curvePts = (curve.data?.points ?? []).map((p) => p.equity);
   const positions = useMemo(
@@ -114,11 +113,16 @@ export function PortfolioScreen() {
               ) : (
                 <>
                   <Text variant="display">{usd0(value)}</Text>
-                  <Row gap={spacing.sm}>
-                    <Delta value={todayPl} size="md" />
-                    <Pct value={todayPct} size="md" signed pnl />
+                  <Row gap={spacing.sm} align="center">
+                    <Delta value={dayPnl} size="md" />
                     <Text variant="callout" color="textFaint">
-                      today
+                      realized today
+                    </Text>
+                  </Row>
+                  <Row gap={spacing.sm} align="center">
+                    <Delta value={unrealizedPl} size="sm" />
+                    <Text variant="caption" color="textFaint">
+                      unrealized
                     </Text>
                   </Row>
                 </>

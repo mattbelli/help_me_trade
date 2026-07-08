@@ -10,6 +10,7 @@ import {
   listChatSessions,
   pinChatSession,
   getBars,
+  getDayPnl,
   getEarningsHistory,
   getHealth,
   getPendingProposals,
@@ -58,6 +59,18 @@ export function usePortfolioHistory(range: PortfolioRange) {
     queryFn: () => getPortfolioHistory(range),
     enabled,
     staleTime: 30_000,
+  });
+}
+
+export function useDayPnl(accountId: string) {
+  const { enabled } = useAuthenticated();
+
+  return useQuery({
+    queryKey: ['day-pnl', accountId],
+    queryFn: () => getDayPnl(accountId),
+    enabled,
+    refetchInterval: 6_000,
+    staleTime: 4_000,
   });
 }
 

@@ -73,6 +73,13 @@ export interface PortfolioHistory {
   points: PortfolioHistoryPoint[];
 }
 
+/** Realized (ET-day, net-cash) day P&L for a scope — matches the web toolbar DAY tile. */
+export interface DayPnl {
+  day_pnl: number;
+  has_activity: boolean;
+  scope_fallback: boolean;
+}
+
 export type PortfolioRange = '1D' | '3D' | '1W' | '1M' | '1Y' | 'ALL';
 
 export interface Bar {

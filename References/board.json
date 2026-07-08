@@ -1076,11 +1076,11 @@
     {
       "id": "mobile-day-pnl-endpoint",
       "title": "Mobile: switch Day P&L to /api/performance/day-pnl",
-      "lane": "next",
+      "lane": "done",
       "type": "fix",
       "priority": "med",
       "owner": "mac",
-      "notes": "Serv shipped GET /api/performance/day-pnl (net-cash, ET-day, fixes after-hours-leak). Mobile Portfolio still derives day P&L from /api/portfolio/history?range=1D last-point (portfolio-screen.tsx:52-68). Switch once serv confirms account_id semantics match. Flagged in MAC_REPLY_2026-07-08.md."
+      "notes": "DONE 2026-07-07 (commit pending). Switched Portfolio header to GET /api/performance/day-pnl?account_id=all_paper (realized net-cash, web-parity, fixes AH-leak); shows realized today + unrealized (total open). serv confirmed semantics in SERV_REPLY_2026-07-08.md. Follow-up: 'unrealized' is total-open not today's-change (needs serv day-open baseline); wire to account chip when Schwab/real reach mobile."
     }
   ]
 }

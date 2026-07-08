@@ -5,6 +5,7 @@ import type {
   Bar,
   ChatSession,
   ChatSessionDetail,
+  DayPnl,
   EarningsHistory,
   FeedNotification,
   HealthStatus,
@@ -35,6 +36,15 @@ export function getPortfolioHistory(
 ): Promise<PortfolioHistory> {
   return apiFetch<PortfolioHistory>(
     `/api/portfolio/history?range=${encodeURIComponent(range)}`,
+  );
+}
+
+// Realized (net-cash, ET-day) day P&L for a scope id (e.g. `all_paper`, `all_real`,
+// `schwab_<last4>`). Matches the web toolbar DAY tile; fixes the after-hours-leak the
+// portfolio-history equity curve carries.
+export function getDayPnl(accountId: string): Promise<DayPnl> {
+  return apiFetch<DayPnl>(
+    `/api/performance/day-pnl?account_id=${encodeURIComponent(accountId)}`,
   );
 }
 
