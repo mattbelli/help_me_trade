@@ -132,8 +132,11 @@ async def run_mobile_chat_stream(
 
     # approval_tools=frozenset(): route approval tools to _execute (where they are
     # diverted) rather than pausing on them — mobile has no in-chat HITL card.
+    # max_tokens: run_chat_loop defaults to 1200, which deepseek hits mid-sentence
+    # (finish_reason=length) on report-style answers with tables — the truncation the
+    # founder saw. 4000 fits a full markdown report; deepseek is cheap enough for it.
     async for event in run_chat_loop(
-        llm, convo, tools, execute=_execute, approval_tools=frozenset()
+        llm, convo, tools, execute=_execute, approval_tools=frozenset(), max_tokens=4000
     ):
         if isinstance(event, TextDelta):
             # Real token-live fragment (streaming providers) — forward verbatim.
