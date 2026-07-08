@@ -13,6 +13,7 @@
       "bundleIdentifier": "com.helpmetrade.app",
       "supportsTablet": false,
       "infoPlist": {
+        "CFBundleDisplayName": "HMT",
         "NSAppTransportSecurity": {
           "NSExceptionDomains": {
             "ts.net": {
