@@ -246,7 +246,7 @@ function RowBody({
         jiggle,
       ]}
     >
-      <PressableScale onPress={onPress} onLongPress={onLongPress} delayLongPress={250}>
+      <PressableScale onPress={onPress} onLongPress={onLongPress} delayLongPress={250} unstable_pressDelay={70}>
         <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
           {editing ? (
             <Pressable onPress={onDelete} hitSlop={12} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: PAD_L, alignItems: 'center', justifyContent: 'center', zIndex: 4 }}>
@@ -377,7 +377,7 @@ function ReorderableRow({
 function WatchlistCard({ symbol, quote, loading, onPress }: { symbol: string; quote?: WatchlistQuote; loading?: boolean; onPress: () => void }) {
   const colors = useColors();
   return (
-    <PressableScale onPress={onPress} style={{ flex: 1 }}>
+    <PressableScale onPress={onPress} unstable_pressDelay={70} style={{ flex: 1 }}>
       <Stack gap={4} style={{ flex: 1, paddingVertical: spacing.sm + 1, paddingHorizontal: spacing.xs, borderBottomWidth: hairline, borderBottomColor: colors.border }}>
         <Row justify="space-between" align="center" gap={spacing.xs}>
           <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{symbol}</Text>
