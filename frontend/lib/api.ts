@@ -127,6 +127,13 @@ export type BrokerSnapshot = {
   money_type?: "paper" | "real";
 };
 
+export type AlpacaDataFeedInfo = {
+  configured: "auto" | "sip" | "iex";
+  tier: "paid" | "free";
+  feed: "sip" | "iex";
+  overnight_feed: "boats" | "overnight";
+};
+
 export type BrokerInfo = {
   broker: string;
   primary_broker?: string;
@@ -135,6 +142,7 @@ export type BrokerInfo = {
     {
       enabled: boolean;
       configured: boolean;
+      data_feed?: AlpacaDataFeedInfo;
       auth?: {
         authenticated: boolean;
         message: string;
@@ -149,8 +157,18 @@ export type BrokerInfo = {
   };
 };
 
-export async function fetchBroker(): Promise<BrokerInfo> {
-  const res = await apiFetch(`${API_BASE}/api/broker`, { cache: "no-store" });
+export async function fetchBroker(options?: {
+  recheckFeed?: boolean;
+}): Promise<BrokerInfo> {
+  const params = new URLSearchParams();
+  if (options?.recheckFeed) {
+    params.set("recheck_feed", "1");
+  }
+  const query = params.toString();
+  const url = query
+    ? `${API_BASE}/api/broker?${query}`
+    : `${API_BASE}/api/broker`;
+  const res = await apiFetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }

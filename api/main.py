@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException, Request, WebSocket
+from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -49,7 +49,7 @@ from api.strategy_routes import router as strategy_router
 from api.ticker_routes import router as ticker_router
 from api.trade_routes import router as trade_router
 from brokers.alpaca import AlpacaAdapter, StockBar
-from brokers.alpaca_tier import data_tier
+from brokers.alpaca_tier import clear_alpaca_tier_cache, data_tier, effective_alpaca_feed
 from brokers.errors import BrokerError
 from brokers.factory import (
     aclose_broker_cache,
@@ -67,6 +67,7 @@ from brokers.schwab_market_stream import SchwabMarketStreamHub
 from config.settings import (
     SCHEDULABLE_REPORT_KINDS,
     add_watchlist_symbol,
+    alpaca_config,
     apply_settings_patch,
     broker_is_configured,
     create_watchlist,
@@ -1603,8 +1604,40 @@ def api_alerts_recent() -> dict[str, list[dict]]:
     return {"alerts": market_hub.recent_alerts()}
 
 
+def _alpaca_data_feed_block(*, recheck: bool = False) -> dict | None:
+    """Fail-soft Alpaca SIP/IEX tier snapshot for /api/broker."""
+    if not broker_is_configured("alpaca"):
+        return None
+    if recheck:
+        clear_alpaca_tier_cache()
+    adapter = None
+    for getter in (get_market_data_provider, get_broker):
+        try:
+            adapter = getter("alpaca")
+            break
+        except Exception:
+            continue
+    if adapter is None:
+        return None
+    try:
+        configured = alpaca_config()["data_feed"]
+        tier = data_tier(adapter)
+        get_data = getattr(adapter, "_get_data", None)
+        probe = get_data if configured == "auto" else None
+        feed = effective_alpaca_feed(configured_feed=configured, get_data=probe)
+        return {
+            "configured": configured,
+            "tier": tier,
+            "feed": feed,
+            "overnight_feed": "boats" if tier == "paid" else "overnight",
+        }
+    except Exception as exc:
+        logger.warning("[broker] alpaca data_feed block failed: %s", exc)
+        return None
+
+
 @app.get("/api/broker")
-def api_broker():
+def api_broker(recheck_feed: bool = Query(False)):
     settings = load_settings()
     primary = primary_broker()
     brokers_payload: dict = {}
@@ -1615,6 +1648,10 @@ def api_broker():
             "enabled": bool(cfg.get("enabled")),
             "configured": broker_is_configured(name),
         }
+        if name == "alpaca":
+            data_feed = _alpaca_data_feed_block(recheck=recheck_feed)
+            if data_feed is not None:
+                entry["data_feed"] = data_feed
         if name == "schwab":
             from brokers.schwab_auth import auth_status
 

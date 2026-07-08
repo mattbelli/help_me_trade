@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, MessageSquareIcon } from "lucide-react";
+import { Eye, EyeOff, MessageSquareIcon, RefreshCw } from "lucide-react";
 
 import { PagesMenu } from "@/components/layout/pages-menu";
 import { AccountSelector } from "@/components/workspace/account-selector";
@@ -223,6 +223,7 @@ export function WorkspaceToolbar() {
   const [brokerDetails, setBrokerDetails] = useState<BrokerInfo | null>(null);
   const [paperMode, setPaperMode] = useState<boolean | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [feedRechecking, setFeedRechecking] = useState(false);
 
   const broker =
     snapshot?.primary_broker ??
@@ -277,6 +278,21 @@ export function WorkspaceToolbar() {
   const primary =
     details?.primary_broker ?? details?.broker ?? broker;
   const auth = brokerAuth(details, primary);
+  const alpacaDataFeed = details?.brokers?.alpaca?.data_feed;
+
+  const recheckAlpacaFeed = () => {
+    setFeedRechecking(true);
+    fetchBroker({ recheckFeed: true })
+      .then((info) => {
+        setBrokerDetails(info);
+      })
+      .catch(() => {
+        /* keep prior details on failure */
+      })
+      .finally(() => {
+        setFeedRechecking(false);
+      });
+  };
 
   return (
     <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[length:var(--fs-title)]">
@@ -313,6 +329,18 @@ export function WorkspaceToolbar() {
               )}
             />
             {broker}
+            {primary === "alpaca" && alpacaDataFeed ? (
+              <span
+                className={cn(
+                  "rounded border px-1 py-px text-[length:var(--fs-micro)] tracking-[0.06em] uppercase",
+                  alpacaDataFeed.feed === "sip"
+                    ? "border-[color-mix(in_srgb,var(--c-green-bg)_40%,transparent)] text-[var(--c-green)]"
+                    : "border-[var(--border)] text-[var(--fg-faint)]",
+                )}
+              >
+                {alpacaDataFeed.feed}
+              </span>
+            ) : null}
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
@@ -360,6 +388,59 @@ export function WorkspaceToolbar() {
                         )}
                       />
                       <span className="text-[var(--fg-dim)]">{auth.message}</span>
+                    </dd>
+                  </div>
+                ) : null}
+                {details?.brokers?.alpaca?.configured && alpacaDataFeed ? (
+                  <div>
+                    <dt className="text-[length:var(--fs-table)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
+                      Market data
+                    </dt>
+                    <dd className="mt-0.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p
+                            className={cn(
+                              alpacaDataFeed.feed === "sip"
+                                ? "text-[var(--c-green)]"
+                                : "text-[var(--fg-dim)]",
+                            )}
+                          >
+                            {alpacaDataFeed.feed === "sip"
+                              ? "SIP · real-time"
+                              : "IEX · free"}
+                            {alpacaDataFeed.configured === "auto" ? (
+                              <span className="ml-1.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                                auto-detected
+                              </span>
+                            ) : null}
+                          </p>
+                          {alpacaDataFeed.feed === "iex" ? (
+                            <p className="mt-0.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                              overnight delayed ~15m
+                            </p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          title="Recheck data feed tier"
+                          disabled={feedRechecking}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            recheckAlpacaFeed();
+                          }}
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--fg-dim)] disabled:opacity-50"
+                        >
+                          <RefreshCw
+                            className={cn(
+                              "size-3",
+                              feedRechecking && "animate-spin",
+                            )}
+                          />
+                          recheck
+                        </button>
+                      </div>
                     </dd>
                   </div>
                 ) : null}

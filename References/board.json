@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "alpaca-feed-indicator",
+      "title": "Toolbar indicator: Alpaca SIP (real-time) vs IEX (free) — code done, deploy pending",
+      "lane": "done",
+      "type": "feature",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "Founder ask: show which Alpaca data tier you're on under the broker dropdown so you can confirm free-plan vs SIP + verify a SIP upgrade took. Extends /api/broker alpaca entry with data_feed={configured,tier,feed,overnight_feed} from brokers/alpaca_tier.py; adds ?recheck_feed=1 (clears the 6h tier cache) so an upgrade shows immediately. Frontend: line in workspace-toolbar.tsx broker dropdown (SIP·real-time / IEX·free + 'overnight delayed ~15m'; 'auto-detected' tag when configured=auto) + a recheck button. Read-only observability, fail-soft. Brief: tools/composer-bridge/briefs/alpaca-feed-indicator.md | DONE+verified 2026-07-08: /api/broker alpaca entry now carries data_feed{configured,tier,feed,overnight_feed} (this box: sip/paid/sip/boats); ?recheck_feed=1 clears the 6h cache. Toolbar: green SIP tag on the broker trigger + 'Market data: SIP·real-time / IEX·free' dropdown line (auto-detected tag, 'overnight delayed ~15m' on IEX) + recheck button. 15 tests + ruff + typecheck green. Hand-fixed the SIP text token --c-green-bg->--c-green (fg vs bg)."
+    },
+    {
       "id": "chart-history-depth",
       "title": "Chart history depth: daily/weekly/monthly back ~5-10y (was ~1y) — code done, frontend deploy pending",
       "lane": "done",
