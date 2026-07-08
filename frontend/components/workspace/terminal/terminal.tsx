@@ -14,6 +14,7 @@ import { useAui, useAuiState } from "@assistant-ui/react";
 import { useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useChatSettings } from "@/lib/chat-settings-context";
+import { fetchDefaultModelOptions } from "@/lib/ai-models";
 import { PageSwitcher } from "@/components/workspace/page-switcher";
 import { TerminalHistorySidebar } from "./terminal-history-sidebar";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
@@ -130,6 +131,14 @@ export function Terminal() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = useState("");
   const { settings } = useChatSettings();
+  // No explicit model selected → chat runs on the server default; resolve its real
+  // name (e.g. deepseek-v4-flash) so the indicator shows it, not the word "default".
+  const [defaultModel, setDefaultModel] = useState("");
+  useEffect(() => {
+    fetchDefaultModelOptions()
+      .then((d) => setDefaultModel(d.default_llm?.model ?? ""))
+      .catch(() => {});
+  }, []);
   const [focused, setFocused] = useState(false);
   const [selIndex, setSelIndex] = useState(-1);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -949,12 +958,12 @@ export function Terminal() {
                 {open ? promptRow : null}
                 {/* Active chat model — bottom-right of the command line (muted,
                     truncates so a long provider/model key can't crowd the input). */}
-                {open ? (
+                {open && (settings.model || defaultModel) ? (
                   <span
                     className="shrink-0 self-end max-w-[45%] truncate text-[length:var(--fs-micro)] leading-snug text-[var(--fg-faint)]"
-                    title={`Active chat model: ${settings.model || "default"}`}
+                    title={`Active chat model: ${settings.model || defaultModel}`}
                   >
-                    {settings.model || "default"}
+                    {settings.model || defaultModel}
                   </span>
                 ) : null}
               </form>
