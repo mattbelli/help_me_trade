@@ -49,6 +49,7 @@ from api.strategy_routes import router as strategy_router
 from api.ticker_routes import router as ticker_router
 from api.trade_routes import router as trade_router
 from brokers.alpaca import AlpacaAdapter, StockBar
+from brokers.alpaca_tier import data_tier
 from brokers.errors import BrokerError
 from brokers.factory import (
     aclose_broker_cache,
@@ -2090,6 +2091,7 @@ async def api_watchlist_market(symbols: str = ""):
             "market_session": session,
             "ext_price": ext_price_val,
             "ext_change_pct": ext_change_val,
+            "overnight_delayed": bool(eq.get("overnight_delayed")),
             "pe": eq.get("pe_ratio"),
             "eps": eq.get("eps"),
             "div_yield": eq.get("div_yield"),
@@ -2741,6 +2743,17 @@ def _bars_extended_default(timeframe: str) -> bool:
     """Extended-hours default for a timeframe: ON for intraday, OFF for daily+."""
     return timeframe not in _NON_INTRADAY_TIMEFRAMES
 
+
+def _overnight_delayed_flag() -> bool:
+    """Free-tier overnight data is ~15m delayed / indicative — surface for UI badge."""
+    if _market_session() != "overnight":
+        return False
+    try:
+        broker = get_broker("alpaca")
+    except BrokerError:
+        return False
+    return data_tier(broker) == "free"
+
 # Recency of chart-bar requests, used to keep the cache warm (prewarm loop below).
 # spec = (timeframe, days) the frontend actually requests — capturing it avoids
 # hardcoding the frontend's per-timeframe `days` here (they must match the cache key).
@@ -2834,6 +2847,8 @@ async def _get_bars_cached(
             for b in bars
         ],
     }
+    if ext and timeframe not in _NON_INTRADAY_TIMEFRAMES and _overnight_delayed_flag():
+        response["overnight_delayed"] = True
     _BARS_CACHE[cache_key] = (now + _BARS_CACHE_TTL.get(timeframe, 120.0), response)
     if len(_BARS_CACHE) > 256:
         for k in [k for k, (exp, _) in list(_BARS_CACHE.items()) if exp <= now]:

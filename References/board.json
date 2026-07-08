@@ -29,12 +29,12 @@
     },
     {
       "id": "overnight-24-5-boats",
-      "title": "True 24/5 overnight: equity quote + candles from Blue Ocean (boats), plan-aware",
-      "lane": "in_progress",
+      "title": "True 24/5 overnight: equity quote + candles from Blue Ocean (boats) — code done, deploy pending",
+      "lane": "done",
       "type": "feature",
       "priority": "medium",
       "owner": "serv",
-      "notes": "Depends on data_tier(). Overnight (8pm-4am) sip is empty; boats has full candles + real-time quote on paid. Verified: boats overnight window=73 5m bars (complement of sip, clean union); feed=overnight is snapshot-only (400 on bars). Quote feed=boats(paid)/overnight(free-indicative); candles always boats (free=~15m delayed). Union-merge boats o/n candles into the sip intraday series (fail-soft, ext+intraday only); free tier carries a delayed/indicative badge (honesty). Brief: tools/composer-bridge/briefs/overnight-24-5-boats.md"
+      "notes": "Depends on data_tier(). Overnight (8pm-4am) sip is empty; boats has full candles + real-time quote on paid. Verified: boats overnight window=73 5m bars (complement of sip, clean union); feed=overnight is snapshot-only (400 on bars). Quote feed=boats(paid)/overnight(free-indicative); candles always boats (free=~15m delayed). Union-merge boats o/n candles into the sip intraday series (fail-soft, ext+intraday only); free tier carries a delayed/indicative badge (honesty). Brief: tools/composer-bridge/briefs/overnight-24-5-boats.md | DONE+reviewed 2026-07-08: alpaca.py boats leg + union-merge (sip-wins-overlap, fail-soft, intraday+ext only) + aget_ext_quotes feed override; hybrid routes overnight quote paid->boats(fallback sip)/free->overnight+delayed; market_stream.py WS-url resolves auto (fix for #2's new default); api surfaces overnight_delayed (free-tier only); frontend chart merges overnight forming candle + '24h·dly' badge (reuses ext badge). 47 targeted tests + ruff + typecheck green. Founder(paid) = real-time boats, no badge. DEPLOY PENDING (backend restart + frontend rebuild); overnight ticks testable after 8pm ET."
     },
     {
       "id": "schwab-token-stale-durable-fix",

@@ -1255,14 +1255,13 @@ export function TvLightChart({
     // Which field drives the forming candle depends on the session (commit b41731b
     // froze the regular `price` outside RTH and routes stream ticks to `ext_price`):
     //   regular / unknown → livePrice drives the RTH candle (byte-identical to before)
-    //   pre / post        → ext_price drives the forming ext candle, but only when ext
-    //                       bars are actually shown (ETH on); ETH off = dashed line only
-    //   overnight / closed→ no candle merge at all (Schwab has no overnight candles)
+    //   pre / post / overnight → ext_price drives the forming ext candle when ETH on
+    //   closed            → no candle merge (weekend/holiday last print only)
     const sess = marketSession ?? "regular";
     let tick: number | undefined;
-    if (sess === "pre" || sess === "post") {
+    if (sess === "pre" || sess === "post" || sess === "overnight") {
       tick = showExt ? (extPrice ?? undefined) : undefined;
-    } else if (sess === "overnight" || sess === "closed") {
+    } else if (sess === "closed") {
       tick = undefined;
     } else {
       tick = livePrice ?? undefined;

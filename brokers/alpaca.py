@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 _MAX_BAR_PAGES = 50
 _BATCH_BARS_PATH = "/v2/stocks/bars"
+_NON_INTRADAY_TIMEFRAMES = frozenset({"1Day", "1Week", "1Month"})
+_OVERNIGHT_BARS_FEED = "boats"
 
 
 from brokers.alpaca_tier import data_tier, effective_alpaca_feed
@@ -598,6 +600,54 @@ class AlpacaAdapter:
             symbol, timeframe=timeframe, start=start, end=end
         )
 
+    @staticmethod
+    def _is_intraday_timeframe(timeframe: str) -> bool:
+        return timeframe not in _NON_INTRADAY_TIMEFRAMES
+
+    @staticmethod
+    def _merge_bars_by_time(*series: list[StockBar]) -> list[StockBar]:
+        """Union-merge bar series by timestamp (SIP first, boats fills overnight gaps)."""
+        by_time: dict[str, StockBar] = {}
+        for bars in series:
+            for bar in bars:
+                by_time.setdefault(bar.time, bar)
+        return sorted(by_time.values(), key=lambda b: b.time)
+
+    async def _aget_bars_with_feed(
+        self,
+        symbol: str,
+        *,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        feed: str,
+    ) -> list[StockBar]:
+        symbol = symbol.strip().upper()
+        if not symbol:
+            return []
+
+        params = {
+            "timeframe": timeframe,
+            "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "limit": 10000,
+            "feed": feed,
+            "sort": "asc",
+        }
+        try:
+            data = await self._aget_all_bar_pages(
+                f"/v2/stocks/{symbol}/bars", params
+            )
+            return self._parse_stock_bars(data.get("bars") or [])
+        except Exception:
+            logger.warning(
+                "Alpaca bars fetch failed for %s (feed=%s)",
+                symbol,
+                feed,
+                exc_info=True,
+            )
+            return []
+
     async def aget_stock_bars(
         self,
         symbol: str,
@@ -606,11 +656,14 @@ class AlpacaAdapter:
         days: int = 180,
         extended_hours: bool = False,
     ) -> list[StockBar]:
-        # Free IEX feed is regular-hours only; extended_hours is ignored.
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
         return await self.aget_stock_bars_range(
-            symbol, timeframe=timeframe, start=start, end=end
+            symbol,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            extended_hours=extended_hours,
         )
 
     def get_stock_bars_range(
@@ -644,24 +697,30 @@ class AlpacaAdapter:
         timeframe: str = "1Day",
         start: datetime,
         end: datetime,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
         symbol = symbol.strip().upper()
         if not symbol:
             raise AlpacaError("Symbol is required")
 
-        params = {
-            "timeframe": timeframe,
-            "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "limit": 10000,
-            "feed": self._data_feed,
-            "sort": "asc",
-        }
-
-        data = await self._aget_all_bar_pages(
-            f"/v2/stocks/{symbol}/bars", params
+        bars = await self._aget_bars_with_feed(
+            symbol,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            feed=self._data_feed,
         )
-        return self._parse_stock_bars(data.get("bars") or [])
+        if extended_hours and self._is_intraday_timeframe(timeframe):
+            boats = await self._aget_bars_with_feed(
+                symbol,
+                timeframe=timeframe,
+                start=start,
+                end=end,
+                feed=_OVERNIGHT_BARS_FEED,
+            )
+            if boats:
+                bars = self._merge_bars_by_time(bars, boats)
+        return bars
 
     _assets_cache: tuple[float, list[str]] | None = None
     _overnight_cache: tuple[float, set[str]] | None = None
@@ -901,12 +960,18 @@ class AlpacaAdapter:
 
         return {"ext_last": ext_last, "ext_change_pct": ext_change_pct}
 
-    async def aget_ext_quotes(self, symbols: list[str]) -> dict[str, dict]:
-        """SIP snapshot batch for extended-hours last price + % move.
+    async def aget_ext_quotes(
+        self, symbols: list[str], *, feed: str | None = None
+    ) -> dict[str, dict]:
+        """Snapshot batch for extended-hours last price + % move.
+
+        Default feed is the daytime SIP/IEX feed; callers may override (e.g.
+        ``boats`` / ``overnight`` during the 8pm–4am session).
 
         Returns {SYMBOL: {ext_last, ext_change_pct}}. Fail-soft: partial/empty on
         error, never raises — callers must not crash when Alpaca hiccups.
         """
+        resolved_feed = feed if feed is not None else self._data_feed
         cleaned: list[str] = []
         seen: set[str] = set()
         for raw in symbols:
@@ -923,7 +988,7 @@ class AlpacaAdapter:
             try:
                 data = await self._aget_data(
                     "/v2/stocks/snapshots",
-                    params={"symbols": ",".join(chunk), "feed": self._data_feed},
+                    params={"symbols": ",".join(chunk), "feed": resolved_feed},
                 )
             except Exception:
                 logger.warning(

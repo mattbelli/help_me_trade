@@ -28,6 +28,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from brokers.base import MarketDataProvider
+from brokers.market_clock import market_session
 from brokers.symbol_class import classify_symbol
 
 if TYPE_CHECKING:
@@ -48,6 +49,18 @@ _SCHWAB_SUPPLEMENT_KEYS = (
     "shares_outstanding",
     "last_earnings_date",
 )
+
+
+def _overnight_quote_feed(adapter: object) -> str:
+    from brokers.alpaca_tier import data_tier
+
+    return "boats" if data_tier(adapter) == "paid" else "overnight"
+
+
+def _overnight_delayed(adapter: object) -> bool:
+    from brokers.alpaca_tier import data_tier
+
+    return market_session() == "overnight" and data_tier(adapter) == "free"
 
 
 def _route(symbols: list[str]) -> tuple[list[str], list[str], list[str]]:
@@ -132,6 +145,7 @@ class HybridMarketData:
         timeframe: str = "1Day",
         start: datetime,
         end: datetime,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
         cls = classify_symbol(symbol)
         if cls in ("crypto", "option"):
@@ -141,7 +155,16 @@ class HybridMarketData:
                 cls,
             )
             return []
-        return await self._child_for(symbol).aget_stock_bars_range(
+        child = self._child_for(symbol)
+        if cls == "equity" and hasattr(child, "aget_stock_bars_range"):
+            return await child.aget_stock_bars_range(
+                symbol,
+                timeframe=timeframe,
+                start=start,
+                end=end,
+                extended_hours=extended_hours,
+            )
+        return await child.aget_stock_bars_range(
             symbol, timeframe=timeframe, start=start, end=end
         )
 
@@ -194,11 +217,13 @@ class HybridMarketData:
         return merged
 
     async def aget_quotes(self, symbols: list[str]) -> dict[str, dict]:
-        """Extended-hours quotes for equities (Alpaca SIP) + optional Schwab enrichments.
+        """Extended-hours quotes for equities (Alpaca) + optional Schwab enrichments.
 
-        Equity pre/post/overnight last price routes to Alpaca SIP snapshots so a Schwab
-        outage never blanks equity charts. Futures (and deferred crypto/option) carry no
-        ext enrichment and are dropped. Schwab-only fields (fundamentals, total_volume,
+        Equity pre/post/overnight last price routes to Alpaca snapshots so a Schwab
+        outage never blanks equity charts. During the overnight session (8pm–4am ET)
+        the quote feed is tier-aware: ``boats`` (paid, real-time) or ``overnight``
+        (free, indicative). Futures (and deferred crypto/option) carry no ext
+        enrichment and are dropped. Schwab-only fields (fundamentals, total_volume,
         regular_last) are fetched in a separate fail-soft leg — a Schwab failure must
         NOT break the Alpaca ext-price path.
         """
@@ -206,9 +231,17 @@ class HybridMarketData:
         if not equity_syms:
             return {}
 
+        session = market_session()
+        quote_feed: str | None = None
+        if session == "overnight":
+            quote_feed = _overnight_quote_feed(self.alpaca)
+        delayed = _overnight_delayed(self.alpaca)
+
         merged: dict[str, dict] = {}
         try:
-            ext = await self.alpaca.aget_ext_quotes(equity_syms)
+            ext = await self.alpaca.aget_ext_quotes(equity_syms, feed=quote_feed)
+            if session == "overnight" and quote_feed is not None and not ext:
+                ext = await self.alpaca.aget_ext_quotes(equity_syms)
             merged.update(ext)
         except Exception:
             logger.warning(
@@ -216,6 +249,11 @@ class HybridMarketData:
                 len(equity_syms),
                 exc_info=True,
             )
+
+        if delayed:
+            for sym in equity_syms:
+                bucket = merged.setdefault(sym, {})
+                bucket["overnight_delayed"] = True
 
         try:
             schwab_quotes = await self.schwab.aget_quotes(equity_syms)

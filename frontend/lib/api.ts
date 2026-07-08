@@ -218,6 +218,7 @@ export type BarsResponse = {
   symbol: string;
   timeframe: string;
   bars: StockBar[];
+  overnight_delayed?: boolean;
 };
 
 export async function fetchPortfolioHistory(
@@ -421,6 +422,7 @@ export type WatchlistQuote = {
   market_session?: "pre" | "regular" | "post" | "overnight" | "closed";
   ext_price?: number | null;
   ext_change_pct?: number | null;
+  overnight_delayed?: boolean;
   pe?: number | null;
   eps?: number | null;
   div_yield?: number | null;

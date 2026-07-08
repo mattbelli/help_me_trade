@@ -316,7 +316,16 @@ export function WatchlistPanel({
               const session = quote?.market_session;
               const extBadge =
                 session && session in EXT_SESSION_BADGE && quote?.ext_price != null
-                  ? EXT_SESSION_BADGE[session]
+                  ? {
+                      ...EXT_SESSION_BADGE[session],
+                      title: quote.overnight_delayed
+                        ? `${EXT_SESSION_BADGE[session].title} — delayed ~15 min`
+                        : EXT_SESSION_BADGE[session].title,
+                      label:
+                        session === "overnight" && quote.overnight_delayed
+                          ? "24h·dly"
+                          : EXT_SESSION_BADGE[session].label,
+                    }
                   : null;
               const displayPrice = extBadge
                 ? (quote?.ext_price ?? 0)

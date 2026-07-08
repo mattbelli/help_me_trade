@@ -26,6 +26,7 @@ import websockets
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from brokers.alpaca import AlpacaAdapter
+from brokers.alpaca_tier import effective_alpaca_feed
 from brokers.errors import BrokerError
 from brokers.factory import get_broker
 from config.settings import alpaca_config, broker_is_configured, normalize_alpaca_data_feed
@@ -34,10 +35,23 @@ logger = logging.getLogger(__name__)
 
 
 def alpaca_market_ws_url(feed: str | None = None) -> str:
-    resolved = normalize_alpaca_data_feed(
-        feed if feed is not None else alpaca_config().get("data_feed", "iex")
+    configured = normalize_alpaca_data_feed(
+        feed if feed is not None else alpaca_config().get("data_feed", "auto")
     )
-    return f"wss://stream.data.alpaca.markets/v2/{resolved}"
+    if configured == "auto":
+        get_data = None
+        if broker_is_configured("alpaca"):
+            try:
+                get_data = AlpacaAdapter.from_settings()._get_data
+            except BrokerError:
+                get_data = None
+        effective = effective_alpaca_feed(
+            configured_feed=configured,
+            get_data=get_data,
+        )
+    else:
+        effective = configured
+    return f"wss://stream.data.alpaca.markets/v2/{effective}"
 
 
 MAX_WS_SYMBOLS = 30

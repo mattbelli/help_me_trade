@@ -28,8 +28,8 @@ class _FakeChild:
         self.batch_calls.append(list(symbols))
         return {s: [f"{self.name}:{s}"] for s in symbols}
 
-    async def aget_ext_quotes(self, symbols):
-        self.ext_quote_calls.append(list(symbols))
+    async def aget_ext_quotes(self, symbols, *, feed=None):
+        self.ext_quote_calls.append((list(symbols), feed))
         return {
             s: {"ext_last": 100.0, "ext_change_pct": 1.5}
             for s in symbols
@@ -89,7 +89,7 @@ async def test_quotes_route_equities_to_alpaca_drop_futures() -> None:
     hybrid, alpaca, schwab = _hybrid()
     out = await hybrid.aget_quotes(["AAPL", "/ESU25", "SPY"])
     # Extended price from Alpaca SIP; Schwab only for supplemental fields.
-    assert alpaca.ext_quote_calls == [["AAPL", "SPY"]]
+    assert alpaca.ext_quote_calls == [(["AAPL", "SPY"], None)]
     assert schwab.quote_calls == [["AAPL", "SPY"]]
     assert alpaca.quote_calls == []
     assert set(out) == {"AAPL", "SPY"}
@@ -111,7 +111,7 @@ async def test_quotes_survive_schwab_outage() -> None:
     schwab.aget_quotes = _schwab_boom  # type: ignore[method-assign]
 
     out = await hybrid.aget_quotes(["AAPL", "MSFT"])
-    assert alpaca.ext_quote_calls == [["AAPL", "MSFT"]]
+    assert alpaca.ext_quote_calls == [(["AAPL", "MSFT"], None)]
     assert schwab.quote_calls == [["AAPL", "MSFT"]]
     assert out["AAPL"]["ext_last"] == 100.0
     assert out["AAPL"]["ext_change_pct"] == 1.5
@@ -215,3 +215,77 @@ def test_alpaca_parse_ext_quote_snapshot_post_market() -> None:
     assert parsed["ext_last"] == 195.5
     # Post-market move vs today's RTH close (194.0), not prev (190.0).
     assert parsed["ext_change_pct"] == round((195.5 - 194.0) / 194.0 * 100, 2)
+
+
+@pytest.mark.asyncio
+async def test_overnight_quotes_use_boats_feed_on_paid_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hybrid, alpaca, _schwab = _hybrid()
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "overnight"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_quote_feed", lambda _a: "boats"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_delayed", lambda _a: False
+    )
+
+    await hybrid.aget_quotes(["AAPL"])
+
+    assert alpaca.ext_quote_calls == [(["AAPL"], "boats")]
+
+
+@pytest.mark.asyncio
+async def test_overnight_quotes_use_overnight_feed_and_delayed_flag_on_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hybrid, alpaca, _schwab = _hybrid()
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "overnight"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_quote_feed",
+        lambda _a: "overnight",
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_delayed", lambda _a: True
+    )
+
+    out = await hybrid.aget_quotes(["AAPL"])
+
+    assert alpaca.ext_quote_calls == [(["AAPL"], "overnight")]
+    assert out["AAPL"]["overnight_delayed"] is True
+
+
+@pytest.mark.asyncio
+async def test_overnight_quotes_fallback_to_default_feed_when_overnight_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hybrid, alpaca, _schwab = _hybrid()
+
+    async def _empty_then_default(symbols, *, feed=None):
+        alpaca.ext_quote_calls.append((list(symbols), feed))
+        if feed == "boats":
+            return {}
+        return {s: {"ext_last": 99.0, "ext_change_pct": 0.5} for s in symbols}
+
+    alpaca.aget_ext_quotes = _empty_then_default  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "overnight"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_quote_feed", lambda _a: "boats"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_delayed", lambda _a: False
+    )
+
+    out = await hybrid.aget_quotes(["AAPL"])
+
+    assert alpaca.ext_quote_calls == [
+        (["AAPL"], "boats"),
+        (["AAPL"], None),
+    ]
+    assert out["AAPL"]["ext_last"] == 99.0
