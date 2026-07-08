@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "data" / "settings.json"
 SECRET_MASK = "********"
 VALID_ALPACA_DATA_FEEDS = frozenset({"iex", "sip"})
+VALID_ALPACA_CONFIGURED_DATA_FEEDS = frozenset({"iex", "sip", "auto"})
 
 SECRET_KEYS = frozenset(
     {
@@ -48,7 +49,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "api_secret_key": "",
             "api_base_url": "https://paper-api.alpaca.markets",
             "data_base_url": "https://data.alpaca.markets",
-            "data_feed": "iex",
+            "data_feed": "auto",
         },
         "schwab": {
             "enabled": False,
@@ -145,7 +146,7 @@ def _env_defaults() -> dict[str, Any]:
                 "data_base_url": os.environ.get(
                     "APCA_DATA_BASE_URL", "https://data.alpaca.markets"
                 ).strip(),
-                "data_feed": os.environ.get("APCA_DATA_FEED", "iex").strip(),
+                "data_feed": os.environ.get("APCA_DATA_FEED", "auto").strip(),
             },
             "schwab": {
                 "enabled": broker_env == "schwab",
@@ -720,8 +721,8 @@ def default_chart_layout(symbols: list[str]) -> list[dict]:
 
 
 def normalize_alpaca_data_feed(value: Any) -> str:
-    feed = str(value or "iex").strip().lower()
-    return feed if feed in VALID_ALPACA_DATA_FEEDS else "iex"
+    feed = str(value or "auto").strip().lower()
+    return feed if feed in VALID_ALPACA_CONFIGURED_DATA_FEEDS else "auto"
 
 
 def alpaca_config() -> dict[str, str]:

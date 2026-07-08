@@ -10,6 +10,33 @@
   ],
   "cards": [
     {
+      "id": "chart-history-depth",
+      "title": "Chart history depth: daily/weekly/monthly back ~5-10y (was ~1y) — code done, frontend deploy pending",
+      "lane": "done",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Dispatched to Composer 2026-07-08. Cap was purely the frontend chart-time.ts per-timeframe days (1D=365,1W=365,1M=1825); backend /api/bars already allows days<=3650 and Alpaca SIP has data to 2016 (verified: 2641 daily bars + native weekly to 2016-01-04 in one un-paginated call, free — we already pay SIP). Bump 1D->1825(5y), 1W->3650, 1M->3650 + sync the backend prewarm spec. Equity deep history = Alpaca native; futures weekly/monthly bounded by Schwab (out of scope). Brief: tools/composer-bridge/briefs/chart-history-depth.md | DONE+verified 2026-07-08: chart-time.ts 1D=1825/1W=3650/1M=3650 + backend prewarm synced. Live backend serves it: AAPL 1D=1253 bars to 2021, 1W=522 to 2016, 1M=120 to 2016. Frontend rebuild pending (batch w/ overnight badge)."
+    },
+    {
+      "id": "alpaca-data-tier-autodetect",
+      "title": "Alpaca data-tier auto-detect (free vs SIP) — code done + verified",
+      "lane": "done",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Foundation for multi-user + 24/5. Add data_feed=auto: probe feed=sip entitlement (200=paid->sip, 403=free->iex), cache w/ TTL, re-probe picks up an upgrade. Explicit sip/iex still wins (founder's box unchanged, no probe). Exposes data_tier() for the overnight brief. Degrade-not-false-downgrade on ambiguous errors. Brief: tools/composer-bridge/briefs/alpaca-data-tier-autodetect.md | DONE+verified 2026-07-08: new brokers/alpaca_tier.py; _data_feed is now a resolving property (explicit sip/iex = no probe, auto = cached SIP-entitlement probe w/ 6h TTL, degrade-not-false-downgrade). 33 targeted tests pass. Founder's explicit-sip box proven unchanged + ZERO probe calls. Nits (non-blocking): sync probe blocks event loop for auto-tier cold cache (never for sip box); VALID_ALPACA_DATA_FEEDS now unused. NOTE: Composer dispatch wedged 1h on the full pytest suite (repo full-suite hangs) — code was already done; killed + reviewed manually."
+    },
+    {
+      "id": "overnight-24-5-boats",
+      "title": "True 24/5 overnight: equity quote + candles from Blue Ocean (boats), plan-aware",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "serv",
+      "notes": "Depends on data_tier(). Overnight (8pm-4am) sip is empty; boats has full candles + real-time quote on paid. Verified: boats overnight window=73 5m bars (complement of sip, clean union); feed=overnight is snapshot-only (400 on bars). Quote feed=boats(paid)/overnight(free-indicative); candles always boats (free=~15m delayed). Union-merge boats o/n candles into the sip intraday series (fail-soft, ext+intraday only); free tier carries a delayed/indicative badge (honesty). Brief: tools/composer-bridge/briefs/overnight-24-5-boats.md"
+    },
+    {
       "id": "schwab-token-stale-durable-fix",
       "title": "Schwab token-stale ~weekly outage — durable fix (both legs) SHIPPED + DEPLOYED + verified live",
       "lane": "done",

@@ -25,6 +25,7 @@ _MAX_BAR_PAGES = 50
 _BATCH_BARS_PATH = "/v2/stocks/bars"
 
 
+from brokers.alpaca_tier import data_tier, effective_alpaca_feed
 from brokers.errors import BrokerError
 from config.settings import alpaca_config, normalize_alpaca_data_feed
 
@@ -72,7 +73,7 @@ class AlpacaAdapter:
         key_id: str,
         secret: str,
         data_base_url: str | None = None,
-        data_feed: str = "iex",
+        data_feed: str = "auto",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         if self._base_url.endswith("/v2"):
@@ -80,13 +81,28 @@ class AlpacaAdapter:
         self._data_base_url = (
             (data_base_url or "https://data.alpaca.markets").strip().rstrip("/")
         )
-        self._data_feed = normalize_alpaca_data_feed(data_feed)
+        self._configured_data_feed = normalize_alpaca_data_feed(data_feed)
         self._headers = {
             "APCA-API-KEY-ID": key_id,
             "APCA-API-SECRET-KEY": secret,
         }
         self._sync_client = httpx.Client(headers=self._headers, timeout=30.0)
         self._async_client: httpx.AsyncClient | None = None
+
+    @property
+    def _data_feed(self) -> str:
+        probe = self._get_data if self._configured_data_feed == "auto" else None
+        return effective_alpaca_feed(
+            configured_feed=self._configured_data_feed,
+            get_data=probe,
+        )
+
+    @property
+    def configured_data_feed(self) -> str:
+        return self._configured_data_feed
+
+    def alpaca_data_tier(self) -> str:
+        return data_tier(self)
 
     def _async_http(self) -> httpx.AsyncClient:
         if self._async_client is None or self._async_client.is_closed:
@@ -119,7 +135,7 @@ class AlpacaAdapter:
         secret = merged.get("api_secret_key", "").strip()
         base_url = merged.get("api_base_url", "").strip()
         data_base_url = merged.get("data_base_url", "").strip()
-        data_feed = normalize_alpaca_data_feed(merged.get("data_feed", "iex"))
+        data_feed = normalize_alpaca_data_feed(merged.get("data_feed", "auto"))
         missing = [
             name
             for name, val in [
