@@ -1,25 +1,65 @@
-"""Mobile copilot chat orchestrator — plan, execute tools, stream simple SSE events."""
+"""Mobile copilot chat orchestrator — the unified iterative brain, six-event SSE.
+
+Mobile now runs the SAME engine as web: ``ai.chat.loop.run_chat_loop`` drives a
+provider's native, iterative tool-calling (act -> observe -> act, up to
+``MAX_ITERATIONS`` rounds) so the copilot can see a tool result and decide the
+next call in the same turn — the thing the retired ``plan_tools`` one-shot
+planner could not do. A thin encoder here translates the loop's wire-agnostic
+events into the six mobile SSE events (``start`` / ``text-delta`` / ``tool-call``
+/ ``tool-result`` / ``proposal`` / ``error`` / ``done``) — the exact contract the
+RN client already parses (``References/MOBILE_CHAT_BRIEF.md``). Mobile must NOT
+emit web's AI-SDK ``UIMessageStream``; the RN parser only understands these six.
+
+Safety on this surface (unchanged from the pre-unification path, and mission-
+critical):
+- ``propose_order`` NEVER executes here. The loop's ``execute`` callback diverts
+  it to ``trading.proposals.create_phone_proposal`` (a PENDING-only phone
+  proposal for the biometric Approve/Reject flow) and the encoder emits a
+  ``proposal`` event. It never reaches the real ``execute_tool`` / the guarded
+  ``ExecutionService.submit`` chokepoint. This is the phone-approval unlock.
+- ``create_rule`` (and any other ``APPROVAL_TOOLS`` member) is REFUSED — mobile
+  has no in-chat approval step, so arming a live rule from here is blocked; the
+  model tells the user to arm it from the web cockpit.
+
+Because both diversions live in the ``execute`` callback, the loop is run with an
+empty ``approval_tools`` set: it routes approval tools to ``execute`` (where we
+intercept) instead of pausing on them (web's HITL card has no mobile equivalent).
+The "approval tools never hit a broker" invariant is upheld by this wrapper, not
+by the loop's pause — see the report's seam note.
+"""
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from ai.chat.agent import ChatRunResult, _build_final_messages
-from ai.chat.context import (
-    format_journal_context_block,
-    format_memory_context_block,
-    turn_journal_context,
-    turn_memory_context,
+from ai.chat.agent import ChatRunResult
+from ai.chat.loop import (
+    ApprovalRequest,
+    LoopError,
+    TextChunk,
+    TextDelta,
+    TextEnd,
+    ToolCallStarted,
+    ToolResult,
+    assemble_system_prompt,
+    build_tools,
+    run_chat_loop,
 )
 from ai.chat.messages import last_user_text, ui_messages_to_llm
-from ai.chat.tools import CHAT_SESSION_ID, execute_tool, plan_tools
+from ai.chat.tool_specs import APPROVAL_TOOLS
+from ai.chat.tools import CHAT_SESSION_ID, execute_tool
+from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 
 _EMPTY_GREETING = "Send a message to start chatting with your trading copilot."
 _TEXT_CHUNK_SIZE = 12
+_CREATE_RULE_REFUSAL = (
+    "Arming alerts/rules isn't available in mobile chat yet — "
+    "create it from the web cockpit (create_rule arms immediately and "
+    "has no mobile approval step)."
+)
 
 
 def _text_delta_events(text: str) -> list[dict[str, Any]]:
@@ -56,125 +96,112 @@ async def run_mobile_chat_stream(
         yield {"type": "done", "sessionId": session_id, "messageId": message_id}
         return
 
-    history = ui_messages_to_llm(messages[:-1] if messages else [])
-    # allow_propose_order=True: the planner may pick propose_order; this path intercepts it
-    # into a PENDING phone proposal (create_phone_proposal) and never routes it to execute_tool.
-    plan = await asyncio.to_thread(
-        plan_tools, user_text, model=model, allow_propose_order=True
+    assembled = assemble_system_prompt(
+        user_text, inject_memories=True, inject_journal=True
     )
-    tool_results: list[dict[str, Any]] = []
+    convo: list[LLMMessage] = [
+        LLMMessage(role="system", content=assembled.system),
+        *ui_messages_to_llm(messages),
+    ]
+    tools = build_tools()
+    llm = get_llm(model=model)
+    text_parts: list[str] = []
 
-    for index, (name, args) in enumerate(plan):
-        tool_call_id = f"t{index}"
+    async def _execute(name: str, args: dict[str, Any]) -> Any:
+        """Mobile tool executor: divert the approval tools, run the rest normally.
 
+        SAFETY-CRITICAL: propose_order becomes a PENDING phone proposal and every
+        other approval tool is refused, so the real ``execute_tool`` (and thus the
+        ``ExecutionService.submit`` chokepoint) is only ever reached for read/
+        non-approval tools on this surface.
+        """
         if name == "propose_order":
             from trading.proposals import create_phone_proposal
 
-            # PENDING only — never executes (no ExecutionService on this surface).
-            # Any failure (error dict, raise, or a row missing expected fields) is
-            # surfaced as a tool-result error so the stream still reaches its
-            # terminal `done` event instead of dying mid-flight.
-            try:
-                row = await create_phone_proposal(
-                    args, session_id=session_id, source="mobile_chat"
-                )
-                if not isinstance(row, dict) or row.get("error"):
-                    reason = row.get("error") if isinstance(row, dict) else None
-                    raise ValueError(reason or "proposal could not be created")
-                proposal_event = {
-                    "type": "proposal",
-                    "proposalId": row["id"],
-                    "summary": row.get("summary"),
-                    "symbol": row["symbol"],
-                    "side": row["side"],
-                    "qty": row["qty"],
-                }
-            except Exception as exc:
+            row = await create_phone_proposal(
+                args, session_id=session_id, source="mobile_chat"
+            )
+            if not isinstance(row, dict) or row.get("error") or not row.get("id"):
+                reason = row.get("error") if isinstance(row, dict) else None
+                return {"error": reason or "proposal could not be created"}
+            return row
+        if name in APPROVAL_TOOLS:
+            # create_rule et al. arm immediately and have no mobile approval step.
+            return {"error": _CREATE_RULE_REFUSAL}
+        return await execute_tool(name, args)
+
+    # approval_tools=frozenset(): route approval tools to _execute (where they are
+    # diverted) rather than pausing on them — mobile has no in-chat HITL card.
+    async for event in run_chat_loop(
+        llm, convo, tools, execute=_execute, approval_tools=frozenset()
+    ):
+        if isinstance(event, TextDelta):
+            # Real token-live fragment (streaming providers) — forward verbatim.
+            text_parts.append(event.text)
+            yield {"type": "text-delta", "delta": event.text}
+        elif isinstance(event, TextEnd):
+            pass  # mobile has no text-block framing to close
+        elif isinstance(event, TextChunk):
+            # Non-streaming final/interim answer — chunk it for an incremental feel.
+            text_parts.append(event.text)
+            for delta in _text_delta_events(event.text):
+                yield delta
+        elif isinstance(event, ToolCallStarted):
+            if event.tool_name in APPROVAL_TOOLS:
+                # propose_order -> proposal event, create_rule -> refusal: both
+                # surface on the ToolResult, so suppress the raw tool-call chip.
+                continue
+            yield {
+                "type": "tool-call",
+                "toolCallId": event.tool_call_id,
+                "name": event.tool_name,
+                "args": event.input,
+            }
+        elif isinstance(event, ToolResult):
+            if event.tool_name == "propose_order":
+                out = event.output if isinstance(event.output, dict) else {}
+                if event.ok and out.get("id"):
+                    yield {
+                        "type": "proposal",
+                        "proposalId": out["id"],
+                        "summary": out.get("summary"),
+                        "symbol": out.get("symbol"),
+                        "side": out.get("side"),
+                        "qty": out.get("qty"),
+                    }
+                else:  # proposal could not be created — surface a failed tool-result
+                    yield {
+                        "type": "tool-result",
+                        "toolCallId": event.tool_call_id,
+                        "name": event.tool_name,
+                        "ok": False,
+                    }
+            elif event.tool_name in APPROVAL_TOOLS:
+                # create_rule refused — always a failed tool-result.
                 yield {
                     "type": "tool-result",
-                    "toolCallId": tool_call_id,
-                    "name": name,
+                    "toolCallId": event.tool_call_id,
+                    "name": event.tool_name,
                     "ok": False,
                 }
-                tool_results.append({"tool": name, "error": str(exc)})
-                continue
-
-            yield proposal_event
-            tool_results.append(
-                {
-                    "tool": name,
-                    "status": "pending",
-                    "proposal_id": proposal_event["proposalId"],
-                    "summary": proposal_event["summary"],
+            else:
+                yield {
+                    "type": "tool-result",
+                    "toolCallId": event.tool_call_id,
+                    "name": event.tool_name,
+                    "ok": event.ok,
                 }
-            )
-            continue
-
-        if name == "create_rule":
-            # Alerts/rules arm IMMEDIATELY on create_rule, and mobile chat has no
-            # approval step (only propose_order has the phone-approval flow). Refuse
-            # here so mobile can never arm an unapproved live rule; the synthesis tells
-            # the user to arm it from the web cockpit instead. (Re-enable with a real
-            # mobile approval flow — see MAC_AGENT_HANDOFF / the create_rule follow-up.)
+        elif isinstance(event, ApprovalRequest):
+            # Unreachable with approval_tools=frozenset(); mapped defensively so a
+            # future config change can never silently drop the model's intent.
             yield {
                 "type": "tool-result",
-                "toolCallId": tool_call_id,
-                "name": name,
+                "toolCallId": event.tool_call_id,
+                "name": event.tool_name,
                 "ok": False,
             }
-            tool_results.append(
-                {
-                    "tool": name,
-                    "error": "Arming alerts/rules isn't available in mobile chat yet — "
-                    "create it from the web cockpit (create_rule arms immediately and "
-                    "has no mobile approval step).",
-                }
-            )
-            continue
+        elif isinstance(event, LoopError):
+            yield {"type": "error", "message": event.message}
 
-        yield {
-            "type": "tool-call",
-            "toolCallId": tool_call_id,
-            "name": name,
-            "args": args,
-        }
-        try:
-            tool_res = await execute_tool(name, args)
-        except Exception as exc:
-            tool_res = {"error": str(exc)}
-        yield {
-            "type": "tool-result",
-            "toolCallId": tool_call_id,
-            "name": name,
-            "ok": "error" not in (tool_res or {}),
-        }
-        tool_results.append({"tool": name, "result": tool_res})
-
-    extra_blocks: list[str] = []
-    try:
-        memories = await asyncio.to_thread(turn_memory_context, user_text)
-        extra_blocks.append(format_memory_context_block(memories))
-    except Exception:
-        pass
-    try:
-        journal = await asyncio.to_thread(turn_journal_context, user_text)
-        extra_blocks.append(format_journal_context_block(journal))
-    except Exception:
-        pass
-
-    final_messages = _build_final_messages(
-        history,
-        user_text=user_text,
-        tool_results=tool_results,
-        extra_system_blocks=extra_blocks or None,
-    )
-    try:
-        response = get_llm(model=model).complete(final_messages, max_tokens=1200)
-    except Exception as exc:
-        yield {"type": "error", "message": f"LLM unavailable: {exc}"}
-        response = "Sorry — I couldn't generate a response just now."
-
-    result.assistant_text = response
-    for event in _text_delta_events(response):
-        yield event
+    result.assistant_text = "".join(text_parts)
     yield {"type": "done", "sessionId": session_id, "messageId": message_id}
