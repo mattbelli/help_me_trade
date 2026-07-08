@@ -17,6 +17,7 @@ import { addPushToStartTokenListener, addUserInteractionListener } from 'expo-wi
 
 import { tradeProposalActivity } from '../../widgets/trade-proposal';
 import { registerDevice, registerLiveActivityToken, rejectProposal } from '@/api/endpoints';
+import { devLog } from '@/lib/dev-log';
 
 const PUSH_TO_START_KEY = 'la.pushToStartToken.v1';
 
@@ -33,7 +34,7 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
 
     void AsyncStorage.getItem(PUSH_TO_START_KEY)
       .then((stored) => {
-        console.log('[LA] hydrated deviceToken from storage:', stored ? 'yes' : 'none');
+        devLog('[LA] hydrated deviceToken from storage:', stored ? 'yes' : 'none');
         if (stored && !deviceToken) deviceToken = stored;
       })
       .catch(() => {});
@@ -42,7 +43,7 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
     const tokenSub = addPushToStartTokenListener((e) => {
       const token = e.activityPushToStartToken;
       if (!token) return;
-      console.log('[LA] pushToStart token received');
+      devLog('[LA] pushToStart token received');
       deviceToken = token;
       void AsyncStorage.setItem(PUSH_TO_START_KEY, token).catch(() => {});
       void registerDevice({ token, token_type: 'la_pushtostart' }).catch(() => {});
@@ -74,7 +75,7 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
     const sendToken = (t: string | null | undefined) => {
       // Wait for the device token; until it lands we skip without marking registered
       // so the next poll tick retries.
-      console.log(
+      devLog(
         '[LA] sendToken: updateTok=',
         !!t,
         'deviceTok=',
@@ -84,14 +85,14 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
       );
       if (!t || !deviceToken || registered.has(t)) return;
       registered.add(t);
-      console.log('[LA] registering update token → POST /api/live-activities');
+      devLog('[LA] registering update token → POST /api/live-activities');
       void registerLiveActivityToken({ activityUpdateToken: t, deviceToken }).catch((e) =>
-        console.log('[LA] register POST failed', String(e)),
+        devLog('[LA] register POST failed', String(e)),
       );
     };
 
     const armCapture = () => {
-      console.log('[LA] arming capture poll');
+      devLog('[LA] arming capture poll');
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -105,7 +106,7 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
           const instances = tradeProposalActivity.getInstances();
           if (instances.length > 0) {
             captured = true;
-            console.log('[LA] captured', instances.length, 'instance(s)');
+            devLog('[LA] captured', instances.length, 'instance(s)');
             instances.forEach((inst) => {
               held.push(inst); // keep alive so the native observer isn't released
               listenerSubs.push(
