@@ -833,6 +833,95 @@ class AlpacaAdapter:
         data = await self._aget_all_bar_pages(_BATCH_BARS_PATH, params)
         return self._parse_batch_bars(data.get("bars") or {})
 
+    _EXT_QUOTES_CHUNK = 200
+
+    @staticmethod
+    def _parse_ext_quote_snapshot(snap: dict) -> dict | None:
+        """Map one Alpaca stock snapshot to {ext_last, ext_change_pct}."""
+        if not isinstance(snap, dict):
+            return None
+
+        trade = snap.get("latestTrade") or {}
+        quote = snap.get("latestQuote") or {}
+        daily_bar = snap.get("dailyBar") or {}
+        prev_daily = snap.get("prevDailyBar") or {}
+
+        def _f(v: object) -> float | None:
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        ext_last = _f(trade.get("p"))
+        if ext_last is None:
+            bid = _f(quote.get("bp"))
+            ask = _f(quote.get("ap"))
+            if bid is not None and ask is not None:
+                ext_last = (bid + ask) / 2.0
+            elif bid is not None:
+                ext_last = bid
+            elif ask is not None:
+                ext_last = ask
+        if ext_last is None:
+            return None
+
+        prev_close = _f(prev_daily.get("c"))
+        reg_close = _f(daily_bar.get("c"))
+        daily_t = daily_bar.get("t") or ""
+        prev_t = prev_daily.get("t") or ""
+
+        ext_change_pct: float | None = None
+        ref: float | None = None
+        # New trading day with its own daily bar → move vs today's RTH close
+        # (post/overnight, matching Schwab's postMarketPercentChange intent).
+        if reg_close and prev_close and daily_t and prev_t and daily_t > prev_t:
+            ref = reg_close
+        elif prev_close:
+            ref = prev_close
+        elif reg_close:
+            ref = reg_close
+        if ref and ref != 0:
+            ext_change_pct = round((ext_last - ref) / ref * 100, 2)
+
+        return {"ext_last": ext_last, "ext_change_pct": ext_change_pct}
+
+    async def aget_ext_quotes(self, symbols: list[str]) -> dict[str, dict]:
+        """SIP snapshot batch for extended-hours last price + % move.
+
+        Returns {SYMBOL: {ext_last, ext_change_pct}}. Fail-soft: partial/empty on
+        error, never raises — callers must not crash when Alpaca hiccups.
+        """
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols:
+            sym = raw.strip().upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                cleaned.append(sym)
+        if not cleaned:
+            return {}
+
+        out: dict[str, dict] = {}
+        for start in range(0, len(cleaned), self._EXT_QUOTES_CHUNK):
+            chunk = cleaned[start : start + self._EXT_QUOTES_CHUNK]
+            try:
+                data = await self._aget_data(
+                    "/v2/stocks/snapshots",
+                    params={"symbols": ",".join(chunk), "feed": self._data_feed},
+                )
+            except Exception:
+                logger.warning(
+                    "Alpaca ext-quote snapshot failed for %d symbols",
+                    len(chunk),
+                    exc_info=True,
+                )
+                continue
+            for sym in chunk:
+                parsed = self._parse_ext_quote_snapshot(data.get(sym) or {})
+                if parsed is not None:
+                    out[sym] = parsed
+        return out
+
     def get_forward_splits(
         self, symbols: list[str]
     ) -> dict[str, list[tuple[date, Decimal]]]:

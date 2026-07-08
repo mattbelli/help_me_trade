@@ -35,6 +35,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Schwab-only fields merged on top of Alpaca ext prices (fail-soft — Schwab outage
+# must never blank ext_last/ext_change_pct).
+_SCHWAB_SUPPLEMENT_KEYS = (
+    "regular_last",
+    "regular_change_pct",
+    "prev_close",
+    "total_volume",
+    "pe_ratio",
+    "eps",
+    "div_yield",
+    "shares_outstanding",
+    "last_earnings_date",
+)
+
 
 def _route(symbols: list[str]) -> tuple[list[str], list[str], list[str]]:
     """Split *symbols* into (equity_slice, future_slice, unsupported_slice), order-preserving.
@@ -180,17 +194,43 @@ class HybridMarketData:
         return merged
 
     async def aget_quotes(self, symbols: list[str]) -> dict[str, dict]:
-        """Extended-hours + fundamentals quote batch (Schwab-only surface).
+        """Extended-hours quotes for equities (Alpaca SIP) + optional Schwab enrichments.
 
-        Only Alpaca-less data (pre/post last, PE/EPS/div/shares/earnings) lives here
-        and only Schwab exposes it, so the equity slice routes to the Schwab child;
-        futures (and deferred crypto/option) carry no ext/fundamental enrichment and
-        are dropped. This is a single batched call per poll cycle — not the per-symbol
-        bar storm — so it doesn't re-flood the WAF, and SIP's native pre/post prices
-        already make it redundant for equities (the apply_extended wiring is left
-        intact this round to limit risk; see the brief).
+        Equity pre/post/overnight last price routes to Alpaca SIP snapshots so a Schwab
+        outage never blanks equity charts. Futures (and deferred crypto/option) carry no
+        ext enrichment and are dropped. Schwab-only fields (fundamentals, total_volume,
+        regular_last) are fetched in a separate fail-soft leg — a Schwab failure must
+        NOT break the Alpaca ext-price path.
         """
         equity_syms, _futures, _unsupported = _route(list(symbols))
         if not equity_syms:
             return {}
-        return await self.schwab.aget_quotes(equity_syms)
+
+        merged: dict[str, dict] = {}
+        try:
+            ext = await self.alpaca.aget_ext_quotes(equity_syms)
+            merged.update(ext)
+        except Exception:
+            logger.warning(
+                "HybridMarketData: Alpaca ext quotes failed for %d symbols",
+                len(equity_syms),
+                exc_info=True,
+            )
+
+        try:
+            schwab_quotes = await self.schwab.aget_quotes(equity_syms)
+        except Exception:
+            logger.warning(
+                "HybridMarketData: Schwab supplemental quotes failed for %d symbols",
+                len(equity_syms),
+                exc_info=True,
+            )
+        else:
+            for sym, sq in schwab_quotes.items():
+                bucket = merged.setdefault(sym, {})
+                for key in _SCHWAB_SUPPLEMENT_KEYS:
+                    val = sq.get(key)
+                    if val is not None:
+                        bucket[key] = val
+
+        return merged

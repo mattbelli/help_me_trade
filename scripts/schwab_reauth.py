@@ -47,6 +47,8 @@ import argparse
 import asyncio
 import json
 import os
+import signal
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime
@@ -580,6 +582,29 @@ def run_headless_reauth() -> None:  # noqa: C901 (complexity acceptable for a fl
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _restart_backend() -> None:
+    """Kill hmt-backend's MainPID so systemd (Restart=always) respawns it with the freshly
+    minted token. No sudo: `systemctl show` is read-only and the process runs as us."""
+    try:
+        res = subprocess.run(
+            ["systemctl", "show", "hmt-backend", "--property", "MainPID", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        pid = int((res.stdout or "0").strip() or "0")
+        if pid <= 1:
+            print(f"[reauth] backend restart skipped: MainPID={pid} (not running?)")
+            return
+        os.kill(pid, signal.SIGTERM)
+        print(f"[reauth] restarted hmt-backend (SIGTERM → pid {pid}); systemd respawns with the fresh token")
+    except Exception as exc:  # a restart failure must never fail the reauth
+        print(
+            f"[reauth] backend restart FAILED ({exc}); token IS saved — restart manually: "
+            f"kill $(systemctl show hmt-backend -p MainPID --value)"
+        )
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Headless Schwab OAuth re-authentication")
     parser.add_argument(
@@ -620,6 +645,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         _notify_reauth_failure(f"Schwab re-auth failed: {exc}")
         raise
+    _restart_backend()
     return 0
 
 

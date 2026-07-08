@@ -18,6 +18,7 @@ class _FakeChild:
         self.batch_calls: list[list[str]] = []
         self.single_calls: list[str] = []
         self.quote_calls: list[list[str]] = []
+        self.ext_quote_calls: list[list[str]] = []
 
     async def aget_stock_bars(self, symbol, *, timeframe="1Day", days=180, extended_hours=False):
         self.single_calls.append(symbol)
@@ -27,9 +28,23 @@ class _FakeChild:
         self.batch_calls.append(list(symbols))
         return {s: [f"{self.name}:{s}"] for s in symbols}
 
+    async def aget_ext_quotes(self, symbols):
+        self.ext_quote_calls.append(list(symbols))
+        return {
+            s: {"ext_last": 100.0, "ext_change_pct": 1.5}
+            for s in symbols
+        }
+
     async def aget_quotes(self, symbols):
         self.quote_calls.append(list(symbols))
-        return {s: {"src": self.name} for s in symbols}
+        return {
+            s: {
+                "src": self.name,
+                "pe_ratio": 25.0,
+                "total_volume": 1_000_000,
+            }
+            for s in symbols
+        }
 
 
 def _hybrid() -> tuple[HybridMarketData, _FakeChild, _FakeChild]:
@@ -70,13 +85,38 @@ async def test_single_bar_routes_per_symbol() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quotes_route_equities_to_schwab_drop_futures() -> None:
+async def test_quotes_route_equities_to_alpaca_drop_futures() -> None:
     hybrid, alpaca, schwab = _hybrid()
     out = await hybrid.aget_quotes(["AAPL", "/ESU25", "SPY"])
-    # ext/fundamentals live only on Schwab; futures carry none and are dropped.
+    # Extended price from Alpaca SIP; Schwab only for supplemental fields.
+    assert alpaca.ext_quote_calls == [["AAPL", "SPY"]]
     assert schwab.quote_calls == [["AAPL", "SPY"]]
     assert alpaca.quote_calls == []
     assert set(out) == {"AAPL", "SPY"}
+    assert out["AAPL"]["ext_last"] == 100.0
+    assert out["AAPL"]["ext_change_pct"] == 1.5
+    assert out["AAPL"]["pe_ratio"] == 25.0
+    assert out["AAPL"]["total_volume"] == 1_000_000
+
+
+@pytest.mark.asyncio
+async def test_quotes_survive_schwab_outage() -> None:
+    """Regression: 2026-07-08 Schwab OAuth death must not blank equity ext prices."""
+    hybrid, alpaca, schwab = _hybrid()
+
+    async def _schwab_boom(symbols):
+        schwab.quote_calls.append(list(symbols))
+        raise BrokerError("Schwab token stale")
+
+    schwab.aget_quotes = _schwab_boom  # type: ignore[method-assign]
+
+    out = await hybrid.aget_quotes(["AAPL", "MSFT"])
+    assert alpaca.ext_quote_calls == [["AAPL", "MSFT"]]
+    assert schwab.quote_calls == [["AAPL", "MSFT"]]
+    assert out["AAPL"]["ext_last"] == 100.0
+    assert out["AAPL"]["ext_change_pct"] == 1.5
+    assert out["MSFT"]["ext_last"] == 100.0
+    assert "pe_ratio" not in out["AAPL"]  # Schwab leg failed — no supplemental merge
 
 
 @pytest.mark.asyncio
@@ -84,6 +124,7 @@ async def test_quotes_only_futures_short_circuits() -> None:
     hybrid, alpaca, schwab = _hybrid()
     assert await hybrid.aget_quotes(["/ESU25", "/NQZ25"]) == {}
     assert schwab.quote_calls == []
+    assert alpaca.ext_quote_calls == []
 
 
 class _RaisingChild(_FakeChild):
@@ -139,3 +180,38 @@ def test_factory_builds_hybrid_when_alpaca_configured(monkeypatch) -> None:
     )
     provider = _create_market_data_provider("hybrid")
     assert isinstance(provider, HybridMarketData)
+
+
+def test_alpaca_parse_ext_quote_snapshot_post_market() -> None:
+    from brokers.alpaca import AlpacaAdapter
+
+    adapter = AlpacaAdapter(
+        base_url="https://paper-api.alpaca.markets",
+        key_id="test-key",
+        secret="test-secret",
+    )
+    snap = {
+        "latestTrade": {"p": 195.5, "t": "2026-07-08T21:00:00Z"},
+        "latestQuote": {"bp": 195.4, "ap": 195.6, "t": "2026-07-08T21:00:00Z"},
+        "dailyBar": {
+            "t": "2026-07-08T04:00:00Z",
+            "o": 190.0,
+            "h": 196.0,
+            "l": 189.0,
+            "c": 194.0,
+            "v": 1_000_000,
+        },
+        "prevDailyBar": {
+            "t": "2026-07-07T04:00:00Z",
+            "o": 188.0,
+            "h": 192.0,
+            "l": 187.0,
+            "c": 190.0,
+            "v": 900_000,
+        },
+    }
+    parsed = adapter._parse_ext_quote_snapshot(snap)
+    assert parsed is not None
+    assert parsed["ext_last"] == 195.5
+    # Post-market move vs today's RTH close (194.0), not prev (190.0).
+    assert parsed["ext_change_pct"] == round((195.5 - 194.0) / 194.0 * 100, 2)

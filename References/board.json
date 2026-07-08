@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07",
+  "updated_at": "2026-07-08",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "schwab-token-stale-durable-fix",
+      "title": "Schwab token-stale ~weekly outage — durable fix (both legs) coded+reviewed, DEPLOY PENDING",
+      "lane": "in_progress",
+      "type": "ops",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Closes the recurring outage (memory schwab-token-stale-in-memory): 6am reauth cron mints a fresh token but the running hmt-backend keeps the OLD revoked refresh token -> 400 invalid_grant on all Schwab calls until manual restart. TWO legs coded by Composer + reviewed by Opus (2026-07-08). Leg 1 (scripts/schwab_reauth.py): success-mint path only (NOT --skip-if-fresh) calls _restart_backend() = read-only `systemctl show` MainPID + SIGTERM so systemd Restart=always respawns with the fresh token; no sudo, fail-soft (never changes reauth exit code). Leg 2 (brokers/hybrid_market_data.py + alpaca.py): equity extended-hours quotes now source from Alpaca SIP (new aget_ext_quotes -> /v2/stocks/snapshots) so a Schwab outage can't blank equity pre/post charts; Schwab fundamentals/total_volume/regular_last merge on top fail-soft (allowlist, never clobbers ext); futures unchanged. All consumers .get()-guarded -> either outage degrades, never crashes a poll. Regression test = the 2026-07-08 Schwab-raises case still returns ext_last from Alpaca. ruff green; 34 hybrid/stream/alpaca tests green. SIP feed inherited from the same self._data_feed the live bars already run on (feed=sip verified live per sip-hybrid-data). ⚠ Code-in-tree, committed — TAKES EFFECT ON NEXT BACKEND DEPLOY (kill MainPID). Until deployed the manual-restart runbook still applies; next token rotation ~Jul 15."
+    },
     {
       "id": "sip-hybrid-data",
       "title": "SIP hybrid data routing SHIPPED + flipped live — equities/ETFs -> Alpaca SIP, futures -> Schwab",

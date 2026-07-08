@@ -10,6 +10,19 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-08) — Schwab token-stale durable fix (both legs) committed, ⚠ DEPLOY PENDING
+
+> Two companion briefs executed (Composer-coded, Opus-reviewed) to close the recurring ~weekly Schwab outage
+> (memory `schwab-token-stale-in-memory`): **(1)** `scripts/schwab_reauth.py` now restarts `hmt-backend` on a
+> successful token mint (read-only `systemctl show` MainPID + SIGTERM → systemd respawns fresh; no sudo,
+> fail-soft, skip-path untouched); **(2)** equity extended-hours quotes moved to **Alpaca SIP**
+> (`brokers/alpaca.py::aget_ext_quotes` → `/v2/stocks/snapshots`; `HybridMarketData.aget_quotes` = Alpaca-ext
+> primary + Schwab-supplemental fail-soft, futures unchanged) so a Schwab outage can't blank equity pre/post
+> charts. ruff green; 34 hybrid/stream/alpaca tests green; regression test reproduces the 07-08 Schwab-raises
+> case. **Both legs are code-in-tree + committed but NOT deployed — take effect on the next backend restart;
+> until then the manual-restart runbook still applies (next token rotation ~Jul 15).** BUILD.md 2026-07-08 top
+> row + board card `schwab-token-stale-durable-fix` (in_progress = deploy pending).
+
 ## ▶ START HERE (2026-07-07 ~9:30 ET) — Phase 1b brain + history sidebar DEPLOYED on founder go
 
 > **HEAD b8d9201 is LIVE** (batched deploy, backend + frontend, on the founder's "go" right at the open):
