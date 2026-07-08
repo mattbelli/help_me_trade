@@ -110,6 +110,28 @@ async def run_mobile_chat_stream(
             )
             continue
 
+        if name == "create_rule":
+            # Alerts/rules arm IMMEDIATELY on create_rule, and mobile chat has no
+            # approval step (only propose_order has the phone-approval flow). Refuse
+            # here so mobile can never arm an unapproved live rule; the synthesis tells
+            # the user to arm it from the web cockpit instead. (Re-enable with a real
+            # mobile approval flow — see MAC_AGENT_HANDOFF / the create_rule follow-up.)
+            yield {
+                "type": "tool-result",
+                "toolCallId": tool_call_id,
+                "name": name,
+                "ok": False,
+            }
+            tool_results.append(
+                {
+                    "tool": name,
+                    "error": "Arming alerts/rules isn't available in mobile chat yet — "
+                    "create it from the web cockpit (create_rule arms immediately and "
+                    "has no mobile approval step).",
+                }
+            )
+            continue
+
         yield {
             "type": "tool-call",
             "toolCallId": tool_call_id,

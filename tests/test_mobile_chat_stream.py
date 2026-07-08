@@ -281,3 +281,38 @@ def test_final_messages_use_the_tools_free_prompt():
     system = next(m for m in msgs if m.role == "system")
     assert "Available tools:" not in system.content
     assert "<function_calls>" in system.content
+
+
+@pytest.mark.asyncio
+async def test_create_rule_refused_on_mobile(monkeypatch):
+    # create_rule arms a live alert IMMEDIATELY and mobile chat has no approval step —
+    # the mobile agent must refuse it (never execute), so a mobile user can't arm an
+    # unapproved rule. (Only propose_order has the phone-approval flow on this surface.)
+    execute_mock = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(
+        "ai.chat.mobile_agent.plan_tools",
+        lambda _text, *, model=None, allow_propose_order=False: [
+            ("create_rule", {"spec": {"name": "NVDA < 200d", "condition": {}, "action": None}})
+        ],
+    )
+    monkeypatch.setattr("ai.chat.mobile_agent.execute_tool", execute_mock)
+
+    class FakeLLM:
+        def complete(self, _messages, *, max_tokens=1200):
+            del max_tokens
+            return "Arm that alert from the web cockpit."
+
+    monkeypatch.setattr("ai.chat.mobile_agent.get_llm", lambda *, model=None: FakeLLM())
+
+    messages = [{"role": "user", "content": "alert me when NVDA drops below its 200 day"}]
+    events, run = await _collect_events(messages)
+
+    execute_mock.assert_not_awaited()  # never executed
+    refusal = [
+        e for e in events if e.get("type") == "tool-result" and e.get("name") == "create_rule"
+    ]
+    assert refusal and refusal[0]["ok"] is False
+    assert not any(
+        e.get("type") == "tool-call" and e.get("name") == "create_rule" for e in events
+    )
+    assert events[-1]["type"] == "done"
