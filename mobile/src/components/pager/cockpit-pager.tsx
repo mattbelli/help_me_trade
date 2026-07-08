@@ -26,6 +26,7 @@ import { haptics, useColors } from '@/theme';
 import { ChatScreen } from '@/features/chat/chat-screen';
 import { InboxScreen } from '@/features/inbox/inbox-screen';
 import { PortfolioScreen } from '@/features/portfolio/portfolio-screen';
+import { isExtendedSession } from '@/features/watchlist/session';
 import { SettingsScreen } from '@/features/settings/settings-screen';
 import { WatchlistScreen } from '@/features/watchlist/watchlist-screen';
 
@@ -75,7 +76,7 @@ export function CockpitPager() {
         const prev = old?.quotes[q.symbol];
         if (!prev) return old;
         const session = q.market_session ?? prev.market_session;
-        const extended = session === 'pre' || session === 'post' || session === 'overnight';
+        const extended = isExtendedSession(session);
         const next = { ...prev };
         // In extended hours, keep the REST regular-session close as the price
         // baseline (sessionView derives the headline from it + the live ext %).
