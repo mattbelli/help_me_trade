@@ -1,26 +1,27 @@
 /**
- * Logo — the hmt mark: three stacked horizontal candlestick bars (flat edges,
- * scattered lengths, wick out both ends). Bars use the theme accent + warm
- * tokens, so it re-tints with the palette (teal/amber on Carbon, orange-led on
- * Warm, darker on Light) and reads at any size. The chunky app-icon weight is a
- * separate PNG asset.
+ * Logo — the `stand_in` mark: two vertical bars, identical 20×54 footprint,
+ * offset upward left→right. The hollow bar is the user (stepped away); the
+ * solid bar is the agent standing in, one step higher because it kept working.
+ * Tinted from the theme's NEUTRALS (text/textMuted), not accent/warm — the
+ * mark is greyscale by design. Spec + masters: repo `brand/README.md`.
+ * The hollow is carved inward (evenodd), never an outer stroke, so both bars
+ * keep the exact same silhouette. For tiny cuts (≤16px favicons) use the flat
+ * two-grey fallback in brand/ — in-app sizes (≥22) always render the true hollow.
  */
-import Svg, { Line, Rect } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 import { useColors } from '@/theme';
 
 export function Logo({ size = 22 }: { size?: number }) {
   const colors = useColors();
-  const teal = colors.accent;
-  const amber = colors.warm;
   return (
     <Svg width={size} height={size} viewBox="0 0 120 120">
-      <Line x1={20} y1={40} x2={74} y2={40} stroke={teal} strokeWidth={3.5} />
-      <Rect x={28} y={33} width={38} height={14} fill={teal} />
-      <Line x1={38} y1={60} x2={106} y2={60} stroke={amber} strokeWidth={3.5} />
-      <Rect x={48} y={53} width={50} height={14} fill={amber} />
-      <Line x1={18} y1={80} x2={70} y2={80} stroke={teal} strokeWidth={3.5} />
-      <Rect x={26} y={73} width={34} height={14} fill={teal} />
+      <Path
+        d="M34 38 h20 v54 h-20 Z M39.5 43.5 h9 v43 h-9 Z"
+        fill={colors.textMuted}
+        fillRule="evenodd"
+      />
+      <Rect x={66} y={26} width={20} height={54} fill={colors.text} />
     </Svg>
   );
 }

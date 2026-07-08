@@ -1,5 +1,7 @@
-import { wsUrl } from '@/config';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+
+import { wsUrl } from '@/config';
 
 import type { FeedNotification, MarketAlert } from './types';
 
@@ -130,7 +132,10 @@ function parseNotification(raw: WsNotificationMessage): FeedNotification | null 
 
 /**
  * Resilient WebSocket hook for /ws/market.
- * Auto-reconnects with exponential backoff; pauses when token is null.
+ * Auto-reconnects with exponential backoff; pauses when token is null OR the app
+ * is backgrounded. Holding the quote stream open behind the lock screen keeps the
+ * JS thread + radio awake on every tick — a real battery/heat drain during market
+ * hours — so we close on background and reconnect fresh on foreground.
  */
 export function useMarketWs({
   token,
@@ -140,6 +145,14 @@ export function useMarketWs({
   onProposal,
 }: UseMarketWsOptions) {
   const [connected, setConnected] = useState(false);
+  const [appActive, setAppActive] = useState(() => AppState.currentState !== 'background');
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      setAppActive(state !== 'background');
+    });
+    return () => sub.remove();
+  }, []);
 
   const onAlertRef = useRef(onAlert);
   const onNotificationRef = useRef(onNotification);
@@ -165,7 +178,7 @@ export function useMarketWs({
   }, []);
 
   useEffect(() => {
-    if (!token) {
+    if (!token || !appActive) {
       setConnected(false);
       return;
     }
@@ -294,7 +307,7 @@ export function useMarketWs({
       wsRef.current = null;
       setConnected(false);
     };
-  }, [token]);
+  }, [token, appActive]);
 
   return { connected, subscribe };
 }
