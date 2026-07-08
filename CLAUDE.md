@@ -77,4 +77,7 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
   fabricated.** Active founder+orchestrator deep-research effort — do not treat as a someday-footnote.
 - `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
   `References/SERVER_SETUP.md` (the home Linux server this now runs on).
+- **Kill any dev/smoke server you spawn when you're done.** Headless-UI/screenshot checks spin up a Next
+  dev server (port 3005+) on the shared box; left running it leaks to multiple GB of RAM over days. Tear
+  down the one you started — don't leave zombies eating the host's memory.
 - **Before pushing:** `ruff check .` (whole repo) + `python -m pytest -q` + `cd frontend && npm run typecheck`.
