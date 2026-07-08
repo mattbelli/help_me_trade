@@ -7,7 +7,7 @@
  * refetch and flicking the scroll. Values use tabular-nums so refreshes don't
  * shift layout. FlashList header holds the glance; positions are the list.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
@@ -31,7 +31,7 @@ import {
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useNav } from '@/state/nav';
-import { radius, spacing, useColors } from '@/theme';
+import { hairline, radius, spacing, useColors } from '@/theme';
 
 const RANGES: PortfolioRange[] = ['1D', '1W', '1M', '1Y', 'ALL'];
 type AccountFilter = 'all' | string;
@@ -65,6 +65,8 @@ export function PortfolioScreen() {
 
   const dayPnl = dayPnlQ.data?.day_pnl ?? 0;
   const unrealizedPl = summary?.unrealized_pl ?? 0;
+  const buyingPower = summary?.buying_power ?? account?.buying_power ?? 0;
+  const cash = summary?.cash ?? account?.cash ?? 0;
 
   const curvePts = (curve.data?.points ?? []).map((p) => p.equity);
   const positions = useMemo(
@@ -105,28 +107,34 @@ export function PortfolioScreen() {
               </Row>
             </Row>
 
-            {/* Value + today */}
+            {/* Value */}
             <Stack gap={spacing.xs}>
               <Eyebrow>portfolio value</Eyebrow>
               {snapshot.isLoading ? (
                 <Skeleton height={44} width="65%" />
               ) : (
-                <>
-                  <Text variant="display">{usd0(value)}</Text>
-                  <Row gap={spacing.sm} align="center">
-                    <Delta value={dayPnl} size="md" />
-                    <Text variant="callout" color="textFaint">
-                      realized today
-                    </Text>
-                  </Row>
-                  <Row gap={spacing.sm} align="center">
-                    <Delta value={unrealizedPl} size="sm" />
-                    <Text variant="caption" color="textFaint">
-                      unrealized
-                    </Text>
-                  </Row>
-                </>
+                <Text variant="display">{usd0(value)}</Text>
               )}
+            </Stack>
+
+            {/* Stat pills — 2×2 grid above the chart */}
+            <Stack gap={spacing.sm}>
+              <Row gap={spacing.sm}>
+                <StatPill label="realized" loading={dayPnlQ.isLoading}>
+                  <Delta value={dayPnl} size="sm" />
+                </StatPill>
+                <StatPill label="unrealized" loading={snapshot.isLoading}>
+                  <Delta value={unrealizedPl} size="sm" />
+                </StatPill>
+              </Row>
+              <Row gap={spacing.sm}>
+                <StatPill label="buying power" loading={snapshot.isLoading}>
+                  <Money value={buyingPower} size="sm" />
+                </StatPill>
+                <StatPill label="cash" loading={snapshot.isLoading}>
+                  <Money value={cash} size="sm" />
+                </StatPill>
+              </Row>
             </Stack>
 
             {/* Equity curve + range */}
@@ -152,12 +160,6 @@ export function PortfolioScreen() {
                   </PressableScale>
                 );
               })}
-            </Row>
-
-            {/* Tiles */}
-            <Row gap={spacing.md}>
-              <Tile label="Buying power" value={summary?.buying_power ?? account?.buying_power} loading={snapshot.isLoading} />
-              <Tile label="Cash" value={summary?.cash ?? account?.cash} loading={snapshot.isLoading} />
             </Row>
 
             {/* Pending approvals → Inbox */}
@@ -200,14 +202,33 @@ export function PortfolioScreen() {
   );
 }
 
-function Tile({ label, value, loading }: { label: string; value?: number; loading?: boolean }) {
+/** Compact stat pill — a quarter-width surface chip: tiny label over a small figure. */
+function StatPill({
+  label,
+  loading,
+  children,
+}: {
+  label: string;
+  loading?: boolean;
+  children: ReactNode;
+}) {
+  const colors = useColors();
   return (
-    <Card style={{ flex: 1 }}>
-      <Stack gap={spacing.xs}>
-        <Eyebrow>{label}</Eyebrow>
-        {loading ? <Skeleton height={20} width="80%" /> : <Money value={value ?? 0} size="md" compact />}
-      </Stack>
-    </Card>
+    <View
+      style={{
+        flex: 1,
+        gap: 3,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        borderRadius: radius.lg,
+        backgroundColor: colors.surface,
+        borderWidth: hairline,
+        borderColor: colors.border,
+      }}
+    >
+      <Eyebrow>{label}</Eyebrow>
+      {loading ? <Skeleton height={16} width="80%" /> : children}
+    </View>
   );
 }
 
