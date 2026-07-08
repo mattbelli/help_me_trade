@@ -9,7 +9,8 @@
  * GET /api/proposals/pending, so it's waiting there when the user lands.
  */
 import { useEffect } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import Animated, {
   FadeIn,
   useAnimatedStyle,
@@ -22,10 +23,22 @@ import Animated, {
 import { Icon } from '@/components/ui/icon';
 import { Eyebrow, PressableScale, Row, Stack, Text } from '@/components/ui';
 import { useNav } from '@/state/nav';
-import { hairline, haptics, radius, spacing, useColors } from '@/theme';
+import { hairline, haptics, radius, spacing, useColors, useThemeMode } from '@/theme';
 
+import { useChatMarkdownStyles } from './chat-markdown-styles';
 import { stripToolMarkup } from './strip-tool-markup';
+import { ToolTimeline } from './tool-timeline';
 import type { ChatTurn, ProposalRef } from './use-chat';
+
+// Wide tables scroll sideways WITHIN the bubble so the page never scrolls with
+// them; normal prose still wraps (only the table rule is overridden).
+const markdownRules = {
+  table: (node: { key: string }, children: React.ReactNode, _parent: unknown, styles: { table?: object }) => (
+    <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator={false}>
+      <View style={styles.table}>{children}</View>
+    </ScrollView>
+  ),
+};
 
 export function MessageBubble({ turn }: { turn: ChatTurn }) {
   const colors = useColors();
@@ -51,15 +64,25 @@ export function MessageBubble({ turn }: { turn: ChatTurn }) {
           borderBottomLeftRadius: isUser ? radius.xl : radius.sm,
           paddingHorizontal: spacing.lg,
           paddingVertical: spacing.md,
+          overflow: 'hidden',
         }}
       >
-        {turn.toolHint ? <ToolHint label={turn.toolHint} /> : null}
+        {!isUser ? (
+          // The tool-call trail sits above the answer; it de-emphasises once the
+          // answer text starts landing so the answer stays the focus.
+          <ToolTimeline steps={turn.toolSteps} dimmed={body.length > 0} />
+        ) : null}
         {showTyping ? (
           <TypingDots />
         ) : body.length > 0 ? (
-          <Text variant="body" color={turn.failed ? 'negative' : 'text'}>
-            {body}
-          </Text>
+          isUser ? (
+            // User input is plain text — never markdown.
+            <Text variant="body" color="text">
+              {body}
+            </Text>
+          ) : (
+            <AssistantMarkdown body={body} failed={!!turn.failed} />
+          )
         ) : null}
       </View>
 
@@ -72,6 +95,23 @@ export function MessageBubble({ turn }: { turn: ChatTurn }) {
         </Stack>
       ) : null}
     </Animated.View>
+  );
+}
+
+/**
+ * Themed markdown for assistant turns (tables, headings, lists, code). Keyed on
+ * the resolved theme so react-native-markdown-display — which memoises on
+ * content — re-renders with the right palette after a theme switch, and on the
+ * growing `body` so partial/streaming markdown re-renders each token. Incomplete
+ * syntax mid-stream renders as plain text rather than crashing.
+ */
+function AssistantMarkdown({ body, failed }: { body: string; failed: boolean }) {
+  const { resolved } = useThemeMode();
+  const styles = useChatMarkdownStyles(failed);
+  return (
+    <Markdown key={`${resolved}:${body.length}`} style={styles} rules={markdownRules}>
+      {body}
+    </Markdown>
   );
 }
 
@@ -119,24 +159,6 @@ export function ProposalHandoff({ proposal }: { proposal: ProposalRef }) {
         <Icon name="chevron-right" size={18} color={colors.accent} />
       </Row>
     </PressableScale>
-  );
-}
-
-/** A faint, pulsing "using a tool…" line shown while the agent works. */
-function ToolHint({ label }: { label: string }) {
-  const o = useSharedValue(0.5);
-  useEffect(() => {
-    o.value = withRepeat(
-      withSequence(withTiming(1, { duration: 600 }), withTiming(0.5, { duration: 600 })),
-      -1,
-      true,
-    );
-  }, [o]);
-  const style = useAnimatedStyle(() => ({ opacity: o.value }));
-  return (
-    <Animated.View style={[style, { marginBottom: spacing.xs }]}>
-      <Eyebrow color="accent">{label}…</Eyebrow>
-    </Animated.View>
   );
 }
 

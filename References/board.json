@@ -1090,6 +1090,15 @@
       "priority": "high",
       "owner": "serv",
       "notes": "FOUNDER-FLAGGED 2026-07-07. Founder saw web chain ~12 tool calls into a full report while mobile punted ('no tool results… I'll run scans next turn') — mobile is on single-pass plan_tools (ai/chat/mobile_agent.py), NOT iterative native tool-calling. Migrate POST /api/chat/stream onto ai/chat/loop.py, ENCODING iteration into the unchanged 6-event mobile SSE contract (do NOT point at web /api/chat = AI-SDK UIMessageStream, client can't parse). Preserve: propose_order→create_phone_proposal (phone biometric approve), create_rule gate, saved-mode persistence. Real token streaming falls out for free. Full brief: References/MAC_TO_SERV_2026-07-08_mobile-chat-brain.md. Client rendering (markdown bubbles + tool-call timeline) shipping in parallel Mac-side."
+    },
+    {
+      "id": "mobile-chat-rich-rendering",
+      "title": "Mobile chat: markdown bubbles + tool-call timeline",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "mac",
+      "notes": "2026-07-07 (PENDING device test). Assistant bubbles render themed markdown (tables/headings/lists/code) via existing react-native-markdown-display (chat-markdown-styles.ts); tool-call timeline (tool-timeline.tsx + ToolStep on ChatTurn) replaces the single 'using a tool' hint — per-tool running→done/failed with query/symbol detail. Pairs with mobile-chat-brain-migration (serv) — client is ready to display web-quality output once the brain lands. Watch: per-token markdown key remounts (fine under chunked stream; revisit at real streaming)."
     }
   ]
 }
