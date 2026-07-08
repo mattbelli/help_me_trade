@@ -9,7 +9,7 @@
  * GET /api/proposals/pending, so it's waiting there when the user lands.
  */
 import { useEffect } from 'react';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import Animated, {
   FadeIn,
@@ -29,16 +29,6 @@ import { useChatMarkdownStyles } from './chat-markdown-styles';
 import { stripToolMarkup } from './strip-tool-markup';
 import { ToolTimeline } from './tool-timeline';
 import type { ChatTurn, ProposalRef } from './use-chat';
-
-// Wide tables scroll sideways WITHIN the bubble so the page never scrolls with
-// them; normal prose still wraps (only the table rule is overridden).
-const markdownRules = {
-  table: (node: { key: string }, children: React.ReactNode, _parent: unknown, styles: { table?: object }) => (
-    <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator={false}>
-      <View style={styles.table}>{children}</View>
-    </ScrollView>
-  ),
-};
 
 export function MessageBubble({ turn }: { turn: ChatTurn }) {
   const colors = useColors();
@@ -109,7 +99,7 @@ function AssistantMarkdown({ body, failed }: { body: string; failed: boolean }) 
   const { resolved } = useThemeMode();
   const styles = useChatMarkdownStyles(failed);
   return (
-    <Markdown key={`${resolved}:${body.length}`} style={styles} rules={markdownRules}>
+    <Markdown key={`${resolved}:${body.length}`} style={styles}>
       {body}
     </Markdown>
   );

@@ -46,9 +46,11 @@ export function useChatMarkdownStyles(
     code_inline: { fontFamily: fonts.mono, fontSize: 14, color: colors.text, backgroundColor: colors.surfaceRaised },
     fence: { fontFamily: fonts.mono, fontSize: 13, color: colors.text, backgroundColor: colors.surfaceRaised, padding: 8, borderRadius: 6 },
     code_block: { fontFamily: fonts.mono, fontSize: 13, color: colors.text, backgroundColor: colors.surfaceRaised, padding: 8, borderRadius: 6 },
+    // Compact mono cells so a 5–6 column financial table fits the bubble width
+    // (no horizontal scroll) and digits line up. Small font + tight padding.
     table: { borderColor: colors.border, borderWidth: 1, borderRadius: 6, marginVertical: 8 },
     tr: { borderColor: colors.border, borderBottomWidth: 1 },
-    th: { padding: 5, borderColor: colors.border, backgroundColor: colors.bgInset, color: colors.text, fontWeight: '700' },
-    td: { padding: 5, borderColor: colors.border, color: colors.text },
+    th: { paddingVertical: 4, paddingHorizontal: 3, borderColor: colors.border, backgroundColor: colors.bgInset, color: colors.text, fontFamily: fonts.mono, fontSize: 11, fontWeight: '700' },
+    td: { paddingVertical: 4, paddingHorizontal: 3, borderColor: colors.border, color: colors.text, fontFamily: fonts.mono, fontSize: 11 },
   };
 }
