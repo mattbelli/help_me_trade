@@ -15,6 +15,7 @@ import { useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useChatSettings } from "@/lib/chat-settings-context";
 import { fetchDefaultModelOptions } from "@/lib/ai-models";
+import { subscribeSettingsSaved } from "@/lib/settings-events";
 import { PageSwitcher } from "@/components/workspace/page-switcher";
 import { TerminalHistorySidebar } from "./terminal-history-sidebar";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
@@ -135,9 +136,14 @@ export function Terminal() {
   // name (e.g. deepseek-v4-flash) so the indicator shows it, not the word "default".
   const [defaultModel, setDefaultModel] = useState("");
   useEffect(() => {
-    fetchDefaultModelOptions()
-      .then((d) => setDefaultModel(d.default_llm?.model ?? ""))
-      .catch(() => {});
+    const load = () =>
+      fetchDefaultModelOptions()
+        .then((d) => setDefaultModel(d.default_llm?.model ?? ""))
+        .catch(() => {});
+    load();
+    // The terminal stays mounted across minimize/restore, so a one-shot fetch goes
+    // stale. Refetch when settings are saved (e.g. the default model changed in Settings).
+    return subscribeSettingsSaved(load);
   }, []);
   const [focused, setFocused] = useState(false);
   const [selIndex, setSelIndex] = useState(-1);
