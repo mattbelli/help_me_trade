@@ -1081,6 +1081,15 @@
       "priority": "med",
       "owner": "mac",
       "notes": "DONE 2026-07-07 (commit pending). Switched Portfolio header to GET /api/performance/day-pnl?account_id=all_paper (realized net-cash, web-parity, fixes AH-leak); shows realized today + unrealized (total open). serv confirmed semantics in SERV_REPLY_2026-07-08.md. Follow-up: 'unrealized' is total-open not today's-change (needs serv day-open baseline); wire to account chip when Schwab/real reach mobile."
+    },
+    {
+      "id": "mobile-chat-brain-migration",
+      "title": "Migrate mobile chat onto unified loop.py brain (iterative tool-calling)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "FOUNDER-FLAGGED 2026-07-07. Founder saw web chain ~12 tool calls into a full report while mobile punted ('no tool results… I'll run scans next turn') — mobile is on single-pass plan_tools (ai/chat/mobile_agent.py), NOT iterative native tool-calling. Migrate POST /api/chat/stream onto ai/chat/loop.py, ENCODING iteration into the unchanged 6-event mobile SSE contract (do NOT point at web /api/chat = AI-SDK UIMessageStream, client can't parse). Preserve: propose_order→create_phone_proposal (phone biometric approve), create_rule gate, saved-mode persistence. Real token streaming falls out for free. Full brief: References/MAC_TO_SERV_2026-07-08_mobile-chat-brain.md. Client rendering (markdown bubbles + tool-call timeline) shipping in parallel Mac-side."
     }
   ]
 }
