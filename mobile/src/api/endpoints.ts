@@ -3,6 +3,8 @@ import { APP_VERSION } from '@/config';
 import { apiFetch } from './client';
 import type {
   Bar,
+  ChatSession,
+  ChatSessionDetail,
   EarningsHistory,
   FeedNotification,
   HealthStatus,
@@ -212,6 +214,42 @@ export function registerLiveActivityToken(args: {
       device_token: args.deviceToken,
       ...(args.proposalId ? { proposal_id: args.proposalId } : {}),
     },
+  });
+}
+
+// --- Chat sessions (persisted history) ---
+export function listChatSessions(limit = 50): Promise<{ sessions: ChatSession[] }> {
+  return apiFetch<{ sessions: ChatSession[] }>(`/api/chat/sessions?limit=${limit}`);
+}
+
+export function getChatSession(id: string): Promise<ChatSessionDetail> {
+  return apiFetch<ChatSessionDetail>(`/api/chat/sessions/${encodeURIComponent(id)}`);
+}
+
+export function createChatSession(title: string): Promise<ChatSession> {
+  return apiFetch<ChatSession>('/api/chat/sessions', {
+    method: 'POST',
+    body: { mode: 'standard', title },
+  });
+}
+
+export function renameChatSession(id: string, title: string): Promise<ChatSession> {
+  return apiFetch<ChatSession>(`/api/chat/sessions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: { title },
+  });
+}
+
+export function pinChatSession(id: string, pinned: boolean): Promise<ChatSession> {
+  return apiFetch<ChatSession>(`/api/chat/sessions/${encodeURIComponent(id)}/pin`, {
+    method: 'POST',
+    body: { pinned },
+  });
+}
+
+export function deleteChatSession(id: string): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/api/chat/sessions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   });
 }
 

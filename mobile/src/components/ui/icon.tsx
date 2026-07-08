@@ -22,7 +22,9 @@ export type IconName =
   | 'chevron-up'
   | 'expand'
   | 'check'
-  | 'close';
+  | 'close'
+  | 'pin'
+  | 'trash';
 
 export function Icon({
   name,
@@ -115,6 +117,19 @@ export function Icon({
         <>
           <Line x1="6" y1="6" x2="18" y2="18" {...common} />
           <Line x1="18" y1="6" x2="6" y2="18" {...common} />
+        </>
+      )}
+      {name === 'pin' && (
+        <>
+          <Path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6Z" {...common} />
+          <Line x1="12" y1="15" x2="12" y2="21" {...common} />
+        </>
+      )}
+      {name === 'trash' && (
+        <>
+          <Polyline points="4,7 20,7" {...common} />
+          <Path d="M6 7l1 13h10l1-13" {...common} />
+          <Path d="M9.5 7V4.5h5V7" {...common} />
         </>
       )}
     </Svg>

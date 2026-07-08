@@ -5,7 +5,10 @@ import {
   addWatchlistSymbol,
   approveProposal,
   createPriceAlert,
+  deleteChatSession,
   deletePriceAlert,
+  listChatSessions,
+  pinChatSession,
   getBars,
   getEarningsHistory,
   getHealth,
@@ -297,6 +300,36 @@ export function useDeletePriceAlert() {
   return useMutation({
     mutationFn: deletePriceAlert,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['price-alerts'] }),
+  });
+}
+
+export function useChatSessions() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['chat-sessions'],
+    queryFn: () => listChatSessions(),
+    enabled,
+    staleTime: 10_000,
+  });
+}
+
+export function usePinChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => pinChatSession(id, pinned),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['chat-sessions'] });
+    },
+  });
+}
+
+export function useDeleteChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteChatSession(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['chat-sessions'] });
+    },
   });
 }
 

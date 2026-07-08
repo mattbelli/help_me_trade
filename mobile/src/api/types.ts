@@ -298,6 +298,30 @@ export interface Strategy {
   params?: Record<string, unknown>;
 }
 
+/** A persisted chat session (list row). */
+export interface ChatSession {
+  id: string;
+  title: string;
+  mode: string;
+  created_at: string;
+  updated_at: string;
+  pinned: boolean;
+}
+
+/** One stored message in a session. `parts` is an AI-SDK-style array; text
+ *  lives in `{type:'text', text}` entries — join those for the content. */
+export interface ChatSessionMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  parts: Array<Record<string, unknown>>;
+  created_at: string;
+}
+
+/** A session plus its full transcript (GET /api/chat/sessions/{id}). */
+export interface ChatSessionDetail extends ChatSession {
+  messages: ChatSessionMessage[];
+}
+
 export interface WebCustomTheme {
   id: string;
   name: string;

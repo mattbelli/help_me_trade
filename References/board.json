@@ -1054,6 +1054,33 @@
       "priority": "high",
       "owner": "mac",
       "notes": "2026-07-07. Founder reported phone running HOT / draining during test phase. Root cause: use-market-ws.ts auto-reconnected but only paused on null token — no AppState handling, so the live quote stream stayed open behind the lock screen, waking JS+radio on every tick during market hours. Fix: appActive flag from an AppState listener gates the connect effect (!token || !appActive); background → existing cleanup closes socket + clears timer, foreground → fresh reconnect. tsc green, no new lint. Dev-build heat (React Compiler + Fast Refresh) is separate — true battery verdict needs a release build."
+    },
+    {
+      "id": "mobile-chat-history",
+      "title": "Mobile: auto-save chat history + sync",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "mac",
+      "notes": "2026-07-07. Founder: auto-save all + browse list. Stream switched temporary→saved (use-chat creates session on first turn, serv persists via finalize_chat_turn, temporary fallback if create fails); loadSession() maps stored parts→transcript; chat-history.tsx overlay (list pinned-first, tap-load, swipe-delete, pin) on serv's existing /api/chat/sessions* API. tsc+lint clean. PENDING on-device test. Follow-up: legacy Swipeable import is deprecated in RNGH 2.31 (works, warns) → ReanimatedSwipeable."
+    },
+    {
+      "id": "mobile-chat-toolxml-leak",
+      "title": "Mobile chat renders raw tool-call XML (serv prompt fix)",
+      "lane": "founder",
+      "type": "bug",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder hit live 2026-07-07: assistant bubble printed <function_calls> XML instead of an answer. SERV-side: ai/chat/mobile_agent.py:150 final complete() reuses the full agentic _system_prompt() (tool catalog + 'call the tools') but has no native tool-parsing → model emits tool XML as text → streams to client as content. Fix: give the final synthesis call a tools-free prompt, OR migrate mobile onto ai/chat/loop.py (unified brain). Client guard shipped (strip-tool-markup.ts) is damage-control only. Full writeup: References/MAC_REPLY_2026-07-08.md."
+    },
+    {
+      "id": "mobile-day-pnl-endpoint",
+      "title": "Mobile: switch Day P&L to /api/performance/day-pnl",
+      "lane": "next",
+      "type": "fix",
+      "priority": "med",
+      "owner": "mac",
+      "notes": "Serv shipped GET /api/performance/day-pnl (net-cash, ET-day, fixes after-hours-leak). Mobile Portfolio still derives day P&L from /api/portfolio/history?range=1D last-point (portfolio-screen.tsx:52-68). Switch once serv confirms account_id semantics match. Flagged in MAC_REPLY_2026-07-08.md."
     }
   ]
 }

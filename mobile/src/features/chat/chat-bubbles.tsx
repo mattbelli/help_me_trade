@@ -24,12 +24,15 @@ import { Eyebrow, PressableScale, Row, Stack, Text } from '@/components/ui';
 import { useNav } from '@/state/nav';
 import { hairline, haptics, radius, spacing, useColors } from '@/theme';
 
+import { stripToolMarkup } from './strip-tool-markup';
 import type { ChatTurn, ProposalRef } from './use-chat';
 
 export function MessageBubble({ turn }: { turn: ChatTurn }) {
   const colors = useColors();
   const isUser = turn.role === 'user';
-  const showTyping = !isUser && turn.streaming && turn.content.length === 0;
+  // Scrub any leaked tool-call XML from assistant text before it renders.
+  const body = isUser ? turn.content : stripToolMarkup(turn.content);
+  const showTyping = !isUser && turn.streaming && body.length === 0;
 
   return (
     <Animated.View
@@ -53,9 +56,9 @@ export function MessageBubble({ turn }: { turn: ChatTurn }) {
         {turn.toolHint ? <ToolHint label={turn.toolHint} /> : null}
         {showTyping ? (
           <TypingDots />
-        ) : turn.content.length > 0 ? (
+        ) : body.length > 0 ? (
           <Text variant="body" color={turn.failed ? 'negative' : 'text'}>
-            {turn.content}
+            {body}
           </Text>
         ) : null}
       </View>

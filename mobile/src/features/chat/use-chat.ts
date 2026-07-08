@@ -10,6 +10,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { streamChat, type ChatMessage } from '@/api/chat-stream';
+import { createChatSession, getChatSession } from '@/api/endpoints';
+import type { ChatSessionMessage } from '@/api/types';
+
+/** Join the `{type:'text', text}` entries of a stored message's parts array. */
+function partsToText(parts: ChatSessionMessage['parts']): string {
+  return parts
+    .filter((p) => p?.type === 'text' && typeof p.text === 'string')
+    .map((p) => p.text as string)
+    .join('');
+}
+
+/** Title for a new session: the first user message, truncated. */
+function titleFrom(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  return t.length > 60 ? `${t.slice(0, 57)}…` : t;
+}
 
 export interface ProposalRef {
   proposalId: string;
@@ -52,6 +68,8 @@ export interface UseChat {
   send: (text: string) => void;
   stop: () => void;
   reset: () => void;
+  /** Load a persisted session's transcript into the chat and adopt its id. */
+  loadSession: (id: string) => Promise<void>;
 }
 
 export function useChat(): UseChat {
@@ -102,12 +120,24 @@ export function useChat(): UseChat {
       void (async () => {
         let acc = '';
         const proposals: ProposalRef[] = [];
+
+        // Persist every chat: on the first turn of a fresh session, create a
+        // saved session and stream with `mode:'saved'` + its id (serv persists
+        // each turn server-side). If session creation fails, fall back to the
+        // ephemeral temporary stream so the chat never blocks.
+        let mode: 'saved' | 'temporary' = 'saved';
+        if (!sessionId.current) {
+          try {
+            const session = await createChatSession(titleFrom(text));
+            sessionId.current = session.id;
+          } catch {
+            mode = 'temporary';
+          }
+        }
+
         try {
           for await (const ev of streamChat(
-            // v1 = temporary (ephemeral). `saved` requires a sessionId (serv 400s
-            // otherwise) and a history screen to surface persisted chats — both are
-            // the follow-up. See References/SERV_chat_stream_DONE.md.
-            { messages: history, sessionId: sessionId.current, mode: 'temporary' },
+            { messages: history, sessionId: sessionId.current, mode },
             controller.signal,
           )) {
             switch (ev.type) {
@@ -170,8 +200,28 @@ export function useChat(): UseChat {
     setStatus('idle');
   }, []);
 
+  const loadSession = useCallback(async (id: string) => {
+    abortRef.current?.abort();
+    setError(null);
+    try {
+      const detail = await getChatSession(id);
+      // Historical proposal cards aren't reconstructed (v1) — only the text.
+      const loaded: ChatTurn[] = detail.messages.map((m) => ({
+        id: `s${(seq.current += 1)}`,
+        role: m.role,
+        content: partsToText(m.parts),
+        proposals: [],
+      }));
+      sessionId.current = id;
+      setTurns(loaded);
+      setStatus('idle');
+    } catch {
+      setError("Couldn't open that chat. Tap to retry.");
+    }
+  }, []);
+
   // Abort any in-flight stream when the screen unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  return { turns, status, error, send, stop, reset };
+  return { turns, status, error, send, stop, reset, loadSession };
 }

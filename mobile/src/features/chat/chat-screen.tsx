@@ -23,6 +23,7 @@ import { PageHeading, PressableScale, Row, Screen, Stack, Text } from '@/compone
 import { hairline, haptics, radius, spacing, useColors } from '@/theme';
 
 import { MessageBubble } from './chat-bubbles';
+import { ChatHistory } from './chat-history';
 import { useChat } from './use-chat';
 
 const SUGGESTIONS = [
@@ -38,9 +39,10 @@ const TAB_PILL_CLEARANCE = 78;
 export function ChatScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { turns, status, error, send, stop, reset } = useChat();
+  const { turns, status, error, send, stop, reset, loadSession } = useChat();
   const [draft, setDraft] = useState('');
   const [keyboardUp, setKeyboardUp] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const streaming = status === 'streaming';
@@ -76,13 +78,18 @@ export function ChatScreen() {
           style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.sm }}
         >
           <PageHeading title="chat" />
-          {turns.length > 0 ? (
-            <PressableScale onPress={reset} haptic>
-              <Text variant="caption" color="textMuted">
-                New chat
-              </Text>
+          <Row gap={spacing.lg} align="center">
+            {turns.length > 0 ? (
+              <PressableScale onPress={reset} haptic>
+                <Text variant="caption" color="textMuted">
+                  New chat
+                </Text>
+              </PressableScale>
+            ) : null}
+            <PressableScale onPress={() => setHistoryOpen(true)} haptic hitSlop={8}>
+              <Icon name="list" size={22} color={colors.textMuted} />
             </PressableScale>
-          ) : null}
+          </Row>
         </Row>
 
         <ScrollView
@@ -184,6 +191,15 @@ export function ChatScreen() {
           </Row>
         </View>
       </KeyboardAvoidingView>
+
+      <ChatHistory
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onOpenSession={(id) => {
+          setHistoryOpen(false);
+          void loadSession(id);
+        }}
+      />
     </Screen>
   );
 }
