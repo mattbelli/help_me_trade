@@ -142,6 +142,42 @@ def _system_prompt() -> str:
     )
 
 
+def _synthesis_system_prompt() -> str:
+    """System prompt for the mobile FINAL-answer turn, which has NO tool-parsing.
+
+    The mobile flow plans + runs tools first, then calls a plain `complete()` to write the
+    answer. Reusing the agentic `_system_prompt()` there advertised the tool catalog and told
+    the model to CALL tools — but this turn can't parse tool calls, so the model emitted
+    `<function_calls>` XML straight into the answer text (founder saw raw markup instead of an
+    answer). This variant keeps the grounding + data-honesty rules but tells the model the
+    tools already ran and to just write the answer — no tool catalog, no "call the tool".
+    """
+    return (
+        f"{current_date_context()}\n\n"
+        f"{_accounts_context_block()}\n\n"
+        "You are the Help Me Trade cockpit assistant. The tools needed for this turn have "
+        "ALREADY been run; their results are provided below the user's message. Write the "
+        "final answer to the user from those results. Do NOT call tools, do NOT emit "
+        "function-call / <function_calls> / <invoke> syntax, and do NOT narrate calling a "
+        "tool — just write the answer.\n\n"
+        "Answer clearly and concisely in markdown when helpful. Terminal aesthetic: plain "
+        "professional text — NEVER use emojis or decorative unicode symbols.\n\n"
+        "Grounding (never violate):\n"
+        "- get_portfolio_snapshot results show the founder's REAL Schwab accounts "
+        "(real_money, read_only) alongside paper Alpaca accounts — discuss those holdings "
+        "freely.\n"
+        "- Realized P&L is realized.realized_closed (net cash on closed positions). NEVER "
+        "present approximate_fifo or incomplete_positions figures as realized P&L.\n"
+        "- A position's unrealized_pl is CUMULATIVE since entry, not today's move. For "
+        "'today' questions use day_pl / day_pl_pct / total_day_pl, and always say whether a "
+        "number is today's or since-entry.\n"
+        "- Only discuss positions, prices, and trades present in the tool results; never "
+        "invent positions, prices, closed trades, goals, targets, rules, or preferences the "
+        "user never stated. If a fact isn't in the results, say so.\n"
+        "- Only cite web_search snippets/URLs actually returned.\n"
+    )
+
+
 def _build_final_messages(
     history: list[LLMMessage],
     *,
@@ -155,7 +191,7 @@ def _build_final_messages(
             "\n\nTool results for this turn:\n"
             + json.dumps(tool_results, indent=2, default=str)
         )
-    system_content = _system_prompt()
+    system_content = _synthesis_system_prompt()
     if extra_system_blocks:
         system_content += "".join(block for block in extra_system_blocks if block)
     return [

@@ -253,3 +253,31 @@ def test_normalize_chat_mode_temporary_and_saved():
 def test_sse_framing():
     line = sse({"type": "start"})
     assert line == 'data: {"type": "start"}\n\n'
+
+
+def test_synthesis_prompt_is_tools_free():
+    # The mobile FINAL-answer turn has no tool-parsing; its prompt must NOT advertise the
+    # tool catalog or tell the model to CALL tools — otherwise the model emits raw
+    # <function_calls> XML as its answer (the founder-facing leak this guards against).
+    from ai.chat.agent import _synthesis_system_prompt, _system_prompt
+
+    synth = _synthesis_system_prompt()
+    assert "Available tools:" not in synth
+    assert "call propose_order" not in synth
+    assert "call create_rule" not in synth
+    assert "<function_calls>" in synth  # explicitly forbids emitting the syntax
+    # sanity: the agentic PLANNING prompt still advertises tools (unchanged)
+    assert "Available tools:" in _system_prompt()
+
+
+def test_final_messages_use_the_tools_free_prompt():
+    from ai.chat.agent import _build_final_messages
+
+    msgs = _build_final_messages(
+        [],
+        user_text="how did I do today?",
+        tool_results=[{"tool": "get_portfolio_snapshot", "result": {}}],
+    )
+    system = next(m for m in msgs if m.role == "system")
+    assert "Available tools:" not in system.content
+    assert "<function_calls>" in system.content
