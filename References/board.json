@@ -10,6 +10,24 @@
   ],
   "cards": [
     {
+      "id": "options-chain-viewer",
+      "title": "Options-chain viewer widget — LIVE (visual check pending)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED 2026-07-09 evening: GET /api/options-chain (30s cache; contracts-first expirations+OI, per-expiry filtered+paginated snapshot — orchestrator fixed Composer round's one-expiry/no-puts truncation, live-verified NVDA 25 expirations x 86 strikes both sides w/ IV+greeks+vol+OI) + options-chain workspace widget (channel-follow underlying, expiry dropdown + DTE, T-chain calls|strike|puts, ATM highlight, narrow collapse, strike click publishes underlying, 30s poll). Deployed. Founder: add the widget from the picker + eyeball density/columns."
+    },
+    {
+      "id": "chart-ux-founder-round-0709",
+      "title": "Chart UX round (founder feedback) — SHIPPED to tree, visual check pending",
+      "lane": "done",
+      "type": "ui",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-09 evening, founder heading out, built+committed: (1) volume pane-separator hover no longer flares green (was blocking alert placement); (2) alert lines 1px dotted, NO axis price pill — bell titles 🔔+/🔔−/🔔 (above/below/cross), ↻ suffix = repeating; cross=neutral; (3) NEW eye menu on chart frame toolbar: show/hide Alerts + Drawings, persisted per-widget; (4) tick-flash peak theme-tuned (--tick-flash-mix 32% dark / 16% light — was invisible on dark) + TRIAL: last price tinted by day direction. tsc green. Founder must eyeball: bell glyph render on canvas, flash intensity, price tint keep-or-revert."
+    },
+    {
       "id": "options-flow-phase3",
       "title": "Options-flow Phase 3 — streaming + sweeps BUILT; deploy pending founder",
       "lane": "in_progress",

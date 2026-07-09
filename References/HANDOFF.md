@@ -10,7 +10,19 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-09, latest) — Options-flow Phase 3 IN PROGRESS (streaming + sweeps)
+## ▶ START HERE (2026-07-09, evening) — Phase 3 LIVE end-to-end + founder UI round + chain viewer
+
+> **Options-flow Phase 3 fully deployed** (founder go "just deploy yourself"): 3a transport + 3b sweeps
+> (first live sweep 1.5s off the tape; AAPL 7-exchange buy_side classified) + 3c enrichment (sweep rows
+> carry detail JSON — underlying px/IV/greeks/OI — chevron dropdown in widget) + at-print quote ring
+> (classifies vs quote PREVAILING at print, fixes fast-sweep undetermined) + hot-quote tuning 150→60
+> (quote flood was ~52% of a core). **Founder UI round committed, visual check pending** (board card
+> `chart-ux-founder-round-0709`): pane-hover flare off, 1px-dotted bell alerts (no axis pills), NEW eye
+> menu (hide Alerts/Drawings), theme-tuned tick flash + price-tint trial. **Options-chain viewer widget**
+> (board `options-chain-viewer`) dispatched to Composer (monitored). Deploy of the UI round + chain
+> viewer pending when the round lands. Fork-storm incident + rules: memory `serv-fork-storm-2026-07-09`.
+
+## ▶ EARLIER (2026-07-09) — Options-flow Phase 3 build (streaming + sweeps)
 
 > Founder go (~13:40 ET): "should we move onto phase 3." **P-1/P-3 probes closed live same day** —
 > `scripts/opra_ws_probe.py`, results `research/options_flow/ws_probe_2026-07-09.md` (commit `6e9e460`):
