@@ -547,6 +547,72 @@ def _read_calibration(
     return [compute_calibration(db_path=db_path)]
 
 
+def _read_options_flow(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    from db.options_flow import recent_events
+
+    limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
+    symbol = filters.get("symbol")
+    event_type = filters.get("event_type")
+    min_premium = filters.get("min_premium")
+    since = filters.get("since")
+    return recent_events(
+        symbol=str(symbol).strip().upper() if symbol else None,
+        event_type=str(event_type) if event_type else None,
+        min_premium=float(min_premium) if min_premium is not None else None,
+        since=str(since) if since else None,
+        limit=limit,
+        db_path=db_path,
+    )
+
+
+def _summarize_options_flow(
+    filters: dict[str, Any], *, db_path: Path
+) -> dict[str, Any]:
+    """Today's flow events grouped by underlying (facts only — no win%/EV)."""
+    from datetime import UTC, datetime
+
+    from db.options_flow import recent_events
+
+    today = datetime.now(UTC).date().isoformat()
+    since = filters.get("since") or f"{today}T00:00:00Z"
+    symbol = filters.get("symbol")
+    event_type = filters.get("event_type")
+    min_premium = filters.get("min_premium")
+    rows = recent_events(
+        symbol=str(symbol).strip().upper() if symbol else None,
+        event_type=str(event_type) if event_type else None,
+        min_premium=float(min_premium) if min_premium is not None else None,
+        since=str(since),
+        limit=_MAX_ROWS,
+        db_path=db_path,
+    )
+    by_underlying: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        u = str(row.get("underlying") or "").strip().upper() or "?"
+        bucket = by_underlying.get(u)
+        if bucket is None:
+            bucket = {
+                "count": 0,
+                "total_premium_usd": 0.0,
+                "event_types": [],
+                "has_spread_dominated": False,
+            }
+            by_underlying[u] = bucket
+        bucket["count"] += 1
+        prem = row.get("premium_usd")
+        if prem is not None:
+            bucket["total_premium_usd"] += float(prem)
+        et = row.get("event_type")
+        if et and et not in bucket["event_types"]:
+            bucket["event_types"].append(et)
+        # F-2 demotion lands as spread_flag=True (or event_type marker).
+        if row.get("spread_flag") or et == "spread_dominated":
+            bucket["has_spread_dominated"] = True
+    return {"by_underlying": by_underlying, "n_underlyings": len(by_underlying)}
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -666,6 +732,21 @@ RESOURCES: dict[str, dict[str, Any]] = {
         "filters": {},
         "read": _read_calibration,
     },
+    "options_flow": {
+        "description": (
+            "Unusual options activity on the watchlist — facts about the tape, "
+            "NOT a buy/sell signal; carries a caveat, never a win% or confidence"
+        ),
+        "filters": {
+            "symbol": "optional — filter by underlying ticker",
+            "event_type": "optional — unusual_volume|block|sweep|directional_pressure",
+            "min_premium": "optional float — minimum premium_usd",
+            "since": "optional ISO timestamp — events at or after",
+            "limit": "optional int — default 20, max 50",
+        },
+        "read": _read_options_flow,
+        "summarize": _summarize_options_flow,
+    },
 }
 
 
@@ -693,6 +774,7 @@ _RESOURCE_ALIASES = {
     "alerts": "price_alerts",
     "journal": "decision_journal",
     "accounts": "schwab_accounts",
+    "flow": "options_flow",
 }
 
 

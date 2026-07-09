@@ -69,6 +69,7 @@ def test_list_resources_catalog() -> None:
         "market",
         "news",
         "calibration",
+        "options_flow",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]
