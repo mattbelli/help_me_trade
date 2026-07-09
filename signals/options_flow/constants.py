@@ -16,7 +16,7 @@ MIN_PREMIUM_INDEX_USD = 250_000  # design §5 UV-1 / §2.3; UW screener floor fo
 
 # --- UV-2 volume z-score (design §5 / §2.3) ---------------------------------------
 VOL_ZSCORE_MIN = 3.0  # design §5 UV-2; tunable; "2σ" circulates as CBOE folklore
-ZSCORE_STD_FLOOR = 0.0  # set from backfill percentiles in 1b
+ZSCORE_STD_FLOOR = 1242.65  # research/options_flow/thresholds.md 2026-07-09 (0.1 x median bucket std, 23-name backfill)
 
 # --- F-1 hygiene condition codes (design §5 F-1 / §2.1) ---------------------------
 # Fallback sets only — the runtime fetches /v1beta1/options/meta/conditions/trade and

@@ -40,7 +40,10 @@ def _uv1_kwargs(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-def _healthy_baseline(*, mean: float = 1000.0, std: float = 100.0, n: int = 20) -> dict:
+def _healthy_baseline(
+    *, mean: float = 100_000.0, std: float = 10_000.0, n: int = 20
+) -> dict:
+    # std sits above ZSCORE_STD_FLOOR so these fixtures exercise the raw z math.
     return {"mean": mean, "std": std, "n": n}
 
 
@@ -192,18 +195,18 @@ def test_uv1_reason_shape() -> None:
 
 
 def test_uv2_fires_on_z_ge_3() -> None:
-    # z = (1300 - 1000) / 100 = 3.0
+    # z = (130000 - 100000) / 10000 = 3.0
     ev = detect_uv2(
         underlying="NVDA",
         dte_bucket="8-30",
-        today_vol=1300.0,
+        today_vol=130_000.0,
         baseline=_healthy_baseline(),
         event_date="2026-07-09",
     )
     assert ev is not None
     assert ev["event_type"] == "unusual_volume"
     assert ev["vol_zscore"] == 3.0
-    assert ev["contracts"] == 1300
+    assert ev["contracts"] == 130_000
     assert ev["vol_oi_ratio"] is None
     assert ev["occ_symbol"] is None
     assert ev["strike"] is None
@@ -231,12 +234,13 @@ def test_uv2_none_when_n_lt_10_or_std_nonpositive() -> None:
         )
         is None
     )
-    # std=0 and floor=0 → std <= 0 → None
+    # std=0 → floored to ZSCORE_STD_FLOOR: a modest absolute move must NOT fire
+    # (the thin-name guard — z = 900 / floor ≈ 0.7)
     assert (
         detect_uv2(
             underlying="NVDA",
             dte_bucket="8-30",
-            today_vol=10_000.0,
+            today_vol=1_000.0,
             baseline={"mean": 100.0, "std": 0.0, "n": 20},
             event_date="2026-07-09",
         )
@@ -247,7 +251,7 @@ def test_uv2_none_when_n_lt_10_or_std_nonpositive() -> None:
         detect_uv2(
             underlying="NVDA",
             dte_bucket="8-30",
-            today_vol=1299.0,  # z = 2.99
+            today_vol=129_900.0,  # z = 2.99
             baseline=_healthy_baseline(),
             event_date="2026-07-09",
         )
@@ -256,12 +260,12 @@ def test_uv2_none_when_n_lt_10_or_std_nonpositive() -> None:
 
 
 def test_uv2_z_math_on_synthetic_baseline() -> None:
-    # z = (4500 - 1500) / 500 = 6.0
+    # z = (450000 - 150000) / 50000 = 6.0
     ev = detect_uv2(
         underlying="AAPL",
         dte_bucket="31-90",
-        today_vol=4500.0,
-        baseline={"mean": 1500.0, "std": 500.0, "n": 20},
+        today_vol=450_000.0,
+        baseline={"mean": 150_000.0, "std": 50_000.0, "n": 20},
         event_date="2026-07-08",
     )
     assert ev is not None
