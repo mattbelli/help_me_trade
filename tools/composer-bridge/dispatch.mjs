@@ -63,6 +63,8 @@ function parseArgs(argv) {
       case "--prompt": args.prompt = argv[++i]; break;
       case "--cwd": args.cwd = argv[++i]; break;
       case "--model": args.model = argv[++i]; break;
+      case "--effort": args.effort = argv[++i]; break;   // low|medium|high (models that expose it, e.g. grok-4.5)
+      case "--fast": args.fast = true; break;             // fast variant toggle (models that expose it)
       case "--review": args.review = true; break;
       case "--no-stream": args.stream = false; break;
       case "-h":
@@ -139,7 +141,14 @@ let agent;
 try {
   agent = await Agent.create({
     apiKey,
-    model: { id: args.model },
+    model: (() => {
+      // Pass effort/fast as model params (ModelSelection) when given; else id-only
+      // (unchanged default). Params are ignored by models that don't expose them.
+      const params = [];
+      if (args.effort) params.push({ id: "effort", value: String(args.effort) });
+      if (args.fast) params.push({ id: "fast", value: "true" });
+      return params.length ? { id: args.model, params } : { id: args.model };
+    })(),
     local: { cwd, autoReview: args.review },
   });
 
