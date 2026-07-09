@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "options-flow-phase3",
-      "title": "Options-flow Phase 3 — OPRA websocket streaming + SWP-1 sweeps + at-print DIR-1",
+      "title": "Options-flow Phase 3 — streaming + sweeps BUILT; deploy pending founder",
       "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "Round 3a DONE + committed 2026-07-09 (verified by orchestrator after Composer's verify step fork-stormed serv to load 205 — see memory serv-fork-storm-2026-07-09; its tests passed a sync connect_factory into an awaited seam -> zero-wait reconnect spin under mocked sleep). Shipped: signals/options_flow/stream.py (msgpack connect/auth/406 long backoff, incremental sub diffs, trades-broad <=1000 / hot-quote subset cap 150, quote cache, normalize_print handoff to bounded collector) + DARK api/main.py wiring behind OPTIONS_FLOW_STREAM_ENABLED=0. Orchestrator fixed a real reconnect bug (subscribed sets never cleared per-connection -> silent no-data after reconnect) + premature backoff reset. Amplifier fixed: poll cold-start cursor floor POLL_COLD_START_LOOKBACK_MINUTES=30 (mid-day restart had re-pulled ~440k SPY prints). Probes P-1/P-3 closed (research/options_flow/ws_probe_2026-07-09.md, 6e9e460): one ws conn/account, 12ms lag, sweep condition S on tape, quotes 20:1. 81 tests + ruff green. NEXT round 3b: SWP-1 500ms/>=3-exchange sweep + split clustering, at-print DIR-1 (stream_quote basis, QUOTE_STALE_FOR_DIR1_SECONDS=5), widget sweep label, then enable (monitored dispatch only)."
+      "notes": "3a (7b5728c) + 3b (fadbd90) BOTH COMMITTED 2026-07-09. 3b hand-written (no dispatch, per serv-fork-storm rule): signals/options_flow/sweeps.py — SWP-1 500ms clusters, >=3-exchange sweep / one-exchange >=5-print split, $25k/$250k-index floors, F-1/F-2/F-3 per print, ISO condition S corroborates never gates, direction = majority classified premium (never guessed); api/main.py 1s sweep loop consumes stream prints, at-print DIR-1 vs live quote cache (fresh<=5s -> stream_quote), events -> db + existing convergence/push budget (sweep added to _FLOW_EVENT_TYPES; budget code untouched); widget sweep label (violet). 144 tests + ruff + tsc green. OPTIONS_FLOW_STREAM_ENABLED=1 set in .env. DEPLOY PENDING: classifier requires a human — founder runs ./tools/serv-deploy.sh both (~6s swap). Watch after deploy: 'options_flow stream:' connect + 60s stats lines (quote msg rate — HOT_QUOTE_MAX=150 may need lowering if CPU creeps), 'options_flow sweeps:' event lines, one ws conn/account (probes now conflict with prod). Residuals: partial clusters lost on restart (poll stays authoritative); stream emits sweeps only (blocks/UV/pressure stay on the 30s poll)."
     },
     {
       "id": "options-flow-phase2",

@@ -27,8 +27,14 @@ this file, append the old full version there as a new dated section.*
 > background dispatches; single-threaded verifies with hard timeouts. Orchestrator fixed a real reconnect
 > bug (subscribed sets never cleared per-connection → silent no-data after reconnect) + premature backoff
 > reset + the restart amplifier (`POLL_COLD_START_LOOKBACK_MINUTES=30` cursor floor — a mid-day restart
-> re-pulled ~440k SPY prints). Round 3b next: SWP-1 500ms/≥3-exchange clustering + split variant +
-> at-print DIR-1 (`stream_quote` basis) + widget sweep label + enable. Board card `options-flow-phase3`.
+> re-pulled ~440k SPY prints). **Round 3b BUILT + committed** (`fadbd90`, hand-written — no
+> dispatch): `sweeps.py` SWP-1 clustering (500ms window, ≥3-exchange sweep / one-exchange ≥5-print split,
+> \$25k/\$250k-index floors, ISO `S` corroborates never gates) + `api/main.py` 1s consumer (at-print DIR-1
+> vs live quote cache → `stream_quote` basis; events → db + existing convergence/push budget) + violet
+> widget sweep label. 144 tests + ruff + tsc green. `OPTIONS_FLOW_STREAM_ENABLED=1` set in `.env`;
+> **DEPLOY PENDING FOUNDER** (`./tools/serv-deploy.sh both`). Post-deploy watch: `options_flow stream:`
+> connect + 60s stats (quote msg rate vs `HOT_QUOTE_MAX=150` — lower it if CPU creeps), `options_flow
+> sweeps:` event lines. Board card `options-flow-phase3`.
 
 ## ▶ EARLIER (2026-07-09) — Options-flow Phase 1+2 MERGED TO MAIN + ENABLED LIVE
 
