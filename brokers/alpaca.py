@@ -1181,3 +1181,137 @@ class AlpacaAdapter:
         if not isinstance(data, dict):
             return None
         return self._parse_option_snapshot(data, sym)
+
+    # --- Options-flow screener (read-only data + contracts metadata) -------------
+
+    _OPTIONS_BARS_CHUNK = 100
+    _OPTIONS_BARS_MAX_PAGES = 50
+    _OPTIONS_CONTRACTS_MAX_PAGES = 50
+
+    def get_option_bars(
+        self,
+        occ_symbols: list[str],
+        start: str,
+        end: str | None = None,
+        timeframe: str = "1Day",
+    ) -> dict[str, list[dict]]:
+        """Historical option bars (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/bars?symbols=<csv>&timeframe=…&start=…``
+        Chunks ≤100 symbols/request; paginates via ``next_page_token``.
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols or not start:
+            return {}
+        out: dict[str, list[dict]] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_BARS_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_BARS_CHUNK]
+                page_token: str | None = None
+                for _ in range(self._OPTIONS_BARS_MAX_PAGES):
+                    params: dict[str, Any] = {
+                        "symbols": ",".join(chunk),
+                        "timeframe": timeframe,
+                        "start": start,
+                    }
+                    if end:
+                        params["end"] = end
+                    if page_token:
+                        params["page_token"] = page_token
+                    data = self._get_data("/v1beta1/options/bars", params=params)
+                    if not isinstance(data, dict):
+                        break
+                    bars = data.get("bars") or {}
+                    if isinstance(bars, dict):
+                        for occ, items in bars.items():
+                            if not isinstance(items, list):
+                                continue
+                            bucket = out.setdefault(str(occ), [])
+                            for bar in items:
+                                if not isinstance(bar, dict):
+                                    continue
+                                bucket.append(
+                                    {
+                                        "t": bar.get("t"),
+                                        "o": bar.get("o"),
+                                        "h": bar.get("h"),
+                                        "l": bar.get("l"),
+                                        "c": bar.get("c"),
+                                        "v": bar.get("v"),
+                                        "n": bar.get("n"),
+                                    }
+                                )
+                    page_token = data.get("next_page_token")
+                    if not page_token:
+                        break
+        except Exception:
+            return {}
+        return out
+
+    def get_option_contracts(
+        self,
+        underlying: str,
+        *,
+        expiration_date_gte: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Read-only trading-API contracts metadata (OI). Fail-soft ``[]``.
+
+        ``GET /v2/options/contracts?underlying_symbols=…`` — the ONLY trading-API
+        call used by the options-flow screener; metadata only, never an order path.
+        """
+        sym = underlying.strip().upper()
+        if not sym:
+            return []
+        out: list[dict] = []
+        page_token: str | None = None
+        try:
+            for _ in range(self._OPTIONS_CONTRACTS_MAX_PAGES):
+                params: dict[str, Any] = {
+                    "underlying_symbols": sym,
+                    "limit": int(limit),
+                }
+                if expiration_date_gte:
+                    params["expiration_date_gte"] = expiration_date_gte
+                if page_token:
+                    params["page_token"] = page_token
+                data = self._request(
+                    self._base_url, "/v2/options/contracts", params=params
+                )
+                if not isinstance(data, dict):
+                    break
+                contracts = data.get("option_contracts") or data.get("contracts") or []
+                if not isinstance(contracts, list):
+                    break
+                for item in contracts:
+                    if isinstance(item, dict):
+                        out.append(item)
+                page_token = data.get("next_page_token") or data.get("page_token")
+                if not page_token:
+                    break
+        except Exception:
+            return []
+        return out
+
+    def get_option_chain_snapshot(
+        self, underlying: str, feed: str = "opra"
+    ) -> dict:
+        """Full-chain option snapshots for an underlying. Fail-soft ``{}``.
+
+        ``GET /v1beta1/options/snapshots/{underlying}?feed=opra`` — returns the
+        raw ``snapshots`` dict from the response body.
+        """
+        sym = underlying.strip().upper()
+        if not sym:
+            return {}
+        try:
+            data = self._get_data(
+                f"/v1beta1/options/snapshots/{sym}",
+                params={"feed": feed},
+            )
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        snapshots = data.get("snapshots")
+        return snapshots if isinstance(snapshots, dict) else {}
