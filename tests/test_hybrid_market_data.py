@@ -85,7 +85,13 @@ async def test_single_bar_routes_per_symbol() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quotes_route_equities_to_alpaca_drop_futures() -> None:
+async def test_quotes_route_equities_to_alpaca_drop_futures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Pin a daytime session so the ext feed is the default (None), not overnight.
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "regular"
+    )
     hybrid, alpaca, schwab = _hybrid()
     out = await hybrid.aget_quotes(["AAPL", "/ESU25", "SPY"])
     # Extended price from Alpaca SIP; Schwab only for supplemental fields.
@@ -100,8 +106,13 @@ async def test_quotes_route_equities_to_alpaca_drop_futures() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quotes_survive_schwab_outage() -> None:
+async def test_quotes_survive_schwab_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Regression: 2026-07-08 Schwab OAuth death must not blank equity ext prices."""
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "regular"
+    )
     hybrid, alpaca, schwab = _hybrid()
 
     async def _schwab_boom(symbols):
@@ -289,3 +300,38 @@ async def test_overnight_quotes_fallback_to_default_feed_when_overnight_empty(
         (["AAPL"], None),
     ]
     assert out["AAPL"]["ext_last"] == 99.0
+
+
+@pytest.mark.asyncio
+async def test_overnight_ext_change_pct_recomputed_from_regular_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Overnight the boats snapshot's dailyBar ≈ the latest trade, so aget_ext_quotes
+    returns ext_change_pct ≈ 0. Hybrid must recompute the overnight move against the
+    real regular close (regular_last), not pass the ~0 through."""
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "overnight"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_quote_feed", lambda _a: "boats"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_delayed", lambda _a: False
+    )
+    hybrid, alpaca, schwab = _hybrid()
+
+    async def _ext(symbols, *, feed=None):
+        alpaca.ext_quote_calls.append((list(symbols), feed))
+        return {s: {"ext_last": 100.0, "ext_change_pct": 0.0} for s in symbols}
+
+    async def _schwab_quotes(symbols):
+        schwab.quote_calls.append(list(symbols))
+        return {s: {"regular_last": 98.0, "prev_close": 90.0} for s in symbols}
+
+    alpaca.aget_ext_quotes = _ext  # type: ignore[method-assign]
+    schwab.aget_quotes = _schwab_quotes  # type: ignore[method-assign]
+
+    out = await hybrid.aget_quotes(["AAPL"])
+    # Recomputed vs regular_last (98.0) — not the ~0 input, not prev_close (90.0).
+    assert out["AAPL"]["ext_change_pct"] == round((100.0 - 98.0) / 98.0 * 100.0, 2)
+    assert out["AAPL"]["ext_last"] == 100.0

@@ -271,4 +271,22 @@ class HybridMarketData:
                     if val is not None:
                         bucket[key] = val
 
+        # Overnight ext-% fix: the boats snapshot's dailyBar IS the overnight session
+        # (its close ≈ the latest trade), so aget_ext_quotes computes ext_change_pct ≈ 0.
+        # Recompute the overnight move against the real regular close (regular_last =
+        # today's RTH close; fallback prev_close) from the Schwab supplement — consistent
+        # with how post-market is referenced.
+        if session == "overnight":
+            for bucket in merged.values():
+                ext_last = bucket.get("ext_last")
+                ref = bucket.get("regular_last") or bucket.get("prev_close")
+                if ext_last is None or not ref:
+                    continue
+                try:
+                    bucket["ext_change_pct"] = round(
+                        (float(ext_last) - float(ref)) / float(ref) * 100.0, 2
+                    )
+                except (TypeError, ValueError, ZeroDivisionError):
+                    pass
+
         return merged
