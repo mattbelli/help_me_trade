@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "options-flow-phase2",
-      "title": "DECISION: options-flow Phase 1+2 BUILT + safety-reviewed — merge to main + backfill + enable?",
-      "lane": "founder",
-      "type": "decision",
+      "title": "Options-flow screener Phase 1+2 — MERGED + ENABLED LIVE 2026-07-09 (founder go)",
+      "lane": "done",
+      "type": "feature",
       "priority": "high",
-      "owner": "founder",
-      "notes": "BUILT 2026-07-09 on feat/options-flow-screener (serv): commits 4c19f9e (2a pure detection: F-1/F-2/F-3 filters, BLK-1 blocks, DIR-1 quote rule + directional pressure), ff58ff6 (2b: read-only OPRA trades/quotes/conditions client + PollState 30s poll loop + daily OI refresh + intraday UV-1), 139e643 (2c: convergence watch — flow+RVOL>=1.5+level-touch -> >=2 components -> ONE push under 5/day deny-by-default persisted budget; solo >=$1M). 126 hermetic tests + ruff green. Adversarial review (Sonnet) SAFE-WITH-NITS; MAJOR fixed in-round (solo dedup per underlying/type/day, not ts-embedded id). Founder decisions honored: 30s poll (not 60s), Phase-3 gate lifted (multi-user direction) — transport swappable by construction. YOUR CALL: (1) merge branch -> main (lands dormant, env-gated OFF); (2) after merge: run backfill on your flow watchlist (python -m signals.options_flow.backfill --symbols <list>; sets ZSCORE_STD_FLOOR from thresholds.md) then set OPTIONS_FLOW_ENABLED=1 + restart; (3) confirm flow-watchlist composition (SPY/QQQ in w/ $250k floor + 0DTE exclusion, or out?). Phase 3 (websocket + sweeps) queues after enable."
+      "owner": "serv",
+      "notes": "LIVE 2026-07-09 ~11:15 ET on founder 'merge it and enable it'. Build: commits 4c19f9e (2a pure detection: F-1/F-2/F-3 filters, BLK-1 blocks, DIR-1 quote rule + directional pressure), ff58ff6 (2b: read-only OPRA trades/quotes/conditions client + PollState 30s poll loop + daily OI refresh + intraday UV-1), 139e643 (2c: convergence watch — flow+RVOL>=1.5+level-touch -> >=2 components -> ONE push under 5/day deny-by-default persisted budget; solo >=$1M). 126 hermetic tests + ruff green; adversarial review SAFE-WITH-NITS, MAJOR fixed in-round (solo dedup per underlying/type/day). ENABLE SEQUENCE DONE: merged f0fddee -> main; backfill 23 watchlist names (futures excluded) = 64,444 rows/61 buckets; ZSCORE_STD_FLOOR=1242.65 committed (bfdfa2a) w/ derivation in research/options_flow/thresholds.md; OPTIONS_FLOW_ENABLED=1 in .env; serv-deploy both (backend PID 553659, frontend 553910, clean boot). SPY/QQQ kept in w/ $250k floor + 0DTE exclusion. Watch: first convergence/solo pushes respect the 5/day budget; EOD scan tonight. NEXT: Phase 3 (msgpack websocket + SWP-1 sweeps + at-print DIR-1 — gate lifted per multi-user direction) + P-3 market-hours probe (condition-code frequencies to validate F-1/F-2)."
     },
     {
       "id": "toolbar-redesign-b",

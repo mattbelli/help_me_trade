@@ -10,6 +10,19 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-09, later) — Options-flow Phase 1+2 MERGED TO MAIN + ENABLED LIVE
+
+> Founder: "merge it to main and enable it." Done ~11:15 ET: merge `f0fddee` → main (pushed); backfill on the
+> 23 equity/ETF watchlist names (futures excluded) → 64,444 baseline rows / 61 buckets;
+> **`ZSCORE_STD_FLOOR=1242.65`** set from `research/options_flow/thresholds.md` (committed `bfdfa2a`, UV-2
+> test fixtures rescaled); `OPTIONS_FLOW_ENABLED=1` appended to `.env`; frontend rebuilt + both services
+> restarted via `tools/serv-deploy.sh` (backend PID 553659 / frontend 553910, clean boot, zero errors).
+> SPY/QQQ stay in the flow watchlist with the built-in $250k premium floor + 0DTE exclusion. The 30s intraday
+> poll + convergence pushes (5/day budget) are live during regular hours; first EOD scan tonight after close.
+> **Watch:** journal `options_flow intraday:` cycle lines + that early pushes respect the budget. **Next:**
+> Phase 3 (msgpack websocket + SWP-1 sweeps + at-print DIR-1 — usage gate LIFTED per `multi-user-product-
+> direction`) and the P-3 market-hours probe (condition-code frequency counts to validate F-1/F-2 thresholds).
+
 ## ▶ START HERE (2026-07-09) — Options-flow Phase 2 BUILT on `feat/options-flow-screener` (serv), awaiting founder merge call
 
 > Picked up the PC handoff (`References/PC_TO_SERV_2026-07-09_options-flow.md`) and built **Phase 2 end-to-end**
