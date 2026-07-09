@@ -9,7 +9,7 @@ import os
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket
@@ -190,6 +190,17 @@ RVOL_ALERT_INTERVAL_SECONDS = max(
 )
 RVOL_ALERT_THRESHOLD = float(os.environ.get("RVOL_ALERT_THRESHOLD", "3.0"))
 _RVOL_ALERTS_ENABLED = os.environ.get("RVOL_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+OPTIONS_FLOW_INTERVAL_SECONDS = float(
+    os.environ.get("OPTIONS_FLOW_INTERVAL_SECONDS", "1800")
+)
+_OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not in (
+    "0",
+    "false",
+    "no",
+)
+OPTIONS_FLOW_POLL_SECONDS = max(
+    10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30"))
+)
 SCHWAB_HEALTH_INTERVAL_SECONDS = max(
     300, int(os.environ.get("SCHWAB_HEALTH_INTERVAL_SECONDS", str(6 * 3600)))
 )
@@ -945,6 +956,146 @@ async def _rvol_alert_once() -> None:
             logger.exception("RVOL alert: error processing symbol %s", sym)
 
 
+# ---------------------------------------------------------------------------
+# Options-flow EOD scan (Phase 1c): nightly UV-1/UV-2 into options_flow_events.
+# Env-gated OFF by default (serv-only; PC order-flow-RAM incident). Pull-only —
+# no notifications here (Phase 2 convergence watch).
+# ---------------------------------------------------------------------------
+_options_flow_ran_dates: set[date] = set()
+_options_flow_non_alpaca_logged = False
+_options_flow_intraday_logged = False
+
+
+def _should_options_flow_scan(today_et: date) -> bool:
+    return today_et not in _options_flow_ran_dates
+
+
+def _mark_options_flow_scanned(today_et: date) -> None:
+    _options_flow_ran_dates.add(today_et)
+    # Bound memory: keep only today and yesterday.
+    stale = [d for d in _options_flow_ran_dates if d < today_et - timedelta(days=1)]
+    for d in stale:
+        _options_flow_ran_dates.discard(d)
+
+
+async def _options_flow_eod_once() -> None:
+    """After-close EOD options-flow scan; once per ET day; fail-soft."""
+    global _options_flow_non_alpaca_logged
+    try:
+        if _market_session() not in ("post", "closed", "overnight"):
+            return
+
+        today_et = datetime.now(_ET).date()
+        if not _should_options_flow_scan(today_et):
+            return
+
+        try:
+            broker = get_broker("alpaca")  # options data lives only on Alpaca
+        except Exception as exc:
+            logger.warning("options_flow EOD: Alpaca broker unavailable: %s", exc)
+            return
+
+        if not hasattr(broker, "get_option_bars"):
+            if not _options_flow_non_alpaca_logged:
+                logger.warning(
+                    "options_flow EOD: broker has no get_option_bars "
+                    "(options data requires Alpaca); skipping"
+                )
+                _options_flow_non_alpaca_logged = True
+            return
+
+        from signals.options_flow.scan import run_eod_scan
+
+        symbols = _all_watchlist_symbols()
+        event_date = today_et.isoformat()
+        summary = run_eod_scan(
+            broker, symbols=symbols, event_date=event_date
+        )
+        _mark_options_flow_scanned(today_et)
+        logger.info(
+            "options_flow EOD: date=%s underlyings=%s events=%s daily_rows=%s",
+            event_date,
+            summary.get("underlyings"),
+            summary.get("events"),
+            summary.get("daily_rows"),
+        )
+    except Exception:
+        logger.exception("options_flow EOD: unexpected failure")
+
+
+async def _options_flow_intraday_once() -> None:
+    """Regular-hours intraday options-flow poll; fail-soft."""
+    global _options_flow_intraday_logged
+    try:
+        if _market_session() != "regular":
+            return
+
+        try:
+            broker = get_broker("alpaca")
+        except Exception as exc:
+            logger.warning("options_flow intraday: Alpaca broker unavailable: %s", exc)
+            return
+
+        required = (
+            "get_option_trades",
+            "get_option_latest_quotes",
+            "get_option_trade_conditions",
+            "get_option_chain_snapshot",
+            "get_option_contracts",
+            "get_option_bars",
+        )
+        if not all(hasattr(broker, name) for name in required):
+            if not _options_flow_intraday_logged:
+                logger.warning(
+                    "options_flow intraday: broker missing options data methods "
+                    "(options data requires Alpaca); skipping"
+                )
+                _options_flow_intraday_logged = True
+            return
+
+        from signals.options_flow.convergence import process_events
+        from signals.options_flow.poll import run_poll_once
+
+        symbols = _all_watchlist_symbols()
+        now_et = datetime.now(_ET)
+        today_et = now_et.date().isoformat()
+        now_ms = int(now_et.timestamp() * 1000)
+        summary = await asyncio.to_thread(
+            run_poll_once,
+            broker,
+            symbols=symbols,
+            today_et=today_et,
+            now_ms=now_ms,
+        )
+        events = summary.pop("events", []) or []
+        conv_summary: dict[str, int] = {}
+        if events:
+            open_min = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+            now_min = now_et.hour * 60 + now_et.minute
+            minutes_since_open = max(0, now_min - open_min)
+            conv_summary = await process_events(
+                broker,
+                events,
+                today_et=today_et,
+                minutes_since_open=minutes_since_open,
+            )
+        logger.info(
+            "options_flow intraday: date=%s prints=%s blocks=%s uv1=%s pressure=%s "
+            "events=%s convergence=%s solo=%s pushes=%s",
+            today_et,
+            summary.get("prints"),
+            summary.get("blocks"),
+            summary.get("uv1"),
+            summary.get("pressure"),
+            len(events),
+            conv_summary.get("convergence", 0),
+            conv_summary.get("solo", 0),
+            conv_summary.get("pushes", 0),
+        )
+    except Exception:
+        logger.exception("options_flow intraday: unexpected failure")
+
+
 def _upcoming_earnings_date(symbol: str, today_iso: str) -> str | None:
     """Next watchlist earnings on or after today (includes day-of)."""
     if last_earnings_date(symbol, today_iso) == today_iso:
@@ -1409,6 +1560,22 @@ def _register_background_jobs() -> None:
             fn=_rvol_alert_once,
             interval_s=float(RVOL_ALERT_INTERVAL_SECONDS),
             enabled=lambda: _RVOL_ALERTS_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="options_flow",
+            fn=_options_flow_eod_once,
+            interval_s=float(OPTIONS_FLOW_INTERVAL_SECONDS),
+            enabled=lambda: _OPTIONS_FLOW_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="options_flow_intraday",
+            fn=_options_flow_intraday_once,
+            interval_s=float(OPTIONS_FLOW_POLL_SECONDS),
+            enabled=lambda: _OPTIONS_FLOW_ENABLED,
         )
     )
     register_job(
@@ -2251,6 +2418,40 @@ def _compute_rvol_from_total_volume(
     if expected <= 0:
         return None
     return round(total_volume / expected, 2)
+
+
+@app.get("/api/options-flow")
+async def api_options_flow(
+    limit: int = 50,
+    symbol: str | None = None,
+    event_type: str | None = None,
+    min_premium: float | None = None,
+    since: str | None = None,
+):
+    """Recent unusual options-activity events (Mode-A perception).
+
+    Facts about the OPRA tape — NOT a buy/sell signal. Each event carries a
+    ``caveat`` and never a win%/EV/confidence. Populated by the nightly EOD scan
+    (``OPTIONS_FLOW_ENABLED``); returns an empty list until that has run.
+    """
+    from db.options_flow import recent_events
+
+    capped = max(1, min(int(limit), 50))
+    try:
+        events = recent_events(
+            symbol=symbol,
+            event_type=event_type,
+            min_premium=min_premium,
+            since=since,
+            limit=capped,
+        )
+    except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return {
+        "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
+        "count": len(events),
+        "events": events,
+    }
 
 
 @app.get("/api/scanner/rvol")

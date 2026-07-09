@@ -17,6 +17,7 @@ import { ReportsWidget } from "@/components/workspace/widgets/reports-widget";
 import { ResearchWidget } from "@/components/workspace/widgets/research-widget";
 import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
+import { OptionsFlowWidget } from "@/components/workspace/widgets/options-flow-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
 import { PerformanceStatsWidget } from "@/components/workspace/widgets/performance-stats-widget";
@@ -127,6 +128,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: ScansWidget,
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
+  },
+  {
+    id: "options-flow",
+    title: "options flow",
+    description:
+      "Unusual options activity on the watchlist — facts about the tape (perception), not a buy/sell signal",
+    channelAware: true,
+    component: OptionsFlowWidget,
+    defaultSize: { w: 12, h: 6, minW: 5, minH: 4 },
   },
   {
     id: "idea-outcomes",

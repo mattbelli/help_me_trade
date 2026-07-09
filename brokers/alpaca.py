@@ -1003,6 +1003,56 @@ class AlpacaAdapter:
                     out[sym] = parsed
         return out
 
+    def get_stock_snapshot_fields(self, symbol: str) -> dict[str, float] | None:
+        """Read-only equity snapshot: last price and today's daily-bar volume.
+
+        Uses ``GET /v2/stocks/snapshots``. Fail-soft — returns None on error or
+        missing fields; never raises.
+        """
+        sym = symbol.strip().upper()
+        if not sym:
+            return None
+        try:
+            data = self._get_data(
+                "/v2/stocks/snapshots",
+                params={"symbols": sym, "feed": self._data_feed},
+            )
+        except Exception:
+            logger.warning(
+                "Alpaca stock snapshot failed for %s", sym, exc_info=True
+            )
+            return None
+
+        snap = data.get(sym) if isinstance(data, dict) else None
+        if not isinstance(snap, dict):
+            return None
+
+        trade = snap.get("latestTrade") or {}
+        quote = snap.get("latestQuote") or {}
+        daily_bar = snap.get("dailyBar") or {}
+
+        def _f(v: object) -> float | None:
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        last_price = _f(trade.get("p"))
+        if last_price is None:
+            bid = _f(quote.get("bp"))
+            ask = _f(quote.get("ap"))
+            if bid is not None and ask is not None:
+                last_price = (bid + ask) / 2.0
+            elif bid is not None:
+                last_price = bid
+            elif ask is not None:
+                last_price = ask
+
+        day_volume = _f(daily_bar.get("v"))
+        if last_price is None or day_volume is None or day_volume <= 0:
+            return None
+        return {"last_price": last_price, "day_volume": day_volume}
+
     def get_forward_splits(
         self, symbols: list[str]
     ) -> dict[str, list[tuple[date, Decimal]]]:
@@ -1181,3 +1231,270 @@ class AlpacaAdapter:
         if not isinstance(data, dict):
             return None
         return self._parse_option_snapshot(data, sym)
+
+    # --- Options-flow screener (read-only data + contracts metadata) -------------
+
+    _OPTIONS_BARS_CHUNK = 100
+    _OPTIONS_BARS_MAX_PAGES = 50
+    _OPTIONS_TRADES_CHUNK = 100
+    _OPTIONS_TRADES_MAX_PAGES = 50
+    _OPTIONS_QUOTES_CHUNK = 100
+    _OPTIONS_CONTRACTS_MAX_PAGES = 50
+
+    def get_option_bars(
+        self,
+        occ_symbols: list[str],
+        start: str,
+        end: str | None = None,
+        timeframe: str = "1Day",
+    ) -> dict[str, list[dict]]:
+        """Historical option bars (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/bars?symbols=<csv>&timeframe=…&start=…``
+        Chunks ≤100 symbols/request; paginates via ``next_page_token``.
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols or not start:
+            return {}
+        out: dict[str, list[dict]] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_BARS_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_BARS_CHUNK]
+                page_token: str | None = None
+                for _ in range(self._OPTIONS_BARS_MAX_PAGES):
+                    params: dict[str, Any] = {
+                        "symbols": ",".join(chunk),
+                        "timeframe": timeframe,
+                        "start": start,
+                    }
+                    if end:
+                        params["end"] = end
+                    if page_token:
+                        params["page_token"] = page_token
+                    data = self._get_data("/v1beta1/options/bars", params=params)
+                    if not isinstance(data, dict):
+                        break
+                    bars = data.get("bars") or {}
+                    if isinstance(bars, dict):
+                        for occ, items in bars.items():
+                            if not isinstance(items, list):
+                                continue
+                            bucket = out.setdefault(str(occ), [])
+                            for bar in items:
+                                if not isinstance(bar, dict):
+                                    continue
+                                bucket.append(
+                                    {
+                                        "t": bar.get("t"),
+                                        "o": bar.get("o"),
+                                        "h": bar.get("h"),
+                                        "l": bar.get("l"),
+                                        "c": bar.get("c"),
+                                        "v": bar.get("v"),
+                                        "n": bar.get("n"),
+                                    }
+                                )
+                    page_token = data.get("next_page_token")
+                    if not page_token:
+                        break
+        except Exception:
+            return {}
+        return out
+
+    def get_option_trades(
+        self,
+        occ_symbols: list[str],
+        *,
+        start: str,
+        end: str | None = None,
+        limit: int = 10_000,
+    ) -> dict[str, list[dict]]:
+        """Historical option trades (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/trades?symbols=<csv>&start=<RFC3339>&limit=…``
+        Chunks ≤100 symbols/request; paginates via ``next_page_token``.
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols or not start:
+            return {}
+        out: dict[str, list[dict]] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_TRADES_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_TRADES_CHUNK]
+                page_token: str | None = None
+                for _ in range(self._OPTIONS_TRADES_MAX_PAGES):
+                    params: dict[str, Any] = {
+                        "symbols": ",".join(chunk),
+                        "start": start,
+                        "limit": int(limit),
+                    }
+                    if end:
+                        params["end"] = end
+                    if page_token:
+                        params["page_token"] = page_token
+                    data = self._get_data("/v1beta1/options/trades", params=params)
+                    if not isinstance(data, dict):
+                        break
+                    trades = data.get("trades") or {}
+                    if isinstance(trades, dict):
+                        for occ, items in trades.items():
+                            if not isinstance(items, list):
+                                continue
+                            bucket = out.setdefault(str(occ), [])
+                            for trade in items:
+                                if not isinstance(trade, dict):
+                                    continue
+                                bucket.append(
+                                    {
+                                        "t": trade.get("t"),
+                                        "p": trade.get("p"),
+                                        "s": trade.get("s"),
+                                        "x": trade.get("x"),
+                                        "c": trade.get("c"),
+                                    }
+                                )
+                    page_token = data.get("next_page_token")
+                    if not page_token:
+                        break
+        except Exception:
+            return {}
+        return out
+
+    def get_option_latest_quotes(
+        self, occ_symbols: list[str]
+    ) -> dict[str, dict]:
+        """Latest option quotes (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/quotes/latest?symbols=<csv>&feed=opra``
+        Returns ``{occ: {"bid": float|None, "ask": float|None, "ts": str|None}}``.
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols:
+            return {}
+        out: dict[str, dict] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_QUOTES_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_QUOTES_CHUNK]
+                data = self._get_data(
+                    "/v1beta1/options/quotes/latest",
+                    params={"symbols": ",".join(chunk), "feed": "opra"},
+                )
+                if not isinstance(data, dict):
+                    continue
+                quotes = data.get("quotes") or {}
+                if not isinstance(quotes, dict):
+                    continue
+                for occ, raw in quotes.items():
+                    if not isinstance(raw, dict):
+                        continue
+                    bid: float | None = None
+                    ask: float | None = None
+                    try:
+                        bp = raw.get("bp")
+                        if bp is not None:
+                            b = float(bp)
+                            if b > 0:
+                                bid = b
+                    except (TypeError, ValueError):
+                        pass
+                    try:
+                        ap = raw.get("ap")
+                        if ap is not None:
+                            a = float(ap)
+                            if a > 0:
+                                ask = a
+                    except (TypeError, ValueError):
+                        pass
+                    ts = raw.get("t")
+                    ts_out = str(ts).strip() if ts else None
+                    out[str(occ).strip().upper()] = {
+                        "bid": bid,
+                        "ask": ask,
+                        "ts": ts_out,
+                    }
+        except Exception:
+            return {}
+        return out
+
+    def get_option_trade_conditions(self) -> dict[str, str]:
+        """OPRA trade condition code → description mapping. Fail-soft ``{}``."""
+        try:
+            data = self._get_data("/v1beta1/options/meta/conditions/trade")
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        out: dict[str, str] = {}
+        for code, desc in data.items():
+            if code is None:
+                continue
+            out[str(code)] = str(desc) if desc is not None else ""
+        return out
+
+    def get_option_contracts(
+        self,
+        underlying: str,
+        *,
+        expiration_date_gte: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Read-only trading-API contracts metadata (OI). Fail-soft ``[]``.
+
+        ``GET /v2/options/contracts?underlying_symbols=…`` — the ONLY trading-API
+        call used by the options-flow screener; metadata only, never an order path.
+        """
+        sym = underlying.strip().upper()
+        if not sym:
+            return []
+        out: list[dict] = []
+        page_token: str | None = None
+        try:
+            for _ in range(self._OPTIONS_CONTRACTS_MAX_PAGES):
+                params: dict[str, Any] = {
+                    "underlying_symbols": sym,
+                    "limit": int(limit),
+                }
+                if expiration_date_gte:
+                    params["expiration_date_gte"] = expiration_date_gte
+                if page_token:
+                    params["page_token"] = page_token
+                data = self._request(
+                    self._base_url, "/v2/options/contracts", params=params
+                )
+                if not isinstance(data, dict):
+                    break
+                contracts = data.get("option_contracts") or data.get("contracts") or []
+                if not isinstance(contracts, list):
+                    break
+                for item in contracts:
+                    if isinstance(item, dict):
+                        out.append(item)
+                page_token = data.get("next_page_token") or data.get("page_token")
+                if not page_token:
+                    break
+        except Exception:
+            return []
+        return out
+
+    def get_option_chain_snapshot(
+        self, underlying: str, feed: str = "opra"
+    ) -> dict:
+        """Full-chain option snapshots for an underlying. Fail-soft ``{}``.
+
+        ``GET /v1beta1/options/snapshots/{underlying}?feed=opra`` — returns the
+        raw ``snapshots`` dict from the response body.
+        """
+        sym = underlying.strip().upper()
+        if not sym:
+            return {}
+        try:
+            data = self._get_data(
+                f"/v1beta1/options/snapshots/{sym}",
+                params={"feed": feed},
+            )
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        snapshots = data.get("snapshots")
+        return snapshots if isinstance(snapshots, dict) else {}

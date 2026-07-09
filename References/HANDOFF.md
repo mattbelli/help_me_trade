@@ -10,6 +10,24 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
+## ▶ START HERE (2026-07-09) — Options-flow Phase 2 BUILT on `feat/options-flow-screener` (serv), awaiting founder merge call
+
+> Picked up the PC handoff (`References/PC_TO_SERV_2026-07-09_options-flow.md`) and built **Phase 2 end-to-end**
+> in three Composer rounds, each Fable diff-reviewed + verified (commits `4c19f9e` 2a detection / `ff58ff6` 2b
+> 30s poll transport / `139e643` 2c convergence+pushes; 126 hermetic tests, ruff clean; **adversarial safety
+> review SAFE-WITH-NITS, MAJOR dedup finding fixed in-round**). Ships: F-1/F-2/F-3 filters, BLK-1 blocks,
+> DIR-1 quote-rule tagging (`polled_quote`), intraday UV-1, per-contract trade cursors + active set + daily OI
+> refresh, and the **convergence watch** (flow + RVOL≥1.5 + level-touch → ≥2 components → ONE phone push under
+> a 5/day deny-by-default persisted budget; solo ≥$1M). **Founder decisions this session (memories saved):**
+> poll = **30s** (never design slow assuming he reacts slowly — `latency-design-for-fast-reaction`), and
+> **Phase-3 usage gate LIFTED** — building for future users, not just him (`multi-user-product-direction`);
+> transport is swappable by construction (detector consumes normalized prints). Everything still env-gated
+> OFF (`OPTIONS_FLOW_ENABLED=0`) + **not merged to main** (founder authorizes). Next: merge → run backfill on
+> the flow watchlist (sets `ZSCORE_STD_FLOOR`, currently placeholder 0.0) → enable; P-3 market-hours probe
+> (condition-code frequencies); then Phase 3 (msgpack websocket + SWP-1 sweeps). Board card
+> `options-flow-phase2`; BUILD.md 2026-07-09 top row; design doc
+> `research/fable/2026-07-09_options-flow-screener-design.md` is the source of truth.
+
 ## ▶ START HERE (2026-07-08) — Schwab token-stale durable fix (both legs) committed, ⚠ DEPLOY PENDING
 
 > Two companion briefs executed (Composer-coded, Opus-reviewed) to close the recurring ~weekly Schwab outage
