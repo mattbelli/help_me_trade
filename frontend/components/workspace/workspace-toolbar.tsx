@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, MessageSquareIcon, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, RefreshCw } from "lucide-react";
 
-import { PagesMenu } from "@/components/layout/pages-menu";
 import { AccountSelector } from "@/components/workspace/account-selector";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
@@ -17,14 +16,13 @@ import {
   fetchBroker,
   fetchSettings,
   formatMoney,
+  type AlpacaDataFeedInfo,
   type BrokerInfo,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
 import { useDayPnl, useLedgerDayPnl } from "@/lib/workspace/use-day-pnl";
 import {
   isRealScope,
-  maskMoney,
   resolveAccountView,
   useDashboardPrefs,
 } from "@/lib/workspace/use-dashboard-prefs";
@@ -33,6 +31,8 @@ import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import { useEtClock } from "@/lib/workspace/use-et-clock";
 import { ThemeSwitcher } from "./theme-switcher";
 import { NotificationBell } from "./notification-bell";
+
+type MarketSession = "pre" | "regular" | "post" | "overnight" | "closed";
 
 function formatCompactMoney(value: number): string {
   if (Math.abs(value) >= 1000) {
@@ -46,55 +46,62 @@ function formatSignedPnl(value: number): string {
   return `${prefix}${formatMoney(value)}`;
 }
 
-function moneyTypeBadgeKind(
-  selectedAccountId: string,
-): "real" | "paper" | "both" {
-  if (selectedAccountId === "overview") return "both";
-  if (isRealScope(selectedAccountId)) return "real";
-  return "paper";
+/** Mirrors ``brokers/market_clock.py`` for feed-chip session labels. */
+function marketSessionNow(now = new Date()): MarketSession {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(now);
+
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "Mon";
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const wdMap: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+  const wd = wdMap[weekday] ?? 0;
+  const minutes = hour * 60 + minute;
+
+  if (wd <= 4) {
+    if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) return "pre";
+    if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return "regular";
+    if (minutes >= 16 * 60 && minutes < 20 * 60) return "post";
+  }
+  if (
+    (wd === 4 && minutes >= 20 * 60) ||
+    wd === 5 ||
+    (wd === 6 && minutes < 20 * 60)
+  ) {
+    return "closed";
+  }
+  return "overnight";
 }
 
-function MoneyTypeBadge({
-  kind,
-  className,
-}: {
-  kind: "real" | "paper" | "both";
-  className?: string;
-}) {
-  if (kind === "both") {
-    return (
-      <span
-        className={cn(
-          "inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-dim)] uppercase",
-          className,
-        )}
-      >
-        Real + Paper
-      </span>
-    );
+function feedChipDisplay(
+  dataFeed: AlpacaDataFeedInfo,
+  session: MarketSession,
+): { label: string; paid: boolean; dimmed: boolean } {
+  if (dataFeed.tier === "paid") {
+    return {
+      label: session === "overnight" ? "BOATS" : "SIP",
+      paid: true,
+      dimmed: false,
+    };
   }
-  if (kind === "real") {
-    return (
-      <span
-        className={cn(
-          "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase",
-          className,
-        )}
-      >
-        Real
-      </span>
-    );
-  }
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2.5 py-[3px] font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-blue)] uppercase",
-        className,
-      )}
-    >
-      Paper
-    </span>
-  );
+  return {
+    label: "IEX",
+    paid: false,
+    dimmed: session === "overnight",
+  };
 }
 
 function ToolbarTile({
@@ -106,8 +113,6 @@ function ToolbarTile({
   label: string;
   value: string;
   valueClassName?: string;
-  // Raw number the tile shows, for the tick-flash wash. Pass null (e.g. under
-  // privacy mode) to suppress the flash.
   flashValue?: number | null;
 }) {
   const flash = usePriceFlash(flashValue);
@@ -169,8 +174,6 @@ export function WorkspaceToolbar() {
   const { snapshot, brokerInfo, loading } = useSnapshot();
   const { dayPnl, loading: dayLoading } = useDayPnl();
   const clock = useEtClock();
-  const copilotOpen = useCopilotStore((s) => s.open);
-  const toggleCopilot = useCopilotStore((s) => s.toggle);
   const {
     selectedAccountId,
     privacyMode,
@@ -180,18 +183,11 @@ export function WorkspaceToolbar() {
 
   const { realAccounts, realSummary } = useRealAccounts();
 
-  // Real (Schwab) DAY P&L follows the selected account off our own ledger —
-  // same per-ET-day realized net-cash figure the trading calendar shows, so the
-  // two agree by construction (Schwab's own snapshot day_pl is intraday MTM and
-  // disagreed). Skips fetching for non-real scopes.
   const { dayPnl: realDayPnl, loading: realDayLoading } = useLedgerDayPnl(
     isRealScope(selectedAccountId) ? selectedAccountId : "",
   );
 
   const view = resolveAccountView(snapshot, selectedAccountId);
-  // Real (Schwab) balances for the toolbar tiles when a real scope is selected —
-  // resolveAccountView returns null for real scopes (the paper/real firewall), so
-  // the tiles must read from the Schwab source here instead.
   const realView = isRealScope(selectedAccountId)
     ? selectedAccountId === "all_real"
       ? {
@@ -217,7 +213,6 @@ export function WorkspaceToolbar() {
   );
   const showAccountSelect =
     paperSnapshots.length > 1 || realAccounts.length > 0;
-  const badgeKind = moneyTypeBadgeKind(selectedAccountId);
 
   const [brokerOpen, setBrokerOpen] = useState(false);
   const [brokerDetails, setBrokerDetails] = useState<BrokerInfo | null>(null);
@@ -279,6 +274,10 @@ export function WorkspaceToolbar() {
     details?.primary_broker ?? details?.broker ?? broker;
   const auth = brokerAuth(details, primary);
   const alpacaDataFeed = details?.brokers?.alpaca?.data_feed;
+  const marketSession = marketSessionNow();
+  const feedChip = alpacaDataFeed
+    ? feedChipDisplay(alpacaDataFeed, marketSession)
+    : null;
 
   const recheckAlpacaFeed = () => {
     setFeedRechecking(true);
@@ -294,8 +293,108 @@ export function WorkspaceToolbar() {
       });
   };
 
+  const metricsTiles =
+    loading && !snapshot ? null : selectedAccountId === "overview" ? (
+      <>
+        <ToolbarTile
+          label="REAL"
+          value={formatCompactMoney(realSummary.liquidation_value ?? 0)}
+          flashValue={realSummary.liquidation_value ?? 0}
+        />
+        <ToolbarTile
+          label="PAPER"
+          value={formatCompactMoney(
+            snapshot?.all_accounts_summary?.portfolio_value ?? 0,
+          )}
+          flashValue={snapshot?.all_accounts_summary?.portfolio_value ?? 0}
+        />
+      </>
+    ) : realView ? (
+      <>
+        <ToolbarTile
+          label="PORT"
+          value={formatCompactMoney(realView.portfolio_value)}
+          flashValue={realView.portfolio_value}
+        />
+        <ToolbarTile
+          label="CASH"
+          value={formatCompactMoney(realView.cash)}
+          flashValue={realView.cash}
+        />
+        <ToolbarTile
+          label="DAY"
+          value={
+            realDayLoading && realDayPnl == null
+              ? "—"
+              : realDayPnl != null
+                ? formatSignedPnl(realDayPnl)
+                : "—"
+          }
+          flashValue={realDayPnl}
+          valueClassName={
+            realDayPnl != null && realDayPnl !== 0
+              ? realDayPnl >= 0
+                ? "text-[var(--c-green)]"
+                : "text-[var(--c-red)]"
+              : undefined
+          }
+        />
+        <ToolbarTile
+          label="UPL"
+          value={formatSignedPnl(realView.unrealized_pl)}
+          flashValue={realView.unrealized_pl}
+          valueClassName={
+            realView.unrealized_pl >= 0
+              ? "text-[var(--c-green)]"
+              : "text-[var(--c-red)]"
+          }
+        />
+      </>
+    ) : view ? (
+      <>
+        <ToolbarTile
+          label="PORT"
+          value={formatCompactMoney(view.portfolio_value)}
+          flashValue={view.portfolio_value}
+        />
+        <ToolbarTile
+          label="BP"
+          value={formatCompactMoney(view.buying_power)}
+          flashValue={view.buying_power}
+        />
+        <ToolbarTile
+          label="DAY"
+          value={
+            dayLoading && dayPnl == null
+              ? "—"
+              : dayPnl != null
+                ? formatSignedPnl(dayPnl)
+                : "—"
+          }
+          flashValue={dayPnl}
+          valueClassName={
+            dayPnl != null
+              ? dayPnl >= 0
+                ? "text-[var(--c-green)]"
+                : "text-[var(--c-red)]"
+              : undefined
+          }
+        />
+        <ToolbarTile
+          label="UPL"
+          value={formatSignedPnl(view.unrealized_pl)}
+          flashValue={view.unrealized_pl}
+          valueClassName={
+            view.unrealized_pl >= 0
+              ? "text-[var(--c-green)]"
+              : "text-[var(--c-red)]"
+          }
+        />
+      </>
+    ) : null;
+
   return (
-    <header className="relative flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[length:var(--fs-title)]">
+    <header className="flex h-[52px] shrink-0 items-center border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 font-mono text-[length:var(--fs-title)]">
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2">
           <StandInMark duo className="size-6" />
@@ -304,7 +403,10 @@ export function WorkspaceToolbar() {
           </span>
         </div>
 
-        <PagesMenu />
+        <div
+          className="hidden h-[18px] w-px shrink-0 bg-[var(--border)] sm:block"
+          aria-hidden
+        />
 
         <DropdownMenu
           open={brokerOpen}
@@ -318,29 +420,52 @@ export function WorkspaceToolbar() {
           }}
         >
           <DropdownMenuTrigger
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] text-[var(--fg-dim)] capitalize outline-none transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
+            className={cn(
+              "inline-flex cursor-pointer items-center outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]",
+              feedChip
+                ? "gap-2 rounded px-2.5 py-[5px] hover:bg-[var(--bg-hover)]"
+                : "gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] text-[var(--fg-dim)] capitalize hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]",
+            )}
+            title={
+              feedChip
+                ? `Alpaca · ${feedChip.label} feed · ${isPaper ? "paper" : "live"} account`
+                : undefined
+            }
           >
             <span
               className={cn(
-                "size-1.5 rounded-full",
+                "size-1.5 shrink-0 rounded-full",
                 connected
                   ? "bg-[var(--c-green-bg)] shadow-[0_0_8px_var(--c-green-bg)]"
                   : "bg-[var(--fg-faint)]",
               )}
             />
-            {broker}
-            {primary === "alpaca" && alpacaDataFeed ? (
-              <span
-                className={cn(
-                  "rounded border px-1 py-px text-[length:var(--fs-micro)] tracking-[0.06em] uppercase",
-                  alpacaDataFeed.feed === "sip"
-                    ? "border-[color-mix(in_srgb,var(--c-green-bg)_40%,transparent)] text-[var(--c-green)]"
-                    : "border-[var(--border)] text-[var(--fg-faint)]",
-                )}
-              >
-                {alpacaDataFeed.feed}
-              </span>
-            ) : null}
+            {feedChip ? (
+              <>
+                <span
+                  className={cn(
+                    "font-mono text-[length:var(--fs-body)] font-bold tracking-[0.08em] uppercase",
+                    feedChip.paid
+                      ? "text-[var(--c-accent)]"
+                      : feedChip.dimmed
+                        ? "text-[var(--fg-faint)]"
+                        : "text-[var(--fg-dim)]",
+                  )}
+                >
+                  {feedChip.label}
+                </span>
+                <span
+                  className={cn(
+                    "font-mono text-[length:var(--fs-micro)] tracking-[0.14em] uppercase",
+                    isPaper ? "text-[var(--c-blue)]" : "text-[var(--c-amber)]",
+                  )}
+                >
+                  {isPaper ? "PAPER" : "REAL"}
+                </span>
+              </>
+            ) : (
+              <span className="capitalize">{broker}</span>
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
@@ -458,189 +583,47 @@ export function WorkspaceToolbar() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <MoneyTypeBadge kind={badgeKind} className="hidden sm:inline-flex" />
       </div>
 
-      <div className="absolute left-1/2 hidden -translate-x-1/2 items-center lg:flex">
-        <div className="flex items-center gap-1.5 text-[var(--fg-dim)]">
-          {loading && !snapshot ? null : (
-            <>
-              {showAccountSelect ? (
-                <AccountSelector
-                  value={selectedAccountId}
-                  onChange={setSelectedAccountId}
-                />
-              ) : null}
-              <button
-                type="button"
-                onClick={togglePrivacy}
-                title={privacyMode ? "Show balances" : "Hide balances"}
-                className="rounded p-1 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
-              >
-                {privacyMode ? (
-                  <EyeOff className="size-3.5" />
-                ) : (
-                  <Eye className="size-3.5" />
-                )}
-              </button>
-              {selectedAccountId === "overview" ? (
-                // Firewall: two separate portfolio totals, never one blended figure.
-                <>
-                  <ToolbarTile
-                    label="REAL"
-                    value={maskMoney(
-                      realSummary.liquidation_value ?? 0,
-                      privacyMode,
-                      formatCompactMoney,
-                    )}
-                    flashValue={
-                      privacyMode ? null : (realSummary.liquidation_value ?? 0)
-                    }
-                  />
-                  <ToolbarTile
-                    label="PAPER"
-                    value={maskMoney(
-                      snapshot?.all_accounts_summary?.portfolio_value ?? 0,
-                      privacyMode,
-                      formatCompactMoney,
-                    )}
-                    flashValue={
-                      privacyMode
-                        ? null
-                        : (snapshot?.all_accounts_summary?.portfolio_value ?? 0)
-                    }
-                  />
-                </>
-              ) : realView ? (
-                <>
-                  <ToolbarTile
-                    label="PORT"
-                    value={maskMoney(
-                      realView.portfolio_value,
-                      privacyMode,
-                      formatCompactMoney,
-                    )}
-                    flashValue={privacyMode ? null : realView.portfolio_value}
-                  />
-                  <ToolbarTile
-                    label="CASH"
-                    value={maskMoney(
-                      realView.cash,
-                      privacyMode,
-                      formatCompactMoney,
-                    )}
-                    flashValue={privacyMode ? null : realView.cash}
-                  />
-                  <ToolbarTile
-                    label="DAY"
-                    value={
-                      realDayLoading && realDayPnl == null
-                        ? "—"
-                        : realDayPnl != null
-                          ? maskMoney(realDayPnl, privacyMode, formatSignedPnl)
-                          : "—"
-                    }
-                    flashValue={privacyMode ? null : realDayPnl}
-                    valueClassName={
-                      !privacyMode && realDayPnl != null && realDayPnl !== 0
-                        ? realDayPnl >= 0
-                          ? "text-[var(--c-green)]"
-                          : "text-[var(--c-red)]"
-                        : undefined
-                    }
-                  />
-                  <ToolbarTile
-                    label="UPL"
-                    value={maskMoney(
-                      realView.unrealized_pl,
-                      privacyMode,
-                      formatSignedPnl,
-                    )}
-                    flashValue={privacyMode ? null : realView.unrealized_pl}
-                    valueClassName={
-                      !privacyMode
-                        ? realView.unrealized_pl >= 0
-                          ? "text-[var(--c-green)]"
-                          : "text-[var(--c-red)]"
-                        : undefined
-                    }
-                  />
-                </>
-              ) : view ? (
-                <>
-                  <ToolbarTile
-                    label="PORT"
-                    value={maskMoney(
-                      view.portfolio_value,
-                      privacyMode,
-                      formatCompactMoney,
-                    )}
-                    flashValue={privacyMode ? null : view.portfolio_value}
-                  />
-                  <ToolbarTile
-                    label="BP"
-                    value={maskMoney(
-                      view.buying_power,
-                      privacyMode,
-                      formatCompactMoney,
-                    )}
-                    flashValue={privacyMode ? null : view.buying_power}
-                  />
-                  <ToolbarTile
-                    label="DAY"
-                    value={
-                      dayLoading && dayPnl == null
-                        ? "—"
-                        : dayPnl != null
-                          ? maskMoney(dayPnl, privacyMode, formatSignedPnl)
-                          : "—"
-                    }
-                    flashValue={privacyMode ? null : dayPnl}
-                    valueClassName={
-                      !privacyMode && dayPnl != null
-                        ? dayPnl >= 0
-                          ? "text-[var(--c-green)]"
-                          : "text-[var(--c-red)]"
-                        : undefined
-                    }
-                  />
-                  <ToolbarTile
-                    label="UPL"
-                    value={maskMoney(view.unrealized_pl, privacyMode, formatSignedPnl)}
-                    flashValue={privacyMode ? null : view.unrealized_pl}
-                    valueClassName={
-                      !privacyMode
-                        ? view.unrealized_pl >= 0
-                          ? "text-[var(--c-green)]"
-                          : "text-[var(--c-red)]"
-                        : undefined
-                    }
-                  />
-                </>
-              ) : null}
-            </>
-          )}
+      <div className="min-w-6 flex-1" aria-hidden />
+
+      <div className="ml-auto flex items-center gap-1.5 md:gap-3">
+        <div className="hidden items-center gap-1.5 lg:flex">
+          {showAccountSelect ? (
+            <AccountSelector
+              value={selectedAccountId}
+              onChange={setSelectedAccountId}
+            />
+          ) : null}
+          <div
+            className={cn(
+              "flex items-center gap-1.5 overflow-hidden transition-[max-width,opacity,transform] duration-[240ms] ease-out",
+              privacyMode
+                ? "pointer-events-none max-w-0 translate-x-2 opacity-0"
+                : "max-w-[640px] translate-x-0 opacity-100",
+            )}
+          >
+            {metricsTiles}
+          </div>
+          <button
+            type="button"
+            onClick={togglePrivacy}
+            title={privacyMode ? "Show balances" : "Hide balances"}
+            className="shrink-0 rounded p-1 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+          >
+            {privacyMode ? (
+              <EyeOff className="size-3.5" />
+            ) : (
+              <Eye className="size-3.5" />
+            )}
+          </button>
         </div>
-      </div>
 
-      <div className="ml-auto flex items-center gap-1.5 md:gap-5">
-        <button
-          type="button"
-          data-copilot-toggle
-          onClick={toggleCopilot}
-          title={`${copilotOpen ? "Close" : "Open"} copilot (Ctrl/Cmd+J)`}
-          aria-label="Toggle copilot"
-          aria-pressed={copilotOpen}
-          className={cn(
-            "inline-flex cursor-pointer items-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]",
-            copilotOpen
-              ? "text-[var(--c-accent)]"
-              : "text-[var(--fg-faint)]",
-          )}
-        >
-          <MessageSquareIcon className="size-3.5" />
-        </button>
+        <div
+          className="hidden h-[18px] w-px shrink-0 bg-[var(--border)] lg:block"
+          aria-hidden
+        />
+
         <NotificationBell />
         <SettingsDialog collapsed />
         <ThemeSwitcher />
