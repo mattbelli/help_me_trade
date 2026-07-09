@@ -9,7 +9,7 @@ import os
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket
@@ -190,6 +190,14 @@ RVOL_ALERT_INTERVAL_SECONDS = max(
 )
 RVOL_ALERT_THRESHOLD = float(os.environ.get("RVOL_ALERT_THRESHOLD", "3.0"))
 _RVOL_ALERTS_ENABLED = os.environ.get("RVOL_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+OPTIONS_FLOW_INTERVAL_SECONDS = float(
+    os.environ.get("OPTIONS_FLOW_INTERVAL_SECONDS", "1800")
+)
+_OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not in (
+    "0",
+    "false",
+    "no",
+)
 SCHWAB_HEALTH_INTERVAL_SECONDS = max(
     300, int(os.environ.get("SCHWAB_HEALTH_INTERVAL_SECONDS", str(6 * 3600)))
 )
@@ -945,6 +953,72 @@ async def _rvol_alert_once() -> None:
             logger.exception("RVOL alert: error processing symbol %s", sym)
 
 
+# ---------------------------------------------------------------------------
+# Options-flow EOD scan (Phase 1c): nightly UV-1/UV-2 into options_flow_events.
+# Env-gated OFF by default (serv-only; PC order-flow-RAM incident). Pull-only —
+# no notifications here (Phase 2 convergence watch).
+# ---------------------------------------------------------------------------
+_options_flow_ran_dates: set[date] = set()
+_options_flow_non_alpaca_logged = False
+
+
+def _should_options_flow_scan(today_et: date) -> bool:
+    return today_et not in _options_flow_ran_dates
+
+
+def _mark_options_flow_scanned(today_et: date) -> None:
+    _options_flow_ran_dates.add(today_et)
+    # Bound memory: keep only today and yesterday.
+    stale = [d for d in _options_flow_ran_dates if d < today_et - timedelta(days=1)]
+    for d in stale:
+        _options_flow_ran_dates.discard(d)
+
+
+async def _options_flow_eod_once() -> None:
+    """After-close EOD options-flow scan; once per ET day; fail-soft."""
+    global _options_flow_non_alpaca_logged
+    try:
+        if _market_session() not in ("post", "closed", "overnight"):
+            return
+
+        today_et = datetime.now(_ET).date()
+        if not _should_options_flow_scan(today_et):
+            return
+
+        try:
+            broker = get_broker()
+        except Exception as exc:
+            logger.warning("options_flow EOD: broker unavailable: %s", exc)
+            return
+
+        if not hasattr(broker, "get_option_bars"):
+            if not _options_flow_non_alpaca_logged:
+                logger.warning(
+                    "options_flow EOD: broker has no get_option_bars "
+                    "(options data requires Alpaca); skipping"
+                )
+                _options_flow_non_alpaca_logged = True
+            return
+
+        from signals.options_flow.scan import run_eod_scan
+
+        symbols = _all_watchlist_symbols()
+        event_date = today_et.isoformat()
+        summary = run_eod_scan(
+            broker, symbols=symbols, event_date=event_date
+        )
+        _mark_options_flow_scanned(today_et)
+        logger.info(
+            "options_flow EOD: date=%s underlyings=%s events=%s daily_rows=%s",
+            event_date,
+            summary.get("underlyings"),
+            summary.get("events"),
+            summary.get("daily_rows"),
+        )
+    except Exception:
+        logger.exception("options_flow EOD: unexpected failure")
+
+
 def _upcoming_earnings_date(symbol: str, today_iso: str) -> str | None:
     """Next watchlist earnings on or after today (includes day-of)."""
     if last_earnings_date(symbol, today_iso) == today_iso:
@@ -1409,6 +1483,14 @@ def _register_background_jobs() -> None:
             fn=_rvol_alert_once,
             interval_s=float(RVOL_ALERT_INTERVAL_SECONDS),
             enabled=lambda: _RVOL_ALERTS_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="options_flow",
+            fn=_options_flow_eod_once,
+            interval_s=float(OPTIONS_FLOW_INTERVAL_SECONDS),
+            enabled=lambda: _OPTIONS_FLOW_ENABLED,
         )
     )
     register_job(

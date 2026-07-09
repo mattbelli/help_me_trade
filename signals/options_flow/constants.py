@@ -36,6 +36,11 @@ INDEX_MEGACAP_SET = frozenset({"SPY", "QQQ", "IWM", "DIA"})  # design §5 F-3 / 
 EVENTS_PRUNE_DAYS = 180  # design §4; options_flow_events retention
 DAILY_PRUNE_DAYS = 400  # design §4; options_flow_daily retention
 OPTIONS_FLOW_MAX_UNDERLYINGS = 25  # design §4; watchlist cap
+# Cap contracts fetched per underlying for EOD bars (rank by OI desc). Keeps the
+# nightly scan bounded: ~25 × 800 ≪ Alpaca's practical request budget; most
+# liquid contracts win so UV-1 still sees the names that can clear MIN_OI.
+OPTIONS_FLOW_MAX_CONTRACTS_PER_UNDERLYING = 800  # design §4; EOD scan contract cap
+
 
 
 def dte_bucket(dte: int) -> str:
