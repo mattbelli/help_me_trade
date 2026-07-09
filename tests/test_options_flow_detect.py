@@ -212,7 +212,7 @@ def test_uv2_fires_on_z_ge_3() -> None:
     assert ev["direction"] == "undetermined"
     assert ev["direction_basis"] == "none"
     assert ev["id"] == "of_2026-07-09_NVDA_bucket_8-30"
-    assert "8-30DTE" in ev["reason"]
+    assert "8-30DTE options" in ev["reason"]
     assert "3.0σ" in ev["reason"]
     assert ev["caveat"] == _caveat()
     assert "win_prob" not in ev

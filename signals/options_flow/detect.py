@@ -105,7 +105,7 @@ def _reason_uv1(ev: dict[str, Any]) -> str:
 
 def _reason_uv2(underlying: str, dte_bucket: str, z: float) -> str:
     return (
-        f"{underlying} {dte_bucket}DTE calls: today's volume "
+        f"{underlying} {dte_bucket}DTE options: today's volume "
         f"{z:.1f}σ above 20-day avg (EOD)"
     )
 
