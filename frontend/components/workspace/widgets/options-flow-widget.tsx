@@ -39,7 +39,7 @@ const MONTHS = [
   "Dec",
 ] as const;
 
-type FlowKind = "uv1" | "uv2" | "block" | "pressure";
+type FlowKind = "uv1" | "uv2" | "block" | "sweep" | "pressure";
 
 function formatPremium(v: number | null): string {
   if (v == null) return "—";
@@ -95,6 +95,7 @@ function rightLetter(right: string | null): "C" | "P" | null {
 
 function flowKind(ev: OptionsFlowEvent): FlowKind {
   if (ev.event_type === "block") return "block";
+  if (ev.event_type === "sweep") return "sweep";
   if (ev.event_type === "directional_pressure") return "pressure";
   if (ev.event_type === "unusual_volume") {
     return ev.occ_symbol ? "uv1" : "uv2";
@@ -106,6 +107,8 @@ function typeLabel(kind: FlowKind): string {
   switch (kind) {
     case "block":
       return "block";
+    case "sweep":
+      return "sweep";
     case "uv1":
       return "unusual volume";
     case "uv2":
@@ -119,6 +122,8 @@ function typeTextClass(kind: FlowKind, direction: OptionsFlowEvent["direction"])
   switch (kind) {
     case "block":
       return "text-[var(--c-yellow)]";
+    case "sweep":
+      return "text-[var(--c-violet)]";
     case "uv1":
       return "text-[var(--c-cyan)]";
     case "uv2":
@@ -192,14 +197,14 @@ function formatDetailLine(ev: OptionsFlowEvent): string {
     return parts.join(" · ");
   }
 
-  if (kind === "block") {
+  if (kind === "block" || kind === "sweep") {
     const parts = [
       contractLabel(ev),
       formatDte(ev.dte),
       formatContracts(ev.contracts),
     ];
     if (ev.n_prints != null) {
-      parts.push(`${ev.n_prints} print`);
+      parts.push(kind === "sweep" ? `${ev.n_prints} prints` : `${ev.n_prints} print`);
     }
     if (ev.exchanges?.length) {
       parts.push(ev.exchanges.join("/"));

@@ -28,7 +28,7 @@ from signals.volume_profile import load_profile
 
 logger = logging.getLogger(__name__)
 
-_FLOW_EVENT_TYPES = frozenset({"unusual_volume", "block", "directional_pressure"})
+_FLOW_EVENT_TYPES = frozenset({"unusual_volume", "block", "sweep", "directional_pressure"})
 
 
 def rvol_from_profile(

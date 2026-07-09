@@ -67,6 +67,12 @@ POLL_COLD_START_LOOKBACK_MINUTES = 30  # cursor floor for cursor-less contracts;
 # restart refetch burst (2026-07-09: a mid-day cold start re-pulled ~440k SPY prints while the
 # 20k day_prints cap kept only ~the last 30 min of them anyway)
 
+# --- SWP-1 sweeps (design §5; Phase 3b — needs streaming timestamps) ------------
+SWEEP_WINDOW_MS = 500  # design §5; same-contract prints within this of the first print
+SWEEP_MIN_EXCHANGES = 3  # design §5; distinct exchange codes for an intermarket sweep
+SPLIT_MIN_PRINTS = 5  # design §5; split variant — same window, one exchange
+SWEEP_CLOSE_GRACE_MS = 1_000  # close a cluster only after late prints can no longer join
+
 # --- OPRA websocket stream (design §5/§7; probe 2026-07-09) --------------------
 STREAM_TRADES_MAX = 1000  # design §7; our trade-sub budget (vendor acked 1,500+)
 HOT_QUOTE_MAX = 150  # design §7; narrow quote subs — ~275 q/s for 9 contracts

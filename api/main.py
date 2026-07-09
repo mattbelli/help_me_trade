@@ -1128,8 +1128,90 @@ def _options_flow_stream_on_prints(batch: list[dict]) -> None:
     stream.collected_prints.extend(batch)
 
 
+async def _options_flow_sweep_loop() -> None:
+    """Phase 3b consumer: stream prints → at-print DIR-1 → SWP-1 sweeps → events."""
+    if not (_OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED):
+        return
+
+    import db.options_flow as of_db
+    from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
+    from signals.options_flow.convergence import process_events
+    from signals.options_flow.intraday import classify_direction, tag_likely_spreads
+    from signals.options_flow.sweeps import SweepBuffer
+
+    buffer = SweepBuffer()
+    buffer_day = ""
+    stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
+
+    while True:
+        await asyncio.sleep(1.0)
+        try:
+            stream = _options_flow_stream
+            if stream is None:
+                continue
+
+            batch: list[dict] = []
+            while stream.collected_prints:
+                batch.append(stream.collected_prints.popleft())
+
+            now_et = datetime.now(_ET)
+            today_et = now_et.date().isoformat()
+            if buffer_day != today_et:
+                buffer = SweepBuffer()
+                buffer_day = today_et
+
+            if batch:
+                for p in batch:
+                    direction = "undetermined"
+                    basis = "none"
+                    q = stream.latest_quote(str(p.get("occ_symbol") or ""))
+                    if q is not None:
+                        bid, ask, q_ts_ms = q
+                        if abs(int(p.get("ts_ms") or 0) - q_ts_ms) <= stale_ms:
+                            direction = classify_direction(
+                                price=float(p.get("price") or 0), bid=bid, ask=ask
+                            )
+                            if direction != "undetermined":
+                                basis = "stream_quote"
+                    p["direction"] = direction
+                    p["direction_basis"] = basis
+                tag_likely_spreads(batch)
+                buffer.add(batch)
+
+            events = buffer.close_ready(int(time.time() * 1000), today_et)
+            if not events:
+                continue
+            for ev in events:
+                of_db.insert_event(ev)
+
+            try:
+                broker = get_broker("alpaca")
+            except Exception:
+                logger.warning("options_flow sweeps: Alpaca broker unavailable")
+                continue
+            open_min = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+            now_min = now_et.hour * 60 + now_et.minute
+            conv = await process_events(
+                broker,
+                events,
+                today_et=today_et,
+                minutes_since_open=max(0, now_min - open_min),
+            )
+            logger.info(
+                "options_flow sweeps: events=%s convergence=%s solo=%s pushes=%s",
+                len(events),
+                conv.get("convergence", 0),
+                conv.get("solo", 0),
+                conv.get("pushes", 0),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("options_flow sweeps: cycle failed")
+
+
 async def _options_flow_stream_run() -> None:
-    """OPRA websocket transport (Phase 3a); DARK — collects prints, no detection."""
+    """OPRA websocket transport (Phase 3a); prints feed `_options_flow_sweep_loop`."""
     global _options_flow_stream
     if not (_OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED):
         return
@@ -1771,6 +1853,7 @@ async def lifespan(app: FastAPI):
     ]
     if _OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED:
         background_tasks.append(asyncio.create_task(_options_flow_stream_run()))
+        background_tasks.append(asyncio.create_task(_options_flow_sweep_loop()))
     yield
     if _options_flow_stream is not None:
         _options_flow_stream.stop()
