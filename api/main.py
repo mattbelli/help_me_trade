@@ -2705,6 +2705,233 @@ def _compute_rvol_from_total_volume(
     return round(total_volume / expected, 2)
 
 
+_OPTIONS_CHAIN_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+_OPTIONS_CHAIN_TTL_S = 30.0
+
+
+def _chain_float_or_none(val: object) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _chain_int_or_none(val: object) -> int | None:
+    if val is None:
+        return None
+    try:
+        return int(float(str(val).replace(",", "")))
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_chain_side(snapshot: dict | None, oi: int | None) -> dict:
+    """One call/put column for the options-chain table — fail-soft nulls."""
+    side = {
+        "bid": None,
+        "ask": None,
+        "iv": None,
+        "delta": None,
+        "gamma": None,
+        "theta": None,
+        "vega": None,
+        "volume": None,
+        "oi": oi,
+        "last": None,
+    }
+    if not isinstance(snapshot, dict):
+        return side
+
+    iv = _chain_float_or_none(snapshot.get("impliedVolatility"))
+    if iv is not None:
+        side["iv"] = round(iv, 4)
+
+    greeks = snapshot.get("greeks")
+    if isinstance(greeks, dict):
+        for key in ("delta", "gamma", "theta", "vega"):
+            val = _chain_float_or_none(greeks.get(key))
+            if val is not None:
+                side[key] = round(val, 4)
+
+    quote = snapshot.get("latestQuote") or snapshot.get("latest_quote")
+    if isinstance(quote, dict):
+        bid = _chain_float_or_none(quote.get("bp"))
+        ask = _chain_float_or_none(quote.get("ap"))
+        if bid is not None:
+            side["bid"] = round(bid, 2)
+        if ask is not None:
+            side["ask"] = round(ask, 2)
+
+    trade = snapshot.get("latestTrade") or snapshot.get("latest_trade")
+    if isinstance(trade, dict):
+        last = _chain_float_or_none(trade.get("p"))
+        if last is not None:
+            side["last"] = round(last, 2)
+
+    daily = snapshot.get("dailyBar") or snapshot.get("daily_bar")
+    if isinstance(daily, dict):
+        vol = _chain_int_or_none(daily.get("v"))
+        if vol is not None:
+            side["volume"] = vol
+
+    return side
+
+
+def _pick_nearest_expiry(expirations: list[str], today_et: str) -> str | None:
+    if not expirations:
+        return None
+    future = [e for e in expirations if e >= today_et]
+    if future:
+        return future[0]
+    return expirations[-1]
+
+
+def _build_options_chain_sync(
+    broker: AlpacaAdapter,
+    symbol: str,
+    expiry_param: str | None,
+) -> dict:
+    from imports.option_symbol import parse_occ_symbol
+
+    sym = symbol.strip().upper()
+    today_et = datetime.now(_ET).date().isoformat()
+
+    chain = broker.get_option_chain_snapshot(sym) or {}
+    if not isinstance(chain, dict):
+        chain = {}
+
+    expirations_set: set[str] = set()
+    # expiry → strike → right → (occ, snapshot)
+    by_expiry: dict[str, dict[float, dict[str, tuple[str, dict]]]] = {}
+
+    for occ, snap in chain.items():
+        parsed = parse_occ_symbol(str(occ))
+        if parsed is None:
+            continue
+        expiry = parsed.expiration.isoformat()
+        expirations_set.add(expiry)
+        strike = float(parsed.strike)
+        right = "call" if parsed.right == "C" else "put"
+        snap_dict = snap if isinstance(snap, dict) else {}
+        by_expiry.setdefault(expiry, {}).setdefault(strike, {})[right] = (
+            str(occ).strip().upper(),
+            snap_dict,
+        )
+
+    expirations = sorted(expirations_set)
+
+    if expiry_param:
+        requested = expiry_param.strip()[:10]
+        chosen = requested if requested in expirations_set else _pick_nearest_expiry(
+            expirations, today_et
+        )
+    else:
+        chosen = _pick_nearest_expiry(expirations, today_et)
+
+    underlying_price: float | None = None
+    try:
+        und_snap = broker.get_stock_snapshot_fields(sym)
+        if und_snap and und_snap.get("last_price") is not None:
+            underlying_price = round(float(und_snap["last_price"]), 2)
+    except Exception:
+        logger.debug(
+            "options-chain: underlying snapshot failed for %s",
+            sym,
+            exc_info=True,
+        )
+
+    oi_map: dict[str, int] = {}
+    if chosen:
+        try:
+            contracts = broker.get_option_contracts(
+                sym, expiration_date_gte=today_et, limit=1000
+            )
+            if isinstance(contracts, list):
+                for c in contracts:
+                    if not isinstance(c, dict):
+                        continue
+                    exp = str(c.get("expiration_date") or "").strip()[:10]
+                    if exp != chosen:
+                        continue
+                    occ = str(c.get("symbol") or "").strip().upper()
+                    if not occ:
+                        continue
+                    oi_val = _chain_int_or_none(c.get("open_interest"))
+                    if oi_val is not None:
+                        oi_map[occ] = oi_val
+        except Exception:
+            logger.debug(
+                "options-chain: OI contracts fetch failed for %s",
+                sym,
+                exc_info=True,
+            )
+
+    rows: list[dict] = []
+    if chosen:
+        strike_map = by_expiry.get(chosen, {})
+        for strike in sorted(strike_map.keys()):
+            sides = strike_map[strike]
+            call_pair = sides.get("call")
+            put_pair = sides.get("put")
+            call_occ, call_snap = call_pair if call_pair else (None, {})
+            put_occ, put_snap = put_pair if put_pair else (None, {})
+            rows.append(
+                {
+                    "strike": strike,
+                    "call": _build_chain_side(
+                        call_snap,
+                        oi_map.get(call_occ) if call_occ else None,
+                    ),
+                    "put": _build_chain_side(
+                        put_snap,
+                        oi_map.get(put_occ) if put_occ else None,
+                    ),
+                }
+            )
+
+    return {
+        "symbol": sym,
+        "underlying_price": underlying_price,
+        "expirations": expirations,
+        "expiry": chosen,
+        "rows": rows,
+    }
+
+
+@app.get("/api/options-chain")
+async def api_options_chain(symbol: str = "", expiry: str | None = None):
+    """Read-only OPRA option chain for one underlying + expiration."""
+    broker = _require_alpaca()
+    if isinstance(broker, JSONResponse):
+        return broker
+
+    sym = symbol.strip().upper()
+    if not sym:
+        return JSONResponse({"error": "symbol required"}, status_code=400)
+
+    cache_expiry = (expiry or "").strip()[:10] if expiry else ""
+    cache_key = (sym, cache_expiry)
+    now = time.time()
+    hit = _OPTIONS_CHAIN_CACHE.get(cache_key)
+    if hit is not None and now - hit[0] < _OPTIONS_CHAIN_TTL_S:
+        return hit[1]
+
+    try:
+        result = await asyncio.to_thread(
+            _build_options_chain_sync, broker, sym, expiry
+        )
+    except BrokerError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
+        logger.exception("options-chain: fetch failed for %s", sym)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    _OPTIONS_CHAIN_CACHE[cache_key] = (now, result)
+    return result
+
+
 @app.get("/api/options-flow")
 async def api_options_flow(
     limit: int = 50,

@@ -18,6 +18,7 @@ import { ResearchWidget } from "@/components/workspace/widgets/research-widget";
 import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
 import { OptionsFlowWidget } from "@/components/workspace/widgets/options-flow-widget";
+import { OptionsChainWidget } from "@/components/workspace/widgets/options-chain-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
 import { PerformanceStatsWidget } from "@/components/workspace/widgets/performance-stats-widget";
@@ -137,6 +138,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: OptionsFlowWidget,
     defaultSize: { w: 12, h: 6, minW: 5, minH: 4 },
+  },
+  {
+    id: "options-chain",
+    title: "Options Chain",
+    description:
+      "Browse an underlying's option chain — expirations, strikes, bid/ask, IV, greeks, volume, OI",
+    channelAware: true,
+    component: OptionsChainWidget,
+    defaultSize: { w: 14, h: 7, minW: 6, minH: 4 },
   },
   {
     id: "idea-outcomes",

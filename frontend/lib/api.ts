@@ -630,6 +630,56 @@ export type OptionsFlowResult = {
   events: OptionsFlowEvent[];
 };
 
+export type OptionsChainSide = {
+  bid: number | null;
+  ask: number | null;
+  iv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  volume: number | null;
+  oi: number | null;
+  last: number | null;
+};
+
+export type OptionsChainRow = {
+  strike: number;
+  call: OptionsChainSide;
+  put: OptionsChainSide;
+};
+
+export type OptionsChainResult = {
+  symbol: string;
+  underlying_price: number | null;
+  expirations: string[];
+  expiry: string | null;
+  rows: OptionsChainRow[];
+};
+
+// OPRA option chain snapshot for one underlying + expiration (read-only).
+export async function fetchOptionsChain(
+  symbol: string,
+  expiry?: string,
+): Promise<OptionsChainResult> {
+  const params = new URLSearchParams({
+    symbol: symbol.trim().toUpperCase(),
+  });
+  if (expiry) {
+    params.set("expiry", expiry.trim().slice(0, 10));
+  }
+  const res = await apiFetch(`${API_BASE}/api/options-chain?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Options-chain error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 // Unusual options activity (Mode-A perception — facts about the tape, not a signal).
 export async function fetchOptionsFlow(
   limit = 50,
