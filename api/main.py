@@ -2798,28 +2798,27 @@ def _build_options_chain_sync(
     sym = symbol.strip().upper()
     today_et = datetime.now(_ET).date().isoformat()
 
-    chain = broker.get_option_chain_snapshot(sym) or {}
-    if not isinstance(chain, dict):
-        chain = {}
-
-    expirations_set: set[str] = set()
-    # expiry → strike → right → (occ, snapshot)
-    by_expiry: dict[str, dict[float, dict[str, tuple[str, dict]]]] = {}
-
-    for occ, snap in chain.items():
-        parsed = parse_occ_symbol(str(occ))
-        if parsed is None:
-            continue
-        expiry = parsed.expiration.isoformat()
-        expirations_set.add(expiry)
-        strike = float(parsed.strike)
-        right = "call" if parsed.right == "C" else "put"
-        snap_dict = snap if isinstance(snap, dict) else {}
-        by_expiry.setdefault(expiry, {}).setdefault(strike, {})[right] = (
-            str(occ).strip().upper(),
-            snap_dict,
+    # Contracts metadata drives the expirations picker + OI. The snapshot
+    # endpoint pages alphabetically (near-dated calls first), so deriving
+    # expirations from an unfiltered snapshot truncates the picker to one
+    # expiry and drops most puts (live finding 2026-07-09).
+    contracts: list[dict] = []
+    try:
+        raw = broker.get_option_contracts(
+            sym, expiration_date_gte=today_et, limit=1000
+        )
+        if isinstance(raw, list):
+            contracts = [c for c in raw if isinstance(c, dict)]
+    except Exception:
+        logger.debug(
+            "options-chain: contracts fetch failed for %s", sym, exc_info=True
         )
 
+    expirations_set: set[str] = set()
+    for c in contracts:
+        exp = str(c.get("expiration_date") or "").strip()[:10]
+        if exp:
+            expirations_set.add(exp)
     expirations = sorted(expirations_set)
 
     if expiry_param:
@@ -2843,34 +2842,40 @@ def _build_options_chain_sync(
         )
 
     oi_map: dict[str, int] = {}
+    for c in contracts:
+        if str(c.get("expiration_date") or "").strip()[:10] != chosen:
+            continue
+        occ = str(c.get("symbol") or "").strip().upper()
+        if not occ:
+            continue
+        oi_val = _chain_int_or_none(c.get("open_interest"))
+        if oi_val is not None:
+            oi_map[occ] = oi_val
+
+    # One expiry is at most a few hundred contracts — filtered, paginated fetch.
+    chain: dict = {}
     if chosen:
-        try:
-            contracts = broker.get_option_contracts(
-                sym, expiration_date_gte=today_et, limit=1000
-            )
-            if isinstance(contracts, list):
-                for c in contracts:
-                    if not isinstance(c, dict):
-                        continue
-                    exp = str(c.get("expiration_date") or "").strip()[:10]
-                    if exp != chosen:
-                        continue
-                    occ = str(c.get("symbol") or "").strip().upper()
-                    if not occ:
-                        continue
-                    oi_val = _chain_int_or_none(c.get("open_interest"))
-                    if oi_val is not None:
-                        oi_map[occ] = oi_val
-        except Exception:
-            logger.debug(
-                "options-chain: OI contracts fetch failed for %s",
-                sym,
-                exc_info=True,
-            )
+        raw_chain = broker.get_option_chain_snapshot(
+            sym, expiration_date=chosen, limit=1000, max_pages=3
+        )
+        if isinstance(raw_chain, dict):
+            chain = raw_chain
+
+    strike_map: dict[float, dict[str, tuple[str, dict]]] = {}
+    for occ, snap in chain.items():
+        parsed = parse_occ_symbol(str(occ))
+        if parsed is None or parsed.expiration.isoformat() != chosen:
+            continue
+        strike = float(parsed.strike)
+        right = "call" if parsed.right == "C" else "put"
+        snap_dict = snap if isinstance(snap, dict) else {}
+        strike_map.setdefault(strike, {})[right] = (
+            str(occ).strip().upper(),
+            snap_dict,
+        )
 
     rows: list[dict] = []
     if chosen:
-        strike_map = by_expiry.get(chosen, {})
         for strike in sorted(strike_map.keys()):
             sides = strike_map[strike]
             call_pair = sides.get("call")

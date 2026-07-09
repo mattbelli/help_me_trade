@@ -1509,24 +1509,48 @@ class AlpacaAdapter:
         return out
 
     def get_option_chain_snapshot(
-        self, underlying: str, feed: str = "opra"
+        self,
+        underlying: str,
+        feed: str = "opra",
+        *,
+        expiration_date: str | None = None,
+        limit: int | None = None,
+        max_pages: int = 1,
     ) -> dict:
-        """Full-chain option snapshots for an underlying. Fail-soft ``{}``.
+        """Chain option snapshots for an underlying. Fail-soft ``{}``.
 
         ``GET /v1beta1/options/snapshots/{underlying}?feed=opra`` — returns the
-        raw ``snapshots`` dict from the response body.
+        merged ``snapshots`` dict. Defaults (no filter, one page) keep the
+        original single-page behavior the poll's active-set relies on; the
+        chain-viewer endpoint passes ``expiration_date`` + ``limit=1000`` +
+        ``max_pages`` — the vendor page default is 100, alphabetical, which
+        truncates to near-dated calls otherwise.
         """
         sym = underlying.strip().upper()
         if not sym:
             return {}
+        out: dict = {}
+        page_token: str | None = None
         try:
-            data = self._get_data(
-                f"/v1beta1/options/snapshots/{sym}",
-                params={"feed": feed},
-            )
+            for _ in range(max(1, max_pages)):
+                params: dict[str, Any] = {"feed": feed}
+                if expiration_date:
+                    params["expiration_date"] = expiration_date
+                if limit:
+                    params["limit"] = int(limit)
+                if page_token:
+                    params["page_token"] = page_token
+                data = self._get_data(
+                    f"/v1beta1/options/snapshots/{sym}", params=params
+                )
+                if not isinstance(data, dict):
+                    break
+                snapshots = data.get("snapshots")
+                if isinstance(snapshots, dict):
+                    out.update(snapshots)
+                page_token = data.get("next_page_token")
+                if not page_token:
+                    break
         except Exception:
-            return {}
-        if not isinstance(data, dict):
-            return {}
-        snapshots = data.get("snapshots")
-        return snapshots if isinstance(snapshots, dict) else {}
+            return out
+        return out

@@ -53,6 +53,20 @@ def _chain_snapshots() -> dict:
     }
 
 
+def _contracts_from_chain(chain: dict) -> list[dict]:
+    """Expirations now come from contracts metadata — derive a plain list."""
+    from imports.option_symbol import parse_occ_symbol
+
+    out: list[dict] = []
+    for occ in chain:
+        parsed = parse_occ_symbol(occ)
+        if parsed is not None:
+            out.append(
+                {"symbol": occ, "expiration_date": parsed.expiration.isoformat()}
+            )
+    return out
+
+
 def _mock_alpaca(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -62,10 +76,12 @@ def _mock_alpaca(
     chain_raises: bool = False,
 ) -> MagicMock:
     broker = MagicMock(spec=AlpacaAdapter)
+    if contracts is None:
+        contracts = _contracts_from_chain(chain or {})
 
     if chain_raises:
 
-        def _boom_chain(_sym: str, feed: str = "opra") -> dict:
+        def _boom_chain(_sym: str, feed: str = "opra", **_kw: object) -> dict:
             raise RuntimeError("chain boom")
 
         broker.get_option_chain_snapshot = _boom_chain
@@ -79,9 +95,7 @@ def _mock_alpaca(
         if underlying_price is not None
         else None
     )
-    broker.get_option_contracts = MagicMock(
-        return_value=[] if contracts is None else contracts
-    )
+    broker.get_option_contracts = MagicMock(return_value=contracts)
 
     monkeypatch.setattr("api.main.broker_is_configured", lambda name: name == "alpaca")
     monkeypatch.setattr("api.main.get_broker", lambda _name: broker)
@@ -102,6 +116,8 @@ def test_options_chain_happy_path_shape(monkeypatch: pytest.MonkeyPatch) -> None
             "expiration_date": "2026-08-21",
             "open_interest": 2100,
         },
+        {"symbol": "NVDA260717C00200000", "expiration_date": "2026-07-17"},
+        {"symbol": "NVDA260717P00200000", "expiration_date": "2026-07-17"},
     ]
     _mock_alpaca(monkeypatch, chain=_chain_snapshots(), contracts=contracts)
 
@@ -205,7 +221,14 @@ def test_options_chain_broker_error_returns_500(
 ) -> None:
     from api.main import app
 
-    _mock_alpaca(monkeypatch, chain_raises=True)
+    # Contracts must resolve an expiry so the (raising) chain fetch runs.
+    _mock_alpaca(
+        monkeypatch,
+        chain_raises=True,
+        contracts=[
+            {"symbol": "NVDA260717C00200000", "expiration_date": "2026-07-17"}
+        ],
+    )
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
         resp = client.get("/api/options-chain?symbol=NVDA")
