@@ -599,6 +599,46 @@ export async function fetchRvolScanner(
   return res.json();
 }
 
+export type OptionsFlowEvent = {
+  id: string;
+  ts: string;
+  underlying: string;
+  occ_symbol: string | null;
+  right: string | null;
+  strike: number | null;
+  expiry: string | null;
+  dte: number | null;
+  event_type: string;
+  contracts: number | null;
+  premium_usd: number | null;
+  vol_oi_ratio: number | null;
+  vol_zscore: number | null;
+  direction: string;
+  reason: string;
+  caveat: string;
+};
+
+export type OptionsFlowResult = {
+  as_of: string;
+  count: number;
+  events: OptionsFlowEvent[];
+};
+
+// Unusual options activity (Mode-A perception — facts about the tape, not a signal).
+export async function fetchOptionsFlow(limit = 50): Promise<OptionsFlowResult> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await apiFetch(`${API_BASE}/api/options-flow?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Options-flow error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export interface SchwabPosition {
   symbol: string;
   asset_type: string;

@@ -2335,6 +2335,40 @@ def _compute_rvol_from_total_volume(
     return round(total_volume / expected, 2)
 
 
+@app.get("/api/options-flow")
+async def api_options_flow(
+    limit: int = 50,
+    symbol: str | None = None,
+    event_type: str | None = None,
+    min_premium: float | None = None,
+    since: str | None = None,
+):
+    """Recent unusual options-activity events (Mode-A perception).
+
+    Facts about the OPRA tape — NOT a buy/sell signal. Each event carries a
+    ``caveat`` and never a win%/EV/confidence. Populated by the nightly EOD scan
+    (``OPTIONS_FLOW_ENABLED``); returns an empty list until that has run.
+    """
+    from db.options_flow import recent_events
+
+    capped = max(1, min(int(limit), 50))
+    try:
+        events = recent_events(
+            symbol=symbol,
+            event_type=event_type,
+            min_premium=min_premium,
+            since=since,
+            limit=capped,
+        )
+    except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return {
+        "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
+        "count": len(events),
+        "events": events,
+    }
+
+
 @app.get("/api/scanner/rvol")
 async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     """Market-wide unusual-volume scanner powered by precomputed volume profiles.
