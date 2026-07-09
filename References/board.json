@@ -232,7 +232,7 @@
       "type": "bug",
       "priority": "normal",
       "owner": "serv",
-      "notes": "Hysteresis + group_key + one-shot race SHIPPED 2026-07-08 (see BUILD row). REMAINING: TICK_BAND_PCT_EXT ~0.10 so 3-8% junk ext prints never reach alerts/ext fields; real AH gap admitted one poll late via existing corroboration. Adversarial review required (quote path). "
+      "notes": "Hysteresis + group_key + one-shot race SHIPPED 2026-07-08 (see BUILD row). 2026-07-09: the REGULAR-hours sibling got its live incident (phantom NVDA alert @ \\$192.21, real ~\\$201.8, via unfiltered SIP prints) and SHIPPED same-day (1148e4b): TRADE_EXCLUDE_CONDITIONS + 3% band + corroboration + swept-path alerts + streak escape hatch on _on_trade; two-round adversarial review SAFE-WITH-NITS. STILL REMAINING (this card): ext-path TICK_BAND_PCT_EXT ~0.10 tightening (ext band is still 50%) — mirror the new trade-guard shape; also follow-up idea from review: fetch/cache the SIP condition table from Alpaca meta instead of hardcoding (options-flow already does this). Adversarial review required (quote path)."
     },
     {
       "id": "strip-padding-fullbleed",
