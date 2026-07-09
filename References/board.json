@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "options-flow-phase2",
-      "title": "Options-flow Phase 2: intraday 30s poll + blocks + direction tagging + convergence phone alerts",
-      "lane": "in_progress",
-      "type": "feature",
+      "title": "DECISION: options-flow Phase 1+2 BUILT + safety-reviewed — merge to main + backfill + enable?",
+      "lane": "founder",
+      "type": "decision",
       "priority": "high",
-      "owner": "serv",
-      "notes": "Started 2026-07-09 on feat/options-flow-screener (Phase 1 verified green on serv: 47 tests + ruff). Founder decisions this session: (1) poll interval = 30s not 60s — never design slow on the assumption he reacts slowly; (2) Phase 3 (streaming+sweeps) is now ASSUMED — building for future users too, usage gate lifted — so Phase 2's poll transport is architected as the permanent websocket-fallback/reconciliation path (detector consumes normalized prints, transport-agnostic). Scope per design §7P2+§6b: filters F-1/F-2/F-3, BLK-1 blocks, DIR-1 quote-rule aggressor tagging (polled_quote), intraday UV-1, trades cursor-pull + active set + quote co-fetch, OI pre-open refresh, convergence watch (flow+RVOL+level → ≥2 components → ONE notify under daily budget). Build = 3 Composer rounds (2a pure detection, 2b client+poll loop, 2c convergence+notify) + trading-safety-adversary review on the notify-budget round before commit."
+      "owner": "founder",
+      "notes": "BUILT 2026-07-09 on feat/options-flow-screener (serv): commits 4c19f9e (2a pure detection: F-1/F-2/F-3 filters, BLK-1 blocks, DIR-1 quote rule + directional pressure), ff58ff6 (2b: read-only OPRA trades/quotes/conditions client + PollState 30s poll loop + daily OI refresh + intraday UV-1), 139e643 (2c: convergence watch — flow+RVOL>=1.5+level-touch -> >=2 components -> ONE push under 5/day deny-by-default persisted budget; solo >=$1M). 126 hermetic tests + ruff green. Adversarial review (Sonnet) SAFE-WITH-NITS; MAJOR fixed in-round (solo dedup per underlying/type/day, not ts-embedded id). Founder decisions honored: 30s poll (not 60s), Phase-3 gate lifted (multi-user direction) — transport swappable by construction. YOUR CALL: (1) merge branch -> main (lands dormant, env-gated OFF); (2) after merge: run backfill on your flow watchlist (python -m signals.options_flow.backfill --symbols <list>; sets ZSCORE_STD_FLOOR from thresholds.md) then set OPTIONS_FLOW_ENABLED=1 + restart; (3) confirm flow-watchlist composition (SPY/QQQ in w/ $250k floor + 0DTE exclusion, or out?). Phase 3 (websocket + sweeps) queues after enable."
     },
     {
       "id": "toolbar-redesign-b",
