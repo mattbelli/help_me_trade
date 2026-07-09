@@ -9,6 +9,7 @@ import pytest
 
 from db import options_flow as of_db
 from signals.options_flow import constants as C
+from signals.options_flow.intraday import _ts_ms_to_iso
 from signals.options_flow.poll import (
     PollState,
     _append_day_prints,
@@ -273,6 +274,8 @@ def test_uv1_fires_from_bars_and_oi_on_refresh(tmp_path: Path) -> None:
     assert len(uv1) == 1
     assert uv1[0]["occ_symbol"] == OCC
     assert uv1[0]["id"] == f"of_{TODAY}_NVDA_{OCC}"
+    assert uv1[0]["ts"] == _ts_ms_to_iso(NOW_MS)
+    assert summary["events"][0]["ts"] == _ts_ms_to_iso(NOW_MS)
 
 
 # --- cursor advance ---------------------------------------------------------------
@@ -394,6 +397,8 @@ def test_pressure_e2e_stable_id(tmp_path: Path) -> None:
     assert events[0]["id"] == f"of_{TODAY}_NVDA_pressure"
     assert events[0]["direction"] == "buy_side"
     assert events[0]["direction_basis"] == "polled_quote"
+    assert events[0]["ts"] == _ts_ms_to_iso(NOW_MS)
+    assert summary["events"][-1]["ts"] == _ts_ms_to_iso(NOW_MS)
 
 
 # --- spread exclusion -------------------------------------------------------------

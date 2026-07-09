@@ -25,6 +25,7 @@ from signals.options_flow.constants import (
 )
 from signals.options_flow.detect import detect_uv1
 from signals.options_flow.intraday import (
+    _ts_ms_to_iso,
     aggregate_directional_pressure,
     classify_direction,
     detect_block,
@@ -227,7 +228,9 @@ def _run_poll_cycle(
         or now_ms - state.last_active_refresh_ms
         >= ACTIVE_SET_REFRESH_SECONDS * _MS_PER_SEC
     ):
-        uv1 = _refresh_active_set(adapter, symbols, today_et, state, db_path, counters)
+        uv1 = _refresh_active_set(
+            adapter, symbols, today_et, now_ms, state, db_path, counters
+        )
         counters["uv1"] += uv1
         state.last_active_refresh_ms = now_ms
 
@@ -374,6 +377,7 @@ def _run_poll_cycle(
                 direction_basis="polled_quote",
             )
             if ev is not None:
+                ev["ts"] = _ts_ms_to_iso(now_ms)
                 of_db.insert_event(ev, db_path=db_path)
                 counters["pressure"] += 1
                 counters["events"].append(ev)
@@ -435,6 +439,7 @@ def _refresh_active_set(
     adapter: Any,
     symbols: list[str],
     today_et: str,
+    now_ms: int,
     state: PollState,
     db_path: Path | None,
     counters: dict[str, Any] | None = None,
@@ -521,6 +526,7 @@ def _refresh_active_set(
                 event_date=today_et,
             )
             if ev is not None:
+                ev["ts"] = _ts_ms_to_iso(now_ms)
                 of_db.insert_event(ev, db_path=db_path)
                 uv1_count += 1
                 if counters is not None:

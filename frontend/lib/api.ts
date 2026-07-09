@@ -608,12 +608,17 @@ export type OptionsFlowEvent = {
   strike: number | null;
   expiry: string | null;
   dte: number | null;
+  otm_pct: number | null;
   event_type: string;
   contracts: number | null;
   premium_usd: number | null;
   vol_oi_ratio: number | null;
   vol_zscore: number | null;
-  direction: string;
+  direction: "buy_side" | "sell_side" | "undetermined";
+  direction_basis: string;
+  spread_flag: boolean | null;
+  n_prints: number | null;
+  exchanges: string[];
   reason: string;
   caveat: string;
 };
@@ -625,8 +630,14 @@ export type OptionsFlowResult = {
 };
 
 // Unusual options activity (Mode-A perception — facts about the tape, not a signal).
-export async function fetchOptionsFlow(limit = 50): Promise<OptionsFlowResult> {
+export async function fetchOptionsFlow(
+  limit = 50,
+  symbol?: string,
+): Promise<OptionsFlowResult> {
   const params = new URLSearchParams({ limit: String(limit) });
+  if (symbol) {
+    params.set("symbol", symbol.trim().toUpperCase());
+  }
   const res = await apiFetch(`${API_BASE}/api/options-flow?${params}`, {
     cache: "no-store",
   });

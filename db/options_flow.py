@@ -98,7 +98,7 @@ def _row_to_event(row: Any) -> dict[str, Any]:
 
 
 def insert_event(event: dict, db_path: Path | None = None) -> None:
-    """INSERT OR REPLACE a §6 event row. No win_prob / ev / confidence fields."""
+    """Upsert a §6 event row; ``ts`` / ``created_at`` keep first-detection values."""
     resolved = _db_path(db_path)
     init_db(resolved)
     exchanges = event.get("exchanges")
@@ -118,7 +118,7 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
     with _connect(resolved) as conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO options_flow_events (
+            INSERT INTO options_flow_events (
                 id, ts, underlying, occ_symbol, right, strike, expiry, dte,
                 otm_pct, event_type, contracts, premium_usd, vol_oi_ratio,
                 vol_zscore, direction, direction_basis, spread_flag, n_prints,
@@ -129,6 +129,28 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?
             )
+            ON CONFLICT(id) DO UPDATE SET
+                underlying = excluded.underlying,
+                occ_symbol = excluded.occ_symbol,
+                right = excluded.right,
+                strike = excluded.strike,
+                expiry = excluded.expiry,
+                dte = excluded.dte,
+                otm_pct = excluded.otm_pct,
+                event_type = excluded.event_type,
+                contracts = excluded.contracts,
+                premium_usd = excluded.premium_usd,
+                vol_oi_ratio = excluded.vol_oi_ratio,
+                vol_zscore = excluded.vol_zscore,
+                direction = excluded.direction,
+                direction_basis = excluded.direction_basis,
+                spread_flag = excluded.spread_flag,
+                n_prints = excluded.n_prints,
+                exchanges = excluded.exchanges,
+                reason = excluded.reason,
+                caveat = excluded.caveat,
+                ret_1d = excluded.ret_1d,
+                ret_5d = excluded.ret_5d
             """,
             (
                 event["id"],

@@ -105,6 +105,33 @@ def test_db_insert_and_recent_round_trip(tmp_path: Path) -> None:
     assert "confidence" not in got
 
 
+def test_db_insert_event_preserves_first_ts_on_reinsert(tmp_path: Path) -> None:
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    first_ts = "2026-07-09T15:30:00+00:00"
+    event = _sample_event(ts=first_ts, premium_usd=1_000_000.0)
+    of_db.insert_event(event, db_path=db)
+    rows = of_db.recent_events(db_path=db)
+    created_at = rows[0]["created_at"]
+
+    of_db.insert_event(
+        _sample_event(
+            ts="2026-07-09T16:45:00+00:00",
+            premium_usd=2_500_000.0,
+            reason="updated aggregate",
+        ),
+        db_path=db,
+    )
+
+    rows = of_db.recent_events(db_path=db)
+    assert len(rows) == 1
+    got = rows[0]
+    assert got["premium_usd"] == 2_500_000.0
+    assert got["reason"] == "updated aggregate"
+    assert got["ts"] == first_ts
+    assert got["created_at"] == created_at
+
+
 def test_db_recent_filters_and_limit_cap(tmp_path: Path) -> None:
     db = tmp_path / "flow.db"
     of_db.init_db(db)
