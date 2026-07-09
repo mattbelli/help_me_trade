@@ -1,0 +1,520 @@
+"""Intraday options-flow poll cycle (design §4) — REST transport, adapter-injected.
+
+All mutable state lives in a module-level ``PollState``; ``api/main.py`` owns
+nothing. Fail-soft per underlying/chunk — the cycle never raises.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from db import options_flow as of_db
+from imports.option_symbol import parse_occ_symbol
+from signals.options_flow.constants import (
+    ACTIVE_SET_PER_UNDERLYING,
+    ACTIVE_SET_REFRESH_SECONDS,
+    CANCEL_CONDITIONS,
+    EXT_HOURS_CONDITIONS,
+    LATE_OOS_CONDITIONS,
+    OPTIONS_FLOW_MAX_UNDERLYINGS,
+    POLL_QUOTE_CHUNK,
+)
+from signals.options_flow.detect import detect_uv1
+from signals.options_flow.intraday import (
+    aggregate_directional_pressure,
+    classify_direction,
+    detect_block,
+    is_hygiene_excluded,
+    normalize_print,
+    tag_likely_spreads,
+)
+from signals.options_flow.scan import (
+    _bar_volume_close,
+    _dte_days,
+    _int_oi,
+    _normalize_right,
+)
+
+logger = logging.getLogger(__name__)
+
+_TRADES_CHUNK = POLL_QUOTE_CHUNK
+_DAY_PRINTS_CAP = 20_000
+_MS_PER_SEC = 1000
+
+
+def _session_start_iso(today_et: str) -> str:
+    return f"{today_et}T13:30:00Z"
+
+
+def _parse_ts_ms(ts: str) -> int | None:
+    try:
+        s = str(ts).strip()
+        if not s:
+            return None
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return int(dt.timestamp() * 1000)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _meta_from_contract(c: dict, today_et: str) -> dict | None:
+    occ = str(c.get("symbol") or "").strip().upper()
+    if not occ:
+        return None
+    expiry = str(c.get("expiration_date") or "").strip()[:10]
+    dte = _dte_days(expiry, today_et)
+    if dte is None:
+        return None
+    try:
+        strike = float(c.get("strike_price"))
+    except (TypeError, ValueError):
+        return None
+    u = str(c.get("underlying_symbol") or "").strip().upper()
+    if not u:
+        parsed = parse_occ_symbol(occ)
+        u = parsed.underlying if parsed else ""
+    if not u:
+        return None
+    return {
+        "occ_symbol": occ,
+        "underlying": u,
+        "right": _normalize_right(c.get("type")),
+        "strike": strike,
+        "expiry": expiry,
+        "dte": dte,
+    }
+
+
+def _meta_from_occ(occ: str, underlying_hint: str, today_et: str) -> dict | None:
+    sym = occ.strip().upper()
+    parsed = parse_occ_symbol(sym)
+    if parsed is None:
+        return None
+    expiry = parsed.expiration.isoformat()
+    dte = _dte_days(expiry, today_et)
+    if dte is None:
+        return None
+    return {
+        "occ_symbol": sym,
+        "underlying": parsed.underlying or underlying_hint.strip().upper(),
+        "right": "call" if parsed.right == "C" else "put",
+        "strike": float(parsed.strike),
+        "expiry": expiry,
+        "dte": dte,
+    }
+
+
+def _trade_is_today(trade: dict, today_et: str) -> bool:
+    t = trade.get("t")
+    if not t:
+        return False
+    return str(t).startswith(today_et)
+
+
+def _append_day_prints(
+    state: PollState, underlying: str, prints: list[dict]
+) -> None:
+    if not prints:
+        return
+    u = underlying.strip().upper()
+    bucket = state.day_prints.setdefault(u, [])
+    bucket.extend(prints)
+    overflow = len(bucket) - _DAY_PRINTS_CAP
+    if overflow > 0:
+        del bucket[:overflow]
+        logger.warning(
+            "options_flow poll: capped day_prints for %s at %s (dropped %s oldest)",
+            u,
+            _DAY_PRINTS_CAP,
+            overflow,
+        )
+
+
+@dataclass
+class PollState:
+    day: str = ""
+    active: dict[str, dict] = field(default_factory=dict)
+    cursors: dict[str, str] = field(default_factory=dict)
+    oi: dict[str, int] = field(default_factory=dict)
+    oi_day: str | None = None
+    last_active_refresh_ms: int = 0
+    day_prints: dict[str, list[dict]] = field(default_factory=dict)
+    condition_sets_loaded: bool = False
+    cancel_conditions: frozenset[str] = CANCEL_CONDITIONS
+    late_oos_conditions: frozenset[str] = LATE_OOS_CONDITIONS
+    ext_hours_conditions: frozenset[str] = EXT_HOURS_CONDITIONS
+    condition_descriptions: dict[str, str] = field(default_factory=dict)
+
+    def reset(self) -> None:
+        self.active.clear()
+        self.cursors.clear()
+        self.oi.clear()
+        self.oi_day = None
+        self.last_active_refresh_ms = 0
+        self.day_prints.clear()
+
+
+_default_state = PollState()
+
+
+def run_poll_once(
+    adapter: Any,
+    *,
+    symbols: list[str],
+    today_et: str,
+    now_ms: int,
+    state: PollState | None = None,
+    db_path: Path | None = None,
+) -> dict:
+    """One intraday poll cycle. Returns counters; never raises."""
+    st = state if state is not None else _default_state
+    counters = {"prints": 0, "blocks": 0, "uv1": 0, "pressure": 0}
+    try:
+        _run_poll_cycle(
+            adapter,
+            symbols=symbols,
+            today_et=today_et,
+            now_ms=now_ms,
+            state=st,
+            db_path=db_path,
+            counters=counters,
+        )
+    except Exception:
+        logger.exception("options_flow poll: unexpected cycle failure")
+    return counters
+
+
+def _run_poll_cycle(
+    adapter: Any,
+    *,
+    symbols: list[str],
+    today_et: str,
+    now_ms: int,
+    state: PollState,
+    db_path: Path | None,
+    counters: dict[str, int],
+) -> None:
+    if state.day != today_et:
+        state.reset()
+        state.day = today_et
+
+    if not state.condition_sets_loaded:
+        try:
+            mapping = adapter.get_option_trade_conditions()
+            if isinstance(mapping, dict) and mapping:
+                state.condition_descriptions = {
+                    str(k): str(v) for k, v in mapping.items()
+                }
+        except Exception:
+            logger.exception("options_flow poll: condition mapping fetch failed")
+        state.condition_sets_loaded = True
+
+    if state.oi_day != today_et:
+        _refresh_oi(adapter, symbols, today_et, state)
+
+    if (
+        state.last_active_refresh_ms <= 0
+        or now_ms - state.last_active_refresh_ms
+        >= ACTIVE_SET_REFRESH_SECONDS * _MS_PER_SEC
+    ):
+        uv1 = _refresh_active_set(adapter, symbols, today_et, state, db_path)
+        counters["uv1"] += uv1
+        state.last_active_refresh_ms = now_ms
+
+    if not state.active:
+        return
+
+    cycle_prints_by_u: dict[str, list[dict]] = {}
+    new_prints_by_occ: dict[str, list[dict]] = {}
+
+    active_occs = list(state.active.keys())
+    default_start = _session_start_iso(today_et)
+
+    for i in range(0, len(active_occs), _TRADES_CHUNK):
+        chunk = active_occs[i : i + _TRADES_CHUNK]
+        try:
+            starts = [
+                state.cursors.get(occ) or default_start for occ in chunk
+            ]
+            chunk_start = min(starts)
+            raw_by_occ = adapter.get_option_trades(chunk, start=chunk_start)
+            if not isinstance(raw_by_occ, dict):
+                continue
+        except Exception:
+            logger.exception(
+                "options_flow poll: trades fetch failed for chunk starting %s",
+                chunk[0] if chunk else "?",
+            )
+            continue
+
+        for occ in chunk:
+            meta = state.active.get(occ)
+            if not meta:
+                continue
+            cursor = state.cursors.get(occ)
+            cursor_ms = _parse_ts_ms(cursor) if cursor else None
+            raw_trades = raw_by_occ.get(occ) or raw_by_occ.get(occ.upper()) or []
+            if not isinstance(raw_trades, list):
+                continue
+
+            max_ts: str | None = cursor
+            max_ms = cursor_ms if cursor_ms is not None else -1
+            for raw in raw_trades:
+                if not isinstance(raw, dict):
+                    continue
+                ts_raw = raw.get("t")
+                if not ts_raw:
+                    continue
+                ts_str = str(ts_raw)
+                ts_ms = _parse_ts_ms(ts_str)
+                if ts_ms is None:
+                    continue
+                if cursor_ms is not None and ts_ms <= cursor_ms:
+                    continue
+
+                p = normalize_print(raw, meta=meta)
+                if p is None:
+                    continue
+
+                counters["prints"] += 1
+                _log_unknown_conditions(p.get("conditions") or [], state)
+
+                u = str(meta.get("underlying") or "").strip().upper()
+                cycle_prints_by_u.setdefault(u, []).append(p)
+                new_prints_by_occ.setdefault(occ, []).append(p)
+
+                if ts_ms > max_ms:
+                    max_ms = ts_ms
+                    max_ts = ts_str
+
+            if max_ts and max_ts != cursor:
+                state.cursors[occ] = max_ts
+
+    for u, prints in cycle_prints_by_u.items():
+        try:
+            tag_likely_spreads(prints)
+        except Exception:
+            logger.exception("options_flow poll: spread tagging failed for %s", u)
+
+    occs_with_new = list(new_prints_by_occ.keys())
+    quotes_by_occ: dict[str, dict] = {}
+    for i in range(0, len(occs_with_new), POLL_QUOTE_CHUNK):
+        chunk = occs_with_new[i : i + POLL_QUOTE_CHUNK]
+        try:
+            got = adapter.get_option_latest_quotes(chunk)
+            if isinstance(got, dict):
+                quotes_by_occ.update(got)
+        except Exception:
+            logger.exception(
+                "options_flow poll: quote fetch failed for chunk starting %s",
+                chunk[0] if chunk else "?",
+            )
+
+    classified_by_u: dict[str, list[dict]] = {}
+    for occ, prints in new_prints_by_occ.items():
+        q = quotes_by_occ.get(occ) or {}
+        bid = q.get("bid")
+        ask = q.get("ask")
+        for p in prints:
+            direction = classify_direction(
+                price=float(p["price"]),
+                bid=bid if bid is not None else None,
+                ask=ask if ask is not None else None,
+            )
+            p["direction"] = direction
+            p["direction_basis"] = "polled_quote"
+            u = str(p.get("underlying") or "").strip().upper()
+            classified_by_u.setdefault(u, []).append(p)
+
+            if p.get("spread_leg") or p.get("likely_spread"):
+                continue
+            if is_hygiene_excluded(
+                p.get("conditions") or [],
+                cancels=state.cancel_conditions,
+                late=state.late_oos_conditions,
+                ext=state.ext_hours_conditions,
+            ):
+                continue
+
+            try:
+                ev = detect_block(
+                    p,
+                    event_date=today_et,
+                    direction=direction,
+                    direction_basis="polled_quote",
+                )
+                if ev is not None:
+                    of_db.insert_event(ev, db_path=db_path)
+                    counters["blocks"] += 1
+            except Exception:
+                logger.exception(
+                    "options_flow poll: block detect/insert failed for %s", occ
+                )
+
+    for u, prints in classified_by_u.items():
+        _append_day_prints(state, u, prints)
+
+    for u in classified_by_u:
+        try:
+            ev = aggregate_directional_pressure(
+                underlying=u,
+                prints=state.day_prints.get(u, []),
+                event_date=today_et,
+                direction_basis="polled_quote",
+            )
+            if ev is not None:
+                of_db.insert_event(ev, db_path=db_path)
+                counters["pressure"] += 1
+        except Exception:
+            logger.exception(
+                "options_flow poll: pressure detect/insert failed for %s", u
+            )
+
+
+def _log_unknown_conditions(codes: list[str], state: PollState) -> None:
+    if not state.condition_descriptions:
+        return
+    known = set(state.condition_descriptions)
+    for code in codes:
+        c = str(code)
+        if c and c not in known:
+            logger.debug("options_flow poll: unknown trade condition code %r", c)
+
+
+def _refresh_oi(
+    adapter: Any,
+    symbols: list[str],
+    today_et: str,
+    state: PollState,
+) -> None:
+    capped = [
+        s.strip().upper()
+        for s in symbols
+        if s and str(s).strip()
+    ][:OPTIONS_FLOW_MAX_UNDERLYINGS]
+
+    for u in capped:
+        try:
+            contracts = adapter.get_option_contracts(
+                u, expiration_date_gte=today_et, limit=1000
+            )
+            if not isinstance(contracts, list):
+                continue
+            for c in contracts:
+                if not isinstance(c, dict):
+                    continue
+                occ = str(c.get("symbol") or "").strip().upper()
+                if not occ:
+                    continue
+                oi = _int_oi(c.get("open_interest"))
+                if oi is not None:
+                    state.oi[occ] = oi
+                meta = _meta_from_contract({**c, "underlying_symbol": u}, today_et)
+                if meta is not None and occ in state.active:
+                    state.active[occ] = meta
+        except Exception:
+            logger.exception("options_flow poll: OI refresh failed for %s", u)
+            continue
+
+    state.oi_day = today_et
+
+
+def _refresh_active_set(
+    adapter: Any,
+    symbols: list[str],
+    today_et: str,
+    state: PollState,
+    db_path: Path | None,
+) -> int:
+    """Rebuild active set; run intraday UV-1 piggyback. Returns uv1 events inserted."""
+    capped = [
+        s.strip().upper()
+        for s in symbols
+        if s and str(s).strip()
+    ][:OPTIONS_FLOW_MAX_UNDERLYINGS]
+
+    new_active: dict[str, dict] = {}
+    uv1_count = 0
+
+    for u in capped:
+        try:
+            snaps = adapter.get_option_chain_snapshot(u)
+            if not isinstance(snaps, dict):
+                continue
+
+            ranked: list[tuple[int, int, str, dict]] = []
+            for occ, snap in snaps.items():
+                if not isinstance(snap, dict):
+                    continue
+                trade = snap.get("latestTrade") or snap.get("latest_trade") or {}
+                if not isinstance(trade, dict) or not _trade_is_today(trade, today_et):
+                    continue
+                ts_ms = _parse_ts_ms(str(trade.get("t") or "")) or 0
+                try:
+                    size = int(trade.get("s") or 0)
+                except (TypeError, ValueError):
+                    size = 0
+                ranked.append((ts_ms, size, str(occ).strip().upper(), snap))
+
+            ranked.sort(key=lambda t: (t[0], t[1]), reverse=True)
+            for _, _, occ, _snap in ranked[:ACTIVE_SET_PER_UNDERLYING]:
+                meta = _meta_from_occ(occ, u, today_et)
+                if meta is not None:
+                    new_active[occ] = meta
+        except Exception:
+            logger.exception("options_flow poll: active-set refresh failed for %s", u)
+            continue
+
+    state.active = new_active
+
+    if not new_active:
+        return 0
+
+    bars_by_occ: dict[str, list[dict]] = {}
+    occ_list = list(new_active.keys())
+    for i in range(0, len(occ_list), _TRADES_CHUNK):
+        chunk = occ_list[i : i + _TRADES_CHUNK]
+        try:
+            got = adapter.get_option_bars(
+                chunk, start=today_et, timeframe="1Day"
+            )
+            if isinstance(got, dict):
+                for occ, items in got.items():
+                    bars_by_occ[str(occ).strip().upper()] = items
+        except Exception:
+            logger.exception(
+                "options_flow poll: UV-1 bars fetch failed for chunk starting %s",
+                chunk[0] if chunk else "?",
+            )
+
+    for occ, meta in new_active.items():
+        try:
+            vc = _bar_volume_close(bars_by_occ.get(occ))
+            if vc is None:
+                continue
+            volume, close = vc
+            u = str(meta.get("underlying") or "").strip().upper()
+            ev = detect_uv1(
+                underlying=u,
+                occ_symbol=occ,
+                right=meta["right"],
+                strike=meta["strike"],
+                expiry=meta["expiry"],
+                dte=meta["dte"],
+                otm_pct=None,
+                volume=volume,
+                oi=state.oi.get(occ),
+                close=close,
+                event_date=today_et,
+            )
+            if ev is not None:
+                of_db.insert_event(ev, db_path=db_path)
+                uv1_count += 1
+        except Exception:
+            logger.exception("options_flow poll: UV-1 detect/insert failed for %s", occ)
+
+    return uv1_count

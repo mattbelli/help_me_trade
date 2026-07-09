@@ -59,6 +59,11 @@ OPTIONS_FLOW_MAX_UNDERLYINGS = 25  # design §4; watchlist cap
 # liquid contracts win so UV-1 still sees the names that can clear MIN_OI.
 OPTIONS_FLOW_MAX_CONTRACTS_PER_UNDERLYING = 800  # design §4; EOD scan contract cap
 
+# --- Intraday poll (design §4) ---------------------------------------------------
+ACTIVE_SET_PER_UNDERLYING = 60  # design §4; top contracts per underlying in active set
+ACTIVE_SET_REFRESH_SECONDS = 300  # design §4; refresh active set every 5 min
+POLL_QUOTE_CHUNK = 100  # design §4; quote/trades chunk size (Alpaca ≤100 symbols)
+
 
 
 def dte_bucket(dte: int) -> str:

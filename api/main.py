@@ -198,6 +198,9 @@ _OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not 
     "false",
     "no",
 )
+OPTIONS_FLOW_POLL_SECONDS = max(
+    10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30"))
+)
 SCHWAB_HEALTH_INTERVAL_SECONDS = max(
     300, int(os.environ.get("SCHWAB_HEALTH_INTERVAL_SECONDS", str(6 * 3600)))
 )
@@ -960,6 +963,7 @@ async def _rvol_alert_once() -> None:
 # ---------------------------------------------------------------------------
 _options_flow_ran_dates: set[date] = set()
 _options_flow_non_alpaca_logged = False
+_options_flow_intraday_logged = False
 
 
 def _should_options_flow_scan(today_et: date) -> bool:
@@ -1017,6 +1021,61 @@ async def _options_flow_eod_once() -> None:
         )
     except Exception:
         logger.exception("options_flow EOD: unexpected failure")
+
+
+async def _options_flow_intraday_once() -> None:
+    """Regular-hours intraday options-flow poll; fail-soft."""
+    global _options_flow_intraday_logged
+    try:
+        if _market_session() != "regular":
+            return
+
+        try:
+            broker = get_broker("alpaca")
+        except Exception as exc:
+            logger.warning("options_flow intraday: Alpaca broker unavailable: %s", exc)
+            return
+
+        required = (
+            "get_option_trades",
+            "get_option_latest_quotes",
+            "get_option_trade_conditions",
+            "get_option_chain_snapshot",
+            "get_option_contracts",
+            "get_option_bars",
+        )
+        if not all(hasattr(broker, name) for name in required):
+            if not _options_flow_intraday_logged:
+                logger.warning(
+                    "options_flow intraday: broker missing options data methods "
+                    "(options data requires Alpaca); skipping"
+                )
+                _options_flow_intraday_logged = True
+            return
+
+        from signals.options_flow.poll import run_poll_once
+
+        symbols = _all_watchlist_symbols()
+        now_et = datetime.now(_ET)
+        today_et = now_et.date().isoformat()
+        now_ms = int(now_et.timestamp() * 1000)
+        summary = await asyncio.to_thread(
+            run_poll_once,
+            broker,
+            symbols=symbols,
+            today_et=today_et,
+            now_ms=now_ms,
+        )
+        logger.info(
+            "options_flow intraday: date=%s prints=%s blocks=%s uv1=%s pressure=%s",
+            today_et,
+            summary.get("prints"),
+            summary.get("blocks"),
+            summary.get("uv1"),
+            summary.get("pressure"),
+        )
+    except Exception:
+        logger.exception("options_flow intraday: unexpected failure")
 
 
 def _upcoming_earnings_date(symbol: str, today_iso: str) -> str | None:
@@ -1490,6 +1549,14 @@ def _register_background_jobs() -> None:
             name="options_flow",
             fn=_options_flow_eod_once,
             interval_s=float(OPTIONS_FLOW_INTERVAL_SECONDS),
+            enabled=lambda: _OPTIONS_FLOW_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="options_flow_intraday",
+            fn=_options_flow_intraday_once,
+            interval_s=float(OPTIONS_FLOW_POLL_SECONDS),
             enabled=lambda: _OPTIONS_FLOW_ENABLED,
         )
     )

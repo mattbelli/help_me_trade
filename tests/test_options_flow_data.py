@@ -457,6 +457,9 @@ def test_no_order_write_paths_constructed(monkeypatch: pytest.MonkeyPatch) -> No
     adapter.get_option_bars(["X"], start="2024-01-01")
     adapter.get_option_contracts("SPY")
     adapter.get_option_chain_snapshot("AAPL")
+    adapter.get_option_trades(["X"], start="2024-01-01T00:00:00Z")
+    adapter.get_option_latest_quotes(["X"])
+    adapter.get_option_trade_conditions()
 
     forbidden = ("/orders", "/v2/orders", "/positions", "/watchlists")
     for path in seen_paths:
@@ -466,3 +469,119 @@ def test_no_order_write_paths_constructed(monkeypatch: pytest.MonkeyPatch) -> No
         p.startswith("/v1beta1/options/") or p == "/v2/options/contracts"
         for p in seen_paths
     )
+
+
+def test_get_option_trades_url_params_pagination_and_chunking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter()
+    calls: list[tuple[str, dict[str, Any] | None]] = []
+    page = {"n": 0}
+
+    def fake_get_data(path: str, *, params: dict[str, Any] | None = None) -> dict:
+        calls.append((path, dict(params) if params else None))
+        assert path == "/v1beta1/options/trades"
+        assert params is not None
+        assert params["start"] == "2026-07-09T13:30:00Z"
+        assert params["limit"] == 10_000
+        syms = params["symbols"].split(",")
+        assert len(syms) <= 100
+        page["n"] += 1
+        if page["n"] == 1:
+            return {
+                "trades": {
+                    syms[0]: [{"t": "2026-07-09T14:00:00Z", "p": 1.0, "s": 10, "x": "C", "c": ["I"]}]
+                },
+                "next_page_token": "tok1",
+            }
+        return {"trades": {}, "next_page_token": None}
+
+    monkeypatch.setattr(adapter, "_get_data", fake_get_data)
+    symbols = [f"OCC{i:03d}" for i in range(105)]
+    out = adapter.get_option_trades(
+        symbols, start="2026-07-09T13:30:00Z", limit=10_000
+    )
+    assert len(calls) == 3  # 2 chunks × (1 paginated + 1 done)
+    assert "OCC000" in out
+    assert out["OCC000"][0]["p"] == 1.0
+    assert out["OCC000"][0]["s"] == 10
+
+
+def test_get_option_trades_fail_soft(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _adapter()
+
+    def boom(path: str, *, params: dict[str, Any] | None = None) -> dict:
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(adapter, "_get_data", boom)
+    assert adapter.get_option_trades(
+        ["AAPL240119C00100000"], start="2026-07-09T13:30:00Z"
+    ) == {}
+
+
+def test_get_option_latest_quotes_parsing_and_chunking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter()
+    calls: list[tuple[str, dict[str, Any] | None]] = []
+
+    def fake_get_data(path: str, *, params: dict[str, Any] | None = None) -> dict:
+        calls.append((path, dict(params) if params else None))
+        assert path == "/v1beta1/options/quotes/latest"
+        assert params is not None
+        assert params["feed"] == "opra"
+        syms = params["symbols"].split(",")
+        assert len(syms) <= 100
+        return {
+            "quotes": {
+                syms[0]: {"bp": 1.0, "ap": 1.2, "t": "2026-07-09T14:00:00Z"},
+                **(
+                    {
+                        syms[1]: {"bp": 0, "ap": None, "t": "2026-07-09T14:00:01Z"},
+                    }
+                    if len(syms) > 1
+                    else {}
+                ),
+            }
+        }
+
+    monkeypatch.setattr(adapter, "_get_data", fake_get_data)
+    symbols = [f"OCC{i:03d}" for i in range(101)]
+    out = adapter.get_option_latest_quotes(symbols)
+    assert len(calls) == 2
+    assert out["OCC000"]["bid"] == 1.0
+    assert out["OCC000"]["ask"] == 1.2
+    assert out["OCC000"]["ts"] == "2026-07-09T14:00:00Z"
+    assert out["OCC001"]["bid"] is None
+    assert out["OCC001"]["ask"] is None
+
+
+def test_get_option_latest_quotes_fail_soft(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _adapter()
+
+    def boom(path: str, *, params: dict[str, Any] | None = None) -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(adapter, "_get_data", boom)
+    assert adapter.get_option_latest_quotes(["X"]) == {}
+
+
+def test_get_option_trade_conditions_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _adapter()
+
+    def fake_get_data(path: str, *, params: dict[str, Any] | None = None) -> dict:
+        assert path == "/v1beta1/options/meta/conditions/trade"
+        return {"I": "electronic", "S": "ISO"}
+
+    monkeypatch.setattr(adapter, "_get_data", fake_get_data)
+    assert adapter.get_option_trade_conditions() == {"I": "electronic", "S": "ISO"}
+
+
+def test_get_option_trade_conditions_fail_soft(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _adapter()
+
+    def boom(path: str, *, params: dict[str, Any] | None = None) -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(adapter, "_get_data", boom)
+    assert adapter.get_option_trade_conditions() == {}
