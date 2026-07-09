@@ -75,8 +75,10 @@ SWEEP_CLOSE_GRACE_MS = 1_000  # close a cluster only after late prints can no lo
 
 # --- OPRA websocket stream (design §5/§7; probe 2026-07-09) --------------------
 STREAM_TRADES_MAX = 1000  # design §7; our trade-sub budget (vendor acked 1,500+)
-HOT_QUOTE_MAX = 150  # design §7; narrow quote subs — ~275 q/s for 9 contracts
-HOT_QUOTE_TTL_SECONDS = 600  # design §7; quote sub lifetime after last print
+HOT_QUOTE_MAX = 60  # design §7; narrow quote subs — live soak 2026-07-09: 150 subs ≈ 2,100
+# msg/s ≈ 52% of a core on the event loop; hottest contracts dominate prints, so 60 keeps
+# most DIR-1 coverage at a fraction of the flood
+HOT_QUOTE_TTL_SECONDS = 300  # design §7; quote sub lifetime after last print
 QUOTE_STALE_FOR_DIR1_SECONDS = 5  # design §5 DIR-1; stream quote freshness (round 3b)
 
 # --- Convergence watch + push budget (design §6b / §5) -----------------------------
