@@ -338,14 +338,6 @@ export function OptionsFlowWidget({ config }: WidgetProps) {
                       <Info className="size-3" />
                     </span>
                   </span>
-                  <span
-                    className={cn(
-                      "shrink-0 text-[length:var(--fs-micro)] lowercase",
-                      typeTextClass(kind, ev.direction),
-                    )}
-                  >
-                    {typeLabel(kind)}
-                  </span>
                   {showSideLabel ? (
                     <span
                       className={cn(
@@ -356,6 +348,14 @@ export function OptionsFlowWidget({ config }: WidgetProps) {
                       {sideLabel(letter, ev.direction)}
                     </span>
                   ) : null}
+                  <span
+                    className={cn(
+                      "shrink-0 text-[length:var(--fs-micro)] lowercase",
+                      typeTextClass(kind, ev.direction),
+                    )}
+                  >
+                    {typeLabel(kind)}
+                  </span>
                   <span className="min-w-2 flex-1" />
                   <span className="shrink-0 tabular-nums font-medium text-[var(--fg)]">
                     {formatPremium(ev.premium_usd)}
