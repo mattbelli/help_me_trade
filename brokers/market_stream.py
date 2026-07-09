@@ -72,6 +72,24 @@ TICK_CONFIRM_TOL = 0.05
 # Nothing real trades at 10x / 0.1x yesterday's close intraday without a
 # corporate action — hold those prints unconditionally, corroborated or not.
 TICK_ABS_CEILING = 10.0
+TICK_BAND_PCT_TRADE = 0.03  # regular-session SIP prints >3% off last-admitted are suspect
+# Hold-streak escape hatch: the band reference only re-centers on ADMISSION, so a
+# genuine fast staircase (halt resume, thin-name catalyst) whose consecutive prints
+# differ >TICK_CONFIRM_TOL from each other could hold forever against a stale ref.
+# After this many consecutive holds the newest print is admitted (never an
+# absurd-ceiling one) and the band re-centers on it.
+TRADE_HOLD_STREAK_MAX = 5
+
+# SIP trade conditions that do NOT update the consolidated last price (CTA/UTP
+# update-rules union). Prints carrying any of these are dropped before they can
+# touch QuoteState/alerts: they are legitimate tape entries that may sit far off
+# the live market (average-price, late/out-of-sequence, derivatively priced,
+# official open/close, ext-hours reports). Odd lots ("I") are intentionally KEPT:
+# they are Reg-NMS price-protected (print inside the NBBO) and dropping them
+# would visibly stale the watchlist between round-lot prints.
+TRADE_EXCLUDE_CONDITIONS = frozenset(
+    {"4", "7", "9", "B", "C", "G", "H", "M", "N", "P", "Q", "R", "T", "U", "V", "W", "Z"}
+)
 
 # Per-symbol broadcast coalescing window. Schwab's level-one stream can fire
 # 30–100 ticks/sec on a hot name; sending each one to the phone WS would burn
@@ -131,6 +149,11 @@ class BaseMarketHub:
         # Last raw ext price seen per symbol by apply_extended — one-poll
         # corroboration state for the suspect-ext-print guard (see apply_extended).
         self._pending_ext: dict[str, float] = {}
+        # Last raw trade price seen per symbol by _on_trade — one-print
+        # corroboration state for the suspect-trade-print guard (see _on_trade) —
+        # plus the consecutive-hold counter behind TRADE_HOLD_STREAK_MAX.
+        self._pending_trade: dict[str, float] = {}
+        self._trade_hold_streak: dict[str, int] = {}
 
     async def start(self) -> None:
         if self._running:
@@ -646,8 +669,83 @@ class AlpacaMarketStreamHub(BaseMarketHub):
         if not symbol or price is None:
             return
         price_f = float(price)
-        prev = self._prev_prices.get(symbol)
+
+        conditions = item.get("c")
+        if conditions:
+            for code in conditions:
+                if code in TRADE_EXCLUDE_CONDITIONS:
+                    return
+
         state = self._quotes.get(symbol)
+        ref = self._prev_prices.get(symbol)
+        if ref is None and state and state.prev_close:
+            ref = state.prev_close
+        # When an out-of-band print is admitted via corroboration, the HELD prior
+        # print was real too — alerts must see the full swept path (prev → held →
+        # current) or a level touched between them never fires. An UNCORROBORATED
+        # held print is indistinguishable from junk (the NVDA $192.21 incident) and
+        # deliberately never reaches alerts. Accepted misses: a real one-print
+        # spike that fully reverts before the next print, and a held print whose
+        # follow-up lands back IN-BAND (admitted without sweeping the held value —
+        # bounded to ≤ band+tol beyond the admitted price).
+        held_corroborated: float | None = None
+        if ref and ref > 0:
+            pending = self._pending_trade.get(symbol)
+            self._pending_trade[symbol] = price_f
+            prev_close = state.prev_close if state else 0.0
+            absurd = prev_close > 0 and (
+                price_f > prev_close * TICK_ABS_CEILING
+                or price_f * TICK_ABS_CEILING < prev_close
+            )
+            in_band = (
+                ref * (1 - TICK_BAND_PCT_TRADE)
+                <= price_f
+                <= ref * (1 + TICK_BAND_PCT_TRADE)
+            )
+            corroborated = (
+                pending is not None
+                and abs(price_f - pending) <= price_f * TICK_CONFIRM_TOL
+            )
+            if absurd:
+                # Feed garbage (>TICK_ABS_CEILING vs prev_close) never admits AND
+                # never counts toward the escape streak — a glitch burst must not
+                # arm the hatch for the next merely-off-market junk print.
+                self._trade_hold_streak.pop(symbol, None)
+                logger.warning(
+                    "Holding absurd %s trade print %.4f (prev_close %.2f)",
+                    symbol,
+                    price_f,
+                    prev_close,
+                )
+                return
+            if not in_band and not corroborated:
+                streak = self._trade_hold_streak.get(symbol, 0) + 1
+                self._trade_hold_streak[symbol] = streak
+                if streak < TRADE_HOLD_STREAK_MAX:
+                    logger.warning(
+                        "Holding suspect %s trade print %.4f (ref %.2f, pending %s)",
+                        symbol,
+                        price_f,
+                        ref,
+                        f"{pending:.4f}" if pending is not None else "none",
+                    )
+                    return
+                # Escape hatch: TRADE_HOLD_STREAK_MAX consecutive plausible-
+                # staircase holds is a real fast move, not one junk print —
+                # admit and re-center the band.
+                logger.warning(
+                    "Admitting %s trade print %.4f after %d consecutive holds (ref %.2f)",
+                    symbol,
+                    price_f,
+                    streak,
+                    ref,
+                )
+            elif corroborated and not in_band:
+                held_corroborated = pending
+            self._pending_trade.pop(symbol, None)
+            self._trade_hold_streak.pop(symbol, None)
+
+        prev = self._prev_prices.get(symbol)
         if not state:
             state = QuoteState(price=price_f, prev_close=price_f)
             self._quotes[symbol] = state
@@ -662,8 +760,18 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             state.sparkline = [round(price_f, 4)]
         await self._broadcast_quote(symbol)
 
-        if prev is not None and prev != price_f:
-            await self._check_price_alerts(symbol, prev, price_f)
+        if prev is not None:
+            if held_corroborated is not None and held_corroborated != prev:
+                # Corroborated excursion: evaluate the swept path so a level
+                # between prev and the held print (or between it and current)
+                # can't be skipped by the one-print hold.
+                await self._check_price_alerts(symbol, prev, held_corroborated)
+                if price_f != held_corroborated:
+                    await self._check_price_alerts(
+                        symbol, held_corroborated, price_f
+                    )
+            elif prev != price_f:
+                await self._check_price_alerts(symbol, prev, price_f)
         self._prev_prices[symbol] = price_f
 
     async def _on_daily_bar(self, item: dict[str, Any]) -> None:
