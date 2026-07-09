@@ -266,6 +266,8 @@ def test_uv1_fires_from_bars_and_oi_on_refresh(tmp_path: Path) -> None:
         db_path=db,
     )
     assert summary["uv1"] == 1
+    assert len(summary["events"]) == 1
+    assert summary["events"][0]["event_type"] == "unusual_volume"
     events = of_db.recent_events(symbol="NVDA", db_path=db)
     uv1 = [e for e in events if e["event_type"] == "unusual_volume"]
     assert len(uv1) == 1
@@ -340,6 +342,8 @@ def test_block_e2e_trade_quote_direction(tmp_path: Path) -> None:
     )
     assert summary["prints"] == 1
     assert summary["blocks"] == 1
+    assert len(summary["events"]) == 1
+    assert summary["events"][0]["event_type"] == "block"
 
     events = of_db.recent_events(event_type="block", db_path=db)
     assert len(events) == 1

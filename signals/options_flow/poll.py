@@ -172,7 +172,13 @@ def run_poll_once(
 ) -> dict:
     """One intraday poll cycle. Returns counters; never raises."""
     st = state if state is not None else _default_state
-    counters = {"prints": 0, "blocks": 0, "uv1": 0, "pressure": 0}
+    counters: dict[str, Any] = {
+        "prints": 0,
+        "blocks": 0,
+        "uv1": 0,
+        "pressure": 0,
+        "events": [],
+    }
     try:
         _run_poll_cycle(
             adapter,
@@ -196,7 +202,7 @@ def _run_poll_cycle(
     now_ms: int,
     state: PollState,
     db_path: Path | None,
-    counters: dict[str, int],
+    counters: dict[str, Any],
 ) -> None:
     if state.day != today_et:
         state.reset()
@@ -221,7 +227,7 @@ def _run_poll_cycle(
         or now_ms - state.last_active_refresh_ms
         >= ACTIVE_SET_REFRESH_SECONDS * _MS_PER_SEC
     ):
-        uv1 = _refresh_active_set(adapter, symbols, today_et, state, db_path)
+        uv1 = _refresh_active_set(adapter, symbols, today_et, state, db_path, counters)
         counters["uv1"] += uv1
         state.last_active_refresh_ms = now_ms
 
@@ -350,6 +356,7 @@ def _run_poll_cycle(
                 if ev is not None:
                     of_db.insert_event(ev, db_path=db_path)
                     counters["blocks"] += 1
+                    counters["events"].append(ev)
             except Exception:
                 logger.exception(
                     "options_flow poll: block detect/insert failed for %s", occ
@@ -369,6 +376,7 @@ def _run_poll_cycle(
             if ev is not None:
                 of_db.insert_event(ev, db_path=db_path)
                 counters["pressure"] += 1
+                counters["events"].append(ev)
         except Exception:
             logger.exception(
                 "options_flow poll: pressure detect/insert failed for %s", u
@@ -429,6 +437,7 @@ def _refresh_active_set(
     today_et: str,
     state: PollState,
     db_path: Path | None,
+    counters: dict[str, Any] | None = None,
 ) -> int:
     """Rebuild active set; run intraday UV-1 piggyback. Returns uv1 events inserted."""
     capped = [
@@ -514,6 +523,8 @@ def _refresh_active_set(
             if ev is not None:
                 of_db.insert_event(ev, db_path=db_path)
                 uv1_count += 1
+                if counters is not None:
+                    counters["events"].append(ev)
         except Exception:
             logger.exception("options_flow poll: UV-1 detect/insert failed for %s", occ)
 

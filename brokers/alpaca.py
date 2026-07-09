@@ -1003,6 +1003,56 @@ class AlpacaAdapter:
                     out[sym] = parsed
         return out
 
+    def get_stock_snapshot_fields(self, symbol: str) -> dict[str, float] | None:
+        """Read-only equity snapshot: last price and today's daily-bar volume.
+
+        Uses ``GET /v2/stocks/snapshots``. Fail-soft — returns None on error or
+        missing fields; never raises.
+        """
+        sym = symbol.strip().upper()
+        if not sym:
+            return None
+        try:
+            data = self._get_data(
+                "/v2/stocks/snapshots",
+                params={"symbols": sym, "feed": self._data_feed},
+            )
+        except Exception:
+            logger.warning(
+                "Alpaca stock snapshot failed for %s", sym, exc_info=True
+            )
+            return None
+
+        snap = data.get(sym) if isinstance(data, dict) else None
+        if not isinstance(snap, dict):
+            return None
+
+        trade = snap.get("latestTrade") or {}
+        quote = snap.get("latestQuote") or {}
+        daily_bar = snap.get("dailyBar") or {}
+
+        def _f(v: object) -> float | None:
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        last_price = _f(trade.get("p"))
+        if last_price is None:
+            bid = _f(quote.get("bp"))
+            ask = _f(quote.get("ap"))
+            if bid is not None and ask is not None:
+                last_price = (bid + ask) / 2.0
+            elif bid is not None:
+                last_price = bid
+            elif ask is not None:
+                last_price = ask
+
+        day_volume = _f(daily_bar.get("v"))
+        if last_price is None or day_volume is None or day_volume <= 0:
+            return None
+        return {"last_price": last_price, "day_volume": day_volume}
+
     def get_forward_splits(
         self, symbols: list[str]
     ) -> dict[str, list[tuple[date, Decimal]]]:

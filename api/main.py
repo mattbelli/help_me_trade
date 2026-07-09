@@ -1053,6 +1053,7 @@ async def _options_flow_intraday_once() -> None:
                 _options_flow_intraday_logged = True
             return
 
+        from signals.options_flow.convergence import process_events
         from signals.options_flow.poll import run_poll_once
 
         symbols = _all_watchlist_symbols()
@@ -1066,13 +1067,30 @@ async def _options_flow_intraday_once() -> None:
             today_et=today_et,
             now_ms=now_ms,
         )
+        events = summary.pop("events", []) or []
+        conv_summary: dict[str, int] = {}
+        if events:
+            open_min = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+            now_min = now_et.hour * 60 + now_et.minute
+            minutes_since_open = max(0, now_min - open_min)
+            conv_summary = await process_events(
+                broker,
+                events,
+                today_et=today_et,
+                minutes_since_open=minutes_since_open,
+            )
         logger.info(
-            "options_flow intraday: date=%s prints=%s blocks=%s uv1=%s pressure=%s",
+            "options_flow intraday: date=%s prints=%s blocks=%s uv1=%s pressure=%s "
+            "events=%s convergence=%s solo=%s pushes=%s",
             today_et,
             summary.get("prints"),
             summary.get("blocks"),
             summary.get("uv1"),
             summary.get("pressure"),
+            len(events),
+            conv_summary.get("convergence", 0),
+            conv_summary.get("solo", 0),
+            conv_summary.get("pushes", 0),
         )
     except Exception:
         logger.exception("options_flow intraday: unexpected failure")

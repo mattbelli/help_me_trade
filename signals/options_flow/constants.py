@@ -64,6 +64,11 @@ ACTIVE_SET_PER_UNDERLYING = 60  # design §4; top contracts per underlying in ac
 ACTIVE_SET_REFRESH_SECONDS = 300  # design §4; refresh active set every 5 min
 POLL_QUOTE_CHUNK = 100  # design §4; quote/trades chunk size (Alpaca ≤100 symbols)
 
+# --- Convergence watch + push budget (design §6b / §5) -----------------------------
+CONV_RVOL_MIN = 1.5  # design §6b; underlying RVOL component threshold
+CONV_LEVEL_ATR = 0.5  # design §6b; |price − level| ≤ 0.5×ATR(14, daily)
+SOLO_PUSH_PREMIUM_USD = 1_000_000  # design §6b; solo flow pushes only above this
+OPTIONS_FLOW_MAX_PUSH_PER_DAY = 5  # design §5 dedup/budget; phone push ceiling
 
 
 def dte_bucket(dte: int) -> str:
