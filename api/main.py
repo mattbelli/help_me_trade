@@ -986,9 +986,9 @@ async def _options_flow_eod_once() -> None:
             return
 
         try:
-            broker = get_broker()
+            broker = get_broker("alpaca")  # options data lives only on Alpaca
         except Exception as exc:
-            logger.warning("options_flow EOD: broker unavailable: %s", exc)
+            logger.warning("options_flow EOD: Alpaca broker unavailable: %s", exc)
             return
 
         if not hasattr(broker, "get_option_bars"):
