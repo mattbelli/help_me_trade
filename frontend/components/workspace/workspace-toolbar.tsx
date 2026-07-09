@@ -403,8 +403,8 @@ export function WorkspaceToolbar() {
           </span>
         </div>
 
-        <div
-          className="hidden h-[18px] w-px shrink-0 bg-[var(--border)] sm:block"
+        <span
+          className="hidden h-4 w-px shrink-0 bg-[var(--border)] sm:block"
           aria-hidden
         />
 
@@ -421,10 +421,10 @@ export function WorkspaceToolbar() {
         >
           <DropdownMenuTrigger
             className={cn(
-              "inline-flex cursor-pointer items-center outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]",
+              "inline-flex cursor-pointer outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]",
               feedChip
-                ? "gap-2 rounded px-2.5 py-[5px] hover:bg-[var(--bg-hover)]"
-                : "gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] text-[var(--fg-dim)] capitalize hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]",
+                ? "items-center gap-2 rounded px-2.5 py-[5px] hover:bg-[var(--bg-hover)]"
+                : "items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-[3px] text-[var(--fg-dim)] capitalize hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]",
             )}
             title={
               feedChip
@@ -441,7 +441,7 @@ export function WorkspaceToolbar() {
               )}
             />
             {feedChip ? (
-              <>
+              <span className="inline-flex items-baseline gap-1.5">
                 <span
                   className={cn(
                     "font-mono text-[length:var(--fs-body)] font-bold tracking-[0.08em] uppercase",
@@ -457,12 +457,12 @@ export function WorkspaceToolbar() {
                 <span
                   className={cn(
                     "font-mono text-[length:var(--fs-micro)] tracking-[0.14em] uppercase",
-                    isPaper ? "text-[var(--c-blue)]" : "text-[var(--c-amber)]",
+                    isPaper ? "text-[var(--c-amber)]" : "text-[var(--c-green)]",
                   )}
                 >
                   {isPaper ? "PAPER" : "REAL"}
                 </span>
-              </>
+              </span>
             ) : (
               <span className="capitalize">{broker}</span>
             )}
@@ -490,8 +490,8 @@ export function WorkspaceToolbar() {
                       className={cn(
                         "inline-flex rounded-full border px-2 py-px text-[length:var(--fs-table)]",
                         isPaper
-                          ? "border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] text-[var(--c-blue)]"
-                          : "border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] text-[var(--c-amber)]",
+                          ? "border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] text-[var(--c-amber)]"
+                          : "border-[color-mix(in_srgb,var(--c-green)_35%,transparent)] text-[var(--c-green)]",
                       )}
                     >
                       {isPaper ? "paper" : "live"}
@@ -627,6 +627,10 @@ export function WorkspaceToolbar() {
         <NotificationBell />
         <SettingsDialog collapsed />
         <ThemeSwitcher />
+        <span
+          className="h-4 w-px shrink-0 bg-[var(--border)]"
+          aria-hidden
+        />
         <span className="min-w-[4.75rem] text-right text-[var(--fg-dim)]">
           {clock}
         </span>

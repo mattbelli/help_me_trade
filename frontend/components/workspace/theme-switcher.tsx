@@ -2,7 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { useState, useSyncExternalStore } from "react";
-import { CheckIcon, PaletteIcon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, Moon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -70,15 +70,15 @@ export function ThemeSwitcher({ className }: { className?: string }) {
             <Button
               variant="ghost"
               size="sm"
+              title="Theme"
               className={cn(
-                "h-7 gap-1.5 px-2.5 font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)] hover:bg-[var(--bg-hover)] hover:text-foreground",
+                "h-7 w-7 rounded p-1 text-[var(--fg-faint)] hover:bg-[var(--bg-hover)] hover:text-foreground",
                 className,
               )}
             />
           }
         >
-          <PaletteIcon className="size-3.5" />
-          theme
+          <Moon className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-52 font-mono text-[length:var(--fs-body)]">
           {WORKSPACE_THEMES.map((id) => (
