@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "options-flow-phase3",
+      "title": "Options-flow Phase 3 — OPRA websocket streaming + SWP-1 sweeps + at-print DIR-1",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Round 3a DONE + committed 2026-07-09 (verified by orchestrator after Composer's verify step fork-stormed serv to load 205 — see memory serv-fork-storm-2026-07-09; its tests passed a sync connect_factory into an awaited seam -> zero-wait reconnect spin under mocked sleep). Shipped: signals/options_flow/stream.py (msgpack connect/auth/406 long backoff, incremental sub diffs, trades-broad <=1000 / hot-quote subset cap 150, quote cache, normalize_print handoff to bounded collector) + DARK api/main.py wiring behind OPTIONS_FLOW_STREAM_ENABLED=0. Orchestrator fixed a real reconnect bug (subscribed sets never cleared per-connection -> silent no-data after reconnect) + premature backoff reset. Amplifier fixed: poll cold-start cursor floor POLL_COLD_START_LOOKBACK_MINUTES=30 (mid-day restart had re-pulled ~440k SPY prints). Probes P-1/P-3 closed (research/options_flow/ws_probe_2026-07-09.md, 6e9e460): one ws conn/account, 12ms lag, sweep condition S on tape, quotes 20:1. 81 tests + ruff green. NEXT round 3b: SWP-1 500ms/>=3-exchange sweep + split clustering, at-print DIR-1 (stream_quote basis, QUOTE_STALE_FOR_DIR1_SECONDS=5), widget sweep label, then enable (monitored dispatch only)."
+    },
+    {
       "id": "options-flow-phase2",
       "title": "Options-flow screener Phase 1+2 — MERGED + ENABLED LIVE 2026-07-09 (founder go)",
       "lane": "done",

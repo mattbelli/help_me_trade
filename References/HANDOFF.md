@@ -10,7 +10,27 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-09, later) — Options-flow Phase 1+2 MERGED TO MAIN + ENABLED LIVE
+## ▶ START HERE (2026-07-09, latest) — Options-flow Phase 3 IN PROGRESS (streaming + sweeps)
+
+> Founder go (~13:40 ET): "should we move onto phase 3." **P-1/P-3 probes closed live same day** —
+> `scripts/opra_ws_probe.py`, results `research/options_flow/ws_probe_2026-07-09.md` (commit `6e9e460`):
+> msgpack schemas confirmed (trade `c` = ONE char string, not a list), 1,506 trade subs ACKed (1,000 = our
+> budget not a vendor wall), **ONE ws connection per account** (2nd → 406, first survives — prod stream must
+> be singleton; dev probes conflict with prod), trade lag **p50 = 12 ms**, ISO-sweep `S` prints on tape
+> (SWP-1 corroboration real), **quotes flood 20:1** → architecture: trades BROAD (≤1,000), quotes NARROW
+> hot-subset (recently-printed, cap 150). **30s poll stays running as the permanent fallback** — stream is
+> additive; deterministic event ids dedupe both paths for free. **Round 3a BUILT + committed** (`signals/
+> options_flow/stream.py` + DARK `api/main.py` wiring behind `OPTIONS_FLOW_STREAM_ENABLED=0`; 81 tests +
+> ruff green). ⚠️ The Composer round's pytest verify **fork-stormed serv to load 205** (box froze,
+> self-recovered) — its tests passed a sync `connect_factory` into an awaited seam → zero-wait reconnect
+> spin under mocked sleep. New standing rule (memory `serv-fork-storm-2026-07-09`): NO unmonitored
+> background dispatches; single-threaded verifies with hard timeouts. Orchestrator fixed a real reconnect
+> bug (subscribed sets never cleared per-connection → silent no-data after reconnect) + premature backoff
+> reset + the restart amplifier (`POLL_COLD_START_LOOKBACK_MINUTES=30` cursor floor — a mid-day restart
+> re-pulled ~440k SPY prints). Round 3b next: SWP-1 500ms/≥3-exchange clustering + split variant +
+> at-print DIR-1 (`stream_quote` basis) + widget sweep label + enable. Board card `options-flow-phase3`.
+
+## ▶ EARLIER (2026-07-09) — Options-flow Phase 1+2 MERGED TO MAIN + ENABLED LIVE
 
 > Founder: "merge it to main and enable it." Done ~11:15 ET: merge `f0fddee` → main (pushed); backfill on the
 > 23 equity/ETF watchlist names (futures excluded) → 64,444 baseline rows / 61 buckets;

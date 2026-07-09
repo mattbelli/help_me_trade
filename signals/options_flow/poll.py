@@ -21,6 +21,7 @@ from signals.options_flow.constants import (
     EXT_HOURS_CONDITIONS,
     LATE_OOS_CONDITIONS,
     OPTIONS_FLOW_MAX_UNDERLYINGS,
+    POLL_COLD_START_LOOKBACK_MINUTES,
     POLL_QUOTE_CHUNK,
 )
 from signals.options_flow.detect import detect_uv1
@@ -88,6 +89,12 @@ def _meta_from_contract(c: dict, today_et: str) -> dict | None:
         "expiry": expiry,
         "dte": dte,
     }
+
+
+def active_subscription_symbols(state: PollState | None = None) -> list[str]:
+    """OCC symbols in the intraday active set (for OPRA stream trade subscriptions)."""
+    st = state if state is not None else _default_state
+    return sorted(st.active.keys())
 
 
 def _meta_from_occ(occ: str, underlying_hint: str, today_et: str) -> dict | None:
@@ -241,7 +248,16 @@ def _run_poll_cycle(
     new_prints_by_occ: dict[str, list[dict]] = {}
 
     active_occs = list(state.active.keys())
+    # Cursor-less contracts (cold start after a restart, or newly active mid-day)
+    # start at most POLL_COLD_START_LOOKBACK_MINUTES back, never session open —
+    # min(starts) below drags the whole chunk to the oldest cursor. Pressure
+    # accumulation restarts bounded-lossy; the day_prints cap already made a
+    # full-day refetch mostly moot for the busiest names.
     default_start = _session_start_iso(today_et)
+    lookback_ms = now_ms - POLL_COLD_START_LOOKBACK_MINUTES * 60 * _MS_PER_SEC
+    session_start_ms = _parse_ts_ms(default_start)
+    if session_start_ms is not None and lookback_ms > session_start_ms:
+        default_start = _ts_ms_to_iso(lookback_ms)
 
     for i in range(0, len(active_occs), _TRADES_CHUNK):
         chunk = active_occs[i : i + _TRADES_CHUNK]

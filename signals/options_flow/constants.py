@@ -63,6 +63,15 @@ OPTIONS_FLOW_MAX_CONTRACTS_PER_UNDERLYING = 800  # design §4; EOD scan contract
 ACTIVE_SET_PER_UNDERLYING = 60  # design §4; top contracts per underlying in active set
 ACTIVE_SET_REFRESH_SECONDS = 300  # design §4; refresh active set every 5 min
 POLL_QUOTE_CHUNK = 100  # design §4; quote/trades chunk size (Alpaca ≤100 symbols)
+POLL_COLD_START_LOOKBACK_MINUTES = 30  # cursor floor for cursor-less contracts; bounds the
+# restart refetch burst (2026-07-09: a mid-day cold start re-pulled ~440k SPY prints while the
+# 20k day_prints cap kept only ~the last 30 min of them anyway)
+
+# --- OPRA websocket stream (design §5/§7; probe 2026-07-09) --------------------
+STREAM_TRADES_MAX = 1000  # design §7; our trade-sub budget (vendor acked 1,500+)
+HOT_QUOTE_MAX = 150  # design §7; narrow quote subs — ~275 q/s for 9 contracts
+HOT_QUOTE_TTL_SECONDS = 600  # design §7; quote sub lifetime after last print
+QUOTE_STALE_FOR_DIR1_SECONDS = 5  # design §5 DIR-1; stream quote freshness (round 3b)
 
 # --- Convergence watch + push budget (design §6b / §5) -----------------------------
 CONV_RVOL_MIN = 1.5  # design §6b; underlying RVOL component threshold

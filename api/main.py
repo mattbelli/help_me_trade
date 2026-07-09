@@ -198,6 +198,9 @@ _OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not 
     "false",
     "no",
 )
+_OPTIONS_FLOW_STREAM_ENABLED = os.environ.get(
+    "OPTIONS_FLOW_STREAM_ENABLED", "0"
+).strip() not in ("0", "false", "no")
 OPTIONS_FLOW_POLL_SECONDS = max(
     10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30"))
 )
@@ -1096,6 +1099,72 @@ async def _options_flow_intraday_once() -> None:
         logger.exception("options_flow intraday: unexpected failure")
 
 
+_options_flow_stream = None
+
+
+def _options_flow_stream_meta_for(occ: str) -> dict | None:
+    from signals.options_flow.poll import _default_state, _meta_from_occ
+
+    sym = occ.strip().upper()
+    meta = _default_state.active.get(sym)
+    if meta is not None:
+        return meta
+    today_et = datetime.now(_ET).date().isoformat()
+    return _meta_from_occ(sym, "", today_et)
+
+
+def _options_flow_stream_subscription_set() -> list[str]:
+    from signals.options_flow.poll import active_subscription_symbols
+
+    if _market_session() != "regular":
+        return []
+    return active_subscription_symbols()
+
+
+def _options_flow_stream_on_prints(batch: list[dict]) -> None:
+    stream = _options_flow_stream
+    if stream is None:
+        return
+    stream.collected_prints.extend(batch)
+
+
+async def _options_flow_stream_run() -> None:
+    """OPRA websocket transport (Phase 3a); DARK — collects prints, no detection."""
+    global _options_flow_stream
+    if not (_OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED):
+        return
+    if not broker_is_configured("alpaca"):
+        logger.warning("options_flow stream: Alpaca not configured; not starting")
+        return
+
+    cfg = alpaca_config()
+    key = str(cfg.get("api_key_id") or "").strip()
+    secret = str(cfg.get("api_secret_key") or "").strip()
+    if not key or not secret:
+        logger.warning("options_flow stream: missing Alpaca credentials; not starting")
+        return
+
+    from signals.options_flow.stream import OptionsFlowStream
+
+    stream = OptionsFlowStream(
+        key=key,
+        secret=secret,
+        on_prints=_options_flow_stream_on_prints,
+        get_subscription_set=_options_flow_stream_subscription_set,
+        meta_for=_options_flow_stream_meta_for,
+    )
+    _options_flow_stream = stream
+    logger.info("options_flow stream: starting OPRA websocket (DARK collector)")
+    try:
+        await stream.run()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("options_flow stream: run loop exited unexpectedly")
+    finally:
+        _options_flow_stream = None
+
+
 def _upcoming_earnings_date(symbol: str, today_iso: str) -> str | None:
     """Next watchlist earnings on or after today (includes day-of)."""
     if last_earnings_date(symbol, today_iso) == today_iso:
@@ -1700,7 +1769,11 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_reports_scheduler_loop()),
         asyncio.create_task(_bars_prewarm_loop()),
     ]
+    if _OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED:
+        background_tasks.append(asyncio.create_task(_options_flow_stream_run()))
     yield
+    if _options_flow_stream is not None:
+        _options_flow_stream.stop()
     for task in background_tasks:
         task.cancel()
     for task in background_tasks:
