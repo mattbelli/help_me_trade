@@ -144,10 +144,13 @@ function sideLabel(
   return word;
 }
 
-function sideTextClass(letter: "C" | "P"): string {
-  return letter === "C"
-    ? "text-[var(--c-green)]"
-    : "text-[var(--c-red)]";
+function sideTextClass(direction: OptionsFlowEvent["direction"]): string {
+  // Color follows the ACTION (aggressor side), not the instrument — the word
+  // already says call/put. Green ▲ = ask-side, red ▼ = bid-side; a print with
+  // no classified side stays dim (founder: a green ▼ reads as a contradiction).
+  if (direction === "buy_side") return "text-[var(--c-green)]";
+  if (direction === "sell_side") return "text-[var(--c-red)]";
+  return "text-[var(--fg-faint)]";
 }
 
 function dteBucketFromId(id: string): string {
@@ -342,7 +345,7 @@ export function OptionsFlowWidget({ config }: WidgetProps) {
                     <span
                       className={cn(
                         "shrink-0 text-[length:var(--fs-micro)] lowercase tabular-nums",
-                        sideTextClass(letter),
+                        sideTextClass(ev.direction),
                       )}
                     >
                       {sideLabel(letter, ev.direction)}
