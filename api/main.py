@@ -1128,6 +1128,125 @@ def _options_flow_stream_on_prints(batch: list[dict]) -> None:
     stream.collected_prints.extend(batch)
 
 
+def _build_sweep_detail(
+    snapshot: dict | None,
+    underlying_price: float | None,
+) -> dict[str, float] | None:
+    """Pure helper: Alpaca option snapshot + underlying price → sweep detail dict."""
+    detail: dict[str, float] = {}
+
+    if underlying_price is not None:
+        detail["underlying_price"] = round(float(underlying_price), 2)
+
+    if isinstance(snapshot, dict):
+        iv = snapshot.get("impliedVolatility")
+        if iv is not None:
+            try:
+                detail["iv"] = round(float(iv), 4)
+            except (TypeError, ValueError):
+                pass
+
+        greeks = snapshot.get("greeks")
+        if isinstance(greeks, dict):
+            for key in ("delta", "gamma", "theta", "vega", "rho"):
+                val = greeks.get(key)
+                if val is not None:
+                    try:
+                        detail[key] = round(float(val), 4)
+                    except (TypeError, ValueError):
+                        pass
+
+        oi = snapshot.get("openInterest")
+        if oi is not None:
+            try:
+                detail["oi"] = float(int(oi))
+            except (TypeError, ValueError):
+                pass
+
+        quote = snapshot.get("latestQuote")
+        if isinstance(quote, dict):
+            for src, dst in (("bp", "bid"), ("ap", "ask")):
+                val = quote.get(src)
+                if val is not None:
+                    try:
+                        detail[dst] = round(float(val), 2)
+                    except (TypeError, ValueError):
+                        pass
+
+    return detail or None
+
+
+async def _enrich_sweep_events(events: list[dict], broker: object) -> None:
+    """Fail-soft sweep detail enrichment (underlying, greeks, IV, OI, quote)."""
+
+    def _enrich() -> None:
+        underlyings = {
+            str(ev.get("underlying") or "").strip().upper() for ev in events
+        }
+        underlyings.discard("")
+        und_prices: dict[str, float | None] = {}
+        for sym in underlyings:
+            try:
+                snap = broker.get_stock_snapshot_fields(sym)
+                und_prices[sym] = (
+                    float(snap["last_price"]) if snap and snap.get("last_price") is not None else None
+                )
+            except Exception:
+                logger.debug(
+                    "options_flow sweeps: underlying snapshot failed for %s",
+                    sym,
+                    exc_info=True,
+                )
+                und_prices[sym] = None
+
+        occs = [
+            str(ev.get("occ_symbol") or "").strip().upper()
+            for ev in events
+            if str(ev.get("occ_symbol") or "").strip()
+        ]
+        snapshots: dict[str, dict] = {}
+        if occs:
+            try:
+                snapshots = broker.get_option_snapshots(occs) or {}
+            except Exception:
+                logger.debug(
+                    "options_flow sweeps: option snapshots failed",
+                    exc_info=True,
+                )
+
+        # Snapshots don't carry openInterest (live-verified 2026-07-09); the
+        # poll's daily OI refresh does — use it as the OI source.
+        from signals.options_flow.poll import _default_state as _poll_state
+
+        for ev in events:
+            try:
+                und = str(ev.get("underlying") or "").strip().upper()
+                occ = str(ev.get("occ_symbol") or "").strip().upper()
+                detail = _build_sweep_detail(
+                    snapshots.get(occ),
+                    und_prices.get(und),
+                )
+                oi = _poll_state.oi.get(occ)
+                if oi and "oi" not in (detail or {}):
+                    detail = detail or {}
+                    detail["oi"] = float(int(oi))
+                ev["detail"] = detail or None
+            except Exception:
+                logger.debug(
+                    "options_flow sweeps: detail build failed for %s",
+                    ev.get("id"),
+                    exc_info=True,
+                )
+                ev["detail"] = None
+
+    try:
+        await asyncio.to_thread(_enrich)
+    except Exception:
+        logger.debug("options_flow sweeps: enrichment failed", exc_info=True)
+        for ev in events:
+            ev.setdefault("detail", None)
+
+
 async def _options_flow_sweep_loop() -> None:
     """Phase 3b consumer: stream prints → at-print DIR-1 → SWP-1 sweeps → events."""
     if not (_OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED):
@@ -1164,7 +1283,10 @@ async def _options_flow_sweep_loop() -> None:
                 for p in batch:
                     direction = "undetermined"
                     basis = "none"
-                    q = stream.latest_quote(str(p.get("occ_symbol") or ""))
+                    q = stream.quote_at(
+                        str(p.get("occ_symbol") or ""),
+                        int(p.get("ts_ms") or 0),
+                    )
                     if q is not None:
                         bid, ask, q_ts_ms = q
                         if abs(int(p.get("ts_ms") or 0) - q_ts_ms) <= stale_ms:
@@ -1181,13 +1303,20 @@ async def _options_flow_sweep_loop() -> None:
             events = buffer.close_ready(int(time.time() * 1000), today_et)
             if not events:
                 continue
-            for ev in events:
-                of_db.insert_event(ev)
 
             try:
                 broker = get_broker("alpaca")
             except Exception:
                 logger.warning("options_flow sweeps: Alpaca broker unavailable")
+                broker = None
+
+            if broker is not None:
+                await _enrich_sweep_events(events, broker)
+
+            for ev in events:
+                of_db.insert_event(ev)
+
+            if broker is None:
                 continue
             open_min = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
             now_min = now_et.hour * 60 + now_et.minute

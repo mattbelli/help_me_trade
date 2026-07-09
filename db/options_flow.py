@@ -15,6 +15,7 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.schema_helpers import _add_column_if_missing
 from signals.options_flow.constants import DAILY_PRUNE_DAYS, EVENTS_PRUNE_DAYS
 
 _RECENT_EVENTS_CAP = 50
@@ -79,6 +80,7 @@ def init_db(db_path: Path | None = None) -> None:
                 ON options_flow_daily (underlying, dte_bucket, date);
             """
         )
+        _add_column_if_missing(conn, "options_flow_events", "detail", "TEXT")
         conn.commit()
 
 
@@ -94,6 +96,14 @@ def _row_to_event(row: Any) -> dict[str, Any]:
         out["exchanges"] = []
     if "spread_flag" in out and out["spread_flag"] is not None:
         out["spread_flag"] = bool(out["spread_flag"])
+    raw_detail = out.get("detail")
+    if isinstance(raw_detail, str) and raw_detail:
+        try:
+            out["detail"] = json.loads(raw_detail)
+        except (json.JSONDecodeError, TypeError):
+            out["detail"] = None
+    elif raw_detail is None:
+        out["detail"] = None
     return out
 
 
@@ -114,6 +124,11 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
         spread_int = None
     else:
         spread_int = 1 if spread else 0
+    detail = event.get("detail")
+    if isinstance(detail, dict):
+        detail_json = json.dumps(detail)
+    else:
+        detail_json = None
     created = event.get("created_at") or _now()
     with _connect(resolved) as conn:
         conn.execute(
@@ -122,12 +137,12 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 id, ts, underlying, occ_symbol, right, strike, expiry, dte,
                 otm_pct, event_type, contracts, premium_usd, vol_oi_ratio,
                 vol_zscore, direction, direction_basis, spread_flag, n_prints,
-                exchanges, reason, caveat, ret_1d, ret_5d, created_at
+                exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(id) DO UPDATE SET
                 underlying = excluded.underlying,
@@ -150,7 +165,8 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 reason = excluded.reason,
                 caveat = excluded.caveat,
                 ret_1d = excluded.ret_1d,
-                ret_5d = excluded.ret_5d
+                ret_5d = excluded.ret_5d,
+                detail = excluded.detail
             """,
             (
                 event["id"],
@@ -177,6 +193,7 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 event.get("ret_1d"),
                 event.get("ret_5d"),
                 created,
+                detail_json,
             ),
         )
         conn.commit()

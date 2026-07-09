@@ -1416,6 +1416,38 @@ class AlpacaAdapter:
             return {}
         return out
 
+    def get_option_snapshots(
+        self, occ_symbols: list[str]
+    ) -> dict[str, dict]:
+        """Option snapshots (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/snapshots?symbols=<csv>&feed=opra``
+        Returns ``{occ: snapshot}`` with vendor keys (``latestQuote``,
+        ``latestTrade``, ``greeks``, ``impliedVolatility``, ``openInterest``, …).
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols:
+            return {}
+        out: dict[str, dict] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_QUOTES_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_QUOTES_CHUNK]
+                data = self._get_data(
+                    "/v1beta1/options/snapshots",
+                    params={"symbols": ",".join(chunk), "feed": "opra"},
+                )
+                if not isinstance(data, dict):
+                    continue
+                snapshots = data.get("snapshots") or {}
+                if not isinstance(snapshots, dict):
+                    continue
+                for occ, raw in snapshots.items():
+                    if isinstance(raw, dict):
+                        out[str(occ).strip().upper()] = raw
+        except Exception:
+            return {}
+        return out
+
     def get_option_trade_conditions(self) -> dict[str, str]:
         """OPRA trade condition code → description mapping. Fail-soft ``{}``."""
         try:

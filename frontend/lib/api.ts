@@ -621,6 +621,7 @@ export type OptionsFlowEvent = {
   exchanges: string[];
   reason: string;
   caveat: string;
+  detail?: Record<string, number> | null;
 };
 
 export type OptionsFlowResult = {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,6 +13,7 @@ import pytest
 from signals.options_flow.intraday import normalize_print
 from signals.options_flow.stream import (
     CONNECTION_LIMIT_BACKOFF_SEC,
+    QUOTE_STALE_FOR_DIR1_SECONDS,
     RECONNECT_BASE_SEC,
     OptionsFlowStream,
 )
@@ -488,3 +490,126 @@ async def test_stop_ends_run_promptly() -> None:
     await asyncio.sleep(0.08)
     stream.stop()
     await asyncio.wait_for(task, timeout=1.0)
+
+
+def test_quote_at_prevailing_before_print_wins() -> None:
+    stream = OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: [],
+        meta_for=_meta_for,
+    )
+    print_ts = 1_800_000_000_000
+    stream._quote_ring[OCC] = deque(
+        [
+            (print_ts - 2000, 4.0, 4.2),
+            (print_ts - 500, 4.1, 4.3),
+            (print_ts + 300, 4.5, 4.7),
+        ],
+        maxlen=64,
+    )
+    q = stream.quote_at(OCC, print_ts)
+    assert q is not None
+    assert q[0] == pytest.approx(4.1)
+    assert q[1] == pytest.approx(4.3)
+    assert q[2] == print_ts - 500
+
+
+def test_quote_at_fallback_to_quote_after_print() -> None:
+    stream = OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: [],
+        meta_for=_meta_for,
+    )
+    print_ts = 1_800_000_000_000
+    stream._quote_ring[OCC] = deque(
+        [
+            (print_ts + 400, 4.5, 4.7),
+        ],
+        maxlen=64,
+    )
+    q = stream.quote_at(OCC, print_ts)
+    assert q is not None
+    assert q[0] == pytest.approx(4.5)
+    assert q[2] == print_ts + 400
+
+
+def test_quote_at_stale_before_print_returns_none() -> None:
+    stream = OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: [],
+        meta_for=_meta_for,
+    )
+    print_ts = 1_800_000_000_000
+    stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * 1000 + 1
+    stream._quote_ring[OCC] = deque(
+        [(print_ts - stale_ms, 4.0, 4.2)],
+        maxlen=64,
+    )
+    assert stream.quote_at(OCC, print_ts) is None
+
+
+def test_quote_at_after_fallback_beyond_1s_returns_none() -> None:
+    stream = OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: [],
+        meta_for=_meta_for,
+    )
+    print_ts = 1_800_000_000_000
+    stream._quote_ring[OCC] = deque(
+        [(print_ts + 1001, 4.5, 4.7)],
+        maxlen=64,
+    )
+    assert stream.quote_at(OCC, print_ts) is None
+
+
+@pytest.mark.asyncio
+async def test_quote_ring_pruned_with_cache_and_quote_unsub() -> None:
+    ws = ScriptWS()
+    now_ms = 1_800_000_000_000
+    stream = OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: [OCC, OCC2],
+        meta_for=_meta_for,
+        connect_factory=_connector(ws),
+    )
+    stream._quote_cache[OCC2] = (1.0, 2.0, now_ms - 3_700_000)
+    stream._quote_ring[OCC2] = deque(
+        [(now_ms - 3_700_000, 1.0, 2.0)],
+        maxlen=64,
+    )
+    stream._subscribed_quotes = {OCC, OCC2}
+    stream._last_sub_refresh_mono = 0.0
+
+    import time as time_mod
+    original_time = time_mod.time
+    time_mod.time = lambda: now_ms / 1000.0
+    try:
+        await stream._refresh_subscriptions(ws, force=True)
+        assert OCC2 not in stream._quote_cache
+        assert OCC2 not in stream._quote_ring
+
+        stream._quote_ring[OCC] = deque(
+            [(now_ms, 3.0, 4.0)],
+            maxlen=64,
+        )
+        stream._subscribed_quotes = {OCC, OCC3}
+        await stream._diff_and_send(
+            ws,
+            channel="quotes",
+            current={OCC, OCC3},
+            desired={OCC},
+        )
+        assert OCC3 not in stream._quote_ring
+        assert OCC in stream._quote_ring
+    finally:
+        time_mod.time = original_time

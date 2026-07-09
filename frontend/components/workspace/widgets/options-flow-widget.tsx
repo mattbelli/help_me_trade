@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Info } from "lucide-react";
+import { Info, ChevronDown, ChevronUp } from "lucide-react";
 import {
   WidgetEmpty,
   WidgetError,
@@ -217,11 +217,46 @@ function formatDetailLine(ev: OptionsFlowEvent): string {
   return `net ${formatPremium(ev.premium_usd)} ${side}-side · ${prints} classified prints`;
 }
 
+function formatExpandedDetail(detail: Record<string, number>): string {
+  const parts: string[] = [];
+  if (detail.underlying_price != null) {
+    parts.push(`und $${detail.underlying_price.toFixed(2)}`);
+  }
+  if (detail.iv != null) {
+    const pct = detail.iv <= 2 ? detail.iv * 100 : detail.iv;
+    parts.push(`iv ${pct.toFixed(1)}%`);
+  }
+  if (detail.delta != null) {
+    parts.push(`δ ${detail.delta.toFixed(2)}`);
+  }
+  if (detail.gamma != null) {
+    parts.push(`γ ${detail.gamma.toFixed(3)}`);
+  }
+  if (detail.theta != null) {
+    parts.push(`θ ${detail.theta.toFixed(3)}`);
+  }
+  if (detail.vega != null) {
+    parts.push(`ν ${detail.vega.toFixed(3)}`);
+  }
+  if (detail.oi != null) {
+    parts.push(`oi ${Math.round(detail.oi).toLocaleString()}`);
+  }
+  if (detail.bid != null && detail.ask != null) {
+    parts.push(`quote $${detail.bid.toFixed(2)}×$${detail.ask.toFixed(2)}`);
+  } else if (detail.bid != null) {
+    parts.push(`quote $${detail.bid.toFixed(2)}×—`);
+  } else if (detail.ask != null) {
+    parts.push(`quote —×$${detail.ask.toFixed(2)}`);
+  }
+  return parts.join(" · ");
+}
+
 export function OptionsFlowWidget({ config }: WidgetProps) {
   const [data, setData] = useState<OptionsFlowResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterCleared, setFilterCleared] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const cancelledRef = useRef(false);
 
   const channel: ChannelId = config.channel ?? "none";
@@ -297,6 +332,8 @@ export function OptionsFlowWidget({ config }: WidgetProps) {
             const kind = flowKind(ev);
             const letter = rightLetter(ev.right);
             const showSideLabel = letter != null;
+            const hasDetail = ev.detail != null && Object.keys(ev.detail).length > 0;
+            const isExpanded = expandedIds.has(ev.id);
 
             return (
               <button
@@ -361,9 +398,57 @@ export function OptionsFlowWidget({ config }: WidgetProps) {
                     {formatPremium(ev.premium_usd)}
                   </span>
                 </div>
-                <div className="truncate text-[length:var(--fs-micro)] text-[var(--fg-dim)]">
-                  {formatDetailLine(ev)}
+                <div className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--fs-micro)] text-[var(--fg-dim)]">
+                    {formatDetailLine(ev)}
+                  </span>
+                  {hasDetail ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={isExpanded ? "Collapse details" : "Expand details"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(ev.id)) {
+                            next.delete(ev.id);
+                          } else {
+                            next.add(ev.id);
+                          }
+                          return next;
+                        });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setExpandedIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(ev.id)) {
+                              next.delete(ev.id);
+                            } else {
+                              next.add(ev.id);
+                            }
+                            return next;
+                          });
+                        }
+                      }}
+                      className="shrink-0 text-[var(--fg-faint)]"
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="size-3" />
+                      ) : (
+                        <ChevronDown className="size-3" />
+                      )}
+                    </span>
+                  ) : null}
                 </div>
+                {hasDetail && isExpanded ? (
+                  <div className="text-[length:var(--fs-micro)] lowercase text-[var(--fg-dim)]">
+                    {formatExpandedDetail(ev.detail!)}
+                  </div>
+                ) : null}
               </button>
             );
           })}

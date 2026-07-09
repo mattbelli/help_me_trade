@@ -21,6 +21,7 @@ import websockets
 from signals.options_flow.constants import (
     HOT_QUOTE_MAX,
     HOT_QUOTE_TTL_SECONDS,
+    QUOTE_STALE_FOR_DIR1_SECONDS,
     STREAM_TRADES_MAX,
 )
 from signals.options_flow.intraday import normalize_print
@@ -116,6 +117,7 @@ class OptionsFlowStream:
         self._subscribed_trades: set[str] = set()
         self._subscribed_quotes: set[str] = set()
         self._quote_cache: dict[str, tuple[float, float, int]] = {}
+        self._quote_ring: dict[str, deque[tuple[int, float, float]]] = {}
         self._hot_print_ms: dict[str, int] = {}
         self._pending_prints: list[dict] = []
         self._pending_quote_adds: set[str] = set()
@@ -155,6 +157,31 @@ class OptionsFlowStream:
 
     def latest_quote(self, occ: str) -> tuple[float, float, int] | None:
         return self._quote_cache.get(occ.strip().upper())
+
+    def quote_at(self, occ: str, ts_ms: int) -> tuple[float, float, int] | None:
+        """Quote prevailing at print time: newest ring entry at-or-before ``ts_ms``."""
+        sym = occ.strip().upper()
+        ring = self._quote_ring.get(sym)
+        if not ring:
+            return None
+        stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * _MS_PER_SEC
+        after_ms = _MS_PER_SEC
+        best_before_ts = -1
+        best_before: tuple[float, float, int] | None = None
+        earliest_after_ts: int | None = None
+        earliest_after: tuple[float, float, int] | None = None
+        for entry_ts, bid, ask in ring:
+            if entry_ts <= ts_ms:
+                if entry_ts > best_before_ts and ts_ms - entry_ts <= stale_ms:
+                    best_before_ts = entry_ts
+                    best_before = (bid, ask, entry_ts)
+            elif entry_ts - ts_ms <= after_ms:
+                if earliest_after_ts is None or entry_ts < earliest_after_ts:
+                    earliest_after_ts = entry_ts
+                    earliest_after = (bid, ask, entry_ts)
+        if best_before is not None:
+            return best_before
+        return earliest_after
 
     async def run(self) -> None:
         backoff = RECONNECT_BASE_SEC
@@ -296,6 +323,7 @@ class OptionsFlowStream:
         stale = [occ for occ, (_, _, ts) in self._quote_cache.items() if ts < cutoff]
         for occ in stale:
             self._quote_cache.pop(occ, None)
+            self._quote_ring.pop(occ, None)
 
     async def _diff_and_send(
         self,
@@ -309,6 +337,9 @@ class OptionsFlowStream:
         to_remove = sorted(current - desired)
         if to_remove:
             await self._send(ws, {"action": "unsubscribe", channel: to_remove})
+            if channel == "quotes":
+                for occ in to_remove:
+                    self._quote_ring.pop(str(occ).strip().upper(), None)
         if to_add:
             await self._send(ws, {"action": "subscribe", channel: to_add})
         return desired
@@ -466,3 +497,8 @@ class OptionsFlowStream:
             return
         ts_ms = _timestamp_to_ms(item.get("t")) or int(time.time() * 1000)
         self._quote_cache[occ] = (bid, ask, ts_ms)
+        ring = self._quote_ring.get(occ)
+        if ring is None:
+            ring = deque(maxlen=64)
+            self._quote_ring[occ] = ring
+        ring.append((ts_ms, bid, ask))

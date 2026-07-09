@@ -105,6 +105,52 @@ def test_db_insert_and_recent_round_trip(tmp_path: Path) -> None:
     assert "confidence" not in got
 
 
+def test_db_detail_json_round_trip(tmp_path: Path) -> None:
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    detail = {
+        "underlying_price": 412.35,
+        "iv": 0.621,
+        "delta": 0.44,
+        "gamma": 0.031,
+        "theta": -0.352,
+        "vega": 0.118,
+        "oi": 12400.0,
+        "bid": 4.2,
+        "ask": 4.35,
+    }
+    of_db.insert_event(_sample_event(detail=detail), db_path=db)
+    got = of_db.recent_events(db_path=db)[0]
+    assert got["detail"] == detail
+
+
+def test_db_detail_none_round_trip(tmp_path: Path) -> None:
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    of_db.insert_event(_sample_event(detail=None), db_path=db)
+    got = of_db.recent_events(db_path=db)[0]
+    assert got["detail"] is None
+
+
+def test_db_detail_upsert_updates(tmp_path: Path) -> None:
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    of_db.insert_event(
+        _sample_event(detail={"bid": 1.0, "ask": 1.1}),
+        db_path=db,
+    )
+    of_db.insert_event(
+        _sample_event(
+            premium_usd=2_000_000.0,
+            detail={"bid": 2.0, "ask": 2.2, "iv": 0.55},
+        ),
+        db_path=db,
+    )
+    got = of_db.recent_events(db_path=db)[0]
+    assert got["detail"] == {"bid": 2.0, "ask": 2.2, "iv": 0.55}
+    assert got["premium_usd"] == 2_000_000.0
+
+
 def test_db_insert_event_preserves_first_ts_on_reinsert(tmp_path: Path) -> None:
     db = tmp_path / "flow.db"
     of_db.init_db(db)
