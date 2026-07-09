@@ -3070,20 +3070,25 @@ async def _get_bars_cached(
         except BrokerError:
             return None
 
+    from brokers.bars_hygiene import sanitize_bar_dicts
+
     response = {
         "symbol": sym,
         "timeframe": timeframe,
-        "bars": [
-            {
-                "time": b.time,
-                "open": b.open,
-                "high": b.high,
-                "low": b.low,
-                "close": b.close,
-                "volume": b.volume,
-            }
-            for b in bars
-        ],
+        "bars": sanitize_bar_dicts(
+            sym,
+            [
+                {
+                    "time": b.time,
+                    "open": b.open,
+                    "high": b.high,
+                    "low": b.low,
+                    "close": b.close,
+                    "volume": b.volume,
+                }
+                for b in bars
+            ],
+        ),
     }
     if ext and timeframe not in _NON_INTRADAY_TIMEFRAMES and _overnight_delayed_flag():
         response["overnight_delayed"] = True
