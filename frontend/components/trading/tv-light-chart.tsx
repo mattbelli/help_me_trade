@@ -828,6 +828,15 @@ export function TvLightChart({
       ? null
       : (chartRef.current?.timeScale().getVisibleLogicalRange() ?? null);
 
+    // Drop the previous timeframe/symbol's bars NOW, not when the fetch lands.
+    // The live-tick merge effect runs in this same commit with the pre-switch
+    // `loading` closure, and merging a tick into the OLD bars paints a stale bar
+    // into the NEW chart — from 1D that appends a BusinessDay time to a series
+    // about to receive numeric times, which corrupts the time scale and every
+    // later series call throws (the 1D→4H page kill); between intraday
+    // timeframes it draws phantom giant wicks until the fetch lands.
+    barsRef.current = [];
+
     fetchBarsCached(symbol, {
       timeframe: timeframe.value,
       days: timeframe.days,
@@ -1270,6 +1279,11 @@ export function TvLightChart({
 
     const last = bars[bars.length - 1];
 
+    // Time-type sanity: intraday bars carry numeric epochs, daily+ carry
+    // calendar objects. A mismatch means `bars` still belongs to the previous
+    // timeframe (switch window) — never merge a tick into those.
+    if (timeframe.intraday !== (typeof last.time === "number")) return;
+
     // Freshness gate (before any merge/rollover branch): if the cached tail is
     // ≥2 intervals behind the wall clock — the page was backgrounded past the
     // freshness window — merging the live tick would fuse the whole gap into one
@@ -1337,12 +1351,16 @@ export function TvLightChart({
           volume: 0,
         };
         bars.push(newBar);
-        if (style === "line") {
-          series.update({ time: newTime, value: tick });
-        } else {
-          series.update(newBar);
+        try {
+          if (style === "line") {
+            series.update({ time: newTime, value: tick });
+          } else {
+            series.update(newBar);
+          }
+          volumeRef.current?.update({ time: newTime, value: 0 });
+        } catch {
+          /* stale series/time during a switch window — next fetch repaints */
         }
-        volumeRef.current?.update({ time: newTime, value: 0 });
         return;
       }
     }
@@ -1366,10 +1384,17 @@ export function TvLightChart({
     last.high = Math.max(last.high, tick);
     last.low = Math.min(last.low, tick);
 
-    if (style === "line") {
-      series.update({ time: last.time, value: tick });
-    } else {
-      series.update(last);
+    // A series.update() that violates the library's invariants (disposed series,
+    // older-than-last time) must degrade to a skipped paint, never take down the
+    // React tree — the next setData self-heals.
+    try {
+      if (style === "line") {
+        series.update({ time: last.time, value: tick });
+      } else {
+        series.update(last);
+      }
+    } catch {
+      /* stale series/time during a switch window — next fetch repaints */
     }
   }, [
     livePrice,
