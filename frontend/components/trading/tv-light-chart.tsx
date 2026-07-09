@@ -175,6 +175,9 @@ type Props = {
   compact?: boolean;
   /** Controlled session-node levels toggle (driven by the frame's Studies dropdown). */
   showLevels?: boolean;
+  /** Visibility toggles (frame's eye menu): price-alert lines / user drawings+levels. */
+  showAlerts?: boolean;
+  showDrawings?: boolean;
   studies?: string[];
   /** Controlled ETH (extended-hours) toggle — pre/post candles + session shading.
       Defaults ON for intraday when uncontrolled; ignored on daily+ timeframes. */
@@ -190,6 +193,8 @@ export function TvLightChart({
   marketSession,
   compact = false,
   showLevels: showLevelsProp,
+  showAlerts = true,
+  showDrawings = true,
   studies,
   extended: extendedProp,
 }: Props) {
@@ -600,7 +605,9 @@ export function TvLightChart({
         fontFamily: "var(--font-sans), system-ui, sans-serif",
         panes: {
           separatorColor: crosshairLabel,
-          separatorHoverColor: accent,
+          // Same as idle — the accent hover band read as a "huge green bar"
+          // over the volume pane and sat in the way of alert placement.
+          separatorHoverColor: crosshairLabel,
           enableResize: true,
         },
       },
@@ -933,17 +940,34 @@ export function TvLightChart({
     }
     const alertUp = resolveCssColor("--c-green", "#5bc98a");
     const alertDown = resolveCssColor("--c-red", "#ef6f6c");
-    priceLinesRef.current = alerts.map((alert) =>
-      series.createPriceLine({
-        price: alert.price,
-        color: alert.direction === "below" ? alertDown : alertUp,
-        lineWidth: 2,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: `Alert ${alert.price.toFixed(2)}`,
-      }),
-    );
-  }, [alerts, loading, themeNonce]);
+    const alertCross = resolveCssColor("--fg-dim", "#9aa1ab");
+    priceLinesRef.current = showAlerts
+      ? alerts.map((alert) => {
+          // Founder spec: no "Alert <price>" pill on the axis — a small bell
+          // with +/− (above/below; cross stays bare), ↻ marks a repeating alert.
+          const glyph =
+            alert.direction === "above"
+              ? "🔔+"
+              : alert.direction === "below"
+                ? "🔔−"
+                : "🔔";
+          const color =
+            alert.direction === "above"
+              ? alertUp
+              : alert.direction === "below"
+                ? alertDown
+                : alertCross;
+          return series.createPriceLine({
+            price: alert.price,
+            color,
+            lineWidth: 1,
+            lineStyle: 1,
+            axisLabelVisible: false,
+            title: alert.repeat ? `${glyph}↻` : glyph,
+          });
+        })
+      : [];
+  }, [alerts, loading, themeNonce, showAlerts]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -952,20 +976,22 @@ export function TvLightChart({
       series.removePriceLine(line);
     }
     const neutral = resolveCssColor("--fg-dim", "#9aa1ab");
-    levelLinesRef.current = levels
-      .filter((lvl) => lvl.data.price != null)
-      .map((lvl) => {
-        const p = lvl.data.price!;
-        return series.createPriceLine({
-          price: p,
-          color: neutral,
-          lineWidth: 1,
-          lineStyle: 0,
-          axisLabelVisible: true,
-          title: `⊹ ${p.toFixed(2)}`,
-        });
-      });
-  }, [levels, loading, themeNonce]);
+    levelLinesRef.current = showDrawings
+      ? levels
+          .filter((lvl) => lvl.data.price != null)
+          .map((lvl) => {
+            const p = lvl.data.price!;
+            return series.createPriceLine({
+              price: p,
+              color: neutral,
+              lineWidth: 1,
+              lineStyle: 0,
+              axisLabelVisible: true,
+              title: `⊹ ${p.toFixed(2)}`,
+            });
+          })
+      : [];
+  }, [levels, loading, themeNonce, showDrawings]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -1227,7 +1253,7 @@ export function TvLightChart({
     const interval = timeframeSeconds(timeframe.value);
     const drawColorResolved = resolveCssColor(TREND_COLOR_VAR, "#5ad1be");
     const map = new Map<number, DrawingShape>();
-    for (const shape of shapes) {
+    for (const shape of showDrawings ? shapes : []) {
       const pts = shape.data.points;
       if (!pts || pts.length < 2) continue;
       const toL = (p: { time: number | null; price: number }): LPoint => ({
@@ -1252,7 +1278,7 @@ export function TvLightChart({
       }
       shapePrimitivesRef.current = new Map();
     };
-  }, [shapes, barsVersion, timeframe.value, style, themeNonce, editingId]);
+  }, [shapes, barsVersion, timeframe.value, style, themeNonce, editingId, showDrawings]);
 
   useEffect(() => {
     if (loading) return;

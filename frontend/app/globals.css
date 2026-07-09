@@ -373,6 +373,8 @@
 
 [data-theme="light"] {
     color-scheme: light;
+    /* Light theme: the wash sits on a bright row — 16% is already legible. */
+    --tick-flash-mix: 16%;
     --background: #f5f6f8;
     --chart-background: #f5f6f8;
     --foreground: #1b1f24;
@@ -452,15 +454,17 @@
 }
 
 /* Price tick-flash (M1): a fading background wash on the changed price cell —
-   never a text-color swap or a row highlight. Re-triggered by toggling the
-   class via usePriceFlash. */
+   never a row highlight. Re-triggered by toggling the class via usePriceFlash.
+   Peak intensity is theme-tuned (--tick-flash-mix): dark themes need a much
+   stronger wash — a 16% saturated fill against near-black has almost no
+   luminance delta and reads as invisible (founder, 2026-07-09). */
 @keyframes tick-flash-up {
-  from { background-color: color-mix(in srgb, var(--c-green-bg) 16%, transparent); }
+  from { background-color: color-mix(in srgb, var(--c-green-bg) var(--tick-flash-mix, 32%), transparent); }
   to { background-color: transparent; }
 }
 
 @keyframes tick-flash-down {
-  from { background-color: color-mix(in srgb, var(--c-red) 16%, transparent); }
+  from { background-color: color-mix(in srgb, var(--c-red) var(--tick-flash-mix, 32%), transparent); }
   to { background-color: transparent; }
 }
 

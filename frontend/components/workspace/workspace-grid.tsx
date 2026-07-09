@@ -12,7 +12,7 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { Check, ChevronDown, GripVertical, Menu as MenuIcon, Plus, X } from "lucide-react";
+import { Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -246,6 +246,43 @@ function ChartHeaderMenus({
               {tf.label}
             </DropdownMenuItem>
           ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          type="button"
+          {...dragSafeControlProps}
+          aria-label="Visibility"
+          className="workspace-no-drag inline-flex items-center rounded p-1 text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          <Eye className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+        >
+          {(
+            [
+              { key: "showAlerts" as const, label: "Alerts" },
+              { key: "showDrawings" as const, label: "Drawings" },
+            ]
+          ).map(({ key, label }) => {
+            const shown = config[key] ?? true;
+            return (
+              <DropdownMenuItem
+                key={key}
+                onSelect={(e) => e.preventDefault()}
+                onClick={() => onConfigChange({ [key]: !shown })}
+                className={cn(
+                  "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
+                  shown ? "text-foreground" : "text-[var(--fg-dim)]",
+                )}
+              >
+                {label}
+                {shown ? <Check className="size-3" /> : null}
+              </DropdownMenuItem>
+            );
+          })}
         </DropdownMenuContent>
       </DropdownMenu>
       <DropdownMenu>

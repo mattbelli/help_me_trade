@@ -54,6 +54,8 @@ export function ChartWidget({ config }: WidgetProps) {
               symbol={symbol}
               compact
               showLevels={Boolean(config.showSessionNodes)}
+              showAlerts={config.showAlerts ?? true}
+              showDrawings={config.showDrawings ?? true}
               studies={config.studies}
               extended={config.extendedHours ?? true}
               timeframe={timeframe}

@@ -569,7 +569,14 @@ function WatchlistSymbolRow({
         <div className="flex justify-end" title={extBadge?.title}>
           <span
             className={cn(
-              "-mx-0.5 inline-flex w-fit items-center justify-end gap-0.5 rounded px-0.5 tabular-nums text-foreground",
+              "-mx-0.5 inline-flex w-fit items-center justify-end gap-0.5 rounded px-0.5 tabular-nums",
+              // Trial (founder 2026-07-09): standard terminal treatment — last
+              // price carries day direction as state; the bg flash is the event.
+              quote
+                ? positive
+                  ? "text-[var(--c-green)]"
+                  : "text-[var(--c-red)]"
+                : "text-foreground",
               priceFlash === "up" && "tick-flash-up",
               priceFlash === "down" && "tick-flash-down",
             )}

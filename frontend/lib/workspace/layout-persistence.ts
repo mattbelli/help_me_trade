@@ -18,6 +18,9 @@ export type WidgetInstanceConfig = {
   /** Chart: ETH (extended-hours) toggle — pre/post candles + session shading.
       Undefined = default ON for intraday; hidden/ignored on daily+ timeframes. */
   extendedHours?: boolean;
+  /** Chart eye menu — visibility toggles. Undefined = shown. */
+  showAlerts?: boolean;
+  showDrawings?: boolean;
 };
 
 export type WorkspaceLayoutItem = {
