@@ -68,13 +68,20 @@ export type OverlayLine = {
   draggable?: boolean;
 };
 
+/** Data-space anchor: epoch ms + price. */
+export type DrawPoint = { time: number; price: number };
+
 /** Segment between two data-space anchors (trendline / channel leg). */
 export type OverlaySegment = {
-  a: { time: number; price: number };
-  b: { time: number; price: number };
+  a: DrawPoint;
+  b: DrawPoint;
   color: string;
   /** Channel: draws a second leg offset by this many price units. */
   parallelOffset?: number;
+  /** Opaque wrapper id — present ⇒ hit-testable (context menu). */
+  id?: string;
+  /** Endpoint (+ channel width-handle) drag-editing; handles are drawn. */
+  draggable?: boolean;
 };
 
 export type EngineOverlays = {
@@ -91,6 +98,8 @@ export type ContextMenuHit = {
   lineId: string | null;
   /** That line's exact price — the hit tolerance means it can differ from `price`. */
   linePrice: number | null;
+  /** Id of the overlay segment under the cursor (lines win when both hit). */
+  segmentId: string | null;
 };
 
 export type EngineOptions = {
@@ -105,6 +114,13 @@ export type EngineOptions = {
   onContextMenu?: (hit: ContextMenuHit) => void;
   /** A draggable overlay line was dropped at a new price. */
   onLineDragEnd?: (id: string, price: number) => void;
+  /** Two-click draw finished (mode set via setDrawMode); anchors in data-space. */
+  onDrawComplete?: (kind: string, a: DrawPoint, b: DrawPoint) => void;
+  /** A draggable segment was reshaped (endpoint or channel width-handle drag). */
+  onSegmentDragEnd?: (
+    id: string,
+    seg: { a: DrawPoint; b: DrawPoint; parallelOffset?: number },
+  ) => void;
 };
 
 // --- Layout constants (CHART_ENGINE.md → Panes & layout) ---------------------------

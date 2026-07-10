@@ -13,22 +13,34 @@ import {
   autoPriceRange,
   clampViewport,
   defaultViewport,
+  indexAt,
   priceAt,
   scaleRangeAround,
+  timeOfIndex,
   zoomAt,
 } from "./scales";
-import { drawCursor, drawScene, hitTestLine, LINE_HIT_PX, type Scene } from "./series";
+import {
+  drawCursor,
+  drawScene,
+  hitTestLine,
+  hitTestSegment,
+  LINE_HIT_PX,
+  segmentXY,
+  type Scene,
+} from "./series";
 import {
   DEFAULT_BAR_SPACING,
   DEFAULT_RIGHT_OFFSET,
   PRICE_AXIS_WIDTH,
   TIME_AXIS_HEIGHT,
   type ChartStyle,
+  type DrawPoint,
   type EngineBar,
   type EngineColors,
   type EngineOptions,
   type EngineOverlays,
   type OverlayLine,
+  type OverlaySegment,
   type PriceRange,
   type Viewport,
 } from "./types";
@@ -48,6 +60,8 @@ export class ChartEngine {
   private readonly onCrosshair?: EngineOptions["onCrosshair"];
   private readonly onContextMenu?: EngineOptions["onContextMenu"];
   private readonly onLineDragEnd?: EngineOptions["onLineDragEnd"];
+  private readonly onDrawComplete?: EngineOptions["onDrawComplete"];
+  private readonly onSegmentDragEnd?: EngineOptions["onSegmentDragEnd"];
 
   private width = 0;
   private height = 0;
@@ -71,6 +85,19 @@ export class ChartEngine {
   /** Drag-to-move on a draggable overlay line (`line` is mutated as preview). */
   private lineDrag: { id: string; line: OverlayLine; startPrice: number } | null =
     null;
+  /** Endpoint / channel-width drag on a segment (`seg` is mutated as preview). */
+  private segDrag: {
+    id: string;
+    seg: OverlaySegment;
+    part: "a" | "b" | "width";
+    startA: DrawPoint;
+    startB: DrawPoint;
+    startOffset?: number;
+  } | null = null;
+  /** Two-click draw in progress (setDrawMode). `a` set after the first click. */
+  private drawMode: { kind: string; a: DrawPoint | null } | null = null;
+  /** Two fast draw clicks also fire dblclick — this keeps it from resetView. */
+  private lastDrawClickMs = 0;
   /** Manual price scale from an axis drag — sticky until dblclick on the axis. */
   private priceOverride: PriceRange | null = null;
   /** Ext-hours quote line (null = hidden) — the wrapper owns the session gating. */
@@ -95,6 +122,8 @@ export class ChartEngine {
     this.onCrosshair = options.onCrosshair;
     this.onContextMenu = options.onContextMenu;
     this.onLineDragEnd = options.onLineDragEnd;
+    this.onDrawComplete = options.onDrawComplete;
+    this.onSegmentDragEnd = options.onSegmentDragEnd;
     this.perfEnabled =
       typeof location !== "undefined" && /[?&]chartPerf=1/.test(location.search);
 
@@ -204,8 +233,8 @@ export class ChartEngine {
 
   /** Replace the overlay set (alerts/levels/drawings). Null clears. */
   setOverlays(overlays: EngineOverlays | null): void {
-    // A poll-driven recompose mid-drag must not snap the dragged line back to
-    // its stored price — carry the preview onto the replacement line.
+    // A poll-driven recompose mid-drag must not snap the dragged primitive
+    // back to its stored shape — carry the preview onto the replacement.
     if (this.lineDrag) {
       const match = overlays?.lines.find((l) => l.id === this.lineDrag!.id);
       if (match) {
@@ -215,8 +244,29 @@ export class ChartEngine {
         this.lineDrag = null; // deleted mid-drag
       }
     }
+    if (this.segDrag) {
+      const match = overlays?.segments.find((s) => s.id === this.segDrag!.id);
+      if (match) {
+        match.a = this.segDrag.seg.a;
+        match.b = this.segDrag.seg.b;
+        match.parallelOffset = this.segDrag.seg.parallelOffset;
+        this.segDrag.seg = match;
+      } else {
+        this.segDrag = null;
+      }
+    }
     this.overlays = overlays;
     this.invalidate("scene");
+  }
+
+  /**
+   * Enter (kind, e.g. "trendline"/"channel") or leave (null) two-click draw
+   * mode. The kind is opaque — it rides back out on onDrawComplete.
+   */
+  setDrawMode(kind: string | null): void {
+    this.drawMode = kind ? { kind, a: null } : null;
+    this.container.style.cursor = "crosshair";
+    this.invalidate("cursor"); // clear/show any pending preview
   }
 
   /** Show/refresh (number) or hide (null) the ext-hours price line. */
@@ -264,6 +314,12 @@ export class ChartEngine {
     if (e.button !== 0 || this.bars.length === 0) return;
     this.container.setPointerCapture(e.pointerId);
     const { x, y } = this.localPoint(e);
+    if (this.drawMode) {
+      // Any click while drawing goes to the draw — never an axis-scale drag
+      // (placing a point near "now" is right where the price axis begins).
+      this.handleDrawClick(x, y);
+      return;
+    }
     const region = this.regionAt(x, y);
     if (region === "priceAxis") {
       // Grab the scale as it currently reads (auto or manual) and go manual.
@@ -274,18 +330,62 @@ export class ChartEngine {
     } else if (region === "timeAxis") {
       this.axisDrag = { kind: "time", start: x, startSpacing: this.vp.barSpacing };
     } else {
-      // A draggable overlay line under the pointer beats a pan.
+      // A draggable overlay line under the pointer beats a pan; then a
+      // segment's grab handles (body strokes pan — endpoints/width move).
       const hit =
         this.scene && this.overlays
           ? hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, true)
           : null;
+      const segHit =
+        !hit && this.scene && this.overlays
+          ? hitTestSegment(
+              this.overlays.segments,
+              x,
+              y,
+              this.bars,
+              this.vp,
+              this.scene,
+              LINE_HIT_PX,
+              true,
+            )
+          : null;
       if (hit?.id) {
         this.lineDrag = { id: hit.id, line: hit, startPrice: hit.price };
+      } else if (segHit && segHit.part !== "body" && segHit.seg.id) {
+        this.segDrag = {
+          id: segHit.seg.id,
+          seg: segHit.seg,
+          part: segHit.part,
+          startA: { ...segHit.seg.a },
+          startB: { ...segHit.seg.b },
+          startOffset: segHit.seg.parallelOffset,
+        };
       } else {
         this.drag = { startX: x, startRe: this.vp.rightEdgeIndex };
       }
     }
   };
+
+  /** Two-click draw: first click anchors, second commits via onDrawComplete. */
+  private handleDrawClick(x: number, y: number): void {
+    if (!this.drawMode || !this.scene || this.bars.length === 0) return;
+    this.lastDrawClickMs = performance.now();
+    const pr = this.scene.layout.price;
+    if (y < pr.y || y > pr.y + pr.h) return; // volume strip doesn't anchor
+    const point: DrawPoint = {
+      time: timeOfIndex(this.bars, indexAt(x, this.vp, this.paneWidth())),
+      price: priceAt(y, this.scene.priceRange, pr.y, pr.h),
+    };
+    if (!this.drawMode.a) {
+      this.drawMode.a = point;
+      this.invalidate("cursor");
+      return;
+    }
+    const { kind, a } = this.drawMode;
+    this.drawMode = null;
+    this.invalidate("cursor"); // drop the preview
+    this.onDrawComplete?.(kind, a, point);
+  }
 
   private onPointerMove = (e: PointerEvent): void => {
     const { x, y } = this.localPoint(e);
@@ -295,6 +395,27 @@ export class ChartEngine {
       const yc = Math.min(Math.max(y, pr.y), pr.y + pr.h);
       this.lineDrag.line.price = priceAt(yc, this.scene.priceRange, pr.y, pr.h);
       this.container.style.cursor = "ns-resize";
+      this.cross = { x, y };
+      this.invalidate("both");
+      return;
+    }
+    if (this.segDrag && this.scene) {
+      const pr = this.scene.layout.price;
+      const yc = Math.min(Math.max(y, pr.y), pr.y + pr.h);
+      const priceHere = priceAt(yc, this.scene.priceRange, pr.y, pr.h);
+      const seg = this.segDrag.seg;
+      if (this.segDrag.part === "width") {
+        // TV convention: width = price at the handle minus the base midline.
+        seg.parallelOffset = priceHere - (seg.a.price + seg.b.price) / 2;
+      } else {
+        const pt: DrawPoint = {
+          time: timeOfIndex(this.bars, indexAt(x, this.vp, this.paneWidth())),
+          price: priceHere,
+        };
+        if (this.segDrag.part === "a") seg.a = pt;
+        else seg.b = pt;
+      }
+      this.container.style.cursor = "move";
       this.cross = { x, y };
       this.invalidate("both");
       return;
@@ -339,13 +460,22 @@ export class ChartEngine {
           : region === "timeAxis"
             ? "ew-resize"
             : "crosshair";
-      if (
-        region === "pane" &&
-        this.scene &&
-        this.overlays &&
-        hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, true)
-      ) {
-        cursor = "ns-resize"; // grabbable alert line
+      if (region === "pane" && !this.drawMode && this.scene && this.overlays) {
+        if (hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, true)) {
+          cursor = "ns-resize"; // grabbable alert line
+        } else {
+          const segHit = hitTestSegment(
+            this.overlays.segments,
+            x,
+            y,
+            this.bars,
+            this.vp,
+            this.scene,
+            LINE_HIT_PX,
+            true,
+          );
+          if (segHit && segHit.part !== "body") cursor = "move"; // grab handle
+        }
       }
       this.container.style.cursor = cursor;
     }
@@ -367,9 +497,40 @@ export class ChartEngine {
         this.onLineDragEnd?.(id, line.price);
       }
     }
+    if (this.segDrag) {
+      const { id, seg, startA, startB, startOffset } = this.segDrag;
+      this.segDrag = null;
+      const moved =
+        seg.a.time !== startA.time ||
+        seg.a.price !== startA.price ||
+        seg.b.time !== startB.time ||
+        seg.b.price !== startB.price ||
+        seg.parallelOffset !== startOffset;
+      if (e.type === "pointercancel") {
+        this.revertSegment(seg, startA, startB, startOffset);
+      } else if (moved) {
+        this.onSegmentDragEnd?.(id, {
+          a: seg.a,
+          b: seg.b,
+          parallelOffset: seg.parallelOffset,
+        });
+      }
+    }
     this.drag = null;
     this.axisDrag = null;
   };
+
+  private revertSegment(
+    seg: OverlaySegment,
+    a: DrawPoint,
+    b: DrawPoint,
+    parallelOffset?: number,
+  ): void {
+    seg.a = a;
+    seg.b = b;
+    seg.parallelOffset = parallelOffset;
+    this.invalidate("scene");
+  }
 
   private onPointerLeave = (): void => {
     if (this.lineDrag) {
@@ -377,6 +538,11 @@ export class ChartEngine {
       this.lineDrag.line.price = this.lineDrag.startPrice;
       this.lineDrag = null;
       this.invalidate("scene");
+    }
+    if (this.segDrag) {
+      const { seg, startA, startB, startOffset } = this.segDrag;
+      this.segDrag = null;
+      this.revertSegment(seg, startA, startB, startOffset);
     }
     this.drag = null;
     this.axisDrag = null;
@@ -386,6 +552,11 @@ export class ChartEngine {
 
   private onContextMenuEvent = (e: MouseEvent): void => {
     e.preventDefault(); // the chart owns right-click everywhere on it
+    if (this.drawMode) {
+      // Right-click backs out of draw mode instead of opening the menu.
+      this.setDrawMode(null);
+      return;
+    }
     if (!this.onContextMenu || !this.scene || this.bars.length === 0) return;
     const { x, y } = this.localPoint(e);
     if (this.regionAt(x, y) !== "pane") return;
@@ -397,16 +568,32 @@ export class ChartEngine {
     const hit = this.overlays
       ? hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, false)
       : null;
+    const segHit =
+      !hit && this.overlays
+        ? hitTestSegment(
+            this.overlays.segments,
+            x,
+            y,
+            this.bars,
+            this.vp,
+            this.scene,
+            LINE_HIT_PX,
+            false,
+          )
+        : null;
     this.onContextMenu({
       x,
       y,
       price,
       lineId: hit?.id ?? null,
       linePrice: hit?.price ?? null,
+      segmentId: segHit?.seg.id ?? null,
     });
   };
 
   private onDblClick = (e: MouseEvent): void => {
+    // Two rapid draw-mode clicks read as a dblclick — never resetView then.
+    if (this.drawMode || performance.now() - this.lastDrawClickMs < 500) return;
     const { x, y } = this.localPoint(e);
     if (this.regionAt(x, y) === "priceAxis") {
       // Manual scale → back to autoscale; the view itself stays put.
@@ -501,6 +688,25 @@ export class ChartEngine {
         hoverIndex = hit?.index ?? null;
       } else {
         this.layers.cursor.clear();
+      }
+      // Two-click draw preview: rubber-band from the anchored point to the
+      // pointer (cursor layer — it moves every frame, the scene doesn't).
+      if (this.cross && this.drawMode?.a && this.scene) {
+        const g = segmentXY(
+          { a: this.drawMode.a, b: this.drawMode.a, color: "" },
+          this.bars,
+          this.vp,
+          this.scene,
+        );
+        const pr = this.scene.layout.price;
+        const cy = Math.min(Math.max(this.cross.y, pr.y), pr.y + pr.h);
+        const p = this.layers.cursor;
+        p.line(g.x1, g.y1, this.cross.x, cy, {
+          color: this.colors.accent,
+          width: 1,
+          dash: [4, 3],
+        });
+        p.circle(g.x1, g.y1, 3, { fill: this.colors.accent });
       }
       this.perfCursorMs = performance.now() - t0;
       const hoverBar = hoverIndex == null ? null : this.bars[hoverIndex];

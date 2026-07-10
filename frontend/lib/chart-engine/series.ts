@@ -25,6 +25,7 @@ import {
   type EngineColors,
   type EngineOverlays,
   type OverlayLine,
+  type OverlaySegment,
   type PriceRange,
   type Rect,
   type Viewport,
@@ -235,7 +236,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           ],
           { color: s.color, width: 1 },
         );
-        if (s.parallelOffset) {
+        if (s.parallelOffset != null) {
           const o1 = yOf(s.a.price + s.parallelOffset, priceRange, price.y, price.h);
           const o2 = yOf(s.b.price + s.parallelOffset, priceRange, price.y, price.h);
           p.polyline(
@@ -245,6 +246,14 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
             ],
             { color: s.color, width: 1 },
           );
+          if (s.draggable) {
+            // Channel width handle at the parallel leg's midpoint.
+            p.circle((x1 + x2) / 2, (o1 + o2) / 2, HANDLE_R, { fill: s.color });
+          }
+        }
+        if (s.draggable) {
+          p.circle(x1, y1, HANDLE_R, { fill: s.color });
+          p.circle(x2, y2, HANDLE_R, { fill: s.color });
         }
       }
     });
@@ -381,6 +390,104 @@ export function hitTestLine(
     if (d <= tolerance && d < bestDist) {
       bestDist = d;
       best = l;
+    }
+  }
+  return best;
+}
+
+/** Hit tolerance around a segment's grab handles (matches TV's HANDLE_HIT_PX). */
+export const HANDLE_HIT_PX = 9;
+/** Drawn radius of a segment's grab handles. */
+const HANDLE_R = 3;
+
+function distToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+/** A segment's base-leg pixel endpoints under the current view. */
+export function segmentXY(
+  seg: OverlaySegment,
+  bars: readonly EngineBar[],
+  vp: Viewport,
+  scene: Scene,
+): { x1: number; y1: number; x2: number; y2: number } {
+  const { pane, price } = scene.layout;
+  return {
+    x1: xOf(indexOfTime(bars, seg.a.time), vp, pane.w),
+    y1: yOf(seg.a.price, scene.priceRange, price.y, price.h),
+    x2: xOf(indexOfTime(bars, seg.b.time), vp, pane.w),
+    y2: yOf(seg.b.price, scene.priceRange, price.y, price.h),
+  };
+}
+
+export type SegmentHit = {
+  seg: OverlaySegment;
+  /** a/b = endpoints; width = channel parallel-leg handle; body = the stroke. */
+  part: "a" | "b" | "width" | "body";
+};
+
+/**
+ * Segment under the point: endpoint / width handles first (HANDLE_HIT_PX),
+ * then the stroke (tolerance). Only identifiable segments count.
+ */
+export function hitTestSegment(
+  segments: readonly OverlaySegment[],
+  x: number,
+  y: number,
+  bars: readonly EngineBar[],
+  vp: Viewport,
+  scene: Scene,
+  tolerance: number,
+  draggableOnly: boolean,
+): SegmentHit | null {
+  // Segments are clipped to the price area — pixels that aren't drawn
+  // (volume strip) aren't hittable.
+  const pr = scene.layout.price;
+  if (y < pr.y || y > pr.y + pr.h) return null;
+  let best: SegmentHit | null = null;
+  let bestDist = Infinity;
+  const consider = (seg: OverlaySegment, part: SegmentHit["part"], d: number, tol: number) => {
+    // Handles get a HANDLE_HIT_PX head start over body grabs — endpoints sit
+    // ON the stroke, and a grab that lands "on the line near the endpoint"
+    // should move the endpoint, not pan-block on the body.
+    const rank = part === "body" ? d + HANDLE_HIT_PX : d;
+    if (d <= tol && rank < bestDist) {
+      bestDist = rank;
+      best = { seg, part };
+    }
+  };
+  for (const seg of segments) {
+    if (!seg.id || (draggableOnly && !seg.draggable)) continue;
+    const g = segmentXY(seg, bars, vp, scene);
+    if (seg.draggable) {
+      consider(seg, "a", Math.hypot(x - g.x1, y - g.y1), HANDLE_HIT_PX);
+      consider(seg, "b", Math.hypot(x - g.x2, y - g.y2), HANDLE_HIT_PX);
+    }
+    consider(seg, "body", distToSegment(x, y, g.x1, g.y1, g.x2, g.y2), tolerance);
+    // != null: a zero-width channel must keep its (midline) width handle, or
+    // there's no way to drag the width back open.
+    if (seg.parallelOffset != null) {
+      const { price } = scene.layout;
+      const o1 = yOf(seg.a.price + seg.parallelOffset, scene.priceRange, price.y, price.h);
+      const o2 = yOf(seg.b.price + seg.parallelOffset, scene.priceRange, price.y, price.h);
+      if (seg.draggable) {
+        const mx = (g.x1 + g.x2) / 2;
+        const my = (o1 + o2) / 2;
+        consider(seg, "width", Math.hypot(x - mx, y - my), HANDLE_HIT_PX);
+      }
+      consider(seg, "body", distToSegment(x, y, g.x1, o1, g.x2, o2), tolerance);
     }
   }
   return best;

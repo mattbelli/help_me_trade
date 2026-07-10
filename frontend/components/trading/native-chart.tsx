@@ -10,8 +10,10 @@ import {
   fetchDrawings,
   fetchPriceAlerts,
   fetchSessionLevels,
+  updateDrawing,
   updatePriceAlert,
   type ChartDrawing,
+  type ChartDrawingKind,
   type PriceAlert,
   type SessionLevel,
   type StockBar,
@@ -24,7 +26,11 @@ import {
   type ChartMenuItem,
 } from "@/components/trading/chart-alert-popover";
 import { fetchBarsCached, invalidateBars } from "@/lib/bars-cache";
-import { resolveCssColor, withAlpha } from "@/lib/chart-colors";
+import {
+  resolveCssColor,
+  resolveDrawingColor,
+  withAlpha,
+} from "@/lib/chart-colors";
 import { ChartEngine } from "@/lib/chart-engine/engine";
 import { crosshairTimeLabel } from "@/lib/chart-engine/ticks";
 import type {
@@ -178,6 +184,7 @@ export function NativeChart({
     price: number;
     alertId: number | null;
     levelId: number | null;
+    shapeId: number | null;
   } | null>(null);
   const [pendingAlert, setPendingAlert] = useState<{ x: number; y: number } | null>(
     null,
@@ -189,6 +196,9 @@ export function NativeChart({
   const [alertError, setAlertError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const livePriceRef = useRef(livePrice);
+  // The engine outlives symbol switches — its callbacks read these refs.
+  const symbolRef = useRef(symbol);
+  const drawingsRef = useRef<ChartDrawing[]>([]);
 
   useEffect(() => {
     styleRef.current = style;
@@ -198,10 +208,20 @@ export function NativeChart({
     livePriceRef.current = livePrice;
   }, [livePrice]);
 
-  // A symbol/timeframe switch invalidates any open popup's price context.
+  useEffect(() => {
+    symbolRef.current = symbol;
+  }, [symbol]);
+
+  useEffect(() => {
+    drawingsRef.current = drawings;
+  }, [drawings]);
+
+  // A symbol/timeframe switch invalidates any open popup's price context —
+  // and a half-placed drawing would anchor into the wrong series.
   useEffect(() => {
     setMenu(null);
     setPendingAlert(null);
+    engineRef.current?.setDrawMode(null);
   }, [symbol, timeframe.value]);
 
   // Engine lifecycle — recreated only when the tick-label mode flips
@@ -224,6 +244,9 @@ export function NativeChart({
         const levelId = hit.lineId?.startsWith("dlevel:")
           ? Number(hit.lineId.slice(7))
           : null;
+        const shapeId = hit.segmentId?.startsWith("shape:")
+          ? Number(hit.segmentId.slice(6))
+          : null;
         setPendingAlert(null);
         setMenu({
           x: hit.x,
@@ -233,6 +256,7 @@ export function NativeChart({
           price: Math.round((hit.linePrice ?? hit.price) * 100) / 100,
           alertId,
           levelId,
+          shapeId,
         });
       },
       onLineDragEnd: (id, price) => {
@@ -243,6 +267,43 @@ export function NativeChart({
         })
           .catch(() => {})
           .finally(() => setAlertsNonce((n) => n + 1));
+      },
+      onDrawComplete: (kind, a, b) => {
+        // Semantic color per the cross-client contract (relay §5.1); points in
+        // epoch seconds, matching the /api/drawings schema.
+        void createDrawing({
+          symbol: symbolRef.current,
+          kind: kind as ChartDrawingKind,
+          data: {
+            points: [
+              { time: Math.round(a.time / 1000), price: a.price },
+              { time: Math.round(b.time / 1000), price: b.price },
+            ],
+            color: "accent",
+            ...(kind === "channel"
+              ? { width: Math.max(0.01, Math.round(a.price * 0.02 * 100) / 100) }
+              : {}),
+          },
+        })
+          .catch(() => {})
+          .finally(() => setDrawingsNonce((n) => n + 1));
+      },
+      onSegmentDragEnd: (id, seg) => {
+        if (!id.startsWith("shape:")) return;
+        const drawingId = Number(id.slice(6));
+        const existing = drawingsRef.current.find((d) => d.id === drawingId);
+        void updateDrawing(drawingId, {
+          data: {
+            ...(existing?.data ?? {}),
+            points: [
+              { time: Math.round(seg.a.time / 1000), price: seg.a.price },
+              { time: Math.round(seg.b.time / 1000), price: seg.b.price },
+            ],
+            ...(seg.parallelOffset != null ? { width: seg.parallelOffset } : {}),
+          },
+        })
+          .catch(() => {})
+          .finally(() => setDrawingsNonce((n) => n + 1));
       },
     });
     engineRef.current = engine;
@@ -352,11 +413,10 @@ export function NativeChart({
         label: l.name,
       });
     }
-    const accent = resolveCssColor("--c-accent", "#5ad1be");
     for (const d of drawings) {
-      // Legacy rows store raw hex; render it. Semantic names map to theme
-      // colors per the cross-client contract (relay §5.1).
-      const color = d.data.color ?? accent;
+      // Semantic color names resolve to theme vars, legacy raw hex renders
+      // as-is (cross-client contract, relay §5.1).
+      const color = resolveDrawingColor(d.data.color);
       if (d.kind === "level" && d.data.price != null) {
         lines.push({
           price: d.data.price,
@@ -372,6 +432,8 @@ export function NativeChart({
           b: { time: b.time * 1000, price: b.price },
           color,
           parallelOffset: d.kind === "channel" ? d.data.width : undefined,
+          id: `shape:${d.id}`,
+          draggable: true,
         });
       }
     }
@@ -468,6 +530,7 @@ export function NativeChart({
       setMenu(null);
       setPendingAlert(null);
       setAlertError(null);
+      engineRef.current?.setDrawMode(null);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -555,23 +618,59 @@ export function NativeChart({
     }
   }
 
+  async function handleRemoveShape() {
+    if (menu?.shapeId == null) return;
+    try {
+      await deleteDrawing(menu.shapeId);
+      setDrawingsNonce((n) => n + 1);
+      setMenu(null);
+    } catch {
+      /* menu stays open for retry */
+    }
+  }
+
+  function handleDrawTool(kind: "trendline" | "channel") {
+    engineRef.current?.setDrawMode(kind);
+    setMenu(null);
+  }
+
+  const hitShapeKind =
+    menu?.shapeId != null
+      ? (drawings.find((d) => d.id === menu.shapeId)?.kind ?? "trendline")
+      : null;
+
   const menuItems: ChartMenuItem[] = menu
     ? menu.alertId != null
       ? [{ label: "Remove alert", onSelect: () => void handleRemoveAlert() }]
-      : [
-          ...(menu.levelId != null
-            ? [{ label: "Remove level", onSelect: () => void handleRemoveLevel() }]
-            : [
-                {
-                  label: `Add level at ${menu.price.toFixed(2)}`,
-                  onSelect: () => void handleAddLevel(),
-                },
-              ]),
-          {
-            label: `Set alert at ${menu.price.toFixed(2)}`,
-            onSelect: handleSetAlertFromMenu,
-          },
-        ]
+      : menu.shapeId != null
+        ? [
+            {
+              label: `Remove ${hitShapeKind}`,
+              onSelect: () => void handleRemoveShape(),
+            },
+          ]
+        : [
+            ...(menu.levelId != null
+              ? [{ label: "Remove level", onSelect: () => void handleRemoveLevel() }]
+              : [
+                  {
+                    label: `Add level at ${menu.price.toFixed(2)}`,
+                    onSelect: () => void handleAddLevel(),
+                  },
+                  {
+                    label: "Draw trendline",
+                    onSelect: () => handleDrawTool("trendline"),
+                  },
+                  {
+                    label: "Draw channel",
+                    onSelect: () => handleDrawTool("channel"),
+                  },
+                ]),
+            {
+              label: `Set alert at ${menu.price.toFixed(2)}`,
+              onSelect: handleSetAlertFromMenu,
+            },
+          ]
     : [];
 
   // Live-tick merge — mirrors TvLightChart's gating exactly:

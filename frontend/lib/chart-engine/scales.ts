@@ -190,6 +190,25 @@ export function indexOfTime(bars: readonly EngineBar[], timeMs: number): number 
 }
 
 /**
+ * Inverse of indexOfTime: fractional bar index → epoch ms, interpolating
+ * between bars and extrapolating past both ends by the adjacent interval
+ * (drawing anchors placed in right-edge whitespace need a real timestamp).
+ */
+export function timeOfIndex(bars: readonly EngineBar[], index: number): number {
+  const n = bars.length;
+  if (n === 0) return 0;
+  if (n === 1) return bars[0].time;
+  if (index <= 0) {
+    return bars[0].time + index * (bars[1].time - bars[0].time);
+  }
+  if (index >= n - 1) {
+    return bars[n - 1].time + (index - (n - 1)) * (bars[n - 1].time - bars[n - 2].time);
+  }
+  const lo = Math.floor(index);
+  return bars[lo].time + (index - lo) * (bars[lo + 1].time - bars[lo].time);
+}
+
+/**
  * Scale a price range around its center (price-axis drag → manual scale).
  * Factor >1 expands (zoom out), <1 contracts. Span is floored so repeated
  * contraction can never collapse or invert the range.

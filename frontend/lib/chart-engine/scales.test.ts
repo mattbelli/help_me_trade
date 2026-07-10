@@ -9,6 +9,7 @@ import {
   pan,
   priceAt,
   scaleRangeAround,
+  timeOfIndex,
   visibleBarRange,
   xOf,
   yOf,
@@ -196,6 +197,22 @@ describe("indexOfTime", () => {
   it("handles degenerate inputs", () => {
     expect(indexOfTime([], 123)).toBe(0);
     expect(indexOfTime(mkBars(1), 999)).toBe(0);
+  });
+});
+
+describe("timeOfIndex", () => {
+  it("is the inverse of indexOfTime, including extrapolation", () => {
+    const bars = mkBars(10); // 5-min spacing
+    for (const i of [-2, 0, 3.5, 7, 9, 11.25]) {
+      expect(indexOfTime(bars, timeOfIndex(bars, i))).toBeCloseTo(i, 9);
+    }
+    expect(timeOfIndex(bars, 4)).toBe(bars[4].time);
+    expect(timeOfIndex(bars, 10)).toBe(bars[9].time + 300_000);
+  });
+
+  it("handles degenerate inputs", () => {
+    expect(timeOfIndex([], 3)).toBe(0);
+    expect(timeOfIndex(mkBars(1), 5)).toBe(mkBars(1)[0].time);
   });
 });
 

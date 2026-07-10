@@ -59,6 +59,7 @@ import {
 } from "@/components/trading/chart-alert-popover";
 import {
   resolveCssColor,
+  resolveDrawingColor,
   toChartColor,
   withAlpha,
 } from "@/lib/chart-colors";
@@ -1248,7 +1249,6 @@ export function TvLightChart({
     if (!chart || !series) return;
     const bars = barsRef.current;
     const interval = timeframeSeconds(timeframe.value);
-    const drawColorResolved = resolveCssColor(TREND_COLOR_VAR, "#5ad1be");
     const map = new Map<number, DrawingShape>();
     for (const shape of showDrawings ? shapes : []) {
       const pts = shape.data.points;
@@ -1262,7 +1262,9 @@ export function TvLightChart({
         shape.kind === "channel" ? "channel" : "trendline",
         toL(pts[0]), toL(pts[1]),
         shape.data.width ?? 0,
-        shape.data.color ?? drawColorResolved,
+        // Semantic names (native-engine writes, relay §5.1) resolve to theme
+        // vars; legacy raw hex passes through.
+        resolveDrawingColor(shape.data.color),
       );
       d.selected = shape.id === editingId;
       series.attachPrimitive(d);
