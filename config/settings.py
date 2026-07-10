@@ -93,6 +93,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             {"kind": "evening_brief", "hour_et": 17, "symbols": [], "enabled": False},
         ],
     },
+    "alerts": {
+        # Daily ceiling on flow/confluence phone pushes (in-app notifications
+        # are never capped — this only throttles what reaches the phone).
+        "max_push_per_day": 5,
+    },
     "trading": {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
@@ -414,6 +419,18 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
             )
         if "jobs" in reports_patch:
             current["reports"]["jobs"] = _normalize_report_jobs(reports_patch["jobs"])
+
+    if "alerts" in patch and isinstance(patch["alerts"], dict):
+        if "alerts" not in current or not isinstance(current.get("alerts"), dict):
+            current["alerts"] = copy.deepcopy(DEFAULT_SETTINGS["alerts"])
+        alerts_patch = patch["alerts"]
+        if "max_push_per_day" in alerts_patch:
+            try:
+                current["alerts"]["max_push_per_day"] = max(
+                    0, min(100, int(alerts_patch["max_push_per_day"]))
+                )
+            except (TypeError, ValueError):
+                pass
 
     if "trading" in patch and isinstance(patch["trading"], dict):
         if "trading" not in current or not isinstance(current.get("trading"), dict):
@@ -803,6 +820,16 @@ def enabled_brokers() -> list[str]:
     if not enabled:
         return [primary_broker()]
     return enabled
+
+
+def alerts_config() -> dict[str, Any]:
+    cfg = load_settings().get("alerts", {})
+    defaults = DEFAULT_SETTINGS["alerts"]
+    try:
+        max_push = int(cfg.get("max_push_per_day", defaults["max_push_per_day"]))
+    except (TypeError, ValueError):
+        max_push = int(defaults["max_push_per_day"])
+    return {"max_push_per_day": max(0, max_push)}
 
 
 def trading_config() -> dict[str, Any]:

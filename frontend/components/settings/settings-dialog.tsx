@@ -43,6 +43,7 @@ import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
 import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
 import {
+  DEFAULT_ALERTS,
   DEFAULT_REPORTS,
   SettingsReportsPanel,
 } from "@/components/settings/settings-reports-panel";
@@ -78,7 +79,7 @@ const SECTIONS: {
   { id: "brokers", label: "Brokers", icon: Wallet },
   { id: "execution", label: "Execution / Risk", icon: Shield },
   { id: "strategies", label: "Strategies", icon: Activity },
-  { id: "reports", label: "Reports", icon: FileText },
+  { id: "reports", label: "Reports / Alerts", icon: FileText },
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
   { id: "import", label: "Import", icon: FileUp },
@@ -106,6 +107,7 @@ const EMPTY: AppSettings = {
   research: DEFAULT_RESEARCH,
   trading: DEFAULT_TRADING,
   reports: DEFAULT_REPORTS,
+  alerts: DEFAULT_ALERTS,
 };
 
 export function SettingsDialog({ collapsed = false }: Props) {
@@ -146,7 +148,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
         return { trading: trading as TradingSettings };
       }
       case "reports":
-        return { reports: settings.reports };
+        return { reports: settings.reports, alerts: settings.alerts };
       case "ai":
         return { ai: settings.ai };
       case "research":
@@ -176,6 +178,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
           },
           trading: { ...DEFAULT_TRADING, ...data.trading },
           reports: { ...DEFAULT_REPORTS, ...data.reports },
+          alerts: { ...DEFAULT_ALERTS, ...data.alerts },
         }),
       )
       .catch((err) =>
@@ -211,6 +214,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
         },
         trading: { ...DEFAULT_TRADING, ...saved.trading },
         reports: { ...DEFAULT_REPORTS, ...saved.reports },
+        alerts: { ...DEFAULT_ALERTS, ...saved.alerts },
       });
       setMessage("Settings saved. Polling will use the updated brokers.");
       setModelsRevision((n) => n + 1);
@@ -525,6 +529,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
           <SettingsReportsPanel
             value={draft.reports}
             onChange={(reports) => setDraft((d) => ({ ...d, reports }))}
+            alerts={draft.alerts}
+            onAlertsChange={(alerts) => setDraft((d) => ({ ...d, alerts }))}
           />
         ) : section === "ai" ? (
           <div className="space-y-4">

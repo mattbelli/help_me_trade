@@ -302,6 +302,7 @@ def _process_env(
     session_levels: dict | None,
     adapter: FakeAdapter,
     alert_prices: list[float] | None = None,
+    max_push_per_day: int = 5,
 ) -> None:
     monkeypatch.setattr(
         "signals.options_flow.convergence.load_profile",
@@ -326,6 +327,12 @@ def _process_env(
         _alerts,
     )
 
+    # Hermetic push budget — never read the real data/settings.json in tests.
+    monkeypatch.setattr(
+        "config.settings.alerts_config",
+        lambda: {"max_push_per_day": max_push_per_day},
+    )
+
 
 async def _run_process(
     adapter: FakeAdapter,
@@ -335,12 +342,14 @@ async def _run_process(
     profile,
     session_levels: dict | None = None,
     minutes_since_open: int = 50,
+    max_push_per_day: int = 5,
 ) -> dict[str, int]:
     _process_env(
         monkeypatch,
         profile=profile,
         session_levels=session_levels,
         adapter=adapter,
+        max_push_per_day=max_push_per_day,
     )
     return await process_events(
         adapter,
@@ -446,9 +455,42 @@ async def test_process_budget_fifth_push_true_sixth_push_false(
         )
 
     assert len(notify_recorder) == 6
-    assert [c.push for c in notify_recorder].count(True) == C.OPTIONS_FLOW_MAX_PUSH_PER_DAY
+    assert [c.push for c in notify_recorder].count(True) == 5
     assert notify_recorder[-1].push is False
     assert notify_recorder[-1].ref_id is not None
+
+
+@pytest.mark.asyncio
+async def test_process_budget_honors_alerts_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    notify_recorder: list[_NotifyCall],
+    dedup_store: dict[str, bool],
+) -> None:
+    cumfrac = _linear_cumfrac()
+    profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": cumfrac})()
+    adapter = FakeAdapter(
+        snapshot={"last_price": 188.0, "day_volume": cumfrac[10] * 100_000 * 2.0},
+        bars=[_StockBar(2, 1, 100)] * 20,
+    )
+    session = {"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]}
+
+    for i in range(3):
+        ev = _sample_event(
+            id=f"of_{TODAY}_SYM{i}_blk",
+            underlying=f"SYM{i}",
+        )
+        await _run_process(
+            adapter,
+            [ev],
+            monkeypatch,
+            profile=profile,
+            session_levels=session,
+            max_push_per_day=2,
+        )
+
+    assert len(notify_recorder) == 3
+    assert [c.push for c in notify_recorder].count(True) == 2
+    assert notify_recorder[-1].push is False
 
 
 @pytest.mark.asyncio

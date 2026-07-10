@@ -320,6 +320,11 @@ export type ReportsSettings = {
   hour_et: number;
 };
 
+export type AlertsSettings = {
+  // Daily ceiling on flow/confluence phone pushes; in-app cards are never capped.
+  max_push_per_day: number;
+};
+
 export type AppSettings = {
   primary_broker: "alpaca" | "schwab";
   brokers: {
@@ -342,6 +347,7 @@ export type AppSettings = {
   research?: ResearchSettings;
   trading?: TradingSettings;
   reports?: ReportsSettings;
+  alerts?: AlertsSettings;
 };
 
 export async function fetchSettings(): Promise<AppSettings> {

@@ -19,7 +19,6 @@ from signals.notify import notify
 from signals.options_flow.constants import (
     CONV_LEVEL_ATR,
     CONV_RVOL_MIN,
-    OPTIONS_FLOW_MAX_PUSH_PER_DAY,
     SOLO_PUSH_PREMIUM_USD,
 )
 from signals.options_flow.detect import _fmt_premium
@@ -202,9 +201,10 @@ def _solo_dedup_key(underlying: str, event_type: str, today_et: str) -> str:
 def _peek_push_slot(today_et: str, *, db_path: Path) -> str | None:
     """First free daily-budget slot key, or None. Deny-by-default: any error → None."""
     try:
+        from config.settings import alerts_config
         from db.earnings_alerts import was_sent
 
-        for n in range(1, OPTIONS_FLOW_MAX_PUSH_PER_DAY + 1):
+        for n in range(1, alerts_config()["max_push_per_day"] + 1):
             key = f"of_push:{today_et}:{n}"
             if not was_sent(key, db_path=db_path):
                 return key
