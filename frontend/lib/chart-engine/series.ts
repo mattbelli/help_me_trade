@@ -101,10 +101,11 @@ function drawAxisChip(
 ): void {
   const cy = Math.round(y);
   p.fillRect(axis.x, cy - CHIP_H / 2, axis.w, CHIP_H, bg);
-  p.text(label, axis.x + axis.w / 2, cy, {
+  // Right-aligned to the shared price column (ticks + card prices match).
+  p.text(label, axis.x + axis.w - 6, cy, {
     color: textColor,
     font,
-    align: "center",
+    align: "right",
     baseline: "middle",
   });
 }
@@ -355,19 +356,27 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     color: colors.grid,
     width: 1,
   });
+  // All prices right-align to one column — ticks, card prices, chip — so the
+  // digits line up exactly (founder call).
   for (const t of pTicks) {
     const y = yOf(t.price, priceRange, price.y, price.h);
-    p.text(t.label, priceAxis.x + priceAxis.w / 2, y, {
+    p.text(t.label, priceAxis.x + priceAxis.w - 6, y, {
       color: colors.textDim,
       font,
-      align: "center",
+      align: "right",
       baseline: "middle",
     });
   }
   // Extended-hours price (pre/post/overnight quote): dashed accent line with
   // an "ext" tag and its own axis chip — parity with TV, which keeps showing
   // where the name trades after the (daily or RTH-only) candles stop.
-  if (input.extPrice != null) {
+  // Skipped when it duplicates the last price — on ETH charts the forming bar
+  // already tracks the ext quote, so the card was a permanent double (founder:
+  // "ext needs to come out"). Daily/RTH charts still show it (close ≠ ext).
+  const extDistinct =
+    input.extPrice != null &&
+    (!last || Math.abs(input.extPrice - last.close) > 0.005);
+  if (input.extPrice != null && extDistinct) {
     const y = yOf(input.extPrice, priceRange, price.y, price.h);
     if (y >= price.y && y <= price.y + price.h) {
       p.withClip(pane.x, pane.y, plotEnd - pane.x, pane.h, () => {
