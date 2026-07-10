@@ -62,14 +62,15 @@ function axisFont(fontFamily: string): string {
 }
 
 /**
- * Price-axis chip: sized to its label and anchored at the axis border, so the
- * text sits at the same x as the tick labels (TV-style — a full-width
- * centered chip read as misaligned with the prices under it). The y is
- * snapped to a whole logical px so box and text move in lockstep.
+ * Price-axis chip: full axis width with centered text — and the tick labels
+ * are centered on the same axis midline, so chip digits and prices align
+ * (founder call: liked the full-width container; centering everything is what
+ * keeps it aligned across wide and narrow numbers). The y is snapped to a
+ * whole logical px so box and text move in lockstep.
  */
 function drawAxisChip(
   p: Painter,
-  axisX: number,
+  axis: Rect,
   y: number,
   label: string,
   bg: string,
@@ -77,12 +78,11 @@ function drawAxisChip(
   font: string,
 ): void {
   const cy = Math.round(y);
-  const w = LABEL_PAD + p.measure(label, font) + LABEL_PAD;
-  p.fillRect(axisX, cy - CHIP_H / 2, w, CHIP_H, bg);
-  p.text(label, axisX + LABEL_PAD, cy, {
+  p.fillRect(axis.x, cy - CHIP_H / 2, axis.w, CHIP_H, bg);
+  p.text(label, axis.x + axis.w / 2, cy, {
     color: textColor,
     font,
-    align: "left",
+    align: "center",
     baseline: "middle",
   });
 }
@@ -218,10 +218,10 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   });
   for (const t of pTicks) {
     const y = yOf(t.price, priceRange, price.y, price.h);
-    p.text(t.label, priceAxis.x + LABEL_PAD, y, {
+    p.text(t.label, priceAxis.x + priceAxis.w / 2, y, {
       color: colors.textDim,
       font,
-      align: "left",
+      align: "center",
       baseline: "middle",
     });
   }
@@ -232,7 +232,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       // theme, and theme-background text disappeared on light themes.
       drawAxisChip(
         p,
-        priceAxis.x,
+        priceAxis,
         y,
         formatChipPrice(last.close, pTicks),
         lastColor,
@@ -263,7 +263,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       });
       drawAxisChip(
         p,
-        priceAxis.x,
+        priceAxis,
         y,
         formatChipPrice(input.extPrice, pTicks),
         colors.accent,
@@ -346,7 +346,7 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
     const hoverPrice = priceAt(y, scene.priceRange, price.y, price.h);
     drawAxisChip(
       p,
-      priceAxis.x,
+      priceAxis,
       y,
       formatChipPrice(hoverPrice, scene.pTicks),
       colors.crosshairLabelBg,
