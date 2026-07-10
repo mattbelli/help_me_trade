@@ -869,7 +869,10 @@ async def _equity_tape_flush_loop() -> None:
                         broker,
                         events,
                         today_et=now_et.date().isoformat(),
-                        minutes_since_open=max(0, now_min - open_min),
+                        # Real minutes (negative pre-market): rvol_from_profile returns None
+                        # for <0 — clamping to 0 compared pre-market volume against the
+                        # first 5-min bucket and fabricated 16-22x RVOL (2026-07-10 4AM).
+                        minutes_since_open=now_min - open_min,
                     )
                     if conv.get("convergence") or conv.get("pushes"):
                         logger.info(
@@ -1136,7 +1139,8 @@ async def _options_flow_intraday_once() -> None:
         if events:
             open_min = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
             now_min = now_et.hour * 60 + now_et.minute
-            minutes_since_open = max(0, now_min - open_min)
+            # Real minutes (negative pre-market) — rvol_from_profile handles <0.
+            minutes_since_open = now_min - open_min
             conv_summary = await process_events(
                 broker,
                 events,
@@ -1385,7 +1389,10 @@ async def _options_flow_sweep_loop() -> None:
                 broker,
                 events,
                 today_et=today_et,
-                minutes_since_open=max(0, now_min - open_min),
+                # Real minutes (negative pre-market): rvol_from_profile returns None
+                        # for <0 — clamping to 0 compared pre-market volume against the
+                        # first 5-min bucket and fabricated 16-22x RVOL (2026-07-10 4AM).
+                        minutes_since_open=now_min - open_min,
             )
             logger.info(
                 "options_flow sweeps: events=%s convergence=%s solo=%s pushes=%s",
