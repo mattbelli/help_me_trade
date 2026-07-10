@@ -75,9 +75,9 @@ const AXIS_FONT_PX = 10;
 const LABEL_PAD = 6;
 const CHIP_PAD_X = 5;
 const CHIP_H = 16;
-/** Gutter tag containers — one step smaller than the axis font (founder call). */
-const LEVEL_TAG_H = 12;
-const LEVEL_TAG_FONT_PX = 9;
+/** Gutter tag containers — full axis font (the smaller pt "wasn't helping"). */
+const LEVEL_TAG_H = 14;
+const LEVEL_TAG_FONT_PX = 10;
 
 function axisFont(fontFamily: string): string {
   return `${AXIS_FONT_PX}px ${fontFamily}`;
@@ -395,10 +395,26 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
 
   // Tag-gutter containers LAST: an opaque background wipe first, so every
   // line (including its own) flows underneath instead of through the text.
+  // TV-style de-overlap: each card sits at its line's price until cards would
+  // collide, then they nudge apart vertically so all stay readable.
   if (gutter.w > 0 && gutterTags.length > 0) {
     const tagFont = `${LEVEL_TAG_FONT_PX}px ${fontFamily}`;
-    for (const tag of gutterTags) {
-      const cy = Math.round(tag.y);
+    const step = LEVEL_TAG_H + 1;
+    const minY = gutter.y + LEVEL_TAG_H / 2;
+    const maxY = gutter.y + gutter.h - LEVEL_TAG_H / 2;
+    const sorted = [...gutterTags].sort((a, b) => a.y - b.y);
+    const ys: number[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const desired = Math.max(sorted[i].y, minY);
+      ys.push(i === 0 ? desired : Math.max(desired, ys[i - 1] + step));
+    }
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const bound = i === sorted.length - 1 ? maxY : ys[i + 1] - step;
+      if (ys[i] > bound) ys[i] = bound;
+    }
+    for (let i = 0; i < sorted.length; i++) {
+      const tag = sorted[i];
+      const cy = Math.round(ys[i]);
       const ty = cy - LEVEL_TAG_H / 2;
       p.fillRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, colors.background);
       p.fillRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, tag.bg);
