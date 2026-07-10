@@ -61,6 +61,7 @@ export function ChartWidget({ config }: WidgetProps) {
                 showLevels={Boolean(config.showSessionNodes)}
                 showAlerts={config.showAlerts ?? true}
                 showDrawings={config.showDrawings ?? true}
+                showTagColumn={config.showTagColumn ?? true}
                 extended={config.extendedHours ?? true}
                 timeframe={timeframe}
                 style={style}

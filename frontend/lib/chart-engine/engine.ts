@@ -32,6 +32,7 @@ import {
   DEFAULT_BAR_SPACING,
   DEFAULT_RIGHT_OFFSET,
   PRICE_AXIS_WIDTH,
+  TAG_GUTTER_WIDTH,
   TIME_AXIS_HEIGHT,
   type ChartStyle,
   type DrawPoint,
@@ -108,6 +109,8 @@ export class ChartEngine {
   private priceOverride: PriceRange | null = null;
   /** Ext-hours quote line (null = hidden) — the wrapper owns the session gating. */
   private extPrice: number | null = null;
+  /** Tag gutter (level names / bells / ext) between pane and price axis. */
+  private tagGutter = true;
   /** Alert/level/drawing primitives (wrapper-composed, colors resolved). */
   private overlays: EngineOverlays | null = null;
   private lastHoverIndex: number | null = null;
@@ -275,6 +278,14 @@ export class ChartEngine {
     this.invalidate("cursor"); // clear/show any pending preview
   }
 
+  /** Show/hide the tag gutter — hiding gives the pane back to the candles. */
+  setTagGutter(show: boolean): void {
+    if (show === this.tagGutter) return;
+    this.tagGutter = show;
+    this.vp = clampViewport(this.vp, this.paneWidth(), this.bars.length);
+    this.invalidate("both");
+  }
+
   /** Show/refresh (number) or hide (null) the ext-hours price line. */
   setExtPrice(price: number | null): void {
     const next = price != null && Number.isFinite(price) && price > 0 ? price : null;
@@ -309,10 +320,10 @@ export class ChartEngine {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
-  /** Which interaction region a local point falls in. */
+  /** Which interaction region a local point falls in (gutter counts as pane). */
   private regionAt(x: number, y: number): "pane" | "priceAxis" | "timeAxis" {
     if (y >= this.height - TIME_AXIS_HEIGHT) return "timeAxis";
-    if (x >= this.paneWidth()) return "priceAxis";
+    if (x >= this.width - PRICE_AXIS_WIDTH) return "priceAxis";
     return "pane";
   }
 
@@ -642,7 +653,10 @@ export class ChartEngine {
   // --- repaint -----------------------------------------------------------------------
 
   private paneWidth(): number {
-    return Math.max(0, this.width - PRICE_AXIS_WIDTH);
+    return Math.max(
+      0,
+      this.width - PRICE_AXIS_WIDTH - (this.tagGutter ? TAG_GUTTER_WIDTH : 0),
+    );
   }
 
   private resize(width: number, height: number): void {
@@ -690,6 +704,7 @@ export class ChartEngine {
         priceOverride: this.priceOverride,
         extPrice: this.extPrice,
         overlays: this.overlays,
+        tagGutter: this.tagGutter,
       });
       this.perfSceneMs = performance.now() - t0;
       // The crosshair sits over repositioned content — keep it in sync.

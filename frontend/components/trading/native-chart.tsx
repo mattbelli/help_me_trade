@@ -72,6 +72,9 @@ type Props = {
   /** Eye-menu visibility toggles. Undefined = shown. */
   showAlerts?: boolean;
   showDrawings?: boolean;
+  /** Tag column (level names / bells / ext) — hiding it also hides every
+      overlay line with it: the one-click clean chart. */
+  showTagColumn?: boolean;
 };
 
 // Rollover/refetch cadence: the bars cache TTL is the real gate — this just
@@ -149,6 +152,7 @@ export function NativeChart({
   showLevels = false,
   showAlerts = true,
   showDrawings = true,
+  showTagColumn = true,
 }: Props) {
   const timeframe = timeframeProp ?? CHART_TIMEFRAMES[5];
   const showExt = extended && timeframe.intraday;
@@ -320,6 +324,12 @@ export function NativeChart({
     engineRef.current?.setStyle(style);
   }, [style]);
 
+  // Tag column toggle (timeframe.intraday dep: a recreated engine needs it
+  // re-applied).
+  useEffect(() => {
+    engineRef.current?.setTagGutter(showTagColumn);
+  }, [showTagColumn, timeframe.intraday]);
+
   // Ext-hours price line — same session gate as TvLightChart: whenever an ext
   // quote exists outside RTH (incl. weekend "closed", where the last ext print
   // would otherwise sit a session behind the candles). Independent of the ETH
@@ -440,10 +450,12 @@ export function NativeChart({
       }
     }
     const overlays: EngineOverlays = { lines, segments };
+    // Hiding the tag column hides every overlay line with it (founder call:
+    // one quick switch back to a clean chart).
     engineRef.current?.setOverlays(
-      lines.length || segments.length ? overlays : null,
+      showTagColumn && (lines.length || segments.length) ? overlays : null,
     );
-  }, [alerts, levels, drawings, themeNonce, timeframe.intraday]);
+  }, [alerts, levels, drawings, themeNonce, timeframe.intraday, showTagColumn]);
 
   // Theme changes (mode toggle or custom-theme var edits) re-resolve colors.
   useEffect(() => {

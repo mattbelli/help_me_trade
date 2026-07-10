@@ -265,6 +265,9 @@ function ChartHeaderMenus({
             [
               { key: "showAlerts" as const, label: "Alerts" },
               { key: "showDrawings" as const, label: "Drawings" },
+              // Native engine: hides the tag column AND every overlay line
+              // with it — the one-click clean chart.
+              { key: "showTagColumn" as const, label: "Tag column" },
             ]
           ).map(({ key, label }) => {
             const shown = config[key] ?? true;

@@ -18,6 +18,7 @@ import {
 import { crosshairTimeLabel, priceTicks, timeTicks, type PriceTick, type TimeTick } from "./ticks";
 import {
   PRICE_AXIS_WIDTH,
+  TAG_GUTTER_WIDTH,
   TIME_AXIS_HEIGHT,
   VOLUME_FRACTION,
   type ChartStyle,
@@ -32,25 +33,32 @@ import {
 } from "./types";
 
 export type Layout = {
-  /** Full chart pane (price + volume), excluding both axes. */
+  /** Full chart pane (price + volume), excluding the gutter and both axes. */
   pane: Rect;
   /** Candle/line area — pane minus the volume strip. */
   price: Rect;
   /** Volume strip along the pane bottom. */
   volume: Rect;
+  /** Tag gutter between pane and price axis (level names / bells / ext). */
+  gutter: Rect;
   priceAxis: Rect;
   timeAxis: Rect;
 };
 
-export function computeLayout(width: number, height: number): Layout {
-  const paneW = Math.max(0, width - PRICE_AXIS_WIDTH);
+export function computeLayout(
+  width: number,
+  height: number,
+  gutterW: number = TAG_GUTTER_WIDTH,
+): Layout {
+  const paneW = Math.max(0, width - PRICE_AXIS_WIDTH - gutterW);
   const paneH = Math.max(0, height - TIME_AXIS_HEIGHT);
   const volumeH = Math.round(paneH * VOLUME_FRACTION);
   return {
     pane: { x: 0, y: 0, w: paneW, h: paneH },
     price: { x: 0, y: 0, w: paneW, h: paneH - volumeH },
     volume: { x: 0, y: paneH - volumeH, w: paneW, h: volumeH },
-    priceAxis: { x: paneW, y: 0, w: PRICE_AXIS_WIDTH, h: paneH },
+    gutter: { x: paneW, y: 0, w: gutterW, h: paneH },
+    priceAxis: { x: paneW + gutterW, y: 0, w: PRICE_AXIS_WIDTH, h: paneH },
     timeAxis: { x: 0, y: paneH, w: width, h: TIME_AXIS_HEIGHT },
   };
 }
@@ -67,9 +75,9 @@ const AXIS_FONT_PX = 10;
 const LABEL_PAD = 6;
 const CHIP_PAD_X = 5;
 const CHIP_H = 16;
-/** Level-name axis containers — deliberately smaller than the price chips. */
+/** Gutter tag containers — one step smaller than the axis font (founder call). */
 const LEVEL_TAG_H = 12;
-const LEVEL_TAG_FONT_PX = 8;
+const LEVEL_TAG_FONT_PX = 9;
 
 function axisFont(fontFamily: string): string {
   return `${AXIS_FONT_PX}px ${fontFamily}`;
@@ -121,14 +129,22 @@ export type SceneInput = {
   extPrice?: number | null;
   /** Alert/level/drawing primitives, colors pre-resolved by the wrapper. */
   overlays?: EngineOverlays | null;
+  /** False collapses the tag gutter — pane runs straight to the price axis. */
+  tagGutter?: boolean;
 };
 
 /** Paint the full scene (grid, series, volume, axes, last-price line). */
 export function drawScene(p: Painter, input: SceneInput): Scene {
   const { width, height, bars, vp, colors, style, intraday, fontFamily } = input;
-  const layout = computeLayout(width, height);
-  const { pane, price, volume, priceAxis, timeAxis } = layout;
+  const layout = computeLayout(
+    width,
+    height,
+    input.tagGutter === false ? 0 : TAG_GUTTER_WIDTH,
+  );
+  const { pane, price, volume, gutter, priceAxis, timeAxis } = layout;
   const font = axisFont(fontFamily);
+  // Price-anchored lines run through the gutter to the axis; candles don't.
+  const plotEnd = priceAxis.x;
 
   p.clear();
   p.fillRect(0, 0, width, height, colors.background);
@@ -141,7 +157,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   // Grid under everything else.
   for (const t of pTicks) {
     const y = yOf(t.price, priceRange, price.y, price.h);
-    p.line(pane.x, y, pane.x + pane.w, y, { color: colors.grid, width: 1 });
+    p.line(pane.x, y, plotEnd, y, { color: colors.grid, width: 1 });
   }
   for (const t of tTicks) {
     if (t.x < pane.x || t.x > pane.x + pane.w) continue;
@@ -207,45 +223,24 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   // Overlays: alert/level lines + drawing segments, over the series but under
   // the last-price line. Out-of-range lines simply don't draw (hide, never
   // clamp — cross-client convention, RN_SKIA_CHART_RELAY.md §2).
-  // Line-tag placement, shared by overlay levels and the ext tag: tags on
-  // near-identical prices (PDH/VAH/POC cluster) stagger horizontally instead
-  // of mashing into one glitched glyph pile, and a line hugging the pane top
-  // flips its tag below so the clip region can't cut it in half.
-  const placedTags: { x1: number; x2: number; y: number }[] = [];
-  const placeTag = (label: string, lineY: number, color: string): void => {
-    const w = p.measure(label, font);
-    let ly = lineY - 3;
-    if (ly - AXIS_FONT_PX < price.y + 2) ly = lineY + 4 + AXIS_FONT_PX;
-    let lx = pane.x + 4;
-    for (const q of placedTags) {
-      if (Math.abs(q.y - ly) < AXIS_FONT_PX + 3 && q.x2 + 6 > lx) {
-        lx = q.x2 + 6;
-      }
-    }
-    placedTags.push({ x1: lx, x2: lx + w, y: ly });
-    p.text(label, lx, ly, { color, font, align: "left", baseline: "bottom" });
-  };
-
-  // Level names render as small containers ON THE PRICE AXIS (founder call:
-  // floating pane text gets crossed by other lines and reads as glitch; TV's
-  // axis boxes were right). Collected here, drawn after the axis background.
-  const axisTags: { y: number; label: string; bg: string; text: string }[] = [];
+  // Line tags (level names / 🔔 / ext) render as small containers in the TAG
+  // GUTTER between pane and axis — founder call: floating pane text kept
+  // getting crossed by other lines. Containers draw LAST with an opaque wipe,
+  // so the lines flow underneath them. Collected here, drawn near the end.
+  const gutterTags: { y: number; label: string; bg: string; text: string }[] = [];
 
   if (input.overlays) {
     const { lines, segments } = input.overlays;
-    p.withClip(price.x, price.y, price.w, price.h, () => {
+    p.withClip(price.x, price.y, plotEnd - price.x, price.h, () => {
       const collapsible: LinePlacement[] = [];
       const drawLine = (l: OverlayLine, y: number): void => {
-        p.line(pane.x, y, pane.x + pane.w, y, {
+        p.line(pane.x, y, plotEnd, y, {
           color: l.color,
           width: 1,
           dash: l.dash,
         });
-        if (!l.label) return;
-        if (l.collapsible) {
-          axisTags.push({ y, label: l.label, bg: l.color, text: "#ffffff" });
-        } else {
-          placeTag(l.label, y, l.color); // e.g. the alert 🔔 stays on the line
+        if (l.label) {
+          gutterTags.push({ y, label: l.label, bg: l.color, text: "#ffffff" });
         }
       };
       for (const l of lines) {
@@ -266,21 +261,14 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           continue;
         }
         const y = (group[0].y + group[group.length - 1].y) / 2;
-        const names = group
-          .map((g) => g.line.label ?? "")
-          .filter(Boolean);
-        const label =
-          names.length > 0 && names.length <= 3
-            ? names.join("·")
-            : `node ×${group.length}`;
-        p.line(pane.x, y, pane.x + pane.w, y, {
+        p.line(pane.x, y, plotEnd, y, {
           color: colors.textDim,
           width: 1,
           dash: [2, 3],
         });
-        axisTags.push({
+        gutterTags.push({
           y,
-          label,
+          label: `×${group.length}`,
           bg: colors.crosshairLabelBg,
           text: colors.text,
         });
@@ -332,8 +320,8 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   if (last) {
     const y = yOf(last.close, priceRange, price.y, price.h);
     if (y >= price.y && y <= price.y + price.h) {
-      p.withClip(pane.x, pane.y, pane.w, pane.h, () => {
-        p.line(pane.x, y, pane.x + pane.w, y, {
+      p.withClip(pane.x, pane.y, plotEnd - pane.x, pane.h, () => {
+        p.line(pane.x, y, plotEnd, y, {
           color: lastColor,
           width: 1,
           dash: [2, 2],
@@ -356,27 +344,6 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       align: "center",
       baseline: "middle",
     });
-  }
-  // Level containers: smaller than the price chips, full axis width, centered
-  // — same family as the last-price chip, which draws after and wins on top.
-  if (axisTags.length > 0) {
-    const smallFont = `${LEVEL_TAG_FONT_PX}px ${fontFamily}`;
-    for (const tag of axisTags) {
-      const cy = Math.round(tag.y);
-      p.fillRect(
-        priceAxis.x,
-        cy - LEVEL_TAG_H / 2,
-        priceAxis.w,
-        LEVEL_TAG_H,
-        tag.bg,
-      );
-      p.text(tag.label, priceAxis.x + priceAxis.w / 2, cy, {
-        color: tag.text,
-        font: smallFont,
-        align: "center",
-        baseline: "middle",
-      });
-    }
   }
   if (last) {
     const y = yOf(last.close, priceRange, price.y, price.h);
@@ -401,13 +368,18 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   if (input.extPrice != null) {
     const y = yOf(input.extPrice, priceRange, price.y, price.h);
     if (y >= price.y && y <= price.y + price.h) {
-      p.withClip(pane.x, pane.y, pane.w, pane.h, () => {
-        p.line(pane.x, y, pane.x + pane.w, y, {
+      p.withClip(pane.x, pane.y, plotEnd - pane.x, pane.h, () => {
+        p.line(pane.x, y, plotEnd, y, {
           color: colors.accent,
           width: 1,
           dash: [4, 3],
         });
-        placeTag("ext", y, colors.textDim);
+      });
+      gutterTags.push({
+        y,
+        label: "ext",
+        bg: colors.crosshairLabelBg,
+        text: colors.text,
       });
       drawAxisChip(
         p,
@@ -418,6 +390,24 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
         "#ffffff",
         font,
       );
+    }
+  }
+
+  // Tag-gutter containers LAST: an opaque background wipe first, so every
+  // line (including its own) flows underneath instead of through the text.
+  if (gutter.w > 0 && gutterTags.length > 0) {
+    const tagFont = `${LEVEL_TAG_FONT_PX}px ${fontFamily}`;
+    for (const tag of gutterTags) {
+      const cy = Math.round(tag.y);
+      const ty = cy - LEVEL_TAG_H / 2;
+      p.fillRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, colors.background);
+      p.fillRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, tag.bg);
+      p.text(tag.label, gutter.x + gutter.w / 2, cy, {
+        color: tag.text,
+        font: tagFont,
+        align: "center",
+        baseline: "middle",
+      });
     }
   }
 
@@ -621,9 +611,11 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
   const { x, y, bars, vp, scene, colors, intraday, fontFamily } = input;
   const { pane, price, priceAxis, timeAxis } = scene.layout;
   const font = axisFont(fontFamily);
+  // The crosshair lives over the whole plot area, tag gutter included.
+  const plotEnd = priceAxis.x;
 
   p.clear();
-  if (x < pane.x || x > pane.x + pane.w || y < pane.y || y > pane.y + pane.h) {
+  if (x < pane.x || x > plotEnd || y < pane.y || y > pane.y + pane.h) {
     return null;
   }
 
@@ -634,14 +626,14 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
   const vx = hit ? xOf(i, vp, pane.w) : x;
 
   const crossStyle = { color: colors.crosshair, width: 1, dash: [3, 3] };
-  if (vx >= pane.x && vx <= pane.x + pane.w) {
+  if (vx >= pane.x && vx <= plotEnd) {
     p.line(vx, pane.y, vx, pane.y + pane.h, crossStyle);
   }
 
   // Horizontal line + price chip only inside the price area — over the volume
   // strip the price scale doesn't apply and priceAt would extrapolate garbage.
   if (y >= price.y && y <= price.y + price.h) {
-    p.line(pane.x, y, pane.x + pane.w, y, crossStyle);
+    p.line(pane.x, y, plotEnd, y, crossStyle);
     const hoverPrice = priceAt(y, scene.priceRange, price.y, price.h);
     drawAxisChip(
       p,
