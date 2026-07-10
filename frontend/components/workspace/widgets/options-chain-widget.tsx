@@ -201,13 +201,13 @@ function renderMetric(
 
 function ChainHeader({ wide }: { wide: boolean }) {
   const labelClass =
-    "text-right text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
+    "border-r border-[var(--border)] px-1.5 text-right text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
   const strikeClass =
-    "text-center text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)] border-x border-[var(--border)] px-2";
+    "border-r border-[var(--border)] px-2 text-center text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
 
   if (wide) {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_auto_repeat(7,minmax(0,1fr))] gap-x-2 border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+      <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_auto_repeat(7,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
         {(["oi", "vol", "iv", "δ", "last", "ask", "bid"] as const).map(
           (label) => (
             <span key={`c-${label}`} className={labelClass}>
@@ -228,7 +228,7 @@ function ChainHeader({ wide }: { wide: boolean }) {
   }
 
   return (
-    <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_auto_repeat(3,minmax(0,1fr))] gap-x-2 border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+    <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_auto_repeat(3,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
       {(["last", "ask", "bid"] as const).map((label) => (
         <span key={`c-${label}`} className={labelClass}>
           {label}
@@ -304,21 +304,27 @@ function ChainRow({
       type="button"
       onClick={onStrikeClick}
       className={cn(
-        "grid w-full items-center gap-x-2 border-b border-[var(--border)] px-2 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]",
+        "grid w-full border-b border-[var(--border)] px-2 text-left transition-colors hover:bg-[var(--bg-hover)]",
         gridClass,
         linked ? "cursor-pointer" : "cursor-default",
       )}
     >
       {(wide ? callWide : callNarrow).map((cell, idx) => (
-        <span key={`c-${idx}`} className={cn("text-right", callTint)}>
+        <span
+          key={`c-${idx}`}
+          className={cn("border-r border-[var(--border)] px-1.5 py-0.5 text-right", callTint)}
+        >
           {cell}
         </span>
       ))}
-      <span className="border-x border-[var(--border)] px-2 text-center text-[length:var(--fs-table)] font-medium tabular-nums text-foreground">
+      <span className="border-r border-[var(--border)] px-2 py-0.5 text-center text-[length:var(--fs-table)] font-medium tabular-nums text-foreground">
         {strikeLabel}
       </span>
       {(wide ? putWide : putNarrow).map((cell, idx) => (
-        <span key={`p-${idx}`} className={cn("text-right", putTint)}>
+        <span
+          key={`p-${idx}`}
+          className={cn("border-r border-[var(--border)] px-1.5 py-0.5 text-right", putTint)}
+        >
           {cell}
         </span>
       ))}
