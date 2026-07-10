@@ -613,6 +613,26 @@ def _summarize_options_flow(
     return {"by_underlying": by_underlying, "n_underlyings": len(by_underlying)}
 
 
+def _read_equity_tape(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    from db.equity_tape import recent_events
+
+    limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
+    symbol = filters.get("symbol")
+    event_type = filters.get("event_type")
+    min_notional = filters.get("min_notional")
+    since = filters.get("since")
+    return recent_events(
+        symbol=str(symbol).strip().upper() if symbol else None,
+        event_type=str(event_type) if event_type else None,
+        min_notional=float(min_notional) if min_notional is not None else None,
+        since=str(since) if since else None,
+        limit=limit,
+        db_path=db_path,
+    )
+
+
 async def _read_options_chain(
     filters: dict[str, Any], *, db_path: Path
 ) -> list[dict[str, Any]]:
@@ -778,6 +798,21 @@ RESOURCES: dict[str, dict[str, Any]] = {
         "read": _read_options_flow,
         "summarize": _summarize_options_flow,
     },
+    "equity_tape": {
+        "description": (
+            "Large prints on the STOCK tape for watched symbols — lit-exchange "
+            "blocks and off-exchange dark-pool prints (FINRA TRF). Facts about "
+            "the tape with a caveat, never a buy/sell signal."
+        ),
+        "filters": {
+            "symbol": "optional — filter by ticker",
+            "event_type": "optional — equity_block|dark_pool",
+            "min_notional": "optional float — minimum notional_usd",
+            "since": "optional ISO timestamp — events at or after",
+            "limit": "optional int — default 20, max 50",
+        },
+        "read": _read_equity_tape,
+    },
     "options_chain": {
         "description": (
             "Live option chain for ONE underlying — expirations list plus "
@@ -822,6 +857,9 @@ _RESOURCE_ALIASES = {
     "chain": "options_chain",
     "option_chain": "options_chain",
     "greeks": "options_chain",
+    "tape": "equity_tape",
+    "dark_pool": "equity_tape",
+    "blocks": "equity_tape",
 }
 
 

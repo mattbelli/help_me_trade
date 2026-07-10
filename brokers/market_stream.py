@@ -154,6 +154,11 @@ class BaseMarketHub:
         # plus the consecutive-hold counter behind TRADE_HOLD_STREAK_MAX.
         self._pending_trade: dict[str, float] = {}
         self._trade_hold_streak: dict[str, int] = {}
+        # Large-print tap (blocks + dark-pool prints). Detection only — the api
+        # drain loop persists/notifies from tape_detector.pending.
+        from signals.equity_tape import TapeDetector
+
+        self.tape_detector = TapeDetector()
 
     async def start(self) -> None:
         if self._running:
@@ -671,6 +676,26 @@ class AlpacaMarketStreamHub(BaseMarketHub):
         price_f = float(price)
 
         conditions = item.get("c")
+
+        # Large-print tap BEFORE the exclude-condition drop: average-price /
+        # derivatively-priced crosses are often the genuine institutional
+        # blocks, legit on the tape even though they never update the
+        # consolidated last price. The detector carries its own off-market
+        # guard (±10% vs last admitted) against corrupt prints.
+        try:
+            self.tape_detector.on_print(
+                symbol=symbol,
+                price=price_f,
+                size=item.get("s"),
+                exchange=item.get("x"),
+                conditions=conditions,
+                ts=item.get("t"),
+                trade_id=item.get("i"),
+                prev_price=self._prev_prices.get(symbol),
+            )
+        except Exception:
+            logger.debug("Tape detector failed for %s", symbol, exc_info=True)
+
         if conditions:
             for code in conditions:
                 if code in TRADE_EXCLUDE_CONDITIONS:

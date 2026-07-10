@@ -809,7 +809,20 @@ async def _alert_symbol_loop() -> None:
                 str(a["symbol"]).upper()
                 for a in list_price_alerts(active_only=True)
             }
-            await market_hub.ensure_symbols(symbols)
+            # Pin the watchlists too: the tape detector (blocks/dark pool) and
+            # confluence only see subscribed symbols — "things we are watching"
+            # must stream server-side, not just while a browser has them open.
+            watch = set(symbols)
+            try:
+                from config.settings import get_watchlists_state
+
+                for wl in get_watchlists_state().get("lists") or []:
+                    watch.update(
+                        str(s).upper() for s in (wl.get("symbols") or [])
+                    )
+            except Exception:
+                logger.debug("watchlist pin failed", exc_info=True)
+            await market_hub.ensure_symbols(watch)
             # Outside regular hours the Schwab equity stream is silent, so alerts
             # would never fire overnight. Poll extended quotes server-side for the
             # alert symbols and push them through apply_extended (which evaluates
@@ -821,6 +834,28 @@ async def _alert_symbol_loop() -> None:
         else:
             mark_alive("alert_symbol")
         await asyncio.sleep(_ALERT_SYMBOL_INTERVAL_SECONDS)
+
+
+_EQUITY_TAPE_FLUSH_SECONDS = 2.0
+
+
+async def _equity_tape_flush_loop() -> None:
+    """Persist large-print tape events queued by the stream hub's detector."""
+    from db.equity_tape import insert_event as _insert_tape_event
+
+    while True:
+        await asyncio.sleep(_EQUITY_TAPE_FLUSH_SECONDS)
+        try:
+            detector = getattr(market_hub, "tape_detector", None)
+            if detector is None or not detector.pending:
+                continue
+            events: list[dict] = []
+            while detector.pending:
+                events.append(detector.pending.popleft())
+            for ev in events:
+                await asyncio.to_thread(_insert_tape_event, ev)
+        except Exception:
+            logger.exception("equity tape: flush failed")
 
 
 async def _poll_ext_quotes_for_alerts(symbols: set[str]) -> None:
@@ -1979,6 +2014,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_volume_profile_refresh_loop()),
         asyncio.create_task(_reports_scheduler_loop()),
         asyncio.create_task(_bars_prewarm_loop()),
+        asyncio.create_task(_equity_tape_flush_loop()),
     ]
     if _OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED:
         background_tasks.append(asyncio.create_task(_options_flow_stream_run()))

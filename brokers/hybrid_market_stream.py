@@ -76,6 +76,9 @@ class HybridMarketStreamHub(BaseMarketHub):
         for child in (self._alpaca, self._schwab):
             child._quotes = self._quotes
             child._clients = self._clients
+            # One tape detector: the equity child's _on_trade tap must queue
+            # into the deque the api drain loop reads off THIS composite.
+            child.tape_detector = self.tape_detector
 
     def _live_flag(self) -> bool:
         # Equities are the bulk of the watchlist; liveness follows Alpaca (SIP).
