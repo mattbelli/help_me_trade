@@ -74,7 +74,13 @@ export class ChartEngine {
   private dirtyCursor = false;
   private raf: number | null = null;
   private cross: { x: number; y: number } | null = null;
-  private drag: { startX: number; startRe: number } | null = null;
+  private drag: {
+    startX: number;
+    startRe: number;
+    startY: number;
+    /** Manual price scale at drag start — non-null ⇒ drag also pans vertically. */
+    startRange: PriceRange | null;
+  } | null = null;
   /** Axis-drag scaling in progress (price or time axis). */
   private axisDrag: {
     kind: "price" | "time";
@@ -361,7 +367,15 @@ export class ChartEngine {
           startOffset: segHit.seg.parallelOffset,
         };
       } else {
-        this.drag = { startX: x, startRe: this.vp.rightEdgeIndex };
+        this.drag = {
+          startX: x,
+          startRe: this.vp.rightEdgeIndex,
+          startY: y,
+          // Under a manual scale the drag pans BOTH axes (an axis-zoom can
+          // push the candles out of frame — this is the way back). Autoscale
+          // keeps vertical framing itself, so there the drag stays horizontal.
+          startRange: this.priceOverride ? { ...this.priceOverride } : null,
+        };
       }
     }
   };
@@ -451,6 +465,18 @@ export class ChartEngine {
         this.paneWidth(),
         this.bars.length,
       );
+      if (this.drag.startRange && this.scene) {
+        const pr = this.scene.layout.price;
+        if (pr.h > 0) {
+          // Content follows the pointer: drag down → window shifts up-price.
+          const span = this.drag.startRange.max - this.drag.startRange.min;
+          const shift = ((y - this.drag.startY) * span) / pr.h;
+          this.priceOverride = {
+            min: this.drag.startRange.min + shift,
+            max: this.drag.startRange.max + shift,
+          };
+        }
+      }
       this.invalidate("scene");
     } else {
       const region = this.regionAt(x, y);

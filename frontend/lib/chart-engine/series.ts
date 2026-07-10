@@ -204,6 +204,25 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   // Overlays: alert/level lines + drawing segments, over the series but under
   // the last-price line. Out-of-range lines simply don't draw (hide, never
   // clamp — cross-client convention, RN_SKIA_CHART_RELAY.md §2).
+  // Line-tag placement, shared by overlay levels and the ext tag: tags on
+  // near-identical prices (PDH/VAH/POC cluster) stagger horizontally instead
+  // of mashing into one glitched glyph pile, and a line hugging the pane top
+  // flips its tag below so the clip region can't cut it in half.
+  const placedTags: { x1: number; x2: number; y: number }[] = [];
+  const placeTag = (label: string, lineY: number, color: string): void => {
+    const w = p.measure(label, font);
+    let ly = lineY - 3;
+    if (ly - AXIS_FONT_PX < price.y + 2) ly = lineY + 4 + AXIS_FONT_PX;
+    let lx = pane.x + 4;
+    for (const q of placedTags) {
+      if (Math.abs(q.y - ly) < AXIS_FONT_PX + 3 && q.x2 + 6 > lx) {
+        lx = q.x2 + 6;
+      }
+    }
+    placedTags.push({ x1: lx, x2: lx + w, y: ly });
+    p.text(label, lx, ly, { color, font, align: "left", baseline: "bottom" });
+  };
+
   if (input.overlays) {
     const { lines, segments } = input.overlays;
     p.withClip(price.x, price.y, price.w, price.h, () => {
@@ -215,14 +234,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           width: 1,
           dash: l.dash,
         });
-        if (l.label) {
-          p.text(l.label, pane.x + 4, y - 3, {
-            color: l.color,
-            font,
-            align: "left",
-            baseline: "bottom",
-          });
-        }
+        if (l.label) placeTag(l.label, y, l.color);
       }
       for (const s of segments) {
         const x1 = xOf(indexOfTime(bars, s.a.time), vp, pane.w);
@@ -325,12 +337,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           width: 1,
           dash: [4, 3],
         });
-        p.text("ext", pane.x + 4, y - 4, {
-          color: colors.textDim,
-          font,
-          align: "left",
-          baseline: "bottom",
-        });
+        placeTag("ext", y, colors.textDim);
       });
       drawAxisChip(
         p,
