@@ -414,9 +414,12 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       return ys;
     };
     // The live-price chip is a fixed obstacle (TV behavior): cards split
-    // around it instead of sliding underneath.
+    // around it instead of sliding underneath. Whole-px so a sub-pixel tick
+    // can't reflow the stack (the "articulating" cards).
     const chipY =
-      last != null ? yOf(last.close, priceRange, price.y, price.h) : null;
+      last != null
+        ? Math.round(yOf(last.close, priceRange, price.y, price.h))
+        : null;
     const chipVisible =
       chipY != null && chipY >= price.y && chipY <= price.y + price.h;
     const all = [...cards].sort((a, b) => a.y - b.y);
@@ -435,31 +438,38 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       sorted = all;
       ys = sweep(all, minY, maxY);
     }
-    const rightEdge = width - 1;
+    // Uniform cards, housed INSIDE the price column — one clean cut at the
+    // pane boundary, never poking into the candles at ragged lengths.
+    const cardX = priceAxis.x + 1;
+    const cardW = priceAxis.w - 2;
     for (let i = 0; i < sorted.length; i++) {
       const card = sorted[i];
       const priceLabel =
         card.price != null ? formatChipPrice(card.price, pTicks) : null;
-      const nameW = p.measure(card.label, tagFont);
-      const priceW = priceLabel ? p.measure(priceLabel, tagFont) : 0;
-      const w = 5 + nameW + (priceLabel ? 6 + priceW : 0) + 5;
-      const x = rightEdge - w;
       const cy = Math.round(ys[i]);
       const ty = cy - LEVEL_TAG_H / 2;
       const textY = cy + LEVEL_TAG_FONT_PX * 0.34; // optical centering
-      p.fillRect(x, ty, w, LEVEL_TAG_H, colors.background);
-      p.roundRect(x, ty, w, LEVEL_TAG_H, 2, card.bg);
-      p.text(card.label, x + 5, textY, {
-        color: card.text,
-        font: tagFont,
-        align: "left",
-        baseline: "alphabetic",
-      });
+      p.fillRect(cardX, ty, cardW, LEVEL_TAG_H, colors.background);
+      p.roundRect(cardX, ty, cardW, LEVEL_TAG_H, 2, card.bg);
       if (priceLabel) {
-        p.text(priceLabel, rightEdge - 5, textY, {
+        p.text(card.label, cardX + 5, textY, {
+          color: card.text,
+          font: tagFont,
+          align: "left",
+          baseline: "alphabetic",
+        });
+        p.text(priceLabel, cardX + cardW - 5, textY, {
           color: card.text,
           font: tagFont,
           align: "right",
+          baseline: "alphabetic",
+        });
+      } else {
+        // Price-less card (alert 🔔): centered.
+        p.text(card.label, cardX + cardW / 2, textY, {
+          color: card.text,
+          font: tagFont,
+          align: "center",
           baseline: "alphabetic",
         });
       }
