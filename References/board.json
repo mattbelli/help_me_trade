@@ -20,12 +20,12 @@
     },
     {
       "id": "options-chain-viewer",
-      "title": "Options-chain viewer widget — LIVE (visual check pending)",
+      "title": "Options-chain viewer v2 — Webull-style accordion, SHIPPED + founder-screenshot-verified",
       "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "SHIPPED 2026-07-09 evening: GET /api/options-chain (30s cache; contracts-first expirations+OI, per-expiry filtered+paginated snapshot — orchestrator fixed Composer round's one-expiry/no-puts truncation, live-verified NVDA 25 expirations x 86 strikes both sides w/ IV+greeks+vol+OI) + options-chain workspace widget (channel-follow underlying, expiry dropdown + DTE, T-chain calls|strike|puts, ATM highlight, narrow collapse, strike click publishes underlying, 30s poll). Deployed. Founder: add the widget from the picker + eyeball density/columns."
+      "notes": "v2 SHIPPED 2026-07-10 (founder redesign w/ ToS/Schwab/Webull references, Webull preferred): expiration accordion (nearest TRADEABLE auto-expands — post-close skips the expired 0DTE chain; (W) weekly markers, DTE), strict right-aligned tabular grid bid/ask hugging the strike spine (bid green/ask red), ITM region tint, spot-divider row (SPY · 751.71) auto-scrolled into view, strikes 6/10/20/40/all selector (default 10, server-side ATM window, persisted in widget config), 'as of 3:59 pm et' staleness note (close quotes persist after hours — data was never missing, v1 presentation was). Monitored Composer round + orchestrator config-type fix; 16 endpoint tests + ruff + tsc; deployed + verified via headless screenshot at 1920px (v1 complaints all cleared). Deferred: calls/puts-only toggle, per-expiry implied-move header stats."
     },
     {
       "id": "chart-ux-founder-round-0709",
