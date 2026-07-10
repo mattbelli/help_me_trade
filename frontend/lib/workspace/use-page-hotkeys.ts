@@ -18,14 +18,41 @@ function isPlainAlt(event: globalThis.KeyboardEvent) {
   return event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
 }
 
+/** Elements where a bare Space has meaning of its own (activation, dialogs). */
+function isInteractiveTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(
+    target.closest(
+      "button, a, [role='button'], [role='menuitem'], [role='menu'], [role='dialog'], [data-radix-popper-content-wrapper]",
+    ),
+  );
+}
+
 export function usePageHotkeys() {
   const setActivePage = useWorkspaceStore((s) => s.setActivePage);
 
   useEffect(() => {
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.defaultPrevented || event.repeat) return;
-      if (!isPlainAlt(event)) return;
       if (isTypingTarget(event.target)) return;
+
+      // Bare Space = widget palette, Spotlight-style (founder call).
+      // preventDefault also kills the browser's space-scrolls-the-canvas
+      // default. Skipped on buttons/links/menus where Space activates.
+      if (
+        event.code === "Space" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey
+      ) {
+        if (isInteractiveTarget(event.target)) return;
+        event.preventDefault();
+        useWorkspaceStore.getState().setPickerOpen(true);
+        return;
+      }
+
+      if (!isPlainAlt(event)) return;
 
       const pages = useWorkspaceStore.getState().pages;
       const pageIds = Object.keys(pages);

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ChevronDownIcon,
-  MessageSquareIcon,
   PanelLeftIcon,
   PinIcon,
   PinOffIcon,
@@ -99,25 +98,8 @@ export function CopilotSidebar() {
     [setWidth, width],
   );
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={cn(
-          "absolute bottom-3 right-3 z-40 flex items-center gap-2 rounded-lg border border-[var(--border)]",
-          "px-3 py-2 shadow-[var(--panel-shadow)] backdrop-blur-md",
-          "font-mono text-[length:var(--fs-title)] font-medium text-[var(--fg-dim)] transition-colors",
-          "hover:text-foreground",
-        )}
-        style={{ backgroundColor: COPILOT_PANEL_BG }}
-        aria-label="Open copilot"
-      >
-        <MessageSquareIcon className="size-4 shrink-0" />
-        Copilot
-      </button>
-    );
-  }
+  // No launcher pill when closed (founder call) — Ctrl/Cmd+J opens the copilot.
+  if (!open) return null;
 
   return (
     <motion.div
