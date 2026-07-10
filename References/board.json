@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-09",
+  "updated_at": "2026-07-10",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "avg-cost-day-attribution",
+      "title": "Calendar day P&L — avg-cost attribution for partial closes (SHIPPED)",
+      "lane": "done",
+      "type": "fix",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-10 founder: 'trades in 3 Schwab accounts not representing correctly' + 'calendar stuck on indi'. Diagnosis: sync + account scoping were CORRECT end-to-end (ledger qty reconciles exactly vs broker in all 4 accounts; per-account API responses verified distinct) — the boundary last-flat realized method showed $0.00 for scale-outs around core positions, so every tile was 0 and account switching looked dead. SHIPPED: daily_avg_cost_realized (db/analytics.py) — running avg-cost per (account,symbol), books partial closes on trade day, flat-to-flat == boundary; intraday order via new exec_time (json_extract raw_json $.time); date-only import rows = buys-before-sells; pre-history sells never fabricated (unattributed + ≈ flag, covers keep phantom cost out of basis, heals at flats). Boundary stays headline truth. Live-verified: indi Jul9 +2,526.53 / joint +1,285.09 / roth-joint +639.07 (all match real fills). 57 tests. Deployed."
+    },
     {
       "id": "options-chain-viewer",
       "title": "Options-chain viewer widget — LIVE (visual check pending)",
