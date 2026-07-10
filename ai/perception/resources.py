@@ -613,6 +613,37 @@ def _summarize_options_flow(
     return {"by_underlying": by_underlying, "n_underlyings": len(by_underlying)}
 
 
+async def _read_options_chain(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    """Live OPRA chain for one underlying + expiry — same builder as the widget."""
+    del db_path
+    import asyncio as _asyncio
+
+    from brokers.factory import get_broker
+    from brokers.options_chain import build_options_chain_sync
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    if not symbol:
+        return [{"error": "symbol filter required (e.g. {\"symbol\": \"SPY\"})"}]
+
+    broker = get_broker("alpaca")
+    if broker is None:
+        return [{"unavailable": True, "reason": "alpaca not configured"}]
+
+    expiration = filters.get("expiration") or filters.get("expiry")
+    expiry = str(expiration).strip()[:10] if expiration else None
+    try:
+        strikes = min(max(int(filters.get("strikes") or 10), 2), 30)
+    except (TypeError, ValueError):
+        strikes = 10
+
+    chain = await _asyncio.to_thread(
+        build_options_chain_sync, broker, symbol, expiry, strikes
+    )
+    return [chain]
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -747,6 +778,19 @@ RESOURCES: dict[str, dict[str, Any]] = {
         "read": _read_options_flow,
         "summarize": _summarize_options_flow,
     },
+    "options_chain": {
+        "description": (
+            "Live option chain for ONE underlying — expirations list plus "
+            "bid/ask/IV/greeks/volume/OI per strike for the chosen expiry. "
+            "Quotes only, facts not signals."
+        ),
+        "filters": {
+            "symbol": "required — underlying ticker",
+            "expiration": "optional YYYY-MM-DD — default nearest tradeable expiry",
+            "strikes": "optional int — strikes around the money (default 10, max 30)",
+        },
+        "read": _read_options_chain,
+    },
 }
 
 
@@ -775,6 +819,9 @@ _RESOURCE_ALIASES = {
     "journal": "decision_journal",
     "accounts": "schwab_accounts",
     "flow": "options_flow",
+    "chain": "options_chain",
+    "option_chain": "options_chain",
+    "greeks": "options_chain",
 }
 
 

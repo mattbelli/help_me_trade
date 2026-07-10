@@ -70,6 +70,7 @@ def test_list_resources_catalog() -> None:
         "news",
         "calibration",
         "options_flow",
+        "options_chain",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]
@@ -295,3 +296,54 @@ async def test_query_calibration_passthrough(
     result = await query("calibration", db_path=tmp_path / "cal.db")
     assert result["count"] == 1
     assert result["rows"][0]["n_resolved"] == 3
+
+
+@pytest.mark.asyncio
+async def test_query_options_chain(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_chain = {
+        "symbol": "SPY",
+        "underlying_price": 620.5,
+        "expirations": ["2026-07-10", "2026-07-17"],
+        "expiry": "2026-07-10",
+        "rows": [{"strike": 620.0, "call": {"bid": 1.2}, "put": {"bid": 1.1}}],
+        "as_of": "2026-07-10T19:59:59Z",
+    }
+    calls: dict = {}
+
+    def fake_build(broker, symbol, expiry, strikes):
+        calls["args"] = (symbol, expiry, strikes)
+        return fake_chain
+
+    monkeypatch.setattr("brokers.factory.get_broker", lambda _name: object())
+    monkeypatch.setattr(
+        "brokers.options_chain.build_options_chain_sync", fake_build
+    )
+
+    result = await query(
+        "options_chain",
+        {"symbol": "spy", "expiration": "2026-07-10", "strikes": 100},
+        db_path=tmp_path / "chain.db",
+    )
+    assert result["count"] == 1
+    assert result["rows"][0]["expiry"] == "2026-07-10"
+    # symbol upcased, expiry passed through, strikes clamped to the LLM cap
+    assert calls["args"] == ("SPY", "2026-07-10", 30)
+
+
+@pytest.mark.asyncio
+async def test_query_options_chain_requires_symbol(tmp_path: Path) -> None:
+    result = await query("options_chain", {}, db_path=tmp_path / "chain.db")
+    assert result["count"] == 1
+    assert "symbol" in str(result["rows"][0].get("error"))
+
+
+@pytest.mark.asyncio
+async def test_query_options_chain_aliases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("brokers.factory.get_broker", lambda _name: None)
+    for alias in ("chain", "option_chain", "greeks"):
+        result = await query(alias, {"symbol": "SPY"}, db_path=tmp_path / "c.db")
+        assert result.get("resource") == "options_chain", alias

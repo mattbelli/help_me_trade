@@ -179,7 +179,7 @@ def test_options_chain_default_nearest_expiry(monkeypatch: pytest.MonkeyPatch) -
         def now(cls, tz=None):
             return real_datetime(2026, 7, 9, 15, 30, 0, tzinfo=tz or _ET)
 
-    monkeypatch.setattr("api.main.datetime", FrozenDatetime)
+    monkeypatch.setattr("brokers.options_chain.datetime", FrozenDatetime)
     _mock_alpaca(monkeypatch, chain=_chain_snapshots())
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
@@ -242,7 +242,7 @@ def test_options_chain_strikes_in_cache_key(monkeypatch: pytest.MonkeyPatch) -> 
 def test_pick_default_expiry_before_close_on_expiry_day(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from api.main import _pick_default_expiry
+    from brokers.options_chain import _pick_default_expiry
     from trading.market_hours import _ET
 
     now = real_datetime(2026, 7, 17, 15, 30, 0, tzinfo=_ET)
@@ -253,7 +253,7 @@ def test_pick_default_expiry_before_close_on_expiry_day(
 def test_pick_default_expiry_after_close_on_expiry_day(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from api.main import _pick_default_expiry
+    from brokers.options_chain import _pick_default_expiry
     from trading.market_hours import _ET
 
     now = real_datetime(2026, 7, 17, 16, 30, 0, tzinfo=_ET)
@@ -264,7 +264,7 @@ def test_pick_default_expiry_after_close_on_expiry_day(
 def test_pick_default_expiry_skips_stale_past_dates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from api.main import _pick_default_expiry
+    from brokers.options_chain import _pick_default_expiry
     from trading.market_hours import _ET
 
     now = real_datetime(2026, 7, 20, 10, 0, 0, tzinfo=_ET)
@@ -283,7 +283,7 @@ def test_options_chain_default_expiry_after_close(
         def now(cls, tz=None):
             return real_datetime(2026, 7, 17, 16, 30, 0, tzinfo=tz or _ET)
 
-    monkeypatch.setattr("api.main.datetime", FrozenDatetime)
+    monkeypatch.setattr("brokers.options_chain.datetime", FrozenDatetime)
     _mock_alpaca(monkeypatch, chain=_chain_snapshots())
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
