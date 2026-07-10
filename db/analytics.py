@@ -618,14 +618,13 @@ def daily_avg_cost_realized(
     day attribution differs. Intraday order comes from the broker execution
     timestamp (``exec_time``) when present — trade_date is date-only.
 
-    A reduce beyond known quantity (shares acquired before history starts,
-    shorts) gets NO fabricated basis: the uncovered portion goes unattributed
-    and flags the day ``approx``; buys that cover such a phantom short keep
-    the covering cost OUT of the long basis (per-event proration preserves the
-    true per-share price of the retained shares). Positions heal at each flat
-    — attribution is exact again from the next fully-known lot onward. Days
-    with unattributed activity mean the avg series can total less than the
-    boundary ``realized_pnl``; the boundary stays the reconciliation truth.
+    Signed positions — shorts are first-class (the founder flips long→short
+    intraday; 2026-07-02 sold 500 holding 200, covered 28s later): a reduce
+    past flat opens a short whose credit is the basis, and covering buys
+    realize ``avg_credit × qty − cost``. A fill that crosses flat splits into
+    close + open with per-event proration, so every retained lot keeps its
+    true per-share price. Flat-to-flat sums still equal the net-cash boundary
+    delta, which stays the reconciliation truth.
     """
 
     def _in_window(day: str) -> bool:
@@ -655,7 +654,6 @@ def daily_avg_cost_realized(
     ]
 
     realized_by_day: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    approx_days: set[str] = set()
     qty: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
     basis: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
 
@@ -663,34 +661,31 @@ def daily_avg_cost_realized(
         day = event["trade_date"]
         key = (str(event.get("account_id") or ""), event["symbol"])
         q_delta = _recon_qty_delta(event)
+        if q_delta == 0:
+            continue
         amount = parse_dollar(event.get("amount"))
         pos = qty[key]
 
-        if q_delta >= 0:
-            if pos < -_CLOSE_TOLERANCE:
-                # Covering a phantom short (pre-history shares already sold):
-                # exclude the covering portion's cost so the retained shares
-                # keep their true per-share price.
-                opened = max(q_delta - (-pos), Decimal("0"))
-                if _in_window(day):
-                    approx_days.add(day)
-                if q_delta > 0:
-                    basis[key] += -amount * (opened / q_delta)
-            else:
-                basis[key] += -amount
+        if pos == 0 or (pos > 0) == (q_delta > 0):
+            # Opening or extending — cash out builds cost (long), cash in
+            # builds credit (short, basis negative; avg = basis/qty > 0).
+            basis[key] += -amount
             qty[key] = pos + q_delta
         else:
-            reduce_qty = -q_delta
-            covered = min(reduce_qty, pos) if pos > 0 else Decimal("0")
-            if covered > 0:
-                avg = basis[key] / pos
-                proceeds = amount * (covered / reduce_qty)
-                if _in_window(day):
-                    realized_by_day[day] += proceeds - avg * covered
-                basis[key] -= avg * covered
-            if covered < reduce_qty and _in_window(day):
-                approx_days.add(day)
-            qty[key] = pos - reduce_qty
+            # Reducing, possibly crossing flat: close up to |pos|, then any
+            # remainder opens the other side at its prorated per-share price.
+            closing = min(abs(q_delta), abs(pos))
+            avg = basis[key] / pos
+            amount_closing = amount * (closing / abs(q_delta))
+            side = Decimal(1) if pos > 0 else Decimal(-1)
+            if _in_window(day):
+                # Long close: proceeds − avg·q. Short cover: avg·q − cost.
+                realized_by_day[day] += amount_closing - avg * closing * side
+            basis[key] -= avg * closing * side
+            remainder = abs(q_delta) - closing
+            if remainder > 0:
+                basis[key] = -amount * (remainder / abs(q_delta))
+            qty[key] = pos + q_delta
 
         if abs(qty[key]) < _CLOSE_TOLERANCE:
             qty[key] = Decimal("0")
@@ -698,10 +693,10 @@ def daily_avg_cost_realized(
 
     return {
         day: {
-            "realized_avg": decimal_to_str(realized_by_day.get(day, Decimal("0"))),
-            "avg_approx": day in approx_days,
+            "realized_avg": decimal_to_str(value),
+            "avg_approx": False,
         }
-        for day in set(realized_by_day) | approx_days
+        for day, value in realized_by_day.items()
     }
 
 

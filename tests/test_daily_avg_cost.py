@@ -63,21 +63,37 @@ def test_flat_to_flat_total_matches_boundary() -> None:
     assert total == boundary == Decimal("1300")
 
 
-def test_pre_history_sell_flagged_never_fabricated() -> None:
-    # Sell 100 with no known buys → unattributed, flagged; covering buy keeps
-    # the phantom cover's cost out of the basis so the next lot stays true.
+def test_short_realizes_on_cover() -> None:
+    # Short 100 @400, buy 200 @395 (covers the short + opens a long 100),
+    # sell the long @410. Founder flips long/short intraday — shorts are
+    # first-class, never "unknown basis".
     events = [
         _ev("2026-07-01", "sell", "100", "40000", row_id="a"),
-        _ev("2026-07-02", "buy", "200", "-80000", row_id="b"),  # covers 100 + opens 100 @400
+        _ev("2026-07-02", "buy", "200", "-79000", row_id="b"),
         _ev("2026-07-03", "sell", "100", "41000", row_id="c"),
     ]
     out = daily_avg_cost_realized(events)
-    assert Decimal(out["2026-07-01"]["realized_avg"]) == Decimal("0")
-    assert out["2026-07-01"]["avg_approx"]
-    assert out["2026-07-02"]["avg_approx"]
-    # Day 3 sells the KNOWN 100 @400 lot → exact +1000, unflagged.
-    assert Decimal(out["2026-07-03"]["realized_avg"]) == Decimal("1000")
-    assert not out["2026-07-03"]["avg_approx"]
+    assert "2026-07-01" not in out  # opening a short realizes nothing
+    # Cover 100: credit 400 − cost 395 = +500; long 100 keeps its true $395.
+    assert Decimal(out["2026-07-02"]["realized_avg"]) == Decimal("500")
+    assert Decimal(out["2026-07-03"]["realized_avg"]) == Decimal("1500")
+    assert not out["2026-07-02"]["avg_approx"]
+
+
+def test_same_day_flip_long_to_short_matches_boundary() -> None:
+    # The founder's 2026-07-02 shape: long 200, sell 500 (crosses to short
+    # 300), cover 300 — the day ends flat, so the avg-cost day total must
+    # equal the boundary net-cash delta.
+    events = [
+        _ev("2026-07-02", "buy", "200", "-79052", exec_time="2026-07-02T15:22:27+0000", row_id="a"),
+        _ev("2026-07-02", "sell", "500", "199500", exec_time="2026-07-02T15:36:57+0000", row_id="b"),
+        _ev("2026-07-02", "buy", "300", "-119823", exec_time="2026-07-02T15:37:26+0000", row_id="c"),
+    ]
+    out = daily_avg_cost_realized(events)
+    boundary = Decimal(
+        realized_between(events, "2026-07-02", "2026-07-02")["realized_closed"]
+    )
+    assert Decimal(out["2026-07-02"]["realized_avg"]) == boundary == Decimal("625")
 
 
 def test_same_day_scratch_uses_exec_time_order() -> None:
