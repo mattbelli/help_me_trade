@@ -67,6 +67,9 @@ const AXIS_FONT_PX = 10;
 const LABEL_PAD = 6;
 const CHIP_PAD_X = 5;
 const CHIP_H = 16;
+/** Level-name axis containers — deliberately smaller than the price chips. */
+const LEVEL_TAG_H = 12;
+const LEVEL_TAG_FONT_PX = 8;
 
 function axisFont(fontFamily: string): string {
   return `${AXIS_FONT_PX}px ${fontFamily}`;
@@ -223,6 +226,11 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     p.text(label, lx, ly, { color, font, align: "left", baseline: "bottom" });
   };
 
+  // Level names render as small containers ON THE PRICE AXIS (founder call:
+  // floating pane text gets crossed by other lines and reads as glitch; TV's
+  // axis boxes were right). Collected here, drawn after the axis background.
+  const axisTags: { y: number; label: string; bg: string; text: string }[] = [];
+
   if (input.overlays) {
     const { lines, segments } = input.overlays;
     p.withClip(price.x, price.y, price.w, price.h, () => {
@@ -233,7 +241,12 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           width: 1,
           dash: l.dash,
         });
-        if (l.label) placeTag(l.label, y, l.color);
+        if (!l.label) return;
+        if (l.collapsible) {
+          axisTags.push({ y, label: l.label, bg: l.color, text: "#ffffff" });
+        } else {
+          placeTag(l.label, y, l.color); // e.g. the alert 🔔 stays on the line
+        }
       };
       for (const l of lines) {
         const y = yOf(l.price, priceRange, price.y, price.h);
@@ -265,7 +278,12 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           width: 1,
           dash: [2, 3],
         });
-        placeTag(label, y, colors.textDim);
+        axisTags.push({
+          y,
+          label,
+          bg: colors.crosshairLabelBg,
+          text: colors.text,
+        });
       }
       for (const s of segments) {
         const x1 = xOf(indexOfTime(bars, s.a.time), vp, pane.w);
@@ -338,6 +356,27 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       align: "center",
       baseline: "middle",
     });
+  }
+  // Level containers: smaller than the price chips, full axis width, centered
+  // — same family as the last-price chip, which draws after and wins on top.
+  if (axisTags.length > 0) {
+    const smallFont = `${LEVEL_TAG_FONT_PX}px ${fontFamily}`;
+    for (const tag of axisTags) {
+      const cy = Math.round(tag.y);
+      p.fillRect(
+        priceAxis.x,
+        cy - LEVEL_TAG_H / 2,
+        priceAxis.w,
+        LEVEL_TAG_H,
+        tag.bg,
+      );
+      p.text(tag.label, priceAxis.x + priceAxis.w / 2, cy, {
+        color: tag.text,
+        font: smallFont,
+        align: "center",
+        baseline: "middle",
+      });
+    }
   }
   if (last) {
     const y = yOf(last.close, priceRange, price.y, price.h);
