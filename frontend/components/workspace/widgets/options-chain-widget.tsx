@@ -312,18 +312,18 @@ function ChainRow({
       {(wide ? callWide : callNarrow).map((cell, idx) => (
         <span
           key={`c-${idx}`}
-          className={cn("border-r border-[var(--border)] px-1.5 py-0.5 text-right", callTint)}
+          className={cn("flex items-center justify-end border-r border-[var(--border)] px-1.5 py-0.5", callTint)}
         >
           {cell}
         </span>
       ))}
-      <span className="border-r border-[var(--border)] px-2 py-0.5 text-center text-[length:var(--fs-table)] font-medium tabular-nums text-foreground">
+      <span className="flex items-center justify-center border-r border-[var(--border)] px-2 py-0.5 text-[length:var(--fs-table)] font-medium tabular-nums text-foreground">
         {strikeLabel}
       </span>
       {(wide ? putWide : putNarrow).map((cell, idx) => (
         <span
           key={`p-${idx}`}
-          className={cn("border-r border-[var(--border)] px-1.5 py-0.5 text-right", putTint)}
+          className={cn("flex items-center justify-end border-r border-[var(--border)] px-1.5 py-0.5", putTint)}
         >
           {cell}
         </span>
