@@ -159,6 +159,9 @@ def _row_to_event(row: sqlite3.Row) -> dict[str, Any]:
         "description": row["description"],
         "external_key": row["external_key"],
         "imported_at": row["imported_at"],
+        # Broker execution timestamp when the raw row carries one (Schwab
+        # $.time) — trade_date is date-only, so intraday ordering needs this.
+        "exec_time": row["exec_time"] if "exec_time" in row.keys() else None,
     }
 
 
@@ -294,7 +297,8 @@ def list_trade_events(
         rows = conn.execute(
             f"""
             SELECT id, account_id, source, event_type, trade_date, symbol, side,
-                   quantity, price, fees, amount, description, external_key, imported_at
+                   quantity, price, fees, amount, description, external_key, imported_at,
+                   json_extract(raw_json, '$.time') AS exec_time
             FROM trade_events
             {where}
             ORDER BY trade_date DESC, imported_at DESC

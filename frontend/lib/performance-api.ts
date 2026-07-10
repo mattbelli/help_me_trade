@@ -38,12 +38,18 @@ export type DailyPnlStat = {
   net_amount: string;
   /** Boundary-delta net-cash realized; prefer over net_amount for P&L views. */
   realized?: string;
+  /** Average-cost attribution — books partial closes on the day they trade
+      (boundary realized stays $0 until a symbol goes flat). */
+  realized_avg?: string | null;
+  /** Day includes activity with unknowable basis (pre-history shares). */
+  avg_approx?: boolean;
   event_count: number;
 };
 
-/** Amount to show as daily realized P&L (falls back to net cash only when realized absent). */
+/** Amount to show as daily realized P&L: avg-cost attribution when present,
+    else boundary realized, else net cash. */
 export function dailyRealizedAmount(day: DailyPnlStat): number {
-  return parseMoney(day.realized ?? day.net_amount);
+  return parseMoney(day.realized_avg ?? day.realized ?? day.net_amount);
 }
 
 export function dailyRealizedIsCashFlowFallback(day: DailyPnlStat): boolean {

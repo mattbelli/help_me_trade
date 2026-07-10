@@ -26,6 +26,7 @@ type DayCell = {
   count: number;
   hasData: boolean;
   cashFlowFallback?: boolean;
+  approx?: boolean;
 };
 
 type WeekRow = {
@@ -71,7 +72,10 @@ function pnlClass(value: number): string {
 function buildWeeks(
   year: number,
   month: number,
-  dateMap: Map<string, { net: number; count: number; cashFlowFallback?: boolean }>,
+  dateMap: Map<
+    string,
+    { net: number; count: number; cashFlowFallback?: boolean; approx?: boolean }
+  >,
 ): WeekRow[] {
   const firstOfMonth = new Date(year, month, 1);
   const lastOfMonth = new Date(year, month + 1, 0);
@@ -92,6 +96,7 @@ function buildWeeks(
         dayNum: cursor.getDate(),
         inMonth,
         net: stat?.net ?? 0,
+        approx: stat?.approx,
         count: stat?.count ?? 0,
         hasData: Boolean(stat),
         cashFlowFallback: stat?.cashFlowFallback,
@@ -136,7 +141,7 @@ function DayTile({
       onClick={onClick}
       title={
         cell.hasData
-          ? `${cell.date}: ${formatTradeMoney(cell.net)}${cell.cashFlowFallback ? " (cash flow)" : ""} (${cell.count} event${cell.count === 1 ? "" : "s"})`
+          ? `${cell.date}: ${formatTradeMoney(cell.net)}${cell.cashFlowFallback ? " (cash flow)" : ""}${cell.approx ? " — includes activity with unknown cost basis (pre-history shares)" : ""} (${cell.count} event${cell.count === 1 ? "" : "s"})`
           : cell.date
       }
       className="relative flex min-h-[38px] flex-col items-center justify-start overflow-hidden rounded-[3px] px-1 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
@@ -163,7 +168,7 @@ function DayTile({
           cell.hasData ? pnlClass(cell.net) : "text-[var(--fg-faint)]",
         )}
       >
-        {cell.hasData ? formatCompact(cell.net) : ""}
+        {cell.hasData ? `${cell.approx ? "≈" : ""}${formatCompact(cell.net)}` : ""}
       </span>
     </button>
   );
@@ -245,7 +250,12 @@ export function TradingCalendarWidget() {
   const dateMap = useMemo(() => {
     const map = new Map<
       string,
-      { net: number; count: number; cashFlowFallback?: boolean }
+      {
+        net: number;
+        count: number;
+        cashFlowFallback?: boolean;
+        approx?: boolean;
+      }
     >();
     if (!dashboard) return map;
     for (const day of dashboard.daily_realized) {
@@ -253,6 +263,7 @@ export function TradingCalendarWidget() {
         net: dailyRealizedAmount(day),
         count: day.event_count,
         cashFlowFallback: dailyRealizedIsCashFlowFallback(day),
+        approx: Boolean(day.avg_approx),
       });
     }
     return map;

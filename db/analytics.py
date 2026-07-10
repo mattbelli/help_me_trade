@@ -574,6 +574,10 @@ def daily_boundary_realized_stats(
             continue
         days.add(day)
 
+    avg_by_day = daily_avg_cost_realized(
+        history_trades, from_date=from_date, to_date=to_date
+    )
+
     rows: list[dict[str, Any]] = []
     for day in sorted(days):
         period = realized_between(
@@ -583,15 +587,122 @@ def daily_boundary_realized_stats(
             latest_prices=latest_prices,
         )
         cash = cash_by_day.get(day, {})
+        avg = avg_by_day.get(day)
         rows.append(
             {
                 "date": day,
                 "realized": period["realized_closed"],
+                "realized_avg": avg["realized_avg"] if avg else None,
+                "avg_approx": bool(avg and avg["avg_approx"]),
                 "net_amount": cash.get("net_amount", "0"),
                 "event_count": cash.get("event_count", 0),
             }
         )
     return rows
+
+
+def daily_avg_cost_realized(
+    history_trades: list[dict[str, Any]],
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Per-day realized P&L under a running average-cost basis (Schwab's own
+    display convention for equities) — attributes partial closes to the day
+    they happen, which the last-flat boundary method cannot (a scale-out
+    around a core position shows $0 there until the symbol goes flat).
+
+    Positions and bases are per (account_id, symbol), never merged across
+    accounts. Each reducing fill realizes ``net proceeds − avg_cost × qty``;
+    summed flat-to-flat this equals the net-cash boundary delta — only the
+    day attribution differs. Intraday order comes from the broker execution
+    timestamp (``exec_time``) when present — trade_date is date-only.
+
+    A reduce beyond known quantity (shares acquired before history starts,
+    shorts) gets NO fabricated basis: the uncovered portion goes unattributed
+    and flags the day ``approx``; buys that cover such a phantom short keep
+    the covering cost OUT of the long basis (per-event proration preserves the
+    true per-share price of the retained shares). Positions heal at each flat
+    — attribution is exact again from the next fully-known lot onward. Days
+    with unattributed activity mean the avg series can total less than the
+    boundary ``realized_pnl``; the boundary stays the reconciliation truth.
+    """
+
+    def _in_window(day: str) -> bool:
+        if from_date and day < from_date:
+            return False
+        if to_date and day > to_date:
+            return False
+        return True
+
+    def _order_key(e: dict[str, Any]) -> tuple:
+        exec_time = str(e.get("exec_time") or "")
+        if exec_time:
+            # Synced rows carry the broker execution timestamp — true order.
+            return (e["trade_date"], 1, exec_time, "", str(e.get("id") or ""))
+        # Date-only rows (JSON-export imports): intraday order is unknowable —
+        # process buys before sells so a same-day round trip never fakes a
+        # short and poisons the basis (standard date-only convention).
+        side_rank = "0" if _recon_qty_delta(e) > 0 else "1"
+        return (e["trade_date"], 0, "", side_rank, str(e.get("id") or ""))
+
+    ordered = [
+        e
+        for e in sorted(history_trades, key=_order_key)
+        if e.get("event_type") in _RECON_EVENT_TYPES
+        and e.get("symbol")
+        and not (to_date and e["trade_date"] > to_date)
+    ]
+
+    realized_by_day: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    approx_days: set[str] = set()
+    qty: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
+    basis: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
+
+    for event in ordered:
+        day = event["trade_date"]
+        key = (str(event.get("account_id") or ""), event["symbol"])
+        q_delta = _recon_qty_delta(event)
+        amount = parse_dollar(event.get("amount"))
+        pos = qty[key]
+
+        if q_delta >= 0:
+            if pos < -_CLOSE_TOLERANCE:
+                # Covering a phantom short (pre-history shares already sold):
+                # exclude the covering portion's cost so the retained shares
+                # keep their true per-share price.
+                opened = max(q_delta - (-pos), Decimal("0"))
+                if _in_window(day):
+                    approx_days.add(day)
+                if q_delta > 0:
+                    basis[key] += -amount * (opened / q_delta)
+            else:
+                basis[key] += -amount
+            qty[key] = pos + q_delta
+        else:
+            reduce_qty = -q_delta
+            covered = min(reduce_qty, pos) if pos > 0 else Decimal("0")
+            if covered > 0:
+                avg = basis[key] / pos
+                proceeds = amount * (covered / reduce_qty)
+                if _in_window(day):
+                    realized_by_day[day] += proceeds - avg * covered
+                basis[key] -= avg * covered
+            if covered < reduce_qty and _in_window(day):
+                approx_days.add(day)
+            qty[key] = pos - reduce_qty
+
+        if abs(qty[key]) < _CLOSE_TOLERANCE:
+            qty[key] = Decimal("0")
+            basis[key] = Decimal("0")
+
+    return {
+        day: {
+            "realized_avg": decimal_to_str(realized_by_day.get(day, Decimal("0"))),
+            "avg_approx": day in approx_days,
+        }
+        for day in set(realized_by_day) | approx_days
+    }
 
 
 def _round_trips_in_period(
