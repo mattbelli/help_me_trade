@@ -107,7 +107,8 @@ class TapeDetector:
             return None
 
         notional = price * size_i
-        if notional < self.notional_floor(symbol, price):
+        floor = self.notional_floor(symbol, price)
+        if notional < floor:
             return None
 
         ex = str(exchange or "").strip().upper()
@@ -159,6 +160,9 @@ class TapeDetector:
             "conditions": conds,
             "reason": reason,
             "caveat": caveat,
+            # Floor travels with the event so the importance score can measure
+            # size as a multiple of THIS name's threshold.
+            "detail": {"floor_usd": round(floor, 2)},
         }
         self.pending.append(event)
         return event

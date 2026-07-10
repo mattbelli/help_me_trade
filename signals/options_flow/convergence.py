@@ -111,6 +111,9 @@ def nearest_level(
             best_dist = dist
             best = {"name": "alert", "price": alert_px}
 
+    if best is not None:
+        # Distance in ATRs — the importance score rewards tighter proximity.
+        best["dist_atr"] = round(best_dist / float(atr_value), 3)
     return best
 
 
@@ -161,6 +164,8 @@ def build_convergence(
     rvol: float | None,
     level: dict | None,
     event_date: str,
+    interest: dict | None = None,
+    extended_hours: bool = False,
 ) -> dict | None:
     """Fire when ≥2 watched components line up (flow, tape, rvol, level)."""
     del event_date  # reserved for stable keys; events carry their own date
@@ -197,14 +202,27 @@ def build_convergence(
     if len(components) < 2:
         return None
 
+    from signals.confluence_score import score_confluence
+
+    scored = score_confluence(
+        flow_event=event,
+        tape_event=tape_event,
+        rvol=rvol,
+        level=level,
+        interest=interest,
+        extended_hours=extended_hours,
+    )
+
     lead = event if event is not None else tape_event
     event_id = str((lead or {}).get("id") or "")
     return {
         "underlying": underlying,
         "title": f"{underlying}: signal confluence",
-        "body": " + ".join(body_parts),
+        "body": " + ".join(body_parts) + f" · score {scored['score']}",
         "components": components,
         "event_id": event_id,
+        "score": scored["score"],
+        "drivers": scored["drivers"],
     }
 
 
@@ -344,7 +362,40 @@ def _gather_sync_context(
         "rvol": None,
         "level": None,
         "last_price": None,
+        "interest": {"held": False, "alerted": False, "active_watchlist": False},
     }
+
+    # Revealed interest (importance score) — every read fail-soft.
+    try:
+        from db.sqlite import get_all_latest_snapshots
+
+        for snap in get_all_latest_snapshots():
+            for pos in snap.get("positions") or []:
+                if str(pos.get("symbol", "")).upper() == u:
+                    ctx["interest"]["held"] = True
+                    break
+            if ctx["interest"]["held"]:
+                break
+    except Exception:
+        logger.debug("confluence: holdings check failed for %s", u, exc_info=True)
+    try:
+        from config.settings import get_watchlists_state
+
+        state = get_watchlists_state()
+        active = next(
+            (
+                wl
+                for wl in state.get("lists") or []
+                if wl.get("id") == state.get("active_id")
+            ),
+            None,
+        )
+        if active and u in {
+            str(s).upper() for s in (active.get("symbols") or [])
+        }:
+            ctx["interest"]["active_watchlist"] = True
+    except Exception:
+        logger.debug("confluence: watchlist check failed for %s", u, exc_info=True)
 
     try:
         profile = load_profile(u)
@@ -381,17 +432,20 @@ def _gather_sync_context(
             "options_flow convergence: ATR gather failed for %s", u, exc_info=True
         )
 
+    alert_prices: list[float] = []
+    try:
+        for row in list_price_alerts(symbol=u, active_only=True):
+            if isinstance(row, dict) and row.get("price") is not None:
+                alert_prices.append(float(row["price"]))
+    except Exception:
+        logger.debug(
+            "options_flow convergence: price alerts failed for %s", u, exc_info=True
+        )
+    if alert_prices:
+        ctx["interest"]["alerted"] = True
+
     last_price = ctx.get("last_price")
     if last_price is not None and atr_value is not None:
-        alert_prices: list[float] = []
-        try:
-            for row in list_price_alerts(symbol=u, active_only=True):
-                if isinstance(row, dict) and row.get("price") is not None:
-                    alert_prices.append(float(row["price"]))
-        except Exception:
-            logger.debug(
-                "options_flow convergence: price alerts failed for %s", u, exc_info=True
-            )
         try:
             ctx["level"] = nearest_level(
                 price=float(last_price),
@@ -501,6 +555,8 @@ async def process_events(
             rvol=ctx.get("rvol"),
             level=ctx.get("level"),
             event_date=today_et,
+            interest=ctx.get("interest"),
+            extended_hours=minutes_since_open < 0 or minutes_since_open > 390,
         )
         if built is None:
             continue
@@ -519,6 +575,8 @@ async def process_events(
                 data={
                     "underlying": u,
                     "components": list(built["components"]),
+                    "score": built["score"],
+                    "drivers": list(built["drivers"]),
                     "reason": (flow_lead or tape_lead or {}).get("reason"),
                     "caveat": (flow_lead or tape_lead or {}).get("caveat"),
                 },

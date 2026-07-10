@@ -97,7 +97,7 @@ def test_nearest_level_inside_atr_threshold() -> None:
         alert_prices=[],
         atr_value=1.0,
     )
-    assert hit == {"name": "VAH", "price": 188.0}
+    assert hit == {"name": "VAH", "price": 188.0, "dist_atr": 0.3}
 
 
 def test_nearest_level_outside_atr_returns_none() -> None:
@@ -134,7 +134,7 @@ def test_nearest_level_alert_beats_farther_node() -> None:
         alert_prices=[188.0],
         atr_value=2.0,
     )
-    assert hit == {"name": "alert", "price": 188.0}
+    assert hit == {"name": "alert", "price": 188.0, "dist_atr": 0.05}
 
 
 # --- pure: build_convergence ------------------------------------------------------

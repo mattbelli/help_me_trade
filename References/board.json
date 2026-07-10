@@ -12,11 +12,11 @@
     {
       "id": "push-importance-scoring",
       "title": "Importance-scored pushes \u2014 replace count budget with an unusualness threshold",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "2026-07-10 founder: let everything through first (cap\u2192100), feel the noise, then gate pushes by IMPORTANCE not count. Design: additive surprise score from existing honest measures (premium/notional vs per-name floor, RVOL multiple, level distance in ATR, component count, sweep aggression, cross-source direction agreement, founder-interest boost for held/alerted names); attach score+drivers to every notification first (observe-only), then set threshold empirically \u2014 possibly auto-tuned to a founder-set target pushes/day. Never a win% \u2014 unusualness only."
+      "notes": "2026-07-10: OBSERVE PHASE LIVE \u2014 every confluence card carries 'score X.X' + drivers (size as multiple of per-name floor via log2, RVOL multiple, level distance in ATR + alert bonus, breadth, cross-source side agreement, interest boost held>alerted>active-list, ext-hours flagged). Cap at 100/day = everything pushes. NEXT: founder watches scores a few days, names the noise line, then the gate flips to score>=threshold (count budget stays as backstop only); optional auto-threshold to a target pushes/day."
     },
     {
       "id": "tape-widget-surface",
