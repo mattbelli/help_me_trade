@@ -10,7 +10,19 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-10) — Confluence engine: any 2 watched things + agent options perception
+## ▶ START HERE (2026-07-10, later) — Native chart engine kicked off (Phase 0 done)
+
+> Founder is replacing TradingView lightweight-charts on web with OUR engine ("build the best,
+> time/effort no object"; Fable hand-writes the core — no Composer for engine code). **Read
+> `References/CHART_ENGINE.md` before touching `frontend/lib/chart-engine/`** — headless core +
+> Painter adapter (canvas2d now, RN-Skia later = phone sharing), bar-index time scale, two-layer
+> repaint contract, measured perf budget. Phase 0 committed: contract doc + types + painter iface +
+> vitest (`npm run test:engine`). Phase 1 next: scales/ticks/series/merge (unit-tested) + canvas2d +
+> engine + NativeChart wrapper behind an eye-menu "Native engine (beta)" per-widget toggle — TV chart
+> stays default until the founder kills it. Interim shipped+deployed: TV logo off every chart, one
+> attribution link bottom-right (license requires it while TV remains). Board: `native-chart-engine`.
+
+## ▶ EARLIER (2026-07-10) — Confluence engine: any 2 watched things + agent options perception
 
 > Founder: "let's build both… convergence should be any 2 things we are watching." **Four rounds, all
 > committed + tested**: (1) **options_chain perception resource** — chain builder extracted from
