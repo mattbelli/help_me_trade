@@ -603,6 +603,10 @@ export function TvLightChart({
         background: { type: ColorType.Solid, color: background },
         textColor: text,
         fontFamily: "var(--font-sans), system-ui, sans-serif",
+        // Per-chart logo off; the required attribution lives ONCE in the
+        // workspace footer (see workspace-grid) per the lightweight-charts
+        // license terms.
+        attributionLogo: false,
         panes: {
           separatorColor: crosshairLabel,
           // Same as idle — the accent hover band read as a "huge green bar"

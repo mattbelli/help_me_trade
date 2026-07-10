@@ -93,6 +93,16 @@ export default function WorkspacePageImpl() {
               <WorkspaceGrid />
             </motion.div>
             <CopilotSidebar />
+            {/* Single-point attribution for lightweight-charts (per-chart logo
+                disabled in tv-light-chart) — required while TV charts remain. */}
+            <a
+              href="https://www.tradingview.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="absolute bottom-1 right-2 z-10 text-[10px] text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+            >
+              charts by TradingView
+            </a>
           </div>
         </div>
       </div>
