@@ -538,7 +538,11 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
   }, [symbol, expandedExpiry, loadExpiry]);
 
   const handleToggleExpiry = (expiry: string) => {
-    if (expandedExpiry === expiry) return;
+    if (expandedExpiry === expiry) {
+      // Clicking the open expiry collapses it (founder: "can't close a tab").
+      setExpandedExpiry(null);
+      return;
+    }
     setExpandedExpiry(expiry);
     if (!chainCache.has(expiry)) {
       void loadExpiry(expiry);
