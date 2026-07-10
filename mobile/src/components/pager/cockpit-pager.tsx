@@ -58,23 +58,38 @@ export function CockpitPager() {
   usePush({ onOpenApprovals: () => goTo(INBOX_INDEX) });
   useLiveActivity({ onOpenApprovals: () => goTo(INBOX_INDEX) });
 
-  // Live prices: subscribe the active watchlist's symbols and merge each tick
+  // Live prices: subscribe the active watchlist's symbols and merge ticks
   // into every watchlist-market cache entry, so rows update in real time
   // instead of waiting on the 6s REST poll. Spread the prior quote and touch
   // ONLY the price-bearing fields — never clobber rvol or the company-info
   // fields the poll fills in. ext_* / market_session let pre/post-market rows
   // headline the live extended-hours price straight off the stream.
+  //
+  // PERF: ticks arrive far faster than anyone can read (SIP bursts are
+  // hundreds of msgs/sec across the list; a per-tick setQueriesData recopied
+  // the whole quotes map + re-rendered per message — measured 53% JS-thread
+  // CPU + 36× GC at the open). Buffer latest-per-symbol in a ref and flush
+  // ONE cache write per 100ms — visually identical at 10Hz.
   const { data: watchlists } = useWatchlists();
   const activeSymbols = useMemo(() => {
     const list = watchlists?.lists.find((l) => l.id === watchlists.active_id);
     return list?.symbols ?? [];
   }, [watchlists]);
 
-  const onQuote = useCallback(
-    (q: QuoteUpdate) => {
-      qc.setQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] }, (old) => {
-        const prev = old?.quotes[q.symbol];
-        if (!prev) return old;
+  const pendingQuotesRef = useRef<Map<string, QuoteUpdate>>(new Map());
+  const quoteFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushQuotes = useCallback(() => {
+    quoteFlushTimerRef.current = null;
+    const pending = pendingQuotesRef.current;
+    if (pending.size === 0) return;
+    pendingQuotesRef.current = new Map();
+    qc.setQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] }, (old) => {
+      if (!old) return old;
+      let quotes: WatchlistMarket['quotes'] | null = null;
+      for (const q of pending.values()) {
+        const prev = (quotes ?? old.quotes)[q.symbol];
+        if (!prev) continue;
         const session = q.market_session ?? prev.market_session;
         const extended = isExtendedSession(session);
         const next = { ...prev };
@@ -86,13 +101,53 @@ export function CockpitPager() {
           next.change_pct = q.change_pct;
         }
         if (q.sparkline) next.sparkline = q.sparkline;
+        // Top-of-book is session-agnostic — merge whenever the frame carries it
+        // (0 means "no NBBO quote"; consumers hide the strip on 0).
+        if (typeof q.bid === 'number') next.bid = q.bid;
+        if (typeof q.ask === 'number') next.ask = q.ask;
         if (q.market_session !== undefined) next.market_session = q.market_session;
         if (q.ext_price != null) next.ext_price = q.ext_price;
         if (q.ext_change_pct != null) next.ext_change_pct = q.ext_change_pct;
-        return { ...old, quotes: { ...old.quotes, [q.symbol]: next } };
-      });
+        if (!quotes) quotes = { ...old.quotes };
+        quotes[q.symbol] = next;
+      }
+      return quotes ? { ...old, quotes } : old;
+    });
+  }, [qc]);
+
+  const onQuote = useCallback(
+    (q: QuoteUpdate) => {
+      const pending = pendingQuotesRef.current;
+      const held = pending.get(q.symbol);
+      // Latest frame wins, but keep fields an earlier pending frame carried
+      // that this one doesn't (sparkline/bid/ext_* ride only some frames).
+      pending.set(
+        q.symbol,
+        held
+          ? {
+              ...held,
+              ...q,
+              sparkline: q.sparkline ?? held.sparkline,
+              bid: q.bid ?? held.bid,
+              ask: q.ask ?? held.ask,
+              ext_price: q.ext_price ?? held.ext_price,
+              ext_change_pct: q.ext_change_pct ?? held.ext_change_pct,
+              market_session: q.market_session ?? held.market_session,
+            }
+          : q,
+      );
+      if (quoteFlushTimerRef.current == null) {
+        quoteFlushTimerRef.current = setTimeout(flushQuotes, 100);
+      }
     },
-    [qc],
+    [flushQuotes],
+  );
+
+  useEffect(
+    () => () => {
+      if (quoteFlushTimerRef.current != null) clearTimeout(quoteFlushTimerRef.current);
+    },
+    [],
   );
 
   const { connected, subscribe } = useMarketWs({

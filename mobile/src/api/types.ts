@@ -112,6 +112,10 @@ export interface WatchlistQuote {
   ext_change_pct?: number | null;
   day_high?: number;
   day_low?: number;
+  // Top-of-book (WS stream only — the REST poll doesn't carry these; merged in
+  // by cockpit-pager's onQuote. 0 = no quote, e.g. Alpaca-only symbols):
+  bid?: number;
+  ask?: number;
   // Company info (finnhub, folded into the quote by serv):
   pe?: number | null;
   eps?: number | null;

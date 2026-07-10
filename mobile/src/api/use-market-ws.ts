@@ -15,6 +15,10 @@ export interface QuoteUpdate {
   price: number;
   change_pct: number;
   sparkline?: number[];
+  // Top-of-book — serv sends these on every frame; 0 = no NBBO quote (e.g.
+  // Alpaca-only symbols), so consumers should treat 0 as "absent".
+  bid?: number;
+  ask?: number;
   // Extended-hours (serv now folds these into the stream — present pre/post, null in regular):
   ext_price?: number | null;
   ext_change_pct?: number | null;
@@ -35,6 +39,8 @@ interface WsQuoteMessage {
   price?: number;
   change_pct?: number;
   sparkline?: number[];
+  bid?: number;
+  ask?: number;
   ext_price?: number | null;
   ext_change_pct?: number | null;
   market_session?: MarketSession;
@@ -253,6 +259,8 @@ export function useMarketWs({
             price: quoteMsg.price ?? 0,
             change_pct: quoteMsg.change_pct ?? 0,
             sparkline: quoteMsg.sparkline,
+            bid: quoteMsg.bid,
+            ask: quoteMsg.ask,
             ext_price: quoteMsg.ext_price,
             ext_change_pct: quoteMsg.ext_change_pct,
             market_session: quoteMsg.market_session,
