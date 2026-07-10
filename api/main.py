@@ -840,22 +840,48 @@ _EQUITY_TAPE_FLUSH_SECONDS = 2.0
 
 
 async def _equity_tape_flush_loop() -> None:
-    """Persist large-print tape events queued by the stream hub's detector."""
+    """Persist large-print tape events queued by the stream hub's detector,
+    then run them through the confluence watch (any 2 watched things)."""
     from db.equity_tape import insert_event as _insert_tape_event
+    from signals.options_flow.convergence import process_events
 
     while True:
         await asyncio.sleep(_EQUITY_TAPE_FLUSH_SECONDS)
         try:
             detector = getattr(market_hub, "tape_detector", None)
-            if detector is None or not detector.pending:
-                continue
             events: list[dict] = []
-            while detector.pending:
-                events.append(detector.pending.popleft())
+            if detector is not None:
+                while detector.pending:
+                    events.append(detector.pending.popleft())
             for ev in events:
                 await asyncio.to_thread(_insert_tape_event, ev)
+
+            if events:
+                try:
+                    broker = get_broker("alpaca")
+                except Exception:
+                    broker = None
+                if broker is not None:
+                    now_et = datetime.now(_ET)
+                    open_min = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+                    now_min = now_et.hour * 60 + now_et.minute
+                    conv = await process_events(
+                        broker,
+                        events,
+                        today_et=now_et.date().isoformat(),
+                        minutes_since_open=max(0, now_min - open_min),
+                    )
+                    if conv.get("convergence") or conv.get("pushes"):
+                        logger.info(
+                            "equity tape: events=%s convergence=%s pushes=%s",
+                            len(events),
+                            conv.get("convergence", 0),
+                            conv.get("pushes", 0),
+                        )
         except Exception:
             logger.exception("equity tape: flush failed")
+        else:
+            mark_alive("equity_tape_flush")
 
 
 async def _poll_ext_quotes_for_alerts(symbols: set[str]) -> None:
@@ -1857,6 +1883,7 @@ def _register_background_jobs() -> None:
             lambda: _MORNING_REPORT_ENV_ENABLED,
         ),
         ("bars_prewarm", _BARS_PREWARM_INTERVAL, None),
+        ("equity_tape_flush", _EQUITY_TAPE_FLUSH_SECONDS, None),
     ]
     for name, interval_s, enabled in heartbeat_jobs:
         register_job(

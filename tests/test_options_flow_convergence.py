@@ -150,7 +150,7 @@ def test_build_convergence_flow_plus_rvol() -> None:
     )
     assert built is not None
     assert built["underlying"] == "NVDA"
-    assert built["title"] == "NVDA: options flow convergence"
+    assert built["title"] == "NVDA: signal confluence"
     assert "RVOL 2.3x" in built["body"]
     assert "flow" in built["components"]
     assert "rvol" in built["components"]
@@ -186,6 +186,62 @@ def test_build_convergence_flow_alone_does_not_fire() -> None:
     ev = _sample_event()
     assert (
         build_convergence(event=ev, rvol=None, level=None, event_date=TODAY) is None
+    )
+
+
+def _sample_tape_event(**overrides) -> dict:
+    base = {
+        "id": f"eq_{TODAY}_NVDA_dp_123",
+        "ts": f"{TODAY}T15:30:00Z",
+        "symbol": "NVDA",
+        "event_type": "dark_pool",
+        "notional_usd": 8_300_000.0,
+        "direction": "undetermined",
+        "reason": "$8.3M print",
+        "caveat": "tape fact",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_build_convergence_tape_plus_level() -> None:
+    built = build_convergence(
+        tape_event=_sample_tape_event(),
+        rvol=None,
+        level={"name": "VAH", "price": 188.4},
+        event_date=TODAY,
+    )
+    assert built is not None
+    assert built["underlying"] == "NVDA"
+    assert set(built["components"]) == {"tape", "level"}
+    assert "dark-pool print" in built["body"]
+    assert built["event_id"] == f"eq_{TODAY}_NVDA_dp_123"
+
+
+def test_build_convergence_flow_plus_tape() -> None:
+    built = build_convergence(
+        event=_sample_event(),
+        tape_event=_sample_tape_event(event_type="equity_block"),
+        rvol=None,
+        level=None,
+        event_date=TODAY,
+    )
+    assert built is not None
+    assert set(built["components"]) == {"flow", "tape"}
+    assert "block print" in built["body"]
+    # flow lead owns the ref id
+    assert built["event_id"] == _sample_event()["id"]
+
+
+def test_build_convergence_tape_alone_does_not_fire() -> None:
+    assert (
+        build_convergence(
+            tape_event=_sample_tape_event(),
+            rvol=None,
+            level=None,
+            event_date=TODAY,
+        )
+        is None
     )
 
 
@@ -331,6 +387,16 @@ def _process_env(
     monkeypatch.setattr(
         "config.settings.alerts_config",
         lambda: {"max_push_per_day": max_push_per_day},
+    )
+
+    # Hermetic day-memory: the cross-source backfill must not touch the real DB.
+    monkeypatch.setattr(
+        "signals.options_flow.convergence._today_flow_lead",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "signals.options_flow.convergence._today_tape_lead",
+        lambda *a, **k: None,
     )
 
 
@@ -627,3 +693,38 @@ async def test_process_mark_sent_only_after_successful_notify(
     )
     assert summary["convergence"] == 0
     assert f"of_conv:NVDA:{TODAY}" not in dedup_store
+
+
+@pytest.mark.asyncio
+async def test_process_tape_event_converges_with_days_stored_flow(
+    monkeypatch: pytest.MonkeyPatch,
+    notify_recorder: list[_NotifyCall],
+    dedup_store: dict[str, bool],
+) -> None:
+    """Morning sweep (already in the DB) + afternoon dark-pool print → confluence."""
+    cumfrac = _linear_cumfrac()
+    profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": cumfrac})()
+    adapter = FakeAdapter(
+        # day_volume at 0.5× expected → RVOL below threshold, no rvol component
+        snapshot={"last_price": 188.0, "day_volume": cumfrac[10] * 100_000 * 0.5},
+        bars=[_StockBar(2, 1, 100)] * 20,
+    )
+    _process_env(monkeypatch, profile=profile, session_levels=None, adapter=adapter)
+    # The day's stored flow lead (would come from options_flow_events)
+    monkeypatch.setattr(
+        "signals.options_flow.convergence._today_flow_lead",
+        lambda *a, **k: _sample_event(),
+    )
+
+    tape = _sample_tape_event()
+    summary = await process_events(
+        adapter, [tape], today_et=TODAY, minutes_since_open=50
+    )
+
+    assert summary["convergence"] == 1
+    call = notify_recorder[0]
+    assert call.kind == "convergence"
+    assert call.data is not None
+    assert set(call.data["components"]) == {"flow", "tape"}
+    assert "dark-pool print" in call.body
+    assert f"of_conv:NVDA:{TODAY}" in dedup_store

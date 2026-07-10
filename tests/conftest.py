@@ -13,6 +13,12 @@ import tempfile  # noqa: E402
 
 _TEST_DEFAULT_DB = os.path.join(tempfile.gettempdir(), "hmt_pytest_default.db")
 os.environ["TRADING_DB_PATH"] = _TEST_DEFAULT_DB
+# Deterministic broker baseline: the box's .env sets BROKER=schwab (inert in
+# production, where data/settings.json overrides it — but tests hide the
+# settings file, so the env leaked through and proposal tests defaulted to the
+# read-only Schwab broker: 'blocked'/'rejected'). Tests that want schwab set it
+# explicitly via monkeypatch.setenv.
+os.environ["BROKER"] = "alpaca"
 for _suffix in ("", "-wal", "-shm"):
     try:
         os.remove(_TEST_DEFAULT_DB + _suffix)

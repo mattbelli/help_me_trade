@@ -31,12 +31,15 @@ AUDIT_LOOP_NAMES = [
     "momentum_bars_refresh",
     "volume_profile_refresh",
     "rvol_alert",
+    "options_flow",
+    "options_flow_intraday",
     "earnings_alert",
     "schwab_health",
     "schwab_snapshot",
     "db_retention",
     "reports_scheduler",
     "bars_prewarm",
+    "equity_tape_flush",
 ]
 
 

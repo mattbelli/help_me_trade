@@ -1,4 +1,10 @@
-"""Convergence watch + budgeted phone pushes (design §6b / §5).
+"""Confluence watch + budgeted phone pushes (design §6b / §5, generalized).
+
+Fires when ≥2 independently watched things line up on one underlying the same
+day: options flow, equity tape (blocks / dark-pool prints), underlying RVOL,
+and proximity to a level (session volume node or user price alert). Flow and
+tape components accumulate across the day via the event stores, so a morning
+sweep plus an afternoon dark-pool print still converge.
 
 Pure detection helpers are hermetic (no I/O). ``process_events`` orchestrates
 read-only market data, persist-first ``notify``, and deny-by-default push budget.
@@ -28,6 +34,7 @@ from signals.volume_profile import load_profile
 logger = logging.getLogger(__name__)
 
 _FLOW_EVENT_TYPES = frozenset({"unusual_volume", "block", "sweep", "directional_pressure"})
+_TAPE_EVENT_TYPES = frozenset({"equity_block", "dark_pool"})
 
 
 def rvol_from_profile(
@@ -129,6 +136,13 @@ def _flow_component_text(event: dict) -> str:
     return f"{prem_s} {opt} flow"
 
 
+def _tape_component_text(event: dict) -> str:
+    notional = float(event.get("notional_usd") or 0)
+    kind = str(event.get("event_type") or "")
+    label = "dark-pool print" if kind == "dark_pool" else "block print"
+    return f"{_fmt_premium(notional)} {label}"
+
+
 def _level_component_text(level: dict) -> str:
     name = str(level.get("name") or "level")
     try:
@@ -142,19 +156,35 @@ def _level_component_text(level: dict) -> str:
 
 def build_convergence(
     *,
-    event: dict,
+    event: dict | None = None,
+    tape_event: dict | None = None,
     rvol: float | None,
     level: dict | None,
     event_date: str,
 ) -> dict | None:
-    """Fire when flow plus at least one corroborating component (≥2 total)."""
-    del event_date  # reserved for stable keys; event carries its own date
-    underlying = str(event.get("underlying") or "").strip().upper()
+    """Fire when ≥2 watched components line up (flow, tape, rvol, level)."""
+    del event_date  # reserved for stable keys; events carry their own date
+    underlying = ""
+    for src in (event, tape_event):
+        if isinstance(src, dict):
+            underlying = (
+                str(src.get("underlying") or src.get("symbol") or "").strip().upper()
+            )
+            if underlying:
+                break
     if not underlying:
         return None
 
-    components: list[str] = ["flow"]
-    body_parts: list[str] = [_flow_component_text(event)]
+    components: list[str] = []
+    body_parts: list[str] = []
+
+    if event is not None:
+        components.append("flow")
+        body_parts.append(_flow_component_text(event))
+
+    if tape_event is not None:
+        components.append("tape")
+        body_parts.append(_tape_component_text(tape_event))
 
     if rvol is not None and rvol >= CONV_RVOL_MIN:
         components.append("rvol")
@@ -167,14 +197,64 @@ def build_convergence(
     if len(components) < 2:
         return None
 
-    event_id = str(event.get("id") or "")
+    lead = event if event is not None else tape_event
+    event_id = str((lead or {}).get("id") or "")
     return {
         "underlying": underlying,
-        "title": f"{underlying}: options flow convergence",
+        "title": f"{underlying}: signal confluence",
         "body": " + ".join(body_parts),
         "components": components,
         "event_id": event_id,
     }
+
+
+def _today_flow_lead(
+    underlying: str, today_et: str, db_path: Path
+) -> dict | None:
+    """Largest-premium flow event already stored for *underlying* today."""
+    try:
+        from db.options_flow import recent_events
+
+        rows = recent_events(
+            symbol=underlying,
+            since=f"{today_et}T00:00:00",
+            limit=50,
+            db_path=db_path,
+        )
+        rows = [
+            r for r in rows if str(r.get("event_type") or "") in _FLOW_EVENT_TYPES
+        ]
+        if not rows:
+            return None
+        return max(rows, key=lambda r: float(r.get("premium_usd") or 0))
+    except Exception:
+        logger.debug(
+            "confluence: flow day-lookup failed for %s", underlying, exc_info=True
+        )
+        return None
+
+
+def _today_tape_lead(
+    underlying: str, today_et: str, db_path: Path
+) -> dict | None:
+    """Largest-notional tape event already stored for *underlying* today."""
+    try:
+        from db.equity_tape import recent_events
+
+        rows = recent_events(
+            symbol=underlying,
+            since=f"{today_et}T00:00:00",
+            limit=50,
+            db_path=db_path,
+        )
+        if not rows:
+            return None
+        return max(rows, key=lambda r: float(r.get("notional_usd") or 0))
+    except Exception:
+        logger.debug(
+            "confluence: tape day-lookup failed for %s", underlying, exc_info=True
+        )
+        return None
 
 
 def is_solo_push(event: dict) -> bool:
@@ -348,21 +428,25 @@ async def process_events(
         logger.exception("options_flow convergence: dedup store unavailable")
         return counters
 
-    by_u: dict[str, list[dict]] = {}
+    by_u: dict[str, dict[str, list[dict]]] = {}
     for ev in events:
         if not isinstance(ev, dict):
             continue
         et = str(ev.get("event_type") or "")
-        if et not in _FLOW_EVENT_TYPES:
+        if et in _FLOW_EVENT_TYPES:
+            source = "flow"
+        elif et in _TAPE_EVENT_TYPES:
+            source = "tape"
+        else:
             continue
-        u = str(ev.get("underlying") or "").strip().upper()
+        u = str(ev.get("underlying") or ev.get("symbol") or "").strip().upper()
         if not u:
             continue
-        by_u.setdefault(u, []).append(ev)
+        by_u.setdefault(u, {"flow": [], "tape": []})[source].append(ev)
 
     convergence_covered: set[str] = set()
 
-    for u, u_events in by_u.items():
+    for u, group in by_u.items():
         conv_key = _conv_dedup_key(u, today_et)
         try:
             if was_sent(conv_key, db_path=resolved_db):
@@ -399,12 +483,21 @@ async def process_events(
             )
             ctx = {"rvol": None, "level": None}
 
-        lead = max(
-            u_events,
-            key=lambda e: float(e.get("premium_usd") or 0),
+        # Leads: this batch first, else the day's stored events — a morning
+        # sweep + afternoon dark-pool print converge across cycles.
+        flow_lead = (
+            max(group["flow"], key=lambda e: float(e.get("premium_usd") or 0))
+            if group["flow"]
+            else _today_flow_lead(u, today_et, resolved_db)
+        )
+        tape_lead = (
+            max(group["tape"], key=lambda e: float(e.get("notional_usd") or 0))
+            if group["tape"]
+            else _today_tape_lead(u, today_et, resolved_db)
         )
         built = build_convergence(
-            event=lead,
+            event=flow_lead,
+            tape_event=tape_lead,
             rvol=ctx.get("rvol"),
             level=ctx.get("level"),
             event_date=today_et,
@@ -426,8 +519,8 @@ async def process_events(
                 data={
                     "underlying": u,
                     "components": list(built["components"]),
-                    "reason": lead.get("reason"),
-                    "caveat": lead.get("caveat"),
+                    "reason": (flow_lead or tape_lead or {}).get("reason"),
+                    "caveat": (flow_lead or tape_lead or {}).get("caveat"),
                 },
                 push=allow_push,
                 db_path=resolved_db,

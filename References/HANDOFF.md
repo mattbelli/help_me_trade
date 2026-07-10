@@ -10,7 +10,29 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-09, evening) — Phase 3 LIVE end-to-end + founder UI round + chain viewer
+## ▶ START HERE (2026-07-10) — Confluence engine: any 2 watched things + agent options perception
+
+> Founder: "let's build both… convergence should be any 2 things we are watching." **Four rounds, all
+> committed + tested**: (1) **options_chain perception resource** — chain builder extracted from
+> `api/main.py` → `brokers/options_chain.py`; chat agent can browse expirations/strikes/IV/greeks
+> (aliases chain/greeks); (2) **push budget → setting** `alerts.max_push_per_day` (default 5, Settings →
+> Reports / Alerts + Automations page; in-app cards never capped); (3) **equity tape events** —
+> `signals/equity_tape.py` TapeDetector tapped in SIP `_on_trade` BEFORE the exclude-condition drop
+> (avg-price/derivative crosses ARE the institutional blocks): large = max($1M, 1bp of median daily $vol),
+> $10M no-profile floor, exchange `D` = FINRA TRF = dark_pool, tick-test direction (flagged weak), ±10%
+> off-market corrupt-print guard, 60s (symbol,type) cooldown → `equity_tape_events` (30d prune) via 2s
+> drain loop (health job `equity_tape_flush`); **watchlists now pin into the market stream server-side**;
+> perception resource `equity_tape` (aliases tape/dark_pool/blocks); (4) **confluence engine** —
+> `convergence.py` generalized: components {flow, tape, rvol, level}, ≥2 fire, cross-source DAY memory via
+> event stores (morning sweep + afternoon dark-pool print converge), title "SYM: signal confluence".
+> **Test-hermeticity fixes (pre-existing, exposed by subset runs)**: conftest forces `BROKER=alpaca`
+> (box .env has BROKER=schwab — inert in prod, leaked into proposal tests → 'blocked'); AUDIT_LOOP_NAMES
+> gained options_flow/options_flow_intraday. Full suite + ruff + tsc green. Board: `confluence-engine`,
+> `equity-tape-events`, `perception-options-chain` done; `tape-widget-surface` next (tape events have no
+> cockpit surface yet). Watch after deploy: `equity tape:` log lines; stream symbol count (watchlist pin ≤
+> caps 30/100 hybrid); dark-pool floors may need tuning on real tape.
+
+## ▶ EARLIER (2026-07-09, evening) — Phase 3 LIVE end-to-end + founder UI round + chain viewer
 
 > **Options-flow Phase 3 fully deployed** (founder go "just deploy yourself"): 3a transport + 3b sweeps
 > (first live sweep 1.5s off the tape; AAPL 7-exchange buy_side classified) + 3c enrichment (sweep rows
