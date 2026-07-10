@@ -76,11 +76,11 @@ const LABEL_PAD = 6;
 const CHIP_PAD_X = 5;
 const CHIP_H = 16;
 /** Gutter tag containers — full axis font (the smaller pt "wasn't helping"). */
-const LEVEL_TAG_H = 14;
+const LEVEL_TAG_H = 16;
 const LEVEL_TAG_FONT_PX = 10;
 /** Optical text centering inside pills: alphabetic baseline sits this many
-    em below the pill's midline (founder-tuned — text read high at cap/2). */
-const PILL_TEXT_DY_EM = 0.46;
+    em below the pill's midline (founder-tuned: 0.34 read high, 0.46 low). */
+const PILL_TEXT_DY_EM = 0.4;
 
 function axisFont(fontFamily: string): string {
   return `${AXIS_FONT_PX}px ${fontFamily}`;
