@@ -66,6 +66,9 @@ export type OverlayLine = {
   id?: string;
   /** Drag-to-move: the engine previews the move and fires onLineDragEnd. */
   draggable?: boolean;
+  /** Auto-computed levels (session nodes): merge into one "node" line when
+      they crowd within a few px at the current zoom. User lines never merge. */
+  collapsible?: boolean;
 };
 
 /** Data-space anchor: epoch ms + price. */

@@ -411,6 +411,8 @@ export function NativeChart({
         color: withAlpha(sessionLevelColor(l.kind), 0.7),
         dash: [2, 3],
         label: l.name,
+        // Auto-levels merge into one "node" line when zoom crowds them.
+        collapsible: true,
       });
     }
     for (const d of drawings) {

@@ -226,15 +226,46 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   if (input.overlays) {
     const { lines, segments } = input.overlays;
     p.withClip(price.x, price.y, price.w, price.h, () => {
-      for (const l of lines) {
-        const y = yOf(l.price, priceRange, price.y, price.h);
-        if (y < price.y || y > price.y + price.h) continue;
+      const collapsible: LinePlacement[] = [];
+      const drawLine = (l: OverlayLine, y: number): void => {
         p.line(pane.x, y, pane.x + pane.w, y, {
           color: l.color,
           width: 1,
           dash: l.dash,
         });
         if (l.label) placeTag(l.label, y, l.color);
+      };
+      for (const l of lines) {
+        const y = yOf(l.price, priceRange, price.y, price.h);
+        if (y < price.y || y > price.y + price.h) continue;
+        if (l.collapsible) {
+          collapsible.push({ line: l, y });
+          continue;
+        }
+        drawLine(l, y);
+      }
+      // Crowded auto-levels merge into one representative "node" line —
+      // founder call: 5-6 smooshed vol nodes on a daily chart are noise, not
+      // information. Zooming in separates them again (pixel-space clustering).
+      for (const group of clusterLines(collapsible, LEVEL_CLUSTER_PX)) {
+        if (group.length === 1) {
+          drawLine(group[0].line, group[0].y);
+          continue;
+        }
+        const y = (group[0].y + group[group.length - 1].y) / 2;
+        const names = group
+          .map((g) => g.line.label ?? "")
+          .filter(Boolean);
+        const label =
+          names.length > 0 && names.length <= 3
+            ? names.join("·")
+            : `node ×${group.length}`;
+        p.line(pane.x, y, pane.x + pane.w, y, {
+          color: colors.textDim,
+          width: 1,
+          dash: [2, 3],
+        });
+        placeTag(label, y, colors.textDim);
       }
       for (const s of segments) {
         const x1 = xOf(indexOfTime(bars, s.a.time), vp, pane.w);
@@ -373,6 +404,28 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
 
 /** Hit tolerance around an overlay line, logical px (matches TV's LEVEL_HIT_PX). */
 export const LINE_HIT_PX = 6;
+/** Collapsible levels closer than this (px) merge into one "node" line. */
+export const LEVEL_CLUSTER_PX = 12;
+
+export type LinePlacement = { line: OverlayLine; y: number };
+
+/** Group placements into runs where each adjacent pixel gap is under `gapPx`. */
+export function clusterLines(
+  placed: readonly LinePlacement[],
+  gapPx: number,
+): LinePlacement[][] {
+  const sorted = [...placed].sort((a, b) => a.y - b.y);
+  const groups: LinePlacement[][] = [];
+  for (const item of sorted) {
+    const current = groups[groups.length - 1];
+    if (current && item.y - current[current.length - 1].y < gapPx) {
+      current.push(item);
+    } else {
+      groups.push([item]);
+    }
+  }
+  return groups;
+}
 
 /**
  * Nearest identifiable overlay line within `tolerance` px of y. Only lines
