@@ -135,6 +135,23 @@ export function NativeChart({
     engineRef.current?.setStyle(style);
   }, [style]);
 
+  // Ext-hours price line — same session gate as TvLightChart: whenever an ext
+  // quote exists outside RTH (incl. weekend "closed", where the last ext print
+  // would otherwise sit a session behind the candles). Independent of the ETH
+  // candles toggle and of timeframe — this is how a daily chart still shows
+  // where the name trades after the close. (timeframe.intraday dep: the engine
+  // is recreated on that flip, and the new instance needs the line re-applied.)
+  useEffect(() => {
+    const show =
+      extPrice != null &&
+      marketSession != null &&
+      (marketSession === "pre" ||
+        marketSession === "post" ||
+        marketSession === "overnight" ||
+        marketSession === "closed");
+    engineRef.current?.setExtPrice(show ? extPrice : null);
+  }, [extPrice, marketSession, timeframe.intraday]);
+
   // Theme changes (mode toggle or custom-theme var edits) re-resolve colors.
   useEffect(() => {
     const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));

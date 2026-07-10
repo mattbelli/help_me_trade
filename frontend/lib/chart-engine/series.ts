@@ -61,6 +61,32 @@ function axisFont(fontFamily: string): string {
   return `${AXIS_FONT_PX}px ${fontFamily}`;
 }
 
+/**
+ * Price-axis chip: sized to its label and anchored at the axis border, so the
+ * text sits at the same x as the tick labels (TV-style — a full-width
+ * centered chip read as misaligned with the prices under it). The y is
+ * snapped to a whole logical px so box and text move in lockstep.
+ */
+function drawAxisChip(
+  p: Painter,
+  axisX: number,
+  y: number,
+  label: string,
+  bg: string,
+  textColor: string,
+  font: string,
+): void {
+  const cy = Math.round(y);
+  const w = LABEL_PAD + p.measure(label, font) + LABEL_PAD;
+  p.fillRect(axisX, cy - CHIP_H / 2, w, CHIP_H, bg);
+  p.text(label, axisX + LABEL_PAD, cy, {
+    color: textColor,
+    font,
+    align: "left",
+    baseline: "middle",
+  });
+}
+
 function candleBodyWidth(barSpacing: number): number {
   // ~70% of the slot, at least 1px, capped so huge zoom keeps a gap.
   return Math.max(1, Math.min(Math.round(barSpacing * 0.7), barSpacing - 2));
@@ -77,6 +103,8 @@ export type SceneInput = {
   fontFamily: string;
   /** Manual price scale (axis drag). Null/undefined = autoscale. */
   priceOverride?: PriceRange | null;
+  /** Ext-hours quote to mark with a dashed line + axis chip. Null = hidden. */
+  extPrice?: number | null;
 };
 
 /** Paint the full scene (grid, series, volume, axes, last-price line). */
@@ -198,21 +226,50 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     });
   }
   if (last) {
-    // Chip geometry snaps to a whole logical px so the box and its text move
-    // in lockstep (fractional y let the rect's device-pixel rounding drift
-    // ±0.5px against the text — the "jittering, off-center" chip).
-    const y = Math.round(yOf(last.close, priceRange, price.y, price.h));
+    const y = yOf(last.close, priceRange, price.y, price.h);
     if (y >= price.y - CHIP_H && y <= priceAxis.y + priceAxis.h + CHIP_H) {
-      const label = formatChipPrice(last.close, pTicks);
-      p.fillRect(priceAxis.x, y - CHIP_H / 2, priceAxis.w, CHIP_H, lastColor);
-      // Always white, centered: the chip bg is a saturated up/down color on
-      // every theme, and theme-background text disappeared on light themes.
-      p.text(label, priceAxis.x + priceAxis.w / 2, y, {
-        color: "#ffffff",
+      // Always white text: the chip bg is a saturated up/down color on every
+      // theme, and theme-background text disappeared on light themes.
+      drawAxisChip(
+        p,
+        priceAxis.x,
+        y,
+        formatChipPrice(last.close, pTicks),
+        lastColor,
+        "#ffffff",
         font,
-        align: "center",
-        baseline: "middle",
+      );
+    }
+  }
+
+  // Extended-hours price (pre/post/overnight quote): dashed accent line with
+  // an "ext" tag and its own axis chip — parity with TV, which keeps showing
+  // where the name trades after the (daily or RTH-only) candles stop.
+  if (input.extPrice != null) {
+    const y = yOf(input.extPrice, priceRange, price.y, price.h);
+    if (y >= price.y && y <= price.y + price.h) {
+      p.withClip(pane.x, pane.y, pane.w, pane.h, () => {
+        p.line(pane.x, y, pane.x + pane.w, y, {
+          color: colors.accent,
+          width: 1,
+          dash: [4, 3],
+        });
+        p.text("ext", pane.x + 4, y - 4, {
+          color: colors.textDim,
+          font,
+          align: "left",
+          baseline: "bottom",
+        });
       });
+      drawAxisChip(
+        p,
+        priceAxis.x,
+        y,
+        formatChipPrice(input.extPrice, pTicks),
+        colors.accent,
+        "#ffffff",
+        font,
+      );
     }
   }
 
@@ -287,15 +344,15 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
   if (y >= price.y && y <= price.y + price.h) {
     p.line(pane.x, y, pane.x + pane.w, y, crossStyle);
     const hoverPrice = priceAt(y, scene.priceRange, price.y, price.h);
-    const priceLabel = formatChipPrice(hoverPrice, scene.pTicks);
-    const cy = Math.round(y); // snapped: box + text move in lockstep
-    p.fillRect(priceAxis.x, cy - CHIP_H / 2, priceAxis.w, CHIP_H, colors.crosshairLabelBg);
-    p.text(priceLabel, priceAxis.x + priceAxis.w / 2, cy, {
-      color: colors.text,
+    drawAxisChip(
+      p,
+      priceAxis.x,
+      y,
+      formatChipPrice(hoverPrice, scene.pTicks),
+      colors.crosshairLabelBg,
+      colors.text,
       font,
-      align: "center",
-      baseline: "middle",
-    });
+    );
   }
 
   // Time chip under the snapped bar.

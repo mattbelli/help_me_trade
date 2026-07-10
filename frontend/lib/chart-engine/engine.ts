@@ -65,6 +65,8 @@ export class ChartEngine {
   } | null = null;
   /** Manual price scale from an axis drag — sticky until dblclick on the axis. */
   private priceOverride: PriceRange | null = null;
+  /** Ext-hours quote line (null = hidden) — the wrapper owns the session gating. */
+  private extPrice: number | null = null;
   private lastHoverIndex: number | null = null;
   // Live ticks mutate the hovered bar in place without moving the cursor —
   // the legend callback must re-fire on value change, not just index change.
@@ -185,6 +187,14 @@ export class ChartEngine {
   setColors(colors: EngineColors): void {
     this.colors = colors;
     this.invalidate("both");
+  }
+
+  /** Show/refresh (number) or hide (null) the ext-hours price line. */
+  setExtPrice(price: number | null): void {
+    const next = price != null && Number.isFinite(price) && price > 0 ? price : null;
+    if (next === this.extPrice) return;
+    this.extPrice = next;
+    this.invalidate("scene");
   }
 
   setStyle(style: ChartStyle): void {
@@ -369,6 +379,7 @@ export class ChartEngine {
         intraday: this.intraday,
         fontFamily: this.fontFamily,
         priceOverride: this.priceOverride,
+        extPrice: this.extPrice,
       });
       this.perfSceneMs = performance.now() - t0;
       // The crosshair sits over repositioned content — keep it in sync.
