@@ -207,7 +207,7 @@ function ChainHeader({ wide }: { wide: boolean }) {
 
   if (wide) {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_auto_repeat(7,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+      <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_auto_repeat(7,minmax(0,1fr))] gap-x-2 border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
         {(["oi", "vol", "iv", "δ", "last", "ask", "bid"] as const).map(
           (label) => (
             <span key={`c-${label}`} className={labelClass}>
@@ -228,7 +228,7 @@ function ChainHeader({ wide }: { wide: boolean }) {
   }
 
   return (
-    <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_auto_repeat(3,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+    <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_auto_repeat(3,minmax(0,1fr))] gap-x-2 border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
       {(["last", "ask", "bid"] as const).map((label) => (
         <span key={`c-${label}`} className={labelClass}>
           {label}
@@ -304,7 +304,7 @@ function ChainRow({
       type="button"
       onClick={onStrikeClick}
       className={cn(
-        "grid w-full items-center gap-0 border-b border-[var(--border)] px-2 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]",
+        "grid w-full items-center gap-x-2 border-b border-[var(--border)] px-2 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]",
         gridClass,
         linked ? "cursor-pointer" : "cursor-default",
       )}
