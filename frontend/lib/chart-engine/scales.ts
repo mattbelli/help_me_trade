@@ -158,6 +158,18 @@ export function autoPriceRange(
   return { min: min - pad, max: max + pad };
 }
 
+/**
+ * Scale a price range around its center (price-axis drag → manual scale).
+ * Factor >1 expands (zoom out), <1 contracts. Span is floored so repeated
+ * contraction can never collapse or invert the range.
+ */
+export function scaleRangeAround(range: PriceRange, factor: number): PriceRange {
+  const center = (range.min + range.max) / 2;
+  const minSpan = Math.max(Math.abs(center) * 1e-4, 1e-6);
+  const half = Math.max(((range.max - range.min) / 2) * factor, minSpan / 2);
+  return { min: center - half, max: center + half };
+}
+
 /** Logical-px y of `price` within a rect spanning [top, top+height). */
 export function yOf(
   price: number,

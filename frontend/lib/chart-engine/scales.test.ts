@@ -7,6 +7,7 @@ import {
   indexAt,
   pan,
   priceAt,
+  scaleRangeAround,
   visibleBarRange,
   xOf,
   yOf,
@@ -174,6 +175,22 @@ describe("autoPriceRange", () => {
     const vp: Viewport = { barSpacing: 8, rightEdgeIndex: 999 };
     const r = autoPriceRange(bars, vp, W, "candle");
     expect(r.min).toBeGreaterThan(bars[0].low + 100); // early lows excluded
+  });
+});
+
+describe("scaleRangeAround", () => {
+  it("scales around the center", () => {
+    const r = scaleRangeAround({ min: 90, max: 110 }, 2);
+    expect(r).toEqual({ min: 80, max: 120 });
+    const c = scaleRangeAround({ min: 90, max: 110 }, 0.5);
+    expect(c).toEqual({ min: 95, max: 105 });
+  });
+
+  it("never collapses or inverts under repeated contraction", () => {
+    let r = { min: 99.9, max: 100.1 };
+    for (let i = 0; i < 200; i++) r = scaleRangeAround(r, 0.5);
+    expect(r.max).toBeGreaterThan(r.min);
+    expect((r.min + r.max) / 2).toBeCloseTo(100, 6);
   });
 });
 

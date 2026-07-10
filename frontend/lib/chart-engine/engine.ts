@@ -9,20 +9,30 @@
 
 import { CanvasLayers } from "./canvas2d";
 import { applyLive, rolledOverBar } from "./merge";
-import { clampViewport, defaultViewport, zoomAt } from "./scales";
+import {
+  autoPriceRange,
+  clampViewport,
+  defaultViewport,
+  scaleRangeAround,
+  zoomAt,
+} from "./scales";
 import { drawCursor, drawScene, type Scene } from "./series";
 import {
   DEFAULT_BAR_SPACING,
   DEFAULT_RIGHT_OFFSET,
   PRICE_AXIS_WIDTH,
+  TIME_AXIS_HEIGHT,
   type ChartStyle,
   type EngineBar,
   type EngineColors,
   type EngineOptions,
+  type PriceRange,
   type Viewport,
 } from "./types";
 
 const WHEEL_ZOOM_RATE = 0.0018;
+/** Logical px of axis drag per e-fold of scale change. */
+const AXIS_SCALE_RATE = 0.005;
 
 export class ChartEngine {
   private bars: EngineBar[] = [];
@@ -46,6 +56,15 @@ export class ChartEngine {
   private raf: number | null = null;
   private cross: { x: number; y: number } | null = null;
   private drag: { startX: number; startRe: number } | null = null;
+  /** Axis-drag scaling in progress (price or time axis). */
+  private axisDrag: {
+    kind: "price" | "time";
+    start: number;
+    startRange?: PriceRange;
+    startSpacing?: number;
+  } | null = null;
+  /** Manual price scale from an axis drag — sticky until dblclick on the axis. */
+  private priceOverride: PriceRange | null = null;
   private lastHoverIndex: number | null = null;
   // Live ticks mutate the hovered bar in place without moving the cursor —
   // the legend callback must re-fire on value change, not just index change.
@@ -112,7 +131,11 @@ export class ChartEngine {
     }
     if (!hadBars) {
       this.vp = defaultViewport(bars.length, this.paneWidth());
+      this.priceOverride = null;
     } else if (opts?.anchorRight) {
+      // Symbol/timeframe switch: a manual price scale from the old series
+      // would frame the new one absurdly — return to autoscale.
+      this.priceOverride = null;
       this.vp = clampViewport(
         {
           barSpacing: this.vp.barSpacing,
@@ -172,6 +195,7 @@ export class ChartEngine {
 
   resetView(): void {
     this.vp = defaultViewport(this.bars.length, this.paneWidth());
+    this.priceOverride = null;
     this.invalidate("scene");
   }
 
@@ -189,15 +213,53 @@ export class ChartEngine {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  /** Which interaction region a local point falls in. */
+  private regionAt(x: number, y: number): "pane" | "priceAxis" | "timeAxis" {
+    if (y >= this.height - TIME_AXIS_HEIGHT) return "timeAxis";
+    if (x >= this.paneWidth()) return "priceAxis";
+    return "pane";
+  }
+
   private onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || this.bars.length === 0) return;
     this.container.setPointerCapture(e.pointerId);
-    const { x } = this.localPoint(e);
-    this.drag = { startX: x, startRe: this.vp.rightEdgeIndex };
+    const { x, y } = this.localPoint(e);
+    const region = this.regionAt(x, y);
+    if (region === "priceAxis") {
+      // Grab the scale as it currently reads (auto or manual) and go manual.
+      const start =
+        this.priceOverride ??
+        autoPriceRange(this.bars, this.vp, this.paneWidth(), this.style);
+      this.axisDrag = { kind: "price", start: y, startRange: start };
+    } else if (region === "timeAxis") {
+      this.axisDrag = { kind: "time", start: x, startSpacing: this.vp.barSpacing };
+    } else {
+      this.drag = { startX: x, startRe: this.vp.rightEdgeIndex };
+    }
   };
 
   private onPointerMove = (e: PointerEvent): void => {
     const { x, y } = this.localPoint(e);
+    if (this.axisDrag && this.bars.length > 0) {
+      if (this.axisDrag.kind === "price") {
+        // Drag down expands the range (zoom out), up contracts — TV feel.
+        const factor = Math.exp((y - this.axisDrag.start) * AXIS_SCALE_RATE);
+        this.priceOverride = scaleRangeAround(this.axisDrag.startRange!, factor);
+      } else {
+        // Drag right widens bars (zoom in), anchored at the pane's right edge.
+        const factor = Math.exp((x - this.axisDrag.start) * AXIS_SCALE_RATE);
+        this.vp = clampViewport(
+          {
+            barSpacing: this.axisDrag.startSpacing! * factor,
+            rightEdgeIndex: this.vp.rightEdgeIndex,
+          },
+          this.paneWidth(),
+          this.bars.length,
+        );
+      }
+      this.invalidate("scene");
+      return; // no crosshair while scaling an axis
+    }
     if (this.drag && this.bars.length > 0) {
       // Recompute from the drag origin (not incrementally) — no drift.
       this.vp = clampViewport(
@@ -210,6 +272,14 @@ export class ChartEngine {
         this.bars.length,
       );
       this.invalidate("scene");
+    } else {
+      const region = this.regionAt(x, y);
+      this.container.style.cursor =
+        region === "priceAxis"
+          ? "ns-resize"
+          : region === "timeAxis"
+            ? "ew-resize"
+            : "crosshair";
     }
     this.cross = { x, y };
     this.invalidate("cursor");
@@ -220,15 +290,24 @@ export class ChartEngine {
       this.container.releasePointerCapture(e.pointerId);
     }
     this.drag = null;
+    this.axisDrag = null;
   };
 
   private onPointerLeave = (): void => {
     this.drag = null;
+    this.axisDrag = null;
     this.cross = null;
     this.invalidate("cursor");
   };
 
-  private onDblClick = (): void => {
+  private onDblClick = (e: MouseEvent): void => {
+    const { x, y } = this.localPoint(e);
+    if (this.regionAt(x, y) === "priceAxis") {
+      // Manual scale → back to autoscale; the view itself stays put.
+      this.priceOverride = null;
+      this.invalidate("scene");
+      return;
+    }
     this.resetView();
   };
 
@@ -289,6 +368,7 @@ export class ChartEngine {
         style: this.style,
         intraday: this.intraday,
         fontFamily: this.fontFamily,
+        priceOverride: this.priceOverride,
       });
       this.perfSceneMs = performance.now() - t0;
       // The crosshair sits over repositioned content — keep it in sync.

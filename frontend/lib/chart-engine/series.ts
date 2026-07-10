@@ -75,6 +75,8 @@ export type SceneInput = {
   style: ChartStyle;
   intraday: boolean;
   fontFamily: string;
+  /** Manual price scale (axis drag). Null/undefined = autoscale. */
+  priceOverride?: PriceRange | null;
 };
 
 /** Paint the full scene (grid, series, volume, axes, last-price line). */
@@ -87,7 +89,8 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   p.clear();
   p.fillRect(0, 0, width, height, colors.background);
 
-  const priceRange = autoPriceRange(bars, vp, pane.w, style);
+  const priceRange =
+    input.priceOverride ?? autoPriceRange(bars, vp, pane.w, style);
   const pTicks = priceTicks(priceRange, price.h);
   const tTicks = timeTicks(bars, vp, pane.w, intraday);
 
@@ -157,15 +160,24 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     });
   }
 
-  // Last-price line + axis chip (colored by the forming bar's direction).
+  // Last-price line + axis chip — colored by the forming bar's OWN open→close
+  // direction (matches the candle and TV's convention; close-vs-prev-close
+  // disagreed with both and read as "chip green, candle red").
   const last = bars[bars.length - 1];
+  const lastColor = last
+    ? last.close >= last.open
+      ? colors.up
+      : colors.down
+    : colors.accent;
   if (last) {
-    const prevClose = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
-    const color = last.close >= prevClose ? colors.up : colors.down;
     const y = yOf(last.close, priceRange, price.y, price.h);
     if (y >= price.y && y <= price.y + price.h) {
       p.withClip(pane.x, pane.y, pane.w, pane.h, () => {
-        p.line(pane.x, y, pane.x + pane.w, y, { color, width: 1, dash: [2, 2] });
+        p.line(pane.x, y, pane.x + pane.w, y, {
+          color: lastColor,
+          width: 1,
+          dash: [2, 2],
+        });
       });
     }
   }
@@ -186,16 +198,19 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     });
   }
   if (last) {
-    const prevClose = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
-    const color = last.close >= prevClose ? colors.up : colors.down;
-    const y = yOf(last.close, priceRange, price.y, price.h);
+    // Chip geometry snaps to a whole logical px so the box and its text move
+    // in lockstep (fractional y let the rect's device-pixel rounding drift
+    // ±0.5px against the text — the "jittering, off-center" chip).
+    const y = Math.round(yOf(last.close, priceRange, price.y, price.h));
     if (y >= price.y - CHIP_H && y <= priceAxis.y + priceAxis.h + CHIP_H) {
       const label = formatChipPrice(last.close, pTicks);
-      p.fillRect(priceAxis.x, y - CHIP_H / 2, priceAxis.w, CHIP_H, color);
-      p.text(label, priceAxis.x + LABEL_PAD, y, {
-        color: colors.background,
+      p.fillRect(priceAxis.x, y - CHIP_H / 2, priceAxis.w, CHIP_H, lastColor);
+      // Always white, centered: the chip bg is a saturated up/down color on
+      // every theme, and theme-background text disappeared on light themes.
+      p.text(label, priceAxis.x + priceAxis.w / 2, y, {
+        color: "#ffffff",
         font,
-        align: "left",
+        align: "center",
         baseline: "middle",
       });
     }
@@ -273,11 +288,12 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
     p.line(pane.x, y, pane.x + pane.w, y, crossStyle);
     const hoverPrice = priceAt(y, scene.priceRange, price.y, price.h);
     const priceLabel = formatChipPrice(hoverPrice, scene.pTicks);
-    p.fillRect(priceAxis.x, y - CHIP_H / 2, priceAxis.w, CHIP_H, colors.crosshairLabelBg);
-    p.text(priceLabel, priceAxis.x + LABEL_PAD, y, {
+    const cy = Math.round(y); // snapped: box + text move in lockstep
+    p.fillRect(priceAxis.x, cy - CHIP_H / 2, priceAxis.w, CHIP_H, colors.crosshairLabelBg);
+    p.text(priceLabel, priceAxis.x + priceAxis.w / 2, cy, {
       color: colors.text,
       font,
-      align: "left",
+      align: "center",
       baseline: "middle",
     });
   }
