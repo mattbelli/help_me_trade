@@ -183,7 +183,7 @@ export function CockpitPager() {
   );
 
   return (
-    <NavProvider value={{ openInbox: () => goTo(INBOX_INDEX), setSwipeEnabled }}>
+    <NavProvider value={{ openInbox: () => goTo(INBOX_INDEX), setSwipeEnabled, activeTab: TABS[page].key }}>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <PagerView
           ref={pagerRef}

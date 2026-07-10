@@ -42,15 +42,18 @@ interface PositionRow {
 
 export function PortfolioScreen() {
   const colors = useColors();
-  const { openInbox } = useNav();
+  const { openInbox, activeTab } = useNav();
   const [range, setRange] = useState<PortfolioRange>('1W');
   const [accountFilter, setAccountFilter] = useState<AccountFilter>('all');
   const [chartWidth, setChartWidth] = useState(0);
 
-  const snapshot = useSnapshot();
+  // Pager keeps every surface mounted, so gate the 6s polls to the visible tab
+  // (refetch-on-resume covers freshness when swiping back).
+  const focused = activeTab === 'home';
+  const snapshot = useSnapshot({ poll: focused });
   // Realized (net-cash, ET-day) day P&L — matches the web DAY tile and fixes the
   // after-hours leak the equity-curve MTM carried. `all_paper` = this screen's scope.
-  const dayPnlQ = useDayPnl('all_paper');
+  const dayPnlQ = useDayPnl('all_paper', { poll: focused });
   const curve = usePortfolioHistory(range);
   const pending = usePendingProposals();
   const pendingCount = pending.data?.proposals.length ?? 0;

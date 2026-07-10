@@ -10,6 +10,15 @@
  ],
  "cards": [
   {
+   "id": "mobile-tab-poll-gating",
+   "title": "Mobile: 6s REST polls gated to the visible tab \u2014 verified via serv access logs",
+   "lane": "done",
+   "type": "perf",
+   "priority": "medium",
+   "owner": "mobile",
+   "notes": "snapshot/day-pnl poll only on Home, watchlist-market only on Watchlist (instant catch-up refetch on tab re-entry); approval/alert/health polls stay always-on. Foreground battery win on non-active tabs. GOTCHA found: RQ 5.101 refetchInterval false\u2192N flip silently failed to reschedule on device \u2014 polling now driven by our own effect-keyed interval (usePollWhile in queries.ts)."
+  },
+  {
    "id": "mobile-quote-coalescing",
    "title": "Mobile perf: 100ms WS quote coalescing \u2014 A/B-verified ~3.5\u00d7 CPU cut at the open",
    "lane": "done",

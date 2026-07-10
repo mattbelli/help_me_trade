@@ -623,11 +623,13 @@ export function WatchlistScreen() {
   const [order, setOrder] = useState<string[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
-  const { setSwipeEnabled } = useNav();
+  const { setSwipeEnabled, activeTab } = useNav();
 
   const watchlist = useWatchlist();
   const symbols: string[] = watchlist.data?.symbols ?? [];
-  const market = useWatchlistMarket(symbols);
+  // Poll only while this tab is visible — live prices ride the WS stream
+  // anyway; the 6s REST poll's job (rvol/company fields) can idle off-tab.
+  const market = useWatchlistMarket(symbols, { poll: activeTab === 'watchlist' });
   const quotes = market.data?.quotes ?? {};
   // One session indicator for the whole list (all tickers share the session) —
   // shown in the header during extended hours instead of a badge on every row.
