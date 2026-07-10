@@ -127,9 +127,7 @@ export type EngineOptions = {
 };
 
 // --- Layout constants (CHART_ENGINE.md → Panes & layout) ---------------------------
-/** Wide enough for a full level card ("PDH 391.91") at the 10px tag font —
-    cards live INSIDE the column, clean-cut at the pane boundary. */
-export const PRICE_AXIS_WIDTH = 76;
+export const PRICE_AXIS_WIDTH = 64;
 /** Tag gutter between the pane and the price axis. Zero = TV-exact mode: the
     name+price cards anchor to the axis and float over the pane's right edge
     instead of reserving a column (founder call: "copy TV exactly"). */

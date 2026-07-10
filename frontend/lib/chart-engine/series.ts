@@ -447,39 +447,40 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       sorted = all;
       ys = sweep(all, minY, maxY);
     }
-    // Uniform cards, housed INSIDE the price column — one clean cut at the
-    // pane boundary, never poking into the candles at ragged lengths.
-    const cardX = priceAxis.x + 1;
-    const cardW = priceAxis.w - 2;
+    // TV pill anatomy: the price part lives INSIDE the column (right-aligned
+    // with the ticks), the name slides OUT to the left of the border attached
+    // to it, and the column's border line subtly splits the pill at the seam.
+    const borderX = priceAxis.x;
     for (let i = 0; i < sorted.length; i++) {
       const card = sorted[i];
       const priceLabel =
         card.price != null ? formatChipPrice(card.price, pTicks) : null;
+      const nameW = p.measure(card.label, tagFont);
+      const leftX = borderX - nameW - 10;
+      const rightX = priceLabel ? width - 1 : borderX;
       const cy = Math.round(ys[i]);
       const ty = cy - LEVEL_TAG_H / 2;
       const textY = cy + LEVEL_TAG_FONT_PX * 0.34; // optical centering
-      p.fillRect(cardX, ty, cardW, LEVEL_TAG_H, colors.background);
-      p.roundRect(cardX, ty, cardW, LEVEL_TAG_H, 2, card.bg);
+      p.fillRect(leftX, ty, rightX - leftX, LEVEL_TAG_H, colors.background);
+      p.roundRect(leftX, ty, rightX - leftX, LEVEL_TAG_H, 2, card.bg);
+      p.text(card.label, borderX - 5, textY, {
+        color: card.text,
+        font: tagFont,
+        align: "right",
+        baseline: "alphabetic",
+      });
       if (priceLabel) {
-        p.text(card.label, cardX + 5, textY, {
-          color: card.text,
-          font: tagFont,
-          align: "left",
-          baseline: "alphabetic",
-        });
-        p.text(priceLabel, cardX + cardW - 5, textY, {
+        p.text(priceLabel, priceAxis.x + priceAxis.w - 6, textY, {
           color: card.text,
           font: tagFont,
           align: "right",
           baseline: "alphabetic",
         });
-      } else {
-        // Price-less card (alert 🔔): centered.
-        p.text(card.label, cardX + cardW / 2, textY, {
-          color: card.text,
-          font: tagFont,
-          align: "center",
-          baseline: "alphabetic",
+        // The column border cuts through the pill — TV's subtle name|price split.
+        p.line(borderX, ty, borderX, ty + LEVEL_TAG_H, {
+          color: colors.background,
+          width: 1,
+          hairline: true,
         });
       }
     }
