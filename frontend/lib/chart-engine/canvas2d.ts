@@ -105,6 +105,18 @@ export class Canvas2DPainter implements Painter {
     if (style.dash) ctx.setLineDash([]);
   }
 
+  roundRect(x: number, y: number, w: number, h: number, r: number, color: string): void {
+    const { ctx } = this;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, y, w, h, r);
+    } else {
+      ctx.rect(x, y, w, h); // ancient-browser fallback: square corners
+    }
+    ctx.fill();
+  }
+
   circle(x: number, y: number, r: number, style: CircleStyle): void {
     const { ctx } = this;
     ctx.beginPath();

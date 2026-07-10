@@ -416,13 +416,16 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       const tag = sorted[i];
       const cy = Math.round(ys[i]);
       const ty = cy - LEVEL_TAG_H / 2;
+      // Square opaque wipe (background-colored, so the rounded card's corners
+      // read as transparent), then the card, then optically-centered text —
+      // "middle" baseline sat uppercase labels visibly low in a 14px card.
       p.fillRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, colors.background);
-      p.fillRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, tag.bg);
-      p.text(tag.label, gutter.x + gutter.w / 2, cy, {
+      p.roundRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, 3, tag.bg);
+      p.text(tag.label, gutter.x + gutter.w / 2, cy + LEVEL_TAG_FONT_PX * 0.34, {
         color: tag.text,
         font: tagFont,
         align: "center",
-        baseline: "middle",
+        baseline: "alphabetic",
       });
     }
   }

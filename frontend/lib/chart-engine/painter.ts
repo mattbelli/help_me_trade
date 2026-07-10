@@ -22,7 +22,9 @@ export type TextStyle = {
   /** Full CSS font shorthand, e.g. `10px Inter, sans-serif`. */
   font: string;
   align?: "left" | "center" | "right";
-  baseline?: "top" | "middle" | "bottom";
+  /** `alphabetic` + a cap-height offset = optical centering ("middle" centers
+      the em box, which sits uppercase labels visibly low in small chips). */
+  baseline?: "top" | "middle" | "bottom" | "alphabetic";
 };
 
 export type CircleStyle = {
@@ -35,6 +37,8 @@ export interface Painter {
   /** Clear the whole layer to transparent. */
   clear(): void;
   fillRect(x: number, y: number, w: number, h: number, color: string): void;
+  /** fillRect with rounded corners (no pixel snapping — antialiasing is the point). */
+  roundRect(x: number, y: number, w: number, h: number, r: number, color: string): void;
   line(x1: number, y1: number, x2: number, y2: number, style: StrokeStyle): void;
   polyline(points: readonly { x: number; y: number }[], style: StrokeStyle): void;
   circle(x: number, y: number, r: number, style: CircleStyle): void;
