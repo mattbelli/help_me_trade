@@ -6,7 +6,15 @@
  */
 
 import type { Painter } from "./painter";
-import { autoPriceRange, priceAt, visibleBarRange, xOf, yOf, indexAt } from "./scales";
+import {
+  autoPriceRange,
+  indexAt,
+  indexOfTime,
+  priceAt,
+  visibleBarRange,
+  xOf,
+  yOf,
+} from "./scales";
 import { crosshairTimeLabel, priceTicks, timeTicks, type PriceTick, type TimeTick } from "./ticks";
 import {
   PRICE_AXIS_WIDTH,
@@ -15,6 +23,7 @@ import {
   type ChartStyle,
   type EngineBar,
   type EngineColors,
+  type EngineOverlays,
   type PriceRange,
   type Rect,
   type Viewport,
@@ -105,6 +114,8 @@ export type SceneInput = {
   priceOverride?: PriceRange | null;
   /** Ext-hours quote to mark with a dashed line + axis chip. Null = hidden. */
   extPrice?: number | null;
+  /** Alert/level/drawing primitives, colors pre-resolved by the wrapper. */
+  overlays?: EngineOverlays | null;
 };
 
 /** Paint the full scene (grid, series, volume, axes, last-price line). */
@@ -183,6 +194,56 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
             const top = Math.min(yO, yC);
             p.fillRect(x - bodyW / 2, top, bodyW, Math.max(1, Math.abs(yC - yO)), color);
           }
+        }
+      }
+    });
+  }
+
+  // Overlays: alert/level lines + drawing segments, over the series but under
+  // the last-price line. Out-of-range lines simply don't draw (hide, never
+  // clamp — cross-client convention, RN_SKIA_CHART_RELAY.md §2).
+  if (input.overlays) {
+    const { lines, segments } = input.overlays;
+    p.withClip(price.x, price.y, price.w, price.h, () => {
+      for (const l of lines) {
+        const y = yOf(l.price, priceRange, price.y, price.h);
+        if (y < price.y || y > price.y + price.h) continue;
+        p.line(pane.x, y, pane.x + pane.w, y, {
+          color: l.color,
+          width: 1,
+          dash: l.dash,
+        });
+        if (l.label) {
+          p.text(l.label, pane.x + 4, y - 3, {
+            color: l.color,
+            font,
+            align: "left",
+            baseline: "bottom",
+          });
+        }
+      }
+      for (const s of segments) {
+        const x1 = xOf(indexOfTime(bars, s.a.time), vp, pane.w);
+        const x2 = xOf(indexOfTime(bars, s.b.time), vp, pane.w);
+        const y1 = yOf(s.a.price, priceRange, price.y, price.h);
+        const y2 = yOf(s.b.price, priceRange, price.y, price.h);
+        p.polyline(
+          [
+            { x: x1, y: y1 },
+            { x: x2, y: y2 },
+          ],
+          { color: s.color, width: 1 },
+        );
+        if (s.parallelOffset) {
+          const o1 = yOf(s.a.price + s.parallelOffset, priceRange, price.y, price.h);
+          const o2 = yOf(s.b.price + s.parallelOffset, priceRange, price.y, price.h);
+          p.polyline(
+            [
+              { x: x1, y: o1 },
+              { x: x2, y: o2 },
+            ],
+            { color: s.color, width: 1 },
+          );
         }
       }
     });

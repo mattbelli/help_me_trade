@@ -48,6 +48,36 @@ export type Viewport = {
 
 export type PriceRange = { min: number; max: number };
 
+// --- Overlays (Phase 2) --------------------------------------------------------------
+// The engine renders two generic primitives; the wrapper composes price
+// alerts, session-node levels, and saved drawings into them with resolved
+// colors. Anchors are data-space {time (epoch ms), price} per the
+// cross-client contract (RN_SKIA_CHART_RELAY.md §5).
+
+/** Horizontal line across the pane at a price. */
+export type OverlayLine = {
+  price: number;
+  color: string;
+  /** Dash pattern in logical px; omit for solid. */
+  dash?: number[];
+  /** Small tag drawn above the line at the pane's left edge. */
+  label?: string;
+};
+
+/** Segment between two data-space anchors (trendline / channel leg). */
+export type OverlaySegment = {
+  a: { time: number; price: number };
+  b: { time: number; price: number };
+  color: string;
+  /** Channel: draws a second leg offset by this many price units. */
+  parallelOffset?: number;
+};
+
+export type EngineOverlays = {
+  lines: OverlayLine[];
+  segments: OverlaySegment[];
+};
+
 export type EngineOptions = {
   colors: EngineColors;
   style: ChartStyle;

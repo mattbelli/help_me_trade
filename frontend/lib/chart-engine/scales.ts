@@ -159,6 +159,37 @@ export function autoPriceRange(
 }
 
 /**
+ * Fractional bar index for a timestamp (epoch ms) — the data-space → bar-index
+ * bridge for overlay anchors. Interpolates between the surrounding bars;
+ * beyond the ends it extrapolates using the adjacent bar interval (so a
+ * weekend anchor lands just right of Friday instead of at a wall-clock hole).
+ */
+export function indexOfTime(bars: readonly EngineBar[], timeMs: number): number {
+  const n = bars.length;
+  if (n === 0) return 0;
+  const first = bars[0].time;
+  const last = bars[n - 1].time;
+  if (n === 1) return 0;
+  if (timeMs <= first) {
+    const step = bars[1].time - first;
+    return step > 0 ? (timeMs - first) / step : 0;
+  }
+  if (timeMs >= last) {
+    const step = last - bars[n - 2].time;
+    return n - 1 + (step > 0 ? (timeMs - last) / step : 0);
+  }
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].time <= timeMs) lo = mid;
+    else hi = mid;
+  }
+  const span = bars[hi].time - bars[lo].time;
+  return span > 0 ? lo + (timeMs - bars[lo].time) / span : lo;
+}
+
+/**
  * Scale a price range around its center (price-axis drag → manual scale).
  * Factor >1 expands (zoom out), <1 contracts. Span is floored so repeated
  * contraction can never collapse or invert the range.

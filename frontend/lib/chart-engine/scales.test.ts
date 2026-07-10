@@ -5,6 +5,7 @@ import {
   clampViewport,
   defaultViewport,
   indexAt,
+  indexOfTime,
   pan,
   priceAt,
   scaleRangeAround,
@@ -175,6 +176,26 @@ describe("autoPriceRange", () => {
     const vp: Viewport = { barSpacing: 8, rightEdgeIndex: 999 };
     const r = autoPriceRange(bars, vp, W, "candle");
     expect(r.min).toBeGreaterThan(bars[0].low + 100); // early lows excluded
+  });
+});
+
+describe("indexOfTime", () => {
+  it("maps exact bar times to integer indices and interpolates between", () => {
+    const bars = mkBars(10); // 5-min spacing (300_000ms)
+    expect(indexOfTime(bars, bars[0].time)).toBe(0);
+    expect(indexOfTime(bars, bars[7].time)).toBe(7);
+    expect(indexOfTime(bars, bars[3].time + 150_000)).toBeCloseTo(3.5, 9);
+  });
+
+  it("extrapolates past both ends using the adjacent interval", () => {
+    const bars = mkBars(10);
+    expect(indexOfTime(bars, bars[0].time - 600_000)).toBeCloseTo(-2, 9);
+    expect(indexOfTime(bars, bars[9].time + 300_000)).toBeCloseTo(10, 9);
+  });
+
+  it("handles degenerate inputs", () => {
+    expect(indexOfTime([], 123)).toBe(0);
+    expect(indexOfTime(mkBars(1), 999)).toBe(0);
   });
 });
 

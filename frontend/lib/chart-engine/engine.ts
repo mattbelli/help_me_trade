@@ -26,6 +26,7 @@ import {
   type EngineBar,
   type EngineColors,
   type EngineOptions,
+  type EngineOverlays,
   type PriceRange,
   type Viewport,
 } from "./types";
@@ -67,6 +68,8 @@ export class ChartEngine {
   private priceOverride: PriceRange | null = null;
   /** Ext-hours quote line (null = hidden) — the wrapper owns the session gating. */
   private extPrice: number | null = null;
+  /** Alert/level/drawing primitives (wrapper-composed, colors resolved). */
+  private overlays: EngineOverlays | null = null;
   private lastHoverIndex: number | null = null;
   // Live ticks mutate the hovered bar in place without moving the cursor —
   // the legend callback must re-fire on value change, not just index change.
@@ -187,6 +190,12 @@ export class ChartEngine {
   setColors(colors: EngineColors): void {
     this.colors = colors;
     this.invalidate("both");
+  }
+
+  /** Replace the overlay set (alerts/levels/drawings). Null clears. */
+  setOverlays(overlays: EngineOverlays | null): void {
+    this.overlays = overlays;
+    this.invalidate("scene");
   }
 
   /** Show/refresh (number) or hide (null) the ext-hours price line. */
@@ -380,6 +389,7 @@ export class ChartEngine {
         fontFamily: this.fontFamily,
         priceOverride: this.priceOverride,
         extPrice: this.extPrice,
+        overlays: this.overlays,
       });
       this.perfSceneMs = performance.now() - t0;
       // The crosshair sits over repositioned content — keep it in sync.

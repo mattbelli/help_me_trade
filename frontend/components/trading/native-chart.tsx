@@ -2,12 +2,26 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { StockBar } from "@/lib/api";
+import {
+  fetchDrawings,
+  fetchPriceAlerts,
+  fetchSessionLevels,
+  type ChartDrawing,
+  type PriceAlert,
+  type SessionLevel,
+  type StockBar,
+} from "@/lib/api";
 import { fetchBarsCached, invalidateBars } from "@/lib/bars-cache";
 import { resolveCssColor, withAlpha } from "@/lib/chart-colors";
 import { ChartEngine } from "@/lib/chart-engine/engine";
 import { crosshairTimeLabel } from "@/lib/chart-engine/ticks";
-import type { EngineBar, EngineColors } from "@/lib/chart-engine/types";
+import type {
+  EngineBar,
+  EngineColors,
+  EngineOverlays,
+  OverlayLine,
+  OverlaySegment,
+} from "@/lib/chart-engine/types";
 import {
   CHART_TIMEFRAMES,
   formatVolume,
@@ -35,12 +49,43 @@ type Props = {
   compact?: boolean;
   /** ETH candles — defaults ON for intraday; ignored on daily+. */
   extended?: boolean;
+  /** Session-node levels (frame's ☰ menu). */
+  showLevels?: boolean;
+  /** Eye-menu visibility toggles. Undefined = shown. */
+  showAlerts?: boolean;
+  showDrawings?: boolean;
 };
 
 // Rollover/refetch cadence: the bars cache TTL is the real gate — this just
 // polls it (a cache hit is free), so forming-bar rollover lags TTL, not this.
 const INTRADAY_REFRESH_MS = 30_000;
 const DAILY_REFRESH_MS = 300_000;
+// Overlay polls (match TvLightChart's alert cadence; drawings change rarely).
+const ALERTS_POLL_MS = 20_000;
+const DRAWINGS_POLL_MS = 60_000;
+
+/** Alert-line colors per direction — cross-client convention (relay §2). */
+function alertColor(direction: string): string {
+  if (direction === "above") return withAlpha(resolveCssColor("--c-green", "#5bc98a"), 0.55);
+  if (direction === "below") return withAlpha(resolveCssColor("--c-red", "#ef6f6c"), 0.55);
+  return withAlpha(resolveCssColor("--fg-dim", "#9aa1ab"), 0.55);
+}
+
+/** Session-node level colors by kind — mirrors TvLightChart's palette. */
+function sessionLevelColor(kind: SessionLevel["kind"]): string {
+  switch (kind) {
+    case "support":
+      return resolveCssColor("--c-green", "#5bc98a");
+    case "resistance":
+      return resolveCssColor("--c-red", "#ef6f6c");
+    case "poc":
+      return resolveCssColor("--c-amber", "#e0975b");
+    case "prior_high":
+      return resolveCssColor("--c-blue", "#6cb0ff");
+    default:
+      return resolveCssColor("--fg-faint", "#616873");
+  }
+}
 
 function resolveEngineColors(): EngineColors {
   const up = resolveCssColor("--chart-accent", "#5ad1be");
@@ -83,6 +128,9 @@ export function NativeChart({
   marketSession,
   compact: _compact = false,
   extended = true,
+  showLevels = false,
+  showAlerts = true,
+  showDrawings = true,
 }: Props) {
   const timeframe = timeframeProp ?? CHART_TIMEFRAMES[5];
   const showExt = extended && timeframe.intraday;
@@ -103,6 +151,9 @@ export function NativeChart({
   const [legend, setLegend] = useState("");
   const [themeNonce, setThemeNonce] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [levels, setLevels] = useState<SessionLevel[]>([]);
+  const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
 
   useEffect(() => {
     styleRef.current = style;
@@ -151,6 +202,104 @@ export function NativeChart({
         marketSession === "closed");
     engineRef.current?.setExtPrice(show ? extPrice : null);
   }, [extPrice, marketSession, timeframe.intraday]);
+
+  // Overlay data — same sources the TV chart reads. Fail-soft to empty.
+  useEffect(() => {
+    if (!showAlerts) {
+      setAlerts([]);
+      return;
+    }
+    let cancelled = false;
+    const load = () =>
+      fetchPriceAlerts(symbol)
+        .then((a) => !cancelled && setAlerts(a))
+        .catch(() => !cancelled && setAlerts([]));
+    void load();
+    const id = setInterval(load, ALERTS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [symbol, showAlerts]);
+
+  useEffect(() => {
+    if (!showLevels) {
+      setLevels([]);
+      return;
+    }
+    let cancelled = false;
+    fetchSessionLevels(symbol)
+      .then((r) => !cancelled && setLevels(r.levels))
+      .catch(() => !cancelled && setLevels([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, showLevels]);
+
+  useEffect(() => {
+    if (!showDrawings) {
+      setDrawings([]);
+      return;
+    }
+    let cancelled = false;
+    const load = () =>
+      fetchDrawings(symbol)
+        .then((d) => !cancelled && setDrawings(d))
+        .catch(() => !cancelled && setDrawings([]));
+    void load();
+    const id = setInterval(load, DRAWINGS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [symbol, showDrawings]);
+
+  // Compose alerts/levels/drawings into engine primitives with resolved
+  // colors. Re-runs on theme change and after an engine recreation
+  // (timeframe.intraday dep — the new instance needs the set re-applied).
+  useEffect(() => {
+    const lines: OverlayLine[] = [];
+    const segments: OverlaySegment[] = [];
+    for (const a of alerts) {
+      if (a.triggered && !a.repeat) continue;
+      lines.push({
+        price: a.price,
+        color: alertColor(a.direction),
+        dash: [6, 4],
+        label: "🔔",
+      });
+    }
+    for (const l of levels) {
+      lines.push({
+        price: l.price,
+        color: withAlpha(sessionLevelColor(l.kind), 0.7),
+        dash: [2, 3],
+        label: l.name,
+      });
+    }
+    const accent = resolveCssColor("--c-accent", "#5ad1be");
+    for (const d of drawings) {
+      // Legacy rows store raw hex; render it. Semantic names map to theme
+      // colors per the cross-client contract (relay §5.1).
+      const color = d.data.color ?? accent;
+      if (d.kind === "level" && d.data.price != null) {
+        lines.push({ price: d.data.price, color, dash: [1, 3] });
+      } else if (d.data.points && d.data.points.length >= 2) {
+        const [a, b] = d.data.points;
+        if (a.time == null || b.time == null) continue;
+        segments.push({
+          a: { time: a.time * 1000, price: a.price },
+          b: { time: b.time * 1000, price: b.price },
+          color,
+          parallelOffset: d.kind === "channel" ? d.data.width : undefined,
+        });
+      }
+    }
+    const overlays: EngineOverlays = { lines, segments };
+    engineRef.current?.setOverlays(
+      lines.length || segments.length ? overlays : null,
+    );
+  }, [alerts, levels, drawings, themeNonce, timeframe.intraday]);
 
   // Theme changes (mode toggle or custom-theme var edits) re-resolve colors.
   useEffect(() => {
