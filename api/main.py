@@ -2705,7 +2705,7 @@ def _compute_rvol_from_total_volume(
     return round(total_volume / expected, 2)
 
 
-_OPTIONS_CHAIN_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+_OPTIONS_CHAIN_CACHE: dict[tuple[str, str, str], tuple[float, dict]] = {}
 _OPTIONS_CHAIN_TTL_S = 30.0
 
 
@@ -2788,10 +2788,90 @@ def _pick_nearest_expiry(expirations: list[str], today_et: str) -> str | None:
     return expirations[-1]
 
 
+def _parse_chain_timestamp(raw: object) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        s = str(raw).strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def _snapshot_as_of_time(snapshot: dict | None) -> datetime | None:
+    if not isinstance(snapshot, dict):
+        return None
+    quote = snapshot.get("latestQuote") or snapshot.get("latest_quote")
+    if isinstance(quote, dict):
+        ts = _parse_chain_timestamp(quote.get("t"))
+        if ts is not None:
+            return ts
+    trade = snapshot.get("latestTrade") or snapshot.get("latest_trade")
+    if isinstance(trade, dict):
+        return _parse_chain_timestamp(trade.get("t"))
+    return None
+
+
+def _is_expiry_tradeable(expiry: str, now_et: datetime) -> bool:
+    from datetime import time as dt_time
+
+    try:
+        exp_date = datetime.fromisoformat(expiry[:10]).date()
+    except ValueError:
+        return False
+    today = now_et.date()
+    if exp_date < today:
+        return False
+    if exp_date == today and now_et.time() > dt_time(16, 0):
+        return False
+    return True
+
+
+def _pick_default_expiry(expirations: list[str], now_et: datetime) -> str | None:
+    for exp in expirations:
+        if _is_expiry_tradeable(exp, now_et):
+            return exp
+    return expirations[-1] if expirations else None
+
+
+def _window_strikes_rows(
+    rows: list[dict],
+    underlying_price: float | None,
+    strikes_param: str | int,
+) -> list[dict]:
+    if str(strikes_param).lower() == "all":
+        return rows
+    try:
+        n = int(strikes_param)
+    except (TypeError, ValueError):
+        n = 10
+    if n <= 0 or not rows:
+        return rows
+    if underlying_price is None:
+        mid = len(rows) // 2
+        half = n // 2
+        start = max(0, mid - half)
+        return rows[start : start + n]
+    ranked = sorted(rows, key=lambda r: abs(r["strike"] - underlying_price))
+    picked = ranked[:n]
+    return sorted(picked, key=lambda r: r["strike"])
+
+
+def _format_chain_as_of(times: list[datetime]) -> str | None:
+    if not times:
+        return None
+    latest = max(times)
+    iso = latest.astimezone(timezone.utc).isoformat()
+    return iso.replace("+00:00", "Z")
+
+
 def _build_options_chain_sync(
     broker: AlpacaAdapter,
     symbol: str,
     expiry_param: str | None,
+    strikes_param: str | int = 10,
 ) -> dict:
     from imports.option_symbol import parse_occ_symbol
 
@@ -2821,13 +2901,14 @@ def _build_options_chain_sync(
             expirations_set.add(exp)
     expirations = sorted(expirations_set)
 
+    now_et = datetime.now(_ET)
     if expiry_param:
         requested = expiry_param.strip()[:10]
         chosen = requested if requested in expirations_set else _pick_nearest_expiry(
             expirations, today_et
         )
     else:
-        chosen = _pick_nearest_expiry(expirations, today_et)
+        chosen = _pick_default_expiry(expirations, now_et)
 
     underlying_price: float | None = None
     try:
@@ -2875,6 +2956,7 @@ def _build_options_chain_sync(
         )
 
     rows: list[dict] = []
+    row_times: dict[float, list[datetime]] = {}
     if chosen:
         for strike in sorted(strike_map.keys()):
             sides = strike_map[strike]
@@ -2882,6 +2964,13 @@ def _build_options_chain_sync(
             put_pair = sides.get("put")
             call_occ, call_snap = call_pair if call_pair else (None, {})
             put_occ, put_snap = put_pair if put_pair else (None, {})
+            times: list[datetime] = []
+            for snap in (call_snap, put_snap):
+                ts = _snapshot_as_of_time(snap)
+                if ts is not None:
+                    times.append(ts)
+            if times:
+                row_times[strike] = times
             rows.append(
                 {
                     "strike": strike,
@@ -2896,17 +2985,28 @@ def _build_options_chain_sync(
                 }
             )
 
+    rows = _window_strikes_rows(rows, underlying_price, strikes_param)
+    as_of_times: list[datetime] = []
+    for row in rows:
+        as_of_times.extend(row_times.get(row["strike"], []))
+    as_of = _format_chain_as_of(as_of_times)
+
     return {
         "symbol": sym,
         "underlying_price": underlying_price,
         "expirations": expirations,
         "expiry": chosen,
         "rows": rows,
+        "as_of": as_of,
     }
 
 
 @app.get("/api/options-chain")
-async def api_options_chain(symbol: str = "", expiry: str | None = None):
+async def api_options_chain(
+    symbol: str = "",
+    expiry: str | None = None,
+    strikes: str = "10",
+):
     """Read-only OPRA option chain for one underlying + expiration."""
     broker = _require_alpaca()
     if isinstance(broker, JSONResponse):
@@ -2916,8 +3016,24 @@ async def api_options_chain(symbol: str = "", expiry: str | None = None):
     if not sym:
         return JSONResponse({"error": "symbol required"}, status_code=400)
 
+    strikes_key = strikes.strip().lower() if strikes else "10"
+    if strikes_key != "all":
+        try:
+            n = int(strikes_key)
+            if n <= 0:
+                return JSONResponse(
+                    {"error": "strikes must be a positive integer or 'all'"},
+                    status_code=400,
+                )
+            strikes_key = str(n)
+        except ValueError:
+            return JSONResponse(
+                {"error": "strikes must be a positive integer or 'all'"},
+                status_code=400,
+            )
+
     cache_expiry = (expiry or "").strip()[:10] if expiry else ""
-    cache_key = (sym, cache_expiry)
+    cache_key = (sym, cache_expiry, strikes_key)
     now = time.time()
     hit = _OPTIONS_CHAIN_CACHE.get(cache_key)
     if hit is not None and now - hit[0] < _OPTIONS_CHAIN_TTL_S:
@@ -2925,7 +3041,7 @@ async def api_options_chain(symbol: str = "", expiry: str | None = None):
 
     try:
         result = await asyncio.to_thread(
-            _build_options_chain_sync, broker, sym, expiry
+            _build_options_chain_sync, broker, sym, expiry, strikes_key
         )
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)

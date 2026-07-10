@@ -655,15 +655,20 @@ export type OptionsChainResult = {
   expirations: string[];
   expiry: string | null;
   rows: OptionsChainRow[];
+  as_of: string | null;
 };
+
+export type OptionsChainStrikes = 6 | 10 | 20 | 40 | "all";
 
 // OPRA option chain snapshot for one underlying + expiration (read-only).
 export async function fetchOptionsChain(
   symbol: string,
   expiry?: string,
+  strikes: OptionsChainStrikes | number = 10,
 ): Promise<OptionsChainResult> {
   const params = new URLSearchParams({
     symbol: symbol.trim().toUpperCase(),
+    strikes: String(strikes),
   });
   if (expiry) {
     params.set("expiry", expiry.trim().slice(0, 10));

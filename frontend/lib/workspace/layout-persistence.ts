@@ -21,6 +21,8 @@ export type WidgetInstanceConfig = {
   /** Chart eye menu — visibility toggles. Undefined = shown. */
   showAlerts?: boolean;
   showDrawings?: boolean;
+  /** Options chain: strike-count window around the money (6..40 | "all"). */
+  strikes?: number | "all";
 };
 
 export type WorkspaceLayoutItem = {

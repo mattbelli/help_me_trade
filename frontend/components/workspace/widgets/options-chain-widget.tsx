@@ -9,6 +9,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { SymbolSearchInput } from "@/components/workspace/symbol-search-input";
 import {
@@ -20,15 +21,38 @@ import {
   fetchOptionsChain,
   type OptionsChainResult,
   type OptionsChainRow,
-  type OptionsChainSide,
+  type OptionsChainStrikes,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { ChannelId } from "@/lib/workspace/channels";
+import type { WidgetInstanceConfig } from "@/lib/workspace/layout-persistence";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 
 const POLL_MS = 30_000;
+const STALE_MS = 20 * 60 * 1000;
+
+const STRIKES_OPTIONS: OptionsChainStrikes[] = [6, 10, 20, 40, "all"];
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+type OptionsChainWidgetConfig = WidgetInstanceConfig & {
+  strikes?: OptionsChainStrikes;
+};
 
 const dragSafeControlProps = {
   onClick: (e: MouseEvent) => e.stopPropagation(),
@@ -58,57 +82,93 @@ function formatPrice(val: number | null): string {
   return val.toFixed(2);
 }
 
-function dteFromExpiry(expiry: string | null): number | null {
-  if (!expiry) return null;
-  try {
-    const exp = new Date(`${expiry}T12:00:00`);
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
-    return Math.round((exp.getTime() - today.getTime()) / 86_400_000);
-  } catch {
-    return null;
-  }
+function todayEtIso(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
-function nearestStrike(
+function dteFromExpiryEt(expiry: string): number {
+  const exp = new Date(`${expiry.slice(0, 10)}T12:00:00`);
+  const today = new Date(`${todayEtIso()}T12:00:00`);
+  return Math.round((exp.getTime() - today.getTime()) / 86_400_000);
+}
+
+function isMonthlyExpiry(expiry: string): boolean {
+  const d = new Date(`${expiry.slice(0, 10)}T12:00:00`);
+  if (d.getDay() !== 5) return false;
+  const day = d.getDate();
+  return day >= 15 && day <= 21;
+}
+
+function formatExpiryLabel(expiry: string): string {
+  const month = Number.parseInt(expiry.slice(5, 7), 10);
+  const day = Number.parseInt(expiry.slice(8, 10), 10);
+  const mon = month >= 1 && month <= 12 ? MONTHS[month - 1] : "???";
+  const weekly = !isMonthlyExpiry(expiry) ? " (W)" : "";
+  const dte = dteFromExpiryEt(expiry);
+  return `${mon} ${day}${weekly} · ${dte}d`;
+}
+
+function formatAsOfEt(asOf: string): string {
+  return new Date(asOf)
+    .toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .toLowerCase();
+}
+
+function isStale(asOf: string | null | undefined): boolean {
+  if (!asOf) return false;
+  const t = new Date(asOf).getTime();
+  return Number.isFinite(t) && Date.now() - t > STALE_MS;
+}
+
+function spotDividerAfterIndex(
   rows: OptionsChainRow[],
   price: number | null,
 ): number | null {
-  if (price == null || rows.length === 0) return null;
-  let best = rows[0]!.strike;
-  let bestDist = Math.abs(best - price);
-  for (const row of rows) {
-    const dist = Math.abs(row.strike - price);
-    if (dist < bestDist) {
-      best = row.strike;
-      bestDist = dist;
+  if (price == null || rows.length < 2) return null;
+  for (let i = 0; i < rows.length - 1; i++) {
+    if (rows[i]!.strike < price && rows[i + 1]!.strike > price) {
+      return i;
     }
   }
-  return best;
+  return null;
 }
 
-function itmClass(
+function itmTint(
   side: "call" | "put",
   strike: number,
   underlying: number | null,
 ): string {
-  if (underlying == null) return "text-[var(--fg-dim)]";
+  if (underlying == null) return "";
   const itm =
     side === "call" ? strike < underlying : strike > underlying;
-  return itm ? "text-[var(--fg)]" : "text-[var(--fg-dim)]";
+  return itm ? "bg-[color-mix(in_srgb,var(--bg-hover)_55%,transparent)]" : "";
 }
 
-function ChainCell({
+function NullCell({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-[var(--fg-faint)] tabular-nums">{children}</span>
+  );
+}
+
+function ValueCell({
   children,
   className,
+  muted,
 }: {
   children: React.ReactNode;
   className?: string;
+  muted?: boolean;
 }) {
   return (
     <span
       className={cn(
-        "tabular-nums text-[length:var(--fs-micro)]",
+        "tabular-nums text-[length:var(--fs-table)]",
+        muted ? "text-[var(--fg-dim)]" : "text-[var(--fg)]",
         className,
       )}
     >
@@ -117,60 +177,243 @@ function ChainCell({
   );
 }
 
-function SideCells({
-  side,
-  data,
-  strike,
-  underlying,
-}: {
-  side: "call" | "put";
-  data: OptionsChainSide;
-  strike: number;
-  underlying: number | null;
-}) {
-  const fg = itmClass(side, strike, underlying);
-  const narrowCells = [formatPrice(data.bid), formatPrice(data.ask), formatIv(data.iv)];
-  const wideCells =
-    side === "call"
-      ? [
-          formatCompact(data.volume),
-          formatCompact(data.oi),
-          formatIv(data.iv),
-          formatGreek(data.delta),
-          formatPrice(data.bid),
-          formatPrice(data.ask),
-        ]
-      : [
-          formatPrice(data.bid),
-          formatPrice(data.ask),
-          formatGreek(data.delta),
-          formatIv(data.iv),
-          formatCompact(data.oi),
-          formatCompact(data.volume),
-        ];
+function renderPrice(val: number | null, tone: "bid" | "ask" | "last") {
+  const text = formatPrice(val);
+  if (text === "—") return <NullCell>{text}</NullCell>;
+  const color =
+    tone === "bid"
+      ? "text-[var(--c-green)]"
+      : tone === "ask"
+        ? "text-[var(--c-red)]"
+        : "text-[var(--fg)]";
+  return <ValueCell className={color}>{text}</ValueCell>;
+}
 
-  const align =
-    side === "call" ? "justify-end text-right" : "justify-start text-left";
+function renderMetric(
+  val: number | null,
+  formatter: (v: number | null) => string,
+  muted = false,
+) {
+  const text = formatter(val);
+  if (text === "—") return <NullCell>{text}</NullCell>;
+  return <ValueCell muted={muted}>{text}</ValueCell>;
+}
+
+function ChainHeader({ wide }: { wide: boolean }) {
+  const labelClass =
+    "text-right text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
+  const strikeClass =
+    "text-center text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)] border-x border-[var(--border)] px-2";
+
+  if (wide) {
+    return (
+      <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_auto_repeat(7,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+        {(["oi", "vol", "iv", "δ", "last", "ask", "bid"] as const).map(
+          (label) => (
+            <span key={`c-${label}`} className={labelClass}>
+              {label}
+            </span>
+          ),
+        )}
+        <span className={strikeClass}>strike</span>
+        {(["bid", "ask", "last", "δ", "iv", "vol", "oi"] as const).map(
+          (label) => (
+            <span key={`p-${label}`} className={labelClass}>
+              {label}
+            </span>
+          ),
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="min-w-0">
-      <div className={cn("flex min-w-0 items-center gap-1 @[32rem]:hidden", align)}>
-        {narrowCells.map((text, idx) => (
-          <ChainCell key={idx} className={fg}>
-            {text}
-          </ChainCell>
+    <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_auto_repeat(3,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+      {(["last", "ask", "bid"] as const).map((label) => (
+        <span key={`c-${label}`} className={labelClass}>
+          {label}
+        </span>
+      ))}
+      <span className={strikeClass}>strike</span>
+      {(["bid", "ask", "last"] as const).map((label) => (
+        <span key={`p-${label}`} className={labelClass}>
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ChainRow({
+  row,
+  underlying,
+  wide,
+  onStrikeClick,
+  linked,
+}: {
+  row: OptionsChainRow;
+  underlying: number | null;
+  wide: boolean;
+  onStrikeClick: () => void;
+  linked: boolean;
+}) {
+  const call = row.call;
+  const put = row.put;
+  const callTint = itmTint("call", row.strike, underlying);
+  const putTint = itmTint("put", row.strike, underlying);
+  const strikeLabel =
+    row.strike === Math.trunc(row.strike)
+      ? row.strike.toFixed(0)
+      : String(row.strike);
+
+  const callWide = [
+    renderMetric(call.oi, formatCompact, true),
+    renderMetric(call.volume, formatCompact, true),
+    renderMetric(call.iv, formatIv),
+    renderMetric(call.delta, (v) => formatGreek(v)),
+    renderPrice(call.last, "last"),
+    renderPrice(call.ask, "ask"),
+    renderPrice(call.bid, "bid"),
+  ];
+  const putWide = [
+    renderPrice(put.bid, "bid"),
+    renderPrice(put.ask, "ask"),
+    renderPrice(put.last, "last"),
+    renderMetric(put.delta, (v) => formatGreek(v)),
+    renderMetric(put.iv, formatIv),
+    renderMetric(put.volume, formatCompact, true),
+    renderMetric(put.oi, formatCompact, true),
+  ];
+  const callNarrow = [
+    renderPrice(call.last, "last"),
+    renderPrice(call.ask, "ask"),
+    renderPrice(call.bid, "bid"),
+  ];
+  const putNarrow = [
+    renderPrice(put.bid, "bid"),
+    renderPrice(put.ask, "ask"),
+    renderPrice(put.last, "last"),
+  ];
+
+  const gridClass = wide
+    ? "grid-cols-[repeat(7,minmax(0,1fr))_auto_repeat(7,minmax(0,1fr))]"
+    : "grid-cols-[repeat(3,minmax(0,1fr))_auto_repeat(3,minmax(0,1fr))]";
+
+  return (
+    <button
+      type="button"
+      onClick={onStrikeClick}
+      className={cn(
+        "grid w-full items-center gap-0 border-b border-[var(--border)] px-2 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]",
+        gridClass,
+        linked ? "cursor-pointer" : "cursor-default",
+      )}
+    >
+      {(wide ? callWide : callNarrow).map((cell, idx) => (
+        <span key={`c-${idx}`} className={cn("text-right", callTint)}>
+          {cell}
+        </span>
+      ))}
+      <span className="border-x border-[var(--border)] px-2 text-center text-[length:var(--fs-table)] font-medium tabular-nums text-foreground">
+        {strikeLabel}
+      </span>
+      {(wide ? putWide : putNarrow).map((cell, idx) => (
+        <span key={`p-${idx}`} className={cn("text-right", putTint)}>
+          {cell}
+        </span>
+      ))}
+    </button>
+  );
+}
+
+function SpotDividerRow({
+  symbol,
+  price,
+  innerRef,
+}: {
+  symbol: string;
+  price: number;
+  innerRef?: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div
+      ref={innerRef}
+      className="border-y border-[var(--border)] px-2 py-0.5 text-center text-[length:var(--fs-table)] text-[var(--c-accent)] tabular-nums"
+    >
+      {symbol} · {price.toFixed(2)}
+    </div>
+  );
+}
+
+function ChainTable({
+  data,
+  symbol,
+  linked,
+  onPublish,
+}: {
+  data: OptionsChainResult;
+  symbol: string;
+  linked: boolean;
+  onPublish: () => void;
+}) {
+  const spotRef = useRef<HTMLDivElement | null>(null);
+  const rows = data.rows;
+  const underlying = data.underlying_price;
+  const dividerAfter = spotDividerAfterIndex(rows, underlying);
+
+  useEffect(() => {
+    if (dividerAfter == null || !spotRef.current) return;
+    spotRef.current.scrollIntoView({ block: "center" });
+  }, [data.expiry, dividerAfter, rows.length, underlying]);
+
+  if (rows.length === 0) {
+    return (
+      <WidgetEmpty message="No strikes in this window for this expiration." />
+    );
+  }
+
+  return (
+    <div className="@container min-h-0 overflow-auto scroll-shadow-y">
+      <div className="@[44rem]:hidden">
+        <ChainHeader wide={false} />
+        {rows.map((row, idx) => (
+          <div key={row.strike}>
+            <ChainRow
+              row={row}
+              underlying={underlying}
+              wide={false}
+              linked={linked}
+              onStrikeClick={onPublish}
+            />
+            {dividerAfter === idx ? (
+              <SpotDividerRow
+                symbol={symbol}
+                price={underlying!}
+                innerRef={spotRef}
+              />
+            ) : null}
+          </div>
         ))}
       </div>
-      <div
-        className={cn(
-          "hidden min-w-0 items-center gap-1 @[32rem]:flex",
-          align,
-        )}
-      >
-        {wideCells.map((text, idx) => (
-          <ChainCell key={idx} className={fg}>
-            {text}
-          </ChainCell>
+      <div className="hidden @[44rem]:block">
+        <ChainHeader wide />
+        {rows.map((row, idx) => (
+          <div key={row.strike}>
+            <ChainRow
+              row={row}
+              underlying={underlying}
+              wide
+              linked={linked}
+              onStrikeClick={onPublish}
+            />
+            {dividerAfter === idx ? (
+              <SpotDividerRow
+                symbol={symbol}
+                price={underlying!}
+                innerRef={spotRef}
+              />
+            ) : null}
+          </div>
         ))}
       </div>
     </div>
@@ -178,10 +421,18 @@ function SideCells({
 }
 
 export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
-  const [data, setData] = useState<OptionsChainResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  const chainConfig = config as OptionsChainWidgetConfig;
+  const strikes: OptionsChainStrikes = chainConfig.strikes ?? 10;
+
+  const [expirations, setExpirations] = useState<string[]>([]);
+  const [chainCache, setChainCache] = useState<Map<string, OptionsChainResult>>(
+    () => new Map(),
+  );
+  const [expandedExpiry, setExpandedExpiry] = useState<string | null>(null);
+  const [loadingExpiry, setLoadingExpiry] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedExpiry, setSelectedExpiry] = useState<string | undefined>();
+  const [asOf, setAsOf] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
   const channel: ChannelId = config.channel ?? "none";
@@ -207,20 +458,58 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
     }
   };
 
+  const setStrikes = (next: OptionsChainStrikes) => {
+    onConfigChange({ strikes: next });
+  };
+
   const { publish, linked } = usePublishSymbol(channel);
 
-  const effectiveExpiry = selectedExpiry ?? data?.expiry ?? undefined;
+  const loadExpiry = useCallback(
+    async (expiry: string, opts?: { silent?: boolean }) => {
+      if (!symbol) return;
+      if (!opts?.silent) setLoadingExpiry(expiry);
+      try {
+        const result = await fetchOptionsChain(symbol, expiry, strikes);
+        if (cancelledRef.current) return;
+        setChainCache((prev) => new Map(prev).set(expiry, result));
+        setAsOf(result.as_of);
+        setError(null);
+        return result;
+      } catch (err) {
+        if (cancelledRef.current) return;
+        if (!opts?.silent) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load options chain",
+          );
+        }
+        return null;
+      } finally {
+        if (!cancelledRef.current && !opts?.silent) {
+          setLoadingExpiry((cur) => (cur === expiry ? null : cur));
+        }
+      }
+    },
+    [symbol, strikes],
+  );
 
-  useEffect(() => {
-    setSelectedExpiry(undefined);
-  }, [symbol]);
-
-  const load = useCallback(async () => {
+  const loadInitial = useCallback(async () => {
     if (!symbol) return;
+    setInitialLoading(true);
+    setError(null);
+    setChainCache(new Map());
+    setExpandedExpiry(null);
     try {
-      const result = await fetchOptionsChain(symbol, effectiveExpiry);
+      const result = await fetchOptionsChain(symbol, undefined, strikes);
       if (cancelledRef.current) return;
-      setData(result);
+      setExpirations(result.expirations);
+      setAsOf(result.as_of);
+      const expiry = result.expiry;
+      if (expiry) {
+        setChainCache(new Map([[expiry, result]]));
+        setExpandedExpiry(expiry);
+      }
       setError(null);
     } catch (err) {
       if (cancelledRef.current) return;
@@ -228,44 +517,61 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
         err instanceof Error ? err.message : "Failed to load options chain",
       );
     } finally {
-      if (!cancelledRef.current) setLoading(false);
+      if (!cancelledRef.current) setInitialLoading(false);
     }
-  }, [symbol, effectiveExpiry]);
+  }, [symbol, strikes]);
 
   useEffect(() => {
     cancelledRef.current = false;
-    setLoading(true);
-    void load();
-    const timer = setInterval(() => void load(), POLL_MS);
+    void loadInitial();
     return () => {
       cancelledRef.current = true;
-      clearInterval(timer);
     };
-  }, [load]);
+  }, [loadInitial]);
 
-  const atmStrike = useMemo(
-    () => nearestStrike(data?.rows ?? [], data?.underlying_price ?? null),
-    [data?.rows, data?.underlying_price],
-  );
+  useEffect(() => {
+    if (!symbol || !expandedExpiry) return;
+    const timer = setInterval(() => {
+      void loadExpiry(expandedExpiry, { silent: true });
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [symbol, expandedExpiry, loadExpiry]);
 
-  const dte = dteFromExpiry(data?.expiry ?? null);
+  const handleToggleExpiry = (expiry: string) => {
+    if (expandedExpiry === expiry) return;
+    setExpandedExpiry(expiry);
+    if (!chainCache.has(expiry)) {
+      void loadExpiry(expiry);
+    } else {
+      const cached = chainCache.get(expiry);
+      if (cached) {
+        setAsOf(cached.as_of);
+      }
+    }
+  };
+
+  const expandedData = expandedExpiry
+    ? (chainCache.get(expandedExpiry) ?? null)
+    : null;
+
+  const staleNote = useMemo(() => {
+    if (!isStale(asOf)) return null;
+    return `as of ${formatAsOfEt(asOf!)} ET`;
+  }, [asOf]);
 
   if (!symbol) {
     return <WidgetEmpty message="Enter a symbol" />;
   }
-  if (loading && !data) {
+  if (initialLoading) {
     return <WidgetLoading cols={[2, 1, 2]} />;
   }
-  if (error && !data) {
-    return <WidgetError message={error} onRetry={load} />;
+  if (error && expirations.length === 0) {
+    return <WidgetError message={error} onRetry={loadInitial} />;
   }
-
-  const rows = data?.rows ?? [];
-  const expirations = data?.expirations ?? [];
 
   return (
     <div className="@container flex h-full flex-col overflow-hidden font-mono">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border)] px-2 py-1 text-[length:var(--fs-micro)] text-[var(--fg-dim)]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-2 py-1 text-[length:var(--fs-micro)] text-[var(--fg-dim)]">
         {manualMode ? (
           <SymbolSearchInput
             value={draftSymbol}
@@ -278,87 +584,80 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
         ) : (
           <span className="font-medium text-[var(--c-accent)]">{symbol}</span>
         )}
-        {data?.underlying_price != null ? (
-          <>
-            <span className="text-[var(--fg-faint)]">·</span>
-            <span className="tabular-nums text-[var(--fg)]">
-              ${data.underlying_price.toFixed(2)}
-            </span>
-          </>
-        ) : null}
         <span className="text-[var(--fg-faint)]">·</span>
         <select
           {...dragSafeControlProps}
-          value={data?.expiry ?? ""}
-          onChange={(e) => setSelectedExpiry(e.target.value)}
-          className="workspace-no-drag max-w-[9rem] truncate rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1 py-0.5 text-[length:var(--fs-micro)] text-[var(--fg)] outline-none focus:border-[var(--c-accent)]"
-          aria-label="Expiration"
+          value={String(strikes)}
+          onChange={(e) => {
+            const raw = e.target.value;
+            const next =
+              raw === "all"
+                ? "all"
+                : (Number.parseInt(raw, 10) as OptionsChainStrikes);
+            setStrikes(next);
+          }}
+          className="workspace-no-drag rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1 py-0.5 text-[length:var(--fs-micro)] text-[var(--fg)] outline-none focus:border-[var(--c-accent)]"
+          aria-label="Strikes window"
         >
-          {expirations.length === 0 ? (
-            <option value="">no expirations</option>
-          ) : (
-            expirations.map((exp) => (
-              <option key={exp} value={exp}>
-                {exp}
-              </option>
-            ))
-          )}
+          {STRIKES_OPTIONS.map((opt) => (
+            <option key={String(opt)} value={String(opt)}>
+              strikes: {opt}
+            </option>
+          ))}
         </select>
-        {dte != null ? (
-          <>
-            <span className="text-[var(--fg-faint)]">·</span>
-            <span className="tabular-nums text-[var(--fg-faint)]">{dte}d</span>
-          </>
-        ) : null}
+        {staleNote ? (
+          <span className="ml-auto lowercase text-[var(--fg-faint)]">
+            {staleNote}
+          </span>
+        ) : (
+          <span className="ml-auto" />
+        )}
       </div>
 
-      {rows.length === 0 ? (
+      {expirations.length === 0 ? (
         <WidgetEmpty message="No option chain data for this symbol." />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
-          <div className="sticky top-0 z-10 grid grid-cols-[1fr_auto_1fr] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-            <span className="text-right @[32rem]:hidden">call bid · ask · iv</span>
-            <span className="hidden text-right @[32rem]:inline">
-              call vol · oi · iv · δ · bid · ask
-            </span>
-            <span className="text-center">strike</span>
-            <span className="@[32rem]:hidden">bid · ask · iv · put</span>
-            <span className="hidden @[32rem]:inline">
-              put bid · ask · δ · iv · oi · vol
-            </span>
-          </div>
+          {expirations.map((expiry) => {
+            const expanded = expandedExpiry === expiry;
+            const cached = chainCache.get(expiry);
+            const loading = loadingExpiry === expiry;
 
-          {rows.map((row) => {
-            const isAtm = atmStrike != null && row.strike === atmStrike;
             return (
-              <button
-                key={row.strike}
-                type="button"
-                onClick={() => publish(symbol)}
-                className={cn(
-                  "grid w-full grid-cols-[1fr_auto_1fr] items-center gap-1 border-b border-[var(--border)] px-2 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]",
-                  isAtm && "bg-[var(--bg-hover)]",
-                  linked ? "cursor-pointer" : "cursor-default",
-                )}
-              >
-                <SideCells
-                  side="call"
-                  data={row.call}
-                  strike={row.strike}
-                  underlying={data?.underlying_price ?? null}
-                />
-                <span className="px-2 text-center text-[length:var(--fs-table)] font-medium tabular-nums text-[var(--fg)]">
-                  {row.strike === Math.trunc(row.strike)
-                    ? row.strike.toFixed(0)
-                    : row.strike}
-                </span>
-                <SideCells
-                  side="put"
-                  data={row.put}
-                  strike={row.strike}
-                  underlying={data?.underlying_price ?? null}
-                />
-              </button>
+              <div key={expiry} className="border-b border-[var(--border)]">
+                <button
+                  type="button"
+                  {...dragSafeControlProps}
+                  onClick={() => handleToggleExpiry(expiry)}
+                  className="flex w-full items-center gap-1 px-2 py-1 text-left text-[length:var(--fs-table)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)]"
+                >
+                  {expanded ? (
+                    <ChevronDown className="size-3 shrink-0" />
+                  ) : (
+                    <ChevronRight className="size-3 shrink-0" />
+                  )}
+                  <span>{formatExpiryLabel(expiry)}</span>
+                </button>
+
+                {expanded ? (
+                  loading && !cached ? (
+                    <div className="px-2 py-2 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                      loading…
+                    </div>
+                  ) : cached ? (
+                    <ChainTable
+                      data={cached}
+                      symbol={symbol}
+                      linked={linked}
+                      onPublish={() => publish(symbol)}
+                    />
+                  ) : error ? (
+                    <div className="px-2 py-2 text-[length:var(--fs-micro)] text-[var(--c-red)]">
+                      {error}
+                    </div>
+                  ) : null
+                ) : null}
+              </div>
             );
           })}
         </div>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime as real_datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -51,6 +52,23 @@ def _chain_snapshots() -> dict:
             "greeks": {"delta": -0.4},
         },
     }
+
+
+def _ten_strike_chain() -> dict:
+    """~10 strikes around 200 for 2026-08-21 — ATM windowing tests."""
+    strikes = [180, 185, 190, 195, 200, 205, 210, 215, 220, 225]
+    chain: dict = {}
+    for strike in strikes:
+        strike_key = f"{int(strike * 1000):08d}"
+        chain[f"NVDA260821C{strike_key}"] = {
+            "latestQuote": {"bp": 1.0, "ap": 1.1, "t": "2026-07-09T20:00:00Z"},
+        }
+        chain[f"NVDA260821P{strike_key}"] = {
+            "latestQuote": {"bp": 0.9, "ap": 1.0, "t": "2026-07-09T19:00:00Z"},
+        }
+    # Fresher quote on the 200 strike call — should dominate as_of when windowed in.
+    chain["NVDA260821C00200000"]["latestQuote"]["t"] = "2026-07-09T21:30:00Z"
+    return chain
 
 
 def _contracts_from_chain(chain: dict) -> list[dict]:
@@ -132,6 +150,7 @@ def test_options_chain_happy_path_shape(monkeypatch: pytest.MonkeyPatch) -> None
     assert "2026-07-17" in data["expirations"]
     assert "2026-08-21" in data["expirations"]
     assert data["expirations"] == sorted(data["expirations"])
+    assert "as_of" in data
 
     assert len(data["rows"]) == 1
     row = data["rows"][0]
@@ -152,8 +171,6 @@ def test_options_chain_happy_path_shape(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_options_chain_default_nearest_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
-    from datetime import datetime as real_datetime
-
     from api.main import app
     from trading.market_hours import _ET
 
@@ -173,6 +190,144 @@ def test_options_chain_default_nearest_expiry(monkeypatch: pytest.MonkeyPatch) -
     assert data["expiry"] == "2026-07-17"
     strikes = [r["strike"] for r in data["rows"]]
     assert strikes == [200.0]
+
+
+def test_options_chain_strikes_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.main import app
+
+    chain = _ten_strike_chain()
+    contracts = _contracts_from_chain(chain)
+    _mock_alpaca(monkeypatch, chain=chain, contracts=contracts)
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get(
+            "/api/options-chain?symbol=NVDA&expiry=2026-08-21&strikes=4"
+        )
+
+    assert resp.status_code == 200
+    strikes = [r["strike"] for r in resp.json()["rows"]]
+    assert strikes == [195.0, 200.0, 205.0, 210.0]
+
+
+def test_options_chain_strikes_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.main import app
+
+    chain = _ten_strike_chain()
+    contracts = _contracts_from_chain(chain)
+    _mock_alpaca(monkeypatch, chain=chain, contracts=contracts)
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get(
+            "/api/options-chain?symbol=NVDA&expiry=2026-08-21&strikes=all"
+        )
+
+    assert resp.status_code == 200
+    assert len(resp.json()["rows"]) == 10
+
+
+def test_options_chain_strikes_in_cache_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.main import app
+
+    chain = _ten_strike_chain()
+    contracts = _contracts_from_chain(chain)
+    broker = _mock_alpaca(monkeypatch, chain=chain, contracts=contracts)
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21&strikes=4")
+        client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21&strikes=10")
+
+    assert broker.get_option_chain_snapshot.call_count == 2
+
+
+def test_pick_default_expiry_before_close_on_expiry_day(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.main import _pick_default_expiry
+    from trading.market_hours import _ET
+
+    now = real_datetime(2026, 7, 17, 15, 30, 0, tzinfo=_ET)
+    expirations = ["2026-07-17", "2026-08-21"]
+    assert _pick_default_expiry(expirations, now) == "2026-07-17"
+
+
+def test_pick_default_expiry_after_close_on_expiry_day(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.main import _pick_default_expiry
+    from trading.market_hours import _ET
+
+    now = real_datetime(2026, 7, 17, 16, 30, 0, tzinfo=_ET)
+    expirations = ["2026-07-17", "2026-08-21"]
+    assert _pick_default_expiry(expirations, now) == "2026-08-21"
+
+
+def test_pick_default_expiry_skips_stale_past_dates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.main import _pick_default_expiry
+    from trading.market_hours import _ET
+
+    now = real_datetime(2026, 7, 20, 10, 0, 0, tzinfo=_ET)
+    expirations = ["2026-07-17", "2026-08-21"]
+    assert _pick_default_expiry(expirations, now) == "2026-08-21"
+
+
+def test_options_chain_default_expiry_after_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.main import app
+    from trading.market_hours import _ET
+
+    class FrozenDatetime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 7, 17, 16, 30, 0, tzinfo=tz or _ET)
+
+    monkeypatch.setattr("api.main.datetime", FrozenDatetime)
+    _mock_alpaca(monkeypatch, chain=_chain_snapshots())
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get("/api/options-chain?symbol=NVDA")
+
+    assert resp.status_code == 200
+    assert resp.json()["expiry"] == "2026-08-21"
+
+
+def test_options_chain_as_of_max_quote_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.main import app
+
+    chain = _ten_strike_chain()
+    contracts = _contracts_from_chain(chain)
+    _mock_alpaca(monkeypatch, chain=chain, contracts=contracts)
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get(
+            "/api/options-chain?symbol=NVDA&expiry=2026-08-21&strikes=4"
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["as_of"] == "2026-07-09T21:30:00Z"
+
+
+def test_options_chain_as_of_null_without_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.main import app
+
+    sparse_chain = {
+        "NVDA260717C00200000": {
+            "latestQuote": {"bp": 1.5},
+        },
+    }
+    _mock_alpaca(monkeypatch, chain=sparse_chain)
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get("/api/options-chain?symbol=NVDA&expiry=2026-07-17")
+
+    assert resp.status_code == 200
+    assert resp.json()["as_of"] is None
 
 
 def test_options_chain_missing_fields_are_null(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -214,6 +369,7 @@ def test_options_chain_empty_chain_fail_soft(monkeypatch: pytest.MonkeyPatch) ->
     assert data["expirations"] == []
     assert data["expiry"] is None
     assert data["rows"] == []
+    assert data["as_of"] is None
 
 
 def test_options_chain_broker_error_returns_500(
