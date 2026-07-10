@@ -29,7 +29,7 @@ import ReorderableList, {
   useReorderableDrag,
 } from 'react-native-reorderable-list';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   useAddWatchlistSymbol,
@@ -77,7 +77,11 @@ const ROW_TOP = 14;
 const ROW_MID = 20;
 const ROW_BOT = 14;
 // "Opposite" of the old black drop-shadow: a faint light edge for depth.
-const ROW_SHADOW = '0px 1px 1.5px rgba(220,228,240,0.05)';
+// A 1px top border, NOT a boxShadow: iOS composites every layer shadow as an
+// offscreen render pass — profiling measured 18–21 passes/frame (one per
+// visible row) eating ~43% of the 8.33ms GPU budget during scroll. In a
+// full-bleed stack, an edge atop row N reads the same as a glow under row N−1.
+const ROW_EDGE = 'rgba(220,228,240,0.05)';
 
 type SortKey = 'sym' | 'last' | 'chg' | 'vol';
 type SortState = { key: SortKey | null; dir: 'asc' | 'desc' };
@@ -190,7 +194,12 @@ function GripDots() {
 }
 
 // ─── 1-col row body (shared by reorderable + sorted views) ────────────────────
-function RowBody({
+// memo'd so the 100ms quote flush only re-renders rows whose quote object
+// changed (the coalesced merge keeps untouched symbols referentially stable).
+// The comparator deliberately ignores handler identity — callers pass fresh
+// closures every render, but they all wrap stable targets (router.push,
+// setState, the delete mutation), so data props are the only render inputs.
+const RowBody = memo(function RowBody({
   symbol,
   quote,
   loading,
@@ -237,9 +246,10 @@ function RowBody({
     <Animated.View
       style={[
         {
+          borderTopWidth: 1,
+          borderTopColor: ROW_EDGE,
           borderBottomWidth: hairline,
           borderBottomColor: colors.border,
-          boxShadow: ROW_SHADOW,
           // Excel-style zebra: odd rows get a barely-there tint over the base bg.
           backgroundColor: active ? colors.surfaceRaised : (index ?? 0) % 2 === 1 ? colors.stripe : colors.bg,
         },
@@ -331,7 +341,18 @@ function RowBody({
       </PressableScale>
     </Animated.View>
   );
-}
+}, (prev, next) =>
+  prev.symbol === next.symbol &&
+  prev.quote === next.quote &&
+  prev.loading === next.loading &&
+  prev.grip === next.grip &&
+  prev.active === next.active &&
+  prev.editing === next.editing &&
+  prev.index === next.index &&
+  // onPress flips defined/undefined with edit mode (rows aren't tappable while
+  // editing) — identity is ignored, but presence matters.
+  (prev.onPress === undefined) === (next.onPress === undefined),
+);
 
 function ReorderableRow({
   symbol,

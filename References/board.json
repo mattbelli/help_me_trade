@@ -20,12 +20,12 @@
   },
   {
    "id": "mobile-scroll-gpu-offscreen",
-   "title": "Mobile perf: GPU offscreen-pass hitch on watchlist scroll (blur/shadows) + shared-value price cells",
-   "lane": "in_progress",
+   "title": "Mobile perf: row-shadow offscreen passes killed (21\u21927/frame) + memo'd rows \u2014 1 hitch/30s at the open",
+   "lane": "done",
    "type": "perf",
    "priority": "medium",
    "owner": "mobile",
-   "notes": "One hitch/run tagged 'expensive render, 21\u201326 offscreen passes' \u2014 suspects: expo-blur tab pill, card shadows. Then optional: drive price digits via reanimated shared values so ticks skip React renders entirely."
+   "notes": "Per-row boxShadow (5% alpha light edge) forced an offscreen pass per visible row per frame; swapped for a visually-identical 1px top border. RowBody memo'd (coalesced flush keeps untouched quotes referentially stable \u2192 only ticked rows re-render). Verified: hitch ratio 5.83\u21920.28 ms/s vs pre-fix, better than premarket baseline. Shared-value cells judged NOT needed at these numbers."
   },
   {
    "id": "alpaca-feed-indicator",
