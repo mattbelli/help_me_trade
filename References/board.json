@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "native-chart-engine",
+      "title": "Native chart engine \u2014 replace TradingView lightweight-charts with our own canvas renderer",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-10 founder: 'over the TV charts, build the best, time/effort no object.' Decision: custom layered Canvas-2D engine (d3-scale for math only; NOT d3-as-renderer, NOT CanvasKit WASM, NOT WebGL). Core = pure-TS scene model + thin paint adapter so a Skia backend (phone parity) can slot in later. Phase 1: engine core (candles/line, pan/zoom, crosshair+OHLC, axes, live ticks) behind tv-light-chart's exact props \u2014 per-widget flag for A/B in the real cockpit. Phase 2: volume pane, session nodes, alerts (bell glyphs/drag/right-click), drawings, ext-hours shading. Phase 3: studies, themes, tick flash \u2192 delete TV + attribution link. Unlock: OUR data painted on the chart (volume profile, flow/tape markers, confluence badges). Perf gate: 60fps crosshair @ 5k bars. Interim shipped: TV logo off every chart, single attribution link bottom-right (deployed 2026-07-10)."
+    },
+    {
       "id": "push-importance-scoring",
       "title": "Importance-scored pushes \u2014 replace count budget with an unusualness threshold",
       "lane": "in_progress",
