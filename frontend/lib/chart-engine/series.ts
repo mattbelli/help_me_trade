@@ -78,6 +78,9 @@ const CHIP_H = 16;
 /** Gutter tag containers — full axis font (the smaller pt "wasn't helping"). */
 const LEVEL_TAG_H = 14;
 const LEVEL_TAG_FONT_PX = 10;
+/** Optical text centering inside pills: alphabetic baseline sits this many
+    em below the pill's midline (founder-tuned — text read high at cap/2). */
+const PILL_TEXT_DY_EM = 0.46;
 
 function axisFont(fontFamily: string): string {
   return `${AXIS_FONT_PX}px ${fontFamily}`;
@@ -98,15 +101,19 @@ function drawAxisChip(
   bg: string,
   textColor: string,
   font: string,
+  wipe: string,
 ): void {
+  // Same pill styling as the level cards (founder call): 14px, rounded,
+  // centered price, opaque wipe underneath.
   const cy = Math.round(y);
-  p.fillRect(axis.x, cy - CHIP_H / 2, axis.w, CHIP_H, bg);
-  // Right-aligned to the shared price column (ticks + card prices match).
-  p.text(label, axis.x + axis.w - 6, cy, {
+  const ty = cy - LEVEL_TAG_H / 2;
+  p.fillRect(axis.x + 1, ty, axis.w - 2, LEVEL_TAG_H, wipe);
+  p.roundRect(axis.x + 1, ty, axis.w - 2, LEVEL_TAG_H, 2, bg);
+  p.text(label, axis.x + axis.w / 2, cy + LEVEL_TAG_FONT_PX * PILL_TEXT_DY_EM, {
     color: textColor,
     font,
-    align: "right",
-    baseline: "middle",
+    align: "center",
+    baseline: "alphabetic",
   });
 }
 
@@ -356,14 +363,14 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     color: colors.grid,
     width: 1,
   });
-  // All prices right-align to one column — ticks, card prices, chip — so the
-  // digits line up exactly (founder call).
+  // All prices share one centered column — ticks, card prices, chips — so
+  // the digits line up and the column reads balanced (founder call).
   for (const t of pTicks) {
     const y = yOf(t.price, priceRange, price.y, price.h);
-    p.text(t.label, priceAxis.x + priceAxis.w - 6, y, {
+    p.text(t.label, priceAxis.x + priceAxis.w / 2, y, {
       color: colors.textDim,
       font,
-      align: "right",
+      align: "center",
       baseline: "middle",
     });
   }
@@ -437,7 +444,8 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     if (chipVisible) {
       const above = all.filter((c) => c.y <= chipY);
       const below = all.filter((c) => c.y > chipY);
-      const gap = CHIP_H / 2 + LEVEL_TAG_H / 2 + 1;
+      const gap = LEVEL_TAG_H + 1; // chip is pill-sized now
+
       sorted = [...above, ...below];
       ys = [
         ...sweep(above, minY, chipY - gap),
@@ -460,7 +468,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       const rightX = priceLabel ? width - 1 : borderX;
       const cy = Math.round(ys[i]);
       const ty = cy - LEVEL_TAG_H / 2;
-      const textY = cy + LEVEL_TAG_FONT_PX * 0.34; // optical centering
+      const textY = cy + LEVEL_TAG_FONT_PX * PILL_TEXT_DY_EM; // optical centering
       p.fillRect(leftX, ty, rightX - leftX, LEVEL_TAG_H, colors.background);
       p.roundRect(leftX, ty, rightX - leftX, LEVEL_TAG_H, 2, card.bg);
       p.text(card.label, borderX - 5, textY, {
@@ -470,10 +478,10 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
         baseline: "alphabetic",
       });
       if (priceLabel) {
-        p.text(priceLabel, priceAxis.x + priceAxis.w - 6, textY, {
+        p.text(priceLabel, priceAxis.x + priceAxis.w / 2, textY, {
           color: card.text,
           font: tagFont,
-          align: "right",
+          align: "center",
           baseline: "alphabetic",
         });
         // The column border cuts through the pill — TV's subtle name|price split.
@@ -500,6 +508,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
         lastColor,
         "#ffffff",
         font,
+        colors.background,
       );
     }
   }
@@ -736,6 +745,7 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
       colors.crosshairLabelBg,
       colors.text,
       font,
+      colors.background,
     );
   }
 
