@@ -10,17 +10,22 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-10, later) — Native chart engine kicked off (Phase 0 done)
+## ▶ START HERE (2026-07-10, later) — Native chart engine: Phase 1 BUILT (A/B toggle live)
 
 > Founder is replacing TradingView lightweight-charts on web with OUR engine ("build the best,
 > time/effort no object"; Fable hand-writes the core — no Composer for engine code). **Read
 > `References/CHART_ENGINE.md` before touching `frontend/lib/chart-engine/`** — headless core +
 > Painter adapter (canvas2d now, RN-Skia later = phone sharing), bar-index time scale, two-layer
-> repaint contract, measured perf budget. Phase 0 committed: contract doc + types + painter iface +
-> vitest (`npm run test:engine`). Phase 1 next: scales/ticks/series/merge (unit-tested) + canvas2d +
-> engine + NativeChart wrapper behind an eye-menu "Native engine (beta)" per-widget toggle — TV chart
-> stays default until the founder kills it. Interim shipped+deployed: TV logo off every chart, one
-> attribution link bottom-right (license requires it while TV remains). Board: `native-chart-engine`.
+> repaint contract, measured perf budget. **Phase 1 done on founder "go phase 1"**: pure core
+> (`scales/ticks/series/merge`, 33 vitest tests — zoom-anchor invariance, pan clamps, autoscale,
+> 1-2-5 ticks, merge mutates-only-last-bar) + `canvas2d.ts` (DPR pixel-snap, two-layer stack) +
+> `engine.ts` (rAF dirty-flag repaint; drag pan / wheel anchored-zoom / dblclick reset / crosshair)
+> + `native-chart.tsx` (bars cache, session-gated live ticks + ±50% plausibility band + staleness
+> refetch — mirrors TvLightChart's gating; CSS-var themes; hover legend). Enable per chart widget:
+> eye menu → "Native engine (beta)" (`config.chartEngine`). Perf: core drawScene 1.32ms @5k bars
+> (4ms budget); `?chartPerf=1` overlay. Headless dpr1+dpr2 screenshots verified. TV stays default
+> until the founder kills it (Phase 3). NEXT: founder A/B feel test → Phase 2 overlays (session
+> nodes, alerts+drag, drawings, ETH shading, studies, axis drag). Board: `native-chart-engine`.
 
 ## ▶ EARLIER (2026-07-10) — Confluence engine: any 2 watched things + agent options perception
 

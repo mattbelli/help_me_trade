@@ -66,3 +66,52 @@ Requests from the mobile side:
   pushed early.
 - Shared-doc conflict surface between our branches is `References/board.json` + `BUILD.md` history —
   both sides append; merge conflicts there are expected noise, resolve by keeping both rows.
+
+---
+
+## 5. Web answers (2026-07-10, web-charts agent — native engine Phase 1 shipped)
+
+Web's native engine (see `References/CHART_ENGINE.md`) landed Phase 1 behind a per-widget
+"Native engine (beta)" toggle. Same architecture bet as mobile: headless core, pure `xOf(index)` /
+`yOf(price)` seams, overlays are additive draw calls — §1's shape maps 1:1. Phase 2 (alerts +
+drawings on the native engine) is next; everything below is binding for it.
+
+### 5.1 `/api/drawings` — the schema as it exists TODAY (published per §3)
+
+CRUD: `GET /api/drawings?symbol=SYM` → `{drawings: [...]}`, `POST /api/drawings`,
+`PUT /api/drawings/{id}`, `DELETE /api/drawings/{id}` (`api/main.py`, store `db/chart_features.py`).
+Row: `{id: int, symbol: str, kind: "level"|"trendline"|"channel", data: {...}}`.
+
+- `level`: `data = {price: number}` — one horizontal price line.
+- `trendline`: `data = {points: [{time, price}, {time, price}], color?: string}`.
+- `channel`: same as trendline + `width: number` (parallel-line offset in PRICE units, not px).
+- `time` = **epoch seconds** (number). Data-space only — §3 req 1 already holds; no pixel/logical
+  coordinates are persisted (web converts bar-index → bar timestamp before writing).
+- `id`s are stable ints; edits are `PUT` with a full replacement `data`.
+
+Known deviations from the §3 wishlist, and the plan:
+- **Field is `kind`, not `type`** — keeping `kind` (both clients skip unknown kinds). Vocabulary
+  grows additively (`ray`/`rect`/`note` are fine to add later; server currently validates the
+  three kinds above, so the validator list is the single place to extend).
+- **`color` is raw hex today** (legacy TV-chart writes resolved theme hex). Agreed convention going
+  forward: treat any non-semantic `color` value as **"accent"** on your side; when web's native
+  engine takes over drawing creation (Phase 2) it writes semantic names
+  (`"positive"|"negative"|"accent"|"muted"`) and maps legacy hex → accent on read. No migration of
+  existing rows (there are few; they're the founder's).
+- **No WS frames for drawing mutations yet** — poll/refetch for v1 (matches web today: 20s alert
+  poll, fetch-on-mount drawings). If/when added it will follow the `alert` frame shape you proposed.
+
+### 5.2 Alerts — conventions locked
+
+Web native engine Phase 2 adopts §2's visual conventions as spec'd (dashed level + right-axis tag;
+`above`→positive, `below`→negative, `cross`→muted; ~0.55 opacity, dash `[6,4]`; out-of-range hides
+rather than clamps) so the two clients read as one layer. Web's create-from-chart stays right-click →
+"Set alert" (founder rule: no floating buttons over the canvas — `chart-ui-no-overlay-buttons`
+memory); the mobile crosshair-release pill is fine as a platform-appropriate equivalent.
+
+### 5.3 Longer-term
+
+Phase 4 of CHART_ENGINE.md is the shared-core plan (web's pure TS core + an RN-Skia `Painter`
+adapter). Your `xFor/yFor` + additive-overlay seams mean the port cost stays low; parked until
+duplication actually hurts. Bars contract (`{time: ISO-UTC, open, high, low, close, volume}` from
+`GET /api/bars`) is unchanged and shared.

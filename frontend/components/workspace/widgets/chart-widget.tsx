@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { NativeChart } from "@/components/trading/native-chart";
 import { TvLightChart } from "@/components/trading/tv-light-chart";
 import { WidgetEmpty } from "@/components/workspace/widget-states";
 import {
@@ -50,6 +51,20 @@ export function ChartWidget({ config }: WidgetProps) {
       <div className="relative min-h-0 flex-1">
         {symbol ? (
           mountChart ? (
+            config.chartEngine === "native" ? (
+              // Phase-1 engine: candles/volume/pan/zoom/crosshair/live ticks.
+              // Alerts/drawings/studies overlays land in Phase 2 (CHART_ENGINE.md).
+              <NativeChart
+                symbol={symbol}
+                compact
+                extended={config.extendedHours ?? true}
+                timeframe={timeframe}
+                style={style}
+                livePrice={livePrice}
+                extPrice={extPrice}
+                marketSession={marketSession}
+              />
+            ) : (
             <TvLightChart
               symbol={symbol}
               compact
@@ -64,6 +79,7 @@ export function ChartWidget({ config }: WidgetProps) {
               extPrice={extPrice}
               marketSession={marketSession}
             />
+            )
           ) : (
             <div className="h-full w-full" aria-hidden />
           )

@@ -21,6 +21,8 @@ export type WidgetInstanceConfig = {
   /** Chart eye menu — visibility toggles. Undefined = shown. */
   showAlerts?: boolean;
   showDrawings?: boolean;
+  /** Chart eye menu — A/B the in-house chart engine (undefined = TradingView). */
+  chartEngine?: "native";
   /** Options chain: strike-count window around the money (6..40 | "all"). */
   strikes?: number | "all";
 };

@@ -149,6 +149,9 @@ around it.
   can A/B candles, volume, pan/zoom, crosshair, live ticks, themes.
 - **2** — parity overlays, one per round: session-node levels, price alerts (lines, bells,
   drag, right-click → set alert), drawings, ext-hours shading, studies, axis drag.
+  **Cross-client contract: `References/RN_SKIA_CHART_RELAY.md` §5** — alerts/drawings render the
+  same API rows as the phone's Skia chart (data-space `{time, price}` anchors only; alert visual
+  conventions locked in §5.2; new drawings write semantic color names, not hex).
 - **3** — polish (tick flash, price tint), perf gate signed off, founder verdict → delete
   lightweight-charts + the TV attribution link.
 - **4 (parked)** — RN-Skia painter; port phone charts onto the shared core.
