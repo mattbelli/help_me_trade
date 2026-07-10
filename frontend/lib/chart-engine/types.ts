@@ -62,6 +62,10 @@ export type OverlayLine = {
   dash?: number[];
   /** Small tag drawn above the line at the pane's left edge. */
   label?: string;
+  /** Opaque wrapper id — present ⇒ the line is hit-testable (context menu). */
+  id?: string;
+  /** Drag-to-move: the engine previews the move and fires onLineDragEnd. */
+  draggable?: boolean;
 };
 
 /** Segment between two data-space anchors (trendline / channel leg). */
@@ -78,6 +82,17 @@ export type EngineOverlays = {
   segments: OverlaySegment[];
 };
 
+/** Right-click hit info. `price` is null outside the price area (volume strip). */
+export type ContextMenuHit = {
+  x: number;
+  y: number;
+  price: number | null;
+  /** Id of the overlay line under the cursor, if any. */
+  lineId: string | null;
+  /** That line's exact price — the hit tolerance means it can differ from `price`. */
+  linePrice: number | null;
+};
+
 export type EngineOptions = {
   colors: EngineColors;
   style: ChartStyle;
@@ -86,6 +101,10 @@ export type EngineOptions = {
   /** CSS font family (sizes are the engine's own). */
   fontFamily: string;
   onCrosshair?: (bar: EngineBar | null) => void;
+  /** Right-click in the pane (the engine suppresses the browser menu). */
+  onContextMenu?: (hit: ContextMenuHit) => void;
+  /** A draggable overlay line was dropped at a new price. */
+  onLineDragEnd?: (id: string, price: number) => void;
 };
 
 // --- Layout constants (CHART_ENGINE.md → Panes & layout) ---------------------------

@@ -52,8 +52,9 @@ export function ChartWidget({ config }: WidgetProps) {
         {symbol ? (
           mountChart ? (
             config.chartEngine === "native" ? (
-              // Phase-1 engine: candles/volume/pan/zoom/crosshair/live ticks.
-              // Alerts/drawings/studies overlays land in Phase 2 (CHART_ENGINE.md).
+              // Native engine: candles/volume/pan/zoom/crosshair/live ticks +
+              // alert create/drag/remove and level overlays. Still on TV:
+              // trendline/channel creation and studies (CHART_ENGINE.md Phase 2).
               <NativeChart
                 symbol={symbol}
                 compact

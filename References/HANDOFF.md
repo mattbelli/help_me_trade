@@ -10,7 +10,23 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-10, later) — Native chart engine: Phase 1 BUILT (A/B toggle live)
+## ▶ START HERE (2026-07-10, latest) — Native chart engine: Phase 2 alert interactions LIVE
+
+> Building toward TV deletion (founder: "continue the chart building so we can say bye bye to
+> Trading View"). **Phase 2 round 2 deployed**: right-click context menu on the native chart
+> (add level / set alert / remove alert / remove level), alert-create popover **extracted to shared
+> `chart-alert-popover.tsx`** (TV imports it — the TV file can die without taking the alert flow),
+> and **drag-to-move alert lines** (engine `hitTestLine` + live preview + PUT on release; preview
+> survives the 20s alert-poll recompose). Engine seam: `OverlayLine.id/draggable`,
+> `onContextMenu`/`onLineDragEnd`, `ContextMenuHit.linePrice` (a hit line's exact price beats the
+> cursor's — Sonnet-review fix). 43 engine tests; Playwright smoke on live :3001 verified the flow.
+> Round 1 (same day) shipped read-only overlays (alerts/session-levels/drawings) + Space-opens-
+> widget-palette + copilot pill removal. **NEXT chart round: trendline/channel creation + drag
+> editing, then studies (SMA/EMA overlays + oscillator panes) → Phase 3 polish + founder verdict →
+> delete lightweight-charts + the TV attribution link.** From Phase 2 on, drawing WRITES use
+> semantic color names (relay §5.1). Board: `native-chart-engine`.
+
+## ▶ EARLIER (2026-07-10) — Native chart engine: Phase 1 BUILT (A/B toggle live)
 
 > Founder is replacing TradingView lightweight-charts on web with OUR engine ("build the best,
 > time/effort no object"; Fable hand-writes the core — no Composer for engine code). **Read

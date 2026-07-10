@@ -24,6 +24,7 @@ import {
   type EngineBar,
   type EngineColors,
   type EngineOverlays,
+  type OverlayLine,
   type PriceRange,
   type Rect,
   type Viewport,
@@ -352,6 +353,37 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   }
 
   return { layout, priceRange, pTicks, tTicks };
+}
+
+/** Hit tolerance around an overlay line, logical px (matches TV's LEVEL_HIT_PX). */
+export const LINE_HIT_PX = 6;
+
+/**
+ * Nearest identifiable overlay line within `tolerance` px of y. Only lines
+ * inside the price area count — an out-of-range (hidden) line isn't hittable.
+ */
+export function hitTestLine(
+  lines: readonly OverlayLine[],
+  y: number,
+  scene: Scene,
+  tolerance: number,
+  draggableOnly: boolean,
+): OverlayLine | null {
+  const pr = scene.layout.price;
+  if (y < pr.y || y > pr.y + pr.h) return null;
+  let best: OverlayLine | null = null;
+  let bestDist = tolerance + 1;
+  for (const l of lines) {
+    if (!l.id || (draggableOnly && !l.draggable)) continue;
+    const ly = yOf(l.price, scene.priceRange, pr.y, pr.h);
+    if (ly < pr.y || ly > pr.y + pr.h) continue;
+    const d = Math.abs(ly - y);
+    if (d <= tolerance && d < bestDist) {
+      bestDist = d;
+      best = l;
+    }
+  }
+  return best;
 }
 
 /** Price chip text — same decimal count the axis ticks use. */

@@ -53,6 +53,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  AlertCreatePopover,
+  defaultAlertDirection,
+  type AlertDirection,
+} from "@/components/trading/chart-alert-popover";
+import {
   resolveCssColor,
   toChartColor,
   withAlpha,
@@ -72,8 +77,6 @@ type Ohlcv = {
   volume: number;
 };
 
-const ALERT_DIRECTIONS = ["above", "below", "cross"] as const;
-type AlertDirection = (typeof ALERT_DIRECTIONS)[number];
 const ALERTS_POLL_MS = 20_000;
 const LEVEL_HIT_PX = 6;
 const HANDLE_HIT_PX = 9;
@@ -134,16 +137,6 @@ function distToSegment(
   const cx = x1 + t * dx;
   const cy = y1 + t * dy;
   return Math.hypot(px - cx, py - cy);
-}
-
-function defaultAlertDirection(
-  clickedPrice: number,
-  currentPrice: number | undefined,
-): AlertDirection {
-  if (currentPrice == null) return "cross";
-  if (clickedPrice > currentPrice) return "above";
-  if (clickedPrice < currentPrice) return "below";
-  return "cross";
 }
 
 function sessionLevelColor(kind: SessionLevel["kind"]): string {
@@ -1756,140 +1749,6 @@ function ChartAlertContextMenu({
       <button type="button" className={buttonClass} onClick={onSetAlert}>
         Set alert at {alertPrice.toFixed(2)}
       </button>
-    </div>
-  );
-}
-
-type AlertCreatePopoverProps = {
-  x: number;
-  y: number;
-  containerRef: RefObject<HTMLDivElement | null>;
-  price: string;
-  direction: AlertDirection;
-  repeat: boolean;
-  saving: boolean;
-  error: string | null;
-  onPriceChange: (value: string) => void;
-  onDirectionChange: (value: AlertDirection) => void;
-  onRepeatChange: (value: boolean) => void;
-  onCreate: () => void;
-  onCancel: () => void;
-};
-
-function AlertCreatePopover({
-  x,
-  y,
-  containerRef,
-  price,
-  direction,
-  repeat,
-  saving,
-  error,
-  onPriceChange,
-  onDirectionChange,
-  onRepeatChange,
-  onCreate,
-  onCancel,
-}: AlertCreatePopoverProps) {
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ left: x, top: y });
-
-  useEffect(() => {
-    const container = containerRef.current;
-    const popover = popoverRef.current;
-    if (!container || !popover) {
-      setPosition({ left: x, top: y });
-      return;
-    }
-    const margin = 8;
-    const maxLeft = Math.max(margin, container.clientWidth - popover.offsetWidth - margin);
-    const maxTop = Math.max(margin, container.clientHeight - popover.offsetHeight - margin);
-    setPosition({
-      left: Math.min(Math.max(margin, x), maxLeft),
-      top: Math.min(Math.max(margin, y), maxTop),
-    });
-  }, [x, y, containerRef]);
-
-  return (
-    <div
-      ref={popoverRef}
-      className="workspace-no-drag absolute z-40 w-[200px] space-y-2 rounded-md border border-border/80 bg-background/95 p-2 shadow-md backdrop-blur-sm"
-      style={{ left: position.left, top: position.top }}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <label className="block space-y-0.5">
-        <span className="text-[9.5px] tracking-[0.05em] text-muted-foreground uppercase">
-          Price
-        </span>
-        <input
-          type="number"
-          step="any"
-          value={price}
-          onChange={(event) => onPriceChange(event.target.value)}
-          className="w-full rounded border border-border/80 bg-transparent px-1.5 py-1 text-[11px] tabular-nums text-foreground outline-none focus:border-[var(--c-accent)]"
-        />
-      </label>
-
-      <div className="space-y-0.5">
-        <span className="text-[9.5px] tracking-[0.05em] text-muted-foreground uppercase">
-          Direction
-        </span>
-        <div className="flex gap-1">
-          {ALERT_DIRECTIONS.map((dir) => (
-            <button
-              key={dir}
-              type="button"
-              onClick={() => onDirectionChange(dir)}
-              className={cn(
-                "flex-1 rounded border px-1 py-0.5 text-[10px] tracking-wide uppercase transition-colors",
-                direction === dir
-                  ? "border-[var(--c-accent)] bg-[color-mix(in_srgb,var(--c-accent)_12%,transparent)] text-[var(--c-accent)]"
-                  : "border-border/80 text-muted-foreground hover:bg-secondary/80",
-              )}
-            >
-              {dir}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={repeat}
-          onChange={(event) => onRepeatChange(event.target.checked)}
-          className="size-3 rounded border-border/80"
-        />
-        Persistent
-      </label>
-
-      {error ? (
-        <p className="text-[10px] text-destructive">{error}</p>
-      ) : null}
-
-      <div className="flex gap-1">
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="h-7 flex-1 text-[11px]"
-          disabled={saving}
-          onClick={onCreate}
-        >
-          Create
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-7 flex-1 text-[11px]"
-          disabled={saving}
-          onClick={onCancel}
-        >
-          Cancel
-        </Button>
-      </div>
     </div>
   );
 }

@@ -3,14 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  createDrawing,
+  createPriceAlert,
+  deleteDrawing,
+  deletePriceAlert,
   fetchDrawings,
   fetchPriceAlerts,
   fetchSessionLevels,
+  updatePriceAlert,
   type ChartDrawing,
   type PriceAlert,
   type SessionLevel,
   type StockBar,
 } from "@/lib/api";
+import {
+  AlertCreatePopover,
+  ChartContextMenu,
+  defaultAlertDirection,
+  type AlertDirection,
+  type ChartMenuItem,
+} from "@/components/trading/chart-alert-popover";
 import { fetchBarsCached, invalidateBars } from "@/lib/bars-cache";
 import { resolveCssColor, withAlpha } from "@/lib/chart-colors";
 import { ChartEngine } from "@/lib/chart-engine/engine";
@@ -154,10 +166,43 @@ export function NativeChart({
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [levels, setLevels] = useState<SessionLevel[]>([]);
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
+  // CRUD bumps these to refetch immediately instead of waiting out the poll.
+  const [alertsNonce, setAlertsNonce] = useState(0);
+  const [drawingsNonce, setDrawingsNonce] = useState(0);
+
+  // Right-click menu + alert-create popover (chart-ui rule: in-chart actions
+  // live in a context menu, never in buttons floating over the canvas).
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    price: number;
+    alertId: number | null;
+    levelId: number | null;
+  } | null>(null);
+  const [pendingAlert, setPendingAlert] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [alertPrice, setAlertPrice] = useState("");
+  const [alertDirection, setAlertDirection] = useState<AlertDirection>("cross");
+  const [alertRepeat, setAlertRepeat] = useState(false);
+  const [alertSaving, setAlertSaving] = useState(false);
+  const [alertError, setAlertError] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const livePriceRef = useRef(livePrice);
 
   useEffect(() => {
     styleRef.current = style;
   }, [style]);
+
+  useEffect(() => {
+    livePriceRef.current = livePrice;
+  }, [livePrice]);
+
+  // A symbol/timeframe switch invalidates any open popup's price context.
+  useEffect(() => {
+    setMenu(null);
+    setPendingAlert(null);
+  }, [symbol, timeframe.value]);
 
   // Engine lifecycle — recreated only when the tick-label mode flips
   // (intraday vs daily); everything else flows through setters.
@@ -171,6 +216,34 @@ export function NativeChart({
       fontFamily: resolveFontFamily(),
       onCrosshair: (bar) =>
         setLegend(bar ? legendText(bar, timeframe.intraday) : ""),
+      onContextMenu: (hit) => {
+        if (hit.price == null) return;
+        const alertId = hit.lineId?.startsWith("alert:")
+          ? Number(hit.lineId.slice(6))
+          : null;
+        const levelId = hit.lineId?.startsWith("dlevel:")
+          ? Number(hit.lineId.slice(7))
+          : null;
+        setPendingAlert(null);
+        setMenu({
+          x: hit.x,
+          y: hit.y,
+          // A hit line's exact price beats the cursor's approximate one (the
+          // 6px tolerance would otherwise seed alerts a few cents off).
+          price: Math.round((hit.linePrice ?? hit.price) * 100) / 100,
+          alertId,
+          levelId,
+        });
+      },
+      onLineDragEnd: (id, price) => {
+        if (!id.startsWith("alert:")) return;
+        // Refetch either way: success confirms, failure snaps the line back.
+        updatePriceAlert(Number(id.slice(6)), {
+          price: Math.round(price * 100) / 100,
+        })
+          .catch(() => {})
+          .finally(() => setAlertsNonce((n) => n + 1));
+      },
     });
     engineRef.current = engine;
     if (barsRef.current.length > 0) {
@@ -220,7 +293,7 @@ export function NativeChart({
       cancelled = true;
       clearInterval(id);
     };
-  }, [symbol, showAlerts]);
+  }, [symbol, showAlerts, alertsNonce]);
 
   useEffect(() => {
     if (!showLevels) {
@@ -252,7 +325,7 @@ export function NativeChart({
       cancelled = true;
       clearInterval(id);
     };
-  }, [symbol, showDrawings]);
+  }, [symbol, showDrawings, drawingsNonce]);
 
   // Compose alerts/levels/drawings into engine primitives with resolved
   // colors. Re-runs on theme change and after an engine recreation
@@ -267,6 +340,8 @@ export function NativeChart({
         color: alertColor(a.direction),
         dash: [6, 4],
         label: "🔔",
+        id: `alert:${a.id}`,
+        draggable: true,
       });
     }
     for (const l of levels) {
@@ -283,7 +358,12 @@ export function NativeChart({
       // colors per the cross-client contract (relay §5.1).
       const color = d.data.color ?? accent;
       if (d.kind === "level" && d.data.price != null) {
-        lines.push({ price: d.data.price, color, dash: [1, 3] });
+        lines.push({
+          price: d.data.price,
+          color,
+          dash: [1, 3],
+          id: `dlevel:${d.id}`,
+        });
       } else if (d.data.points && d.data.points.length >= 2) {
         const [a, b] = d.data.points;
         if (a.time == null || b.time == null) continue;
@@ -380,6 +460,120 @@ export function NativeChart({
     return () => clearInterval(id);
   }, [timeframe.intraday]);
 
+  // Popup dismissal: ESC closes both; a pointerdown outside closes the menu
+  // (the popover has explicit Cancel — parity with the TV chart's flow).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setMenu(null);
+      setPendingAlert(null);
+      setAlertError(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!menu) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [menu]);
+
+  function handleSetAlertFromMenu() {
+    if (!menu) return;
+    const current = livePriceRef.current ?? barsRef.current.at(-1)?.close;
+    setAlertPrice(String(menu.price));
+    setAlertDirection(defaultAlertDirection(menu.price, current));
+    setAlertRepeat(false);
+    setAlertError(null);
+    setPendingAlert({ x: menu.x, y: menu.y });
+    setMenu(null);
+  }
+
+  async function handleCreateAlert() {
+    const price = Number(alertPrice.trim());
+    if (!Number.isFinite(price)) {
+      setAlertError("Enter a valid price");
+      return;
+    }
+    setAlertError(null);
+    setAlertSaving(true);
+    try {
+      await createPriceAlert({
+        symbol,
+        price,
+        direction: alertDirection,
+        repeat: alertRepeat,
+      });
+      setAlertsNonce((n) => n + 1);
+      setPendingAlert(null);
+    } catch {
+      setAlertError("Could not create alert");
+    } finally {
+      setAlertSaving(false);
+    }
+  }
+
+  async function handleRemoveAlert() {
+    if (menu?.alertId == null) return;
+    try {
+      await deletePriceAlert(menu.alertId);
+      setAlertsNonce((n) => n + 1);
+      setMenu(null);
+    } catch {
+      /* menu stays open for retry */
+    }
+  }
+
+  async function handleAddLevel() {
+    if (!menu) return;
+    try {
+      await createDrawing({
+        symbol,
+        kind: "level",
+        data: { price: menu.price },
+      });
+      setDrawingsNonce((n) => n + 1);
+      setMenu(null);
+    } catch {
+      /* menu stays open for retry */
+    }
+  }
+
+  async function handleRemoveLevel() {
+    if (menu?.levelId == null) return;
+    try {
+      await deleteDrawing(menu.levelId);
+      setDrawingsNonce((n) => n + 1);
+      setMenu(null);
+    } catch {
+      /* menu stays open for retry */
+    }
+  }
+
+  const menuItems: ChartMenuItem[] = menu
+    ? menu.alertId != null
+      ? [{ label: "Remove alert", onSelect: () => void handleRemoveAlert() }]
+      : [
+          ...(menu.levelId != null
+            ? [{ label: "Remove level", onSelect: () => void handleRemoveLevel() }]
+            : [
+                {
+                  label: `Add level at ${menu.price.toFixed(2)}`,
+                  onSelect: () => void handleAddLevel(),
+                },
+              ]),
+          {
+            label: `Set alert at ${menu.price.toFixed(2)}`,
+            onSelect: handleSetAlertFromMenu,
+          },
+        ]
+    : [];
+
   // Live-tick merge — mirrors TvLightChart's gating exactly:
   //   regular/unknown → livePrice; pre/post/overnight → extPrice when ETH on;
   //   closed → nothing. Then the staleness gate, the ±50% plausibility band
@@ -468,6 +662,35 @@ export function NativeChart({
             {legend}
           </p>
         </div>
+      ) : null}
+      {menu ? (
+        <ChartContextMenu
+          menuRef={menuRef}
+          x={menu.x}
+          y={menu.y}
+          containerRef={containerRef}
+          items={menuItems}
+        />
+      ) : null}
+      {pendingAlert ? (
+        <AlertCreatePopover
+          x={pendingAlert.x}
+          y={pendingAlert.y}
+          containerRef={containerRef}
+          price={alertPrice}
+          direction={alertDirection}
+          repeat={alertRepeat}
+          saving={alertSaving}
+          error={alertError}
+          onPriceChange={setAlertPrice}
+          onDirectionChange={setAlertDirection}
+          onRepeatChange={setAlertRepeat}
+          onCreate={() => void handleCreateAlert()}
+          onCancel={() => {
+            setPendingAlert(null);
+            setAlertError(null);
+          }}
+        />
       ) : null}
       {error && !loading ? (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-background/80">

@@ -13,10 +13,11 @@ import {
   autoPriceRange,
   clampViewport,
   defaultViewport,
+  priceAt,
   scaleRangeAround,
   zoomAt,
 } from "./scales";
-import { drawCursor, drawScene, type Scene } from "./series";
+import { drawCursor, drawScene, hitTestLine, LINE_HIT_PX, type Scene } from "./series";
 import {
   DEFAULT_BAR_SPACING,
   DEFAULT_RIGHT_OFFSET,
@@ -27,6 +28,7 @@ import {
   type EngineColors,
   type EngineOptions,
   type EngineOverlays,
+  type OverlayLine,
   type PriceRange,
   type Viewport,
 } from "./types";
@@ -43,7 +45,9 @@ export class ChartEngine {
   private style: ChartStyle;
   private intraday: boolean;
   private readonly fontFamily: string;
-  private readonly onCrosshair?: (bar: EngineBar | null) => void;
+  private readonly onCrosshair?: EngineOptions["onCrosshair"];
+  private readonly onContextMenu?: EngineOptions["onContextMenu"];
+  private readonly onLineDragEnd?: EngineOptions["onLineDragEnd"];
 
   private width = 0;
   private height = 0;
@@ -64,6 +68,9 @@ export class ChartEngine {
     startRange?: PriceRange;
     startSpacing?: number;
   } | null = null;
+  /** Drag-to-move on a draggable overlay line (`line` is mutated as preview). */
+  private lineDrag: { id: string; line: OverlayLine; startPrice: number } | null =
+    null;
   /** Manual price scale from an axis drag — sticky until dblclick on the axis. */
   private priceOverride: PriceRange | null = null;
   /** Ext-hours quote line (null = hidden) — the wrapper owns the session gating. */
@@ -86,6 +93,8 @@ export class ChartEngine {
     this.intraday = options.intraday;
     this.fontFamily = options.fontFamily;
     this.onCrosshair = options.onCrosshair;
+    this.onContextMenu = options.onContextMenu;
+    this.onLineDragEnd = options.onLineDragEnd;
     this.perfEnabled =
       typeof location !== "undefined" && /[?&]chartPerf=1/.test(location.search);
 
@@ -109,6 +118,7 @@ export class ChartEngine {
     container.addEventListener("pointercancel", this.onPointerUp, opts);
     container.addEventListener("pointerleave", this.onPointerLeave, opts);
     container.addEventListener("dblclick", this.onDblClick, opts);
+    container.addEventListener("contextmenu", this.onContextMenuEvent, opts);
     container.addEventListener("wheel", this.onWheel, {
       ...opts,
       passive: false,
@@ -194,6 +204,17 @@ export class ChartEngine {
 
   /** Replace the overlay set (alerts/levels/drawings). Null clears. */
   setOverlays(overlays: EngineOverlays | null): void {
+    // A poll-driven recompose mid-drag must not snap the dragged line back to
+    // its stored price — carry the preview onto the replacement line.
+    if (this.lineDrag) {
+      const match = overlays?.lines.find((l) => l.id === this.lineDrag!.id);
+      if (match) {
+        match.price = this.lineDrag.line.price;
+        this.lineDrag.line = match;
+      } else {
+        this.lineDrag = null; // deleted mid-drag
+      }
+    }
     this.overlays = overlays;
     this.invalidate("scene");
   }
@@ -253,12 +274,31 @@ export class ChartEngine {
     } else if (region === "timeAxis") {
       this.axisDrag = { kind: "time", start: x, startSpacing: this.vp.barSpacing };
     } else {
-      this.drag = { startX: x, startRe: this.vp.rightEdgeIndex };
+      // A draggable overlay line under the pointer beats a pan.
+      const hit =
+        this.scene && this.overlays
+          ? hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, true)
+          : null;
+      if (hit?.id) {
+        this.lineDrag = { id: hit.id, line: hit, startPrice: hit.price };
+      } else {
+        this.drag = { startX: x, startRe: this.vp.rightEdgeIndex };
+      }
     }
   };
 
   private onPointerMove = (e: PointerEvent): void => {
     const { x, y } = this.localPoint(e);
+    if (this.lineDrag && this.scene) {
+      // Preview: move the line to the pointer, clamped to the price area.
+      const pr = this.scene.layout.price;
+      const yc = Math.min(Math.max(y, pr.y), pr.y + pr.h);
+      this.lineDrag.line.price = priceAt(yc, this.scene.priceRange, pr.y, pr.h);
+      this.container.style.cursor = "ns-resize";
+      this.cross = { x, y };
+      this.invalidate("both");
+      return;
+    }
     if (this.axisDrag && this.bars.length > 0) {
       if (this.axisDrag.kind === "price") {
         // Drag down expands the range (zoom out), up contracts — TV feel.
@@ -293,12 +333,21 @@ export class ChartEngine {
       this.invalidate("scene");
     } else {
       const region = this.regionAt(x, y);
-      this.container.style.cursor =
+      let cursor =
         region === "priceAxis"
           ? "ns-resize"
           : region === "timeAxis"
             ? "ew-resize"
             : "crosshair";
+      if (
+        region === "pane" &&
+        this.scene &&
+        this.overlays &&
+        hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, true)
+      ) {
+        cursor = "ns-resize"; // grabbable alert line
+      }
+      this.container.style.cursor = cursor;
     }
     this.cross = { x, y };
     this.invalidate("cursor");
@@ -308,15 +357,53 @@ export class ChartEngine {
     if (this.container.hasPointerCapture(e.pointerId)) {
       this.container.releasePointerCapture(e.pointerId);
     }
+    if (this.lineDrag) {
+      const { id, line, startPrice } = this.lineDrag;
+      this.lineDrag = null;
+      if (e.type === "pointercancel") {
+        line.price = startPrice;
+        this.invalidate("scene");
+      } else if (line.price !== startPrice) {
+        this.onLineDragEnd?.(id, line.price);
+      }
+    }
     this.drag = null;
     this.axisDrag = null;
   };
 
   private onPointerLeave = (): void => {
+    if (this.lineDrag) {
+      // Left the chart mid-drag: revert the preview rather than half-commit.
+      this.lineDrag.line.price = this.lineDrag.startPrice;
+      this.lineDrag = null;
+      this.invalidate("scene");
+    }
     this.drag = null;
     this.axisDrag = null;
     this.cross = null;
     this.invalidate("cursor");
+  };
+
+  private onContextMenuEvent = (e: MouseEvent): void => {
+    e.preventDefault(); // the chart owns right-click everywhere on it
+    if (!this.onContextMenu || !this.scene || this.bars.length === 0) return;
+    const { x, y } = this.localPoint(e);
+    if (this.regionAt(x, y) !== "pane") return;
+    const pr = this.scene.layout.price;
+    const inPrice = y >= pr.y && y <= pr.y + pr.h;
+    const price = inPrice
+      ? priceAt(y, this.scene.priceRange, pr.y, pr.h)
+      : null;
+    const hit = this.overlays
+      ? hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, false)
+      : null;
+    this.onContextMenu({
+      x,
+      y,
+      price,
+      lineId: hit?.id ?? null,
+      linePrice: hit?.price ?? null,
+    });
   };
 
   private onDblClick = (e: MouseEvent): void => {
