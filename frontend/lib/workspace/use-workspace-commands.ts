@@ -116,6 +116,17 @@ export function useWorkspaceCommands() {
         }
       }
 
+      // Bare "/watchlist" or "/watchlist add" (no symbol) — show usage instead
+      // of the misleading "unknown command"; point widget-seekers at /add.
+      if (/^\/watchlist(\s+(add|remove))?$/i.test(value)) {
+        return {
+          handled: true,
+          error:
+            "usage: /watchlist add <symbol> · /watchlist remove <symbol> — " +
+            "for the watchlist widget use /add watchlist",
+        };
+      }
+
       const themeMatch = THEME_NAMED_RE.exec(value);
       if (themeMatch) {
         const named = themeMatch[1]?.toLowerCase();
@@ -174,9 +185,19 @@ export function useWorkspaceCommands() {
             return { handled: true, output: "widget picker opened" };
           }
 
-          const widget = WIDGET_REGISTRY.find(
-            (entry) => entry.id.toLowerCase() === arg.toLowerCase(),
-          );
+          const needle = arg.toLowerCase();
+          // Exact id → title → substring of either (so "/add chain" and
+          // "/add trading calendar" both resolve).
+          const widget =
+            WIDGET_REGISTRY.find((entry) => entry.id.toLowerCase() === needle) ??
+            WIDGET_REGISTRY.find(
+              (entry) => entry.title.toLowerCase() === needle,
+            ) ??
+            WIDGET_REGISTRY.find(
+              (entry) =>
+                entry.id.toLowerCase().includes(needle) ||
+                entry.title.toLowerCase().includes(needle),
+            );
           if (!widget) {
             const ids = WIDGET_REGISTRY.map((entry) => entry.id).join(", ");
             return {
@@ -203,7 +224,7 @@ export function useWorkspaceCommands() {
         default:
           return {
             handled: true,
-            error: `unknown command: ${value.split(/\s+/)[0]}`,
+            error: `unknown command: ${value.split(/\s+/)[0]} — available: ${WORKSPACE_COMMANDS.join(" · ")}`,
           };
       }
     },
