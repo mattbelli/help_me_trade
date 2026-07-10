@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from brokers.alpaca_tier import clear_alpaca_tier_cache
-from config.settings import clear_settings_cache
 
 
 @pytest.fixture(autouse=True)
