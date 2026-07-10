@@ -15,6 +15,8 @@ export type StrokeStyle = {
   width: number;
   /** Dash pattern in logical px, e.g. [2, 2]. Omit for solid. */
   dash?: number[];
+  /** Exactly 1 device px regardless of dpr — TV-fine dotted level lines. */
+  hairline?: boolean;
 };
 
 export type TextStyle = {

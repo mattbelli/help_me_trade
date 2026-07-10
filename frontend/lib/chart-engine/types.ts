@@ -128,10 +128,10 @@ export type EngineOptions = {
 
 // --- Layout constants (CHART_ENGINE.md → Panes & layout) ---------------------------
 export const PRICE_AXIS_WIDTH = 64;
-/** Tag gutter between the pane and the price axis: level names / bells / ext
-    live here in small containers, and candles never overlap them. Sized for
-    three-letter tags (POC/VAL/PDH). */
-export const TAG_GUTTER_WIDTH = 26;
+/** Tag gutter between the pane and the price axis. Zero = TV-exact mode: the
+    name+price cards anchor to the axis and float over the pane's right edge
+    instead of reserving a column (founder call: "copy TV exactly"). */
+export const TAG_GUTTER_WIDTH = 0;
 export const TIME_AXIS_HEIGHT = 22;
 /** Fraction of the pane (above the time axis) given to the volume strip. */
 export const VOLUME_FRACTION = 0.16;

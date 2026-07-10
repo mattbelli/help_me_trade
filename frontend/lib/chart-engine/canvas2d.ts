@@ -70,7 +70,9 @@ export class Canvas2DPainter implements Painter {
 
   line(x1: number, y1: number, x2: number, y2: number, style: StrokeStyle): void {
     const { ctx } = this;
-    const deviceWidth = Math.max(1, Math.round(style.width * this.dpr));
+    const deviceWidth = style.hairline
+      ? 1
+      : Math.max(1, Math.round(style.width * this.dpr));
     ctx.strokeStyle = style.color;
     ctx.lineWidth = deviceWidth / this.dpr;
     ctx.setLineDash(style.dash ?? []);

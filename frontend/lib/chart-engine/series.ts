@@ -223,11 +223,16 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   // Overlays: alert/level lines + drawing segments, over the series but under
   // the last-price line. Out-of-range lines simply don't draw (hide, never
   // clamp — cross-client convention, RN_SKIA_CHART_RELAY.md §2).
-  // Line tags (level names / 🔔 / ext) render as small containers in the TAG
-  // GUTTER between pane and axis — founder call: floating pane text kept
-  // getting crossed by other lines. Containers draw LAST with an opaque wipe,
-  // so the lines flow underneath them. Collected here, drawn near the end.
-  const gutterTags: { y: number; label: string; bg: string; text: string }[] = [];
+  // Line tags render TV-style: name+price cards anchored to the axis edge,
+  // floating over the pane's right edge, de-overlapped vertically. Collected
+  // here, drawn near the end so lines flow underneath.
+  const cards: {
+    y: number;
+    label: string;
+    price: number | null;
+    bg: string;
+    text: string;
+  }[] = [];
 
   if (input.overlays) {
     const { lines, segments } = input.overlays;
@@ -238,9 +243,18 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           color: l.color,
           width: 1,
           dash: l.dash,
+          hairline: true,
         });
         if (l.label) {
-          gutterTags.push({ y, label: l.label, bg: l.color, text: "#ffffff" });
+          cards.push({
+            y,
+            label: l.label,
+            // Alert bells stay price-less (founder killed TV's alert pills);
+            // level cards carry the price like TV's.
+            price: l.collapsible ? l.price : null,
+            bg: l.color,
+            text: "#ffffff",
+          });
         }
       };
       for (const l of lines) {
@@ -261,14 +275,18 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           continue;
         }
         const y = (group[0].y + group[group.length - 1].y) / 2;
+        const mid =
+          group.reduce((s, g) => s + g.line.price, 0) / group.length;
         p.line(pane.x, y, plotEnd, y, {
           color: colors.textDim,
           width: 1,
           dash: [2, 3],
+          hairline: true,
         });
-        gutterTags.push({
+        cards.push({
           y,
           label: `×${group.length}`,
+          price: mid,
           bg: colors.crosshairLabelBg,
           text: colors.text,
         });
@@ -325,6 +343,7 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           color: lastColor,
           width: 1,
           dash: [2, 2],
+          hairline: true,
         });
       });
     }
@@ -345,6 +364,109 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       baseline: "middle",
     });
   }
+  // Extended-hours price (pre/post/overnight quote): dashed accent line with
+  // an "ext" tag and its own axis chip — parity with TV, which keeps showing
+  // where the name trades after the (daily or RTH-only) candles stop.
+  if (input.extPrice != null) {
+    const y = yOf(input.extPrice, priceRange, price.y, price.h);
+    if (y >= price.y && y <= price.y + price.h) {
+      p.withClip(pane.x, pane.y, plotEnd - pane.x, pane.h, () => {
+        p.line(pane.x, y, plotEnd, y, {
+          color: colors.accent,
+          width: 1,
+          dash: [4, 3],
+          hairline: true,
+        });
+      });
+      // Ext rides in the SAME card stack as the levels (TV behavior) — its
+      // old standalone axis chip collided with level prices around the close.
+      cards.push({
+        y,
+        label: "ext",
+        price: input.extPrice,
+        bg: colors.crosshairLabelBg,
+        text: colors.text,
+      });
+    }
+  }
+
+  // Level cards LAST (only the live-price chip outranks them): TV-exact —
+  // name left, price right, anchored to the chart's right edge spanning the
+  // axis, nudged apart vertically when they'd collide, over an opaque wipe so
+  // the lines flow underneath.
+  if (input.tagGutter !== false && cards.length > 0) {
+    const tagFont = `${LEVEL_TAG_FONT_PX}px ${fontFamily}`;
+    const step = LEVEL_TAG_H + 1;
+    const minY = pane.y + LEVEL_TAG_H / 2;
+    const maxY = pane.y + pane.h - LEVEL_TAG_H / 2;
+    // Forward pass pushes colliding cards down, backward pass pulls the
+    // overflow back up — minimal displacement, price order preserved.
+    const sweep = (group: typeof cards, lo: number, hi: number): number[] => {
+      const ys: number[] = [];
+      for (let i = 0; i < group.length; i++) {
+        const desired = Math.max(group[i].y, lo);
+        ys.push(i === 0 ? desired : Math.max(desired, ys[i - 1] + step));
+      }
+      for (let i = group.length - 1; i >= 0; i--) {
+        const bound = i === group.length - 1 ? hi : ys[i + 1] - step;
+        if (ys[i] > bound) ys[i] = bound;
+      }
+      return ys;
+    };
+    // The live-price chip is a fixed obstacle (TV behavior): cards split
+    // around it instead of sliding underneath.
+    const chipY =
+      last != null ? yOf(last.close, priceRange, price.y, price.h) : null;
+    const chipVisible =
+      chipY != null && chipY >= price.y && chipY <= price.y + price.h;
+    const all = [...cards].sort((a, b) => a.y - b.y);
+    let sorted: typeof cards;
+    let ys: number[];
+    if (chipVisible) {
+      const above = all.filter((c) => c.y <= chipY);
+      const below = all.filter((c) => c.y > chipY);
+      const gap = CHIP_H / 2 + LEVEL_TAG_H / 2 + 1;
+      sorted = [...above, ...below];
+      ys = [
+        ...sweep(above, minY, chipY - gap),
+        ...sweep(below, chipY + gap, maxY),
+      ];
+    } else {
+      sorted = all;
+      ys = sweep(all, minY, maxY);
+    }
+    const rightEdge = width - 1;
+    for (let i = 0; i < sorted.length; i++) {
+      const card = sorted[i];
+      const priceLabel =
+        card.price != null ? formatChipPrice(card.price, pTicks) : null;
+      const nameW = p.measure(card.label, tagFont);
+      const priceW = priceLabel ? p.measure(priceLabel, tagFont) : 0;
+      const w = 5 + nameW + (priceLabel ? 6 + priceW : 0) + 5;
+      const x = rightEdge - w;
+      const cy = Math.round(ys[i]);
+      const ty = cy - LEVEL_TAG_H / 2;
+      const textY = cy + LEVEL_TAG_FONT_PX * 0.34; // optical centering
+      p.fillRect(x, ty, w, LEVEL_TAG_H, colors.background);
+      p.roundRect(x, ty, w, LEVEL_TAG_H, 2, card.bg);
+      p.text(card.label, x + 5, textY, {
+        color: card.text,
+        font: tagFont,
+        align: "left",
+        baseline: "alphabetic",
+      });
+      if (priceLabel) {
+        p.text(priceLabel, rightEdge - 5, textY, {
+          color: card.text,
+          font: tagFont,
+          align: "right",
+          baseline: "alphabetic",
+        });
+      }
+    }
+  }
+
+  // Live-price chip absolutely last — it outranks every card.
   if (last) {
     const y = yOf(last.close, priceRange, price.y, price.h);
     if (y >= price.y - CHIP_H && y <= priceAxis.y + priceAxis.h + CHIP_H) {
@@ -359,74 +481,6 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
         "#ffffff",
         font,
       );
-    }
-  }
-
-  // Extended-hours price (pre/post/overnight quote): dashed accent line with
-  // an "ext" tag and its own axis chip — parity with TV, which keeps showing
-  // where the name trades after the (daily or RTH-only) candles stop.
-  if (input.extPrice != null) {
-    const y = yOf(input.extPrice, priceRange, price.y, price.h);
-    if (y >= price.y && y <= price.y + price.h) {
-      p.withClip(pane.x, pane.y, plotEnd - pane.x, pane.h, () => {
-        p.line(pane.x, y, plotEnd, y, {
-          color: colors.accent,
-          width: 1,
-          dash: [4, 3],
-        });
-      });
-      gutterTags.push({
-        y,
-        label: "ext",
-        bg: colors.crosshairLabelBg,
-        text: colors.text,
-      });
-      drawAxisChip(
-        p,
-        priceAxis,
-        y,
-        formatChipPrice(input.extPrice, pTicks),
-        colors.accent,
-        "#ffffff",
-        font,
-      );
-    }
-  }
-
-  // Tag-gutter containers LAST: an opaque background wipe first, so every
-  // line (including its own) flows underneath instead of through the text.
-  // TV-style de-overlap: each card sits at its line's price until cards would
-  // collide, then they nudge apart vertically so all stay readable.
-  if (gutter.w > 0 && gutterTags.length > 0) {
-    const tagFont = `${LEVEL_TAG_FONT_PX}px ${fontFamily}`;
-    const step = LEVEL_TAG_H + 1;
-    const minY = gutter.y + LEVEL_TAG_H / 2;
-    const maxY = gutter.y + gutter.h - LEVEL_TAG_H / 2;
-    const sorted = [...gutterTags].sort((a, b) => a.y - b.y);
-    const ys: number[] = [];
-    for (let i = 0; i < sorted.length; i++) {
-      const desired = Math.max(sorted[i].y, minY);
-      ys.push(i === 0 ? desired : Math.max(desired, ys[i - 1] + step));
-    }
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      const bound = i === sorted.length - 1 ? maxY : ys[i + 1] - step;
-      if (ys[i] > bound) ys[i] = bound;
-    }
-    for (let i = 0; i < sorted.length; i++) {
-      const tag = sorted[i];
-      const cy = Math.round(ys[i]);
-      const ty = cy - LEVEL_TAG_H / 2;
-      // Square opaque wipe (background-colored, so the rounded card's corners
-      // read as transparent), then the card, then optically-centered text —
-      // "middle" baseline sat uppercase labels visibly low in a 14px card.
-      p.fillRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, colors.background);
-      p.roundRect(gutter.x + 1, ty, gutter.w - 2, LEVEL_TAG_H, 3, tag.bg);
-      p.text(tag.label, gutter.x + gutter.w / 2, cy + LEVEL_TAG_FONT_PX * 0.34, {
-        color: tag.text,
-        font: tagFont,
-        align: "center",
-        baseline: "alphabetic",
-      });
     }
   }
 
