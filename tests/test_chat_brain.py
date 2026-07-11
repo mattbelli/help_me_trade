@@ -333,6 +333,44 @@ def test_finalize_turn_persists_assistant_tool_parts(tmp_path, monkeypatch):
     assert paper_orders_mod.list_paper_order_proposals(db_path=db) == []
 
 
+def test_persist_turn_saved_mode_actually_calls_extraction(tmp_path, monkeypatch):
+    """Regression: live routes call ai.chat.agent.finalize_chat_turn directly with
+    the POST-normalization mode ("saved"), never the literal "standard" — a stale
+    `mode == "standard"` gate inside _persist_turn silently no-op'd extraction for
+    every real chat turn (mocked-finalize tests above never caught it)."""
+    from ai.chat.agent import finalize_chat_turn
+    from db.chat_sessions import create_chat_session, get_chat_session, upsert_chat_message
+
+    db = tmp_path / "chat.db"
+    monkeypatch.setattr(
+        "ai.chat.agent.get_chat_session",
+        lambda sid: get_chat_session(sid, db_path=db),
+    )
+    monkeypatch.setattr(
+        "ai.chat.agent.upsert_chat_message",
+        lambda **kw: upsert_chat_message(**kw, db_path=db),
+    )
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        "ai.chat.agent.extract_memories_from_turn",
+        lambda **kw: (calls.append(kw), [])[1],
+    )
+
+    session = create_chat_session(mode="saved", db_path=db)
+    from ai.chat.agent import ChatRunResult
+
+    finalize_chat_turn(
+        messages=[{"id": "user_1", "role": "user", "parts": [{"type": "text", "text": "I never hold more than 20% in one name"}]}],
+        user_text="I never hold more than 20% in one name",
+        assistant_text="Noted.",
+        session_id=session["id"],
+        mode="saved",
+        run=ChatRunResult(),
+        extract=True,
+    )
+    assert len(calls) == 1
+
+
 def test_finalize_turn_saved_extracts_memories(monkeypatch):
     captured: dict = {}
 

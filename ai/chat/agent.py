@@ -312,7 +312,7 @@ def _persist_turn(
     if session.get("title") == "New chat" and user_text:
         update_chat_session_title(session_id, title_from_first_message(user_text))
 
-    if extract and mode == "standard":
+    if extract:
         run.memories_saved = extract_memories_from_turn(
             user_text=user_text,
             assistant_text=assistant_text,
