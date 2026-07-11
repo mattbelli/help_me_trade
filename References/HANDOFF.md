@@ -10,7 +10,26 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-11, latest) — Options-flow widget REDESIGNED + LIVE (surface 3); DTE-diversity spec awaiting founder
+## ▶ START HERE (2026-07-11 EVENING, latest) — Flow intelligence week-1 core SHIPPED; Monday = wildcard rate probe
+
+> **Saturday flow sprint, in order:** widget round-3 fixes → OPRA trades-wildcard **ACK confirmed on
+> our plan** (`scripts/opra_wildcard_probe.py` — market-wide tape possible at $0; data-rate check
+> pending) → 3-agent capacity research (`FLOW_CAPACITY_RESEARCH_2026-07-11.md`) → Fable design
+> (`FLOW_INTELLIGENCE_DESIGN_2026-07-11.md`, founder briefed Q&A-style) → **outcome tracking live**
+> (every flow event stamped ret_15m/1h/eod/1d/5d; nightly in the EOD scan; 1,095 stamped; early
+> 1.5-day tease: $100k+ prints skew contrarian both directions — NOT significant) → widget poll
+> 30s→5s (print-to-pixel now ~3-5s) → **week-1 core built + tests green**: `rolling.py` D-1 burst +
+> D-2 cluster (founder's small-print slicing hypothesis, TWAP footprint metrics instrumented),
+> coverage/minutes_into_session schema, 1s-loop wiring (dormant till Monday), honest symbol-day
+> report units (n≥20 gating), widget burst/cluster rows, `scripts/opra_rate_probe.py`.
+> **MONDAY 09:31 ET: run the rate probe** (stop prod stream first — 1-conn; retry-on-406 built in)
+> → branch decision ~11:00 → build branch W (two-lane ingest + lag governor + quotes-follow-heat)
+> or branch C (DTE quotas per `FLOW_DTE_DIVERSITY_SPEC`). Week 2: pressure widget, breadth, pushes.
+> ⚠️ If the founder's ⚙ filter was hand-set, bursts/clusters need re-checking there (explicit
+> flowTypes persists; only the default gained the new kinds). SPY/QQQ near-invisible intraday =
+> ZERO_DTE_EXCLUDE × recency active-set (explained to founder; quotas/wildcard fix it).
+
+## ▶ EARLIER (2026-07-11) — Options-flow widget REDESIGNED + LIVE (surface 3); DTE-diversity spec awaiting founder
 
 > **The options-flow widget is rebuilt to the approved mockup and deployed** after 3 live
 > founder-feedback rounds: sortable fixed columns (strike/exp split), side = the only saturated

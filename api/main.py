@@ -1332,9 +1332,12 @@ async def _options_flow_sweep_loop() -> None:
     from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
     from signals.options_flow.convergence import process_events
     from signals.options_flow.intraday import classify_direction, tag_likely_spreads
+    from signals.options_flow.rolling import RollingFlow
     from signals.options_flow.sweeps import SweepBuffer
 
     buffer = SweepBuffer()
+    rolling = RollingFlow()
+    rolling_last_check = 0.0
     buffer_day = ""
     stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
 
@@ -1353,6 +1356,7 @@ async def _options_flow_sweep_loop() -> None:
             today_et = now_et.date().isoformat()
             if buffer_day != today_et:
                 buffer = SweepBuffer()
+                rolling = RollingFlow()
                 buffer_day = today_et
 
             if batch:
@@ -1375,6 +1379,22 @@ async def _options_flow_sweep_loop() -> None:
                     p["direction_basis"] = basis
                 tag_likely_spreads(batch)
                 buffer.add(batch)
+                # D-1/D-2 rolling detectors ride the same classified prints
+                for p in batch:
+                    rolling.add_print(p)
+
+            # burst/cluster checks step once a minute (1-min bucket granularity)
+            now_mono = time.time()
+            if now_mono - rolling_last_check >= 60.0:
+                rolling_last_check = now_mono
+                now_ms = int(now_mono * 1000)
+                try:
+                    for ev in rolling.check_bursts(now_ms) + rolling.check_clusters(
+                        now_ms
+                    ):
+                        of_db.insert_event(ev)
+                except Exception:
+                    logger.exception("options_flow rolling: check failed")
 
             events = buffer.close_ready(int(time.time() * 1000), today_et)
             if not events:

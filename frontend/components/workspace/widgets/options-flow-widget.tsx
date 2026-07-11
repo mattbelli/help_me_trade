@@ -44,7 +44,7 @@ type SortKey = "score" | "time" | "size" | "premium";
 type SortState = { key: SortKey; dir: "asc" | "desc" };
 const DEFAULT_SORT: SortState = { key: "score", dir: "desc" };
 
-type FlowKind = "uv1" | "uv2" | "block" | "sweep" | "pressure";
+type FlowKind = "uv1" | "uv2" | "block" | "sweep" | "pressure" | "burst" | "cluster";
 
 function formatPremium(v: number | null): string {
   if (v == null) return "—";
@@ -94,6 +94,8 @@ function rightLetter(right: string | null): "C" | "P" | null {
 function flowKind(ev: OptionsFlowEvent): FlowKind {
   if (ev.event_type === "block") return "block";
   if (ev.event_type === "sweep") return "sweep";
+  if (ev.event_type === "flow_burst") return "burst";
+  if (ev.event_type === "flow_cluster") return "cluster";
   if (ev.event_type === "directional_pressure") return "pressure";
   if (ev.event_type === "unusual_volume") return ev.occ_symbol ? "uv1" : "uv2";
   return "uv1";
@@ -104,6 +106,8 @@ function typeLabel(kind: FlowKind): string {
   switch (kind) {
     case "block": return "block";
     case "sweep": return "sweep";
+    case "burst": return "burst";
+    case "cluster": return "cluster";
     case "uv1": return "unusual vol";
     case "uv2": return "chain surge";
     case "pressure": return "pressure";
@@ -508,7 +512,15 @@ function FlowDetail({
           ? "polled quote (≤30s, may shift)"
           : ev.direction_basis || "—";
 
+  const isAggregate =
+    ev.event_type === "flow_burst" || ev.event_type === "flow_cluster";
+  const classifiedFrac = num(d, "classified_frac");
+  const modalShare = num(d, "modal_size_share");
+  const cadenceCv = num(d, "interarrival_cv");
+
   const why: string[] = [];
+  // aggregate events carry their whole story in reason — lead with it
+  if (isAggregate && ev.reason) why.push(ev.reason);
   if (ev.direction === "buy_side") why.push("aggressive buy-side");
   else if (ev.direction === "sell_side") why.push("aggressive sell-side");
   if (ev.otm_pct != null) why.push(`${Math.abs(ev.otm_pct).toFixed(1)}% OTM`);
@@ -574,6 +586,17 @@ function FlowDetail({
       {/* z-score exists on EOD unusual-volume events only — the intraday tape
           has no daily-volume baseline, shown as — rather than hidden */}
       {cell("z-score", ev.vol_zscore != null ? `${ev.vol_zscore.toFixed(1)}σ` : "—")}
+      {classifiedFrac != null
+        ? cell("classified", `${Math.round(classifiedFrac * 100)}% of premium`)
+        : null}
+      {/* cluster footprint (TWAP/iceberg instrumentation): high modal share +
+          low cadence CV = uniform clips at a regular rhythm — one worked order? */}
+      {modalShare != null
+        ? cell(
+            "footprint",
+            `${Math.round(modalShare * 100)}% one clip size${cadenceCv != null ? ` · cv ${cadenceCv.toFixed(2)}` : ""}`,
+          )
+        : null}
       {cell("side basis", basis)}
       {cell(
         "score",

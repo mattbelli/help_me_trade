@@ -87,6 +87,15 @@ def init_db(db_path: Path | None = None) -> None:
         _add_column_if_missing(conn, "options_flow_events", "ret_1h", "REAL")
         _add_column_if_missing(conn, "options_flow_events", "ret_eod", "REAL")
         _add_column_if_missing(conn, "options_flow_events", "outcomes_done", "INTEGER")
+        # Conditioning dimensions stamped at event time (FLOW_INTELLIGENCE_DESIGN §Q2):
+        # coverage = what the detectors could SEE when this fired (the denominator
+        # changes at the wildcard cutover and is unreconstructable later);
+        # minutes_into_session = ET minutes since 09:30 (DST makes this non-derivable
+        # in SQL). Weekday / size bucket / 0DTE derive from ts+columns at query time.
+        _add_column_if_missing(conn, "options_flow_events", "coverage", "TEXT")
+        _add_column_if_missing(
+            conn, "options_flow_events", "minutes_into_session", "INTEGER"
+        )
         conn.commit()
 
 
@@ -111,6 +120,19 @@ def _row_to_event(row: Any) -> dict[str, Any]:
     elif raw_detail is None:
         out["detail"] = None
     return out
+
+
+def _minutes_into_session(ts: str) -> int | None:
+    """ET minutes since 09:30 for a UTC ISO ts (stamped — DST breaks SQL derivation)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(
+            ZoneInfo("America/New_York")
+        )
+    except (ValueError, KeyError):
+        return None
+    return (dt.hour * 60 + dt.minute) - (9 * 60 + 30)
 
 
 def insert_event(event: dict, db_path: Path | None = None) -> None:
@@ -143,12 +165,14 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 id, ts, underlying, occ_symbol, right, strike, expiry, dte,
                 otm_pct, event_type, contracts, premium_usd, vol_oi_ratio,
                 vol_zscore, direction, direction_basis, spread_flag, n_prints,
-                exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail
+                exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail,
+                coverage, minutes_into_session
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?,
+                ?, ?
             )
             ON CONFLICT(id) DO UPDATE SET
                 underlying = excluded.underlying,
@@ -200,6 +224,8 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 event.get("ret_5d"),
                 created,
                 detail_json,
+                event.get("coverage") or "watchlist_capped",
+                _minutes_into_session(str(event["ts"])),
             ),
         )
         conn.commit()

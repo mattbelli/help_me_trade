@@ -510,7 +510,9 @@ function WatchlistHeaderControls({
 const FLOW_TYPE_OPTIONS: { key: FlowTypeKey; label: string }[] = [
   { key: "sweep", label: "sweeps" },
   { key: "block", label: "blocks" },
-  { key: "directional_pressure", label: "pressure" },
+  { key: "flow_burst", label: "bursts (30m net)" },
+  { key: "flow_cluster", label: "clusters (small prints)" },
+  { key: "directional_pressure", label: "pressure (day net)" },
   { key: "unusual_volume", label: "unusual volume (EOD)" },
 ];
 

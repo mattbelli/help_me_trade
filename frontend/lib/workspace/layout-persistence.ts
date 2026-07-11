@@ -41,12 +41,16 @@ export type WidgetInstanceConfig = {
 export type FlowTypeKey =
   | "sweep"
   | "block"
+  | "flow_burst"
+  | "flow_cluster"
   | "directional_pressure"
   | "unusual_volume";
 
 export const DEFAULT_FLOW_TYPES: FlowTypeKey[] = [
   "sweep",
   "block",
+  "flow_burst",
+  "flow_cluster",
   "directional_pressure",
 ];
 
