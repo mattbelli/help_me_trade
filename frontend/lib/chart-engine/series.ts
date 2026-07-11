@@ -79,8 +79,10 @@ const CHIP_H = 16;
 const LEVEL_TAG_H = 16;
 const LEVEL_TAG_FONT_PX = 10;
 /** Optical text centering inside pills: alphabetic baseline sits this many
-    em below the pill's midline (founder-tuned: 0.34 read high, 0.46 low). */
-const PILL_TEXT_DY_EM = 0.4;
+    em below the pill's midline (founder-tuned: 0.34 read high, 0.46 low).
+    Axis ticks use the SAME convention so pill prices and tick prices share
+    one vertical rhythm. */
+const PILL_TEXT_DY_EM = 0.38;
 
 function axisFont(fontFamily: string): string {
   return `${AXIS_FONT_PX}px ${fontFamily}`;
@@ -367,11 +369,11 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   // the digits line up and the column reads balanced (founder call).
   for (const t of pTicks) {
     const y = yOf(t.price, priceRange, price.y, price.h);
-    p.text(t.label, priceAxis.x + priceAxis.w / 2, y, {
+    p.text(t.label, priceAxis.x + priceAxis.w / 2, y + LEVEL_TAG_FONT_PX * PILL_TEXT_DY_EM, {
       color: colors.textDim,
       font,
       align: "center",
-      baseline: "middle",
+      baseline: "alphabetic",
     });
   }
   // Extended-hours price (pre/post/overnight quote): dashed accent line with
