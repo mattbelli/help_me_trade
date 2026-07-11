@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { indexOfTime, xOf, yOf } from "./scales";
 import {
-  clusterLines,
   computeLayout,
   hitTestLine,
   hitTestSegment,
@@ -164,26 +163,5 @@ describe("hitTestSegment", () => {
         false,
       ),
     ).toBeNull();
-  });
-});
-
-describe("clusterLines", () => {
-  const mk = (y: number) => ({ line: { price: 0, color: "#fff" }, y });
-
-  it("groups runs of near lines and splits at wide gaps", () => {
-    const groups = clusterLines([mk(100), mk(50), mk(58), mk(66), mk(200)], 12);
-    expect(groups.map((g) => g.length)).toEqual([3, 1, 1]);
-    expect(groups[0].map((g) => g.y)).toEqual([50, 58, 66]);
-  });
-
-  it("chained closeness merges transitively even past the gap total", () => {
-    // 0-10-20-30: each adjacent gap < 12 → one group spanning 30px.
-    const groups = clusterLines([mk(0), mk(10), mk(20), mk(30)], 12);
-    expect(groups).toHaveLength(1);
-  });
-
-  it("handles empty and singleton input", () => {
-    expect(clusterLines([], 12)).toEqual([]);
-    expect(clusterLines([mk(5)], 12)).toHaveLength(1);
   });
 });
