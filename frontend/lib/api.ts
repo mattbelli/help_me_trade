@@ -1529,6 +1529,11 @@ export type IdeaOutcomeRow = {
   verdict: IdeaVerdict | null;
   notes: string | null;
   updated_at: string;
+  // Open-row context (stamped by the tracker sweep / API): why still pending.
+  last_price?: string | null;
+  last_price_at?: string | null;
+  expires_on?: string | null;
+  zone_distance_pct?: number | null;
 };
 
 export type IdeaVerdict = {

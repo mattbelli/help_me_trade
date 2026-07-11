@@ -198,6 +198,14 @@ _OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not 
     "false",
     "no",
 )
+_SETUP_SCAN_NIGHTLY_ENABLED = os.environ.get(
+    "SETUP_SCAN_NIGHTLY_ENABLED", "1"
+).strip() not in ("0", "false", "no")
+# Earliest ET clock time (fractional hours) for the nightly setup scan — after
+# the close so the day's daily bar is final.
+SETUP_SCAN_NIGHTLY_AFTER_ET = float(
+    os.environ.get("SETUP_SCAN_NIGHTLY_AFTER_ET", "17.5")
+)
 _OPTIONS_FLOW_STREAM_ENABLED = os.environ.get(
     "OPTIONS_FLOW_STREAM_ENABLED", "0"
 ).strip() not in ("0", "false", "no")
@@ -1882,6 +1890,54 @@ async def _reports_scheduler_loop() -> None:
             mark_alive("reports_scheduler")
 
 
+# ---------------------------------------------------------------------------
+# Nightly setup scan: keeps the idea-outcomes calibration ledger fed without a
+# human remembering to run it. Weekday evenings after the close; once per ET
+# day. The artifact topic doubles as the restart-safe "already ran" marker.
+# ---------------------------------------------------------------------------
+_setup_scan_ran_dates: set[date] = set()
+
+
+def _setup_scan_nightly_topic(today_et: date) -> str:
+    return f"Setup scan (nightly) — {today_et.isoformat()}"
+
+
+def _setup_scan_already_ran(today_et: date) -> bool:
+    if today_et in _setup_scan_ran_dates:
+        return True
+    from db.ai_tables import list_research_artifacts
+
+    topic = _setup_scan_nightly_topic(today_et)
+    if any(a.get("topic") == topic for a in list_research_artifacts(limit=20)):
+        _setup_scan_ran_dates.add(today_et)
+        return True
+    return False
+
+
+async def _setup_scan_nightly_once() -> None:
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+    if now_et.hour + now_et.minute / 60 < SETUP_SCAN_NIGHTLY_AFTER_ET:
+        return
+    today_et = now_et.date()
+    if _setup_scan_already_ran(today_et):
+        return
+
+    from ai.research.setup_scan import run_setup_scan
+
+    logger.info("Nightly setup scan starting: %s", today_et)
+    result = await run_setup_scan(topic=_setup_scan_nightly_topic(today_et))
+    _setup_scan_ran_dates.add(today_et)
+    for d in [d for d in _setup_scan_ran_dates if d < today_et - timedelta(days=1)]:
+        _setup_scan_ran_dates.discard(d)
+    ideas = result.get("ideas") if isinstance(result, dict) else None
+    logger.info(
+        "Nightly setup scan done: %d idea(s)",
+        len(ideas) if isinstance(ideas, list) else 0,
+    )
+
+
 _background_jobs_registered = False
 
 
@@ -1956,6 +2012,14 @@ def _register_background_jobs() -> None:
             fn=_options_flow_intraday_once,
             interval_s=float(OPTIONS_FLOW_POLL_SECONDS),
             enabled=lambda: _OPTIONS_FLOW_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="setup_scan_nightly",
+            fn=_setup_scan_nightly_once,
+            interval_s=900.0,
+            enabled=lambda: _SETUP_SCAN_NIGHTLY_ENABLED,
         )
     )
     register_job(
@@ -3294,6 +3358,45 @@ async def api_session_node_levels(symbol: str = "SPY"):
     return payload
 
 
+def _enrich_open_idea(row: dict) -> dict:
+    """Attach expires_on + zone_distance_pct so a pending row can explain
+    itself (why still pending, when it times out). Fail-soft per field."""
+    from decimal import Decimal, InvalidOperation
+
+    from research.idea_tracker import (
+        IDEA_TTL_DAYS,
+        RESOLVE_TTL_DAYS,
+        _add_trading_days,
+        _parse_as_of_date,
+    )
+
+    try:
+        if row.get("status") == "triggered" and row.get("triggered_at"):
+            base = _parse_as_of_date(str(row["triggered_at"]))
+            ttl = RESOLVE_TTL_DAYS
+        else:
+            base = _parse_as_of_date(str(row["as_of"]))
+            ttl = IDEA_TTL_DAYS
+        row["expires_on"] = _add_trading_days(base, ttl).isoformat()
+    except Exception:
+        row["expires_on"] = None
+
+    row["zone_distance_pct"] = None
+    try:
+        last = Decimal(str(row.get("last_price") or "").strip())
+        lo = Decimal(str(row["entry_low"]))
+        hi = Decimal(str(row["entry_high"]))
+        if lo <= last <= hi:
+            row["zone_distance_pct"] = 0.0
+        elif last > hi > 0:
+            row["zone_distance_pct"] = float((last - hi) / hi * 100)
+        elif lo > 0:
+            row["zone_distance_pct"] = float((last - lo) / lo * 100)
+    except (InvalidOperation, ValueError, TypeError, KeyError):
+        pass
+    return row
+
+
 @app.get("/api/ideas/outcomes")
 def api_idea_outcomes():
     from db.idea_outcomes import (
@@ -3304,7 +3407,7 @@ def api_idea_outcomes():
 
     return {
         "summary": get_summary(),
-        "open": list_recent_open(),
+        "open": [_enrich_open_idea(r) for r in list_recent_open()],
         "resolved": list_recent_resolved(limit=50),
     }
 

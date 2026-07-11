@@ -557,3 +557,49 @@ def test_get_summary_splits_by_origin(idea_db) -> None:
     assert summary["by_origin"]["structure"]["win_rate"] == 1.0
     assert summary["by_origin"]["llm_conviction"]["counts"]["lost"] == 1
     assert summary["by_origin"]["llm_conviction"]["win_rate"] == 0.0
+
+
+def test_register_ideas_dedupes_open_zone_across_artifacts(idea_db) -> None:
+    """A daily scheduled scan re-suggesting yesterday's untouched zone must not
+    multi-count the same idea in the calibration ledger."""
+    assert _register(idea_db, artifact_id=1) == 1
+    assert _register(idea_db, artifact_id=2) == 0
+    assert len(list_open(db_path=idea_db)) == 1
+    # A different zone for the same symbol IS a new idea.
+    assert (
+        _register(idea_db, artifact_id=3, entry_low="90", entry_high="95", stop="85")
+        == 1
+    )
+    assert len(list_open(db_path=idea_db)) == 2
+
+
+def test_register_ideas_same_zone_allowed_after_resolution(idea_db) -> None:
+    assert _register(idea_db, artifact_id=1) == 1
+    row = list_open(db_path=idea_db)[0]
+    update_outcome(
+        row["id"], status="expired", resolved_at="2026-01-20", db_path=idea_db
+    )
+    assert _register(idea_db, artifact_id=2) == 1
+
+
+def test_sweep_stamps_last_price(idea_db) -> None:
+    """Quiet bars (no trigger/stop/expiry) still stamp the newest close so the
+    widget can show distance-from-zone on pending rows."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")
+    start = date(2026, 1, 6)
+    bars = [_bar(start, low=106, high=108, close=107.5)]
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts = sweep_open_ideas(now=datetime(2026, 1, 7, 12, 0, 0), db_path=idea_db)
+
+    assert counts["triggered"] == 0
+    row = list_open(db_path=idea_db)[0]
+    assert row["status"] == "pending"
+    assert row["last_price"] == "107.5"
+    assert row["last_price_at"] == start.isoformat()
+
+    # Same close again -> no rewrite (updated_at ordering stays stable).
+    before = row["updated_at"]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 7, 18, 0, 0), db_path=idea_db)
+    assert list_open(db_path=idea_db)[0]["updated_at"] == before

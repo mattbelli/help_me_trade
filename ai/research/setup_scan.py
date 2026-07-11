@@ -982,23 +982,29 @@ async def run_setup_scan(
                     market_regime=market_regime,
                 )
                 if rank_payload is None:
-                    raise RuntimeError("Ranking LLM call failed")
+                    # Degrade, never abort: a ranker hiccup must not drop the
+                    # whole scan (unattended nightly runs would silently lose
+                    # every idea from the calibration ledger).
+                    logger.warning(
+                        "Ranking LLM call failed — keeping unranked idea order"
+                    )
+                    scan_note = "Ranking unavailable for this scan (unranked order)."
+                else:
+                    order = rank_payload.get("order") or []
+                    if isinstance(order, list):
+                        validated_ideas = _apply_ranker_order(validated_ideas, order)
 
-                order = rank_payload.get("order") or []
-                if isinstance(order, list):
-                    validated_ideas = _apply_ranker_order(validated_ideas, order)
-
-                scan_note = str(rank_payload.get("scan_note", "")).strip()
-                discarded = rank_payload.get("discarded") or []
-                if isinstance(discarded, list):
-                    ranker_discarded = [
-                        {
-                            "symbol": str(d.get("symbol", "")).strip().upper(),
-                            "reason": str(d.get("reason", "")).strip(),
-                        }
-                        for d in discarded
-                        if isinstance(d, dict) and d.get("symbol")
-                    ]
+                    scan_note = str(rank_payload.get("scan_note", "")).strip()
+                    discarded = rank_payload.get("discarded") or []
+                    if isinstance(discarded, list):
+                        ranker_discarded = [
+                            {
+                                "symbol": str(d.get("symbol", "")).strip().upper(),
+                                "reason": str(d.get("reason", "")).strip(),
+                            }
+                            for d in discarded
+                            if isinstance(d, dict) and d.get("symbol")
+                        ]
             else:
                 scan_note = ""
                 if market_regime and isinstance(market_regime.get("content"), dict):

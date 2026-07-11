@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "idea-ledger-round1",
+      "title": "Idea outcomes revived: nightly setup scan + legible pending rows + unification spec",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Diagnosed 2026-07-11: both widgets worked but had no drivers (setup scan manual-only since Jul 3; decision journal empty because no strategy armed \u2014 correct). Shipped: setup_scan_nightly job (weekdays >=17:30 ET, once/day, restart-safe), cross-artifact zone dedup in register_ideas, ranker failure no longer aborts scan, sweep stamps last_price, widget Open tab shows Last (distance-from-zone) + Expires. Spec: References/IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11.md (Phase B: direction/shorts, chat + decision-engine registration, proposal->idea_id bridge). Pending in-browser check. First nightly run: Mon Jul 13 evening."
+    },
+    {
       "id": "flow-week1-core",
       "title": "Flow week-1 core SHIPPED: burst + cluster detectors live (dormant until Monday's tape)",
       "lane": "in_progress",

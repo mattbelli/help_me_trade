@@ -145,6 +145,11 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         _add_column_if_missing(
             conn, "idea_outcomes", "veto_reason", "TEXT NOT NULL DEFAULT ''"
         )
+        # Latest daily close seen by the sweep — lets the widget explain WHY a
+        # row is still pending (distance from the entry zone) without a live
+        # quote fetch at read time.
+        _add_column_if_missing(conn, "idea_outcomes", "last_price", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "last_price_at", "TEXT")
         conn.commit()
 
 
@@ -176,13 +181,19 @@ def register_ideas(
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
-    """Insert snapshot rows for validated ideas. Idempotent on (artifact_id, idea_index)."""
+    """Insert snapshot rows for validated ideas. Idempotent on (artifact_id, idea_index).
+
+    Also dedupes across artifacts: an idea whose (symbol, entry zone, stop,
+    origin) exactly matches a still-OPEN row is skipped — a scheduled daily
+    scan re-suggesting yesterday's untouched zone must not multi-count it in
+    the calibration ledger."""
     init_idea_outcomes_tables(db_path)
     if not ideas:
         return 0
 
     inserted = 0
     now = _now()
+    open_placeholders = ",".join("?" * len(OPEN_STATUSES))
     with _connect(db_path) as conn:
         for idx, idea in enumerate(ideas):
             if not isinstance(idea, dict):
@@ -202,6 +213,19 @@ def register_ideas(
             targets_json = json.dumps([str(t) for t in targets])
             origin = str(idea.get("origin", "structure")).strip() or "structure"
             veto_reason = str(idea.get("veto_reason", "")).strip()
+
+            dup = conn.execute(
+                f"""
+                SELECT 1 FROM idea_outcomes
+                WHERE status IN ({open_placeholders})
+                  AND symbol = ? AND entry_low = ? AND entry_high = ?
+                  AND stop = ? AND origin = ?
+                LIMIT 1
+                """,
+                (*OPEN_STATUSES, symbol, entry_low, entry_high, stop, origin),
+            ).fetchone()
+            if dup is not None:
+                continue
 
             cur = conn.execute(
                 """
@@ -314,6 +338,8 @@ def update_outcome(
     founder_verdict: str | None = None,
     fetch_fail_streak: int | None = None,
     notes: str | None = None,
+    last_price: str | None = None,
+    last_price_at: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> bool:
     """Apply a forward-only update. Returns True if a row was modified."""
@@ -351,6 +377,12 @@ def update_outcome(
     if notes is not None:
         fields.append("notes = ?")
         values.append(notes)
+    if last_price is not None:
+        fields.append("last_price = ?")
+        values.append(last_price)
+    if last_price_at is not None:
+        fields.append("last_price_at = ?")
+        values.append(last_price_at)
 
     values.append(int(outcome_id))
     with _connect(db_path) as conn:

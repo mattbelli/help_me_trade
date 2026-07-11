@@ -10,7 +10,25 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-11 EVENING, latest) — Flow intelligence week-1 core SHIPPED; Monday = wildcard rate probe
+## ▶ START HERE (2026-07-11 LATE EVENING, latest) — Idea-outcomes ledger revived; nightly setup scan armed
+
+> Founder asked why the decision-journal + idea-outcomes widgets "populated once and went dead."
+> **Diagnosis: both work; neither had a driver.** `idea_outcomes`' only writer (`run_setup_scan`)
+> is manual-only, last ran Jul 3; `decision_journal` fills only from proposals and no strategy is
+> armed (correct). The 4 pending ideas were honest — SPY never touched its 731.57–738.89 zone
+> (closest 739.51 Jul 8), GS never saw 1000–1010; sweep heartbeat alive at 30-min cadence.
+> **Shipped:** `setup_scan_nightly` job (weekdays ≥17:30 ET, once/day, restart-safe artifact-topic
+> marker, `SETUP_SCAN_NIGHTLY_ENABLED` default ON — **first run Mon Jul 13 evening**, watch
+> `journalctl -u hmt-backend | grep "Nightly setup scan"`); zone dedup in `register_ideas` (daily
+> re-suggestion ≠ new idea); ranker LLM failure now degrades to unranked instead of aborting the
+> scan (silent idea-drop leak closed); sweep stamps `last_price` → widget Open tab shows Last
+> (+% from zone / "at zone") + Expires. **Spec for the next phase:**
+> `IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11.md` — idea-vs-event boundary, decision_journal bridge
+> via `idea_id` (never merge), Phase B = shorts + chat/decision-engine registration. Leftover for
+> founder: live rows id 3–4 are pre-dedup Jul-3 SPY duplicates — delete or let them expire Jul 17
+> (classifier blocked agent-side deletion, correctly). Board card: `idea-ledger-round1`.
+
+## ▶ EARLIER (2026-07-11 EVENING) — Flow intelligence week-1 core SHIPPED; Monday = wildcard rate probe
 
 > **Saturday flow sprint, in order:** widget round-3 fixes → OPRA trades-wildcard **ACK confirmed on
 > our plan** (`scripts/opra_wildcard_probe.py` — market-wide tape possible at $0; data-rate check

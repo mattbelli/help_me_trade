@@ -332,6 +332,8 @@ def _sweep_row(row: dict[str, Any], *, now_date: date, db_path: Path | None = No
             update_outcome(outcome_id, fetch_fail_streak=0, **db_kwargs)
         return None
 
+    _stamp_last_price(row, bars, outcome_id=outcome_id, db_kwargs=db_kwargs)
+
     patch: dict[str, Any] | None
     if status == "pending":
         patch = _process_pending(row, bars, now_date=now_date)
@@ -344,6 +346,31 @@ def _sweep_row(row: dict[str, Any], *, now_date: date, db_path: Path | None = No
         return None
 
     return _apply_update(outcome_id, status, patch, db_kwargs=db_kwargs)
+
+
+def _stamp_last_price(
+    row: dict[str, Any],
+    bars: list[Any],
+    *,
+    outcome_id: int,
+    db_kwargs: dict[str, Any],
+) -> None:
+    """Record the newest daily close so the widget can show how far price sits
+    from the entry zone. At most one write per row per trading day (only when
+    the value actually changes)."""
+    last_bar = bars[-1]
+    close = _parse_decimal(getattr(last_bar, "close", None))
+    bar_date = _bar_date(last_bar)
+    if close is None or bar_date is None:
+        return
+    if str(row.get("last_price") or "") == str(close):
+        return
+    update_outcome(
+        outcome_id,
+        last_price=str(close),
+        last_price_at=bar_date.isoformat(),
+        **db_kwargs,
+    )
 
 
 def _apply_update(

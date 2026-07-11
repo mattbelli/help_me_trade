@@ -142,6 +142,47 @@ function formatEntryZone(row: IdeaOutcomeRow): string {
   return `${row.entry_low}–${row.entry_high}`;
 }
 
+const MONTHS_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// Date-only strings (YYYY-MM-DD) must not go through new Date() — UTC-midnight
+// parsing shifts them a day back in ET.
+function formatDayString(value: string | null | undefined): string {
+  if (!value) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!m) return value;
+  return `${MONTHS_SHORT[Number(m[2]) - 1]} ${Number(m[3])}`;
+}
+
+function LastVsZoneCell({ row }: { row: IdeaOutcomeRow }) {
+  if (!row.last_price) {
+    return <span className="text-[var(--fg-faint)]">—</span>;
+  }
+  const d = row.zone_distance_pct;
+  const title = `latest daily close${row.last_price_at ? ` (${row.last_price_at})` : ""} · % from entry zone (+ above / − below)`;
+  if (d == null) {
+    return <span title={title}>{row.last_price}</span>;
+  }
+  if (d === 0) {
+    return (
+      <span title={title}>
+        {row.last_price} <span className="text-[var(--c-accent)]">at zone</span>
+      </span>
+    );
+  }
+  return (
+    <span title={title}>
+      {row.last_price}{" "}
+      <span className="text-[var(--fg-faint)]">
+        {d > 0 ? "+" : "−"}
+        {Math.abs(d).toFixed(1)}%
+      </span>
+    </span>
+  );
+}
+
 function StatusCell({ row }: { row: IdeaOutcomeRow }) {
   const label = row.status.replace(/_/g, " ");
   return (
@@ -177,8 +218,10 @@ function OpenTable({
             <th className={cn(TH, "text-left")}>Entry</th>
             <th className={cn(TH, "text-right")}>Stop</th>
             <th className={cn(TH, "text-right")}>Target</th>
+            <th className={cn(TH, "text-right")}>Last</th>
             <th className={cn(TH, "text-right")}>MFE / MAE</th>
             <th className={cn(TH, "text-left")}>As of</th>
+            <th className={cn(TH, "text-left")}>Expires</th>
           </tr>
         </thead>
         <tbody>
@@ -203,10 +246,19 @@ function OpenTable({
                 {row.targets[0] ?? "—"}
               </td>
               <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
+                <LastVsZoneCell row={row} />
+              </td>
+              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
                 {formatMfeMae(row.mfe_pct, row.mae_pct)}
               </td>
               <td className={cn(TD, "text-[var(--fg-faint)]")}>
                 {formatDateOnly(row.as_of)}
+              </td>
+              <td
+                className={cn(TD, "text-[var(--fg-faint)]")}
+                title="idea TTL: 10 trading days to trigger, 20 after trigger to resolve"
+              >
+                {formatDayString(row.expires_on)}
               </td>
             </tr>
           ))}
