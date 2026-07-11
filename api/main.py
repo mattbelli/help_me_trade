@@ -1086,6 +1086,17 @@ async def _options_flow_eod_once() -> None:
             summary.get("events"),
             summary.get("daily_rows"),
         )
+
+        # Outcome filler (calibration): stamp underlying forward returns on every
+        # flow event whose horizons have elapsed — today's tape gets its intraday
+        # horizons now that the session's bars exist.
+        try:
+            from signals.options_flow.outcomes import fill_outcomes
+
+            oc = fill_outcomes(broker)
+            logger.info("options_flow outcomes: %s", oc)
+        except Exception:
+            logger.exception("options_flow outcomes: fill failed")
     except Exception:
         logger.exception("options_flow EOD: unexpected failure")
 

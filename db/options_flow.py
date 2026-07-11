@@ -81,6 +81,12 @@ def init_db(db_path: Path | None = None) -> None:
             """
         )
         _add_column_if_missing(conn, "options_flow_events", "detail", "TEXT")
+        # Intraday outcome horizons (signals/options_flow/outcomes.py) — underlying
+        # forward returns from the print ts; ret_1d/ret_5d are original columns.
+        _add_column_if_missing(conn, "options_flow_events", "ret_15m", "REAL")
+        _add_column_if_missing(conn, "options_flow_events", "ret_1h", "REAL")
+        _add_column_if_missing(conn, "options_flow_events", "ret_eod", "REAL")
+        _add_column_if_missing(conn, "options_flow_events", "outcomes_done", "INTEGER")
         conn.commit()
 
 
@@ -357,6 +363,64 @@ def stamp_returns(
             (ret_1d, ret_5d, event_id),
         )
         conn.commit()
+
+
+def stamp_outcomes(
+    event_id: str,
+    *,
+    ret_15m: float | None = None,
+    ret_1h: float | None = None,
+    ret_eod: float | None = None,
+    ret_1d: float | None = None,
+    ret_5d: float | None = None,
+    done: bool = False,
+    db_path: Path | None = None,
+) -> None:
+    """Write forward-return outcomes; only non-None horizons overwrite.
+
+    ``done`` marks the event fully resolved (all horizons that will ever be
+    computable have been) so the filler stops re-selecting it.
+    """
+    resolved = _db_path(db_path)
+    init_db(resolved)
+    sets, params = [], []
+    for col, val in (
+        ("ret_15m", ret_15m), ("ret_1h", ret_1h), ("ret_eod", ret_eod),
+        ("ret_1d", ret_1d), ("ret_5d", ret_5d),
+    ):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            params.append(float(val))
+    if done:
+        sets.append("outcomes_done = 1")
+    if not sets:
+        return
+    params.append(event_id)
+    with _connect(resolved) as conn:
+        conn.execute(
+            f"UPDATE options_flow_events SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+
+
+def events_missing_outcomes(
+    *, limit: int = 2000, db_path: Path | None = None
+) -> list[dict]:
+    """Events not yet outcome-resolved, oldest first (the filler's work queue)."""
+    resolved = _db_path(db_path)
+    init_db(resolved)
+    with _connect(resolved) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM options_flow_events
+            WHERE outcomes_done IS NULL OR outcomes_done = 0
+            ORDER BY ts ASC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+    return [_row_to_event(r) for r in rows]
 
 
 def prune(now_iso: str, db_path: Path | None = None) -> None:

@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "flow-outcome-tracking",
+      "title": "Flow outcome tracking LIVE \u2014 every event stamped with forward returns (calibration)",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder-requested 2026-07-11 (\"monitor price outcome after large premium prints\"). SHIPPED: ret_15m/1h/eod columns + signals/options_flow/outcomes.py filler (nightly, in the EOD scan hook) + tools/flow_outcomes.py --fill --report. 1,095 events stamped on first run. Early tease (1.5 days, NOT significant): big directional prints ($100k+) skewed CONTRARIAN at EOD both directions \u2014 matches the founder's MSFT/TSLA top-marking observations. Needs weeks of accrual; events are correlated within symbol-days (n overstates evidence). Next: re-run report ~Jul 25; if the contrarian skew holds, promote to a Decision Engine input."
+    },
+    {
       "id": "flow-wildcard-probe",
       "title": "PROBE Mon open: OPRA trades wildcard DATA RATE (ACK confirmed Sat \u2014 does data flow + msg/s?)",
       "lane": "next",
