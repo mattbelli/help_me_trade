@@ -10,13 +10,23 @@
   ],
   "cards": [
     {
+      "id": "flow-wildcard-probe",
+      "title": "PROBE Mon open: Alpaca OPRA trades-channel wildcard (*) \u2014 market-wide tape on current plan?",
+      "lane": "next",
+      "type": "probe",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Alpaca docs forbid * for option QUOTES only; silent on trades. Polygon's trades channel supports * explicitly. If * ACKs on trades: real-time market-wide flow tape at $0, coarse tier goes real-time, DTE quotas shrink to the quote budget. 5-min probe; must stop prod stream first (1-conn limit); measure client-side msg rate (full OPRA, not the 14/s watchlist trickle). See References/FLOW_CAPACITY_RESEARCH_2026-07-11.md."
+    },
+    {
       "id": "flow-dte-diversity",
       "title": "Flow detector: DTE-diversity active set \u2014 catch long-dated whale flow live",
       "lane": "next",
       "type": "build",
       "priority": "high",
       "owner": "agent",
-      "notes": "Founder-approved 2026-07-11. Spec ready: References/FLOW_DTE_DIVERSITY_SPEC_2026-07-11.md \u2014 bucket quotas (0-1d:30, 2-7d:12, 8-30d:10, 31+d:8) in poll.py _refresh_active_set; zero extra OPRA load; verify next live session shows >1DTE sweeps/blocks."
+      "notes": "Founder-approved 2026-07-11; spec References/FLOW_DTE_DIVERSITY_SPEC_2026-07-11.md. 3-agent research pass (References/FLOW_CAPACITY_RESEARCH_2026-07-11.md) validated the shape (two-tier = the industry's actual product split; trades-broad/quotes-narrow = vendor-intended) but rotation+quotas are novel engineering (no public precedent). GATED on flow-wildcard-probe: if Alpaca trades-channel wildcard works, quotas apply to the QUOTE budget only and the snapshot coarse tier is unnecessary.",
+      "updated_at": "2026-07-11"
     },
     {
       "id": "native-chart-engine",
