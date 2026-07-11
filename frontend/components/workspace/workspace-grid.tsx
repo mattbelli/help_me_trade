@@ -286,27 +286,6 @@ function ChartHeaderMenus({
               </DropdownMenuItem>
             );
           })}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(e) => e.preventDefault()}
-            onClick={() =>
-              onConfigChange({
-                chartEngine:
-                  config.chartEngine === "native" ? undefined : "native",
-              })
-            }
-            className={cn(
-              "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
-              config.chartEngine === "native"
-                ? "text-foreground"
-                : "text-[var(--fg-dim)]",
-            )}
-          >
-            Native engine (beta)
-            {config.chartEngine === "native" ? (
-              <Check className="size-3" />
-            ) : null}
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <DropdownMenu>

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { NativeChart } from "@/components/trading/native-chart";
-import { TvLightChart } from "@/components/trading/tv-light-chart";
 import { WidgetEmpty } from "@/components/workspace/widget-states";
 import {
   CHART_TIMEFRAMES,
@@ -51,32 +50,16 @@ export function ChartWidget({ config }: WidgetProps) {
       <div className="relative min-h-0 flex-1">
         {symbol ? (
           mountChart ? (
-            config.chartEngine === "native" ? (
-              // Native engine: full TV parity — candles/volume/pan/zoom/
-              // crosshair/live ticks, alerts, drawings, levels, and studies
-              // (MA overlays + RSI/MACD panes, CHART_ENGINE.md Phase 3).
-              <NativeChart
-                symbol={symbol}
-                compact
-                showLevels={Boolean(config.showSessionNodes)}
-                showAlerts={config.showAlerts ?? true}
-                showDrawings={config.showDrawings ?? true}
-                showTagColumn={config.showTagColumn ?? true}
-                studies={config.studies}
-                extended={config.extendedHours ?? true}
-                timeframe={timeframe}
-                style={style}
-                livePrice={livePrice}
-                extPrice={extPrice}
-                marketSession={marketSession}
-              />
-            ) : (
-            <TvLightChart
+            // The in-house engine — full parity: candles/volume/pan/zoom/
+            // crosshair/live ticks, alerts, drawings, levels, and studies
+            // (MA overlays + RSI/MACD panes, CHART_ENGINE.md Phase 3).
+            <NativeChart
               symbol={symbol}
               compact
               showLevels={Boolean(config.showSessionNodes)}
               showAlerts={config.showAlerts ?? true}
               showDrawings={config.showDrawings ?? true}
+              showTagColumn={config.showTagColumn ?? true}
               studies={config.studies}
               extended={config.extendedHours ?? true}
               timeframe={timeframe}
@@ -85,7 +68,6 @@ export function ChartWidget({ config }: WidgetProps) {
               extPrice={extPrice}
               marketSession={marketSession}
             />
-            )
           ) : (
             <div className="h-full w-full" aria-hidden />
           )

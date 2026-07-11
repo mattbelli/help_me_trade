@@ -10,7 +10,34 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-11, latest) — Native chart engine: STUDIES live (MAs + RSI/MACD panes)
+## ▶ START HERE (2026-07-11, latest) — TradingView DELETED — the native engine is the only chart
+
+> **Bye-bye TradingView.** `lightweight-charts` is gone from the repo (package + its `fancy-canvas`
+> transitive dep removed via `npm install`). The workspace chart widget now renders ONLY `NativeChart`
+> — the A/B toggle and the `config.chartEngine` field are removed; `tv-light-chart.tsx` + the TV-only
+> helpers (`chart-trendline.ts`, `chart-session-bands.ts`) deleted; `chart-time.ts` decoupled
+> (`TickMarkType` import + TV-only `formatTickMark` removed); the TradingView attribution link in
+> `workspace-page.tsx` removed. The two legacy sidebar pages that still used TV — **`/trading` +
+> `/charts` — RETIRED**: both routes now `redirect("/workspace")`, dead page components + their nav
+> items (and now-unused icons) deleted, per the workspace-first "old UI dies" direction (founder chose
+> retire). Also closed the logged fast-follow: right-click over an oscillator/volume pane no longer
+> eats the browser menu into a dead zone — `onContextMenuEvent` only claims the right-click where it
+> has an action (price pane / line / segment). `tsc` clean; adversarial review = **SHIP** (it caught
+> the real trap — swapping the legacy pages to standalone `NativeChart` dropped their built-in toolbar
+> since native is driven by the workspace frame's controls; resolved by retiring the pages, not by
+> propping them up).
+> **⚠️ PENDING: deploy + in-browser check.** Built in-place (`.next` overwritten) so the live server
+> is serving stale chunks until a restart — deploy with `tools/serv-deploy.sh frontend` (rebuilds +
+> restarts) and eyeball the workspace chart + that `/trading`,`/charts` redirect to workspace.
+> **Known minor follow-up (logged):** ext-hours session *background shading* (faint pre/post bands TV
+> drew) isn't ported to native — the ext-hours candles still draw, just without the tint;
+> `intradayBarSession` already lives in `chart-time.ts` for the eventual port. Legacy right-rail /
+> positions deep-links to `/trading?symbol=` now redirect to `/workspace` (symbol-focus dropped on
+> those legacy links only — the workspace's own widgets already click-to-focus). Board:
+> `native-chart-engine`. **NEXT: deploy + verify → then the parked trade-prints bubble overlay is the
+> first post-TV chart feature.**
+
+## ▶ EARLIER (2026-07-11) — Native chart engine: STUDIES live (MAs + RSI/MACD panes)
 
 > **Phase 3 round 1 deployed.** The native engine now renders the frame-toolbar Studies dropdown's
 > full set: SMA 20/50/200 + EMA 20 overlays on the price pane, RSI 14 + MACD 12 26 9 in their own

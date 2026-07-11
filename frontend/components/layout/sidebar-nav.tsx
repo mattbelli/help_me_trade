@@ -5,10 +5,8 @@ import { usePathname } from "next/navigation";
 import {
   Bot,
   Brain,
-  CandlestickChart,
   LayoutDashboard,
   Kanban,
-  LayoutGrid,
   LineChart,
   Scale,
   Search,
@@ -30,18 +28,6 @@ const NAV_ITEMS: {
     label: "Overview",
     description: "Account & positions",
     icon: LayoutDashboard,
-  },
-  {
-    href: "/trading",
-    label: "Trading",
-    description: "Chart & watchlist",
-    icon: CandlestickChart,
-  },
-  {
-    href: "/charts",
-    label: "Charts",
-    description: "Multi-chart grid",
-    icon: LayoutGrid,
   },
   {
     href: "/performance",

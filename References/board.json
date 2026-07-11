@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-10",
+  "updated_at": "2026-07-11",
   "lanes": [
     "inbox",
     "founder",
@@ -16,7 +16,7 @@
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "2026-07-11 PHASE 3 R1: STUDIES LIVE \u2014 Studies dropdown (same config.studies as TV) now renders on the native engine: SMA20/50/200+EMA20 price-pane overlays, RSI 14 + MACD 12 26 9 in real oscillator sub-panes (multi-pane layout, per-pane scales, 30/70 bands, sign-colored histogram, crosshair spans panes). Engine stays headless (setStudies takes wrapper-computed values/colors; math shared w/ TV via lib/indicators). Sonnet review SHIP; fast-follow: right-click over an oscillator pane is a dead zone (regionAt not pane-aware). Level \u00d7N clustering BENCHED same day on founder feedback (glitchy stand-in line). 52 tests; deployed; live smoke via the real dropdown, TV-clean. Earlier: Phase 2 alerts+drawings+TV-exact pills (see BUILD history). REMAINING before TV delete: founder verdict on studies \u2192 Phase 3 polish \u2192 remove lightweight-charts + TV attribution. Parked founder-liked idea: trade-prints bubble overlay (SIP quotes+trades, no L2 needed)."
+      "notes": "2026-07-11 PHASE 3 FINAL \u2014 TRADINGVIEW DELETED (code-complete, \u26a0\ufe0f pending deploy + in-browser check). lightweight-charts removed from the repo (package + fancy-canvas transitive). Workspace chart widget renders ONLY NativeChart (A/B toggle + config.chartEngine field gone); tv-light-chart.tsx + TV-only helpers (chart-trendline, chart-session-bands) deleted; chart-time.ts decoupled; TV attribution link removed. Legacy /trading + /charts pages RETIRED (founder chose retire): routes redirect to /workspace, dead components + nav items removed. Fast-follow CLOSED: right-click over oscillator/volume pane no longer eats the browser menu (dead zone). Adversarial review = SHIP (caught the legacy-page toolbar-drop trap \u2192 resolved by retiring the pages). tsc clean; net -2,144 lines. Known minor follow-up: ext-hours session background shading not ported to native (see chart-ext-hours-shading-port). Op note: built in-place \u2192 live server serving stale chunks until tools/serv-deploy.sh frontend restart. Earlier this session: STUDIES (SMA/EMA overlays + RSI/MACD panes) shipped; level \u00d7N clustering benched."
     },
     {
       "id": "push-importance-scoring",
@@ -1252,6 +1252,33 @@
       "priority": "high",
       "owner": "mac",
       "notes": "2026-07-07 (PENDING device test). Assistant bubbles render themed markdown (tables/headings/lists/code) via existing react-native-markdown-display (chat-markdown-styles.ts); tool-call timeline (tool-timeline.tsx + ToolStep on ChatTurn) replaces the single 'using a tool' hint \u2014 per-tool running\u2192done/failed with query/symbol detail. Pairs with mobile-chat-brain-migration (serv) \u2014 client is ready to display web-quality output once the brain lands. Watch: per-token markdown key remounts (fine under chunked stream; revisit at real streaming)."
+    },
+    {
+      "id": "perception-portfolio-scope",
+      "title": "Perception layer: get_context(scope=\"portfolio\") \u2014 fold bespoke book tools into the general read surface",
+      "lane": "backlog",
+      "type": "chore",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "2026-07-11 audit of References/PERCEPTION_LAYER.md: layer is ~90% built & functionally complete. This is the one remaining IN-CHARTER read gap. Copilot is NOT blind to the book today (get_portfolio_snapshot + get_agent_status already work) \u2014 but those are exactly the bespoke per-data read tools the locked principle forbids ('reads are general, never add a tool just to expose data'). Task: build build_portfolio_context in ai/perception/ reusing the existing snapshot/schwab/proposals readers, add scope='portfolio' branch to get_context, add the manifest line; keep the old tools as thin aliases so nothing breaks. Money-DISPLAY path (not the chokepoint) \u2192 wants a Sonnet money-display review + deploy. Foundational tidiness, ZERO user-visible benefit now; payoff = one read interface for the future MCP/multi-user/Decision-Engine consumers. Deferred by founder 2026-07-11 in favor of finishing charts."
+    },
+    {
+      "id": "perception-scorer-facts-consistency",
+      "title": "Decision Engine: do NOT wire scorer to eat the perception facts object \u2014 display-consistency sliver only",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "2026-07-11 recon KILLED the PERCEPTION_LAYER.md aspiration that 'the same facts object feeds signals/decision_scorer.py'. Doing it literally is a CALIBRATION TRAP: the scorer feeds a TRAINED model whose features come from research bars (cached SQLite, 800d, full precision via research/features.py); build_symbol_context uses LIVE provider bars (420d, rounded for display) and only ~3 of ~18 features overlap \u2014 feeding the model the display facts would silently break the win%. Also circular: build_symbol_context already CALLS score_symbol for its decision_score field. The scorer MUST keep its research-bar pipeline (training parity). Only safe/valuable piece: when the copilot EXPLAINS a proposal, read the scorer's own top_factors so what the user is TOLD matches what was DECIDED \u2014 never touches model input. Real Decision-Engine quality work lives in decision-engine-phase1, not here."
+    },
+    {
+      "id": "chart-ext-hours-shading-port",
+      "title": "Native chart: port ext-hours session background shading (faint pre/post bands)",
+      "lane": "backlog",
+      "type": "chore",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "2026-07-11: the one visual feature not carried over when TradingView was deleted. TV drew faint low-alpha full-height background bands behind pre/post-market candles (old lib/chart-session-bands.ts, recoverable from git). Native draws the ext-hours candles + price line but not the background tint. Per-bar session classifier intradayBarSession already lives in lib/chart-time.ts (native-safe) \u2014 port = a background-fill pass in the engine's draw (series.ts) keyed off each intraday bar's session. Visual-only, subtle; won't be caught by typecheck \u2014 judge in-browser."
     }
   ]
 }

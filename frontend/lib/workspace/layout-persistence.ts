@@ -24,8 +24,6 @@ export type WidgetInstanceConfig = {
   /** Native chart: tag column (level names/bells) — hiding it hides all
       overlay lines with it (one-click clean chart). Undefined = shown. */
   showTagColumn?: boolean;
-  /** Chart eye menu — A/B the in-house chart engine (undefined = TradingView). */
-  chartEngine?: "native";
   /** Options chain: strike-count window around the money (6..40 | "all"). */
   strikes?: number | "all";
 };

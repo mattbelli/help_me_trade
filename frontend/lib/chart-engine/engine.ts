@@ -597,9 +597,9 @@ export class ChartEngine {
   };
 
   private onContextMenuEvent = (e: MouseEvent): void => {
-    e.preventDefault(); // the chart owns right-click everywhere on it
     if (this.drawMode) {
       // Right-click backs out of draw mode instead of opening the menu.
+      e.preventDefault();
       this.setDrawMode(null);
       return;
     }
@@ -608,9 +608,6 @@ export class ChartEngine {
     if (this.regionAt(x, y) !== "pane") return;
     const pr = this.scene.layout.price;
     const inPrice = y >= pr.y && y <= pr.y + pr.h;
-    const price = inPrice
-      ? priceAt(y, this.scene.priceRange, pr.y, pr.h)
-      : null;
     const hit = this.overlays
       ? hitTestLine(this.overlays.lines, y, this.scene, LINE_HIT_PX, false)
       : null;
@@ -627,10 +624,15 @@ export class ChartEngine {
             false,
           )
         : null;
+    // No actionable target here (an oscillator sub-pane or the volume strip,
+    // no overlay line/segment under the cursor) — let the browser's own menu
+    // through rather than eating the right-click into a dead zone.
+    if (!inPrice && !hit && !segHit) return;
+    e.preventDefault(); // the chart owns the right-click where it has an action
     this.onContextMenu({
       x,
       y,
-      price,
+      price: inPrice ? priceAt(y, this.scene.priceRange, pr.y, pr.h) : null,
       lineId: hit?.id ?? null,
       linePrice: hit?.price ?? null,
       segmentId: segHit?.seg.id ?? null,
