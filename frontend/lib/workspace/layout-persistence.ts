@@ -26,7 +26,29 @@ export type WidgetInstanceConfig = {
   showTagColumn?: boolean;
   /** Options chain: strike-count window around the money (6..40 | "all"). */
   strikes?: number | "all";
+  /** Options flow: table sort column + direction. */
+  flowSort?: {
+    key: "score" | "time" | "size" | "premium";
+    dir: "asc" | "desc";
+  };
+  /** Options flow: event-type filter (⚙). Undefined = the directional tape
+      default (sweeps/blocks/pressure) — the nightly unusual-volume EOD batch is
+      off until explicitly checked, so it never buries the live tape. */
+  flowTypes?: FlowTypeKey[];
 };
+
+/** Options-flow event kinds, filterable from the widget's ⚙ menu. */
+export type FlowTypeKey =
+  | "sweep"
+  | "block"
+  | "directional_pressure"
+  | "unusual_volume";
+
+export const DEFAULT_FLOW_TYPES: FlowTypeKey[] = [
+  "sweep",
+  "block",
+  "directional_pressure",
+];
 
 export type WorkspaceLayoutItem = {
   i: string;

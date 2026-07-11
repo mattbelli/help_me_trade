@@ -48,10 +48,10 @@ function formatPrice(v: number): string {
 function formatAsOf(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString(undefined, {
-      hour: "2-digit",
+      hour: "numeric",
       minute: "2-digit",
       second: "2-digit",
-      hour12: false,
+      hour12: true,
     });
   } catch {
     return "—";

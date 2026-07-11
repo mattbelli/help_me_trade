@@ -203,6 +203,11 @@ def test_db_recent_filters_and_limit_cap(tmp_path: Path) -> None:
     by_type = of_db.recent_events(event_type="block", db_path=db)
     assert {r["id"] for r in by_type} == {"e2", "e3"}
 
+    # comma-separated event_type filters as an IN-list (the tape uses this to pull
+    # sweep,block,directional_pressure without the unusual_volume EOD batch).
+    by_types = of_db.recent_events(event_type="block,unusual_volume", db_path=db)
+    assert {r["id"] for r in by_types} == {"e1", "e2", "e3"}
+
     by_prem = of_db.recent_events(min_premium=100_000, db_path=db)
     assert [r["id"] for r in by_prem] == ["e2"]
 
@@ -219,8 +224,10 @@ def test_db_recent_filters_and_limit_cap(tmp_path: Path) -> None:
             ),
             db_path=db,
         )
-    capped = of_db.recent_events(limit=100, db_path=db)
-    assert len(capped) <= 50
+    capped = of_db.recent_events(limit=10_000, db_path=db)
+    assert len(capped) <= of_db._RECENT_EVENTS_CAP
+    # limit is honored below the cap
+    assert len(of_db.recent_events(limit=5, db_path=db)) == 5
 
 
 def test_upsert_daily_idempotent_and_baselines(tmp_path: Path) -> None:

@@ -12,11 +12,12 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, X } from "lucide-react";
+import { Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, SlidersHorizontal, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -37,10 +38,12 @@ import {
   gridPixelWidth,
 } from "@/lib/workspace/grid-metrics";
 import type {
+  FlowTypeKey,
   WidgetInstanceConfig,
   WorkspaceLayoutItem,
   WorkspacePage,
 } from "@/lib/workspace/layout-persistence";
+import { DEFAULT_FLOW_TYPES } from "@/lib/workspace/layout-persistence";
 import { flushWorkspaceLayoutSave, useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import { PageActiveContext } from "@/lib/workspace/page-active-context";
 import { usePriceFlash } from "@/lib/workspace/use-price-flash";
@@ -504,6 +507,76 @@ function WatchlistHeaderControls({
   );
 }
 
+const FLOW_TYPE_OPTIONS: { key: FlowTypeKey; label: string }[] = [
+  { key: "sweep", label: "sweeps" },
+  { key: "block", label: "blocks" },
+  { key: "directional_pressure", label: "pressure" },
+  { key: "unusual_volume", label: "unusual volume (EOD)" },
+];
+
+/** ⚙ event-type filter — sits to the left of the channel dot. Drives the fetch
+    so unchecking a kind removes it from the tape (not just hidden client-side). */
+function OptionsFlowHeaderControls({
+  config,
+  onConfigChange,
+}: {
+  config: WidgetInstanceConfig;
+  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+}) {
+  const active = config.flowTypes ?? DEFAULT_FLOW_TYPES;
+  const isDefault = config.flowTypes === undefined;
+
+  const toggle = (key: FlowTypeKey) => {
+    const has = active.includes(key);
+    const next = has ? active.filter((k) => k !== key) : [...active, key];
+    // preserve the canonical order regardless of click order
+    onConfigChange({
+      flowTypes: FLOW_TYPE_OPTIONS.map((o) => o.key).filter((k) =>
+        next.includes(k),
+      ),
+    });
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        type="button"
+        className={cn(
+          "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)]",
+          isDefault
+            ? "text-[var(--fg-dim)] hover:text-foreground"
+            : "text-[var(--c-accent)]",
+        )}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label="Filter flow types"
+        title="Filter flow types"
+      >
+        <SlidersHorizontal className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="min-w-44 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+      >
+        <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+          flow types
+        </div>
+        {FLOW_TYPE_OPTIONS.map((o) => (
+          <DropdownMenuCheckboxItem
+            key={o.key}
+            checked={active.includes(o.key)}
+            onCheckedChange={() => toggle(o.key)}
+            closeOnClick={false}
+            className="px-2 py-1.5 text-[var(--fg-dim)]"
+          >
+            {o.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function WidgetHeader({
   widgetType,
   channelAware,
@@ -602,6 +675,12 @@ function WidgetHeader({
         >
           <Plus className="size-3.5" />
         </button>
+      ) : null}
+      {widgetType === "options-flow" && config && onConfigChange ? (
+        <OptionsFlowHeaderControls
+          config={config}
+          onConfigChange={onConfigChange}
+        />
       ) : null}
       {channelAware ? (
         <ChannelSelector channel={channel} onChange={onChannelChange} />

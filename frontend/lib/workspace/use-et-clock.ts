@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
 function formatEtClock(date: Date): string {
   return date.toLocaleTimeString("en-US", {
     timeZone: "America/New_York",
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
-    hour12: false,
+    hour12: true,
   });
 }
 

@@ -10,7 +10,30 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-11, latest) — TradingView DELETED — the native engine is the only chart
+## ▶ START HERE (2026-07-11, latest) — Options-flow widget REDESIGNED + LIVE (surface 3); DTE-diversity spec awaiting founder
+
+> **The options-flow widget is rebuilt to the approved mockup and deployed** after 3 live
+> founder-feedback rounds: sortable fixed columns (strike/exp split), side = the only saturated
+> color (green ▲/red ▼/grey ◇), row-scoped magnitude bars, always-visible honesty flags, plain
+> depth drawer (no repeated data; z-score always shown, `—` on tape events which never carry it),
+> 12-hour times **app-wide** (ET clock, rvol, scans too — founder: "that's how I go about my day").
+> **The data story that drove it:** `recent_events()`'s 50-cap let the nightly 215-event EOD
+> `unusual_volume` batch (all stamped 21:00, non-directional) bury the 600+ intraday
+> sweeps/blocks. Fixed: cap 250, comma-list `event_type`, and a **⚙ flow-type filter** in the
+> frame header (left of channel dot) that drives the fetch — default = directional tape, EOD off.
+> Score v1 retuned to the real distribution (tape 0.4–5.9; was all-10.0, then all-2.5). Gotcha
+> for future header menus: Base UI `GroupLabel` outside a `Group` THROWS — plain div instead.
+> **Open:** (1) `flow-dte-diversity` (board, next): Fri's tape = 97% 0-1DTE because the active
+> set self-selects by recency — spec at `References/FLOW_DTE_DIVERSITY_SPEC_2026-07-11.md`;
+> founder reading it, asked "is that the best way to see the most important data" — answer him
+> before building. (2) Round-2 settings (scope: watchlist/tickers/premium floor) queued.
+> (3) Founder observation to eventually test mechanically via `ret_1d`/`ret_5d`: the TOP-scored
+> sweep marked the session top twice on Fri (MSFT 4.5 @ 12:57p, TSLA 4.4 @ 1:00p) — contrarian.
+> (4) Notifications redesign (surface 4) is the next big piece of `flow-notif-redesign`.
+> Also this session: **chat memory extraction fix verified + committed** (2059a17) — a stale
+> `mode=="standard"` gate no-op'd extraction on every live route; live routes pass `"saved"`.
+
+## ▶ EARLIER (2026-07-11) — TradingView DELETED — the native engine is the only chart
 
 > **Bye-bye TradingView.** `lightweight-charts` is gone from the repo (package + its `fancy-canvas`
 > transitive dep removed via `npm install`). The workspace chart widget now renders ONLY `NativeChart`
@@ -26,9 +49,9 @@ this file, append the old full version there as a new dated section.*
 > the real trap — swapping the legacy pages to standalone `NativeChart` dropped their built-in toolbar
 > since native is driven by the workspace frame's controls; resolved by retiring the pages, not by
 > propping them up).
-> **⚠️ PENDING: deploy + in-browser check.** Built in-place (`.next` overwritten) so the live server
-> is serving stale chunks until a restart — deploy with `tools/serv-deploy.sh frontend` (rebuilds +
-> restarts) and eyeball the workspace chart + that `/trading`,`/charts` redirect to workspace.
+> **Deploy: DONE** (frontend rebuilt + restarted several times later the same day during the
+> options-flow rounds — buildId verified each time); founder has been using the workspace live
+> since. In-browser eyeball of the `/trading`,`/charts` redirects: not explicitly confirmed, low risk.
 > **Known minor follow-up (logged):** ext-hours session *background shading* (faint pre/post bands TV
 > drew) isn't ported to native — the ext-hours candles still draw, just without the tint;
 > `intradayBarSession` already lives in `chart-time.ts` for the eventual port. Legacy right-rail /

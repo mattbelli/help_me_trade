@@ -18,7 +18,7 @@ from db.base import now_iso as _now
 from db.schema_helpers import _add_column_if_missing
 from signals.options_flow.constants import DAILY_PRUNE_DAYS, EVENTS_PRUNE_DAYS
 
-_RECENT_EVENTS_CAP = 50
+_RECENT_EVENTS_CAP = 250
 
 
 def _db_path(db_path: Path | None) -> Path:
@@ -208,7 +208,12 @@ def recent_events(
     limit: int = 50,
     db_path: Path | None = None,
 ) -> list[dict]:
-    """Newest-first event rows; ``limit`` capped at 50."""
+    """Newest-first event rows; ``limit`` capped at ``_RECENT_EVENTS_CAP``.
+
+    ``event_type`` accepts a single type or a comma-separated list (``IN``) so a
+    caller can pull just the directional tape (``sweep,block,directional_pressure``)
+    without the nightly ``unusual_volume`` batch burying it in the recency window.
+    """
     resolved = _db_path(db_path)
     init_db(resolved)
     cap = max(1, min(int(limit), _RECENT_EVENTS_CAP))
@@ -218,8 +223,11 @@ def recent_events(
         clauses.append("underlying = ?")
         params.append(str(symbol).strip().upper())
     if event_type is not None:
-        clauses.append("event_type = ?")
-        params.append(event_type)
+        types = [t.strip() for t in str(event_type).split(",") if t.strip()]
+        if types:
+            placeholders = ",".join("?" for _ in types)
+            clauses.append(f"event_type IN ({placeholders})")
+            params.extend(types)
     if min_premium is not None:
         clauses.append("premium_usd >= ?")
         params.append(float(min_premium))

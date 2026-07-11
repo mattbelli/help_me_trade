@@ -2835,7 +2835,7 @@ async def api_options_chain(
 
 @app.get("/api/options-flow")
 async def api_options_flow(
-    limit: int = 50,
+    limit: int = 200,
     symbol: str | None = None,
     event_type: str | None = None,
     min_premium: float | None = None,
@@ -2846,10 +2846,11 @@ async def api_options_flow(
     Facts about the OPRA tape — NOT a buy/sell signal. Each event carries a
     ``caveat`` and never a win%/EV/confidence. Populated by the nightly EOD scan
     (``OPTIONS_FLOW_ENABLED``); returns an empty list until that has run.
+    ``event_type`` accepts a comma-separated list to filter the tape by kind.
     """
     from db.options_flow import recent_events
 
-    capped = max(1, min(int(limit), 50))
+    capped = max(1, min(int(limit), 250))
     try:
         events = recent_events(
             symbol=symbol,

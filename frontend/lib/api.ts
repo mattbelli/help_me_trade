@@ -693,12 +693,16 @@ export async function fetchOptionsChain(
 
 // Unusual options activity (Mode-A perception — facts about the tape, not a signal).
 export async function fetchOptionsFlow(
-  limit = 50,
+  limit = 200,
   symbol?: string,
+  eventType?: string,
 ): Promise<OptionsFlowResult> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (symbol) {
     params.set("symbol", symbol.trim().toUpperCase());
+  }
+  if (eventType) {
+    params.set("event_type", eventType);
   }
   const res = await apiFetch(`${API_BASE}/api/options-flow?${params}`, {
     cache: "no-store",

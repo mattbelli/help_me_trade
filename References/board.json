@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "flow-dte-diversity",
+      "title": "Flow detector: DTE-diversity active set \u2014 catch long-dated whale flow live",
+      "lane": "next",
+      "type": "build",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder-approved 2026-07-11. Spec ready: References/FLOW_DTE_DIVERSITY_SPEC_2026-07-11.md \u2014 bucket quotas (0-1d:30, 2-7d:12, 8-30d:10, 31+d:8) in poll.py _refresh_active_set; zero extra OPRA load; verify next live session shows >1DTE sweeps/blocks."
+    },
+    {
       "id": "native-chart-engine",
       "title": "Native chart engine \u2014 replace TradingView lightweight-charts with our own canvas renderer",
       "lane": "in_progress",
@@ -1175,9 +1184,9 @@
       "lane": "inbox",
       "type": "idea",
       "priority": "normal",
-      "notes": "i think info widget should be its own thing and then newsfeed should be its own thing with a switch to be watchlist/or all",
+      "notes": "i think info widget should be its own thing and then newsfeed should be its own thing with a switch to be watchlist/or all | 2026-07-11 follow-up: fundamentals + facts sections blend together and are hard to read; market cap specifically is missing (important, want it visible); news list below is also a wall of text. Wants a research pass + mockup for a clearly-legible info widget (fundamentals/facts as distinct scannable blocks, news as a real list not a text wall) before building.",
       "owner": "founder",
-      "updated_at": "2026-07-05"
+      "updated_at": "2026-07-11"
     },
     {
       "id": "fr-1783306826",
@@ -1279,6 +1288,102 @@
       "priority": "low",
       "owner": "serv",
       "notes": "2026-07-11: the one visual feature not carried over when TradingView was deleted. TV drew faint low-alpha full-height background bands behind pre/post-market candles (old lib/chart-session-bands.ts, recoverable from git). Native draws the ext-hours candles + price line but not the background tint. Per-bar session classifier intradayBarSession already lives in lib/chart-time.ts (native-safe) \u2014 port = a background-fill pass in the engine's draw (series.ts) keyed off each intraday bar's session. Visual-only, subtle; won't be caught by typecheck \u2014 judge in-browser."
+    },
+    {
+      "id": "flow-notif-redesign",
+      "title": "Flow + notifications redesign (surfaces 3+4) \u2014 info-design overhaul",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-11 founder: our data is good but under-presented; study top terminals \u2192 design to our terminal UI. Research workflow (7 Sonnet agents: Bookmap/databento/Sierra, Unusual Whales/Cheddar/Tradytics, tos/TradingView, alert UX, Tufte/Bloomberg + audit of our current widget & notif bodies) \u2192 References/FLOW_VIZ_DESIGN_2026-07-11.md (artifact). Then Opus-built before/after MOCKUP (References/flow_notif_mockup.html, artifact) for surfaces 3+4 (share one grammar). LOCKED decisions: strip hues (side = only saturated color, type = muted word), composite unusualness score = default sort (hover-inspectable, built from vol_zscore/vol_oi_ratio/size), honesty flag VISIBLE not tooltip (fixes the caveat-in-title red-team miss), fixed columns, magnitude = row weight, 3-tier notifications (headline/detail-card/chat) + one shared format_alert() at the push chokepoint + de-dupe/batch. OPEN: premium-floor default (shown as a control), keep 5 type words vs collapse. NEXT: founder reacts to mockup \u2192 Opus critic pass \u2192 build (options-flow widget FIRST, then notifications). Chart flow-overlay (surface 2) PARKED until these ship."
+    },
+    {
+      "id": "chart-flow-overlay",
+      "title": "Chart flow-overlay \u2014 big buys / sweeps / option flow ON the chart (surface 2, PARKED)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "2026-07-11 PARKED until notifications + options-flow widget ship (founder call; also benefits from their color/glyph/honesty grammar being settled first). From FLOW_VIZ_DESIGN_2026-07-11.md: a marker LANE under price (not glyphs pinned to candles) \u2014 color=side, shape=event type, size=log(notional); equity aggressor bubbles feasible today off the same _on_trade tick-rule; zoom-aware clustering; toolbar toggle (flow: off/equity/options/both), never floating. Feasibility ceiling: no L2/MBO \u2192 no heatmap/DOM/true absorption; any sweep marker labeled PROXY. Parked founder-liked variant also lives here: trade-prints bubble overlay."
+    },
+    {
+      "id": "flow-llm-brief-gated",
+      "title": "Gated LLM 'why this matters' brief on top-score flow events",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "2026-07-11 founder idea. NOT per-print (token burn). Gate on the composite unusualness score crossing a high floor \u2192 only the top ~1% of events get a ONE-SHOT LLM brief, CACHED on the event (one call, stored). Shown only in the expanded drawer's 'why' line, never inline on every row. = a stepping-stone to the Decision Engine (deterministic owns numbers, LLM adds narrative). Build LATER; needs the score + a threshold + a cache column. Ties to [[decision-engine-priority]], alert-batching, latency rules."
+    },
+    {
+      "id": "watchlist-organization-folders",
+      "title": "Organize watchlists (folders / accordion) when the list grows long",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "low",
+      "owner": "serv",
+      "notes": "2026-07-11 founder: once you make non-visual watchlists for scoping (options-flow scope, alerts, etc.) plus visual ones, the watchlist picker could get long to parse. Not an issue yet. Down the line: folder/accordion grouping within the watchlist menu. Deferred until the count actually hurts."
+    },
+    {
+      "id": "fr-1783787088",
+      "title": "terminal chat: wall of text + no timestamps",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "2026-07-11 founder: loves the terminal LLM chat but it reads as a wall of text; wants a research pass on cleaning up the visual format. Also wants timestamps visible (at least be able to see when a message/turn happened) so he can back-check what price/context was being referenced at that time.",
+      "owner": "founder",
+      "updated_at": "2026-07-11"
+    },
+    {
+      "id": "fr-1783787089",
+      "title": "decision journal is useless \u2014 needs real outcome tracking, and clarify vs idea outcomes",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "2026-07-11 founder: decision journal shows AI decisions but just says 'never filled' \u2014 wants to actively track what was recommended, whether/when it filled, running P&L while open, when the trade closes, and a ping when it's executed (tagged to the strategy it's following). Currently it's just an inert list. Also confused whether decision-journal and idea-outcomes ([[idea-outcomes]]/[[idea-outcomes-ui]], already shipped) are meant to be two different things or should be merged/reconciled \u2014 needs a design pass to decide, likely backend + frontend work either way.",
+      "owner": "founder",
+      "updated_at": "2026-07-11"
+    },
+    {
+      "id": "fr-1783787090",
+      "title": "trading calendar widget doesn't resize vertically",
+      "lane": "inbox",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "2026-07-11 founder: calendar widget grows fine horizontally but the day grid doesn't get any bigger when resized vertically \u2014 wants it to resize on both axes and keep a roughly square cell/grid shape at any size.",
+      "owner": "founder",
+      "updated_at": "2026-07-11"
+    },
+    {
+      "id": "fr-1783787091",
+      "title": "orders: show exact fill time next to the date",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "2026-07-11 founder: wants the exact time shown next to the date on orders. Likely the same gap as [[fill-time-on-orders]] (fill time truncated to date-only at import) \u2014 check that card before scoping new work.",
+      "owner": "founder",
+      "updated_at": "2026-07-11"
+    },
+    {
+      "id": "fr-1783787092",
+      "title": "options chain not updating live during market hours",
+      "lane": "inbox",
+      "type": "bug",
+      "priority": "normal",
+      "notes": "2026-07-11 founder: watched the options chain during live hours and it didn't appear to update, unlike charts/watchlist which tick live. Suspect it's not wired to the WebSocket stream (may be poll-only or stale-cached). Needs investigation.",
+      "owner": "founder",
+      "updated_at": "2026-07-11"
+    },
+    {
+      "id": "fr-1783787093",
+      "title": "themes: deep founder-driven pass \u2014 too many settings with no visible effect",
+      "lane": "inbox",
+      "type": "idea",
+      "priority": "normal",
+      "notes": "2026-07-11 founder: wants another really deep pass on themes, founder-driven. Right now a lot of theme controls don't visibly change anything unless he changes a value and goes hunting for it, and often he still can't spot the difference. Needs someone to actually identify which components/vars are genuinely tweakable and make the editor only expose those (or make the effect obvious). Related prior rounds: [[theme-round-fg-bg-green]], [[theme-editor-floating]], [[theme-ember]].",
+      "owner": "founder",
+      "updated_at": "2026-07-11"
     }
   ]
 }
