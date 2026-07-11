@@ -52,9 +52,9 @@ export function ChartWidget({ config }: WidgetProps) {
         {symbol ? (
           mountChart ? (
             config.chartEngine === "native" ? (
-              // Native engine: candles/volume/pan/zoom/crosshair/live ticks +
-              // alert create/drag/remove and level overlays. Still on TV:
-              // trendline/channel creation and studies (CHART_ENGINE.md Phase 2).
+              // Native engine: full TV parity — candles/volume/pan/zoom/
+              // crosshair/live ticks, alerts, drawings, levels, and studies
+              // (MA overlays + RSI/MACD panes, CHART_ENGINE.md Phase 3).
               <NativeChart
                 symbol={symbol}
                 compact
@@ -62,6 +62,7 @@ export function ChartWidget({ config }: WidgetProps) {
                 showAlerts={config.showAlerts ?? true}
                 showDrawings={config.showDrawings ?? true}
                 showTagColumn={config.showTagColumn ?? true}
+                studies={config.studies}
                 extended={config.extendedHours ?? true}
                 timeframe={timeframe}
                 style={style}

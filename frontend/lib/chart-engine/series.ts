@@ -18,6 +18,7 @@ import {
 import { crosshairTimeLabel, priceTicks, timeTicks, type PriceTick, type TimeTick } from "./ticks";
 import {
   PRICE_AXIS_WIDTH,
+  STUDY_PANE_FRACTION,
   TAG_GUTTER_WIDTH,
   TIME_AXIS_HEIGHT,
   VOLUME_FRACTION,
@@ -25,20 +26,24 @@ import {
   type EngineBar,
   type EngineColors,
   type EngineOverlays,
+  type EngineStudies,
   type OverlayLine,
   type OverlaySegment,
   type PriceRange,
   type Rect,
+  type StudyValues,
   type Viewport,
 } from "./types";
 
 export type Layout = {
-  /** Full chart pane (price + volume), excluding the gutter and both axes. */
+  /** Main chart pane (price + volume), excluding studies, gutter, and axes. */
   pane: Rect;
   /** Candle/line area — pane minus the volume strip. */
   price: Rect;
   /** Volume strip along the pane bottom. */
   volume: Rect;
+  /** Oscillator sub-panes (RSI/MACD), stacked between pane and time axis. */
+  studyPanes: Rect[];
   /** Tag gutter between pane and price axis (level names / bells / ext). */
   gutter: Rect;
   priceAxis: Rect;
@@ -49,17 +54,25 @@ export function computeLayout(
   width: number,
   height: number,
   gutterW: number = TAG_GUTTER_WIDTH,
+  studyPaneCount = 0,
 ): Layout {
   const paneW = Math.max(0, width - PRICE_AXIS_WIDTH - gutterW);
-  const paneH = Math.max(0, height - TIME_AXIS_HEIGHT);
+  const plotH = Math.max(0, height - TIME_AXIS_HEIGHT);
+  const studyH = studyPaneCount > 0 ? Math.round(plotH * STUDY_PANE_FRACTION) : 0;
+  const paneH = Math.max(0, plotH - studyH * studyPaneCount);
   const volumeH = Math.round(paneH * VOLUME_FRACTION);
+  const studyPanes: Rect[] = [];
+  for (let i = 0; i < studyPaneCount; i++) {
+    studyPanes.push({ x: 0, y: paneH + i * studyH, w: paneW, h: studyH });
+  }
   return {
     pane: { x: 0, y: 0, w: paneW, h: paneH },
     price: { x: 0, y: 0, w: paneW, h: paneH - volumeH },
     volume: { x: 0, y: paneH - volumeH, w: paneW, h: volumeH },
-    gutter: { x: paneW, y: 0, w: gutterW, h: paneH },
-    priceAxis: { x: paneW + gutterW, y: 0, w: PRICE_AXIS_WIDTH, h: paneH },
-    timeAxis: { x: 0, y: paneH, w: width, h: TIME_AXIS_HEIGHT },
+    studyPanes,
+    gutter: { x: paneW, y: 0, w: gutterW, h: plotH },
+    priceAxis: { x: paneW + gutterW, y: 0, w: PRICE_AXIS_WIDTH, h: plotH },
+    timeAxis: { x: 0, y: plotH, w: width, h: TIME_AXIS_HEIGHT },
   };
 }
 
@@ -72,7 +85,6 @@ export type Scene = {
 };
 
 const AXIS_FONT_PX = 10;
-const LABEL_PAD = 6;
 const CHIP_PAD_X = 5;
 const CHIP_H = 16;
 /** Gutter tag containers — full axis font (the smaller pt "wasn't helping"). */
@@ -141,7 +153,41 @@ export type SceneInput = {
   overlays?: EngineOverlays | null;
   /** False collapses the tag gutter — pane runs straight to the price axis. */
   tagGutter?: boolean;
+  /** Indicator series (MA overlays + oscillator panes), wrapper-computed. */
+  studies?: EngineStudies | null;
 };
+
+/**
+ * Polyline over per-bar indicator values, split at null (warmup) gaps. The
+ * range is padded a bar each side so lines enter from off-screen instead of
+ * visibly starting at the pane edge (the clip crops the overdraw).
+ */
+function drawValueLine(
+  p: Painter,
+  values: StudyValues,
+  range: { from: number; to: number },
+  vp: Viewport,
+  paneW: number,
+  yOfValue: (v: number) => number,
+  color: string,
+): void {
+  let seg: { x: number; y: number }[] = [];
+  const flush = () => {
+    if (seg.length >= 2) p.polyline(seg, { color, width: 1 });
+    seg = [];
+  };
+  const from = Math.max(0, range.from - 1);
+  const to = Math.min(values.length - 1, range.to + 1);
+  for (let i = from; i <= to; i++) {
+    const v = values[i];
+    if (v == null || !Number.isFinite(v)) {
+      flush();
+      continue;
+    }
+    seg.push({ x: xOf(i, vp, paneW), y: yOfValue(v) });
+  }
+  flush();
+}
 
 /** Paint the full scene (grid, series, volume, axes, last-price line). */
 export function drawScene(p: Painter, input: SceneInput): Scene {
@@ -150,8 +196,9 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     width,
     height,
     input.tagGutter === false ? 0 : TAG_GUTTER_WIDTH,
+    input.studies?.panes.length ?? 0,
   );
-  const { pane, price, volume, gutter, priceAxis, timeAxis } = layout;
+  const { pane, price, volume, priceAxis, timeAxis } = layout;
   const font = axisFont(fontFamily);
   // Price-anchored lines run through the gutter to the axis; candles don't.
   const plotEnd = priceAxis.x;
@@ -171,7 +218,8 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
   }
   for (const t of tTicks) {
     if (t.x < pane.x || t.x > pane.x + pane.w) continue;
-    p.line(t.x, pane.y, t.x, pane.y + pane.h, { color: colors.grid, width: 1 });
+    // Full plot height — the vertical grid runs through the study panes too.
+    p.line(t.x, pane.y, t.x, timeAxis.y, { color: colors.grid, width: 1 });
   }
 
   const range = visibleBarRange(vp, pane.w, bars.length);
@@ -226,6 +274,24 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
             p.fillRect(x - bodyW / 2, top, bodyW, Math.max(1, Math.abs(yC - yO)), color);
           }
         }
+      }
+    });
+  }
+
+  // MA overlay studies: on the main price scale, over the candles, under the
+  // level lines (a level should stay grabbable where an MA crosses it).
+  if (range && input.studies && input.studies.overlays.length > 0) {
+    p.withClip(price.x, price.y, price.w, price.h, () => {
+      for (const s of input.studies!.overlays) {
+        drawValueLine(
+          p,
+          s.values,
+          range,
+          vp,
+          pane.w,
+          (v) => yOf(v, priceRange, price.y, price.h),
+          s.color,
+        );
       }
     });
   }
@@ -351,6 +417,96 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       baseline: "alphabetic",
     });
   }
+  // Oscillator study panes (RSI / MACD): each gets a separator, its own value
+  // scale, a top-left label, and content clipped to its rect. Runs after the
+  // axis wipe so RSI band labels land on top of it.
+  if (input.studies) {
+    const V_PAD = 3; // px of breathing room above/below a pane's value range
+    for (let pi = 0; pi < layout.studyPanes.length; pi++) {
+      const r = layout.studyPanes[pi];
+      const def = input.studies.panes[pi];
+      if (!def || r.h <= 0) continue;
+      p.line(0, r.y, width, r.y, { color: colors.grid, width: 1 });
+      // Floor keeps yOf's direction sane if a host ever renders a <6px pane.
+      const innerH = Math.max(1, r.h - V_PAD * 2);
+      if (def.kind === "rsi") {
+        const scale: PriceRange = { min: 0, max: 100 };
+        const yOfV = (v: number) => yOf(v, scale, r.y + V_PAD, innerH);
+        // 30/70 bands: dashed guides, TV-style; small labels on the axis.
+        for (const band of [30, 70]) {
+          const by = yOfV(band);
+          p.line(r.x, by, r.x + r.w, by, {
+            color: colors.grid,
+            width: 1,
+            dash: [2, 3],
+            hairline: true,
+          });
+          p.text(String(band), priceAxis.x + priceAxis.w / 2, by + LEVEL_TAG_FONT_PX * PILL_TEXT_DY_EM, {
+            color: colors.textDim,
+            font,
+            align: "center",
+            baseline: "alphabetic",
+          });
+        }
+        if (range) {
+          p.withClip(r.x, r.y, r.w, r.h, () => {
+            drawValueLine(p, def.values, range, vp, pane.w, yOfV, def.color);
+          });
+        }
+      } else {
+        // MACD: autoscale to the visible values (zero always in frame).
+        let vmin = 0;
+        let vmax = 0;
+        if (range) {
+          for (const arr of [def.macd, def.signal, def.histogram]) {
+            for (let i = range.from; i <= Math.min(range.to, arr.length - 1); i++) {
+              const v = arr[i];
+              if (v == null) continue;
+              if (v < vmin) vmin = v;
+              if (v > vmax) vmax = v;
+            }
+          }
+        }
+        if (vmax === vmin) vmax = vmin + 1;
+        const pad = (vmax - vmin) * 0.1;
+        const scale: PriceRange = { min: vmin - pad, max: vmax + pad };
+        const yOfV = (v: number) => yOf(v, scale, r.y + V_PAD, innerH);
+        const zeroY = yOfV(0);
+        p.line(r.x, zeroY, r.x + r.w, zeroY, {
+          color: colors.grid,
+          width: 1,
+          hairline: true,
+        });
+        if (range) {
+          const bodyW = candleBodyWidth(vp.barSpacing);
+          p.withClip(r.x, r.y, r.w, r.h, () => {
+            for (let i = range.from; i <= Math.min(range.to, def.histogram.length - 1); i++) {
+              const v = def.histogram[i];
+              if (v == null) continue;
+              const x = xOf(i, vp, pane.w);
+              const vy = yOfV(v);
+              p.fillRect(
+                x - bodyW / 2,
+                Math.min(zeroY, vy),
+                bodyW,
+                Math.max(1, Math.abs(vy - zeroY)),
+                v >= 0 ? def.histUp : def.histDown,
+              );
+            }
+            drawValueLine(p, def.macd, range, vp, pane.w, yOfV, def.macdColor);
+            drawValueLine(p, def.signal, range, vp, pane.w, yOfV, def.signalColor);
+          });
+        }
+      }
+      p.text(def.label, r.x + 6, r.y + 4, {
+        color: colors.textDim,
+        font,
+        align: "left",
+        baseline: "top",
+      });
+    }
+  }
+
   // Extended-hours price (pre/post/overnight quote): dashed accent line with
   // an "ext" tag and its own axis chip — parity with TV, which keeps showing
   // where the name trades after the (daily or RTH-only) candles stop.
@@ -471,10 +627,11 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
     }
   }
 
-  // Live-price chip absolutely last — it outranks every card.
+  // Live-price chip absolutely last — it outranks every card. Bounded to the
+  // main pane so an off-frame price can't paint the chip over a study pane.
   if (last) {
     const y = yOf(last.close, priceRange, price.y, price.h);
-    if (y >= price.y - CHIP_H && y <= priceAxis.y + priceAxis.h + CHIP_H) {
+    if (y >= price.y - CHIP_H && y <= pane.y + pane.h + CHIP_H) {
       // Always white text: the chip bg is a saturated up/down color on every
       // theme, and theme-background text disappeared on light themes.
       drawAxisChip(
@@ -672,7 +829,8 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
   const plotEnd = priceAxis.x;
 
   p.clear();
-  if (x < pane.x || x > plotEnd || y < pane.y || y > pane.y + pane.h) {
+  // The crosshair covers the full plot height — study panes included.
+  if (x < pane.x || x > plotEnd || y < pane.y || y > timeAxis.y) {
     return null;
   }
 
@@ -684,7 +842,7 @@ export function drawCursor(p: Painter, input: CursorInput): CursorHit {
 
   const crossStyle = { color: colors.crosshair, width: 1, dash: [3, 3] };
   if (vx >= pane.x && vx <= plotEnd) {
-    p.line(vx, pane.y, vx, pane.y + pane.h, crossStyle);
+    p.line(vx, pane.y, vx, timeAxis.y, crossStyle);
   }
 
   // Horizontal line + price chip only inside the price area — over the volume

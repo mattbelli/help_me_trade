@@ -40,6 +40,7 @@ import {
   type EngineColors,
   type EngineOptions,
   type EngineOverlays,
+  type EngineStudies,
   type OverlayLine,
   type OverlaySegment,
   type PriceRange,
@@ -113,6 +114,8 @@ export class ChartEngine {
   private tagGutter = true;
   /** Alert/level/drawing primitives (wrapper-composed, colors resolved). */
   private overlays: EngineOverlays | null = null;
+  /** Indicator series (wrapper-computed values + colors). */
+  private studies: EngineStudies | null = null;
   private lastHoverIndex: number | null = null;
   // Live ticks mutate the hovered bar in place without moving the cursor —
   // the legend callback must re-fire on value change, not just index change.
@@ -276,6 +279,12 @@ export class ChartEngine {
     this.drawMode = kind ? { kind, a: null } : null;
     this.container.style.cursor = "crosshair";
     this.invalidate("cursor"); // clear/show any pending preview
+  }
+
+  /** Replace the study set (MA overlays + oscillator panes). Null clears. */
+  setStudies(studies: EngineStudies | null): void {
+    this.studies = studies;
+    this.invalidate("scene");
   }
 
   /** Show/hide the tag gutter — hiding gives the pane back to the candles. */
@@ -705,6 +714,7 @@ export class ChartEngine {
         extPrice: this.extPrice,
         overlays: this.overlays,
         tagGutter: this.tagGutter,
+        studies: this.studies,
       });
       this.perfSceneMs = performance.now() - t0;
       // The crosshair sits over repositioned content — keep it in sync.

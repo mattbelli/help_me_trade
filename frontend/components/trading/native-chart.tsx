@@ -37,9 +37,13 @@ import type {
   EngineBar,
   EngineColors,
   EngineOverlays,
+  EngineStudies,
   OverlayLine,
   OverlaySegment,
+  PaneStudySeries,
 } from "@/lib/chart-engine/types";
+import { OVERLAY_STUDIES } from "@/lib/chart-studies";
+import { macdSeries, rsiSeries } from "@/lib/indicators";
 import {
   CHART_TIMEFRAMES,
   formatVolume,
@@ -75,6 +79,8 @@ type Props = {
   /** Tag column (level names / bells / ext) — hiding it also hides every
       overlay line with it: the one-click clean chart. */
   showTagColumn?: boolean;
+  /** Study ids from the frame toolbar's Studies dropdown (chart-studies.ts). */
+  studies?: string[];
 };
 
 // Rollover/refetch cadence: the bars cache TTL is the real gate — this just
@@ -106,6 +112,47 @@ function sessionLevelColor(kind: SessionLevel["kind"]): string {
     default:
       return resolveCssColor("--fg-faint", "#616873");
   }
+}
+
+/**
+ * Study ids → engine series. Math + MA colors are shared with the TV path
+ * (chart-studies/indicators); the oscillator colors mirror TvLightChart's
+ * (RSI #c792ea, MACD #4d9de0 / signal #e0b040, sign-colored histogram).
+ */
+function composeStudies(
+  bars: readonly EngineBar[],
+  enabled: readonly string[],
+): EngineStudies | null {
+  if (bars.length === 0 || enabled.length === 0) return null;
+  const closes = bars.map((b) => b.close);
+  const overlays = OVERLAY_STUDIES.filter((s) => enabled.includes(s.id)).map(
+    (s) => ({ label: s.label, color: s.color, values: s.compute(closes) }),
+  );
+  const panes: PaneStudySeries[] = [];
+  if (enabled.includes("rsi")) {
+    panes.push({
+      kind: "rsi",
+      label: "RSI 14",
+      color: "#c792ea",
+      values: rsiSeries(closes, 14),
+    });
+  }
+  if (enabled.includes("macd")) {
+    const m = macdSeries(closes);
+    panes.push({
+      kind: "macd",
+      label: "MACD 12 26 9",
+      macd: m.macd,
+      signal: m.signal,
+      histogram: m.histogram,
+      macdColor: "#4d9de0",
+      signalColor: "#e0b040",
+      histUp: withAlpha(resolveCssColor("--chart-accent", "#5ad1be"), 0.5),
+      histDown: withAlpha(resolveCssColor("--chart-down", "#ef6f6c"), 0.5),
+    });
+  }
+  if (overlays.length === 0 && panes.length === 0) return null;
+  return { overlays, panes };
 }
 
 function resolveEngineColors(): EngineColors {
@@ -153,6 +200,7 @@ export function NativeChart({
   showAlerts = true,
   showDrawings = true,
   showTagColumn = true,
+  studies,
 }: Props) {
   const timeframe = timeframeProp ?? CHART_TIMEFRAMES[5];
   const showExt = extended && timeframe.intraday;
@@ -173,6 +221,8 @@ export function NativeChart({
   const [legend, setLegend] = useState("");
   const [themeNonce, setThemeNonce] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // Bumped when a bars payload lands — studies recompute against the new bars.
+  const [barsNonce, setBarsNonce] = useState(0);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [levels, setLevels] = useState<SessionLevel[]>([]);
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
@@ -329,6 +379,16 @@ export function NativeChart({
   useEffect(() => {
     engineRef.current?.setTagGutter(showTagColumn);
   }, [showTagColumn, timeframe.intraday]);
+
+  // Studies: recompute on new bars payloads / toggles / theme (histogram
+  // colors follow the theme). Live ticks between polls drift the forming
+  // bar's study values by design — the ~30s refetch reconciles, like TV.
+  const studiesKey = (studies ?? []).join(",");
+  useEffect(() => {
+    engineRef.current?.setStudies(
+      composeStudies(barsRef.current, studies ?? []),
+    );
+  }, [barsNonce, studiesKey, themeNonce, timeframe.intraday]);
 
   // Ext-hours price line — same session gate as TvLightChart: whenever an ext
   // quote exists outside RTH (incl. weekend "closed", where the last ext print
@@ -505,6 +565,7 @@ export function NativeChart({
         barsRef.current = bars;
         dataKeyRef.current = key;
         engineRef.current?.setBars(bars, { anchorRight: keyChanged });
+        setBarsNonce((n) => n + 1);
         setError(null);
       })
       .catch((err) => {

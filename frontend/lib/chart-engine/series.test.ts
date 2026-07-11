@@ -10,6 +10,28 @@ import {
 } from "./series";
 import type { EngineBar, OverlayLine, OverlaySegment, Viewport } from "./types";
 
+describe("computeLayout study panes", () => {
+  it("no studies: pane runs to the time axis, no study rects", () => {
+    const l = computeLayout(800, 400);
+    expect(l.studyPanes).toEqual([]);
+    expect(l.pane.h).toBe(l.timeAxis.y);
+  });
+
+  it("carves stacked sub-panes off the bottom, nothing overlaps", () => {
+    const l = computeLayout(800, 400, 0, 2);
+    expect(l.studyPanes).toHaveLength(2);
+    const [a, b] = l.studyPanes;
+    expect(a.y).toBe(l.pane.h);
+    expect(b.y).toBe(a.y + a.h);
+    expect(b.y + b.h).toBe(l.timeAxis.y);
+    expect(a.h).toBeGreaterThan(0);
+    // Volume strip stays inside the (shrunken) main pane.
+    expect(l.volume.y + l.volume.h).toBe(l.pane.h);
+    // Axis column still spans the full plot height.
+    expect(l.priceAxis.h).toBe(l.timeAxis.y);
+  });
+});
+
 function mkScene(): Scene {
   return {
     layout: computeLayout(800, 400),

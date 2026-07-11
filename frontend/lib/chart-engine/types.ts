@@ -93,6 +93,42 @@ export type EngineOverlays = {
   segments: OverlaySegment[];
 };
 
+// --- Studies (Phase 3) ---------------------------------------------------------------
+// The engine draws pre-computed indicator series — the wrapper owns the math
+// (lib/indicators.ts, shared with the TV path) and the colors. Values align to
+// bar indices; null = warmup gap. Arrays may lag `bars` by a live-rollover bar
+// — the engine treats a missing tail like null.
+
+export type StudyValues = readonly (number | null)[];
+
+/** Price-pane overlay line (SMA/EMA) on the main price scale. */
+export type OverlayStudySeries = {
+  label: string;
+  color: string;
+  values: StudyValues;
+};
+
+/** Oscillator rendered in its own sub-pane below the price pane. */
+export type PaneStudySeries =
+  | { kind: "rsi"; label: string; color: string; values: StudyValues }
+  | {
+      kind: "macd";
+      label: string;
+      macd: StudyValues;
+      signal: StudyValues;
+      histogram: StudyValues;
+      macdColor: string;
+      signalColor: string;
+      /** Histogram bar fills, pre-alpha'd by the wrapper (sign-colored). */
+      histUp: string;
+      histDown: string;
+    };
+
+export type EngineStudies = {
+  overlays: OverlayStudySeries[];
+  panes: PaneStudySeries[];
+};
+
 /** Right-click hit info. `price` is null outside the price area (volume strip). */
 export type ContextMenuHit = {
   x: number;
@@ -136,6 +172,8 @@ export const TAG_GUTTER_WIDTH = 0;
 export const TIME_AXIS_HEIGHT = 22;
 /** Fraction of the pane (above the time axis) given to the volume strip. */
 export const VOLUME_FRACTION = 0.16;
+/** Each oscillator sub-pane's share of the plot height (TV-ish proportions). */
+export const STUDY_PANE_FRACTION = 0.16;
 
 // --- Viewport constants (CHART_ENGINE.md → Time scale) -----------------------------
 export const MIN_BAR_SPACING = 0.5;

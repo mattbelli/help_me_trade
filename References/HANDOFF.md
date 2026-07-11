@@ -10,7 +10,24 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-10, latest) — Native chart engine: Phase 2 alerts + drawings LIVE
+## ▶ START HERE (2026-07-11, latest) — Native chart engine: STUDIES live (MAs + RSI/MACD panes)
+
+> **Phase 3 round 1 deployed.** The native engine now renders the frame-toolbar Studies dropdown's
+> full set: SMA 20/50/200 + EMA 20 overlays on the price pane, RSI 14 + MACD 12 26 9 in their own
+> oscillator sub-panes (multi-pane `computeLayout` — panes carved off the plot bottom, separators,
+> per-pane scales, 30/70 bands, sign-colored histogram; crosshair spans all panes). Engine stays
+> headless: wrapper computes series via the SAME `lib/indicators.ts`+`chart-studies.ts` as TV and
+> hands the engine values+colors (`setStudies`). Same `config.studies` — toggles apply to both
+> engines, zero new UI. Sonnet review: SHIP (V_PAD clamp taken; **fast-follow logged: right-click
+> over an oscillator pane is a dead zone** — `regionAt` isn't study-pane-aware). 52 engine tests;
+> live smoke screenshot verified (SPY 1H: SMA + both panes render TV-clean). Also this session:
+> level clustering (×N node lines) BENCHED on founder feedback — every level draws individually.
+> **NEXT: founder verdict on studies → Phase 3 polish → delete lightweight-charts + the TV
+> attribution link in workspace-page.tsx. Idea parked (founder liked it): trade-prints bubble
+> overlay (quotes + aggressor-sized trade circles) from the SIP stream.** Board:
+> `native-chart-engine`.
+
+## ▶ EARLIER (2026-07-10) — Native chart engine: Phase 2 alerts + drawings LIVE
 
 > Building toward TV deletion (founder: "continue the chart building so we can say bye bye to
 > Trading View"). **Rounds 2+3 deployed same evening.** Round 2: right-click context menu
