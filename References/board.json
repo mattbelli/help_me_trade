@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "flow-intelligence-design-review",
+      "title": "READ: flow intelligence design (Fable deep-dive) \u2014 burst + cluster detectors, 2 new widgets, push policy",
+      "lane": "founder",
+      "type": "decision",
+      "priority": "high",
+      "owner": "founder",
+      "notes": "References/FLOW_INTELLIGENCE_DESIGN_2026-07-11.md. Key calls: rolling 30-min burst replaces day-net pressure as the intraday primitive; small-print cluster detector (your slicing hypothesis, floor on the AGGREGATE: >=$500k/25 prints); TWAP/iceberg deferred but instrumented now; quotes-follow-heat (40 standing + 20 escalation); 2 new widgets (flow pressure now, flow patterns after ~3-4wk data); watchlist bursts >=$1M push to phone, market-wide pushes ship OFF until you arm a floor. Week-1 core is transport-agnostic \u2014 ships either way after Monday's wildcard rate probe."
+    },
+    {
       "id": "flow-outcome-tracking",
       "title": "Flow outcome tracking LIVE \u2014 every event stamped with forward returns (calibration)",
       "lane": "in_progress",
