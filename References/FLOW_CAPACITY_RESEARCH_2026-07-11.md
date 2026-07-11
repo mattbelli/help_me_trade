@@ -70,3 +70,12 @@ Probe (1) gates the coarse-tier design: **do the wildcard probe before building 
 rotation**. If wildcard works, the two-tier design simplifies to: full-tape trades stream
 (coarse+fine in one) + hot-quote subset for side confirmation + DTE quotas only for the
 *quote* budget. If it fails, the spec's snapshot-rotation coarse tier stands as designed.
+
+## ⚡ Probe result (same day, Sat 2026-07-11)
+
+`{"action":"subscribe","trades":["*"]}` → **`{"T":"subscription","trades":["*"]}` — ACKED**
+on the current plan (`scripts/opra_wildcard_probe.py`; won the 1-conn slot from the idling
+prod stream by retry-on-406 during a backend bounce; prod reconnected via its 300s backoff,
+zero impact on a closed market). ACK ≠ data: Monday-open follow-up = confirm prints actually
+flow under `*`, measure market-wide msg rate + client headroom (OPRA ≈50M+ trades/day, open
+bursts 10-20× average) and lag under load. If flow confirms, the coarse tier IS the full tape.

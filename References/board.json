@@ -11,12 +11,13 @@
   "cards": [
     {
       "id": "flow-wildcard-probe",
-      "title": "PROBE Mon open: Alpaca OPRA trades-channel wildcard (*) \u2014 market-wide tape on current plan?",
+      "title": "PROBE Mon open: OPRA trades wildcard DATA RATE (ACK confirmed Sat \u2014 does data flow + msg/s?)",
       "lane": "next",
       "type": "probe",
       "priority": "high",
       "owner": "agent",
-      "notes": "Alpaca docs forbid * for option QUOTES only; silent on trades. Polygon's trades channel supports * explicitly. If * ACKs on trades: real-time market-wide flow tape at $0, coarse tier goes real-time, DTE quotas shrink to the quote budget. 5-min probe; must stop prod stream first (1-conn limit); measure client-side msg rate (full OPRA, not the 14/s watchlist trickle). See References/FLOW_CAPACITY_RESEARCH_2026-07-11.md."
+      "notes": "2026-07-11 Sat probe: {'action':'subscribe','trades':['*']} -> {'T':'subscription','trades':['*']} ACKED on the current plan (scripts/opra_wildcard_probe.py; won the 1-conn slot by retry-on-406 during a backend bounce). Remaining Monday questions: (1) does data actually FLOW under * (ACK != stream), (2) market-wide msg rate + client-side headroom (OPRA ~50M+ trades/day, open bursts 10-20x avg \u2014 python client must keep up), (3) lag under load. If flow confirmed: coarse tier = the full tape, snapshot rotation unnecessary, DTE quotas shrink to the 1,000-quote confirmation budget.",
+      "updated_at": "2026-07-11"
     },
     {
       "id": "flow-dte-diversity",
