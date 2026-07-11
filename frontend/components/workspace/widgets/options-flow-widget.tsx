@@ -23,7 +23,10 @@ import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 30_000;
+// 5s: the tape's detection side runs at ~2-4s from the exchange print; the widget
+// refresh is the dominant last-hop latency and the founder acts on flow in 1-3min.
+// Cheap: one capped local-SQLite query per poll. (True SSE push = notifications redesign.)
+const POLL_MS = 5_000;
 const EOD_TS_SUFFIX = "T21:00:00Z";
 
 // The whole table lives in a horizontal scroller so a narrow widget keeps the
