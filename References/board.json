@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "news-reader-view",
+      "title": "News articles open in an in-app reader view (like research)",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Founder asked 2026-07-12; assessed easy-moderate (~half day). Reuse ResearchMarkdown + ResearchViewerModal for display; add thin GET /api/reader?url= endpoint reusing the SSRF-hardened fetch_url (ai/research/sources.py) + trafilatura for clean article->markdown extraction (current regex strip = nav/cookie noise). Wire NewsSection headline click (company-info-sections.tsx) to open the modal. Fallback when extraction fails/thin (paywalls WSJ/Bloomberg/Reuters, bot-blocked): show Finnhub summary + image + 'open original' link. Est. 60-80% of Finnhub articles extract cleanly."
+    },
+    {
       "id": "bars-split-adjustment",
       "title": "Charts ignored stock splits \u2014 CRWD $800\u2192$200 cliff (Alpaca adjustment=raw)",
       "lane": "done",
