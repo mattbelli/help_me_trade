@@ -633,6 +633,10 @@ class AlpacaAdapter:
             "limit": 10000,
             "feed": feed,
             "sort": "asc",
+            # Alpaca defaults to adjustment=raw — history spanning a split would
+            # show the pre-split price scale (CRWD 4:1 2026-07-02: $772 -> $191
+            # cliff). Split-only, not "all": dividends must not shift prices.
+            "adjustment": "split",
         }
         try:
             data = await self._aget_all_bar_pages(
@@ -685,6 +689,7 @@ class AlpacaAdapter:
             "limit": 10000,
             "feed": self._data_feed,
             "sort": "asc",
+            "adjustment": "split",
         }
 
         data = self._get_all_bar_pages(f"/v2/stocks/{symbol}/bars", params)
@@ -873,6 +878,7 @@ class AlpacaAdapter:
             "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "limit": 10000,
             "feed": self._data_feed,
+            "adjustment": "split",
         }
         return cleaned, params
 

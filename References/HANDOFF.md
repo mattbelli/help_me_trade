@@ -10,7 +10,19 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-12 LATE) — Notifications card UI round 2 + company-info redesign + FINRA short interest, DEPLOYED
+## ▶ START HERE (2026-07-12 LATER) — Stock splits fixed on equity bar history (⚠️ pending backend deploy)
+
+> Founder: CRWD chart draws a giant $800→$200 candle at its Jul-2 4:1 split. Root cause: every
+> Alpaca stock-bars request omitted `adjustment` → Alpaca defaults to `raw` (unadjusted). NOT a
+> cache bug (all bar caches are 5-min TTL); futures via Schwab were unaffected. Fix: `adjustment=
+> split` on all three request builders in `brokers/alpaca.py` (single async/sync + batch) —
+> adapter-wide on purpose: raw-across-split poisoned every consumer (RVOL volume baseline 4× off,
+> momentum fake −75% return, volume profile). `momentum_daily_bars` self-heals (480-day rolling
+> upsert overwrites stale raw rows next refresh). Live-verified continuous CRWD series through the
+> split via the real adapter; hermetic test pins all 3 paths. Committed; **backend deploy blocked
+> by the permission classifier — needs the founder's go** (`tools/serv-deploy.sh backend`).
+
+## ▶ EARLIER (2026-07-12 LATE) — Notifications card UI round 2 + company-info redesign + FINRA short interest, DEPLOYED
 
 > Founder rejected round 1's visuals ("you just added the word ding... this is awful") → widget now
 > renders the mockup's real card grammar: raised cards, colored kind word micro-header, bold mono
