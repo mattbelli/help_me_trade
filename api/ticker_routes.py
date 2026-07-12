@@ -69,6 +69,7 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
         afetch_company_news,
         afetch_company_profile,
     )
+    from signals.finra import afetch_short_interest
 
     sym = symbol.strip().upper()
 
@@ -80,11 +81,12 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
         except Exception:  # noqa: BLE001 — fail-soft; return empty facts
             return {}
 
-    profile, metrics, news, facts = await asyncio.gather(
+    profile, metrics, news, facts, short_interest = await asyncio.gather(
         afetch_company_profile(sym),
         afetch_company_metrics(sym),
         afetch_company_news(sym),
         _facts(),
+        afetch_short_interest(sym),
     )
 
     return {
@@ -93,4 +95,5 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
         "metrics": metrics,
         "news": news,
         "facts": facts,
+        "short_interest": short_interest,
     }

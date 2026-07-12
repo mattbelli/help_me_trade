@@ -198,7 +198,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   {
     id: "notifications",
     title: "notifications",
-    description: "Full inbox — read, filter, and dismiss alerts",
+    description: "Inbox of alert cards — batched, filtered, with a ding",
+    channelAware: true,
     component: NotificationsWidget,
     defaultSize: { w: 8, h: 6, minW: 4, minH: 3 },
   },

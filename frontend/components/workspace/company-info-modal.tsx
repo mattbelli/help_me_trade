@@ -72,7 +72,12 @@ export function CompanyInfoModal({
         linked={linked}
         onPublish={() => onPublish(data.symbol)}
       />
-      <FundamentalsSection profile={data.profile} metrics={data.metrics} />
+      <FundamentalsSection
+        profile={data.profile}
+        metrics={data.metrics}
+        shortInterest={data.short_interest}
+        price={data.facts.quote?.price}
+      />
       <FactsSection facts={data.facts} />
       <NewsSection news={data.news} />
     </div>

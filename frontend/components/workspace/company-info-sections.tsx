@@ -10,6 +10,7 @@ import type {
   TickerMetrics,
   TickerNewsItem,
   TickerProfile,
+  TickerShortInterest,
 } from "@/lib/ticker-info-api";
 
 export const DASH = "—";
@@ -81,20 +82,32 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Long venue strings ("NASDAQ NMS - GLOBAL MARKET") read as noise in a meta
+// line — collapse to the household name.
+function shortExchange(exchange: string | null | undefined): string | null {
+  if (!exchange) return null;
+  const upper = exchange.toUpperCase();
+  if (upper.includes("NASDAQ")) return "NASDAQ";
+  if (upper.includes("NEW YORK")) return "NYSE";
+  return exchange.split(/[,-]/)[0].trim();
+}
+
 function StatCell({
   label,
   value,
   color,
   size = "sm",
+  title,
 }: {
   label: string;
   value: string;
   color?: string;
   size?: "sm" | "md";
+  title?: string;
 }) {
   const isMd = size === "md";
   return (
-    <div className={cn("flex flex-col", isMd ? "gap-0.5" : "gap-px")}>
+    <div className={cn("flex flex-col", isMd ? "gap-0.5" : "gap-px")} title={title}>
       <span
         className={cn(
           "font-medium tracking-[0.08em] uppercase",
@@ -129,8 +142,9 @@ export function HeaderSection({
   linked: boolean;
   onPublish: () => void;
 }) {
-  const marketCap = profile.marketCapitalization ?? metrics.market_cap;
-  const meta = [profile.finnhubIndustry, profile.exchange].filter(Boolean);
+  const meta = [profile.finnhubIndustry, shortExchange(profile.exchange)].filter(
+    Boolean,
+  );
   const quote = facts.quote;
   const changePct = quote?.change_pct;
   const changeColor =
@@ -182,7 +196,7 @@ export function HeaderSection({
           </span>
           {quote?.market_session ? (
             <span
-              className="rounded-full border border-[var(--border)] px-1.5 py-px text-[length:var(--fs-micro)] font-medium tracking-[0.08em] uppercase"
+              className="font-mono text-[length:var(--fs-micro)] lowercase tracking-[0.08em]"
               style={{ color: "var(--fg-faint)" }}
             >
               {quote.market_session}
@@ -194,16 +208,55 @@ export function HeaderSection({
             {profile.name}
           </div>
         ) : null}
-        {meta.length > 0 || marketCap != null ? (
+        {meta.length > 0 ? (
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             {meta.map((m) => (
               <span key={m}>{m}</span>
             ))}
-            {marketCap != null ? (
-              <span className="tabular-nums">{fmtMillions(marketCap)} cap</span>
-            ) : null}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** 52-week range as a track with the current price marked on it. */
+function RangeBar({
+  low,
+  high,
+  price,
+}: {
+  low: number;
+  high: number;
+  price: number | null | undefined;
+}) {
+  const pct =
+    price != null && high > low
+      ? Math.min(100, Math.max(0, ((price - low) / (high - low)) * 100))
+      : null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        className="text-[length:var(--fs-table)] font-medium tracking-[0.08em] uppercase"
+        style={{ color: "var(--fg-faint)" }}
+      >
+        52-wk range
+      </span>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-dim)]">
+          {fmtNum(low, high >= 100 ? 0 : 2)}
+        </span>
+        <div className="relative h-[3px] min-w-8 flex-1 rounded-full bg-[var(--bg-hover)]">
+          {pct != null ? (
+            <span
+              className="absolute top-1/2 size-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--c-accent)]"
+              style={{ left: `${pct}%` }}
+            />
+          ) : null}
+        </div>
+        <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-dim)]">
+          {fmtNum(high, high >= 100 ? 0 : 2)}
+        </span>
       </div>
     </div>
   );
@@ -212,22 +265,64 @@ export function HeaderSection({
 export function FundamentalsSection({
   profile,
   metrics,
+  shortInterest,
+  price,
 }: {
   profile: TickerProfile;
   metrics: TickerMetrics;
+  shortInterest?: TickerShortInterest;
+  price?: number | null;
 }) {
-  const range =
-    metrics.week_52_low != null && metrics.week_52_high != null
-      ? `${fmtNum(metrics.week_52_low)} – ${fmtNum(metrics.week_52_high)}`
+  const growthColor =
+    metrics.revenue_growth_yoy == null
+      ? undefined
+      : metrics.revenue_growth_yoy >= 0
+        ? "var(--c-green)"
+        : "var(--c-red)";
+
+  // Short interest as % of shares outstanding (float unavailable on free
+  // sources — label stays honest about the denominator).
+  const sharesOutAbs =
+    profile.shareOutstanding != null ? profile.shareOutstanding * 1e6 : null;
+  const shortShares = shortInterest?.short_shares ?? null;
+  const shortPct =
+    shortShares != null && sharesOutAbs != null && sharesOutAbs > 0
+      ? (shortShares / sharesOutAbs) * 100
+      : null;
+  const shortValue =
+    shortPct != null
+      ? `${shortPct.toFixed(1)}% out${
+          shortInterest?.days_to_cover != null
+            ? ` · ${shortInterest.days_to_cover.toFixed(1)}d`
+            : ""
+        }`
       : DASH;
-  const items: { label: string; value: string }[] = [
+  const shortTitle = shortInterest?.settlement_date
+    ? `FINRA consolidated short interest, settled ${shortInterest.settlement_date} (published ~2wk lag) · % of shares outstanding · d = days to cover`
+    : undefined;
+
+  const items: { label: string; value: string; color?: string; title?: string }[] = [
+    { label: "Mkt cap", value: fmtMillions(profile.marketCapitalization ?? metrics.market_cap) },
     { label: "P/E", value: fmtNum(metrics.pe_ttm, 1) },
-    { label: "52-wk range", value: range },
-    { label: "Beta", value: fmtNum(metrics.beta, 2) },
-    { label: "Div yield", value: fmtPct(metrics.div_yield) },
+    {
+      label: "Rev growth",
+      value: fmtPct(metrics.revenue_growth_yoy, 1),
+      color: growthColor,
+      title: "revenue growth, trailing twelve months YoY",
+    },
+    {
+      label: "Short int",
+      value: shortValue,
+      color: shortPct != null && shortPct >= 10 ? "var(--c-amber)" : undefined,
+      title: shortTitle,
+    },
     { label: "Gross margin", value: fmtPct(metrics.gross_margin, 1) },
     { label: "Net margin", value: fmtPct(metrics.net_margin, 1) },
     { label: "EPS (TTM)", value: metrics.eps_ttm != null ? `$${fmtNum(metrics.eps_ttm)}` : DASH },
+    { label: "Div yield", value: fmtPct(metrics.div_yield) },
+    { label: "P/S", value: fmtNum(metrics.ps_ttm, 1) },
+    { label: "ROE", value: fmtPct(metrics.roe_ttm, 1) },
+    { label: "Beta", value: fmtNum(metrics.beta, 2) },
     { label: "Shares out", value: fmtMillions(profile.shareOutstanding, false) },
   ];
   const hasAny = items.some((i) => i.value !== DASH);
@@ -235,9 +330,25 @@ export function FundamentalsSection({
   return (
     <div>
       <SectionTitle>Fundamentals</SectionTitle>
+      {metrics.week_52_low != null && metrics.week_52_high != null ? (
+        <div className="mb-3">
+          <RangeBar
+            low={metrics.week_52_low}
+            high={metrics.week_52_high}
+            price={price}
+          />
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
         {items.map((i) => (
-          <StatCell key={i.label} label={i.label} value={i.value} size="md" />
+          <StatCell
+            key={i.label}
+            label={i.label}
+            value={i.value}
+            color={i.color}
+            title={i.title}
+            size="md"
+          />
         ))}
       </div>
     </div>
@@ -338,9 +449,7 @@ export function NewsSection({
                   onClick={(e) => e.stopPropagation()}
                 >
                   {symbol ? (
-                    <span
-                      className="mt-0.5 shrink-0 rounded border border-[var(--border)] px-1 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-accent)] uppercase"
-                    >
+                    <span className="mt-0.5 shrink-0 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-accent)] uppercase">
                       {symbol}
                     </span>
                   ) : null}

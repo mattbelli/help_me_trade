@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { NotificationSeverity } from "@/lib/api";
 import { relativeTime } from "@/lib/relative-time";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
   unreadCount,
   type WorkspaceNotification,
@@ -20,8 +23,7 @@ import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Routing categories — stable filter buckets instead of one button per raw
-// kind (a dozen kinds wrapped into an illegible chrome row). Unknown kinds
-// land in "system" so nothing ever disappears from the inbox.
+// kind. Unknown kinds land in "system" so nothing ever disappears.
 // ---------------------------------------------------------------------------
 const CATEGORIES = ["trading", "flow", "alerts", "research", "system"] as const;
 type Category = (typeof CATEGORIES)[number];
@@ -91,24 +93,146 @@ function kindWordClass(kind: string): string {
   }
 }
 
-function severityAccentClass(severity: NotificationSeverity): string {
+// Only non-info severities earn a stripe — the mockup's cards are calm by
+// default and let magnitude/side carry the color.
+function severityStripeClass(severity: NotificationSeverity): string | null {
   switch (severity) {
     case "success":
-      return "border-l-[var(--c-green)]";
+      return "border-l-2 border-l-[var(--c-green)]";
     case "warning":
-      return "border-l-[var(--c-amber)]";
+      return "border-l-2 border-l-[var(--c-amber)]";
     case "critical":
-      return "border-l-[var(--c-red)]";
+      return "border-l-2 border-l-[var(--c-red)]";
     default:
-      return "border-l-[var(--border)]";
+      return null;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Card grouping — correlated fires (same group_key, e.g. five AAPL sweeps in
-// three minutes) collapse into one card with a count. An item joins while it
-// is within the window of the group's oldest member, so a steady drip chains
-// into a single card instead of five near-identical rows.
+// Headline parsing — the card leads with a bold mono ticker and highlights
+// magnitudes ($4.1M, 6.3×, 5.9σ) in accent, per the mockup's headline tier.
+// ---------------------------------------------------------------------------
+const NOT_TICKERS = new Set(["RVOL", "EOD", "AI", "EPS", "ETF", "OI", "DTE"]);
+
+function symbolOf(n: WorkspaceNotification): string | null {
+  const d = (n.data ?? {}) as Record<string, unknown>;
+  const fromData = d.underlying ?? d.symbol;
+  if (typeof fromData === "string" && fromData) return fromData.toUpperCase();
+  const m = /^([A-Z]{1,5})(?=[:\s])/.exec(n.title);
+  if (m && !NOT_TICKERS.has(m[1])) return m[1];
+  return null;
+}
+
+function headlineText(n: WorkspaceNotification, symbol: string | null): string {
+  let t = n.title;
+  if (symbol) {
+    const stripped = t.replace(new RegExp(`^${symbol}\\s*[:—-]?\\s*`), "");
+    if (stripped) t = stripped;
+  }
+  return t;
+}
+
+const MAG_RE = /(\$[\d,.]+[KMB]?|\d+(?:\.\d+)?\s?[x×]\b|\d+(?:\.\d+)?σ)/g;
+
+function highlightMagnitudes(text: string): ReactNode[] {
+  const parts = text.split(MAG_RE);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} className="font-medium text-[var(--c-accent)]">
+        {part}
+      </span>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
+
+function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d
+    .toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .replace(" AM", "a")
+    .replace(" PM", "p");
+}
+
+// ---------------------------------------------------------------------------
+// Detail facts — expansion renders labeled one-fact lines (mockup detail
+// card), not a longer version of the same ·-joined string. Known payloads get
+// real labels; everything else falls back to splitting the body per fact.
+// ---------------------------------------------------------------------------
+type FactLine = { label: string | null; value: string };
+
+// Bodies range from clean ·-joined facts to raw markdown report excerpts —
+// strip the markdown noise so a fact line reads as a fact.
+function cleanFact(text: string): string {
+  return text
+    .replace(/^[#>\-*•\s]+/, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*/g, "")
+    .trim();
+}
+
+const MAX_FACT_LINES = 8;
+
+function factLines(n: WorkspaceNotification): {
+  facts: FactLine[];
+  caveat: string | null;
+} {
+  const d = (n.data ?? {}) as Record<string, unknown>;
+  const facts: FactLine[] = [];
+  let caveat: string | null = null;
+
+  if (Array.isArray(d.components) && d.components.length > 0) {
+    facts.push({ label: "signals", value: d.components.join(" + ") });
+  }
+  if (typeof d.score === "number") {
+    facts.push({ label: "score", value: d.score.toFixed(1) });
+  }
+  if (Array.isArray(d.drivers) && d.drivers.length > 0) {
+    facts.push({ label: "drivers", value: d.drivers.join(" · ") });
+  }
+  if (typeof d.reason === "string" && d.reason) {
+    facts.push({ label: "why", value: d.reason });
+  }
+  if (typeof d.caveat === "string" && d.caveat) {
+    caveat = d.caveat;
+  }
+
+  if (facts.length === 0 && n.body) {
+    for (const piece of n.body.split(/\s*·\s*|\n+/)) {
+      const value = cleanFact(piece);
+      if (value) facts.push({ label: null, value });
+      if (facts.length >= MAX_FACT_LINES) break;
+    }
+  }
+  return { facts, caveat };
+}
+
+// Collapsed cards keep one compact fact line under the headline — titles
+// alone ("signal confluence") say nothing without the $/× magnitudes that
+// live in the body.
+function previewText(n: WorkspaceNotification): string | null {
+  if (!n.body) return null;
+  const pieces = n.body
+    .split(/\s*·\s*|\n+/)
+    .map(cleanFact)
+    .filter(Boolean);
+  if (pieces.length === 0) return null;
+  const joined = pieces.slice(0, 3).join(" · ");
+  return joined === n.title ? null : joined;
+}
+
+// ---------------------------------------------------------------------------
+// Card grouping — correlated fires (same group_key) collapse into one card
+// with a count. An item joins while it is within the window of the group's
+// oldest member, so a steady drip chains into a single card.
 // ---------------------------------------------------------------------------
 const GROUP_WINDOW_MS = 45 * 60_000;
 
@@ -176,7 +300,13 @@ function playDing(): void {
 const FILTER_BTN =
   "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors";
 
+const FACT_LABEL =
+  "w-[64px] shrink-0 pt-px font-mono text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]";
+
 export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
+
   const notifications = useNotificationStore((s) => s.notifications);
   const hydrated = useNotificationStore((s) => s.hydrated);
   const hydrate = useNotificationStore((s) => s.hydrate);
@@ -228,11 +358,6 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
   const handleCardClick = (card: Card) => {
     const willExpand = expandedKey !== card.key;
     setExpandedKey(willExpand ? card.key : null);
-    if (card.items.length === 1) {
-      activate(card.items[0]);
-      return;
-    }
-    // Expanding a batch counts as reading it.
     if (willExpand) {
       for (const n of card.items) if (!n.read) markRead(n.id);
     }
@@ -275,7 +400,11 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
           <button
             type="button"
             onClick={() => onConfigChange({ ding: !dingOn })}
-            title={dingOn ? "sound on new cards — click to mute" : "muted — click to unmute"}
+            title={
+              dingOn
+                ? "sound on new cards — click to mute"
+                : "muted — click to unmute"
+            }
             className={cn(
               FILTER_BTN,
               dingOn
@@ -304,33 +433,50 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
       {cards.length === 0 ? (
         <WidgetEmpty message="No notifications" className="p-2" />
       ) : (
-        <ul className="min-h-0 flex-1 space-y-1 overflow-auto scroll-shadow-y">
+        <ul className="min-h-0 flex-1 space-y-1.5 overflow-auto scroll-shadow-y px-0.5 pb-1">
           {cards.map((card) => {
             const newest = card.items[0];
             const count = card.items.length;
             const anyUnread = card.items.some((n) => !n.read);
             const expanded = expandedKey === card.key;
+            const symbol = symbolOf(newest);
+            const headline = headlineText(newest, symbol);
+            const stripe = severityStripeClass(newest.severity);
+            const { facts, caveat } = expanded
+              ? factLines(newest)
+              : { facts: [], caveat: null };
+            const preview = count === 1 ? previewText(newest) : null;
             return (
               <li
                 key={card.key}
                 className={cn(
-                  "group rounded border-l-2 transition-colors",
-                  severityAccentClass(newest.severity),
+                  "group rounded-md border border-[var(--border)] bg-[var(--bg-raised)] transition-colors",
+                  stripe,
                   expanded
-                    ? "bg-[var(--bg-hover)]"
-                    : "hover:bg-[var(--bg-hover)]",
+                    ? "border-[var(--border-strong,var(--border))]"
+                    : "hover:border-[var(--border-strong,var(--border))]",
                 )}
               >
-                <div className="flex gap-1">
-                  <button
-                    type="button"
+                <div className="flex">
+                  {/* div-with-role, not <button>: the headline nests the
+                      clickable ticker (itself a button). */}
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleCardClick(card)}
-                    className="min-w-0 flex-1 px-2 py-1.5 text-left"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleCardClick(card);
+                      }
+                    }}
+                    className="min-w-0 flex-1 cursor-pointer px-2.5 py-2 text-left"
                   >
-                    <div className="flex flex-wrap items-center gap-2">
+                    {/* micro header: kind word · time */}
+                    <div className="flex items-center gap-2">
                       <span
                         className={cn(
-                          "mt-0.5 size-1.5 shrink-0 rounded-full",
+                          "size-1.5 shrink-0 rounded-full",
                           anyUnread
                             ? "bg-[var(--c-accent)] shadow-[0_0_6px_var(--c-accent)]"
                             : "bg-transparent",
@@ -338,88 +484,132 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
                       />
                       <span
                         className={cn(
-                          "font-mono text-[length:var(--fs-micro)] lowercase tracking-[0.08em]",
+                          "font-mono text-[length:var(--fs-micro)] lowercase tracking-[0.1em]",
                           kindWordClass(newest.kind),
                         )}
                       >
                         {formatKind(newest.kind)}
                       </span>
-                      {count > 1 ? (
-                        <span className="font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-dim)]">
-                          ×{count}
-                        </span>
-                      ) : null}
-                      <span className="font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
+                      <span className="ml-auto font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-faint)]">
                         {relativeTime(newest.created_at)}
                       </span>
                     </div>
+
+                    {/* headline: bold mono ticker + magnitude-accented text */}
                     <p
                       className={cn(
-                        "mt-1 font-mono text-[length:var(--fs-body)] leading-snug text-foreground",
-                        anyUnread ? "font-semibold" : "font-normal",
+                        "mt-1 text-[length:var(--fs-body)] leading-snug text-foreground",
+                        anyUnread ? "font-medium" : "font-normal",
                       )}
                     >
-                      {newest.title}
+                      {symbol ? (
+                        <span
+                          className="mr-1.5 font-mono font-bold"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ClickableSymbol
+                            symbol={symbol}
+                            linked={linked}
+                            onActivate={() => publish(symbol)}
+                          />
+                        </span>
+                      ) : null}
+                      {highlightMagnitudes(headline)}
                     </p>
-                    {count === 1 ? (
-                      expanded ? (
-                        <p className="mt-1.5 whitespace-pre-wrap font-mono text-[length:var(--fs-body)] leading-relaxed text-[var(--fg-dim)]">
-                          {newest.body}
-                        </p>
-                      ) : newest.body ? (
-                        <p className="mt-0.5 line-clamp-2 font-mono text-[length:var(--fs-table)] leading-snug text-[var(--fg-dim)]">
-                          {newest.body}
-                        </p>
-                      ) : null
-                    ) : !expanded ? (
-                      <p className="mt-0.5 font-mono text-[length:var(--fs-table)] leading-snug text-[var(--fg-faint)]">
-                        {count} correlated · {relativeTime(card.items[count - 1].created_at)} –{" "}
-                        {relativeTime(newest.created_at)}
+
+                    {/* batch line, or a one-line fact preview on singles */}
+                    {count > 1 ? (
+                      <p className="mt-1 font-mono text-[length:var(--fs-micro)] text-[var(--c-accent)]">
+                        ◱ {count} batched ·{" "}
+                        {formatClock(card.items[count - 1].created_at)}–
+                        {formatClock(newest.created_at)}
+                      </p>
+                    ) : !expanded && preview ? (
+                      <p className="mt-0.5 line-clamp-1 text-[length:var(--fs-table)] leading-snug text-[var(--fg-dim)]">
+                        {highlightMagnitudes(preview)}
                       </p>
                     ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[length:var(--fs-body)] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-accent)]"
-                    aria-label="Open in workspace"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      activate(newest);
-                    }}
-                  >
-                    →
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded font-mono text-[length:var(--fs-body)] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
-                    aria-label={count > 1 ? "Dismiss batch" : "Dismiss notification"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      for (const n of card.items) dismiss(n.id);
-                      if (expandedKey === card.key) setExpandedKey(null);
-                    }}
-                  >
-                    ✕
-                  </button>
+                  </div>
+
+                  <div className="flex shrink-0 items-start gap-0.5 pt-1.5 pr-1.5">
+                    <button
+                      type="button"
+                      className="inline-flex size-5 items-center justify-center rounded font-mono text-[length:var(--fs-body)] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-accent)]"
+                      aria-label="Open in workspace"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        activate(newest);
+                      }}
+                    >
+                      →
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex size-5 items-center justify-center rounded font-mono text-[length:var(--fs-body)] text-[var(--fg-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
+                      aria-label={
+                        count > 1 ? "Dismiss batch" : "Dismiss notification"
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        for (const n of card.items) dismiss(n.id);
+                        if (expandedKey === card.key) setExpandedKey(null);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
-                {expanded && count > 1 ? (
-                  <ul className="border-t border-[var(--border)] px-2 py-1">
-                    {card.items.map((n) => (
-                      <li key={n.id}>
-                        <button
-                          type="button"
-                          onClick={() => activate(n)}
-                          className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]"
-                        >
-                          <span className="shrink-0 font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-faint)]">
-                            {relativeTime(n.created_at)}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
-                            {n.title}
-                          </span>
-                        </button>
-                      </li>
+
+                {/* expanded single: labeled one-fact lines + honesty footer */}
+                {expanded && count === 1 && (facts.length > 0 || caveat) ? (
+                  <div className="border-t border-[var(--border)] px-2.5 py-2">
+                    {facts.map((f, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "flex gap-2 py-0.5",
+                          i > 0 &&
+                            "border-t border-dashed border-[var(--border)]",
+                        )}
+                      >
+                        {f.label ? (
+                          <span className={FACT_LABEL}>{f.label}</span>
+                        ) : null}
+                        <span className="min-w-0 text-[length:var(--fs-table)] leading-relaxed text-[var(--fg-dim)] tabular-nums">
+                          {highlightMagnitudes(f.value)}
+                        </span>
+                      </div>
                     ))}
+                    {caveat ? (
+                      <p className="mt-1.5 border-t border-[var(--border)] pt-1.5 font-mono text-[length:var(--fs-micro)] text-[var(--c-amber)]">
+                        ⚠ {caveat}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {/* expanded batch: member timeline */}
+                {expanded && count > 1 ? (
+                  <ul className="border-t border-[var(--border)] px-2.5 py-1">
+                    {card.items.map((n) => {
+                      const mSym = symbolOf(n);
+                      return (
+                        <li key={n.id}>
+                          <button
+                            type="button"
+                            onClick={() => activate(n)}
+                            className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                          >
+                            <span className="shrink-0 font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-faint)]">
+                              {formatClock(n.created_at)}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[length:var(--fs-table)] text-[var(--fg-dim)]">
+                              {highlightMagnitudes(headlineText(n, mSym))}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : null}
               </li>

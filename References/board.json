@@ -16,7 +16,16 @@
       "type": "build",
       "priority": "high",
       "owner": "agent",
-      "notes": "Founder 2026-07-12: widget = front-page inbox, 'everything important without being so dense i get lost in it'; solo flow prints stay in for now. Shipped: INBOX_ONLY_KINDS demotion at the notify() chokepoint (rvol/earnings/report_ready/research_ready/scan_ready/idea_resolved store+card only, never push; warning/critical escapes), idea triggered (pushes) / resolved (card) notifications from the tracker sweep, nightly-scan-done card, widget rewrite (group_key batching x-N cards w/ 45-min chain window, trading/flow/alerts/research/system filters, plain-word kinds - pill chip removed, two-note ding w/ persisted mute). Pending in-browser check + deploy. Push-side batching deferred until a 40+/hr book exists."
+      "notes": "Round 1 (routing + mechanics) rejected visually by founder ('this is awful'); round 2 same day implements the mockup's card grammar: raised cards, colored kind-word micro-header, bold clickable ticker + accent magnitudes in headlines, collapsed fact preview, batched x-N cards w/ time range, labeled one-fact lines + caveat footer on expand. Channel-aware. DEPLOYED + headless-screenshot-verified live. Routing matrix from round 1 unchanged (INBOX_ONLY_KINDS, idea triggered/resolved + scan_ready cards). Push-side batching still deferred until a 40+/hr book exists."
+    },
+    {
+      "id": "company-info-redesign",
+      "title": "Company info redesign: mkt cap + rev growth/PS/ROE surfaced, 52-wk range bar, FINRA short interest",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Founder 2026-07-12: 'short interest would be nice... there isnt even mkt cap in there... wall of text.' Mkt cap existed but was buried as meta text; now leads the stat grid. Added rev growth (colored), P/S, ROE (all fetched-but-never-rendered), 52-wk range as track w/ live price dot, de-pilled session/news chips, NASDAQ short name. NEW signals/finra.py: consolidated short interest (free, anonymous, 24h cache, fail-soft) -> /api/ticker -> 'SHORT INT 1.0% out - 1.7d' (% shares outstanding, settlement-date tooltip, amber >=10%). DEPLOYED + screenshot-verified for AAPL. Pending founder in-browser check."
     },
     {
       "id": "filings-feed",

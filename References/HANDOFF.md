@@ -10,7 +10,21 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-12) — Notifications surface 4: card inbox + routing matrix shipped
+## ▶ START HERE (2026-07-12 LATE) — Notifications card UI round 2 + company-info redesign + FINRA short interest, DEPLOYED
+
+> Founder rejected round 1's visuals ("you just added the word ding... this is awful") → widget now
+> renders the mockup's real card grammar: raised cards, colored kind word micro-header, bold mono
+> clickable ticker + accent magnitudes ($15.7M / 2.1×) in headlines, fact preview line collapsed,
+> `◱ N batched` on groups, labeled one-fact lines + ⚠ caveat on expand. Channel-aware now.
+> **Company info** (widget + `i` modal): mkt cap was buried as meta text — now leads the stat grid;
+> added rev growth/P/S/ROE (fetched but never rendered), 52-wk range as a track w/ live price dot,
+> de-pilled session + news chips. **NEW `signals/finra.py`**: consolidated short interest, free +
+> anonymous, 24h cache → `/api/ticker` → "SHORT INT 1.0% out · 1.7d" (% shs out, settlement-date
+> tooltip). **Headless visual loop** (playwright-core + cached chromium vs live :3001, workspace
+> layout routes intercepted so the founder's real layout is untouched) — use it for every UI round;
+> it caught two misses before the founder saw them. Both services deployed + screenshot-verified.
+
+## ▶ EARLIER (2026-07-12) — Notifications surface 4: card inbox + routing matrix shipped
 
 > Founder: options-flow noise drowned the notifications widget (last 7d: 232 rows, 133 flow) and
 > ambient kinds buzzed his phone. He wants the widget as a **front-page inbox with cards + a ding**
