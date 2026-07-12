@@ -112,6 +112,7 @@ from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
 from db.earnings_alerts import init_earnings_alert_tables
 from db.earnings_calendar import earnings_hour, last_earnings_date, next_earnings_date
+from db.filings import init_filings_tables
 from db.idea_outcomes import init_idea_outcomes_tables
 from db.live_activities import init_live_activity_tables
 from db.multi_account import migrate_multi_account
@@ -201,6 +202,12 @@ _OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not 
 _SETUP_SCAN_NIGHTLY_ENABLED = os.environ.get(
     "SETUP_SCAN_NIGHTLY_ENABLED", "1"
 ).strip() not in ("0", "false", "no")
+_FILINGS_FEED_ENABLED = os.environ.get("FILINGS_FEED_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
+)
+FILINGS_INSIDER_MIN_USD = float(os.environ.get("FILINGS_INSIDER_MIN_USD", "100000"))
 # Earliest ET clock time (fractional hours) for the nightly setup scan — after
 # the close so the day's daily bar is final.
 SETUP_SCAN_NIGHTLY_AFTER_ET = float(
@@ -1891,6 +1898,37 @@ async def _reports_scheduler_loop() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Filings feed: insider Form 4 buys + 13D stakes (EDGAR, near-real-time) and
+# congressional trades (STOCK Act, legally up to 45 days stale). A feed the
+# founder eyeballs — no scoring, no alerts, no outcome machinery.
+# ---------------------------------------------------------------------------
+async def _filings_edgar_once() -> None:
+    from db.filings import has_uid, insert_events
+    from signals.filings.edgar import poll_13d_once, poll_form4_once
+
+    def _pass() -> int:
+        events = poll_form4_once(seen=has_uid, min_usd=FILINGS_INSIDER_MIN_USD)
+        events += poll_13d_once(seen=has_uid)
+        return insert_events(events)
+
+    inserted = await asyncio.to_thread(_pass)
+    if inserted:
+        logger.info("Filings feed: %d new EDGAR event(s)", inserted)
+
+
+async def _filings_congress_once() -> None:
+    from db.filings import insert_events
+    from signals.filings.congress import poll_congress_once
+
+    def _pass() -> int:
+        return insert_events(poll_congress_once())
+
+    inserted = await asyncio.to_thread(_pass)
+    if inserted:
+        logger.info("Filings feed: %d new congressional trade(s)", inserted)
+
+
+# ---------------------------------------------------------------------------
 # Nightly setup scan: keeps the idea-outcomes calibration ledger fed without a
 # human remembering to run it. Weekday evenings after the close; once per ET
 # day. The artifact topic doubles as the restart-safe "already ran" marker.
@@ -2024,6 +2062,22 @@ def _register_background_jobs() -> None:
     )
     register_job(
         jobs_mod.Job(
+            name="filings_edgar",
+            fn=_filings_edgar_once,
+            interval_s=600.0,
+            enabled=lambda: _FILINGS_FEED_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="filings_congress",
+            fn=_filings_congress_once,
+            interval_s=21_600.0,
+            enabled=lambda: _FILINGS_FEED_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
             name="earnings_alert",
             fn=_earnings_alert_once,
             interval_s=float(EARNINGS_ALERT_INTERVAL_SECONDS),
@@ -2086,6 +2140,7 @@ async def lifespan(app: FastAPI):
     init_workspace_tables()
     init_ai_tables()
     init_idea_outcomes_tables()
+    init_filings_tables()
     init_session_node_tables()
     init_earnings_alert_tables()
     init_reports_tables()
@@ -3395,6 +3450,16 @@ def _enrich_open_idea(row: dict) -> dict:
     except (InvalidOperation, ValueError, TypeError, KeyError):
         pass
     return row
+
+
+@app.get("/api/filings")
+def api_filings(kinds: str | None = None, limit: int = 100):
+    """Filings feed rows, newest first. kinds = comma list of
+    insider_buy | stake_13d | congress_trade (omit for all)."""
+    from db.filings import list_recent
+
+    wanted = [k.strip() for k in kinds.split(",") if k.strip()] if kinds else None
+    return {"events": list_recent(kinds=wanted, limit=limit)}
 
 
 @app.get("/api/ideas/outcomes")

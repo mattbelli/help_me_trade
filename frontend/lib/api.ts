@@ -1587,6 +1587,38 @@ export async function getIdeaOutcomes(): Promise<IdeaOutcomesResponse> {
   return res.json();
 }
 
+export type FilingKind = "insider_buy" | "stake_13d" | "congress_trade";
+
+export type FilingEvent = {
+  id: number;
+  uid: string;
+  kind: FilingKind;
+  symbol: string;
+  person: string;
+  role: string;
+  side: "buy" | "sell" | "";
+  value_usd: number | null;
+  value_label: string;
+  filed_at: string;
+  traded_at: string | null;
+  url: string;
+  detail: Record<string, unknown>;
+};
+
+export async function fetchFilings(
+  kinds?: FilingKind[],
+  limit = 150,
+): Promise<FilingEvent[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (kinds && kinds.length > 0) params.set("kinds", kinds.join(","));
+  const res = await apiFetch(`${API_BASE}/api/filings?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Filings error ${res.status}`);
+  const data = await res.json();
+  return data.events ?? [];
+}
+
 export type IdeaGradeInput = {
   take_it: number;
   entry_honest: number;

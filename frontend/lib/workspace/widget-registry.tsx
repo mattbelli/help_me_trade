@@ -30,6 +30,7 @@ import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcom
 import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
 import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
 import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
+import { FilingsWidget } from "@/components/workspace/widgets/filings-widget";
 import { ChatWidget } from "@/components/workspace/widgets/chat-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
@@ -155,6 +156,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
       "Shadow-tracked scan ideas — every idea's mechanical outcome + win rate",
     channelAware: true,
     component: IdeaOutcomesWidget,
+    defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
+  },
+  {
+    id: "filings",
+    title: "filings",
+    description:
+      "Insider Form 4 buys, 13D stakes, congressional trades — free primary-source feed",
+    channelAware: true,
+    component: FilingsWidget,
     defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
   },
   {

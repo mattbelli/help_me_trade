@@ -10,7 +10,20 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-11 LATE EVENING, latest) — Idea-outcomes ledger revived; nightly setup scan armed
+## ▶ START HERE (2026-07-11 NIGHT, latest) — Filings feed shipped (insiders + 13D + congress, all free)
+
+> Founder wanted an Autopilot/Pelosi-tracker-style **feed** ("so I could take a look and decide") —
+> not tracking machinery. Probed sources live: EDGAR getcurrent = free + near-real-time; Finnhub
+> congressional = paywalled; **Lambda Finance free congressional endpoint works**. Shipped:
+> `signals/filings/` (Form 4 open-market buys ≥$100k w/ person/role/value, initial 13D stakes,
+> congress trades w/ party/chamber/range + PTR links), `db/filings.py` (uid dedup),
+> `filings_edgar` 10-min + `filings_congress` 6-h jobs (`FILINGS_FEED_ENABLED`), `/api/filings`,
+> `filings` widget (tabs, click-to-chart, source ↗). Live-tested: $7.2M NTSK insider buy + 89
+> congress rows ingested pre-commit. **A feed, not a signal** — no scoring/alerts/outcomes (spec
+> notes how it would bolt on). Congress lane is statutorily ≤45d stale (every tracker is). Founder
+> must add the widget from the workspace picker. Pending in-browser check.
+
+## ▶ EARLIER (2026-07-11 LATE EVENING) — Idea-outcomes ledger revived; nightly setup scan armed
 
 > Founder asked why the decision-journal + idea-outcomes widgets "populated once and went dead."
 > **Diagnosis: both work; neither had a driver.** `idea_outcomes`' only writer (`run_setup_scan`)

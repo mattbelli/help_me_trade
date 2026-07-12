@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "filings-feed",
+      "title": "Filings feed widget: insider Form 4 buys + 13D stakes + congress trades (free primary sources)",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Founder: 'just a feed so I could take a look and decide.' Built 2026-07-11 eve: EDGAR getcurrent pollers (Form 4 open-market P-buys >=$100k with person/role/value, initial SC 13D stakes via CIK->ticker map; amendments excluded; polite fetch budget) + Lambda Finance free congressional endpoint (45-day statutory lag noted in UI precision; fail-soft third party). filings_events table (uid dedup), GET /api/filings, 'filings' widget (All/Insiders/Congress/13D tabs, click-to-chart tickers, source links). Live-tested against real endpoints: $7.2M NTSK insider buy + 89 congress trades ingested. No scoring/alerts/outcome tracking by design; can bolt onto the event-outcome machinery later if it earns it. Pending in-browser check."
+    },
+    {
       "id": "idea-ledger-round1",
       "title": "Idea outcomes revived: nightly setup scan + legible pending rows + unification spec",
       "lane": "in_progress",
