@@ -16,7 +16,7 @@
       "type": "infra",
       "priority": "normal",
       "owner": "serv",
-      "notes": "2026-07-12. Main was red since Jul 11 night: 8 stale tests (routing-matrix push demotion, 3 new job loops, unstubbed FINRA source doing live calls from CI) — fixed in PR #31. Actions cap unsustainable (~11 min/run on free 2000 min/mo) -> serv registered as self-hosted runner, systemd user unit capped 4 cores/6G, suite 6m vs 9m hosted — PR #32. Caught + fixed ambient-ollama leak: keyless provider auto-resolution probed localhost:11434 and ran real qwen3:8b inference from tests; conftest pins OLLAMA_BASE_URL to a dead port. Both PRs green, ready for review — merge #31 then #32 (or #32 alone, it contains #31)."
+      "notes": "2026-07-12. Main was red since Jul 11 night: 8 stale tests (routing-matrix push demotion, 3 new job loops, unstubbed FINRA source doing live calls from CI) \u2014 fixed in PR #31. Actions cap unsustainable (~11 min/run on free 2000 min/mo) -> serv registered as self-hosted runner, systemd user unit capped 4 cores/6G, suite 6m vs 9m hosted \u2014 PR #32. Caught + fixed ambient-ollama leak: keyless provider auto-resolution probed localhost:11434 and ran real qwen3:8b inference from tests; conftest pins OLLAMA_BASE_URL to a dead port. Both PRs green, ready for review \u2014 merge #31 then #32 (or #32 alone, it contains #31)."
     },
     {
       "id": "news-reader-view",
@@ -256,22 +256,14 @@
       "notes": "DEPLOYED then REVERTED 2026-07-07 ~2:50pm ET. The 4/s global limit was too low for real cold-start load (multiple devices x watchlist bars + prewarm), serializing what was parallel-6 -> watchlist REST timed out at 30s. Rolled back to the WAF-hotfix breaker; app restored (18ms watchlist). Root fix is the SIP hybrid (equities off Schwab drains the WAF surface), making the governor mostly moot. If still needed for futures: much higher rate, real interactive priority, off-hours load test. Adversarial review had passed SAFE-WITH-NITS; the miss was rate calibration + deploying during market hours. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 governor now MOSTLY MOOT (equities no longer touch Schwab REST); only relevant if the futures-only remainder ever needs pacing. Moved to backlog."
     },
     {
-      "id": "schwab-boot-burst-ramp",
-      "title": "Schwab REST rate governor: one global budget in front of ALL calls (bursts impossible by construction) + fully-tested breaker",
-      "lane": "in_progress",
-      "type": "ops",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "IN PROGRESS 2026-07-07 (founder go: implement warmup + fully test cooldown + better way). Design chosen: single global async token-bucket limiter gating all 4 Schwab async entry points + the 2 background loops (prewarm, baseline seeder); interactive requests preempt background so live charts never starve; the boot ramp falls out for free (no separate ramp code). Circuit breaker unified at the same chokepoint as backstop, now with hermetic tests (open/gate/half-open/close, injected clock). ~4/sec sustained, burst ~8. Coder dispatched; mandatory adversarial review of the quote path before deploy."
-    },
-    {
       "id": "stream-staleness-detector",
       "title": "Detect + self-heal a degraded Schwab stream (repeating stale prices, no error)",
       "lane": "next",
       "type": "ops",
-      "priority": "high",
+      "priority": "low",
       "owner": "serv",
-      "notes": "BUILT + tested, but REVERTED as collateral with the governor (same deploy). Innocent/additive - re-introduce SEPARATELY (no governor) to auto-heal the frozen Schwab stream. Or moot once equities move to Alpaca SIP. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 the silent Schwab-stream freeze that motivated this now only affects the ~2 futures symbols (equities stream from Alpaca SIP). Scope shrunk to futures-only; keep as a low canary or drop."
+      "notes": "BUILT + tested, then REVERTED with the governor. Mooted for equities by the SIP-hybrid move (equities off Schwab); only the ~2 futures symbols could still silently freeze. Low-pri futures-only canary -- re-introduce standalone (no governor) if the futures stream ever freezes.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "ticker-underline-gaps",
@@ -446,12 +438,13 @@
     },
     {
       "id": "backend-coldstart-schwab-burst",
-      "title": "Schwab REST hygiene: watchlist-poll flood HOTFIXED (TTL cache); remaining = frontend ~6s poll cadence + /api/price-alerts OPTIONS spam + cold-start jitter + move cache out of main.py",
+      "title": "Frontend poll hygiene: ~6s cadence + /api/price-alerts OPTIONS spam (Schwab pricehistory flood already fixed)",
       "lane": "next",
       "type": "ops",
-      "priority": "high",
+      "priority": "normal",
       "owner": "serv",
-      "notes": "ROOT CAUSE FOUND 2026-07-07 01:45: /api/watchlist/market fanned out ~48 uncached pricehistory calls per poll = ~480 req/min 24/7 - THE source of the WAF 429/403 episodes. Hotfixed with per-(symbol,timeframe) TTL cache (daily 300s / 5Min 90s, empties cached), ~96% reduction. Remaining work: (1) why does the frontend poll every ~6s (multiple pollers?) + price-alerts OPTIONS spam every 1-5s; (2) jitter/stagger cold-start bulk refresh; (3) relocate cache per no-new-code-in-main.py ratchet. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 the equity pricehistory flood is now GONE from Schwab (routes to Alpaca SIP batch); remaining items are frontend-poll hygiene (~6s cadence, price-alerts OPTIONS spam, move cache out of main.py) which are unaffected by the hybrid."
+      "notes": "Root pricehistory flood FIXED (per-(symbol,timeframe) TTL cache + SIP-hybrid moved equities off Schwab). REMAINING (frontend hygiene, low stakes): frontend polls ~6s (multiple pollers?), /api/price-alerts OPTIONS spam every 1-5s, add cold-start jitter, relocate the cache out of main.py.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "chart-stale-merge-fix",
@@ -548,12 +541,12 @@
     {
       "id": "memory-overhaul",
       "title": "Memory overhaul: P0+P1 SHIPPED (judge + tools + trust surface live) \u2014 P2 retrieval/injection next",
-      "lane": "in_progress",
+      "lane": "next",
       "type": "feature",
       "priority": "high",
       "owner": "serv",
       "notes": "Phase 1 DEPLOYED 2026-07-06 (Opus-coded, Fable adversarial review FIX-FIRST\u2192fixed in-round): LLM judge w/ code-enforced containment behind all writers; save_memory/forget_memory tools (authority NEVER minted from model args \u2014 hallucinated-quote attack closed; forget refuses founder rules); widget provenance/pin/Confirm/History/restore; PATCH locked to agent_inferred\u2192user_confirmed; 40-case eval harness; hermetic tests (was silently grading with live gemma). Live-verified: real-LLM save\u2192agent_inferred, PATCH mint\u2192400, FTS ok. NEXT: Phase 2 per design \u00a75 \u2014 ollama pull nomic-embed-text, hybrid FTS5+cosine retrieval, mem0 REMOVED, injection ON (after terminal T2 \u2014 shared chat surface). Phase 3 = lifecycle/thesis expiry.",
-      "updated_at": "2026-07-06"
+      "updated_at": "2026-07-12"
     },
     {
       "id": "scroll-ergonomics",
@@ -582,8 +575,8 @@
       "type": "feature",
       "priority": "high",
       "owner": "serv",
-      "notes": "UNBLOCKED + phase 1 SHIPPED 2026-07-05: StandInMark component (mono/currentColor + duo fg-dim/foreground cuts per brand README); channel selector = the mark, channel-tinted, real 24px hit area (was a 10px square); toolbar = mark + HMT (gradient \u25b0 + help_me_trade retired); Settings dialog title mark; favicon = stand_in-small (app/icon.svg). REMAINING: boot moment (P1) with the mark, empty-page CTA watermark, app-icon pass + the color question (brand README says greyscale-first, color deliberate later).",
-      "updated_at": "2026-07-05"
+      "notes": "Phase 1 SHIPPED 2026-07-05 (StandInMark channel button + HMT wordmark + Settings/favicon mark). REMAINING (not started): boot-moment animation with the mark, empty-page CTA watermark, app-icon pass, brand color question.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "push-phone-brand-doc",
@@ -956,9 +949,9 @@
       "lane": "next",
       "type": "bug",
       "priority": "normal",
-      "notes": "",
+      "notes": "UTC->ET day-boundary already fixed (db/analytics.py resolve_period, 2026-07-02). REMAINING: day_pl deposit/withdrawal handling + FIFO round-trip leak.",
       "owner": "serv",
-      "updated_at": "2026-07-04"
+      "updated_at": "2026-07-12"
     },
     {
       "id": "42",
