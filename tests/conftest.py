@@ -19,6 +19,12 @@ os.environ["TRADING_DB_PATH"] = _TEST_DEFAULT_DB
 # read-only Schwab broker: 'blocked'/'rejected'). Tests that want schwab set it
 # explicitly via monkeypatch.setenv.
 os.environ["BROKER"] = "alpaca"
+# Hermetic Ollama: point the base URL at a dead port so provider auto-resolution
+# (maybe_upgrade_default_llm probes localhost:11434 for live models — no key
+# needed) gets connection-refused on every box. Without this, running the suite
+# on a machine with a live Ollama daemon (serv, or any dev box) silently flips
+# the app-wide default LLM to a real local model and tests do live inference.
+os.environ["OLLAMA_BASE_URL"] = "http://127.0.0.1:9"
 for _suffix in ("", "-wal", "-shm"):
     try:
         os.remove(_TEST_DEFAULT_DB + _suffix)
