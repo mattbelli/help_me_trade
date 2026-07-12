@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   Bot,
   FileText,
   FileUp,
@@ -40,6 +41,7 @@ import {
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { StandInMark } from "@/components/workspace/stand-in-mark";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
+import { SettingsOrphansPanel } from "@/components/settings/settings-orphans-panel";
 import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
 import {
@@ -69,7 +71,8 @@ type SettingsSection =
   | "reports"
   | "ai"
   | "research"
-  | "import";
+  | "import"
+  | "orphans";
 
 const SECTIONS: {
   id: SettingsSection;
@@ -83,6 +86,7 @@ const SECTIONS: {
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
   { id: "import", label: "Import", icon: FileUp },
+  { id: "orphans", label: "Unmanaged fills", icon: AlertTriangle },
 ];
 
 const EMPTY: AppSettings = {
@@ -551,6 +555,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
             ai={draft.ai}
             onChange={(research) => setDraft((d) => ({ ...d, research }))}
           />
+        ) : section === "orphans" ? (
+          <SettingsOrphansPanel />
         ) : (
           <SettingsTradesPanel />
         )}
@@ -566,7 +572,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
         )}
 
         <DialogFooter className="sm:justify-end">
-          {section === "import" || section === "strategies" ? (
+          {section === "import" ||
+          section === "strategies" ||
+          section === "orphans" ? (
             // These sections save their own changes inline (per-card / per-action),
             // so the global Save doesn't apply — offer a plain Done to close instead
             // of a disabled Save + a misleading "Cancel".

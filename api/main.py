@@ -28,6 +28,7 @@ from api.auth import (
     verify_websocket_auth,
 )
 from api.device_routes import router as device_router
+from api.fill_orphan_routes import router as fill_orphan_router
 from api.jobs import (
     jobs_health,
     mark_alive,
@@ -1721,6 +1722,7 @@ _db_retention_last_date: dict = {}
 
 
 async def _db_retention_once() -> None:
+    from db.earnings_alerts import prune_earnings_alerts_sent
     from db.retention import prune_poll_history
 
     now_et = datetime.now(_ET)
@@ -1730,8 +1732,14 @@ async def _db_retention_once() -> None:
     if _db_retention_last_date.get("date") == today:
         return
     counts = await asyncio.to_thread(prune_poll_history)
+    # RVOL alert-dedup keys grow ~1 row/symbol/day forever — prune the old ones.
+    pruned_alerts = await asyncio.to_thread(prune_earnings_alerts_sent)
     _db_retention_last_date["date"] = today
-    logger.info("DB retention complete: %s", counts)
+    logger.info(
+        "DB retention complete: %s (earnings_alerts_sent pruned=%s)",
+        counts,
+        pruned_alerts,
+    )
 
 
 async def _schwab_snapshot_once() -> None:
@@ -2301,6 +2309,7 @@ app.include_router(notification_router)
 app.include_router(scan_router)
 app.include_router(schwab_router)
 app.include_router(journal_router)
+app.include_router(fill_orphan_router)
 app.include_router(ticker_router)
 app.include_router(social_router)
 app.include_router(orders_router)

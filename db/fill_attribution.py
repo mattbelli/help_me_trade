@@ -164,3 +164,45 @@ def mark_orphan_notified(orphan_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> 
             (now, now, orphan_id),
         )
         conn.commit()
+
+
+def list_orphans(
+    *,
+    status: str | None = None,
+    limit: int = 200,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """All orphans (newest first) for the repair surface, optionally one status."""
+    init_fill_attribution_tables(db_path)
+    clause = "WHERE status = ?" if status else ""
+    params: list[Any] = [status] if status else []
+    params.append(max(1, min(1000, limit)))
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM fill_attribution_orphans {clause} "
+            "ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_orphan_repaired(orphan_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> bool:
+    """Flip an open/notified orphan to 'repaired' (the founder attached exit
+    management by hand). Pure bookkeeping — never touches the broker or the
+    execution record. Idempotent: returns True only on the transition, False if
+    the id is unknown or already repaired.
+
+    A repaired row is no longer covered by the live-orphan unique index, but
+    ``orphan_exists_for_execution`` still sees it (any status) so the unmanaged
+    sweep never re-quarantines the same execution.
+    """
+    now = _now()
+    init_fill_attribution_tables(db_path)
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE fill_attribution_orphans SET status = 'repaired', "
+            "updated_at = ? WHERE id = ? AND status IN ('open', 'notified')",
+            (now, orphan_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0

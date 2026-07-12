@@ -603,11 +603,12 @@
     {
       "id": "orphan-repair-surface",
       "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
-      "lane": "backlog",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "normal",
-      "owner": "serv",
-      "notes": "Follow-up from safety-M1 adversarial review nits: fill_attribution_orphans rows sit \"notified\" forever with no in-app surface (no repair flow writes status=repaired), and the critical push deep-links to /executions/{id} which has no frontend route (404). Small round: an orphans view (settings or notifications) + mark-repaired action + fix or drop the link. Also: earnings_alerts_sent now grows ~1 row/symbol/day from RVOL dedup \u2014 add pruning here."
+      "owner": "agent",
+      "notes": "SHIPPED 2026-07-12 (branch worktree-board-knockout, draft PR). (1) db/fill_attribution.py: list_orphans(status?) + mark_orphan_repaired (flip open/notified->repaired, idempotent, bookkeeping-only - never touches broker/execution/managed_positions); sweep-suppression invariant preserved (orphan_exists_for_execution matches ANY status, so a repaired row still blocks re-quarantine - tested). (2) NEW api/fill_orphan_routes.py: GET /api/fill-orphans (+?status=) + POST /api/fill-orphans/{id}/repair behind verify_mutation_token (fail-closed); mounted in main.py. (3) Settings -> 'Unmanaged fills' panel (settings-orphans-panel.tsx + fill-orphans-api.ts): lists orphans, per-row 'Mark repaired', plain colored status words (no pills), inline save -> Done button. (4) Dead deep-link DROPPED: the critical orphan push set action_url=/executions/{id} (no such route; silent no-op in every consumer) -> None; repair now lives in Settings. (5) earnings_alerts_sent pruning: prune_earnings_alerts_sent(keep_days=90) wired into the existing nightly _db_retention_once (no new job). 39 backend tests green (DB transitions + idempotency + sweep invariant + API list/repair/auth 401/404 + prune), ruff + tsc clean. Adversarial review + pending in-browser check + deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "terminal-float-mode",
