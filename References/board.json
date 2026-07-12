@@ -346,16 +346,6 @@
       "notes": "ROOT-CAUSED + FIXED + DEPLOYED 2026-07-07. Diagnostic log caught it: client re-sent trigger=submit-message with the conversation ending in a tool-complete assistant message (no new user turn). Cause: use-trading-chat-runtime.ts sendAutomaticallyWhen included lastAssistantMessageIsCompleteWithToolCalls - correct for a CLIENT-side tool loop, but the Phase 1b Python brain runs the whole loop server-side and returns tools+text in one message, so the client auto-re-ran the turn (stormed until a no-tool turn). Fix: keep only lastAssistantMessageIsCompleteWithApprovalResponses (approval resume still works). DB was never duplicated (idempotent persist) - only the live UI storm. Diagnostic log can be removed in a cleanup pass."
     },
     {
-      "id": "fill-time-on-orders",
-      "title": "Filled orders: real fill TIME (schema+sync round - trade_date is date-only)",
-      "lane": "in_progress",
-      "type": "feature",
-      "priority": "normal",
-      "owner": "agent",
-      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR) - NO schema/sync/backfill needed. Recon found raw_json already preserves the full broker timestamp at import (Alpaca $.transaction_time, Schwab-API $.time); nothing was ever lost, only never re-extracted. list_trade_events already computed a Schwab-only virtual exec_time via json_extract($.time). Fix: ADD a separate display-only fill_time alias = COALESCE($.time, $.transaction_time) - kept SEPARATE from exec_time on purpose so the money-path avg-cost same-day ordering in db/analytics.py (which sorts on exec_time) is byte-unchanged; surfaced through _row_to_event -> _event_to_api(fill_time) -> orders-widget FilledTab (time rendered next to the date in the app-wide 12-hour ET idiom, '2:48p'). Manual JSON-import rows have no time-of-day -> fill_time null -> date only. New test proves both broker key shapes + null AND exec_time unchanged; 15 tests green, ruff + tsc clean. Pending in-browser check + deploy.",
-      "updated_at": "2026-07-12"
-    },
-    {
       "id": "chart-perf-1fps-meltdown",
       "title": "App-wide 1-FPS freeze (ext-hours session bands x live ticks) - FIXED + deployed",
       "lane": "done",
@@ -444,26 +434,6 @@
       "priority": "normal",
       "owner": "serv",
       "notes": "Hysteresis + group_key + one-shot race SHIPPED 2026-07-08 (see BUILD row). 2026-07-09: the REGULAR-hours sibling got its live incident (phantom NVDA alert @ \\$192.21, real ~\\$201.8, via unfiltered SIP prints) and SHIPPED same-day (1148e4b): TRADE_EXCLUDE_CONDITIONS + 3% band + corroboration + swept-path alerts + streak escape hatch on _on_trade; two-round adversarial review SAFE-WITH-NITS. STILL REMAINING (this card): ext-path TICK_BAND_PCT_EXT ~0.10 tightening (ext band is still 50%) \u2014 mirror the new trade-guard shape; also follow-up idea from review: fetch/cache the SIP condition table from Alpaca meta instead of hardcoding (options-flow already does this). Adversarial review required (quote path)."
-    },
-    {
-      "id": "strip-padding-fullbleed",
-      "title": "Board/research pages: reserve bottom padding for the terminal strip (40px overlay on scroll end)",
-      "lane": "in_progress",
-      "type": "ui",
-      "priority": "low",
-      "owner": "agent",
-      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). /board (board-page.tsx) + /research (research-page.tsx) scroll content now set style paddingBottom=calc(1.5rem + TERMINAL_COLLAPSED_HEIGHT[40px]) so the last cards/content clear the fixed terminal strip overlay - mirrors workspace-page.tsx. tsc clean. Pending in-browser check + frontend deploy.",
-      "updated_at": "2026-07-12"
-    },
-    {
-      "id": "settings-rmw-race",
-      "title": "Settings apply_settings_patch read-modify-write race can lost-update kill_switch/entries_halted",
-      "lane": "in_progress",
-      "type": "safety",
-      "priority": "normal",
-      "owner": "agent",
-      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). Root: apply_settings_patch did load_settings()(lock/unlock) -> re-read on-disk -> merge -> save_settings()(lock/unlock) with the lock RELEASED between read and write, so two concurrent PUTs last-writer-win and one could lost-update a breaker-armed kill_switch_active/entries_halted back to False. Fix: whole RMW now under a NEW _patch_lock (via _apply_settings_patch_locked), kept SEPARATE from _settings_lock (stays a plain brief Lock). Adversarial review (Sonnet) rejected the naive 'widen _settings_lock to RLock' first pass: an ai patch runs a synchronous model-list HTTP probe (maybe_upgrade_default_llm, ~6s x several endpoints) that under the reader lock would stall is_kill_switch_active/is_entries_halted (gate every order) for seconds; _patch_lock only serializes patch-vs-patch, never the fast readers. Deterministic regression test proven to FAIL on old code + pass on fix; 100+ settings/safety/auth/research/strategy tests green, ruff clean. Pending backend deploy.",
-      "updated_at": "2026-07-12"
     },
     {
       "id": "money-path-highs",
@@ -599,16 +569,6 @@
       "owner": "founder",
       "title": "DESIGN CALL: per-strategy attribution \u2014 virtual sub-books, measure now / enforce at promotion",
       "notes": "Fable decision memo 2026-07-06 \u2192 research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo. | FOUNDER APPROVED Option B 2026-07-06 (virtual sub-books, two phases; memo sub-recs accepted: $ notional budgets, same-symbol-across-strategies allowed). Phase 1 measure-view carded \u2192 per-strat-pnl-view; Phase 2 enforcement rides the combined-book promotion round."
-    },
-    {
-      "id": "orphan-repair-surface",
-      "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
-      "lane": "in_progress",
-      "type": "feature",
-      "priority": "normal",
-      "owner": "agent",
-      "notes": "SHIPPED 2026-07-12 (branch worktree-board-knockout, draft PR). (1) db/fill_attribution.py: list_orphans(status?) + mark_orphan_repaired (flip open/notified->repaired, idempotent, bookkeeping-only - never touches broker/execution/managed_positions); sweep-suppression invariant preserved (orphan_exists_for_execution matches ANY status, so a repaired row still blocks re-quarantine - tested). (2) NEW api/fill_orphan_routes.py: GET /api/fill-orphans (+?status=) + POST /api/fill-orphans/{id}/repair behind verify_mutation_token (fail-closed); mounted in main.py. (3) Settings -> 'Unmanaged fills' panel (settings-orphans-panel.tsx + fill-orphans-api.ts): lists orphans, per-row 'Mark repaired', plain colored status words (no pills), inline save -> Done button. (4) Dead deep-link DROPPED: the critical orphan push set action_url=/executions/{id} (no such route; silent no-op in every consumer) -> None; repair now lives in Settings. (5) earnings_alerts_sent pruning: prune_earnings_alerts_sent(keep_days=90) wired into the existing nightly _db_retention_once (no new job). 39 backend tests green (DB transitions + idempotency + sweep invariant + API list/repair/auth 401/404 + prune), ruff + tsc clean. Adversarial review + pending in-browser check + deploy.",
-      "updated_at": "2026-07-12"
     },
     {
       "id": "terminal-float-mode",
