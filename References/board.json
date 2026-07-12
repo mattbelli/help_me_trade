@@ -55,15 +55,6 @@
       "notes": "Founder 2026-07-12: 'short interest would be nice... there isnt even mkt cap in there... wall of text.' Mkt cap existed but was buried as meta text; now leads the stat grid. Added rev growth (colored), P/S, ROE (all fetched-but-never-rendered), 52-wk range as track w/ live price dot, de-pilled session/news chips, NASDAQ short name. NEW signals/finra.py: consolidated short interest (free, anonymous, 24h cache, fail-soft) -> /api/ticker -> 'SHORT INT 1.0% out - 1.7d' (% shares outstanding, settlement-date tooltip, amber >=10%). DEPLOYED + screenshot-verified for AAPL. Pending founder in-browser check. 2026-07-12: StatGrid hairline tables (md-viewer treatment) + 52wk range bar + FINRA short int deployed."
     },
     {
-      "id": "filings-feed",
-      "title": "Filings feed widget: insider Form 4 buys + 13D stakes + congress trades (free primary sources)",
-      "lane": "in_progress",
-      "type": "build",
-      "priority": "medium",
-      "owner": "agent",
-      "notes": "Founder: 'just a feed so I could take a look and decide.' Built 2026-07-11 eve: EDGAR getcurrent pollers (Form 4 open-market P-buys >=$100k with person/role/value, initial SC 13D stakes via CIK->ticker map; amendments excluded; polite fetch budget) + Lambda Finance free congressional endpoint (45-day statutory lag noted in UI precision; fail-soft third party). filings_events table (uid dedup), GET /api/filings, 'filings' widget (All/Insiders/Congress/13D tabs, click-to-chart tickers, source links). Live-tested against real endpoints: $7.2M NTSK insider buy + 89 congress trades ingested. No scoring/alerts/outcome tracking by design; can bolt onto the event-outcome machinery later if it earns it. Pending in-browser check."
-    },
-    {
       "id": "idea-ledger-round1",
       "title": "Idea outcomes revived: nightly setup scan + legible pending rows + unification spec",
       "lane": "in_progress",
@@ -73,31 +64,14 @@
       "notes": "Diagnosed 2026-07-11: both widgets worked but had no drivers (setup scan manual-only since Jul 3; decision journal empty because no strategy armed \u2014 correct). Shipped: setup_scan_nightly job (weekdays >=17:30 ET, once/day, restart-safe), cross-artifact zone dedup in register_ideas, ranker failure no longer aborts scan, sweep stamps last_price, widget Open tab shows Last (distance-from-zone) + Expires. Spec: References/IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11.md (Phase B: direction/shorts, chat + decision-engine registration, proposal->idea_id bridge). Pending in-browser check. First nightly run: Mon Jul 13 evening."
     },
     {
-      "id": "flow-week1-core",
-      "title": "Flow week-1 core SHIPPED: burst + cluster detectors live (dormant until Monday's tape)",
+      "id": "flow-intelligence",
+      "title": "Options flow intelligence -- week-1 core shipped; Monday rate probe pending",
       "lane": "in_progress",
       "type": "build",
       "priority": "high",
-      "owner": "agent",
-      "notes": "Built Sat 2026-07-11 per FLOW_INTELLIGENCE_DESIGN. rolling.py (D-1 burst, D-2 cluster + TWAP footprint instrumentation), coverage/minutes_into_session schema, 1s-loop wiring, honest symbol-day report units (n>=20 gating), widget burst/cluster rows + filter, Monday rate probe script. NEXT Mon: 09:31 rate probe -> branch decision by 11:00 -> W plumbing (two-lane ingest + lag governor + quotes-follow-heat) or C (DTE quotas). Floors are v1 guesses \u2014 re-justify from week-1 distribution."
-    },
-    {
-      "id": "flow-intelligence-design-review",
-      "title": "READ: flow intelligence design (Fable deep-dive) \u2014 burst + cluster detectors, 2 new widgets, push policy",
-      "lane": "founder",
-      "type": "decision",
-      "priority": "high",
-      "owner": "founder",
-      "notes": "References/FLOW_INTELLIGENCE_DESIGN_2026-07-11.md. Key calls: rolling 30-min burst replaces day-net pressure as the intraday primitive; small-print cluster detector (your slicing hypothesis, floor on the AGGREGATE: >=$500k/25 prints); TWAP/iceberg deferred but instrumented now; quotes-follow-heat (40 standing + 20 escalation); 2 new widgets (flow pressure now, flow patterns after ~3-4wk data); watchlist bursts >=$1M push to phone, market-wide pushes ship OFF until you arm a floor. Week-1 core is transport-agnostic \u2014 ships either way after Monday's wildcard rate probe."
-    },
-    {
-      "id": "flow-outcome-tracking",
-      "title": "Flow outcome tracking LIVE \u2014 every event stamped with forward returns (calibration)",
-      "lane": "in_progress",
-      "type": "build",
-      "priority": "high",
-      "owner": "agent",
-      "notes": "Founder-requested 2026-07-11 (\"monitor price outcome after large premium prints\"). SHIPPED: ret_15m/1h/eod columns + signals/options_flow/outcomes.py filler (nightly, in the EOD scan hook) + tools/flow_outcomes.py --fill --report. 1,095 events stamped on first run. Early tease (1.5 days, NOT significant): big directional prints ($100k+) skewed CONTRARIAN at EOD both directions \u2014 matches the founder's MSFT/TSLA top-marking observations. Needs weeks of accrual; events are correlated within symbol-days (n overstates evidence). Next: re-run report ~Jul 25; if the contrarian skew holds, promote to a Decision Engine input."
+      "owner": "serv",
+      "notes": "Consolidates the 2026-07-11/12 flow build (was flow-week1-core + flow-outcome-tracking + flow-stream-cpu). SHIPPED: burst (D-1) + cluster (D-2) detectors live in signals/options_flow/rolling.py (dormant until Monday tape); forward-return outcome stamping LIVE (ret_15m/1h/eod, 1,095 events, early contrarian-skew tease NOT yet significant -- re-check ~Jul 25); OPRA stream hot path 3x faster + lag p50/p95 stats + offline replay harness (merged to main, PR #33). NEXT: Monday 09:31 ET wildcard rate probe (flow-wildcard-probe, scheduled) -> branch decision -> two-lane ingest or DTE quotas (flow-dte-diversity). v1 floors are guesses; re-justify from the week-1 distribution.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "flow-wildcard-probe",
@@ -110,16 +84,6 @@
       "updated_at": "2026-07-12"
     },
     {
-      "id": "flow-stream-cpu",
-      "title": "OPRA stream hot path 3x faster + captured-tape replay harness",
-      "lane": "in_progress",
-      "type": "build",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "2026-07-12 (founder: 'our options flow watcher cpu core usage problem'): stream.py recv loop no longer creates a wait_for Task+timer per message (housekeeping = 50ms companion task that recycles the connection on failure); msgpack timestamp=2 int-ns (no per-message datetime); handlers de-async'd; ISO built only past the meta gate. Measured full-loop 5.23 -> 1.71 us/msg = 3.1x (191k -> 586k msgs/s synthetic). Lag p50/p95 sampled into the per-minute stats line (Monday branch-decision input). opra_rate_probe.py --capture dumps raw frames; NEW scripts/opra_replay_bench.py replays them offline. uvloop verified already active. Tests green (stream/intraday/sweeps/rolling), ruff clean. PR open \u2014 pending merge + backend deploy. Same round: github-runner.service got MemorySwapMax=512M + IOWeight=20 after CI jobs swap-thrashed the box (load 35, frozen SSH).",
-      "updated_at": "2026-07-12"
-    },
-    {
       "id": "flow-dte-diversity",
       "title": "Flow detector: DTE-diversity active set \u2014 catch long-dated whale flow live",
       "lane": "next",
@@ -128,15 +92,6 @@
       "owner": "agent",
       "notes": "Founder-approved 2026-07-11; spec References/FLOW_DTE_DIVERSITY_SPEC_2026-07-11.md. 3-agent research pass (References/FLOW_CAPACITY_RESEARCH_2026-07-11.md) validated the shape (two-tier = the industry's actual product split; trades-broad/quotes-narrow = vendor-intended) but rotation+quotas are novel engineering (no public precedent). GATED on flow-wildcard-probe: if Alpaca trades-channel wildcard works, quotas apply to the QUOTE budget only and the snapshot coarse tier is unnecessary.",
       "updated_at": "2026-07-11"
-    },
-    {
-      "id": "native-chart-engine",
-      "title": "Native chart engine \u2014 replace TradingView lightweight-charts with our own canvas renderer",
-      "lane": "in_progress",
-      "type": "feature",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "2026-07-11 PHASE 3 FINAL \u2014 TRADINGVIEW DELETED (code-complete, \u26a0\ufe0f pending deploy + in-browser check). lightweight-charts removed from the repo (package + fancy-canvas transitive). Workspace chart widget renders ONLY NativeChart (A/B toggle + config.chartEngine field gone); tv-light-chart.tsx + TV-only helpers (chart-trendline, chart-session-bands) deleted; chart-time.ts decoupled; TV attribution link removed. Legacy /trading + /charts pages RETIRED (founder chose retire): routes redirect to /workspace, dead components + nav items removed. Fast-follow CLOSED: right-click over oscillator/volume pane no longer eats the browser menu (dead zone). Adversarial review = SHIP (caught the legacy-page toolbar-drop trap \u2192 resolved by retiring the pages). tsc clean; net -2,144 lines. Known minor follow-up: ext-hours session background shading not ported to native (see chart-ext-hours-shading-port). Op note: built in-place \u2192 live server serving stale chunks until tools/serv-deploy.sh frontend restart. Earlier this session: STUDIES (SMA/EMA overlays + RSI/MACD panes) shipped; level \u00d7N clustering benched."
     },
     {
       "id": "push-importance-scoring",
@@ -355,15 +310,6 @@
       "notes": "2026-07-07 mid-morning: Intl.DateTimeFormat built per bar per chart repaint in intradayBarSession; SessionBands classifies all bars every repaint; repaints per live tick -> main thread pinned at 1 FPS on all devices once the streamer reconnected 13:48. Fixed 9049d8f (shared formatter + session memo); measured 60 FPS / 0 long tasks post-deploy via CDP profiling."
     },
     {
-      "id": "hydration-418-followup",
-      "title": "React #418 hydration mismatch in founder console - unreproduced, re-check post perf fix",
-      "lane": "next",
-      "type": "bug",
-      "priority": "normal",
-      "owner": "serv",
-      "notes": "Seen in founder Edge console during the 1-FPS incident. Not reproduced headlessly even with seeded terminal/theme localStorage (terminal store is properly hydrate()-gated). May need his exact localStorage or was incident noise. Ask founder if console still shows error 418 on a hard refresh; if yes, grab his localStorage dump and bisect."
-    },
-    {
       "id": "chat-streaming-followup",
       "title": "Restore live token streaming on the one-brain web chat (post-1b UX regression)",
       "lane": "done",
@@ -508,15 +454,6 @@
       "notes": "ROOT CAUSE FOUND 2026-07-07 01:45: /api/watchlist/market fanned out ~48 uncached pricehistory calls per poll = ~480 req/min 24/7 - THE source of the WAF 429/403 episodes. Hotfixed with per-(symbol,timeframe) TTL cache (daily 300s / 5Min 90s, empties cached), ~96% reduction. Remaining work: (1) why does the frontend poll every ~6s (multiple pollers?) + price-alerts OPTIONS spam every 1-5s; (2) jitter/stagger cold-start bulk refresh; (3) relocate cache per no-new-code-in-main.py ratchet. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 the equity pricehistory flood is now GONE from Schwab (routes to Alpaca SIP batch); remaining items are frontend-poll hygiene (~6s cadence, price-alerts OPTIONS spam, move cache out of main.py) which are unaffected by the hybrid."
     },
     {
-      "id": "ui-screenshot-smoke",
-      "title": "Headless screenshot smoke check for UI rounds (founder: 'are we checking our implementations?')",
-      "lane": "next",
-      "type": "tooling",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "2026-07-06: round-2 watchlist shipped an illegible (transparent) delete-confirm \u2014 passed diff review + typecheck + build because nothing RENDERS the UI before the founder. Build: headless chromium (playwright) script that loads :3001/workspace (or a component harness page), drives basic flows, and drops screenshots the orchestrator eyeballs before deploy. Dev-only tool, no CI gate initially. Port rules: dev servers 3005+."
-    },
-    {
       "id": "chart-stale-merge-fix",
       "title": "Chart candle gaps + long-candle artifacts: stale cache tail fused by live-tick merge",
       "lane": "done",
@@ -589,16 +526,6 @@
       "notes": "Founder-live fixes shipped same night: corner RESIZE grip added (all panels), spawn-off-screen fixed (measured-box clamp), bottom-edge \"latching\" fixed (cramped-axis magnet skip), MD viewer 78vh. DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck green, zero new lint). New FloatingPanel/useFloatingSnap (portal, z-65 above terminal, no backdrop \u2014 cockpit stays live behind it; drag by header; 24px magnet, 6 targets: L/R/h-center + toolbar-top/bottom/v-center; settle-on-release \u2264120ms, instant under reduced motion). Applied: company-info modal (desktop; mobile Dialog unchanged), research MD viewer (desktop; mobile fullscreen unchanged), \"Open full report\" now opens the report iframe IN-APP in a floating panel (~900px\u00d785vh) w/ open-in-tab \u2197 escape hatch (was a new-tab link \u2014 founder can veto). dialog.tsx untouched (settings etc. pixel-identical). Deferred: theme editor not moved onto the shared hook; per-surface position memory. Same deploy carries terminal T2 polish round (caret baseline fix, 13px --fs-terminal, full-width prose via Thread fullWidth prop)."
     },
     {
-      "id": "copilot-terminal-redesign",
-      "title": "Copilot terminal: T2 chat-in-terminal BUILT + DEPLOYED (founder eyeball pending)",
-      "lane": "in_progress",
-      "type": "feature",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "T2 DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed \u2014 shared thread.tsx/markdown-text.tsx changes verified additive, dock/mobile default paths byte-identical; typecheck green, new files lint-clean). Shipped: flat mono transcript over the SHARED runtime (dock+terminal same thread by construction), plain text\u2192chat (stub dead), flat tool rows (approvals reuse ToolFallbackApproval untouched), inline proposal cards via toolUI, $SYM/known-ticker links\u2192Ch1, thread switcher (CopilotThreadHistory), command interleave anchors, Esc=interrupt while streaming, activity glyph on strip+header, [mem:ID] chips dormant (NEXT_PUBLIC_MEM_CHIPS / hmt-mem-chips / ?memchips=1). FOUNDER EYEBALL: \u2318K feel, propose\u2192approve in terminal (paper), Esc interrupt, flat-skin look. Known deferrals: mem-chip session deep-link nav; 44rem thread column width (widening = thread.tsx layout edit, punted); transcript uses built-in Thread autoscroll. NEXT: T3 speed pass to budgets, then T4 commands-both-ways, T5 dock demolition.",
-      "updated_at": "2026-07-06"
-    },
-    {
       "id": "memory-onboarding-interview",
       "title": "Copilot onboarding interview \u2192 seeds standing memory (the copilot's CLAUDE.md)",
       "lane": "backlog",
@@ -616,16 +543,6 @@
       "priority": "high",
       "owner": "serv",
       "notes": "SHIPPED 2026-07-05 (commit 68d40d1, deployed :3001): grab dots only in edit mode (reorder = edit-mode handle, red \u2212 replaces sparkline while editing, rows flush-left like positions); earnings badge 9\u219210px font-medium; '0 open' meta dropped; price-alerts + moved into widget header (config.adding), second header row deleted. Pending founder in-browser confirm.",
-      "updated_at": "2026-07-05"
-    },
-    {
-      "id": "theme-round-fg-bg-green",
-      "title": "Theme round: green fills vs text split, widget-title/column-header vars, custom-theme dark: fix, clearer editor descs",
-      "lane": "in_progress",
-      "type": "feature",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "Composer run dispatched 2026-07-05 (brief: theme-round.md): --c-green-bg (badge fills/dots/tick-flash) separate from --c-green text; --fg-widget-title + --fg-table-header rows so the founder can recolor watchlist headers; custom themes get the dark: variant (base-aware .dark class toggle); Text-group descs rewritten w/ concrete examples. Settings dialog itself audited = fully var-driven (only gaps: --panel-shadow not editable, --scrim bulk-skip, dark: variant).",
       "updated_at": "2026-07-05"
     },
     {
@@ -1244,16 +1161,6 @@
       "updated_at": "2026-07-03"
     },
     {
-      "id": "fr-1783133088",
-      "title": "Quotes Bugs",
-      "lane": "in_progress",
-      "type": "bug",
-      "priority": "high",
-      "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 \u2014 watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles \u2014 ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence \u2014 flag if it bugs you.",
-      "owner": "serv",
-      "updated_at": "2026-07-04"
-    },
-    {
       "id": "fr-1783263918",
       "title": "info widget",
       "lane": "inbox",
@@ -1302,15 +1209,6 @@
       "notes": "2026-07-07. Founder: auto-save all + browse list. Stream switched temporary\u2192saved (use-chat creates session on first turn, serv persists via finalize_chat_turn, temporary fallback if create fails); loadSession() maps stored parts\u2192transcript; chat-history.tsx overlay (list pinned-first, tap-load, swipe-delete, pin) on serv's existing /api/chat/sessions* API. tsc+lint clean. PENDING on-device test. Follow-up: legacy Swipeable import is deprecated in RNGH 2.31 (works, warns) \u2192 ReanimatedSwipeable."
     },
     {
-      "id": "mobile-chat-toolxml-leak",
-      "title": "Mobile chat renders raw tool-call XML (serv prompt fix)",
-      "lane": "founder",
-      "type": "bug",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "Founder hit live 2026-07-07: assistant bubble printed <function_calls> XML instead of an answer. SERV-side: ai/chat/mobile_agent.py:150 final complete() reuses the full agentic _system_prompt() (tool catalog + 'call the tools') but has no native tool-parsing \u2192 model emits tool XML as text \u2192 streams to client as content. Fix: give the final synthesis call a tools-free prompt, OR migrate mobile onto ai/chat/loop.py (unified brain). Client guard shipped (strip-tool-markup.ts) is damage-control only. Full writeup: References/MAC_REPLY_2026-07-08.md."
-    },
-    {
       "id": "mobile-day-pnl-endpoint",
       "title": "Mobile: switch Day P&L to /api/performance/day-pnl",
       "lane": "done",
@@ -1318,15 +1216,6 @@
       "priority": "med",
       "owner": "mac",
       "notes": "DONE 2026-07-07 (commit pending). Switched Portfolio header to GET /api/performance/day-pnl?account_id=all_paper (realized net-cash, web-parity, fixes AH-leak); shows realized today + unrealized (total open). serv confirmed semantics in SERV_REPLY_2026-07-08.md. Follow-up: 'unrealized' is total-open not today's-change (needs serv day-open baseline); wire to account chip when Schwab/real reach mobile."
-    },
-    {
-      "id": "mobile-chat-brain-migration",
-      "title": "Migrate mobile chat onto unified loop.py brain (iterative tool-calling)",
-      "lane": "next",
-      "type": "feature",
-      "priority": "high",
-      "owner": "serv",
-      "notes": "FOUNDER-FLAGGED 2026-07-07. Founder saw web chain ~12 tool calls into a full report while mobile punted ('no tool results\u2026 I'll run scans next turn') \u2014 mobile is on single-pass plan_tools (ai/chat/mobile_agent.py), NOT iterative native tool-calling. Migrate POST /api/chat/stream onto ai/chat/loop.py, ENCODING iteration into the unchanged 6-event mobile SSE contract (do NOT point at web /api/chat = AI-SDK UIMessageStream, client can't parse). Preserve: propose_order\u2192create_phone_proposal (phone biometric approve), create_rule gate, saved-mode persistence. Real token streaming falls out for free. Full brief: References/MAC_TO_SERV_2026-07-08_mobile-chat-brain.md. Client rendering (markdown bubbles + tool-call timeline) shipping in parallel Mac-side."
     },
     {
       "id": "mobile-chat-rich-rendering",
