@@ -32,13 +32,31 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
 3. **Commit cadence: iterate → confirm → BUILD.md → commit.** Don't commit per micro-edit. Build it, leave it
    in the working tree, let the user use + adjust it; once it's good, update `References/BUILD.md` (flip
    status, add a history row), THEN commit + push the consolidated round. For UI-only work, note "pending
-   in-browser check" rather than blocking. **Also keep `References/board.json` current** (the founder's
-   kanban, rendered at `/board`): move/add/retire cards whenever work starts/finishes/appears — every
-   agent, every phase, same discipline as BUILD/HANDOFF. A stale board defeats its purpose. Decisions
-   only the founder can make go in the `founder` lane ("Waiting on you").
+   in-browser check" rather than blocking. **Update `References/board.json` in the SAME commit that does the
+   work** — a git hook *blocks* any product-code commit that doesn't also touch `board.json`/`BUILD.md` (see
+   **Board discipline** below). Same discipline as BUILD/HANDOFF; a stale board defeats its purpose.
 4. **Minimize the Opus main-loop token cost** ("you are the expensive one"). Delegate: code → Composer;
    recon/review/research → **Sonnet subagents**; keep the main loop short — don't do heavy generation or broad
    file-reading inline when a subagent can. `/model sonnet` for routine turns is the user's biggest lever.
+
+## Board discipline — what earns a card, and keeping it honest
+The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work; a
+git hook **blocks** any commit that changes product code without also updating `board.json` or `BUILD.md`
+(escape hatch: `[no-board]` in the message for a genuine typo/refactor/hotfix).
+- **A card must clear all three:** (1) it has a *deliverable* — a code/doc/config diff (if "done" isn't a
+  diff, it's not a card); (2) it's *not already on the board* — search first, and if it overlaps an existing
+  card, extend that card's notes instead of opening a new one; (3) it's worth briefing someone on (a discrete,
+  nameable piece of work, not a micro-edit).
+- **Never a card** (this is what bloats it): "watch/monitor X", "keep an eye on Y", "remember to check Z",
+  FYIs, observations, status. Those go in the relevant card's notes as a follow-up line, or a memory — never
+  their own card.
+- **Lifecycle, tied to the commit:** open a card (`in_progress`) when work *starts*, not speculatively; the
+  commit (or the consolidated round's commit) that changes the work updates the card in that same commit —
+  flip status, move lane, record the outcome. Done + verified → move to `done` (the newest stay visible; the
+  frontend collapses the older ones into **Archive**). **Don't delete cards — archive them** (git + BUILD.md
+  are the narrative; the board keeps the record). Delete only true junk that never should have been a card.
+- **One card per thread** — if two cards are the same thread, combine on sight.
+- Decisions only the founder can make go in the `founder` lane ("Waiting on you").
 
 ## Engineering discipline (default coding posture — applies to your edits AND the briefs you write Composer)
 Bias toward caution over speed on non-trivial work; use judgment on trivial edits.

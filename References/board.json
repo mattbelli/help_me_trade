@@ -19,6 +19,25 @@
       "notes": "Founder 2026-07-12: many editor colors did nothing / were cryptic / controlled too much (changing Border also moved chart gridlines). Redefined the color model as ~25 semantic knobs in Surface/Lines/Chart/Text sections (was ~50 confusing rows + group/bulk-swatch machinery). Knob vars are now canonical per [data-theme] block; legacy/shadcn names derive from them via :root var() aliases so the ~1500 consumers are untouched/zero-risk and one knob cascades everywhere. Real splits wired: chart grid off --border (--chart-grid), inner hairlines off borders (--line-divider, shadcn Separator + conservative 49-file sweep), widget header its own surface (--surface-header), chart line off candle-up (--chart-line), candles independent of status colors, grid dots + title + column-header their own knobs. Dead removed: --c-glow, --chart-1..5, 7 sidebar-* vars, legacy EDITABLE_TOKENS/tokens path; c-command/yellow/cyan/violet folded into warn/info. Custom-theme storage v1->v2 (clean break, founder not attached). 4 core themes identical-by-construction. Snapshot/rebuild map: References/THEME_TOKENS.md. tsc exit 0 + dev-compile GET / 200 no CSS errors. Pending founder in-browser check + knob tuning. Branch worktree-theme-knobs-rebuild -> draft PR."
     },
     {
+      "id": "board-wider-responsive-lanes",
+      "title": "Board: wider lanes that expand on ultrawide screens",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "pc",
+      "notes": "2026-07-12. Lanes were min-240/max-340px inside a max-w-[1920px] container, so a maximized 21:9 wasted its extra width and cards stayed ~250px (4-line titles). Bumped per-lane to min-300/max-520 + lifted the container cap to 3400px. Now compresses to ~300px on 16:9 (barely fits, no meaningful scroll) and flex-grows to 520px each on the 21:9 for genuinely wider cards. frontend/components/board/board-page.tsx (BoardLane, ArchiveColumn, main container). typecheck clean; pending in-browser check.",
+      "updated_at": "2026-07-12"
+    },
+    {
+      "id": "notif-card-hue-polish",
+      "title": "Notifications widget: type-hued gradient + drop shadow polish",
+      "lane": "done",
+      "type": "ui",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "2026-07-12. Founder: cards should pop \u2014 dress them up with a hue/gradient matching the type (report ready=blue, earnings=amber, convergence=violet, trading=accent, risk/kill=red). Added a .notif-card utility in globals.css: faint 135deg gradient + colored left edge + soft drop shadow with a hue-tinted glow (intensifies on hover/expand), all driven by a per-card --hue CSS var (cardHue() mirrors the type-word color map). Severity stripe made !important so it still wins the left edge. Verified visually via headless screenshot of the real card markup+theme vars. UI-only, pending in-browser check."
+    },
+    {
       "id": "ci-self-hosted-runner",
       "title": "CI green again + self-hosted runner on serv (free minutes)",
       "lane": "done",
@@ -1350,6 +1369,148 @@
       "notes": "2026-07-11 founder: wants another really deep pass on themes, founder-driven. Right now a lot of theme controls don't visibly change anything unless he changes a value and goes hunting for it, and often he still can't spot the difference. Needs someone to actually identify which components/vars are genuinely tweakable and make the editor only expose those (or make the effect obvious). Related prior rounds: [[theme-round-fg-bg-green]], [[theme-editor-floating]], [[theme-ember]].",
       "owner": "founder",
       "updated_at": "2026-07-11"
+    },
+    {
+      "id": "settings-rmw-race",
+      "title": "Settings apply_settings_patch read-modify-write race can lost-update kill_switch/entries_halted",
+      "lane": "done",
+      "type": "safety",
+      "priority": "normal",
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). Root: apply_settings_patch did load_settings()(lock/unlock) -> re-read on-disk -> merge -> save_settings()(lock/unlock) with the lock RELEASED between read and write, so two concurrent PUTs last-writer-win and one could lost-update a breaker-armed kill_switch_active/entries_halted back to False. Fix: whole RMW now under a NEW _patch_lock (via _apply_settings_patch_locked), kept SEPARATE from _settings_lock (stays a plain brief Lock). Adversarial review (Sonnet) rejected the naive 'widen _settings_lock to RLock' first pass: an ai patch runs a synchronous model-list HTTP probe (maybe_upgrade_default_llm, ~6s x several endpoints) that under the reader lock would stall is_kill_switch_active/is_entries_halted (gate every order) for seconds; _patch_lock only serializes patch-vs-patch, never the fast readers. Deterministic regression test proven to FAIL on old code + pass on fix; 100+ settings/safety/auth/research/strategy tests green, ruff clean. Pending backend deploy.",
+      "updated_at": "2026-07-12"
+    },
+    {
+      "id": "strip-padding-fullbleed",
+      "title": "Board/research pages: reserve bottom padding for the terminal strip (40px overlay on scroll end)",
+      "lane": "done",
+      "type": "ui",
+      "priority": "low",
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). /board (board-page.tsx) + /research (research-page.tsx) scroll content now set style paddingBottom=calc(1.5rem + TERMINAL_COLLAPSED_HEIGHT[40px]) so the last cards/content clear the fixed terminal strip overlay - mirrors workspace-page.tsx. tsc clean. Pending in-browser check + frontend deploy.",
+      "updated_at": "2026-07-12"
+    },
+    {
+      "id": "fill-time-on-orders",
+      "title": "Filled orders: real fill TIME (schema+sync round - trade_date is date-only)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR) - NO schema/sync/backfill needed. Recon found raw_json already preserves the full broker timestamp at import (Alpaca $.transaction_time, Schwab-API $.time); nothing was ever lost, only never re-extracted. list_trade_events already computed a Schwab-only virtual exec_time via json_extract($.time). Fix: ADD a separate display-only fill_time alias = COALESCE($.time, $.transaction_time) - kept SEPARATE from exec_time on purpose so the money-path avg-cost same-day ordering in db/analytics.py (which sorts on exec_time) is byte-unchanged; surfaced through _row_to_event -> _event_to_api(fill_time) -> orders-widget FilledTab (time rendered next to the date in the app-wide 12-hour ET idiom, '2:48p'). Manual JSON-import rows have no time-of-day -> fill_time null -> date only. New test proves both broker key shapes + null AND exec_time unchanged; 15 tests green, ruff + tsc clean. Pending in-browser check + deploy.",
+      "updated_at": "2026-07-12"
+    },
+    {
+      "id": "orphan-repair-surface",
+      "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "agent",
+      "notes": "SHIPPED 2026-07-12 (branch worktree-board-knockout, draft PR). (1) db/fill_attribution.py: list_orphans(status?) + mark_orphan_repaired (flip open/notified->repaired, idempotent, bookkeeping-only - never touches broker/execution/managed_positions); sweep-suppression invariant preserved (orphan_exists_for_execution matches ANY status, so a repaired row still blocks re-quarantine - tested). (2) NEW api/fill_orphan_routes.py: GET /api/fill-orphans (+?status=) + POST /api/fill-orphans/{id}/repair behind verify_mutation_token (fail-closed); mounted in main.py. (3) Settings -> 'Unmanaged fills' panel (settings-orphans-panel.tsx + fill-orphans-api.ts): lists orphans, per-row 'Mark repaired', plain colored status words (no pills), inline save -> Done button. (4) Dead deep-link DROPPED: the critical orphan push set action_url=/executions/{id} (no such route; silent no-op in every consumer) -> None; repair now lives in Settings. (5) earnings_alerts_sent pruning: prune_earnings_alerts_sent(keep_days=90) wired into the existing nightly _db_retention_once (no new job). 39 backend tests green (DB transitions + idempotency + sweep invariant + API list/repair/auth 401/404 + prune), ruff + tsc clean. Adversarial review + pending in-browser check + deploy.",
+      "updated_at": "2026-07-12"
+    },
+    {
+      "id": "native-chart-engine",
+      "title": "Native chart engine \u2014 replace TradingView lightweight-charts with our own canvas renderer",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-11 PHASE 3 FINAL \u2014 TRADINGVIEW DELETED (code-complete, \u26a0\ufe0f pending deploy + in-browser check). lightweight-charts removed from the repo (package + fancy-canvas transitive). Workspace chart widget renders ONLY NativeChart (A/B toggle + config.chartEngine field gone); tv-light-chart.tsx + TV-only helpers (chart-trendline, chart-session-bands) deleted; chart-time.ts decoupled; TV attribution link removed. Legacy /trading + /charts pages RETIRED (founder chose retire): routes redirect to /workspace, dead components + nav items removed. Fast-follow CLOSED: right-click over oscillator/volume pane no longer eats the browser menu (dead zone). Adversarial review = SHIP (caught the legacy-page toolbar-drop trap \u2192 resolved by retiring the pages). tsc clean; net -2,144 lines. Known minor follow-up: ext-hours session background shading not ported to native (see chart-ext-hours-shading-port). Op note: built in-place \u2192 live server serving stale chunks until tools/serv-deploy.sh frontend restart. Earlier this session: STUDIES (SMA/EMA overlays + RSI/MACD panes) shipped; level \u00d7N clustering benched."
+    },
+    {
+      "id": "copilot-terminal-redesign",
+      "title": "Copilot terminal: T2 chat-in-terminal BUILT + DEPLOYED (founder eyeball pending)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "T2 DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed \u2014 shared thread.tsx/markdown-text.tsx changes verified additive, dock/mobile default paths byte-identical; typecheck green, new files lint-clean). Shipped: flat mono transcript over the SHARED runtime (dock+terminal same thread by construction), plain text\u2192chat (stub dead), flat tool rows (approvals reuse ToolFallbackApproval untouched), inline proposal cards via toolUI, $SYM/known-ticker links\u2192Ch1, thread switcher (CopilotThreadHistory), command interleave anchors, Esc=interrupt while streaming, activity glyph on strip+header, [mem:ID] chips dormant (NEXT_PUBLIC_MEM_CHIPS / hmt-mem-chips / ?memchips=1). FOUNDER EYEBALL: \u2318K feel, propose\u2192approve in terminal (paper), Esc interrupt, flat-skin look. Known deferrals: mem-chip session deep-link nav; 44rem thread column width (widening = thread.tsx layout edit, punted); transcript uses built-in Thread autoscroll. NEXT: T3 speed pass to budgets, then T4 commands-both-ways, T5 dock demolition.",
+      "updated_at": "2026-07-06"
+    },
+    {
+      "id": "theme-round-fg-bg-green",
+      "title": "Theme round: green fills vs text split, widget-title/column-header vars, custom-theme dark: fix, clearer editor descs",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Composer run dispatched 2026-07-05 (brief: theme-round.md): --c-green-bg (badge fills/dots/tick-flash) separate from --c-green text; --fg-widget-title + --fg-table-header rows so the founder can recolor watchlist headers; custom themes get the dark: variant (base-aware .dark class toggle); Text-group descs rewritten w/ concrete examples. Settings dialog itself audited = fully var-driven (only gaps: --panel-shadow not editable, --scrim bulk-skip, dark: variant).",
+      "updated_at": "2026-07-05"
+    },
+    {
+      "id": "fr-1783133088",
+      "title": "Quotes Bugs",
+      "lane": "done",
+      "type": "bug",
+      "priority": "high",
+      "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 \u2014 watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles \u2014 ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence \u2014 flag if it bugs you.",
+      "owner": "serv",
+      "updated_at": "2026-07-04"
+    },
+    {
+      "id": "filings-feed",
+      "title": "Filings feed widget: insider Form 4 buys + 13D stakes + congress trades (free primary sources)",
+      "lane": "done",
+      "type": "build",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Founder: 'just a feed so I could take a look and decide.' Built 2026-07-11 eve: EDGAR getcurrent pollers (Form 4 open-market P-buys >=$100k with person/role/value, initial SC 13D stakes via CIK->ticker map; amendments excluded; polite fetch budget) + Lambda Finance free congressional endpoint (45-day statutory lag noted in UI precision; fail-soft third party). filings_events table (uid dedup), GET /api/filings, 'filings' widget (All/Insiders/Congress/13D tabs, click-to-chart tickers, source links). Live-tested against real endpoints: $7.2M NTSK insider buy + 89 congress trades ingested. No scoring/alerts/outcome tracking by design; can bolt onto the event-outcome machinery later if it earns it. Pending in-browser check."
+    },
+    {
+      "id": "mobile-chat-brain-migration",
+      "title": "Migrate mobile chat onto unified loop.py brain (iterative tool-calling)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "FOUNDER-FLAGGED 2026-07-07. Founder saw web chain ~12 tool calls into a full report while mobile punted ('no tool results\u2026 I'll run scans next turn') \u2014 mobile is on single-pass plan_tools (ai/chat/mobile_agent.py), NOT iterative native tool-calling. Migrate POST /api/chat/stream onto ai/chat/loop.py, ENCODING iteration into the unchanged 6-event mobile SSE contract (do NOT point at web /api/chat = AI-SDK UIMessageStream, client can't parse). Preserve: propose_order\u2192create_phone_proposal (phone biometric approve), create_rule gate, saved-mode persistence. Real token streaming falls out for free. Full brief: References/MAC_TO_SERV_2026-07-08_mobile-chat-brain.md. Client rendering (markdown bubbles + tool-call timeline) shipping in parallel Mac-side."
+    },
+    {
+      "id": "mobile-chat-toolxml-leak",
+      "title": "Mobile chat renders raw tool-call XML (serv prompt fix)",
+      "lane": "done",
+      "type": "bug",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Founder hit live 2026-07-07: assistant bubble printed <function_calls> XML instead of an answer. SERV-side: ai/chat/mobile_agent.py:150 final complete() reuses the full agentic _system_prompt() (tool catalog + 'call the tools') but has no native tool-parsing \u2192 model emits tool XML as text \u2192 streams to client as content. Fix: give the final synthesis call a tools-free prompt, OR migrate mobile onto ai/chat/loop.py (unified brain). Client guard shipped (strip-tool-markup.ts) is damage-control only. Full writeup: References/MAC_REPLY_2026-07-08.md."
+    },
+    {
+      "id": "hydration-418-followup",
+      "title": "React #418 hydration mismatch in founder console - unreproduced, re-check post perf fix",
+      "lane": "done",
+      "type": "bug",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "Seen in founder Edge console during the 1-FPS incident. Not reproduced headlessly even with seeded terminal/theme localStorage (terminal store is properly hydrate()-gated). May need his exact localStorage or was incident noise. Ask founder if console still shows error 418 on a hard refresh; if yes, grab his localStorage dump and bisect."
+    },
+    {
+      "id": "ui-screenshot-smoke",
+      "title": "Headless screenshot smoke check for UI rounds (founder: 'are we checking our implementations?')",
+      "lane": "done",
+      "type": "tooling",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-06: round-2 watchlist shipped an illegible (transparent) delete-confirm \u2014 passed diff review + typecheck + build because nothing RENDERS the UI before the founder. Build: headless chromium (playwright) script that loads :3001/workspace (or a component harness page), drives basic flows, and drops screenshots the orchestrator eyeballs before deploy. Dev-only tool, no CI gate initially. Port rules: dev servers 3005+."
+    },
+    {
+      "id": "flow-intelligence-design-review",
+      "title": "READ: flow intelligence design (Fable deep-dive) \u2014 burst + cluster detectors, 2 new widgets, push policy",
+      "lane": "done",
+      "type": "decision",
+      "priority": "high",
+      "owner": "founder",
+      "notes": "References/FLOW_INTELLIGENCE_DESIGN_2026-07-11.md. Key calls: rolling 30-min burst replaces day-net pressure as the intraday primitive; small-print cluster detector (your slicing hypothesis, floor on the AGGREGATE: >=$500k/25 prints); TWAP/iceberg deferred but instrumented now; quotes-follow-heat (40 standing + 20 escalation); 2 new widgets (flow pressure now, flow patterns after ~3-4wk data); watchlist bursts >=$1M push to phone, market-wide pushes ship OFF until you arm a floor. Week-1 core is transport-agnostic \u2014 ships either way after Monday's wildcard rate probe."
+    },
+    {
+      "id": "schwab-boot-burst-ramp",
+      "title": "Schwab REST rate governor: one global budget in front of ALL calls (bursts impossible by construction) + fully-tested breaker",
+      "lane": "done",
+      "type": "ops",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "IN PROGRESS 2026-07-07 (founder go: implement warmup + fully test cooldown + better way). Design chosen: single global async token-bucket limiter gating all 4 Schwab async entry points + the 2 background loops (prewarm, baseline seeder); interactive requests preempt background so live charts never starve; the boot ramp falls out for free (no separate ramp code). Circuit breaker unified at the same chokepoint as backstop, now with hermetic tests (open/gate/half-open/close, injected clock). ~4/sec sustained, burst ~8. Coder dispatched; mandatory adversarial review of the quote path before deploy."
     }
   ]
 }
