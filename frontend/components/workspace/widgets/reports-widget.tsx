@@ -176,7 +176,7 @@ export function ReportsWidget() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--line-divider)] px-3 py-2">
         <p className="font-mono text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Reports
         </p>
@@ -205,7 +205,7 @@ export function ReportsWidget() {
       </div>
 
       {error && (
-        <p className="border-b border-[var(--border)] px-3 py-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">
+        <p className="border-b border-[var(--line-divider)] px-3 py-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">
           {error}
         </p>
       )}
@@ -216,7 +216,7 @@ export function ReportsWidget() {
         <WidgetEmpty message="No reports yet. Use Generate or wait for a scheduled brief." />
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(9rem,14rem)_1fr] overflow-hidden">
-          <ul className="min-h-0 divide-y divide-[var(--border)] overflow-auto border-r border-[var(--border)] scroll-shadow-y">
+          <ul className="min-h-0 divide-y divide-[var(--line-divider)] overflow-auto border-r border-[var(--line-divider)] scroll-shadow-y">
             {reports.map((report) => (
               <li key={report.id}>
                 <ReportListItem

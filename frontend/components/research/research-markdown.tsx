@@ -26,11 +26,11 @@ export function ResearchMarkdown({
         "[&_strong]:font-semibold [&_strong]:text-foreground",
         "[&_em]:italic",
         "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border)] [&_blockquote]:pl-3 [&_blockquote]:text-[var(--fg-faint)]",
-        "[&_hr]:my-6 [&_hr]:border-[var(--border)]",
+        "[&_hr]:my-6 [&_hr]:border-[var(--line-divider)]",
         "[&_a]:text-[var(--c-accent)] [&_a]:underline [&_a]:underline-offset-2 [&_a:hover]:text-foreground",
         "[&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_table]:text-[length:var(--fs-body)]",
-        "[&_th]:border [&_th]:border-[var(--border)] [&_th]:bg-[var(--bg-inset)] [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:text-foreground",
-        "[&_td]:border [&_td]:border-[var(--border)] [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top",
+        "[&_th]:border [&_th]:border-[var(--line-divider)] [&_th]:bg-[var(--bg-inset)] [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:text-foreground",
+        "[&_td]:border [&_td]:border-[var(--line-divider)] [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top",
         className,
       )}
     >

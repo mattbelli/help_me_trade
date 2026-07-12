@@ -75,7 +75,7 @@ export function ChatWidget() {
       </div>
       <form
         onSubmit={onSubmit}
-        className="flex shrink-0 items-start gap-2 border-t border-[var(--border)] px-3 py-2"
+        className="flex shrink-0 items-start gap-2 border-t border-[var(--line-divider)] px-3 py-2"
       >
         <span className="shrink-0 self-start leading-snug text-[var(--c-command)]">
           ›

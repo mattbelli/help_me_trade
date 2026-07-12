@@ -74,7 +74,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
                 <th
                   key={h}
                   className={cn(
-                    "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
+                    "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
                     idx === 0 || h === "Sym" || h === "Side" || h === "Type"
                       ? "text-left"
                       : "text-right",
@@ -93,10 +93,10 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               key={order.id}
               className="group/row transition-colors hover:bg-[var(--bg-hover)]"
             >
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
                 #{order.id.slice(-5)}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
                 <span className="inline-flex items-center gap-1.5">
                   <ClickableSymbol
                     symbol={order.symbol}
@@ -112,26 +112,26 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               </td>
               <td
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
+                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
                   sideClass(order.side),
                 )}
               >
                 {order.side}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
                 {formatQty(order)}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase">
                 {order.order_type}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
                 {order.limit_price != null
                   ? formatMoney(order.limit_price)
                   : "—"}
               </td>
               <td
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase",
+                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase",
                   statusClass(order.status),
                 )}
               >

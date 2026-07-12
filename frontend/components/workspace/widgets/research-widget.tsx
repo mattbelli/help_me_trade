@@ -152,7 +152,7 @@ export function ResearchWidget({ config }: WidgetProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-1.5 py-1">
-      <div className="shrink-0 border-b border-[var(--border)] px-1 pb-2">
+      <div className="shrink-0 border-b border-[var(--line-divider)] px-1 pb-2">
         <p className="mb-2 font-mono text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Research
         </p>
@@ -217,7 +217,7 @@ export function ResearchWidget({ config }: WidgetProps) {
       </div>
 
       {displayError ? (
-        <p className="shrink-0 border-b border-[var(--border)] px-1 py-1.5 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
+        <p className="shrink-0 border-b border-[var(--line-divider)] px-1 py-1.5 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
           {displayError}
         </p>
       ) : null}

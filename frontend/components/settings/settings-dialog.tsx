@@ -254,7 +254,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
         )}
       </DialogTrigger>
       <DialogContent className="flex h-[min(88vh,820px)] max-h-[88vh] w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden border border-[var(--border)] bg-[var(--panel)] p-0 font-mono shadow-[var(--panel-shadow)] sm:!max-w-[min(96vw,80rem)]">
-        <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
+        <DialogHeader className="shrink-0 border-b border-[var(--line-divider)] px-6 py-4">
           <DialogTitle className="flex items-center gap-2 font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
             <StandInMark duo className="size-4" />
             Settings
@@ -266,7 +266,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border bg-[var(--bg-inset)] p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
+          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-[var(--line-divider)] bg-[var(--bg-inset)] p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -563,7 +563,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border px-6 py-4">
+        <div className="shrink-0 border-t border-[var(--line-divider)] px-6 py-4">
         {error && (
           <p className="mb-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
         )}

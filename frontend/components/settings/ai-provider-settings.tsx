@@ -64,7 +64,7 @@ function ProviderAccordion({
           )}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-3 border-t border-border/60 p-3">
+      <CollapsibleContent className="space-y-3 border-t border-[var(--line-divider)]/60 p-3">
         {option?.description ? (
           <p className="text-muted-foreground text-xs">{option.description}</p>
         ) : null}

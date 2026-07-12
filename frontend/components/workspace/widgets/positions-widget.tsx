@@ -101,7 +101,7 @@ function PositionRow({
       key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
       className="group/row transition-colors hover:bg-[var(--bg-hover)]"
     >
-      <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 font-medium text-foreground">
         <span className="inline-flex items-center gap-1.5">
           <ClickableSymbol
             symbol={p.symbol}
@@ -115,16 +115,16 @@ function PositionRow({
           ) : null}
         </span>
       </td>
-      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatQty(p.qty)}
       </td>
-      <td className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
         {p.side}
       </td>
-      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatMoney(p.current_price)}
       </td>
-      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-foreground">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-foreground">
         <span
           className={cn(
             "-mx-0.5 inline-flex w-fit rounded px-0.5",
@@ -137,7 +137,7 @@ function PositionRow({
       </td>
       <td
         className={cn(
-          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+          "border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums",
           p.unrealized_pl >= 0
             ? "text-[var(--c-green)]"
             : "text-[var(--c-red)]",
@@ -216,7 +216,7 @@ function PaperPositions({
               <th
                 key={key}
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
+                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
                   align === "left" ? "text-left" : "text-right",
                 )}
               >
@@ -324,7 +324,7 @@ function RealPositionRow({
       key={`${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}
       className="group/row transition-colors hover:bg-[var(--bg-hover)]"
     >
-      <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-foreground">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 font-medium text-foreground">
         <span className="inline-flex items-center gap-1.5">
           <ClickableSymbol
             symbol={p.symbol}
@@ -338,15 +338,15 @@ function RealPositionRow({
           ) : null}
         </span>
       </td>
-      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatQty(p.qty)}
       </td>
-      <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatMoney(p.current_price)}
       </td>
       <td
         className={cn(
-          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+          "border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums",
           p.unrealized_pl >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
         )}
       >
@@ -363,7 +363,7 @@ function RealPositionRow({
       </td>
       <td
         className={cn(
-          "border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums",
+          "border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums",
           p.day_pl >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
         )}
       >
@@ -429,7 +429,7 @@ function RealPositions({
               <th
                 key={label}
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
+                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
                   align === "left" ? "text-left" : "text-right",
                 )}
               >

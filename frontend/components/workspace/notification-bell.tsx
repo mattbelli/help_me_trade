@@ -66,7 +66,7 @@ export function NotificationBell() {
         align="end"
         className="w-80 border-[var(--border)] bg-[var(--panel)] p-0 font-mono text-[length:var(--fs-body)] text-foreground shadow-[var(--panel-shadow)]"
       >
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
+        <div className="flex items-center justify-between border-b border-[var(--line-divider)] px-3 py-2">
           <span className="font-sans text-[length:var(--fs-title)] font-semibold tracking-tight">
             Notifications
           </span>
@@ -102,7 +102,7 @@ export function NotificationBell() {
                       activate(n);
                       setOpen(false);
                     }}
-                    className="flex w-full gap-2 border-b border-[var(--border)] px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[var(--bg-hover)]"
+                    className="flex w-full gap-2 border-b border-[var(--line-divider)] px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[var(--bg-hover)]"
                   >
                     <span
                       className={cn(

@@ -261,14 +261,14 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
           <div className="overflow-x-auto rounded border border-border">
             <table className="w-full min-w-[28rem] border-collapse font-mono text-[11px]">
               <thead>
-                <tr className="border-b border-border bg-[var(--bg-inset)] text-left text-[var(--fg-dim)]">
+                <tr className="border-b border-[var(--line-divider)] bg-[var(--bg-inset)] text-left text-[var(--fg-dim)]">
                   <th className="px-3 py-2 font-normal">Role</th>
                   <th className="px-3 py-2 font-normal">Model</th>
                 </tr>
               </thead>
               <tbody>
                 {ROLES.map((role) => (
-                  <tr key={role} className="border-b border-border last:border-b-0">
+                  <tr key={role} className="border-b border-[var(--line-divider)] last:border-b-0">
                     <td className="px-3 py-2 align-top text-[var(--fg-dim)]">{role}</td>
                     <td className="px-3 py-2">
                       <TerminalSelect
@@ -332,7 +332,7 @@ export function SettingsResearchPanel({ value, ai, onChange }: Props) {
                 </tr>
               ) : (
                 archive.map((item) => (
-                  <tr key={item.id} className="border-b border-border last:border-b-0">
+                  <tr key={item.id} className="border-b border-[var(--line-divider)] last:border-b-0">
                     <td className="max-w-[14rem] truncate px-3 py-2 align-top text-foreground">
                       {item.topic}
                     </td>

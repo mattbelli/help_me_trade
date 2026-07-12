@@ -170,7 +170,7 @@ export function OrderProposalCard({
               <dd className="font-mono text-[11px] font-medium">{input.occ_symbol}</dd>
             </div>
           ) : null}
-          <div className="col-span-2 border-t border-[var(--border)] pt-2">
+          <div className="col-span-2 border-t border-[var(--line-divider)] pt-2">
             <dt className="text-muted-foreground">Total cost (max loss)</dt>
             <dd className="text-sm font-semibold text-foreground">
               ${formatMoney(totalCost)}

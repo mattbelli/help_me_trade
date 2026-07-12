@@ -37,7 +37,7 @@ const RANGE_LABELS: Record<PnlRange, string> = {
 const chartConfig = {
   value: {
     label: "Portfolio",
-    color: "var(--chart-accent)",
+    color: "var(--chart-line)",
   },
 } satisfies ChartConfig;
 
@@ -172,12 +172,12 @@ export function PnlChart({ portfolioValue, range, onRangeChange }: Props) {
                 <linearGradient id="pnlFill" x1="0" y1="0" x2="0" y2="1">
                   <stop
                     offset="0%"
-                    stopColor="var(--chart-accent)"
+                    stopColor="var(--chart-line)"
                     stopOpacity={0.22}
                   />
                   <stop
                     offset="100%"
-                    stopColor="var(--chart-accent)"
+                    stopColor="var(--chart-line)"
                     stopOpacity={0}
                   />
                 </linearGradient>
@@ -208,7 +208,7 @@ export function PnlChart({ portfolioValue, range, onRangeChange }: Props) {
               <Area
                 type="monotone"
                 dataKey="value"
-                stroke="var(--chart-accent)"
+                stroke="var(--chart-line)"
                 strokeWidth={2}
                 fill="url(#pnlFill)"
                 dot={false}

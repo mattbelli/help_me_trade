@@ -562,14 +562,14 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
 
                 {/* expanded single: labeled one-fact lines + honesty footer */}
                 {expanded && count === 1 && (facts.length > 0 || caveat) ? (
-                  <div className="border-t border-[var(--border)] px-2.5 py-2">
+                  <div className="border-t border-[var(--line-divider)] px-2.5 py-2">
                     {facts.map((f, i) => (
                       <div
                         key={i}
                         className={cn(
                           "flex gap-2 py-0.5",
                           i > 0 &&
-                            "border-t border-dashed border-[var(--border)]",
+                            "border-t border-dashed border-[var(--line-divider)]",
                         )}
                       >
                         {f.label ? (
@@ -581,7 +581,7 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
                       </div>
                     ))}
                     {caveat ? (
-                      <p className="mt-1.5 border-t border-[var(--border)] pt-1.5 font-mono text-[length:var(--fs-micro)] text-[var(--c-amber)]">
+                      <p className="mt-1.5 border-t border-[var(--line-divider)] pt-1.5 font-mono text-[length:var(--fs-micro)] text-[var(--c-amber)]">
                         ⚠ {caveat}
                       </p>
                     ) : null}
@@ -590,7 +590,7 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
 
                 {/* expanded batch: member timeline */}
                 {expanded && count > 1 ? (
-                  <ul className="border-t border-[var(--border)] px-2.5 py-1">
+                  <ul className="border-t border-[var(--line-divider)] px-2.5 py-1">
                     {card.items.map((n) => {
                       const mSym = symbolOf(n);
                       return (

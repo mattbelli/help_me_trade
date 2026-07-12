@@ -166,7 +166,7 @@ export function ScansWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {/* Controls */}
-      <div className="flex items-center gap-1.5 border-b border-[var(--border)] px-2 py-1.5">
+      <div className="flex items-center gap-1.5 border-b border-[var(--line-divider)] px-2 py-1.5">
         {/* Universe toggle: Watchlist ⇄ S&P 500 */}
         <div className="inline-flex shrink-0 overflow-hidden rounded border border-[var(--border)]">
           {UNIVERSES.map((u) => (
@@ -251,7 +251,7 @@ export function ScansWidget({ config }: WidgetProps) {
       ) : (
         <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
           {/* Column headers */}
-          <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5">
+          <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5">
             <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
               #
             </span>
@@ -272,7 +272,7 @@ export function ScansWidget({ config }: WidgetProps) {
           {data.results.map((row: ScanResultRow, idx) => (
             <div
               key={row.symbol}
-              className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+              className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
             >
               <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                 {idx + 1}

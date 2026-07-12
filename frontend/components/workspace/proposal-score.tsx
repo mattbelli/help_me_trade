@@ -123,7 +123,7 @@ function StrategyBacktestScore({ score }: { score: ProposalScoreData }) {
       ) : null}
 
       {planRules.length > 0 ? (
-        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 border-t border-[var(--border)]/60 pt-1.5">
+        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 border-t border-[var(--line-divider)]/60 pt-1.5">
           <span className="text-[length:var(--fs-table)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
             Plan
           </span>

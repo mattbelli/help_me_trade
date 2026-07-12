@@ -104,7 +104,7 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--line-divider)] px-3 py-1.5">
         <span className="truncate text-[length:var(--fs-body)] text-[var(--fg-dim)]">
           {mode === "symbol" ? (symbol ?? "Company info") : "All watchlists"}
         </span>

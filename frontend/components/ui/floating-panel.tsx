@@ -332,7 +332,7 @@ export function FloatingPanel({
     >
       <div
         {...dragHandlers}
-        className="flex shrink-0 cursor-grab touch-none items-start gap-2 border-b border-[var(--border)] bg-[var(--bg-inset)]/50 px-4 py-3 active:cursor-grabbing"
+        className="flex shrink-0 cursor-grab touch-none items-start gap-2 border-b border-[var(--line-divider)] bg-[var(--bg-inset)]/50 px-4 py-3 active:cursor-grabbing"
       >
         <div className="min-w-0 flex-1">{header}</div>
         <button

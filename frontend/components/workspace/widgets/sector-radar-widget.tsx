@@ -210,7 +210,7 @@ export function SectorRadarWidget() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
           {rows.length > 0 ? (
             <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
@@ -347,7 +347,7 @@ export function SectorRadarWidget() {
                     />
                     <Bar
                       dataKey="allocationPct"
-                      fill="var(--chart-accent)"
+                      fill="var(--chart-line)"
                       isAnimationActive={false}
                       radius={[0, 4, 4, 0]}
                     />
@@ -367,8 +367,8 @@ export function SectorRadarWidget() {
                     <Radar
                       name="Allocation"
                       dataKey="allocationPct"
-                      stroke="var(--chart-accent)"
-                      fill="var(--chart-accent)"
+                      stroke="var(--chart-line)"
+                      fill="var(--chart-line)"
                       fillOpacity={0.35}
                       isAnimationActive={false}
                     />
@@ -379,7 +379,7 @@ export function SectorRadarWidget() {
               )}
             </div>
 
-            <div className="max-h-[42%] shrink-0 space-y-1 overflow-y-auto border-t border-[var(--border)] pt-1 scroll-shadow-y">
+            <div className="max-h-[42%] shrink-0 space-y-1 overflow-y-auto border-t border-[var(--line-divider)] pt-1 scroll-shadow-y">
               {sortedRows.map((row) => (
                 <div
                   key={row.sector}

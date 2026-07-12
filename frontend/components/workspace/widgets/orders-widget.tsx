@@ -37,8 +37,8 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const TH =
-  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--border)] px-2 py-1.5";
+  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
+const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
 const ROW = "group/row transition-colors hover:bg-[var(--bg-hover)]";
 
 type PublishProps = {
@@ -441,7 +441,7 @@ export function OrdersWidget({ config }: WidgetProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         {TABS.map(({ id, label }) => (
           <button
             key={id}

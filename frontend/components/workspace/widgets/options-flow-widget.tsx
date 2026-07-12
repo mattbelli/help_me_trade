@@ -324,7 +324,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
       ) : (
         <div className="relative min-h-0 flex-1 overflow-auto scroll-shadow-y">
           {activeFilter ? (
-            <div className="flex items-center gap-1 border-b border-[var(--border)] px-2 py-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+            <div className="flex items-center gap-1 border-b border-[var(--line-divider)] px-2 py-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
               <span>filtering {activeFilter}</span>
               <span>·</span>
               <button
@@ -341,7 +341,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
           <div className={cn("relative", GRID_MIN)}>
             {/* column header — sortable like the watchlist */}
             <div
-              className="sticky top-0 z-20 grid items-center gap-x-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em]"
+              className="sticky top-0 z-20 grid items-center gap-x-2 border-b border-[var(--line-divider)] bg-[var(--bg)] px-2 py-1 text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em]"
               style={{ gridTemplateColumns: GRID_COLS }}
             >
               <span className={cn(headCls, sortableCls, sort.key === "score" && "text-[var(--c-accent)]")} onClick={() => handleSort("score")}>score{arrow("score")}</span>
@@ -364,7 +364,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
               const expanded = expandedIds.has(ev.id);
               const hasDetail = ev.detail != null && Object.keys(ev.detail).length > 0;
               return (
-                <div key={ev.id} className="relative border-b border-[var(--border)]">
+                <div key={ev.id} className="relative border-b border-[var(--line-divider)]">
                   <div
                     role="button"
                     tabIndex={0}
@@ -603,7 +603,7 @@ function FlowDetail({
         `${score.toFixed(1)} = ${comps.map((c) => `+${c.pts.toFixed(1)}`).join(" ") || "—"}`,
       )}
       {why.length ? (
-        <div className="col-span-full flex gap-2 border-t border-[var(--border)] pt-2 text-[var(--fg-dim)]">
+        <div className="col-span-full flex gap-2 border-t border-[var(--line-divider)] pt-2 text-[var(--fg-dim)]">
           <span className="shrink-0 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
             why
           </span>

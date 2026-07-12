@@ -210,7 +210,7 @@ export function ResearchViewerModal({
           "max-md:fixed max-md:inset-0 max-md:top-0 max-md:left-0 max-md:h-full max-md:max-h-full max-md:w-full max-md:max-w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none",
         )}
       >
-        <DialogHeader className="shrink-0 gap-2 border-b border-[var(--border)] px-4 py-3">
+        <DialogHeader className="shrink-0 gap-2 border-b border-[var(--line-divider)] px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-2 pr-8">
             <div className="min-w-0 flex-1">
               <DialogTitle className="line-clamp-2 font-mono text-[length:var(--fs-title)] leading-snug">
