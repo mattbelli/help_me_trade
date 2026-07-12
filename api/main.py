@@ -1928,6 +1928,19 @@ async def _filings_congress_once() -> None:
         logger.info("Filings feed: %d new congressional trade(s)", inserted)
 
 
+async def _filings_initial_fill() -> None:
+    """Jobs sleep a full interval before their first pass (6 h for congress) —
+    seed the feed shortly after boot so a deploy never blanks it."""
+    if not _FILINGS_FEED_ENABLED:
+        return
+    await asyncio.sleep(15)
+    for fn in (_filings_congress_once, _filings_edgar_once):
+        try:
+            await fn()
+        except Exception:
+            logger.exception("Filings initial fill failed: %s", fn.__name__)
+
+
 # ---------------------------------------------------------------------------
 # Nightly setup scan: keeps the idea-outcomes calibration ledger fed without a
 # human remembering to run it. Weekday evenings after the close; once per ET
@@ -2190,6 +2203,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_trade_sync_loop()),
         asyncio.create_task(_proposal_sweeper_loop()),
         asyncio.create_task(_idea_tracker_loop()),
+        asyncio.create_task(_filings_initial_fill()),
         asyncio.create_task(social_buzz_loop()),
         asyncio.create_task(_earnings_refresh_loop()),
         asyncio.create_task(_regime_refresh_loop()),
