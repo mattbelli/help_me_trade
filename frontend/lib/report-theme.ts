@@ -15,11 +15,11 @@ export function resolveComputedColor(expression: string): string {
 
 export function buildReportThemeOverride(): Record<string, string> {
   const app = captureThemeVars();
-  const card = app["--card"] ?? "";
-  const bgInset = app["--bg-inset"] ?? "";
-  const bgRaised = app["--bg-raised"] ?? "";
-  const cAmber = app["--c-amber"] ?? "";
-  const foreground = app["--foreground"] ?? "";
+  const card = app["--surface-widget"] ?? "";
+  const bgInset = app["--surface-inset"] ?? "";
+  const bgRaised = app["--surface-toolbar"] ?? "";
+  const cAmber = app["--warn"] ?? "";
+  const foreground = app["--text-primary"] ?? "";
 
   let warnBg = bgInset;
   if (cAmber && card) {
@@ -29,15 +29,15 @@ export function buildReportThemeOverride(): Record<string, string> {
   }
 
   return {
-    "--bg": app["--background"] ?? "",
+    "--bg": app["--surface-canvas"] ?? "",
     "--card": card,
     "--text": foreground,
-    "--muted": app["--muted-foreground"] ?? "",
-    "--accent": app["--c-accent"] ?? "",
-    "--border": app["--border"] ?? "",
+    "--muted": app["--text-secondary"] ?? "",
+    "--accent": app["--text-accent"] ?? "",
+    "--border": app["--line-border"] ?? "",
     "--hero": bgRaised,
     "--badge-bg": bgInset || bgRaised,
-    "--summary-text": app["--fg-dim"] ?? "",
+    "--summary-text": app["--text-secondary"] ?? "",
     "--warn-bg": warnBg,
     "--warn-border": cAmber || bgInset,
     "--warn-text": foreground,

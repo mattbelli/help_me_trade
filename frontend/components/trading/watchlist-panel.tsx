@@ -244,7 +244,7 @@ export function WatchlistPanel({
                 </li>
               ))}
             </ul>
-            <div className="border-t border-border p-1">
+            <div className="border-t border-[var(--line-divider)] p-1">
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
@@ -477,7 +477,7 @@ export function WatchlistPanel({
   if (variant === "rail") {
     return (
       <div className={cn("flex h-full min-h-0 flex-col", className)}>
-        <div className="border-b border-border px-3 py-2">
+        <div className="border-b border-[var(--line-divider)] px-3 py-2">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium">Watchlist</p>
             {marketLive ? (

@@ -165,7 +165,7 @@ export function JournalWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {/* Header: AI ⇄ Me toggle + refresh */}
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-2 py-1.5">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--line-divider)] px-2 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex shrink-0 overflow-hidden rounded border border-[var(--border)]">
             <ToggleButton active={view === "ai"} onClick={() => setView("ai")}>
@@ -261,7 +261,7 @@ function AiView({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Decisions ⇄ Calibration sub-toggle */}
-      <div className="flex gap-1 border-b border-[var(--border)] px-2 py-1">
+      <div className="flex gap-1 border-b border-[var(--line-divider)] px-2 py-1">
         <ToggleButton
           active={tab === "decisions"}
           onClick={() => setTab("decisions")}
@@ -335,7 +335,7 @@ function CalibrationTable({
 }) {
   if (groups.length === 0) return null;
   return (
-    <div className="border-b border-[var(--border)]">
+    <div className="border-b border-[var(--line-divider)]">
       <div className="px-2 pt-2 text-[length:var(--fs-table)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
         {title}
       </div>
@@ -416,7 +416,7 @@ function DecisionsView({
     <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
       {/* Per-strategy stats strip */}
       {strat.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 border-b border-[var(--border)] px-2 py-1.5">
+        <div className="flex flex-wrap gap-1.5 border-b border-[var(--line-divider)] px-2 py-1.5">
           {strat.map((s) => (
             <span
               key={s.strategy_id}
@@ -435,7 +435,7 @@ function DecisionsView({
       {decisions.map((d) => (
         <div
           key={d.proposal_id ?? `${d.symbol}-${d.created_at}`}
-          className="group/row border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+          className="group/row border-b border-[var(--line-divider)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
         >
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium">
@@ -497,7 +497,7 @@ function MeView({
     <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
       {/* Net-cash truth + behavioral summary line */}
       {summary ? (
-        <div className="border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]">
+        <div className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-table)] text-[var(--fg-dim)]">
           <div>
             <span className="text-[var(--fg-faint)]">net-cash realized </span>
             <span
@@ -526,7 +526,7 @@ function MeView({
         trades.map((t, idx) => (
           <div
             key={`${t.symbol}-${t.close_date}-${idx}`}
-            className="group/row grid grid-cols-[minmax(0,1fr)_3rem_5rem_2.5rem_2.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+            className="group/row grid grid-cols-[minmax(0,1fr)_3rem_5rem_2.5rem_2.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
           >
             <span className="truncate font-medium">
               {t.symbol ? (

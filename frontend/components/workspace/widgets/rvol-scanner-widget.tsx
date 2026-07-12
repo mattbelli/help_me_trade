@@ -111,7 +111,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-2 py-1.5">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--line-divider)] px-2 py-1.5">
         <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
           {sessionLabel}
         </span>
@@ -132,7 +132,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
       ) : (
         <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
           {/* Column headers */}
-          <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5">
+          <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5">
             <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
               #
             </span>
@@ -156,7 +156,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
               type="button"
               onClick={() => publish(row.symbol)}
               className={cn(
-                "group/row grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 text-left transition-colors",
+                "group/row grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 text-left transition-colors",
                 linked
                   ? "cursor-pointer hover:bg-[var(--bg-hover)]"
                   : "cursor-default hover:bg-[var(--bg-hover)]",

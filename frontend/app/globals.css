@@ -15,19 +15,7 @@
     --color-pnl-positive: var(--pnl-positive);
     --color-pnl-negative: var(--pnl-negative);
     --color-chart-accent: var(--chart-accent);
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
@@ -82,76 +70,98 @@
        founder's local wezterm face) was reverted 2026-07-07 — it rendered
        blurry with faux-bold; the house mono is crisp with real bold weights. */
     --font-terminal: var(--font-mono);
-    --background: #131519;
-    --chart-background: var(--background);
-    --foreground: #e9e7e3;
-    --card: #181b21;
-    --card-foreground: #e9e7e3;
-    --popover: #181b21;
-    --popover-foreground: #e9e7e3;
-    --primary: #e9e7e3;
-    --primary-foreground: #131519;
-    --secondary: #1e2228;
-    --secondary-foreground: #e9e7e3;
-    --muted: #1e2228;
-    --muted-foreground: #9aa1ab;
-    --accent: #1e2228;
-    --accent-foreground: #e9e7e3;
-    --destructive: #ef6f6c;
-    --border: #262b33;
-    --input: #262b33;
-    --ring: #5ad1be;
-    --chart-1: #5ad1be;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5ad1be;
-    --pnl-positive: #5bc98a;
-    --pnl-negative: #ef6f6c;
-    --radius: 0.625rem;
-    --sidebar: #0e1013;
-    --sidebar-foreground: #e9e7e3;
-    --sidebar-primary: #5ad1be;
-    --sidebar-primary-foreground: #0e1013;
-    --sidebar-accent: #1e2228;
-    --sidebar-accent-foreground: #e9e7e3;
-    --sidebar-border: #262b33;
-    --sidebar-ring: #5ad1be;
-    --panel: #181b21;
-    --bg-raised: #181b21;
-    --bg-inset: #0e1013;
-    --bg-hover: #1e2228;
-    --border-strong: #333a44;
-    --fg-dim: #9aa1ab;
-    --fg-faint: #616873;
-    --fg-widget-title: var(--foreground);
-    --fg-table-header: var(--fg-faint);
-    --c-accent: #5ad1be;
-    --c-accent-soft: rgba(90, 209, 190, 0.12);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-cyan: #2fc4e0;
-    --c-green: #5bc98a;
-    --c-green-bg: #5bc98a;
-    --c-red: #ef6f6c;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef6f6c;
-    --c-on-accent: #0b0d10;
+    /* ── Theme knobs (canonical; the editor writes ONLY these) ─────────────
+       Each [data-theme] block overrides this set; the aliases further down
+       derive every legacy/shadcn var from a knob so existing consumers keep
+       working untouched. Defaults here = the carbon palette. */
+    /* SURFACE (back → front) */
+    --surface-canvas: #131519;
+    --surface-grid-dot: #e9e7e3;   /* rendered ~5% in .canvas-surface */
+    --surface-toolbar: #181b21;
+    --surface-header: #181b21;
+    --surface-widget: #181b21;
+    --surface-hover: #1e2228;
+    --surface-inset: #0e1013;
+    /* LINES */
+    --line-border: #262b33;
+    --line-divider: #262b33;
+    --border-strong: #333a44;      /* per-theme, not an editor knob */
+    /* CHART */
+    --chart-bg: #131519;
+    --chart-grid: #262b33;
+    --chart-up: #5ad1be;
     --chart-down: #ef6f6c;
-    /* Research markdown "paper": derived one subtle step off --panel toward
-       --foreground so it tracks ANY active theme, including custom ones (which
-       set their own --panel/--foreground). 98/2 reproduces the old dark
-       #1c1f26 lift; every built-in dark theme now inherits this (light theme
-       overrides it below — a derived mix on white goes muddy gray). */
-    --md-paper-bg: color-mix(in srgb, var(--panel) 98%, var(--foreground) 2%);
+    --chart-line: #5ad1be;
+    /* TEXT */
+    --text-primary: #e9e7e3;
+    --text-title: #e9e7e3;
+    --text-header: #616873;
+    --text-secondary: #9aa1ab;
+    --text-faint: #616873;
+    --text-accent: #5ad1be;
+    --text-on-accent: #0b0d10;
+    --pos: #5bc98a;
+    --neg: #ef6f6c;
+    --warn: #e0975b;
+    --info: #6cb0ff;
+
+    /* ── Derived from knobs ──────────────────────────────────────────────── */
+    --surface-drop: color-mix(in srgb, var(--text-accent) 18%, transparent);
+    --c-accent-soft: color-mix(in srgb, var(--text-accent) 12%, transparent);
+    --radius: 0.625rem;
+
+    /* ── Legacy / shadcn aliases → knobs (consumers unchanged) ───────────── */
+    --background: var(--surface-canvas);
+    --chart-background: var(--chart-bg);
+    --foreground: var(--text-primary);
+    --card: var(--surface-widget);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface-widget);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--text-primary);
+    --primary-foreground: var(--text-on-accent);
+    --secondary: var(--surface-hover);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--surface-hover);
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--surface-hover);
+    --accent-foreground: var(--text-primary);
+    --destructive: var(--neg);
+    --border: var(--line-border);
+    --input: var(--line-border);
+    --ring: var(--text-accent);
+    --chart-accent: var(--chart-up);
+    --pnl-positive: var(--pos);
+    --pnl-negative: var(--neg);
+    --sidebar: var(--surface-inset);
+    --panel: var(--surface-widget);
+    --bg-raised: var(--surface-toolbar);
+    --bg-inset: var(--surface-inset);
+    --bg-hover: var(--surface-hover);
+    --fg-dim: var(--text-secondary);
+    --fg-faint: var(--text-faint);
+    --fg-widget-title: var(--text-title);
+    --fg-table-header: var(--text-header);
+    --c-accent: var(--text-accent);
+    --c-violet: var(--info);
+    --c-blue: var(--info);
+    --c-cyan: var(--info);
+    --c-green: var(--pos);
+    --c-green-bg: var(--pos);
+    --c-red: var(--neg);
+    --c-yellow: var(--warn);
+    --c-amber: var(--warn);
+    --c-command: var(--warn);
+    --c-danger: var(--neg);
+    --c-on-accent: var(--text-on-accent);
+    --grid-placeholder: var(--surface-drop);
+
+    /* Research markdown "paper": one subtle step off the widget surface toward
+       the primary text so it tracks ANY active theme (light overrides below). */
+    --md-paper-bg: color-mix(in srgb, var(--surface-widget) 98%, var(--text-primary) 2%);
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
-    --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
     /* Scroll-hint shadow color (see .scroll-shadow-y) — light theme overrides. */
     --scroll-shadow: rgba(0, 0, 0, 0.45);
     /* Film-grain texture: off by default; the ember theme opts in. */
@@ -161,142 +171,70 @@
 
 [data-theme="carbon"] {
     color-scheme: dark;
-    --background: #131519;
-    --chart-background: #131519;
-    --foreground: #e9e7e3;
-    --card: #181b21;
-    --card-foreground: #e9e7e3;
-    --popover: #181b21;
-    --popover-foreground: #e9e7e3;
-    --primary: #e9e7e3;
-    --primary-foreground: #131519;
-    --secondary: #1e2228;
-    --secondary-foreground: #e9e7e3;
-    --muted: #1e2228;
-    --muted-foreground: #9aa1ab;
-    --accent: #1e2228;
-    --accent-foreground: #e9e7e3;
-    --destructive: #ef6f6c;
-    --border: #262b33;
-    --input: #262b33;
-    --ring: #5ad1be;
-    --chart-1: #5ad1be;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5ad1be;
-    --pnl-positive: #5bc98a;
-    --pnl-negative: #ef6f6c;
-    --radius: 0.625rem;
-    --sidebar: #0e1013;
-    --sidebar-foreground: #e9e7e3;
-    --sidebar-primary: #5ad1be;
-    --sidebar-primary-foreground: #0e1013;
-    --sidebar-accent: #1e2228;
-    --sidebar-accent-foreground: #e9e7e3;
-    --sidebar-border: #262b33;
-    --sidebar-ring: #5ad1be;
-    --panel: #181b21;
-    --bg-raised: #181b21;
-    --bg-inset: #0e1013;
-    --bg-hover: #1e2228;
+    --surface-canvas: #131519;
+    --surface-grid-dot: #e9e7e3;
+    --surface-toolbar: #181b21;
+    --surface-header: #181b21;
+    --surface-widget: #181b21;
+    --surface-hover: #1e2228;
+    --surface-inset: #0e1013;
+    --line-border: #262b33;
+    --line-divider: #262b33;
     --border-strong: #333a44;
-    --fg-dim: #9aa1ab;
-    --fg-faint: #616873;
-    --fg-widget-title: var(--foreground);
-    --fg-table-header: var(--fg-faint);
-    --c-accent: #5ad1be;
-    --c-accent-soft: rgba(90, 209, 190, 0.12);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-cyan: #2fc4e0;
-    --c-green: #5bc98a;
-    --c-green-bg: #5bc98a;
-    --c-red: #ef6f6c;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef6f6c;
-    --c-on-accent: #0b0d10;
+    --chart-bg: #131519;
+    --chart-grid: #262b33;
+    --chart-up: #5ad1be;
     --chart-down: #ef6f6c;
-    /* --md-paper-bg inherited from :root (derived off --panel/--foreground). */
+    --chart-line: #5ad1be;
+    --text-primary: #e9e7e3;
+    --text-title: #e9e7e3;
+    --text-header: #616873;
+    --text-secondary: #9aa1ab;
+    --text-faint: #616873;
+    --text-accent: #5ad1be;
+    --text-on-accent: #0b0d10;
+    --pos: #5bc98a;
+    --neg: #ef6f6c;
+    --warn: #e0975b;
+    --info: #6cb0ff;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
-    --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 /* "Ember" — founder's wezterm palette: warm charcoal + amber, film grain. */
 [data-theme="warm"] {
     color-scheme: dark;
-    --background: #202020;
-    --chart-background: #202020;
-    --foreground: #d3ccbe;
-    --card: #262626;
-    --card-foreground: #d3ccbe;
-    --popover: #262626;
-    --popover-foreground: #d3ccbe;
-    --primary: #d3ccbe;
-    --primary-foreground: #202020;
-    --secondary: #2d2d2c;
-    --secondary-foreground: #d3ccbe;
-    --muted: #2d2d2c;
-    --muted-foreground: #b5ac9e;
-    --accent: #2d2d2c;
-    --accent-foreground: #d3ccbe;
-    --destructive: #d9705c;
-    --border: #353533;
-    --input: #353533;
-    --ring: #d99a52;
-    --chart-1: #d99a52;
-    --chart-2: #6f97a8;
-    --chart-3: #c07a8f;
-    --chart-4: #e8a24a;
-    --chart-5: #a3b565;
-    /* guardrail: candle-up stays green in every theme (ember green, not amber) */
-    --chart-accent: #97a06e;
-    --chart-down: #c47767;
-    --pnl-positive: #a3b565;
-    --pnl-negative: #d9705c;
-    --radius: 0.625rem;
-    --sidebar: #161617;
-    --sidebar-foreground: #d3ccbe;
-    --sidebar-primary: #d99a52;
-    --sidebar-primary-foreground: #161617;
-    --sidebar-accent: #2d2d2c;
-    --sidebar-accent-foreground: #d3ccbe;
-    --sidebar-border: #353533;
-    --sidebar-ring: #d99a52;
-    --panel: #262626;
-    --bg-raised: #262626;
-    --bg-inset: #161617;
-    --bg-hover: #2d2d2c;
+    --surface-canvas: #202020;
+    --surface-grid-dot: #d3ccbe;
+    --surface-toolbar: #262626;
+    --surface-header: #262626;
+    --surface-widget: #262626;
+    --surface-hover: #2d2d2c;
+    --surface-inset: #161617;
+    --line-border: #353533;
+    --line-divider: #353533;
     --border-strong: #454440;
-    --fg-dim: #b5ac9e;
-    --fg-faint: #7f766a;
-    --fg-widget-title: var(--foreground);
-    --fg-table-header: var(--fg-faint);
-    --c-accent: #d99a52;
-    --c-accent-soft: rgba(217, 154, 82, 0.12);
-    --c-violet: #c07a8f;
-    --c-blue: #6f97a8;
-    --c-cyan: #5cb4aa;
-    --c-green: #a3b565;
-    --c-green-bg: #a3b565;
-    --c-red: #d9705c;
-    --c-yellow: #e8a24a;
-    --c-amber: #e8a24a;
-    --c-command: #e8a24a;
-    --c-danger: #d9705c;
-    --c-on-accent: #161617;
-    /* --md-paper-bg inherited from :root (derived off --panel/--foreground). */
+    --chart-bg: #202020;
+    --chart-grid: #353533;
+    /* guardrail: candle-up stays green in every theme (ember green, not amber) */
+    --chart-up: #97a06e;
+    --chart-down: #c47767;
+    --chart-line: #97a06e;
+    --text-primary: #d3ccbe;
+    --text-title: #d3ccbe;
+    --text-header: #7f766a;
+    --text-secondary: #b5ac9e;
+    --text-faint: #7f766a;
+    --text-accent: #d99a52;
+    --text-on-accent: #161617;
+    --pos: #a3b565;
+    --neg: #d9705c;
+    --warn: #e8a24a;
+    --info: #6f97a8;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 8px 30px rgba(0, 0, 0, 0.4);
-    --c-glow: 0 0 0 1px rgba(217, 154, 82, 0.12);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
     /* Film grain: monochrome fractal-noise tile, tuned by eye on a screenshot. */
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.33 0.33 0.33 0 0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23g)'/%3E%3C/svg%3E");
     --grain-opacity: 0.08;
@@ -304,143 +242,74 @@
 
 [data-theme="oled"] {
     color-scheme: dark;
-    --background: #000000;
-    --chart-background: #000000;
-    --foreground: #e9e7e3;
-    --card: #0d0d0f;
-    --card-foreground: #e9e7e3;
-    --popover: #0d0d0f;
-    --popover-foreground: #e9e7e3;
-    --primary: #e9e7e3;
-    --primary-foreground: #000000;
-    --secondary: #17171a;
-    --secondary-foreground: #e9e7e3;
-    --muted: #17171a;
-    --muted-foreground: #9b9ba3;
-    --accent: #17171a;
-    --accent-foreground: #e9e7e3;
-    --destructive: #ef6f6c;
-    --border: #26262a;
-    --input: #26262a;
-    --ring: #9b6bff;
-    --chart-1: #9b6bff;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5bc98a;
-    --chart-down: #ef6f6c;
-    --pnl-positive: #5bc98a;
-    --pnl-negative: #ef6f6c;
-    --radius: 0.625rem;
-    --sidebar: #000000;
-    --sidebar-foreground: #e9e7e3;
-    --sidebar-primary: #9b6bff;
-    --sidebar-primary-foreground: #000000;
-    --sidebar-accent: #17171a;
-    --sidebar-accent-foreground: #e9e7e3;
-    --sidebar-border: #26262a;
-    --sidebar-ring: #9b6bff;
-    --panel: #0d0d0f;
-    --bg-raised: #0d0d0f;
-    --bg-inset: #000000;
-    --bg-hover: #17171a;
+    --surface-canvas: #000000;
+    --surface-grid-dot: #e9e7e3;
+    --surface-toolbar: #0d0d0f;
+    --surface-header: #0d0d0f;
+    --surface-widget: #0d0d0f;
+    --surface-hover: #17171a;
+    --surface-inset: #000000;
+    --line-border: #26262a;
+    --line-divider: #26262a;
     --border-strong: #34343a;
-    --fg-dim: #9b9ba3;
-    --fg-faint: #5c5c63;
-    --fg-widget-title: var(--foreground);
-    --fg-table-header: var(--fg-faint);
-    --c-accent: #9b6bff;
-    --c-accent-soft: rgba(155, 107, 255, 0.16);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-cyan: #2fc4e0;
-    --c-green: #5bc98a;
-    --c-green-bg: #5bc98a;
-    --c-red: #ef6f6c;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef6f6c;
-    --c-on-accent: #000000;
-    /* --md-paper-bg inherited from :root (derived off --panel/--foreground). */
+    --chart-bg: #000000;
+    --chart-grid: #26262a;
+    --chart-up: #5bc98a;
+    --chart-down: #ef6f6c;
+    --chart-line: #5bc98a;
+    --text-primary: #e9e7e3;
+    --text-title: #e9e7e3;
+    --text-header: #5c5c63;
+    --text-secondary: #9b9ba3;
+    --text-faint: #5c5c63;
+    --text-accent: #9b6bff;
+    --text-on-accent: #000000;
+    --pos: #5bc98a;
+    --neg: #ef6f6c;
+    --warn: #e0975b;
+    --info: #6cb0ff;
+    /* oled uses a slightly stronger accent wash than the 12% default */
+    --c-accent-soft: color-mix(in srgb, var(--text-accent) 16%, transparent);
     --panel-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
-    --c-glow: 0 0 0 1px rgba(155, 107, 255, 0.16);
     --widget-hover-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 [data-theme="light"] {
     color-scheme: light;
     /* Light theme: the wash sits on a bright row — 16% is already legible. */
     --tick-flash-mix: 16%;
-    --background: #f5f6f8;
-    --chart-background: #f5f6f8;
-    --foreground: #1b1f24;
-    --card: #ffffff;
-    --card-foreground: #1b1f24;
-    --popover: #ffffff;
-    --popover-foreground: #1b1f24;
-    --primary: #1b1f24;
-    --primary-foreground: #ffffff;
-    --secondary: #eef0f3;
-    --secondary-foreground: #1b1f24;
-    --muted: #eef0f3;
-    --muted-foreground: #59616c;
-    --accent: #eef0f3;
-    --accent-foreground: #1b1f24;
-    --destructive: #d23b34;
-    --border: #e2e5ea;
-    --input: #e2e5ea;
-    --ring: #2563eb;
-    --chart-1: #2563eb;
-    --chart-2: #3b82c4;
-    --chart-3: #7c5cd0;
-    --chart-4: #b8901c;
-    --chart-5: #c77b3a;
-    --chart-accent: #1f9d57;
-    --chart-down: #d23b34;
-    --pnl-positive: #1f9d57;
-    --pnl-negative: #d23b34;
-    --radius: 0.625rem;
-    --sidebar: #eceef1;
-    --sidebar-foreground: #1b1f24;
-    --sidebar-primary: #2563eb;
-    --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #eef0f3;
-    --sidebar-accent-foreground: #1b1f24;
-    --sidebar-border: #e2e5ea;
-    --sidebar-ring: #2563eb;
-    --panel: #ffffff;
-    --bg-raised: #ffffff;
-    --bg-inset: #eceef1;
-    --bg-hover: #eef0f3;
+    --surface-canvas: #f5f6f8;
+    --surface-grid-dot: #1b1f24;
+    --surface-toolbar: #ffffff;
+    --surface-header: #ffffff;
+    --surface-widget: #ffffff;
+    --surface-hover: #eef0f3;
+    --surface-inset: #eceef1;
+    --line-border: #e2e5ea;
+    --line-divider: #e2e5ea;
     --border-strong: #cdd2da;
-    --fg-dim: #59616c;
-    --fg-faint: #878e98;
-    --fg-widget-title: var(--foreground);
-    --fg-table-header: var(--fg-faint);
-    --c-accent: #2563eb;
-    --c-accent-soft: rgba(37, 99, 235, 0.12);
-    --c-violet: #7c5cd0;
-    --c-blue: #3b82c4;
-    --c-cyan: #0e97b0;
-    --c-green: #1f9d57;
-    --c-green-bg: #1f9d57;
-    --c-red: #d23b34;
-    --c-yellow: #b8901c;
-    --c-amber: #c77b3a;
-    --c-command: #c2410c;
-    --c-danger: #d23b34;
-    --c-on-accent: #ffffff;
+    --chart-bg: #f5f6f8;
+    --chart-grid: #e2e5ea;
+    --chart-up: #1f9d57;
+    --chart-down: #d23b34;
+    --chart-line: #1f9d57;
+    --text-primary: #1b1f24;
+    --text-title: #1b1f24;
+    --text-header: #878e98;
+    --text-secondary: #59616c;
+    --text-faint: #878e98;
+    --text-accent: #2563eb;
+    --text-on-accent: #ffffff;
+    --pos: #1f9d57;
+    --neg: #d23b34;
+    --warn: #c77b3a;
+    --info: #3b82c4;
     --md-paper-bg: #f6f3ec;
     --panel-shadow: 0 1px 2px rgba(20, 24, 31, 0.06), 0 8px 24px rgba(20, 24, 31, 0.08);
-    --c-glow: 0 0 0 1px rgba(37, 99, 235, 0.16);
     --widget-hover-shadow: 0 2px 10px rgba(20, 24, 31, 0.10);
     --scrim: rgba(40, 35, 25, 0.35);
     --scroll-shadow: rgba(20, 24, 31, 0.16);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 @keyframes breathe {
@@ -534,10 +403,10 @@
 
 @layer utilities {
   .canvas-surface {
-    background-color: var(--background);
+    background-color: var(--surface-canvas);
     background-image: radial-gradient(
       circle at 1px 1px,
-      color-mix(in oklch, var(--foreground) 5%, transparent) 1px,
+      color-mix(in oklch, var(--surface-grid-dot) 5%, transparent) 1px,
       transparent 0
     );
     background-size: 22px 22px;

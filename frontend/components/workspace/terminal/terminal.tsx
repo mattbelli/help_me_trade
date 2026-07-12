@@ -938,7 +938,7 @@ export function Terminal() {
             </div>
           </div>
 
-          <div className="mx-4 border-t border-[var(--border)]" />
+          <div className="mx-4 border-t border-[var(--line-divider)]" />
 
           {/* Transcript + prompt, with the history sidebar overlaying from the
               left edge (no reflow). */}
@@ -959,7 +959,7 @@ export function Terminal() {
               ) : null}
               <form
                 onSubmit={onSubmit}
-                className="flex items-start gap-2 border-t border-[var(--border)] pt-2"
+                className="flex items-start gap-2 border-t border-[var(--line-divider)] pt-2"
               >
                 {open ? promptRow : null}
                 {/* Active chat model — bottom-right of the command line (muted,

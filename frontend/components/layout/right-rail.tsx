@@ -115,7 +115,7 @@ function RightRailInner() {
           config.open ? "w-80 opacity-100" : "w-0 overflow-hidden border-l-0 opacity-0",
         )}
       >
-        <div className="flex w-80 shrink-0 items-center justify-between border-b border-border px-3 py-2.5">
+        <div className="flex w-80 shrink-0 items-center justify-between border-b border-[var(--line-divider)] px-3 py-2.5">
           <p className="text-sm font-medium tracking-tight">Side panel</p>
           <Button
             type="button"
@@ -135,7 +135,7 @@ function RightRailInner() {
         <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
           {config.panels.watchlist && (
             <div
-              className="flex min-h-0 flex-col overflow-hidden border-b border-border"
+              className="flex min-h-0 flex-col overflow-hidden border-b border-[var(--line-divider)]"
               style={{
                 flex: bottomPanelsEnabled
                   ? `0 0 ${config.watchlistHeightPct}%`

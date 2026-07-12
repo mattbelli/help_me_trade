@@ -147,7 +147,7 @@ function composeStudies(
       histogram: m.histogram,
       macdColor: "#4d9de0",
       signalColor: "#e0b040",
-      histUp: withAlpha(resolveCssColor("--chart-accent", "#5ad1be"), 0.5),
+      histUp: withAlpha(resolveCssColor("--chart-up", "#5ad1be"), 0.5),
       histDown: withAlpha(resolveCssColor("--chart-down", "#ef6f6c"), 0.5),
     });
   }
@@ -156,20 +156,21 @@ function composeStudies(
 }
 
 function resolveEngineColors(): EngineColors {
-  const up = resolveCssColor("--chart-accent", "#5ad1be");
+  const up = resolveCssColor("--chart-up", "#5ad1be");
   const down = resolveCssColor("--chart-down", "#ef6f6c");
   return {
     background: resolveCssColor(
-      "--chart-background",
-      resolveCssColor("--background", "#131519"),
+      "--chart-bg",
+      resolveCssColor("--surface-canvas", "#131519"),
     ),
-    text: resolveCssColor("--foreground", "#dfe3e8"),
-    textDim: resolveCssColor("--fg-dim", "#9aa1ab"),
-    grid: resolveCssColor("--border", "rgba(255,255,255,0.09)"),
+    text: resolveCssColor("--text-primary", "#dfe3e8"),
+    textDim: resolveCssColor("--text-secondary", "#9aa1ab"),
+    grid: resolveCssColor("--chart-grid", "rgba(255,255,255,0.09)"),
     up,
     down,
-    accent: up,
-    crosshair: resolveCssColor("--fg-faint", "#616873"),
+    // line-mode series (equity / line charts) get their own knob, not candle-up
+    accent: resolveCssColor("--chart-line", up),
+    crosshair: resolveCssColor("--text-faint", "#616873"),
     crosshairLabelBg: resolveCssColor("--border-strong", "#333a44"),
     volumeUp: withAlpha(up, 0.6),
     volumeDown: withAlpha(down, 0.6),

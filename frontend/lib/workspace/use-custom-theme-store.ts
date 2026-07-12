@@ -7,15 +7,11 @@ import { fetchCustomThemes, saveCustomThemes } from "@/lib/api";
 import {
   captureThemeVars,
   colorSchemeFromBackground,
-  deriveTokensFromVars,
   injectCustomThemeStyles,
   loadLocalCustomThemes,
-  mergeTokensIntoVars,
   newCustomThemeId,
-  normalizeHex,
   saveLocalCustomThemes,
   type CustomTheme,
-  type EditableToken,
 } from "./custom-themes";
 import { isBuiltinTheme, WORKSPACE_THEMES, type WorkspaceTheme } from "./themes";
 
@@ -24,7 +20,6 @@ type CustomThemeState = {
   hydrated: boolean;
   hydrate: () => Promise<void>;
   createFromCurrent: (name: string, base: string) => string;
-  updateTokens: (id: string, token: EditableToken, hex: string) => void;
   updateVars: (id: string, vars: Record<string, string>) => void;
   rename: (id: string, name: string) => void;
   remove: (id: string) => void;
@@ -51,29 +46,7 @@ function persist(themes: CustomTheme[]): void {
 }
 
 function resolvedColorScheme(vars: Record<string, string>): "dark" | "light" {
-  return colorSchemeFromBackground(vars["--background"] ?? "#000000");
-}
-
-// Backward-compat migration: older saved themes predate the chart-bg token —
-// backfill it from the app background so they render a real color (not black).
-function backfillChartBg(
-  themes: CustomTheme[],
-): { themes: CustomTheme[]; changed: boolean } {
-  let changed = false;
-  const migrated = themes.map((t) => {
-    const chartBg = t.tokens.chartBg ?? t.tokens.bg;
-    const chartBgVar = t.vars["--chart-background"] ?? t.vars["--background"];
-    if (t.tokens.chartBg === chartBg && t.vars["--chart-background"] === chartBgVar) {
-      return t;
-    }
-    changed = true;
-    return {
-      ...t,
-      tokens: { ...t.tokens, chartBg },
-      vars: { ...t.vars, "--chart-background": chartBgVar },
-    };
-  });
-  return { themes: migrated, changed };
+  return colorSchemeFromBackground(vars["--surface-canvas"] ?? "#000000");
 }
 
 export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
@@ -91,19 +64,14 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     }
 
     if (serverThemes && serverThemes.length > 0) {
-      const { themes: migrated, changed } = backfillChartBg(serverThemes);
-      saveLocalCustomThemes(migrated);
-      set({ themes: migrated, hydrated: true });
-      injectCustomThemeStyles(migrated);
-      if (changed) scheduleServerSave(migrated);
+      saveLocalCustomThemes(serverThemes);
+      set({ themes: serverThemes, hydrated: true });
+      injectCustomThemeStyles(serverThemes);
       return;
     }
 
-    const { themes: local, changed: localChanged } = backfillChartBg(
-      loadLocalCustomThemes(),
-    );
+    const local = loadLocalCustomThemes();
     if (local.length > 0) {
-      if (localChanged) saveLocalCustomThemes(local);
       // Push local up ONLY when the server CONFIRMED it has no themes
       // (serverThemes === []). When the fetch FAILED (null — e.g. backend
       // mid-restart), pushing would let any device with stale localStorage
@@ -123,7 +91,6 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     // Captures the CURRENT resolved vars off <html>. When the editor is open it
     // has applied an inline preview, so live edits are captured automatically.
     const vars = captureThemeVars();
-    const tokens = deriveTokensFromVars(vars);
     const id = newCustomThemeId();
     const now = new Date().toISOString();
     const theme: CustomTheme = {
@@ -131,7 +98,6 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
       name: name.trim() || "Custom",
       base: isBuiltinTheme(base) ? (base as WorkspaceTheme) : base,
       colorScheme: resolvedColorScheme(vars),
-      tokens,
       vars,
       createdAt: now,
       updatedAt: now,
@@ -142,32 +108,13 @@ export const useCustomThemeStore = create<CustomThemeState>((set, get) => ({
     return id;
   },
 
-  updateTokens: (id, token, hex) => {
-    const next = get().themes.map((t) => {
-      if (t.id !== id) return t;
-      const tokens = { ...t.tokens, [token]: normalizeHex(hex) };
-      const vars = mergeTokensIntoVars(t.vars, tokens);
-      return {
-        ...t,
-        tokens,
-        vars,
-        colorScheme: resolvedColorScheme(vars),
-        updatedAt: new Date().toISOString(),
-      };
-    });
-    set({ themes: next });
-    persist(next);
-  },
-
   updateVars: (id, vars) => {
-    // Replace the full resolved var map (individual "All colors" edits) and
-    // re-derive the quick-palette tokens so re-opening the editor stays seeded.
+    // Replace the full resolved knob var map (the editor's live edits).
     const next = get().themes.map((t) => {
       if (t.id !== id) return t;
       return {
         ...t,
         vars,
-        tokens: deriveTokensFromVars(vars),
         colorScheme: resolvedColorScheme(vars),
         updatedAt: new Date().toISOString(),
       };

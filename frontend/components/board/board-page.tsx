@@ -216,7 +216,7 @@ function BoardCardView({
         ) : null}
       </div>
       {expanded ? (
-        <dl className="mt-3 space-y-1 border-t border-border/60 pt-2 text-[10px]">
+        <dl className="mt-3 space-y-1 border-t border-[var(--line-divider)]/60 pt-2 text-[10px]">
           <div className="flex justify-between gap-4">
             <dt className="text-[var(--fg-faint)]">Lane</dt>
             <dd className="text-right text-[var(--fg-dim)]">{laneLabel}</dd>

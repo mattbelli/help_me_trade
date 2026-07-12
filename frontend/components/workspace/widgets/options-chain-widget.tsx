@@ -201,13 +201,13 @@ function renderMetric(
 
 function ChainHeader({ wide }: { wide: boolean }) {
   const labelClass =
-    "border-r border-[var(--border)] px-1.5 text-right text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
+    "border-r border-[var(--line-divider)] px-1.5 text-right text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
   const strikeClass =
-    "border-r border-[var(--border)] px-2 text-center text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
+    "border-r border-[var(--line-divider)] px-2 text-center text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
 
   if (wide) {
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_5rem_repeat(7,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+      <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_5rem_repeat(7,minmax(0,1fr))] border-b border-[var(--line-divider)] bg-[var(--bg-panel)] px-2 py-0.5">
         {(["oi", "vol", "iv", "δ", "last", "ask", "bid"] as const).map(
           (label) => (
             <span key={`c-${label}`} className={labelClass}>
@@ -228,7 +228,7 @@ function ChainHeader({ wide }: { wide: boolean }) {
   }
 
   return (
-    <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_5rem_repeat(3,minmax(0,1fr))] border-b border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5">
+    <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_5rem_repeat(3,minmax(0,1fr))] border-b border-[var(--line-divider)] bg-[var(--bg-panel)] px-2 py-0.5">
       {(["last", "ask", "bid"] as const).map((label) => (
         <span key={`c-${label}`} className={labelClass}>
           {label}
@@ -304,7 +304,7 @@ function ChainRow({
       type="button"
       onClick={onStrikeClick}
       className={cn(
-        "grid w-full border-b border-[var(--border)] px-2 text-left transition-colors hover:bg-[var(--bg-hover)]",
+        "grid w-full border-b border-[var(--line-divider)] px-2 text-left transition-colors hover:bg-[var(--bg-hover)]",
         gridClass,
         linked ? "cursor-pointer" : "cursor-default",
       )}
@@ -312,18 +312,18 @@ function ChainRow({
       {(wide ? callWide : callNarrow).map((cell, idx) => (
         <span
           key={`c-${idx}`}
-          className={cn("flex items-center justify-end border-r border-[var(--border)] px-1.5 py-0.5", callTint)}
+          className={cn("flex items-center justify-end border-r border-[var(--line-divider)] px-1.5 py-0.5", callTint)}
         >
           {cell}
         </span>
       ))}
-      <span className="flex items-center justify-center border-r border-[var(--border)] px-2 py-0.5 text-[length:var(--fs-table)] font-medium tabular-nums text-foreground">
+      <span className="flex items-center justify-center border-r border-[var(--line-divider)] px-2 py-0.5 text-[length:var(--fs-table)] font-medium tabular-nums text-foreground">
         {strikeLabel}
       </span>
       {(wide ? putWide : putNarrow).map((cell, idx) => (
         <span
           key={`p-${idx}`}
-          className={cn("flex items-center justify-end border-r border-[var(--border)] px-1.5 py-0.5", putTint)}
+          className={cn("flex items-center justify-end border-r border-[var(--line-divider)] px-1.5 py-0.5", putTint)}
         >
           {cell}
         </span>
@@ -344,7 +344,7 @@ function SpotDividerRow({
   return (
     <div
       ref={innerRef}
-      className="border-y border-[var(--border)] px-2 py-0.5 text-center text-[length:var(--fs-table)] text-[var(--c-accent)] tabular-nums"
+      className="border-y border-[var(--line-divider)] px-2 py-0.5 text-center text-[length:var(--fs-table)] text-[var(--c-accent)] tabular-nums"
     >
       {symbol} · {price.toFixed(2)}
     </div>
@@ -634,7 +634,7 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
             const loading = loadingExpiry === expiry;
 
             return (
-              <div key={expiry} className="border-b border-[var(--border)]">
+              <div key={expiry} className="border-b border-[var(--line-divider)]">
                 <button
                   type="button"
                   {...dragSafeControlProps}

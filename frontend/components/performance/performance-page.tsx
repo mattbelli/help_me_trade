@@ -97,15 +97,15 @@ const PERIODS: { key: PerformancePeriod; label: string }[] = [
 ];
 
 const pnlChartConfig = {
-  cumulative: { label: "Cumulative P&L", color: "var(--chart-accent)" },
+  cumulative: { label: "Cumulative P&L", color: "var(--chart-line)" },
 } satisfies ChartConfig;
 
 const symbolChartConfig = {
-  pnl: { label: "Net P&L", color: "var(--chart-accent)" },
+  pnl: { label: "Net P&L", color: "var(--chart-line)" },
 } satisfies ChartConfig;
 
 const dowChartConfig = {
-  pnl: { label: "Net P&L", color: "var(--chart-accent)" },
+  pnl: { label: "Net P&L", color: "var(--chart-line)" },
 } satisfies ChartConfig;
 
 function StatCard({
@@ -316,7 +316,7 @@ export function PerformancePage() {
     if (!dashboard) return [];
     const ac = dashboard.asset_classes;
     return [
-      { name: "Stocks", value: ac.stock_trades, fill: "var(--chart-accent)" },
+      { name: "Stocks", value: ac.stock_trades, fill: "var(--chart-line)" },
       {
         name: "Options",
         value: ac.option_trades,
@@ -596,7 +596,7 @@ export function PerformancePage() {
                       <Line
                         type="monotone"
                         dataKey="cumulative"
-                        stroke="var(--chart-accent)"
+                        stroke="var(--chart-line)"
                         strokeWidth={2}
                         dot={false}
                       />
@@ -690,7 +690,7 @@ export function PerformancePage() {
                 ) : (
                   <ChartContainer
                     config={{
-                      stocks: { label: "Stocks", color: "var(--chart-accent)" },
+                      stocks: { label: "Stocks", color: "var(--chart-line)" },
                       options: { label: "Options", color: "var(--chart-muted)" },
                     }}
                     className="h-[220px] w-full"
@@ -732,7 +732,7 @@ export function PerformancePage() {
                     <XAxis dataKey="day" tickLine={false} axisLine={false} />
                     <YAxis tickLine={false} axisLine={false} width={56} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="pnl" fill="var(--chart-accent)" radius={4} />
+                    <Bar dataKey="pnl" fill="var(--chart-line)" radius={4} />
                   </BarChart>
                 </ChartContainer>
               )}

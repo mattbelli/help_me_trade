@@ -363,7 +363,7 @@ export function AccountSummaryWidget() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center border-b border-[var(--border)] px-3 py-2">
+      <div className="flex items-center border-b border-[var(--line-divider)] px-3 py-2">
         <button
           type="button"
           onClick={togglePrivacy}

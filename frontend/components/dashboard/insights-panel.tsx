@@ -121,7 +121,7 @@ export function InsightsPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-background/60">
-      <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2.5">
+      <div className="flex items-start justify-between gap-2 border-b border-[var(--line-divider)] px-3 py-2.5">
         <div>
           <div className="flex items-center gap-1.5">
             <Sparkles className="size-3.5 text-accent" />

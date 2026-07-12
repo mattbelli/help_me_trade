@@ -127,7 +127,7 @@ export function PerformanceStatsWidget() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         {PERIODS.map(({ key, label }) => (
           <button
             key={key}

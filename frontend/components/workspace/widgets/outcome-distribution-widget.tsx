@@ -159,7 +159,7 @@ export function OutcomeDistributionWidget() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {total > 0 ? (
             <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">

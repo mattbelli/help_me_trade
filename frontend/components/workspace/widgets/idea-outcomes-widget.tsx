@@ -54,8 +54,8 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const TH =
-  "border-b border-[var(--border)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--border)] px-2 py-1.5";
+  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
+const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
 const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
 
 function statusClass(status: string): string {
@@ -495,7 +495,7 @@ function ResolvedTable({
                   <tr>
                     <td
                       colSpan={6}
-                      className="border-b border-[var(--border)] bg-[var(--bg-hover)]"
+                      className="border-b border-[var(--line-divider)] bg-[var(--bg-hover)]"
                     >
                       <GradeForm
                         row={row}
@@ -595,7 +595,7 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
           resolved {summary.resolved} · win rate {formatWinRate(summary.win_rate)}
           {originSummary ? ` · ${originSummary}` : ""}
@@ -637,7 +637,7 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
         ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         {TABS.map(({ id, label }) => (
           <button
             key={id}

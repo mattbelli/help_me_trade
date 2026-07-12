@@ -611,7 +611,7 @@ function WidgetHeader({
   return (
     <div
       className={cn(
-        "workspace-drag-handle relative flex h-10 items-center gap-2 border-b border-[var(--border)] px-3",
+        "workspace-drag-handle relative flex h-10 items-center gap-2 border-b border-[var(--line-divider)] bg-[var(--surface-header)] px-3",
         !locked && !isStatic && "cursor-grab active:cursor-grabbing",
       )}
     >

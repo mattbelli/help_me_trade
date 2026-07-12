@@ -123,7 +123,7 @@ export function CopilotSidebar() {
         onPointerDown={onResizePointerDown}
       />
 
-      <div className="relative z-40 flex h-10 shrink-0 items-center gap-2 border-b border-[var(--border)] px-3">
+      <div className="relative z-40 flex h-10 shrink-0 items-center gap-2 border-b border-[var(--line-divider)] px-3">
         <Button
           type="button"
           variant="ghost"

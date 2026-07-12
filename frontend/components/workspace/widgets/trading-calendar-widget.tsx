@@ -176,7 +176,7 @@ function DayTile({
 
 function RollupTile({ total, muted }: { total: number; muted?: boolean }) {
   return (
-    <div className="flex min-h-[38px] flex-col items-center justify-center rounded-[3px] border-l border-[var(--border)] bg-[var(--bg-inset)] px-1 py-1">
+    <div className="flex min-h-[38px] flex-col items-center justify-center rounded-[3px] border-l border-[var(--line-divider)] bg-[var(--bg-inset)] px-1 py-1">
       <span
         className={cn(
           "font-mono text-[length:var(--fs-table)] font-semibold tabular-nums",
@@ -330,7 +330,7 @@ export function TradingCalendarWidget() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line-divider)] px-3 py-2">
         <button
           type="button"
           onClick={() => shiftMonth(-1)}
@@ -373,7 +373,7 @@ export function TradingCalendarWidget() {
       </div>
 
       {selectedDetail ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-inset)] px-3 py-1.5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line-divider)] bg-[var(--bg-inset)] px-3 py-1.5">
           <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             {selectedDetail.date}
           </span>
@@ -445,7 +445,7 @@ export function TradingCalendarWidget() {
             {dowTotals.map((total, i) => (
               <RollupTile key={`dow-${i}`} total={total} muted />
             ))}
-            <div className="min-h-[38px] rounded-[3px] border-l border-[var(--border)] bg-[var(--bg-inset)]" />
+            <div className="min-h-[38px] rounded-[3px] border-l border-[var(--line-divider)] bg-[var(--bg-inset)]" />
           </div>
         )}
       </div>

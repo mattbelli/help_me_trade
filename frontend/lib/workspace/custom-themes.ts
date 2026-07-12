@@ -4,279 +4,94 @@ import { isBuiltinTheme, type WorkspaceTheme } from "./themes";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type EditableToken =
-  | "bg"
-  | "surface"
-  | "border"
-  | "fg"
-  | "fgDim"
-  | "accent"
-  | "green"
-  | "red"
-  | "chartBg"
-  | "chartAccent";
-
 export type CustomTheme = {
   id: string; // "custom-<8 hex>" — also the data-theme value & css selector
   name: string;
   base: WorkspaceTheme | string; // clone source (label + delete-fallback)
   colorScheme: "dark" | "light";
-  tokens: Record<EditableToken, string>; // hex per control (for re-opening editor)
-  vars: Record<string, string>; // FULL resolved var map (what gets injected)
+  vars: Record<string, string>; // resolved knob (+ chrome) var map — what gets injected
   createdAt: string;
   updatedAt: string;
 };
 
-// ── Editable token → CSS-var fan-out ─────────────────────────────────────────
-// Derived from the equalities in the carbon block (globals.css). The first var
-// in each list is the "representative" read back when re-seeding the editor.
+// ── The editor's knob model ──────────────────────────────────────────────────
+// One flat list of editable colors grouped into 4 titled sections. These are the
+// ONLY vars the editor writes; every legacy/shadcn var derives from them in
+// globals.css (:root aliases), so editing one knob cascades everywhere it drives.
+// Kept in sync with the [data-theme] blocks in globals.css.
 
-export const EDITABLE_TOKENS: {
-  token: EditableToken;
-  label: string;
-  vars: string[];
-}[] = [
-  { token: "bg", label: "Background", vars: ["--background"] },
-  {
-    token: "surface",
-    label: "Surface",
-    vars: [
-      "--panel",
-      "--card",
-      "--popover",
-      "--bg-raised",
-      "--bg-hover",
-      "--bg-inset",
-      "--muted",
-      "--secondary",
-      "--accent",
-      "--sidebar",
-      "--sidebar-accent",
-    ],
-  },
-  {
-    token: "border",
-    label: "Border",
-    vars: ["--border", "--input", "--sidebar-border", "--border-strong"],
-  },
-  {
-    token: "fg",
-    label: "Text",
-    vars: [
-      "--foreground",
-      "--card-foreground",
-      "--popover-foreground",
-      "--primary",
-      "--secondary-foreground",
-      "--accent-foreground",
-      "--sidebar-foreground",
-      "--sidebar-accent-foreground",
-    ],
-  },
-  {
-    token: "fgDim",
-    label: "Text dim",
-    vars: ["--fg-dim", "--muted-foreground", "--fg-faint"],
-  },
-  {
-    token: "accent",
-    label: "Accent",
-    vars: [
-      "--c-accent",
-      "--ring",
-      "--sidebar-primary",
-      "--sidebar-ring",
-      "--chart-1",
-    ],
-  },
-  { token: "green", label: "Positive", vars: ["--c-green", "--pnl-positive"] },
-  {
-    token: "red",
-    label: "Negative",
-    vars: [
-      "--c-red",
-      "--pnl-negative",
-      "--destructive",
-      "--chart-down",
-      "--c-danger",
-    ],
-  },
-  { token: "chartBg", label: "Chart bg", vars: ["--chart-background"] },
-  { token: "chartAccent", label: "Chart line", vars: ["--chart-accent"] },
-];
-
-const REPRESENTATIVE_VAR: Record<EditableToken, string> = Object.fromEntries(
-  EDITABLE_TOKENS.map((t) => [t.token, t.vars[0]]),
-) as Record<EditableToken, string>;
-
-// ── Unified color hierarchy (the editor's single list) ───────────────────────
-// One vertical list: SINGLE rows for standalone colors, GROUP rows whose swatch
-// bulk-sets every member (per its bulkSet mode) and expand to per-var rows.
-// Kept in sync with the [data-theme] blocks in globals.css; excludes the
-// Tailwind --color-* aliases, font/radius vars, and the non-color
-// --panel-shadow / --grid-placeholder (derived from other vars).
-
-export type ThemeColorMember = {
+export type ThemeKnob = {
   var: string;
   label: string;
-  /** One line of real information: what this var visibly drives. Omit when the
-   *  label already says it — the editor then shows no subline (no echo). */
+  /** One line on what this knob visibly drives (omit when the label says it). */
   desc?: string;
-  /**
-   * How the group swatch writes this member. "color" (default): the picked hex
-   * verbatim; "soft": 12% color-mix wash; "glow": 1px ring at 12%; "skip":
-   * untouched by the group swatch (individually editable only).
-   */
-  bulkSet?: "color" | "soft" | "glow" | "skip";
 };
 
-export type ThemeColorRow =
-  | { kind: "single"; var: string; label: string; desc?: string }
-  | { kind: "group"; label: string; lead: string; members: ThemeColorMember[] };
+export type ThemeSection = { title: string; knobs: ThemeKnob[] };
 
-export const THEME_COLOR_ROWS: ThemeColorRow[] = [
-  { kind: "single", var: "--background", label: "Background" },
+export const THEME_SECTIONS: ThemeSection[] = [
   {
-    kind: "group",
-    label: "Text",
-    lead: "--foreground",
-    members: [
-      { var: "--foreground", label: "Foreground", desc: "main text everywhere" },
-      { var: "--fg-widget-title", label: "Widget titles", desc: "the watchlist / positions / chart header titles" },
-      { var: "--fg-table-header", label: "Column headers", desc: "SYM \u00b7 LAST \u00b7 \u0394% label rows in tables" },
-      { var: "--fg-dim", label: "Dim text", desc: "secondary values, timestamps" },
-      { var: "--fg-faint", label: "Faint text", desc: "placeholders, disabled, hairline labels" },
-      { var: "--muted-foreground", label: "Muted text", desc: "shadcn muted surfaces" },
-      { var: "--card-foreground", label: "Card text", desc: "text on card surfaces (dialogs, panels)" },
-      { var: "--popover-foreground", label: "Popover text", desc: "text on popover surfaces (menus, tooltips)" },
-      { var: "--primary", label: "Primary", desc: "text on primary-filled buttons" },
-      { var: "--secondary-foreground", label: "Secondary text", desc: "text on secondary surfaces" },
-      { var: "--accent-foreground", label: "Accent-surface text", desc: "text on accent / selected surfaces" },
+    title: "Surface",
+    knobs: [
+      { var: "--surface-canvas", label: "Canvas", desc: "deepest app background" },
+      { var: "--surface-grid-dot", label: "Grid dots", desc: "workspace dot grid (shown faint)" },
+      { var: "--surface-toolbar", label: "Toolbars", desc: "top toolbar & bottom bar" },
+      { var: "--surface-header", label: "Header", desc: "each widget's title bar" },
+      { var: "--surface-widget", label: "Widget body", desc: "widget / card / popover surface" },
+      { var: "--surface-hover", label: "Hover", desc: "row & control hover fill" },
+      { var: "--surface-inset", label: "Inset", desc: "sunken wells, toolbar tiles, rails" },
     ],
   },
   {
-    kind: "group",
-    label: "Surfaces",
-    lead: "--panel",
-    members: [
-      { var: "--panel", label: "Panel" },
-      { var: "--card", label: "Card" },
-      { var: "--popover", label: "Popover" },
-      { var: "--bg-raised", label: "Raised", desc: "console \u00b7 floating chrome" },
-      { var: "--bg-hover", label: "Hover", desc: "row & control hover fill" },
-      { var: "--bg-inset", label: "Inset", desc: "sunken wells \u00b7 toolbar tiles" },
-      { var: "--muted", label: "Muted" },
-      { var: "--secondary", label: "Secondary" },
-      { var: "--accent", label: "Accent surface", desc: "selected / active surface" },
-      { var: "--scrim", label: "Scrim", bulkSet: "skip", desc: "dialog backdrop dim" },
+    title: "Lines",
+    knobs: [
+      { var: "--line-border", label: "Border", desc: "element outlines" },
+      { var: "--line-divider", label: "Divider", desc: "inner hairlines, row separators" },
     ],
   },
   {
-    kind: "group",
-    label: "Borders",
-    lead: "--border",
-    members: [
-      { var: "--border", label: "Border" },
-      { var: "--border-strong", label: "Border strong" },
-      { var: "--input", label: "Input" },
-      { var: "--ring", label: "Focus ring", desc: "keyboard focus outline" },
+    title: "Chart",
+    knobs: [
+      { var: "--chart-bg", label: "Background", desc: "candle chart canvas" },
+      { var: "--chart-grid", label: "Grid", desc: "gridlines inside charts" },
+      { var: "--chart-up", label: "Candle up", desc: "up candles & volume" },
+      { var: "--chart-down", label: "Candle down", desc: "down candles & volume" },
+      { var: "--chart-line", label: "Line", desc: "sparklines, equity curves" },
     ],
   },
   {
-    kind: "group",
-    label: "Accent",
-    lead: "--c-accent",
-    members: [
-      { var: "--c-accent", label: "Accent", desc: "tickers \u00b7 links \u00b7 active controls" },
-      { var: "--c-accent-soft", label: "Accent soft", bulkSet: "soft", desc: "12% wash \u2014 chips, selected tabs" },
-      { var: "--c-on-accent", label: "On accent", bulkSet: "skip", desc: "text on accent-filled buttons" },
-      { var: "--c-glow", label: "Glow", bulkSet: "glow", desc: "live-dot / connected glow ring" },
-      { var: "--c-command", label: "Command", desc: "console \u203a prompt" },
-      { var: "--sidebar-primary", label: "Sidebar primary" },
-      { var: "--sidebar-ring", label: "Sidebar ring" },
-    ],
-  },
-  {
-    kind: "group",
-    label: "Positive",
-    lead: "--c-green",
-    members: [
-      { var: "--c-green", label: "Green", desc: "gain text \u00b7 buy side" },
-      { var: "--c-green-bg", label: "Green (fills)", desc: "badge fills \u00b7 status dots \u00b7 tick-flash wash" },
-      { var: "--pnl-positive", label: "P&L positive", desc: "analytics chart fills" },
-    ],
-  },
-  {
-    kind: "group",
-    label: "Negative",
-    lead: "--c-red",
-    members: [
-      { var: "--c-red", label: "Red", desc: "loss text \u00b7 sell side \u00b7 errors" },
-      { var: "--pnl-negative", label: "P&L negative", desc: "analytics chart fills" },
-      { var: "--c-danger", label: "Danger", desc: "kill switch \u00b7 destructive actions" },
-      { var: "--destructive", label: "Destructive" },
-    ],
-  },
-  {
-    kind: "group",
-    label: "Highlights",
-    lead: "--c-amber",
-    members: [
-      { var: "--c-amber", label: "Amber", desc: "warnings \u00b7 earnings badges" },
-      { var: "--c-yellow", label: "Yellow" },
-      { var: "--c-blue", label: "Blue", desc: "info \u00b7 open-order status" },
-      { var: "--c-cyan", label: "Cyan", desc: "channel 3 links" },
-      { var: "--c-violet", label: "Violet" },
-    ],
-  },
-  {
-    kind: "group",
-    label: "Chart",
-    lead: "--chart-accent",
-    members: [
-      { var: "--chart-background", label: "Canvas", desc: "candle chart background" },
-      { var: "--chart-accent", label: "Candle up", desc: "up candles \u00b7 sparkline & equity lines" },
-      { var: "--chart-down", label: "Candle down", desc: "down candles \u00b7 down volume" },
-    ],
-  },
-  {
-    kind: "single",
-    var: "--grain-opacity",
-    label: "Grain",
-  },
-  {
-    kind: "group",
-    label: "Sidebar",
-    lead: "--sidebar",
-    members: [
-      { var: "--sidebar", label: "Sidebar" },
-      { var: "--sidebar-foreground", label: "Sidebar text" },
-      { var: "--sidebar-primary", label: "Sidebar primary" },
-      { var: "--sidebar-primary-foreground", label: "Sidebar primary text" },
-      { var: "--sidebar-accent", label: "Sidebar accent" },
-      { var: "--sidebar-accent-foreground", label: "Sidebar accent text" },
-      { var: "--sidebar-border", label: "Sidebar border" },
-      { var: "--sidebar-ring", label: "Sidebar ring" },
+    title: "Text",
+    knobs: [
+      { var: "--text-primary", label: "Primary", desc: "main body text" },
+      { var: "--text-title", label: "Title", desc: "widget & section titles" },
+      { var: "--text-header", label: "Column header", desc: "SYM · LAST · Δ% label rows" },
+      { var: "--text-secondary", label: "Secondary", desc: "secondary values, timestamps" },
+      { var: "--text-faint", label: "Faint", desc: "placeholders, disabled, hairline labels" },
+      { var: "--text-accent", label: "Accent", desc: "tickers · links · active controls · focus ring" },
+      { var: "--text-on-accent", label: "On accent", desc: "text on accent-filled buttons" },
+      { var: "--pos", label: "Positive", desc: "gains · buy side · positive fills" },
+      { var: "--neg", label: "Negative", desc: "losses · sell side · errors" },
+      { var: "--warn", label: "Warning", desc: "warnings · earnings · console prompt" },
+      { var: "--info", label: "Info", desc: "info · open-order status" },
     ],
   },
 ];
 
-/** The value a group swatch writes for one member given the picked hex. */
-export function bulkSetValue(
-  mode: ThemeColorMember["bulkSet"],
-  hex: string,
-): string | null {
-  switch (mode) {
-    case "skip":
-      return null;
-    case "soft":
-      return `color-mix(in srgb, ${hex} 12%, transparent)`;
-    case "glow":
-      return `0 0 0 1px color-mix(in srgb, ${hex} 12%, transparent)`;
-    default:
-      return hex;
-  }
-}
+/** Extra per-theme chrome vars captured at clone time so a custom theme keeps
+ *  its base's shadows/grain/scrim (these aren't editor knobs). */
+const CHROME_VARS: string[] = [
+  "--border-strong",
+  "--panel-shadow",
+  "--widget-hover-shadow",
+  "--scrim",
+  "--c-accent-soft",
+  "--grain",
+  "--grain-opacity",
+];
+
+const KNOB_VARS: string[] = THEME_SECTIONS.flatMap((s) =>
+  s.knobs.map((k) => k.var),
+);
 
 /** True when a value can round-trip through <input type="color"> (#rgb/#rrggbb). */
 export function isHexColor(value: string): boolean {
@@ -284,88 +99,10 @@ export function isHexColor(value: string): boolean {
 }
 
 // Every var the inline preview may touch — cleared verbatim on cancel/save.
-// Union of the legacy quick-palette fan-out, the unified hierarchy, and the
-// derived --c-accent-soft, deduped.
-const PREVIEW_VARS: string[] = Array.from(
-  new Set([
-    ...EDITABLE_TOKENS.flatMap((t) => t.vars),
-    ...THEME_COLOR_ROWS.flatMap((r) =>
-      r.kind === "single" ? [r.var] : r.members.map((m) => m.var),
-    ),
-    "--c-accent-soft",
-  ]),
-);
+const PREVIEW_VARS: string[] = KNOB_VARS;
 
 // ── Known theme vars (captured verbatim at clone time) ───────────────────────
-// The ~50 keys present in each globals.css [data-theme] block.
-
-export const KNOWN_THEME_VARS: string[] = [
-  "--background",
-  "--chart-background",
-  "--foreground",
-  "--card",
-  "--card-foreground",
-  "--popover",
-  "--popover-foreground",
-  "--primary",
-  "--primary-foreground",
-  "--secondary",
-  "--secondary-foreground",
-  "--muted",
-  "--muted-foreground",
-  "--accent",
-  "--accent-foreground",
-  "--destructive",
-  "--border",
-  "--input",
-  "--ring",
-  "--chart-1",
-  "--chart-2",
-  "--chart-3",
-  "--chart-4",
-  "--chart-5",
-  "--chart-accent",
-  "--grain",
-  "--grain-opacity",
-  "--pnl-positive",
-  "--pnl-negative",
-  "--radius",
-  "--sidebar",
-  "--sidebar-foreground",
-  "--sidebar-primary",
-  "--sidebar-primary-foreground",
-  "--sidebar-accent",
-  "--sidebar-accent-foreground",
-  "--sidebar-border",
-  "--sidebar-ring",
-  "--panel",
-  "--bg-raised",
-  "--bg-inset",
-  "--bg-hover",
-  "--border-strong",
-  "--fg-dim",
-  "--fg-faint",
-  "--fg-widget-title",
-  "--fg-table-header",
-  "--c-accent",
-  "--c-accent-soft",
-  "--c-violet",
-  "--c-blue",
-  "--c-cyan",
-  "--c-green",
-  "--c-green-bg",
-  "--c-red",
-  "--c-yellow",
-  "--c-amber",
-  "--c-command",
-  "--c-danger",
-  "--c-on-accent",
-  "--chart-down",
-  "--panel-shadow",
-  "--c-glow",
-  "--scrim",
-  "--grid-placeholder",
-];
+export const KNOWN_THEME_VARS: string[] = [...KNOB_VARS, ...CHROME_VARS];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -431,34 +168,6 @@ export function captureThemeVars(): Record<string, string> {
     if (raw) out[name] = raw;
   }
   return out;
-}
-
-/** Derive the 9 editor hex controls from a full var map. */
-export function deriveTokensFromVars(
-  vars: Record<string, string>,
-): Record<EditableToken, string> {
-  const tokens = {} as Record<EditableToken, string>;
-  for (const { token } of EDITABLE_TOKENS) {
-    tokens[token] = normalizeHex(vars[REPRESENTATIVE_VAR[token]] ?? "#000000");
-  }
-  return tokens;
-}
-
-/** Apply the token fan-out onto a base var map (+ derive --c-accent-soft). */
-export function mergeTokensIntoVars(
-  baseVars: Record<string, string>,
-  tokens: Record<EditableToken, string>,
-): Record<string, string> {
-  const vars: Record<string, string> = { ...baseVars };
-  for (const { token, vars: targets } of EDITABLE_TOKENS) {
-    const raw = (tokens[token] ?? "").trim();
-    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(raw)) continue;
-    const hex = normalizeHex(raw);
-    for (const v of targets) vars[v] = hex;
-  }
-  vars["--c-accent-soft"] =
-    `color-mix(in srgb, ${normalizeHex(tokens.accent)} 12%, transparent)`;
-  return vars;
 }
 
 /** The CSS var declarations for one theme's var map. */
@@ -533,14 +242,14 @@ export function resolveThemeIsDark(
 
   if (typeof document !== "undefined") {
     const bg = getComputedStyle(document.documentElement)
-      .getPropertyValue("--background")
+      .getPropertyValue("--surface-canvas")
       .trim();
     if (bg) return colorSchemeFromBackground(bg) === "dark";
   }
   return true;
 }
 
-/** Preview darkness while the theme editor is open (clone base or edited background). */
+/** Preview darkness while the theme editor is open (clone base or edited canvas). */
 export function resolveEditorPreviewIsDark(
   cloneBase: string,
   vars: Record<string, string>,
@@ -548,7 +257,7 @@ export function resolveEditorPreviewIsDark(
   if (isBuiltinTheme(cloneBase)) {
     return cloneBase !== "light";
   }
-  return colorSchemeFromBackground(vars["--background"] ?? "#000000") === "dark";
+  return colorSchemeFromBackground(vars["--surface-canvas"] ?? "#000000") === "dark";
 }
 
 export function syncHtmlDarkClass(isDark: boolean): void {
@@ -558,7 +267,9 @@ export function syncHtmlDarkClass(isDark: boolean): void {
 
 // ── localStorage ─────────────────────────────────────────────────────────────
 
-export const CUSTOM_THEMES_STORAGE_KEY = "hmt-custom-themes-v1";
+// v2: the knob rename (2026-07-12) is a clean break — v1 entries stored old var
+// names and are dropped rather than half-loaded.
+export const CUSTOM_THEMES_STORAGE_KEY = "hmt-custom-themes-v2";
 const MAX_CUSTOM_THEMES = 24;
 
 export function loadLocalCustomThemes(): CustomTheme[] {
@@ -593,8 +304,6 @@ function isValidCustomTheme(t: unknown): t is CustomTheme {
     typeof o.id === "string" &&
     typeof o.name === "string" &&
     o.vars != null &&
-    typeof o.vars === "object" &&
-    o.tokens != null &&
-    typeof o.tokens === "object"
+    typeof o.vars === "object"
   );
 }

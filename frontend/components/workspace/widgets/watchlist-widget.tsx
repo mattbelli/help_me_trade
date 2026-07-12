@@ -469,7 +469,7 @@ function WatchlistSymbolRow({
         if (outside) onDragOutRelease();
         else onReorderEnd();
       }}
-      className="border-b border-[var(--border)]"
+      className="border-b border-[var(--line-divider)]"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={clearHold}
@@ -1005,7 +1005,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]"
     >
       {marketLoading ? (
-        <div className="border-b border-[var(--border)] px-3 py-0.5">
+        <div className="border-b border-[var(--line-divider)] px-3 py-0.5">
           <span className="text-[length:var(--fs-table)] text-[var(--fg-faint)]">loading…</span>
         </div>
       ) : null}
@@ -1020,7 +1020,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         <div
           className={cn(
             rowGrid(),
-            "gap-x-1 border-b border-[var(--border)] px-2 py-1.5",
+            "gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5",
           )}
         >
           {(

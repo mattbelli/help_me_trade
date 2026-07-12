@@ -158,7 +158,7 @@ export function WinrateTrendWidget() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
           {stats.currentWinRate != null ? (
             <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
@@ -210,7 +210,7 @@ export function WinrateTrendWidget() {
               <Line
                 type="monotone"
                 dataKey="winRate"
-                stroke="var(--chart-accent)"
+                stroke="var(--chart-line)"
                 strokeWidth={2}
                 dot={false}
                 isAnimationActive={false}

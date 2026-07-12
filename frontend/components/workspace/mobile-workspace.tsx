@@ -69,7 +69,7 @@ function MobileWidgetPanel({
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel)]">
-      <div className="border-b border-[var(--border)] px-3 py-2 font-mono text-[length:var(--fs-title)] font-semibold">
+      <div className="border-b border-[var(--line-divider)] px-3 py-2 font-mono text-[length:var(--fs-title)] font-semibold">
         {def.title}
       </div>
       <div className={cn(scrollable && "max-h-[40vh] overflow-auto")}>
