@@ -11,9 +11,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Both jobs run on the serv self-hosted runner (free minutes; the runner's systemd
+# unit caps it at 4 cores / 6G so CI can't starve the live app). One runner =
+# jobs serialize; acceptable at ~1 min for the typecheck job.
 jobs:
   lint-and-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +38,7 @@ jobs:
         run: python -m pytest -q
 
   frontend-typecheck:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
 
