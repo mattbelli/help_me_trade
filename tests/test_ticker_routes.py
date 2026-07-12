@@ -1,7 +1,7 @@
 """Route-level smoke for the per-symbol company-info endpoint (wiring + aggregation).
 
 Mounts the ticker_router on a fresh FastAPI app and mocks every source so the test
-touches no network / broker: it confirms the four sources are aggregated into one
+touches no network / broker: it confirms the five sources are aggregated into one
 fail-soft payload and that a failed source degrades to an empty section (never 500).
 """
 
@@ -38,6 +38,10 @@ def test_ticker_info_aggregates_sources(monkeypatch) -> None:
         "ai.perception.context.build_symbol_context",
         AsyncMock(return_value={"symbol": "AAPL", "quote": {"price": 190.0}}),
     )
+    monkeypatch.setattr(
+        "signals.finra.afetch_short_interest",
+        AsyncMock(return_value={"short_shares": 1000.0, "days_to_cover": 2.1}),
+    )
 
     resp = TestClient(_app()).get("/api/ticker/aapl")
     assert resp.status_code == 200
@@ -47,6 +51,7 @@ def test_ticker_info_aggregates_sources(monkeypatch) -> None:
     assert data["metrics"]["pe_ttm"] == 28.5
     assert data["news"][0]["headline"] == "News"
     assert data["facts"]["quote"]["price"] == 190.0
+    assert data["short_interest"]["days_to_cover"] == 2.1
 
 
 def test_ticker_info_fail_soft_when_sources_empty(monkeypatch) -> None:
@@ -64,6 +69,9 @@ def test_ticker_info_fail_soft_when_sources_empty(monkeypatch) -> None:
         "ai.perception.context.build_symbol_context",
         AsyncMock(side_effect=RuntimeError("boom")),
     )
+    monkeypatch.setattr(
+        "signals.finra.afetch_short_interest", AsyncMock(return_value={})
+    )
 
     resp = TestClient(_app()).get("/api/ticker/MSFT")
     assert resp.status_code == 200
@@ -74,4 +82,5 @@ def test_ticker_info_fail_soft_when_sources_empty(monkeypatch) -> None:
         "metrics": {},
         "news": [],
         "facts": {},  # facts failure swallowed → empty, not a 500
+        "short_interest": {},
     }
