@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { Bell, BellOff } from "lucide-react";
 
 import type { NotificationSeverity } from "@/lib/api";
@@ -94,16 +101,39 @@ function kindWordClass(kind: string): string {
   }
 }
 
+// The per-card hue — a CSS color the card's gradient, left edge and drop
+// shadow all tint toward, matching the type word's color above.
+const CATEGORY_HUE: Record<Category, string> = {
+  trading: "var(--c-accent)",
+  flow: "var(--c-violet)",
+  alerts: "var(--c-amber)",
+  research: "var(--c-blue)",
+  system: "var(--fg-faint)",
+};
+
+function cardHue(kind: string): string {
+  if (
+    kind === "kill_switch" ||
+    kind === "entries_halt" ||
+    kind.startsWith("risk")
+  ) {
+    return "var(--c-red)";
+  }
+  return CATEGORY_HUE[categoryOf(kind)];
+}
+
 // Only non-info severities earn a stripe — the mockup's cards are calm by
 // default and let magnitude/side carry the color.
 function severityStripeClass(severity: NotificationSeverity): string | null {
   switch (severity) {
+    // `!` so the severity edge always wins over the type-hue left border the
+    // .notif-card class sets (both are equal-specificity utility rules).
     case "success":
-      return "border-l-2 border-l-[var(--c-green)]";
+      return "border-l-2 border-l-[var(--c-green)]!";
     case "warning":
-      return "border-l-2 border-l-[var(--c-amber)]";
+      return "border-l-2 border-l-[var(--c-amber)]!";
     case "critical":
-      return "border-l-2 border-l-[var(--c-red)]";
+      return "border-l-2 border-l-[var(--c-red)]!";
     default:
       return null;
   }
@@ -451,8 +481,10 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
             return (
               <li
                 key={card.key}
+                data-expanded={expanded}
+                style={{ "--hue": cardHue(newest.kind) } as CSSProperties}
                 className={cn(
-                  "group rounded-md border border-[var(--border)] bg-[var(--bg-raised)] transition-colors",
+                  "notif-card group rounded-md border border-[var(--border)] transition-colors",
                   stripe,
                   expanded
                     ? "border-[var(--border-strong,var(--border))]"

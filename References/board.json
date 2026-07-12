@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "notif-card-hue-polish",
+      "title": "Notifications widget: type-hued gradient + drop shadow polish",
+      "lane": "done",
+      "type": "ui",
+      "priority": "normal",
+      "owner": "serv",
+      "notes": "2026-07-12. Founder: cards should pop \u2014 dress them up with a hue/gradient matching the type (report ready=blue, earnings=amber, convergence=violet, trading=accent, risk/kill=red). Added a .notif-card utility in globals.css: faint 135deg gradient + colored left edge + soft drop shadow with a hue-tinted glow (intensifies on hover/expand), all driven by a per-card --hue CSS var (cardHue() mirrors the type-word color map). Severity stripe made !important so it still wins the left edge. Verified visually via headless screenshot of the real card markup+theme vars. UI-only, pending in-browser check."
+    },
+    {
       "id": "ci-self-hosted-runner",
       "title": "CI green again + self-hosted runner on serv (free minutes)",
       "lane": "done",
