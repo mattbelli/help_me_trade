@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Bell, BellOff } from "lucide-react";
 
 import type { NotificationSeverity } from "@/lib/api";
 import { relativeTime } from "@/lib/relative-time";
@@ -400,19 +401,20 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
           <button
             type="button"
             onClick={() => onConfigChange({ ding: !dingOn })}
+            aria-label={dingOn ? "Mute notification sound" : "Unmute notification sound"}
             title={
               dingOn
                 ? "sound on new cards — click to mute"
                 : "muted — click to unmute"
             }
             className={cn(
-              FILTER_BTN,
+              "rounded p-1 transition-colors",
               dingOn
                 ? "text-[var(--fg-dim)] hover:text-foreground"
-                : "text-[var(--fg-faint)] line-through hover:text-[var(--fg-dim)]",
+                : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
             )}
           >
-            ding
+            {dingOn ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
           </button>
           <button
             type="button"

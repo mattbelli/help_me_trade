@@ -92,37 +92,66 @@ function shortExchange(exchange: string | null | undefined): string | null {
   return exchange.split(/[,-]/)[0].trim();
 }
 
-function StatCell({
-  label,
-  value,
-  color,
-  size = "sm",
-  title,
-}: {
+export type StatItem = {
   label: string;
   value: string;
   color?: string;
-  size?: "sm" | "md";
   title?: string;
+};
+
+/** Hairline-bordered cell grid — the md-viewer table treatment applied to
+    stats: label over value in each cell, 1px rules from a gap-px trick. */
+function StatGrid({
+  items,
+  cols = 4,
+  className,
+}: {
+  items: StatItem[];
+  cols?: 4 | 5;
+  className?: string;
 }) {
-  const isMd = size === "md";
   return (
-    <div className={cn("flex flex-col", isMd ? "gap-0.5" : "gap-px")} title={title}>
-      <span
+    <div
+      className={cn(
+        "overflow-hidden rounded-md border border-[var(--border)] bg-[var(--border)]",
+        className,
+      )}
+    >
+      <div
         className={cn(
-          "font-medium tracking-[0.08em] uppercase",
-          isMd ? "text-[length:var(--fs-table)]" : "text-[length:var(--fs-micro)]",
+          "grid gap-px",
+          cols === 5 ? "grid-cols-5" : "grid-cols-2 sm:grid-cols-4",
         )}
-        style={{ color: "var(--fg-faint)" }}
       >
-        {label}
-      </span>
-      <span
-        className={cn("tabular-nums", isMd ? "text-[length:var(--fs-title)] font-semibold" : "text-[length:var(--fs-body)]")}
-        style={{ color: color ?? (isMd ? "var(--fg)" : "var(--fg-dim)") }}
-      >
-        {value}
-      </span>
+        {items.map((i) => (
+          <div
+            key={i.label}
+            title={i.title}
+            className="flex flex-col gap-0.5 bg-[var(--panel)] px-2.5 py-2"
+          >
+            <span
+              className="truncate text-[length:var(--fs-micro)] font-medium tracking-[0.08em] uppercase"
+              style={{ color: "var(--fg-faint)" }}
+            >
+              {i.label}
+            </span>
+            <span
+              className="truncate text-[length:var(--fs-title)] font-semibold tabular-nums"
+              style={{ color: i.color ?? "var(--fg)" }}
+            >
+              {i.value}
+            </span>
+          </div>
+        ))}
+        {/* Pad the last row so the border bg never shows through empty
+            tracks. cols=4 also covers the 2-col narrow breakpoint (2 | 4). */}
+        {Array.from(
+          { length: (cols - (items.length % cols)) % cols },
+          (_, i) => (
+            <div key={`pad-${i}`} className="bg-[var(--panel)]" />
+          ),
+        )}
+      </div>
     </div>
   );
 }
@@ -301,7 +330,7 @@ export function FundamentalsSection({
     ? `FINRA consolidated short interest, settled ${shortInterest.settlement_date} (published ~2wk lag) · % of shares outstanding · d = days to cover`
     : undefined;
 
-  const items: { label: string; value: string; color?: string; title?: string }[] = [
+  const items: StatItem[] = [
     { label: "Mkt cap", value: fmtMillions(profile.marketCapitalization ?? metrics.market_cap) },
     { label: "P/E", value: fmtNum(metrics.pe_ttm, 1) },
     {
@@ -339,18 +368,7 @@ export function FundamentalsSection({
           />
         </div>
       ) : null}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-        {items.map((i) => (
-          <StatCell
-            key={i.label}
-            label={i.label}
-            value={i.value}
-            color={i.color}
-            title={i.title}
-            size="md"
-          />
-        ))}
-      </div>
+      <StatGrid items={items} />
     </div>
   );
 }
@@ -366,7 +384,7 @@ export function FactsSection({ facts }: { facts: TickerFacts }) {
         ? "var(--c-red)"
         : "var(--fg-dim)";
 
-  const stats: { label: string; value: string; color?: string }[] = [
+  const stats: StatItem[] = [
     {
       label: "RVOL",
       value: facts.rvol?.value != null ? `${facts.rvol.value.toFixed(1)}×` : DASH,
@@ -402,17 +420,13 @@ export function FactsSection({ facts }: { facts: TickerFacts }) {
   return (
     <div>
       <SectionTitle>Our facts</SectionTitle>
-      <div className="grid grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-4">
-        {stats.map((s) => (
-          <StatCell key={s.label} label={s.label} value={s.value} color={s.color} />
-        ))}
-      </div>
+      <StatGrid items={stats} />
       {hasLevels ? (
-        <div className="mt-2 grid grid-cols-5 gap-x-3 gap-y-1">
-          {levels.map((l) => (
-            <StatCell key={l.label} label={l.label} value={fmtNum(l.value)} />
-          ))}
-        </div>
+        <StatGrid
+          className="mt-2"
+          cols={5}
+          items={levels.map((l) => ({ label: l.label, value: fmtNum(l.value) }))}
+        />
       ) : null}
     </div>
   );
