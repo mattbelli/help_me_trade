@@ -447,20 +447,22 @@
     {
       "id": "strip-padding-fullbleed",
       "title": "Board/research pages: reserve bottom padding for the terminal strip (40px overlay on scroll end)",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "ui",
       "priority": "low",
-      "owner": "serv",
-      "notes": "Cosmetic follow-up from the chat-everywhere round: workspace reserves paddingBottom=collapsedHeight, /board and /research do not - last 40px of content sits under the fixed strip."
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). /board (board-page.tsx) + /research (research-page.tsx) scroll content now set style paddingBottom=calc(1.5rem + TERMINAL_COLLAPSED_HEIGHT[40px]) so the last cards/content clear the fixed terminal strip overlay - mirrors workspace-page.tsx. tsc clean. Pending in-browser check + frontend deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "settings-rmw-race",
       "title": "Settings apply_settings_patch read-modify-write race can lost-update kill_switch/entries_halted",
-      "lane": "backlog",
-      "type": "ops",
+      "lane": "in_progress",
+      "type": "safety",
       "priority": "normal",
-      "owner": "serv",
-      "notes": "Adversarial finding (HALT review, pre-existing): no lock spans the full load->merge->save sequence, so a concurrent PUT can clobber a breaker-armed flag back to False in a narrow window. Fix = hold _settings_lock across the whole RMW. More exposed now that the breaker arms HALT (frequent) vs manual kill switch (rare)."
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). Root: apply_settings_patch did load_settings()(lock/unlock) -> re-read on-disk -> merge -> save_settings()(lock/unlock) with the lock RELEASED between read and write, so two concurrent PUTs last-writer-win and one could lost-update a breaker-armed kill_switch_active/entries_halted back to False. Fix: whole RMW now under a NEW _patch_lock (via _apply_settings_patch_locked), kept SEPARATE from _settings_lock (stays a plain brief Lock). Adversarial review (Sonnet) rejected the naive 'widen _settings_lock to RLock' first pass: an ai patch runs a synchronous model-list HTTP probe (maybe_upgrade_default_llm, ~6s x several endpoints) that under the reader lock would stall is_kill_switch_active/is_entries_halted (gate every order) for seconds; _patch_lock only serializes patch-vs-patch, never the fast readers. Deterministic regression test proven to FAIL on old code + pass on fix; 100+ settings/safety/auth/research/strategy tests green, ruff clean. Pending backend deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "money-path-highs",
