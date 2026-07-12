@@ -12,6 +12,7 @@ import {
   applyInlinePreview,
   captureThemeVars,
   clearInlinePreview,
+  flushInlinePreview,
   isHexColor,
   normalizeHex,
   resolveEditorPreviewIsDark,
@@ -157,6 +158,8 @@ export function ThemeEditorDialog({
       setTheme(editing.id);
     } else {
       // Inline preview already reflects the edits → captured by createFromCurrent.
+      // Flush any rAF-pending preview first so the last edit is in the DOM.
+      flushInlinePreview();
       const id = createFromCurrent(name, cloneBase);
       clearInlinePreview();
       setTheme(id);

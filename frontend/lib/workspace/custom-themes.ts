@@ -204,9 +204,21 @@ export function injectCustomThemeStyles(themes: CustomTheme[]): void {
   window.dispatchEvent(new Event(THEME_VARS_EVENT));
 }
 
-/** Layer B: transient inline overlay on <html> (live editing only). */
-export function applyInlinePreview(vars: Record<string, string>): void {
-  if (typeof document === "undefined") return;
+// Live color edits fire many times/sec (dragging the native color picker); each
+// apply sets ~25 CSS vars on <html> (a full-app style recalc) and pings chart
+// canvases to redraw. Coalesce to one apply per animation frame so the picker
+// stays smooth (this was the Edge/Chromium color-picker lag).
+let _previewRaf: number | null = null;
+let _pendingPreview: Record<string, string> | null = null;
+
+function flushPreview(): void {
+  if (_previewRaf !== null) {
+    cancelAnimationFrame(_previewRaf);
+    _previewRaf = null;
+  }
+  const vars = _pendingPreview;
+  _pendingPreview = null;
+  if (!vars || typeof document === "undefined") return;
   const style = document.documentElement.style;
   for (const name of PREVIEW_VARS) {
     if (vars[name] != null) style.setProperty(name, vars[name]);
@@ -214,8 +226,26 @@ export function applyInlinePreview(vars: Record<string, string>): void {
   window.dispatchEvent(new Event(THEME_VARS_EVENT));
 }
 
+/** Layer B: transient inline overlay on <html> (live editing only). rAF-coalesced. */
+export function applyInlinePreview(vars: Record<string, string>): void {
+  if (typeof document === "undefined") return;
+  _pendingPreview = vars;
+  if (_previewRaf !== null) return;
+  _previewRaf = requestAnimationFrame(flushPreview);
+}
+
+/** Apply any pending preview synchronously — call before capturing vars on save. */
+export function flushInlinePreview(): void {
+  flushPreview();
+}
+
 export function clearInlinePreview(): void {
   if (typeof document === "undefined") return;
+  if (_previewRaf !== null) {
+    cancelAnimationFrame(_previewRaf);
+    _previewRaf = null;
+  }
+  _pendingPreview = null;
   const style = document.documentElement.style;
   for (const name of PREVIEW_VARS) style.removeProperty(name);
   window.dispatchEvent(new Event(THEME_VARS_EVENT));
