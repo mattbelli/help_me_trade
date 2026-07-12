@@ -108,6 +108,7 @@ class ScriptWS:
         self._auth_error_406 = auth_error_406
         self._block_after = block_after
         self.closed = False
+        self._closed_evt = asyncio.Event()
         self._inbound.put_nowait(_pack([{"T": "success", "msg": "connected"}]))
 
     async def recv(self) -> bytes:
@@ -115,9 +116,21 @@ class ScriptWS:
         if self._fail_on_recv is not None and self._recv_count >= self._fail_on_recv:
             raise ConnectionError("simulated disconnect")
         if self._block_after is not None and self._recv_count > self._block_after:
-            await asyncio.sleep(3600)
-            raise ConnectionError("blocked recv ended")
-        return await self._inbound.get()
+            # Like the real library: a blocked recv raises once the socket closes.
+            await self._closed_evt.wait()
+            raise ConnectionError("closed while blocked")
+        # Race the queue against close — the real library raises into a pending
+        # recv when the socket closes (the stream's recv loop has no timeout).
+        get_task = asyncio.ensure_future(self._inbound.get())
+        closed_task = asyncio.ensure_future(self._closed_evt.wait())
+        done, pending = await asyncio.wait(
+            {get_task, closed_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        if get_task in done:
+            return get_task.result()
+        raise ConnectionError("closed")
 
     async def send(self, data: bytes) -> None:
         payload = msgpack.unpackb(data, timestamp=3)
@@ -150,6 +163,7 @@ class ScriptWS:
 
     async def close(self) -> None:
         self.closed = True
+        self._closed_evt.set()
         while not self._inbound.empty():
             try:
                 self._inbound.get_nowait()

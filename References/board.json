@@ -97,8 +97,18 @@
       "type": "probe",
       "priority": "high",
       "owner": "agent",
-      "notes": "2026-07-11 Sat probe: {'action':'subscribe','trades':['*']} -> {'T':'subscription','trades':['*']} ACKED on the current plan (scripts/opra_wildcard_probe.py; won the 1-conn slot by retry-on-406 during a backend bounce). Remaining Monday questions: (1) does data actually FLOW under * (ACK != stream), (2) market-wide msg rate + client-side headroom (OPRA ~50M+ trades/day, open bursts 10-20x avg \u2014 python client must keep up), (3) lag under load. If flow confirmed: coarse tier = the full tape, snapshot rotation unnecessary, DTE quotas shrink to the 1,000-quote confirmation budget.",
-      "updated_at": "2026-07-11"
+      "notes": "2026-07-11 Sat probe: {'action':'subscribe','trades':['*']} -> {'T':'subscription','trades':['*']} ACKED on the current plan (scripts/opra_wildcard_probe.py; won the 1-conn slot by retry-on-406 during a backend bounce). Remaining Monday questions: (1) does data actually FLOW under * (ACK != stream), (2) market-wide msg rate + client-side headroom (OPRA ~50M+ trades/day, open bursts 10-20x avg \u2014 python client must keep up), (3) lag under load. If flow confirmed: coarse tier = the full tape, snapshot rotation unnecessary, DTE quotas shrink to the 1,000-quote confirmation budget. 2026-07-12: run with --capture research/options_flow/tape_2026-07-13_open.mpk so the open tape is replayable offline (scripts/opra_replay_bench.py); merge flow-stream-cpu PR first \u2014 client hot path is 3x faster and the stats line now logs lag_p50/p95.",
+      "updated_at": "2026-07-12"
+    },
+    {
+      "id": "flow-stream-cpu",
+      "title": "OPRA stream hot path 3x faster + captured-tape replay harness",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "2026-07-12 (founder: 'our options flow watcher cpu core usage problem'): stream.py recv loop no longer creates a wait_for Task+timer per message (housekeeping = 50ms companion task that recycles the connection on failure); msgpack timestamp=2 int-ns (no per-message datetime); handlers de-async'd; ISO built only past the meta gate. Measured full-loop 5.23 -> 1.71 us/msg = 3.1x (191k -> 586k msgs/s synthetic). Lag p50/p95 sampled into the per-minute stats line (Monday branch-decision input). opra_rate_probe.py --capture dumps raw frames; NEW scripts/opra_replay_bench.py replays them offline. uvloop verified already active. Tests green (stream/intraday/sweeps/rolling), ruff clean. PR open \u2014 pending merge + backend deploy. Same round: github-runner.service got MemorySwapMax=512M + IOWeight=20 after CI jobs swap-thrashed the box (load 35, frozen SSH).",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "flow-dte-diversity",
