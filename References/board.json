@@ -10,6 +10,16 @@
   ],
   "cards": [
     {
+      "id": "board-wider-responsive-lanes",
+      "title": "Board: wider lanes that expand on ultrawide screens",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "pc",
+      "notes": "2026-07-12. Lanes were min-240/max-340px inside a max-w-[1920px] container, so a maximized 21:9 wasted its extra width and cards stayed ~250px (4-line titles). Bumped per-lane to min-300/max-520 + lifted the container cap to 3400px. Now compresses to ~300px on 16:9 (barely fits, no meaningful scroll) and flex-grows to 520px each on the 21:9 for genuinely wider cards. frontend/components/board/board-page.tsx (BoardLane, ArchiveColumn, main container). typecheck clean; pending in-browser check.",
+      "updated_at": "2026-07-12"
+    },
+    {
       "id": "ci-self-hosted-runner",
       "title": "CI green again + self-hosted runner on serv (free minutes)",
       "lane": "done",
