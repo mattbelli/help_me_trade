@@ -417,12 +417,74 @@ function BoardLane({
   );
 }
 
+function ArchiveColumn({
+  cards,
+  open,
+  onToggle,
+  expandedCardId,
+  lastSeen,
+  seenCards,
+  onToggleCard,
+}: {
+  cards: BoardCard[];
+  open: boolean;
+  onToggle: () => void;
+  expandedCardId: string | null;
+  lastSeen: number | null;
+  seenCards: Record<string, number>;
+  onToggleCard: (cardId: string) => void;
+}) {
+  return (
+    <section className="flex w-full min-w-0 shrink-0 flex-col md:min-w-[240px] md:max-w-[340px] md:flex-1">
+      <header className="mb-3 px-1 opacity-80">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-1.5 text-[12px] font-medium tracking-tight text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform duration-200",
+              !open && "-rotate-90",
+            )}
+            aria-hidden
+          />
+          Archive
+          <span className="font-normal text-muted-foreground/55">
+            {" · "}
+            {cards.length}
+          </span>
+        </button>
+        <p className="px-1 text-[10px] text-muted-foreground/55">
+          older completed work
+        </p>
+      </header>
+      {open ? (
+        <div className="flex flex-col gap-2 px-1">
+          {cards.map((card) => (
+            <BoardCardView
+              key={card.id}
+              card={card}
+              muted
+              isNew={isCardNew(card.id, card.updated_at, lastSeen, seenCards)}
+              expanded={expandedCardId === card.id}
+              laneLabel="Archive"
+              onToggle={onToggleCard}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function BoardPage() {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const { lastSeen, seenCards, markAllSeen, markCardSeen } = useBoardLastSeen();
   const laneScrollRef = useRef<HTMLDivElement>(null);
 
@@ -641,6 +703,22 @@ export function BoardPage() {
                 onToggleCard={handleToggleCard}
               />
             ))}
+            {(() => {
+              const archived = sortCards(cardsByLane.get("done") ?? []).slice(
+                DONE_LANE_CAP,
+              );
+              return archived.length ? (
+                <ArchiveColumn
+                  cards={archived}
+                  open={archiveOpen}
+                  onToggle={() => setArchiveOpen((o) => !o)}
+                  expandedCardId={expandedCardId}
+                  lastSeen={lastSeen}
+                  seenCards={seenCards}
+                  onToggleCard={handleToggleCard}
+                />
+              ) : null;
+            })()}
           </div>
         </div>
       </main>
