@@ -348,11 +348,12 @@
     {
       "id": "fill-time-on-orders",
       "title": "Filled orders: real fill TIME (schema+sync round - trade_date is date-only)",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "normal",
-      "owner": "serv",
-      "notes": "Founder wants time on the orders widget Filled tab. Data gap: Alpaca transaction_time is truncated to .date() at import (imports/alpaca_activities.py); imported_at = batch time (misleading). Needs nullable fill-time column on trade_events + preserve transaction_time at import + backfill/re-sync + widget render. Schwab side: check what the trade sync carries. Touches sync paths - adversarial-adjacent review."
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR) - NO schema/sync/backfill needed. Recon found raw_json already preserves the full broker timestamp at import (Alpaca $.transaction_time, Schwab-API $.time); nothing was ever lost, only never re-extracted. list_trade_events already computed a Schwab-only virtual exec_time via json_extract($.time). Fix: ADD a separate display-only fill_time alias = COALESCE($.time, $.transaction_time) - kept SEPARATE from exec_time on purpose so the money-path avg-cost same-day ordering in db/analytics.py (which sorts on exec_time) is byte-unchanged; surfaced through _row_to_event -> _event_to_api(fill_time) -> orders-widget FilledTab (time rendered next to the date in the app-wide 12-hour ET idiom, '2:48p'). Manual JSON-import rows have no time-of-day -> fill_time null -> date only. New test proves both broker key shapes + null AND exec_time unchanged; 15 tests green, ruff + tsc clean. Pending in-browser check + deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "chart-perf-1fps-meltdown",

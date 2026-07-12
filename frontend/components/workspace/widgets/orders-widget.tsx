@@ -75,6 +75,23 @@ function formatDateTime(value: string | null | undefined): string {
   });
 }
 
+// App-wide 12-hour ET clock (matches notifications/filings/scans widgets).
+// Returns just the time-of-day, e.g. "2:48p"; "" when no fill timestamp.
+function formatFillClock(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d
+    .toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .replace(" AM", "a")
+    .replace(" PM", "p");
+}
+
 function FilledTab({
   events,
   loading,
@@ -113,12 +130,18 @@ function FilledTab({
           {events.map((e) => {
             const amount = parseMoney(e.amount);
             const sym = e.symbol;
+            const fillClock = formatFillClock(e.fill_time);
             return (
               <tr key={e.id} className={ROW}>
                 <td
                   className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}
                 >
                   {e.trade_date}
+                  {fillClock ? (
+                    <span className="ml-1.5 text-[var(--fg-faint)]">
+                      {fillClock}
+                    </span>
+                  ) : null}
                 </td>
                 <td className={cn(TD, "font-medium")}>
                   {sym ? (
