@@ -10,7 +10,25 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-11 NIGHT, latest) — Filings feed shipped (insiders + 13D + congress, all free)
+## ▶ START HERE (2026-07-12) — Notifications surface 4: card inbox + routing matrix shipped
+
+> Founder: options-flow noise drowned the notifications widget (last 7d: 232 rows, 133 flow) and
+> ambient kinds buzzed his phone. He wants the widget as a **front-page inbox with cards + a ding**
+> — "everything important without being so dense i get lost in it"; solo flow prints stay in for
+> now. **Shipped the routing matrix + widget redesign:** `INBOX_ONLY_KINDS` demotion at the
+> `notify()` chokepoint (rvol/earnings/report_ready/research_ready/scan_ready/idea_resolved never
+> push; warning/critical escapes; phone tier untouched: proposals, fills, risk/kill-switch,
+> price_alert, idea_triggered, budget-gated flow). Two gap notifications wired: **idea
+> triggered/resolved** (sweep collects transitions → cards; triggered pushes) and **nightly-scan
+> done** (`scan_ready`, inbox-only). Widget rewrite: correlated fires collapse into one card via
+> `group_key` (45-min chain window, "×5" count, expand → member list, expanding marks read),
+> category filters (trading/flow/alerts/research/system) instead of per-kind button soup, kind =
+> plain lowercase colored word (no pills), two-note **ding** on new arrivals w/ persisted mute
+> (`config.ding`). Store depth 50→100. Tests: routing demotion + transition collection green.
+> Remaining tier ideas (push-side batching for future 40+/hr books) live in
+> `flow_notif_mockup.html` — build at promotion, not now.
+
+## ▶ EARLIER (2026-07-11 NIGHT) — Filings feed shipped (insiders + 13D + congress, all free)
 
 > Founder wanted an Autopilot/Pelosi-tracker-style **feed** ("so I could take a look and decide") —
 > not tracking machinery. Probed sources live: EDGAR getcurrent = free + near-real-time; Finnhub

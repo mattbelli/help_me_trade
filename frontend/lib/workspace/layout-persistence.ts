@@ -35,6 +35,8 @@ export type WidgetInstanceConfig = {
       default (sweeps/blocks/pressure) — the nightly unusual-volume EOD batch is
       off until explicitly checked, so it never buries the live tape. */
   flowTypes?: FlowTypeKey[];
+  /** Notifications: ding on new card arrival. Undefined = on. */
+  ding?: boolean;
 };
 
 /** Options-flow event kinds, filterable from the widget's ⚙ menu. */

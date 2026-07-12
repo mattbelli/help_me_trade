@@ -795,14 +795,58 @@ def _idea_tracker_sleep_seconds() -> float:
     return _IDEA_TRACKER_INTERVAL_OFF_SECONDS
 
 
+async def _notify_idea_transition(t: dict) -> None:
+    """One card per idea status change. Triggered pushes to the phone (price
+    just entered a zone the founder may want to act on); resolutions are
+    inbox-only via INBOX_ONLY_KINDS."""
+    from signals.notify import notify
+
+    symbol = str(t.get("symbol") or "?")
+    status = str(t.get("status") or "")
+    zone = f"{t.get('entry_low')}–{t.get('entry_high')}"
+    if status == "triggered":
+        kind = "idea_triggered"
+        title = f"{symbol} idea triggered — entered zone {zone}"
+        body = f"stop {t.get('stop')} · origin {t.get('origin') or 'setup_scan'}"
+    else:
+        kind = "idea_resolved"
+        detail = {
+            "won": "target hit",
+            "lost": "stopped out",
+            "expired": "timed out",
+            "invalidated": "stop hit before entry",
+        }.get(status, status)
+        title = f"{symbol} idea {status} — {detail}"
+        body = f"zone {zone} · stop {t.get('stop')} · origin {t.get('origin') or 'setup_scan'}"
+    await notify(
+        kind=kind,
+        title=title,
+        body=body,
+        severity="info",
+        ref_type="idea_outcome",
+        ref_id=str(t.get("id")),
+        group_key=f"idea:{symbol}",
+        data={"symbol": symbol, "status": status},
+        push=(status == "triggered"),
+    )
+
+
 async def _idea_tracker_loop() -> None:
     """Shadow-track setup_scan idea outcomes against daily bars."""
     from research.idea_tracker import sweep_open_ideas
 
     async def _run_pass() -> None:
-        counts = await asyncio.to_thread(sweep_open_ideas)
+        transitions: list[dict] = []
+        counts = await asyncio.to_thread(
+            sweep_open_ideas, transitions=transitions
+        )
         if any(counts.get(k, 0) for k in counts if k != "examined"):
             logger.info("Idea tracker sweep: %s", counts)
+        for t in transitions:
+            try:
+                await _notify_idea_transition(t)
+            except Exception:
+                logger.exception("idea transition notify failed: %s", t)
         mark_alive("idea_tracker")
 
     try:
@@ -1983,10 +2027,26 @@ async def _setup_scan_nightly_once() -> None:
     for d in [d for d in _setup_scan_ran_dates if d < today_et - timedelta(days=1)]:
         _setup_scan_ran_dates.discard(d)
     ideas = result.get("ideas") if isinstance(result, dict) else None
-    logger.info(
-        "Nightly setup scan done: %d idea(s)",
-        len(ideas) if isinstance(ideas, list) else 0,
-    )
+    n_ideas = len(ideas) if isinstance(ideas, list) else 0
+    logger.info("Nightly setup scan done: %d idea(s)", n_ideas)
+    artifact_id = result.get("artifact_id") if isinstance(result, dict) else None
+    try:
+        from signals.notify import notify
+
+        await notify(
+            kind="scan_ready",
+            title=f"Nightly setup scan done — {n_ideas} idea(s) registered",
+            body=f"{today_et.isoformat()} · tracked in idea outcomes",
+            severity="info",
+            ref_type="research",
+            ref_id=str(artifact_id) if artifact_id is not None else None,
+            action_url=(
+                f"/research?id={artifact_id}" if artifact_id is not None else None
+            ),
+            push=False,
+        )
+    except Exception:
+        logger.exception("scan_ready notify failed")
 
 
 _background_jobs_registered = False

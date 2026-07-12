@@ -11,7 +11,7 @@ import {
   type ServerNotification,
 } from "@/lib/api";
 
-const MAX_NOTIFICATIONS = 50;
+const MAX_NOTIFICATIONS = 100;
 
 export type WorkspaceNotification = {
   id: string;
@@ -22,6 +22,7 @@ export type WorkspaceNotification = {
   action_url?: string | null;
   ref_type?: string | null;
   ref_id?: string | null;
+  group_key?: string | null;
   data?: Record<string, unknown> | null;
   created_at: string;
   read: boolean;
@@ -57,6 +58,7 @@ export function mapServerNotification(
     action_url: row.action_url,
     ref_type: row.ref_type,
     ref_id: row.ref_id,
+    group_key: row.group_key,
     data: row.data,
     created_at: row.created_at,
     read: row.read,

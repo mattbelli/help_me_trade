@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-11",
+  "updated_at": "2026-07-12",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "notifications-surface4",
+      "title": "Notifications card inbox + routing matrix: flow batching, category filters, ding, ambient kinds no longer buzz the phone",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder 2026-07-12: widget = front-page inbox, 'everything important without being so dense i get lost in it'; solo flow prints stay in for now. Shipped: INBOX_ONLY_KINDS demotion at the notify() chokepoint (rvol/earnings/report_ready/research_ready/scan_ready/idea_resolved store+card only, never push; warning/critical escapes), idea triggered (pushes) / resolved (card) notifications from the tracker sweep, nightly-scan-done card, widget rewrite (group_key batching x-N cards w/ 45-min chain window, trading/flow/alerts/research/system filters, plain-word kinds - pill chip removed, two-note ding w/ persisted mute). Pending in-browser check + deploy. Push-side batching deferred until a 40+/hr book exists."
+    },
     {
       "id": "filings-feed",
       "title": "Filings feed widget: insider Form 4 buys + 13D stakes + congress trades (free primary sources)",

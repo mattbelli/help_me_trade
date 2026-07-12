@@ -603,3 +603,31 @@ def test_sweep_stamps_last_price(idea_db) -> None:
     with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
         sweep_open_ideas(now=datetime(2026, 1, 7, 18, 0, 0), db_path=idea_db)
     assert list_open(db_path=idea_db)[0]["updated_at"] == before
+
+
+def test_sweep_collects_transitions(idea_db) -> None:
+    """Status changes surface through the transitions out-param so the caller
+    can notify; quiet sweeps collect nothing."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")
+    start = date(2026, 1, 6)
+
+    quiet = [_bar(start, low=106, high=108)]
+    transitions: list[dict] = []
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=quiet):
+        sweep_open_ideas(
+            now=datetime(2026, 1, 7, 12, 0, 0), db_path=idea_db,
+            transitions=transitions,
+        )
+    assert transitions == []
+
+    touch = quiet + [_bar(start + timedelta(days=1), low=104, high=106)]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=touch):
+        sweep_open_ideas(
+            now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db,
+            transitions=transitions,
+        )
+    assert len(transitions) == 1
+    t = transitions[0]
+    assert t["status"] == "triggered"
+    assert t["symbol"] == "AAPL"
+    assert t["entry_low"] is not None and t["stop"] is not None

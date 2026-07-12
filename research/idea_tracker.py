@@ -411,8 +411,13 @@ def sweep_open_ideas(
     now: datetime | None = None,
     *,
     db_path: Path | None = None,
+    transitions: list[dict[str, Any]] | None = None,
 ) -> dict[str, int]:
-    """Advance open idea outcomes against daily bars. Fail-soft per row."""
+    """Advance open idea outcomes against daily bars. Fail-soft per row.
+
+    When ``transitions`` is passed, real status changes (triggered/won/lost/
+    expired/invalidated — not excursion updates or data_gap parking) are
+    appended to it so the caller can notify."""
     now_dt = now or datetime.now(UTC)
     now_date = now_dt.date()
     db_kwargs = {} if db_path is None else {"db_path": db_path}
@@ -448,5 +453,17 @@ def sweep_open_ideas(
             counts["excursion_updates"] += 1
         elif result in counts:
             counts[result] += 1
+            if transitions is not None and result != "data_gap":
+                transitions.append(
+                    {
+                        "id": row.get("id"),
+                        "symbol": row.get("symbol"),
+                        "status": result,
+                        "origin": row.get("origin"),
+                        "entry_low": row.get("entry_low"),
+                        "entry_high": row.get("entry_high"),
+                        "stop": row.get("stop"),
+                    }
+                )
 
     return counts
