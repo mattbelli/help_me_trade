@@ -33,6 +33,8 @@ OPRA_WS_URL = "wss://stream.data.alpaca.markets/v1beta1/opra"
 SUB_REFRESH_SECONDS = 300
 PRINT_FLUSH_SECONDS = 1.0
 QUOTE_SUB_DEBOUNCE_SECONDS = 5.0
+HOUSEKEEPING_TICK_SECONDS = 0.05
+LAG_SAMPLE_EVERY = 16
 
 RECONNECT_BASE_SEC = 5.0
 RECONNECT_MAX_SEC = 120.0
@@ -51,7 +53,10 @@ class ConnectionLimitExceeded(Exception):
 def _unpack_frame(raw: bytes | str) -> list[dict[str, Any]]:
     if isinstance(raw, str):
         return []
-    data = msgpack.unpackb(raw, timestamp=3)
+    # timestamp=2 keeps timestamps as int epoch-nanoseconds — no per-message
+    # datetime objects on the hot path (quotes need only epoch-ms; ISO strings
+    # are built lazily for the few prints that survive the meta gate).
+    data = msgpack.unpackb(raw, timestamp=2)
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     if isinstance(data, dict):
@@ -60,7 +65,9 @@ def _unpack_frame(raw: bytes | str) -> list[dict[str, Any]]:
 
 
 def _timestamp_to_iso(t: Any) -> str:
-    if isinstance(t, datetime):
+    if isinstance(t, int):
+        dt = datetime.fromtimestamp(t / 1_000_000_000, tz=timezone.utc)
+    elif isinstance(t, datetime):
         dt = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
     elif isinstance(t, msgpack.ext.Timestamp):
         dt = datetime.fromtimestamp(t.to_unix(), tz=timezone.utc)
@@ -73,6 +80,8 @@ def _timestamp_to_iso(t: Any) -> str:
 
 
 def _timestamp_to_ms(t: Any) -> int | None:
+    if isinstance(t, int):
+        return t // 1_000_000
     if isinstance(t, datetime):
         dt = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
         return int(dt.timestamp() * 1000)
@@ -134,6 +143,9 @@ class OptionsFlowStream:
         self.reconnects = 0
         self.collected_prints: deque[dict] = deque(maxlen=5000)
 
+        self._trade_seq = 0
+        self._lag_samples_ms: deque[int] = deque(maxlen=256)
+
     def stop(self) -> None:
         self._stopped = True
         ws = self._ws
@@ -185,10 +197,11 @@ class OptionsFlowStream:
 
     async def run(self) -> None:
         backoff = RECONNECT_BASE_SEC
-        healthy_since: float | None = None
 
         while not self._stopped:
             ws: Any | None = None
+            hk_task: asyncio.Task | None = None
+            healthy_since: float | None = None
             try:
                 ws = await self._connect_factory()
                 self._ws = ws
@@ -197,25 +210,15 @@ class OptionsFlowStream:
                 self._last_sub_refresh_mono = 0.0
                 await self._refresh_subscriptions(ws, force=True)
 
+                # Housekeeping (flush/refresh/stats) runs on its own tick so the
+                # recv loop pays no per-message wait_for task/timer overhead —
+                # that plumbing alone was a large share of quote-CPU at
+                # ~1,600 msg/s. stop() closes the socket, which unblocks recv.
+                hk_task = asyncio.create_task(self._housekeeping_loop(ws))
+
                 while not self._stopped:
-                    now_mono = time.monotonic()
-                    if (
-                        healthy_since is not None
-                        and now_mono - healthy_since >= RECONNECT_HEALTHY_RESET_SEC
-                    ):
-                        backoff = RECONNECT_BASE_SEC
-
-                    await self._maybe_refresh_subscriptions(ws, now_mono)
-                    await self._maybe_flush_prints(now_mono)
-                    await self._maybe_apply_quote_subs(ws, now_mono)
-                    self._maybe_log_stats(now_mono)
-
-                    try:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        continue
-
-                    await self._handle_frame(ws, raw)
+                    raw = await ws.recv()
+                    self._handle_frame(raw)
 
             except ConnectionLimitExceeded:
                 now_mono = time.monotonic()
@@ -233,6 +236,12 @@ class OptionsFlowStream:
             except Exception as exc:
                 if not self._stopped:
                     self.reconnects += 1
+                    if (
+                        healthy_since is not None
+                        and time.monotonic() - healthy_since
+                        >= RECONNECT_HEALTHY_RESET_SEC
+                    ):
+                        backoff = RECONNECT_BASE_SEC
                     logger.warning(
                         "options_flow stream error (%s); reconnecting in %.0fs",
                         exc,
@@ -241,6 +250,12 @@ class OptionsFlowStream:
                     await self._sleep(backoff)
                     backoff = min(backoff * 2, RECONNECT_MAX_SEC)
             finally:
+                if hk_task is not None:
+                    hk_task.cancel()
+                    try:
+                        await hk_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
                 self._ws = None
                 # Server-side subscriptions die with the connection; forget them
                 # or the next connect's diff computes "nothing to add" and the
@@ -261,6 +276,29 @@ class OptionsFlowStream:
 
     async def _sleep(self, seconds: float) -> None:
         await asyncio.sleep(seconds)
+
+    async def _housekeeping_loop(self, ws: Any) -> None:
+        """Periodic flush/refresh/stats beside the recv loop; one connection each.
+
+        A failure here (e.g. subscribe on a dying socket) recycles the connection
+        by closing it — recv then raises and run()'s reconnect path takes over.
+        """
+        try:
+            while not self._stopped:
+                await asyncio.sleep(HOUSEKEEPING_TICK_SECONDS)
+                now_mono = time.monotonic()
+                await self._maybe_refresh_subscriptions(ws, now_mono)
+                await self._maybe_flush_prints(now_mono)
+                await self._maybe_apply_quote_subs(ws, now_mono)
+                self._maybe_log_stats(now_mono)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "options_flow stream: housekeeping failed; recycling connection",
+                exc_info=True,
+            )
+            await self._close_ws(ws)
 
     async def _handshake(self, ws: Any) -> None:
         auth_sent = False
@@ -432,9 +470,17 @@ class OptionsFlowStream:
         ):
             return
         self._last_stats_log_mono = now_mono
+        lag_p50: int | str = "-"
+        lag_p95: int | str = "-"
+        if self._lag_samples_ms:
+            ordered = sorted(self._lag_samples_ms)
+            lag_p50 = ordered[len(ordered) // 2]
+            lag_p95 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+            self._lag_samples_ms.clear()
         logger.info(
             "options_flow stream stats: msgs=%s prints=%s skipped_no_meta=%s "
-            "reconnects=%s trade_subs=%s quote_subs=%s collected=%s",
+            "reconnects=%s trade_subs=%s quote_subs=%s collected=%s "
+            "lag_p50_ms=%s lag_p95_ms=%s",
             self.msgs,
             self.prints,
             self.skipped_no_meta,
@@ -442,19 +488,20 @@ class OptionsFlowStream:
             len(self._subscribed_trades),
             len(self._subscribed_quotes),
             len(self.collected_prints),
+            lag_p50,
+            lag_p95,
         )
 
-    async def _handle_frame(self, ws: Any, raw: bytes | str) -> None:
-        del ws
+    def _handle_frame(self, raw: bytes | str) -> None:
         for item in _unpack_frame(raw):
             self.msgs += 1
             msg_type = item.get("T")
             if msg_type == "t":
-                await self._on_trade(item)
+                self._on_trade(item)
             elif msg_type == "q":
                 self._on_quote(item)
 
-    async def _on_trade(self, item: dict[str, Any]) -> None:
+    def _on_trade(self, item: dict[str, Any]) -> None:
         occ = str(item.get("S") or "").strip().upper()
         if not occ:
             return
@@ -464,6 +511,14 @@ class OptionsFlowStream:
             self._hot_print_ms[occ] = ts_ms
             if occ not in self._subscribed_quotes:
                 self._pending_quote_adds.add(occ)
+            self._trade_seq += 1
+            if self._trade_seq % LAG_SAMPLE_EVERY == 0:
+                self._lag_samples_ms.append(int(time.time() * 1000) - ts_ms)
+
+        meta = self._meta_for(occ)
+        if meta is None:
+            self.skipped_no_meta += 1
+            return
 
         cond = item.get("c")
         conditions = [str(cond)] if cond else []
@@ -474,12 +529,6 @@ class OptionsFlowStream:
             "x": item.get("x") or "",
             "c": conditions,
         }
-        meta = self._meta_for(occ)
-        if meta is None:
-            self.skipped_no_meta += 1
-            logger.debug("options_flow stream: no meta for %s; skipping print", occ)
-            return
-
         normalized = normalize_print(raw, meta=meta)
         if normalized is None:
             return

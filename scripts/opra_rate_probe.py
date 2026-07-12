@@ -9,6 +9,10 @@ Branch decision (FLOW_INTELLIGENCE_DESIGN §build): sustained p95 lag < 2s and
 tolerable CPU → branch W (wildcard). Otherwise branch C (capped active set).
 
 Run at ~09:31 ET: uv run python scripts/opra_rate_probe.py [--secs 90]
+    [--capture research/options_flow/tape_YYYY-MM-DD_open.mpk]
+--capture dumps every raw frame + receive timestamp to a file so perf work can
+replay real market-hours tape offline (scripts/opra_replay_bench.py) instead of
+waiting for the next open. ~90s of full tape ≈ tens of MB; keep out of git.
 NOTE: 1 conn/account — stop the prod stream first (kill hmt-backend MainPID and
 start this within its ~5s boot window, or use the retry: this script retries 406
 for 45s just like opra_wildcard_probe.py).
@@ -58,7 +62,15 @@ async def _auth_with_retry(deadline_s: float = 45.0):
         await asyncio.sleep(0.5)
 
 
-async def main(secs: int) -> None:
+async def main(secs: int, capture: str | None) -> None:
+    cap_file = None
+    cap_packer = None
+    if capture:
+        cap_path = Path(capture)
+        cap_path.parent.mkdir(parents=True, exist_ok=True)
+        cap_file = cap_path.open("wb")
+        cap_packer = msgpack.Packer(use_bin_type=True)
+
     ws = await _auth_with_retry()
     async with ws:
         await ws.send(msgpack.packb({"action": "subscribe", "trades": ["*"]}))
@@ -82,6 +94,8 @@ async def main(secs: int) -> None:
             recv_wall = time.time()
             if not isinstance(raw, bytes):
                 continue
+            if cap_file is not None:
+                cap_file.write(cap_packer.pack((int(recv_wall * 1e9), raw)))
             msgs = _unpack(raw)
             for m in msgs:
                 n_msgs += 1
@@ -116,8 +130,15 @@ async def main(secs: int) -> None:
         )
         print("verdict:", verdict)
 
+    if cap_file is not None:
+        cap_file.close()
+        size_mb = Path(capture).stat().st_size / 1e6
+        print(f"capture: {capture} ({size_mb:.1f} MB)")
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--secs", type=int, default=90)
-    asyncio.run(main(ap.parse_args().secs))
+    ap.add_argument("--capture", default=None, help="dump raw frames for offline replay")
+    args = ap.parse_args()
+    asyncio.run(main(args.secs, args.capture))
