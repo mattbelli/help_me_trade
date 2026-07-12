@@ -38,6 +38,14 @@ SECRET_KEYS = frozenset(
 load_dotenv(ROOT / ".env")
 
 _settings_lock = threading.Lock()
+# Serializes apply_settings_patch's whole read-modify-write so two concurrent
+# PUTs can't lost-update a breaker-armed kill_switch_active/entries_halted back
+# to False. Deliberately DISTINCT from _settings_lock (which is held only
+# briefly by load/save): a patch can run a slow AI model-list probe while it
+# holds this lock, and that must never block the fast is_kill_switch_active /
+# is_entries_halted readers (they gate every order) — they only touch
+# _settings_lock.
+_patch_lock = threading.Lock()
 _settings_cache: dict[str, Any] | None = None
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -294,7 +302,17 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     Route-level auth guards trading.*, kill_switch_active, and entries_halted;
     this function remains callable internally (e.g. the risk-engine hard-trip
     arming entries_halted).
+
+    The whole read-modify-write runs under _patch_lock so a concurrent PUT
+    can't lost-update a breaker-armed flag mid-merge. _patch_lock is separate
+    from _settings_lock, so a slow AI model-list probe in here never stalls the
+    fast kill-switch/entries-halted readers.
     """
+    with _patch_lock:
+        return _apply_settings_patch_locked(patch)
+
+
+def _apply_settings_patch_locked(patch: dict[str, Any]) -> dict[str, Any]:
     current = load_settings()
 
     # Only persist user-editable fields from file (not env-only fallbacks)

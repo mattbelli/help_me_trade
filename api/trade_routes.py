@@ -55,6 +55,9 @@ def _event_to_api(event: dict[str, Any]) -> dict[str, Any]:
         "amount": event["amount"],
         "description": event["description"],
         "imported_at": event["imported_at"],
+        # Real broker fill timestamp when the raw row carries one (Alpaca
+        # transaction_time / Schwab time); None for date-only import rows.
+        "fill_time": event.get("fill_time"),
     }
 
 

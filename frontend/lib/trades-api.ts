@@ -22,6 +22,9 @@ export type TradeEvent = {
   amount: string;
   description: string;
   imported_at: string;
+  /** Real broker fill timestamp (ISO) when the row carries one; null for
+   * date-only import rows. */
+  fill_time?: string | null;
 };
 
 export type TradeSummary = {

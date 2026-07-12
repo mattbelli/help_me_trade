@@ -40,6 +40,7 @@ import {
   type ResearchRecipe,
 } from "@/lib/research";
 import { useResearchJobFeed } from "@/lib/use-research-job-feed";
+import { TERMINAL_COLLAPSED_HEIGHT } from "@/lib/workspace/use-terminal-store";
 
 const PHASE_LABELS: Record<string, string> = {
   started: "Starting research run",
@@ -212,7 +213,12 @@ export function ResearchPage() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto w-full max-w-[1920px] space-y-6 px-4 py-5 sm:px-6 sm:py-6">
+        <div
+          className="mx-auto w-full max-w-[1920px] space-y-6 px-4 py-5 sm:px-6 sm:py-6"
+          // Reserve the collapsed terminal strip's height so the last content
+          // isn't hidden under the fixed viewport overlay (workspace does this).
+          style={{ paddingBottom: `calc(1.5rem + ${TERMINAL_COLLAPSED_HEIGHT}px)` }}
+        >
           {error && (
             <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}

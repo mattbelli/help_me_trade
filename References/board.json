@@ -348,11 +348,12 @@
     {
       "id": "fill-time-on-orders",
       "title": "Filled orders: real fill TIME (schema+sync round - trade_date is date-only)",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "normal",
-      "owner": "serv",
-      "notes": "Founder wants time on the orders widget Filled tab. Data gap: Alpaca transaction_time is truncated to .date() at import (imports/alpaca_activities.py); imported_at = batch time (misleading). Needs nullable fill-time column on trade_events + preserve transaction_time at import + backfill/re-sync + widget render. Schwab side: check what the trade sync carries. Touches sync paths - adversarial-adjacent review."
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR) - NO schema/sync/backfill needed. Recon found raw_json already preserves the full broker timestamp at import (Alpaca $.transaction_time, Schwab-API $.time); nothing was ever lost, only never re-extracted. list_trade_events already computed a Schwab-only virtual exec_time via json_extract($.time). Fix: ADD a separate display-only fill_time alias = COALESCE($.time, $.transaction_time) - kept SEPARATE from exec_time on purpose so the money-path avg-cost same-day ordering in db/analytics.py (which sorts on exec_time) is byte-unchanged; surfaced through _row_to_event -> _event_to_api(fill_time) -> orders-widget FilledTab (time rendered next to the date in the app-wide 12-hour ET idiom, '2:48p'). Manual JSON-import rows have no time-of-day -> fill_time null -> date only. New test proves both broker key shapes + null AND exec_time unchanged; 15 tests green, ruff + tsc clean. Pending in-browser check + deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "chart-perf-1fps-meltdown",
@@ -447,20 +448,22 @@
     {
       "id": "strip-padding-fullbleed",
       "title": "Board/research pages: reserve bottom padding for the terminal strip (40px overlay on scroll end)",
-      "lane": "next",
+      "lane": "in_progress",
       "type": "ui",
       "priority": "low",
-      "owner": "serv",
-      "notes": "Cosmetic follow-up from the chat-everywhere round: workspace reserves paddingBottom=collapsedHeight, /board and /research do not - last 40px of content sits under the fixed strip."
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). /board (board-page.tsx) + /research (research-page.tsx) scroll content now set style paddingBottom=calc(1.5rem + TERMINAL_COLLAPSED_HEIGHT[40px]) so the last cards/content clear the fixed terminal strip overlay - mirrors workspace-page.tsx. tsc clean. Pending in-browser check + frontend deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "settings-rmw-race",
       "title": "Settings apply_settings_patch read-modify-write race can lost-update kill_switch/entries_halted",
-      "lane": "backlog",
-      "type": "ops",
+      "lane": "in_progress",
+      "type": "safety",
       "priority": "normal",
-      "owner": "serv",
-      "notes": "Adversarial finding (HALT review, pre-existing): no lock spans the full load->merge->save sequence, so a concurrent PUT can clobber a breaker-armed flag back to False in a narrow window. Fix = hold _settings_lock across the whole RMW. More exposed now that the breaker arms HALT (frequent) vs manual kill switch (rare)."
+      "owner": "agent",
+      "notes": "FIXED 2026-07-12 (branch worktree-board-knockout, draft PR). Root: apply_settings_patch did load_settings()(lock/unlock) -> re-read on-disk -> merge -> save_settings()(lock/unlock) with the lock RELEASED between read and write, so two concurrent PUTs last-writer-win and one could lost-update a breaker-armed kill_switch_active/entries_halted back to False. Fix: whole RMW now under a NEW _patch_lock (via _apply_settings_patch_locked), kept SEPARATE from _settings_lock (stays a plain brief Lock). Adversarial review (Sonnet) rejected the naive 'widen _settings_lock to RLock' first pass: an ai patch runs a synchronous model-list HTTP probe (maybe_upgrade_default_llm, ~6s x several endpoints) that under the reader lock would stall is_kill_switch_active/is_entries_halted (gate every order) for seconds; _patch_lock only serializes patch-vs-patch, never the fast readers. Deterministic regression test proven to FAIL on old code + pass on fix; 100+ settings/safety/auth/research/strategy tests green, ruff clean. Pending backend deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "money-path-highs",
@@ -600,11 +603,12 @@
     {
       "id": "orphan-repair-surface",
       "title": "Orphan-fill repair surface: view/clear quarantined fills + fix dead executions deep-link",
-      "lane": "backlog",
+      "lane": "in_progress",
       "type": "feature",
       "priority": "normal",
-      "owner": "serv",
-      "notes": "Follow-up from safety-M1 adversarial review nits: fill_attribution_orphans rows sit \"notified\" forever with no in-app surface (no repair flow writes status=repaired), and the critical push deep-links to /executions/{id} which has no frontend route (404). Small round: an orphans view (settings or notifications) + mark-repaired action + fix or drop the link. Also: earnings_alerts_sent now grows ~1 row/symbol/day from RVOL dedup \u2014 add pruning here."
+      "owner": "agent",
+      "notes": "SHIPPED 2026-07-12 (branch worktree-board-knockout, draft PR). (1) db/fill_attribution.py: list_orphans(status?) + mark_orphan_repaired (flip open/notified->repaired, idempotent, bookkeeping-only - never touches broker/execution/managed_positions); sweep-suppression invariant preserved (orphan_exists_for_execution matches ANY status, so a repaired row still blocks re-quarantine - tested). (2) NEW api/fill_orphan_routes.py: GET /api/fill-orphans (+?status=) + POST /api/fill-orphans/{id}/repair behind verify_mutation_token (fail-closed); mounted in main.py. (3) Settings -> 'Unmanaged fills' panel (settings-orphans-panel.tsx + fill-orphans-api.ts): lists orphans, per-row 'Mark repaired', plain colored status words (no pills), inline save -> Done button. (4) Dead deep-link DROPPED: the critical orphan push set action_url=/executions/{id} (no such route; silent no-op in every consumer) -> None; repair now lives in Settings. (5) earnings_alerts_sent pruning: prune_earnings_alerts_sent(keep_days=90) wired into the existing nightly _db_retention_once (no new job). 39 backend tests green (DB transitions + idempotency + sweep invariant + API list/repair/auth 401/404 + prune), ruff + tsc clean. Adversarial review + pending in-browser check + deploy.",
+      "updated_at": "2026-07-12"
     },
     {
       "id": "terminal-float-mode",

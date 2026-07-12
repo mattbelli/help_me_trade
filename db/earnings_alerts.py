@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from db.base import DEFAULT_DB_PATH
@@ -41,3 +42,21 @@ def mark_sent(key: str, *, db_path: Path | None = None) -> None:
             (key, _now()),
         )
         conn.commit()
+
+
+def prune_earnings_alerts_sent(
+    *, keep_days: int = 90, db_path: Path | None = None
+) -> int:
+    """Drop dedup keys older than ``keep_days`` — the table grows ~1 row per
+    symbol/day forever otherwise (RVOL alert dedup). Keys are only needed while
+    their symbol/date window is live, so old rows are pure dead weight. Returns
+    the number of rows deleted."""
+    resolved = db_path if db_path is not None else DEFAULT_DB_PATH
+    init_earnings_alert_tables(resolved)
+    cutoff = (datetime.now(UTC) - timedelta(days=keep_days)).isoformat()
+    with _connect(resolved) as conn:
+        cur = conn.execute(
+            "DELETE FROM earnings_alerts_sent WHERE created_at < ?", (cutoff,)
+        )
+        conn.commit()
+        return cur.rowcount

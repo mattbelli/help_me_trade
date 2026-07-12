@@ -316,7 +316,10 @@ async def flush_fill_attribution_orphans(*, db_path: Path = DEFAULT_DB_PATH) -> 
             strategy_id=orphan.get("strategy_id"),
             ref_type="execution",
             ref_id=execution_id,
-            action_url=f"/executions/{execution_id}" if execution_id else None,
+            # No /executions/{id} route exists — repair lives in Settings →
+            # Orphans (GET /api/fill-orphans + the repair action). Dropping the
+            # dead link rather than shipping a pointer that goes nowhere.
+            action_url=None,
             data={
                 "type": "attribution_orphan",
                 "orphan_id": orphan.get("id"),

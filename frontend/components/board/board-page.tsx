@@ -19,6 +19,7 @@ import {
   useBoardLastSeen,
 } from "@/lib/board-last-seen";
 import { relativeTime } from "@/lib/relative-time";
+import { TERMINAL_COLLAPSED_HEIGHT } from "@/lib/workspace/use-terminal-store";
 import { cn } from "@/lib/utils";
 
 function typeChipClass(type: BoardCard["type"]): string {
@@ -608,7 +609,12 @@ export function BoardPage() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto w-full max-w-[1920px] px-4 py-5 sm:px-6 sm:py-6">
+        <div
+          className="mx-auto w-full max-w-[1920px] px-4 py-5 sm:px-6 sm:py-6"
+          // Reserve the collapsed terminal strip's height so the last cards
+          // aren't hidden under the fixed viewport overlay (workspace does this).
+          style={{ paddingBottom: `calc(1.5rem + ${TERMINAL_COLLAPSED_HEIGHT}px)` }}
+        >
           {error ? (
             <p className="mb-4 rounded-lg border border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-red)_8%,transparent)] px-4 py-3 text-sm text-[var(--c-red)]">
               {error}
