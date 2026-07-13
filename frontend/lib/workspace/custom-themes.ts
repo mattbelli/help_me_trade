@@ -178,11 +178,39 @@ function varBlock(vars: Record<string, string>): string {
     .join("");
 }
 
+/** a×pct + b×(1-pct), hex out; null when either side won't parse. */
+function mixHex(a: string, b: string, aPct: number): string | null {
+  const pa = parseColorToRgb(a);
+  const pb = parseColorToRgb(b);
+  if (!pa || !pb) return null;
+  return `#${pa
+    .map((c, i) => Math.round(c * aPct + pb[i] * (1 - aPct)))
+    .map((c) => Math.min(255, Math.max(0, c)).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+// Custom themes saved before a knob existed carry no value for it, so it
+// would fall back to :root's carbon color — off-palette on the custom theme
+// (the founder's "midnight oil" showed carbon-teal selections). Derive the
+// missing selection surface from the theme's OWN accent over its widget
+// surface (~12%, matching the built-in defaults). The editor captures
+// computed vars, so the derived value shows up in the Selection knob and
+// bakes into the theme on its next save.
+function withDerivedVars(vars: Record<string, string>): Record<string, string> {
+  if (vars["--surface-selected"]) return vars;
+  const derived = mixHex(
+    vars["--text-accent"] ?? "",
+    vars["--surface-widget"] ?? "",
+    0.12,
+  );
+  return derived ? { ...vars, "--surface-selected": derived } : vars;
+}
+
 export function buildCustomThemeCss(themes: CustomTheme[]): string {
   return themes
     .map(
       (t) =>
-        `[data-theme="${t.id}"]{color-scheme:${t.colorScheme};${varBlock(t.vars)}}`,
+        `[data-theme="${t.id}"]{color-scheme:${t.colorScheme};${varBlock(withDerivedVars(t.vars))}}`,
     )
     .join("\n");
 }
