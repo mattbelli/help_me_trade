@@ -90,6 +90,12 @@ const CHROME_VARS: string[] = [
   "--grain-opacity",
 ];
 
+// The film-grain noise tile (same SVG the built-in Ember theme uses) — set as
+// --grain whenever the editor's grain slider goes above 0, so ANY theme can
+// opt into texture, not just clones of Ember.
+export const GRAIN_URL =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.33 0.33 0.33 0 0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23g)'/%3E%3C/svg%3E\")";
+
 const KNOB_VARS: string[] = THEME_SECTIONS.flatMap((s) =>
   s.knobs.map((k) => k.var),
 );
@@ -100,7 +106,8 @@ export function isHexColor(value: string): boolean {
 }
 
 // Every var the inline preview may touch — cleared verbatim on cancel/save.
-const PREVIEW_VARS: string[] = KNOB_VARS;
+// Grain rides along so the editor's texture slider previews live.
+const PREVIEW_VARS: string[] = [...KNOB_VARS, "--grain", "--grain-opacity"];
 
 // ── Known theme vars (captured verbatim at clone time) ───────────────────────
 export const KNOWN_THEME_VARS: string[] = [...KNOB_VARS, ...CHROME_VARS];
@@ -169,6 +176,25 @@ export function captureThemeVars(): Record<string, string> {
     if (raw) out[name] = raw;
   }
   return out;
+}
+
+/** Resolve a theme's vars WITHOUT visibly switching to it: flip <html>'s
+ *  data-theme synchronously, read computed vars, flip back — no frame renders
+ *  in between, and the :root + [data-theme] cascade resolves exactly as if the
+ *  theme were active (a probe div would wrongly inherit the ACTIVE theme's
+ *  values for vars the target doesn't declare). Powers "edit" on built-ins —
+ *  seeds a clone from the target's own palette. */
+export function captureThemeVarsFor(themeId: string): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const html = document.documentElement;
+  const prev = html.getAttribute("data-theme");
+  html.setAttribute("data-theme", themeId);
+  try {
+    return captureThemeVars();
+  } finally {
+    if (prev == null) html.removeAttribute("data-theme");
+    else html.setAttribute("data-theme", prev);
+  }
 }
 
 /** The CSS var declarations for one theme's var map. */

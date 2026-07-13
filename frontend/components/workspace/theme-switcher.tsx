@@ -70,6 +70,7 @@ export function ThemeSwitcher({ className }: { className?: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
+  const [cloneBaseId, setCloneBaseId] = useState<string | undefined>(undefined);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 
   const active = mounted ? (theme ?? "carbon") : "carbon";
@@ -130,12 +131,23 @@ export function ThemeSwitcher({ className }: { className?: string }) {
 
   function openClone() {
     setEditingId(undefined);
+    setCloneBaseId(undefined);
     setMenuOpen(false);
     setEditorOpen(true);
   }
 
   function openEdit(id: string) {
     setEditingId(id);
+    setCloneBaseId(undefined);
+    setMenuOpen(false);
+    setEditorOpen(true);
+  }
+
+  // "Edit" on a BUILT-IN: the factory themes stay intact — the editor opens
+  // seeded from that theme's palette and Save creates a custom copy.
+  function openEditBuiltin(id: string) {
+    setEditingId(undefined);
+    setCloneBaseId(id);
     setMenuOpen(false);
     setEditorOpen(true);
   }
@@ -199,6 +211,17 @@ export function ThemeSwitcher({ className }: { className?: string }) {
             </button>
           )}
 
+          {!entry.custom ? (
+            <button
+              type="button"
+              aria-label={`Edit ${entry.label} (as a copy)`}
+              title="Edit (saves as your copy)"
+              onClick={() => openEditBuiltin(entry.id)}
+              className="rounded p-0.5 text-[var(--fg-dim)] opacity-0 transition-opacity group-hover/theme:opacity-100 hover:bg-[var(--bg-hover)] hover:text-foreground"
+            >
+              <PencilIcon className="size-3.5" />
+            </button>
+          ) : null}
           {entry.custom ? (
             confirmingDelete === entry.id ? (
               <>
@@ -317,6 +340,7 @@ export function ThemeSwitcher({ className }: { className?: string }) {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         editingId={editingId}
+        cloneBaseId={cloneBaseId}
       />
     </>
   );
