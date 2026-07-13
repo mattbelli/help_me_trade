@@ -15,6 +15,7 @@ import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
 import { Bell, BellOff, Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, SlidersHorizontal, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
+import { fetchWatchlists } from "@/lib/api";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -432,6 +433,34 @@ function useWidgetHeaderMeta(widgetType: string): string | undefined {
   return undefined;
 }
 
+// Watchlist widgets title themselves with the LIST's name ("Main"), not the
+// generic widget label. Mirrors the list selector's resolution (explicit id,
+// else the server-side active list); falls back to the registry title until
+// the fetch lands or when the id is unknown.
+function useWatchlistTitle(
+  widgetType: string,
+  watchlistId: string | undefined,
+): string | null {
+  const [name, setName] = useState<string | null>(null);
+  useEffect(() => {
+    if (widgetType !== "watchlist") return;
+    let cancelled = false;
+    fetchWatchlists()
+      .then((s) => {
+        if (cancelled) return;
+        const id = watchlistId ?? s.active_id;
+        setName(s.lists.find((l) => l.id === id)?.name ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setName(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [widgetType, watchlistId]);
+  return widgetType === "watchlist" ? name : null;
+}
+
 function WidgetRemoveButton({
   title,
   onRemove,
@@ -726,6 +755,7 @@ function WidgetHeader({
 }) {
   const def = getWidgetDefinition(widgetType);
   const meta = useWidgetHeaderMeta(widgetType);
+  const watchlistTitle = useWatchlistTitle(widgetType, watchlistId);
   const isChart = widgetType === "chart";
 
   return (
@@ -750,7 +780,7 @@ function WidgetHeader({
           className="min-w-0 truncate pb-[0.3em] -mb-[0.3em] text-[length:var(--fs-widget-title)] font-semibold text-[var(--fg-widget-title)] [text-box:trim-both_cap_alphabetic]"
           style={{ fontFamily: "var(--font-display)" }}
         >
-          {def?.title ?? widgetType}
+          {watchlistTitle ?? def?.title ?? widgetType}
         </span>
       )}
       {meta ? (
