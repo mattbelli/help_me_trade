@@ -517,12 +517,17 @@ function WatchlistSymbolRow({
           // boundary lines run edge-to-edge vertically.
           // px-1 (not 2): the hover/selected fill exposes this padding as
           // colored space left of the tickers — keep it to a 4px breath.
-          "group/row group relative grid px-1 hover:bg-[var(--bg-hover)]",
+          "group/row group relative grid px-1",
           // Frozen-for-the-night rows read dim (quote is stale until pre).
           overnightDead && "opacity-60",
-          // Selection = the surface fill alone — no left accent bar (founder
-          // killed the left-stripe style app-wide).
-          selected && "bg-[var(--surface-selected)]",
+          // Selection WINS over hover — hover:bg on a selected row painted the
+          // row body hover-gray while the sticky cell stayed selection-teal
+          // (the cell's selected branch has no group-hover), leaving a
+          // two-tone notch left of the tickers whenever the selected row was
+          // hovered. One state, one fill.
+          selected
+            ? "bg-[var(--surface-selected)]"
+            : "hover:bg-[var(--bg-hover)]",
           willDelete &&
             "rounded opacity-50 ring-1 ring-[var(--c-red)] bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]",
           confirming &&
