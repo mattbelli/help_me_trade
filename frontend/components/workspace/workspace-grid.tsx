@@ -1116,7 +1116,7 @@ export function WorkspaceGrid() {
               ? {}
               : {
                   backgroundImage:
-                    "radial-gradient(circle, color-mix(in srgb, var(--fg-faint) 30%, transparent) 1px, transparent 1px)",
+                    "radial-gradient(circle, var(--surface-grid-dot) 1px, transparent 1px)",
                   backgroundSize: `${GRID_COL_TARGET_PX + GRID_MARGIN_PX}px ${ROW_HEIGHT_PX + GRID_MARGIN_PX}px`,
                   backgroundPosition: "16px 16px",
                   backgroundAttachment: "local",
