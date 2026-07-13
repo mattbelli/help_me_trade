@@ -1,0 +1,54 @@
+# Python lint + test suite (~7-14 min on the serv runner). Path-filtered:
+# skipped entirely when a change touches ONLY frontend/docs/workspace files —
+# the suite can't exercise those, and it was costing every UI round ~10 min of
+# queue-to-green. paths-ignore semantics: the run is skipped only if ALL
+# changed files match the ignore list, so any python/config file still runs it.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - "frontend/**"
+      - "mobile/**"
+      - "References/**"
+      - "**.md"
+      - ".claude/**"
+  pull_request:
+    paths-ignore:
+      - "frontend/**"
+      - "mobile/**"
+      - "References/**"
+      - "**.md"
+      - ".claude/**"
+
+# Cancel an in-progress run when a newer commit lands on the same ref, so a busy merge day
+# doesn't run every superseded push/PR-sync to completion (saves Actions minutes).
+concurrency:
+  group: ci-python-${{ github.ref }}
+  cancel-in-progress: true
+
+# Runs on the serv self-hosted runner (free minutes; the runner's systemd
+# unit caps it at 4 cores / 6G so CI can't starve the live app).
+jobs:
+  lint-and-test:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt ruff
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Pytest
+        run: python -m pytest -q
