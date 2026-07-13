@@ -515,7 +515,9 @@ function WatchlistSymbolRow({
           // No items-center / row-level py: each cell stretches to the row
           // height and carries the density padding itself, so the column
           // boundary lines run edge-to-edge vertically.
-          "group/row group relative grid px-2 hover:bg-[var(--bg-hover)]",
+          // px-1 (not 2): the hover/selected fill exposes this padding as
+          // colored space left of the tickers — keep it to a 4px breath.
+          "group/row group relative grid px-1 hover:bg-[var(--bg-hover)]",
           // Frozen-for-the-night rows read dim (quote is stale until pre).
           overnightDead && "opacity-60",
           // Selection = the surface fill alone — no left accent bar (founder
@@ -1448,7 +1450,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               with an opaque panel bg + grain so the scroll-hint gradient never
               ghosts through the cells (it paints behind this row instead). */}
           <div
-            className="sticky top-0 z-[2] grid border-b border-[var(--line-divider)] bg-[var(--panel)] px-2"
+            className="sticky top-0 z-[2] grid border-b border-[var(--line-divider)] bg-[var(--panel)] px-1"
             style={{ gridTemplateColumns: gridTemplate(symbolWidth, widths) }}
           >
             <span aria-hidden className="grain-overlay" />
