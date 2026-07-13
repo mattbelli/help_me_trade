@@ -910,16 +910,6 @@ const WidgetCard = forwardRef<
   );
 });
 
-// Distance (px) over which content fades at a scrollable edge.
-const SCROLL_FADE_PX = 40;
-
-type EdgeState = {
-  top: boolean;
-  bottom: boolean;
-  left: boolean;
-  right: boolean;
-};
-
 type WorkspacePageGridProps = {
   page: WorkspacePage;
   hostWidth: number;
@@ -1084,28 +1074,19 @@ export function WorkspaceGrid() {
     };
   }, [focusRequest, activePageId, clearFocusRequest]);
 
-  // Four-edge scroll indicators: show subtle gradient overlays when there is
-  // more content in that direction (right/bottom are the important ones for
-  // the growing canvas; top/left show when scrolled away from origin).
-  const [edges, setEdges] = useState<EdgeState>({
-    top: false,
-    bottom: false,
-    left: false,
-    right: false,
-  });
   const scrollRef = useRef<HTMLDivElement>(null);
   const panningRef = useRef(false);
   const panPointerIdRef = useRef<number | null>(null);
   const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
 
+  // (The four-edge gradient "scroll hints" that used to be measured here were
+  // removed 2026-07-13: their canvas-colored gradients were invisible over the
+  // canvas itself, so their only visible effect was darkening the edges of
+  // widgets pinned at the viewport boundary — the founder read it as an
+  // artifact, on both the watchlist's 52W column and its ticker column.)
   const measureEdges = useCallback(() => {
     const el = document.getElementById(GRID_SCROLL_ID);
     if (!el) return;
-    const top = el.scrollTop > 2;
-    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 2;
-    const left = el.scrollLeft > 2;
-    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
-
     // Register the visible grid-row band so addWidget can place a fresh widget
     // in view. Grid rows are ROW_HEIGHT + margin tall; scrollTop is offset by
     // the scroll container's top padding.
@@ -1117,17 +1098,6 @@ export function WorkspaceGrid() {
       Math.floor((topPx + el.clientHeight - 1) / rowPx),
     );
     useWorkspaceStore.getState().setVisibleRows({ top: rowTop, bottom: rowBottom });
-
-    setEdges((prev) => {
-      if (
-        prev.top === top &&
-        prev.bottom === bottom &&
-        prev.left === left &&
-        prev.right === right
-      )
-        return prev;
-      return { top, bottom, left, right };
-    });
   }, []);
 
   useEffect(() => {
@@ -1283,49 +1253,6 @@ export function WorkspaceGrid() {
               ))
             : null}
         </div>
-
-        {/* Four-edge gradient hints — pointer-events-none so they don't block
-            interaction with widgets. Shown only when there is content that way. */}
-        {edges.top ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 z-10"
-            style={{
-              height: SCROLL_FADE_PX,
-              background: `linear-gradient(to bottom, var(--background), transparent)`,
-            }}
-          />
-        ) : null}
-        {edges.bottom ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
-            style={{
-              height: SCROLL_FADE_PX,
-              background: `linear-gradient(to top, var(--background), transparent)`,
-            }}
-          />
-        ) : null}
-        {edges.left ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 left-0 z-10"
-            style={{
-              width: SCROLL_FADE_PX,
-              background: `linear-gradient(to right, var(--background), transparent)`,
-            }}
-          />
-        ) : null}
-        {edges.right ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 right-0 z-10"
-            style={{
-              width: SCROLL_FADE_PX,
-              background: `linear-gradient(to left, var(--background), transparent)`,
-            }}
-          />
-        ) : null}
       </div>
     </div>
   );
