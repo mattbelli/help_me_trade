@@ -870,7 +870,7 @@ const WidgetCard = forwardRef<
       ref={ref}
       id={domId ?? `widget-${item.i}`}
       className={cn(
-        "group grain-surface flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)] hover:shadow-[var(--widget-hover-shadow)]",
+        "group grain-surface grain-above flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-[var(--panel-shadow)] transition-[border-color,box-shadow] hover:border-[var(--border-strong)] hover:shadow-[var(--widget-hover-shadow)]",
         isStatic && "h-full",
         flashing &&
           "ring-2 ring-[var(--c-accent)] ring-offset-1 ring-offset-[var(--panel)]",

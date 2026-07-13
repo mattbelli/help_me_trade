@@ -463,20 +463,14 @@
     opacity: var(--grain-opacity, 0);
   }
 
-  /* Same film-grain as .grain-surface::before, but as a standalone child
-     element — for sticky cells whose `position: sticky` can't take the
-     ::before host's `position: relative` (e.g. the watchlist's pinned symbol
-     column, which must repaint an opaque panel bg and would otherwise sit as
-     a flat un-grained strip on grain themes). */
-  .grain-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background-image: var(--grain, none);
-    background-size: 128px 128px;
-    background-repeat: repeat;
-    opacity: var(--grain-opacity, 0);
+  /* Widget-body grain rides ABOVE the content (z-3): rows, hover/selected
+     fills and sticky cells are positioned and would otherwise paint over a
+     z-0 grain, leaving flat patches next to textured ones (the midnight-oil
+     watchlist notch/lines, 2026-07-13). z-3 stays under every in-widget
+     overlay (settings z-10, popovers z-50); the CANVAS's grain-surface keeps
+     z-0 so it never double-grains the widgets sitting on it. */
+  .grain-above::before {
+    z-index: 3;
   }
 
   /* Research markdown "paper": scope film-grain locally (paired with
