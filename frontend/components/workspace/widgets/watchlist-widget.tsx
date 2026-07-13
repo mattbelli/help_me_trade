@@ -580,8 +580,8 @@ function WatchlistSymbolRow({
             ticker stays legible while the extra columns scroll under it. At rest
             no Reorder.Item transform is applied, so sticky resolves against the
             list's horizontal scrollport correctly. The right border is the
-            frozen-pane edge; .grain-overlay re-applies the theme's film grain
-            the opaque repaint would otherwise mask (the "black strip"). */}
+            frozen-pane edge. (Film grain rides above the whole widget body via
+            .grain-above — no per-cell grain patches.) */}
         <div
           className={cn(
             "sticky left-0 z-[1] inline-flex min-w-0 items-center gap-1 border-r border-[var(--line-divider)] pr-1",
@@ -594,7 +594,6 @@ function WatchlistSymbolRow({
               : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
           )}
         >
-          <span aria-hidden className="grain-overlay" />
           <ClickableSymbol
             symbol={symbol}
             linked={linked}
@@ -1452,22 +1451,21 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
             header + rows share it so they scroll together left/right. */}
         <div style={{ minWidth: contentMinWidth }}>
           {/* Header row: sticky under the widget chrome on vertical scroll,
-              with an opaque panel bg + grain so the scroll-hint gradient never
-              ghosts through the cells (it paints behind this row instead). */}
+              with an opaque panel bg so the scroll-hint gradient never ghosts
+              through the cells (it paints behind this row instead). Film grain
+              rides above the whole body via .grain-above. */}
           <div
             className="sticky top-0 z-[2] grid border-b border-[var(--line-divider)] bg-[var(--panel)] px-1"
             style={{ gridTemplateColumns: gridTemplate(symbolWidth, widths) }}
           >
-            <span aria-hidden className="grain-overlay" />
             {/* Sticky symbol header cell — mirrors the row cells' frozen pane
-                (opaque bg + border-r + grain), with its own resize handle. */}
+                (opaque bg + border-r), with its own resize handle. */}
             <div
               className={cn(
                 "sticky left-0 z-[1] flex items-center border-r border-[var(--line-divider)] bg-[var(--panel)] pr-1",
                 densityClass,
               )}
             >
-              <span aria-hidden className="grain-overlay" />
               <button
                 type="button"
                 onClick={() => handleSortHeaderClick("symbol")}
