@@ -10,7 +10,20 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-12 LATER) — Stock splits fixed on equity bar history (⚠️ pending backend deploy)
+## ▶ START HERE (2026-07-13 overnight) — Watchlist v3 round 1: column registry + settings + per-list config
+
+> Founder overnight ask: column widths (good defaults), settings menu, order/show-hide, row height,
+> config saved WITH the watchlist, exhaustive researched column set (ToS the UX reference). Shipped on
+> branch `feat/watchlist-columns-v3`: 19-column registry in 5 categories (most from row-payload fields
+> the backend already sent but the UI ignored; only new backend field = `gap_pct`), gear → settings
+> overlay (density presets, drag-reorder + toggles, reset), header-edge width drag, sticky ticker col
+> on h-scroll, per-list `settings` blob validated in `config/settings.py` and stored on the list (syncs
+> to any device). New default order = founder's ToS pref (Sym·Δ%·Last·Vol·RVOL·1d). ruff+tests+tsc
+> green; headless-verified on live data. Deferred columns (52w dist, RSI, SMA dist, bid/ask, IV rank,
+> decision score) — the registry absorbs them later. NOTE: backend must deploy WITH frontend (settings
+> pass-through + gap_pct live in api/main.py + config/settings.py).
+
+## ▶ EARLIER (2026-07-12 LATER) — Stock splits fixed on equity bar history (⚠️ pending backend deploy)
 
 > Founder: CRWD chart draws a giant $800→$200 candle at its Jul-2 4:1 split. Root cause: every
 > Alpaca stock-bars request omitted `adjustment` → Alpaca defaults to `raw` (unadjusted). NOT a

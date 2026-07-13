@@ -12,6 +12,8 @@ export type WidgetInstanceConfig = {
   adding?: boolean;
   /** Watchlist: ☰ → Edit list — rows show an always-visible remove ×. */
   editing?: boolean;
+  /** Watchlist: header ⚙ toggles the columns & display settings overlay panel. */
+  settingsOpen?: boolean;
   /** Chart studies toggled from the frame toolbar's Studies dropdown. */
   showSessionNodes?: boolean;
   studies?: string[];
