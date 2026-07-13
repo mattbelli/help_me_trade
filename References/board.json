@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-13T15:58:00Z",
+ "updated_at": "2026-07-13T15:57:00Z",
  "lanes": [
   "inbox",
   "founder",
@@ -12,11 +12,11 @@
   {
    "id": "stream-cap-schwab-lock-fix",
    "title": "Live-quote starvation + Schwab accounts blank: raise stream cap 100->500 (pinned never shed, loud truncation), single-flight Schwab sweep w/ serve-stale",
-   "lane": "in_progress",
+   "lane": "done",
    "type": "bug",
    "priority": "high",
    "owner": "agent",
-   "notes": "2026-07-13 incident: positions widget (98 momentum names, Jul 7) + server-pinned watchlist (Jul 10) pushed desired equity subs to ~125; MAX_WS_SYMBOLS_ALPACA=100 silently cut the alphabetical tail -> TSLA/XLE/XLF quotes frozen everywhere. Separately /api/schwab/accounts held a global lock across a ~35s Schwab sweep with a 30s TTL -> permanent sweep loop, every UI call timed out, overview hid Schwab. Fix: cap 500 + pinned-protected truncation + WARNING logs (hybrid + base hubs); schwab_accounts single-flight fetch, serve-stale, TTL 120s. Verified: 83 targeted tests green, concurrency sim (1 sweep, 3 instant stale serves). Deploy = backend bounce, then confirm TSLA ticks with workspace open."
+   "notes": "2026-07-13 incident: positions widget (98 momentum names, Jul 7) + server-pinned watchlist (Jul 10) pushed desired equity subs to ~125; MAX_WS_SYMBOLS_ALPACA=100 silently cut the alphabetical tail -> TSLA/XLE/XLF quotes frozen everywhere. Separately /api/schwab/accounts held a global lock across a ~35s Schwab sweep with a 30s TTL -> permanent sweep loop, every UI call timed out, overview hid Schwab. Fix: cap 500 + pinned-protected truncation + WARNING logs (hybrid + base hubs); schwab_accounts single-flight fetch, serve-stale, TTL 120s. Verified: 83 targeted tests green, concurrency sim (1 sweep, 3 instant stale serves). Deploy = backend bounce, then confirm TSLA ticks with workspace open. DEPLOYED+VERIFIED 2026-07-13 15:56Z: TSLA 281 ticks/30s (was 2), XLE/XLF live, /api/schwab/accounts 4 accounts in 11ms (was infinite hang). Follow-ups worth their own cards when picked up: (1) backend event-loop stalls (keepalive-timeout stream kills at 14:17/15:04) \u2014 profile w/ py-spy under sudo, likely move OPRA collector out of the API process; (2) stream client ignores Alpaca ack/error frames \u2014 consume + reconcile subscriptions + per-symbol staleness watchdog."
   },
   {
    "id": "decision-engine-fusion-design",
