@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-13T08:45:00-04:00",
+ "updated_at": "2026-07-13T09:20:00-04:00",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,15 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "decision-engine-fusion-design",
+   "title": "READ: Decision Engine fusion v1 design (Fable) — scorecard reuses scorer artifact; 8 decisions in §9",
+   "lane": "founder",
+   "type": "decision",
+   "priority": "high",
+   "owner": "founder",
+   "notes": "2026-07-13 founder-requested Fable design pass: References/DECISION_ENGINE_FUSION_DESIGN_2026-07-13.md. Key calls: v1 composite = the EXISTING decision_scorer artifact with hypothesis weights (calibration/honesty/top_factors free); 12 factors in 2 admission lanes (Norgate-backtestable swing vs live-ledger-earned intraday); regime+earnings = multiplicative gates not factors; LLM = thesis+flags only, validator rejects numbers; SUPPRESS verbatim (render only when validated n>=1000 + Brier beats base + bucket sufficient); structure-first stops, S/R ladder as hypothesis, 0.25-Kelly under hard risk cap; every scored idea registers in idea_outcomes w/ features_json (composes w/ ledger-unification Phase B); phasing shadow->surfaced->IC-weighted, v2 HARD-GATED on the 07-08 honesty remediation shipping (still unshipped - verified today). YOUR INPUT: 8 FOUNDER DECISION items in section 9 (risk cap %, Kelly lambda, weights prior, regime gate mode, ATR k, artifact freshness, flag promotion, red-team #4 same-day-entry). Also flagged: per-strategy exposure caps still account-wide."
+  },
   {
    "id": "watchlist-columns-v3",
    "title": "Watchlist v3 round 1: ~20-column registry, settings panel (show/hide + drag order + widths + density), per-list saved config",
