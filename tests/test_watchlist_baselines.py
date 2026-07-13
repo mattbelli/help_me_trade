@@ -35,6 +35,19 @@ def test_baseline_values_on_ramp():
     assert b["sma200"] == sum(range(200, 400)) / 200
 
 
+def test_baseline_ignores_glitch_bars():
+    # Live incident: SPY daily bar with low=69.005 on a 695-close day (vendor
+    # decimal-shift print) drove the 52w low to 69. A glitch low/high must not
+    # leak into the baselines.
+    bars = _bars(300)
+    bars[250].low = 6.9  # close that day is ~350
+    bars[251].high = 9_999.0
+    b = _compute_wl_baseline(bars)
+    assert b is not None
+    assert b["w52_low"] == 147.0  # unchanged from the clean-ramp expectation
+    assert b["w52_high"] == 400.0
+
+
 def test_baseline_short_history_partial():
     # 60 bars: enough for atr/sma50, not sma200 — partial baselines, no crash.
     b = _compute_wl_baseline(_bars(60))

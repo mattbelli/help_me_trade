@@ -2756,8 +2756,19 @@ def _compute_wl_baseline(bars: list) -> dict | None:
     if len(bars) < 20:
         return None
     closes = [float(b.close) for b in bars]
-    highs = [float(b.high) for b in bars]
-    lows = [float(b.low) for b in bars]
+    # Vendor glitch guard — a bad print can ship an absurd bar low/high (seen
+    # live: SPY daily low=69.005 on a 695-close day, a decimal-shift bad tick,
+    # which poisoned the 52w low and range bar). A valid bar has
+    # low <= close <= high, so a low/high wildly inconsistent with its own
+    # close is bogus — substitute the close so 52w and ATR stay sane.
+    highs = [
+        h if (c and h <= c * 2) else c
+        for h, c in ((float(b.high), float(b.close)) for b in bars)
+    ]
+    lows = [
+        lo if (c and lo >= c * 0.5) else c
+        for lo, c in ((float(b.low), float(b.close)) for b in bars)
+    ]
 
     def _r(v: float | None) -> float | None:
         return round(v, 4) if v is not None else None
