@@ -39,7 +39,10 @@ import {
   DEFAULT_DENSITY,
   DENSITY_OPTIONS,
   DENSITY_ROW_CLASS,
+  DENSITY_TEXT_CLASS,
+  SYMBOL_MIN_WIDTH,
   daysUntil,
+  resolveSymbolWidth,
   resolveWatchlistColumns,
   type ResolvedWatchlistColumn,
   type WatchlistCellContext,
@@ -49,12 +52,17 @@ import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
 
-// The pinned symbol column: minmax(96px,1fr) flex; registry columns follow as
-// fixed px tracks. Shared by the header + every row (inline style — widths are
-// dynamic per the persisted settings blob).
-function gridTemplate(widths: number[]): string {
-  return `minmax(96px,1fr) ${widths.map((w) => `${w}px`).join(" ")}`;
+// Every column — the pinned symbol column included — is a fixed px track, so a
+// resize moves ONLY the dragged boundary (Excel-like); the columns right of it
+// shift as a block. Shared by the header + every row (inline style — widths
+// are dynamic per the persisted settings blob).
+function gridTemplate(symbolWidth: number, widths: number[]): string {
+  return `${symbolWidth}px ${widths.map((w) => `${w}px`).join(" ")}`;
 }
+
+// Vertical boundary line drawn on every non-first cell (header + rows) — makes
+// the resizable column edges visible/discoverable.
+const COL_LINE_CLASS = "border-l border-[var(--line-divider)]";
 
 function earningsBadgeLabel(days: number): string {
   if (days === 0) return "E·today";
@@ -305,6 +313,7 @@ function WatchlistSymbolRow({
   quote,
   position,
   columns,
+  symbolWidth,
   widths,
   contentMinWidth,
   densityClass,
@@ -325,6 +334,7 @@ function WatchlistSymbolRow({
   quote: Quote | undefined;
   position: Position | undefined;
   columns: ResolvedWatchlistColumn[];
+  symbolWidth: number;
   widths: number[];
   contentMinWidth: number;
   densityClass: string;
@@ -492,8 +502,10 @@ function WatchlistSymbolRow({
     >
       <div
         className={cn(
-          "group/row group relative grid items-center gap-x-1 px-2 hover:bg-[var(--bg-hover)]",
-          densityClass,
+          // No items-center / row-level py: each cell stretches to the row
+          // height and carries the density padding itself, so the column
+          // boundary lines run edge-to-edge vertically.
+          "group/row group relative grid px-2 hover:bg-[var(--bg-hover)]",
           selected &&
             "bg-[var(--c-accent-soft)] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--c-accent)]",
           willDelete &&
@@ -502,7 +514,7 @@ function WatchlistSymbolRow({
             "bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]",
         )}
         style={{
-          gridTemplateColumns: gridTemplate(widths),
+          gridTemplateColumns: gridTemplate(symbolWidth, widths),
           minWidth: contentMinWidth,
         }}
       >
@@ -547,10 +559,13 @@ function WatchlistSymbolRow({
         {/* Pinned symbol cell — sticky-left with an opaque background so the
             ticker stays legible while the extra columns scroll under it. At rest
             no Reorder.Item transform is applied, so sticky resolves against the
-            list's horizontal scrollport correctly. */}
+            list's horizontal scrollport correctly. The right border is the
+            frozen-pane edge; .grain-overlay re-applies the theme's film grain
+            the opaque repaint would otherwise mask (the "black strip"). */}
         <div
           className={cn(
-            "sticky left-0 z-[1] inline-flex min-w-0 items-center gap-1",
+            "sticky left-0 z-[1] inline-flex min-w-0 items-center gap-1 border-r border-[var(--line-divider)] pr-1",
+            densityClass,
             // Opaque accent tint — accent-soft is translucent, so scrolled
             // columns would ghost through the sticky cell and the tint would
             // stack on the row's own.
@@ -559,6 +574,7 @@ function WatchlistSymbolRow({
               : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
           )}
         >
+          <span aria-hidden className="grain-overlay" />
           <span
             className="flex size-1.5 shrink-0 items-center justify-center"
             title={isOvernight ? "Tradable 24/5 overnight" : undefined}
@@ -587,11 +603,18 @@ function WatchlistSymbolRow({
             </span>
           ) : null}
         </div>
-        {columns.map((col) => (
+        {columns.map((col, i) => (
           <div
             key={col.def.key}
             className={cn(
-              "min-w-0",
+              // flex-col + justify-center vertically centers the value while
+              // the cell itself stretches to the full row height, so the
+              // boundary line runs unbroken through the density padding.
+              "flex min-w-0 flex-col justify-center px-1",
+              densityClass,
+              // Boundary between the sticky cell and column 0 is the sticky
+              // cell's own border-r (it must travel with the frozen pane).
+              i > 0 && COL_LINE_CLASS,
               col.def.align === "right" ? "text-right" : "text-left",
             )}
           >
@@ -861,6 +884,13 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     [localSettings],
   );
 
+  const savedSymbolWidth = useMemo(
+    () => resolveSymbolWidth(localSettings),
+    [localSettings],
+  );
+  const symbolWidth =
+    widthOverride?.key === "symbol" ? widthOverride.width : savedSymbolWidth;
+
   // Apply the in-flight resize width to the dragged column only.
   const effectiveColumns = useMemo(
     () =>
@@ -883,8 +913,8 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     [visibleColumns],
   );
   const contentMinWidth = useMemo(
-    () => 96 + widths.reduce((sum, w) => sum + w, 0),
-    [widths],
+    () => symbolWidth + widths.reduce((sum, w) => sum + w, 0),
+    [symbolWidth, widths],
   );
 
   const density: WatchlistDensity = localSettings?.density ?? DEFAULT_DENSITY;
@@ -922,12 +952,21 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   );
 
   const buildSettings = useCallback(
-    (cols: ResolvedWatchlistColumn[], d: WatchlistDensity): WatchlistSettings => ({
-      columns: cols.map((c) => ({
-        key: c.def.key,
-        visible: c.visible,
-        width: c.width,
-      })),
+    (
+      cols: ResolvedWatchlistColumn[],
+      d: WatchlistDensity,
+      symWidth: number,
+    ): WatchlistSettings => ({
+      columns: [
+        // The pinned symbol column persists alongside the registry columns
+        // (non-registry key — resolveWatchlistColumns skips it on read).
+        { key: "symbol", visible: true, width: symWidth },
+        ...cols.map((c) => ({
+          key: c.def.key,
+          visible: c.visible,
+          width: c.width,
+        })),
+      ],
       density: d,
     }),
     [],
@@ -939,9 +978,9 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       const next = keys
         .map((k) => byKey.get(k))
         .filter((c): c is ResolvedWatchlistColumn => c != null);
-      persistSettings(buildSettings(next, density));
+      persistSettings(buildSettings(next, density, savedSymbolWidth));
     },
-    [resolved, density, persistSettings, buildSettings],
+    [resolved, density, savedSymbolWidth, persistSettings, buildSettings],
   );
 
   const handleColumnToggle = useCallback(
@@ -949,16 +988,16 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       const next = resolved.map((c) =>
         c.def.key === key ? { ...c, visible: !c.visible } : c,
       );
-      persistSettings(buildSettings(next, density));
+      persistSettings(buildSettings(next, density, savedSymbolWidth));
     },
-    [resolved, density, persistSettings, buildSettings],
+    [resolved, density, savedSymbolWidth, persistSettings, buildSettings],
   );
 
   const handleSetDensity = useCallback(
     (d: WatchlistDensity) => {
-      persistSettings(buildSettings(resolved, d));
+      persistSettings(buildSettings(resolved, d, savedSymbolWidth));
     },
-    [resolved, persistSettings, buildSettings],
+    [resolved, savedSymbolWidth, persistSettings, buildSettings],
   );
 
   const handleResetColumns = useCallback(() => {
@@ -975,16 +1014,16 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   } | null>(null);
 
   const onResizePointerDown = useCallback(
-    (e: ReactPointerEvent, col: ResolvedWatchlistColumn) => {
+    (e: ReactPointerEvent, key: string, width: number, minWidth: number) => {
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       resizeRef.current = {
-        key: col.def.key,
+        key,
         startX: e.clientX,
-        startWidth: col.width,
-        minWidth: col.def.minWidth,
-        current: col.width,
+        startWidth: width,
+        minWidth,
+        current: width,
       };
     },
     [],
@@ -1008,12 +1047,16 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
       resizeRef.current = null;
       setWidthOverride(null);
+      if (r.key === "symbol") {
+        persistSettings(buildSettings(resolved, density, r.current));
+        return;
+      }
       const next = resolved.map((c) =>
         c.def.key === r.key ? { ...c, width: r.current } : c,
       );
-      persistSettings(buildSettings(next, density));
+      persistSettings(buildSettings(next, density, savedSymbolWidth));
     },
-    [resolved, density, persistSettings, buildSettings],
+    [resolved, density, savedSymbolWidth, persistSettings, buildSettings],
   );
 
   // ── Positions (only fetched when a position column is visible) ─────────────
@@ -1342,7 +1385,10 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   return (
     <div
       ref={widgetRef}
-      className="relative flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]"
+      className={cn(
+        "relative flex h-full flex-col overflow-hidden font-mono",
+        DENSITY_TEXT_CLASS[density],
+      )}
     >
       {config.settingsOpen ? (
         <WatchlistSettingsPanel
@@ -1373,68 +1419,123 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
             header + rows share it so they scroll together left/right. */}
         <div style={{ minWidth: contentMinWidth }}>
           <div
-            className={cn(
-              "grid items-center gap-x-1 border-b border-[var(--line-divider)] px-2",
-              densityClass,
-            )}
-            style={{ gridTemplateColumns: gridTemplate(widths) }}
+            className="grid border-b border-[var(--line-divider)] px-2"
+            style={{ gridTemplateColumns: gridTemplate(symbolWidth, widths) }}
           >
-            <button
-              type="button"
-              onClick={() => handleSortHeaderClick("symbol")}
+            {/* Sticky symbol header cell — mirrors the row cells' frozen pane
+                (opaque bg + border-r + grain), with its own resize handle. */}
+            <div
               className={cn(
-                headerCellClass,
-                "sticky left-0 z-[1] bg-[var(--panel)] text-left",
+                "sticky left-0 z-[1] flex items-center border-r border-[var(--line-divider)] bg-[var(--panel)] pr-1",
+                densityClass,
               )}
             >
-              Sym
-              {sortState?.key === "symbol" ? (
-                <span className="ml-0.5">
-                  {sortState.dir === "asc" ? "▲" : "▼"}
-                </span>
-              ) : null}
-            </button>
-            {visibleColumns.map((col) => (
-              <div
-                key={col.def.key}
-                className={cn(
-                  "relative select-none",
-                  col.def.align === "right" ? "text-right" : "text-left",
-                )}
+              <span aria-hidden className="grain-overlay" />
+              <button
+                type="button"
+                onClick={() => handleSortHeaderClick("symbol")}
+                className={cn(headerCellClass, "min-w-0 flex-1 text-left")}
               >
-                <button
-                  type="button"
-                  onClick={() =>
-                    col.def.sortable && handleSortHeaderClick(col.def.key)
-                  }
+                Sym
+                {sortState?.key === "symbol" ? (
+                  <span className="ml-0.5">
+                    {sortState.dir === "asc" ? "▲" : "▼"}
+                  </span>
+                ) : null}
+              </button>
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize symbol column"
+                onPointerDown={(e) =>
+                  onResizePointerDown(e, "symbol", symbolWidth, SYMBOL_MIN_WIDTH)
+                }
+                onPointerMove={onResizePointerMove}
+                onPointerUp={onResizePointerUp}
+                onClick={(e) => e.stopPropagation()}
+                className="workspace-no-drag absolute top-0 right-0 z-[1] h-full w-[6px] cursor-col-resize touch-none hover:bg-[var(--border-strong)]"
+              />
+            </div>
+            {visibleColumns.map((col, i) => {
+              // The left handle drags this column's LEFT boundary, which — as
+              // in a spreadsheet — resizes the column before it.
+              const prev = i === 0 ? null : visibleColumns[i - 1];
+              return (
+                <div
+                  key={col.def.key}
                   className={cn(
-                    headerCellClass,
-                    "w-full",
+                    "relative flex min-w-0 flex-col justify-center px-1 select-none",
+                    densityClass,
+                    i > 0 && COL_LINE_CLASS,
                     col.def.align === "right" ? "text-right" : "text-left",
-                    col.def.sortable ? "cursor-pointer" : "cursor-default",
                   )}
                 >
-                  {col.def.label}
-                  {sortState?.key === col.def.key ? (
-                    <span className="ml-0.5">
-                      {sortState.dir === "asc" ? "▲" : "▼"}
-                    </span>
-                  ) : null}
-                </button>
-                {/* Right-edge resize handle. workspace-no-drag + stopPropagation
-                    keep it from sorting or dragging the widget. */}
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label={`Resize ${col.def.title}`}
-                  onPointerDown={(e) => onResizePointerDown(e, col)}
-                  onPointerMove={onResizePointerMove}
-                  onPointerUp={onResizePointerUp}
-                  onClick={(e) => e.stopPropagation()}
-                  className="workspace-no-drag absolute top-0 right-0 h-full w-[5px] cursor-col-resize touch-none hover:bg-[var(--border-strong)]"
-                />
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      col.def.sortable && handleSortHeaderClick(col.def.key)
+                    }
+                    className={cn(
+                      headerCellClass,
+                      "w-full",
+                      col.def.align === "right" ? "text-right" : "text-left",
+                      col.def.sortable ? "cursor-pointer" : "cursor-default",
+                    )}
+                  >
+                    {col.def.label}
+                    {sortState?.key === col.def.key ? (
+                      <span className="ml-0.5">
+                        {sortState.dir === "asc" ? "▲" : "▼"}
+                      </span>
+                    ) : null}
+                  </button>
+                  {/* Boundary resize handles: grab either side of a column
+                      line. workspace-no-drag + stopPropagation keep them from
+                      sorting or dragging the widget. */}
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`Resize ${prev ? prev.def.title : "symbol"} column`}
+                    onPointerDown={(e) =>
+                      prev
+                        ? onResizePointerDown(
+                            e,
+                            prev.def.key,
+                            prev.width,
+                            prev.def.minWidth,
+                          )
+                        : onResizePointerDown(
+                            e,
+                            "symbol",
+                            symbolWidth,
+                            SYMBOL_MIN_WIDTH,
+                          )
+                    }
+                    onPointerMove={onResizePointerMove}
+                    onPointerUp={onResizePointerUp}
+                    onClick={(e) => e.stopPropagation()}
+                    className="workspace-no-drag absolute top-0 left-0 h-full w-[6px] cursor-col-resize touch-none hover:bg-[var(--border-strong)]"
+                  />
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`Resize ${col.def.title} column`}
+                    onPointerDown={(e) =>
+                      onResizePointerDown(
+                        e,
+                        col.def.key,
+                        col.width,
+                        col.def.minWidth,
+                      )
+                    }
+                    onPointerMove={onResizePointerMove}
+                    onPointerUp={onResizePointerUp}
+                    onClick={(e) => e.stopPropagation()}
+                    className="workspace-no-drag absolute top-0 right-0 h-full w-[6px] cursor-col-resize touch-none hover:bg-[var(--border-strong)]"
+                  />
+                </div>
+              );
+            })}
           </div>
 
           {config.adding ? (
@@ -1465,6 +1566,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 quote={enrichedQuotes[symbol]}
                 position={positions[symbol]}
                 columns={visibleColumns}
+                symbolWidth={symbolWidth}
                 widths={widths}
                 contentMinWidth={contentMinWidth}
                 densityClass={densityClass}

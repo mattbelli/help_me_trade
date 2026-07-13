@@ -456,6 +456,22 @@
     opacity: var(--grain-opacity, 0);
   }
 
+  /* Same film-grain as .grain-surface::before, but as a standalone child
+     element — for sticky cells whose `position: sticky` can't take the
+     ::before host's `position: relative` (e.g. the watchlist's pinned symbol
+     column, which must repaint an opaque panel bg and would otherwise sit as
+     a flat un-grained strip on grain themes). */
+  .grain-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: var(--grain, none);
+    background-size: 128px 128px;
+    background-repeat: repeat;
+    opacity: var(--grain-opacity, 0);
+  }
+
   /* Research markdown "paper": scope film-grain locally (paired with
      .grain-surface on the same element) so the viewer reads as a textured sheet
      on every theme, without switching the whole theme's grain on. A soft inset

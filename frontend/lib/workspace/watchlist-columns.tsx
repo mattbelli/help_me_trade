@@ -27,6 +27,31 @@ export const DENSITY_ROW_CLASS: Record<WatchlistDensity, string> = {
   spacious: "py-2.5",
 };
 
+// Row text size per density — tighter rows read smaller, airier rows larger.
+// comfortable keeps the widget's historical 13px (--fs-title).
+export const DENSITY_TEXT_CLASS: Record<WatchlistDensity, string> = {
+  compact: "text-[length:var(--fs-body)]",
+  comfortable: "text-[length:var(--fs-title)]",
+  spacious: "text-[length:calc(var(--fs-title)+1px)]",
+};
+
+// ── Pinned symbol column ────────────────────────────────────────────────────
+// The symbol column is a real fixed-width track (NOT 1fr): with a flexible
+// first track, resizing any other column just re-flowed the free space into
+// the symbol column, so the dragged column's right-aligned text never moved.
+// Its width persists in the settings blob as a `symbol` columns entry (the
+// server round-trips unknown keys; resolveWatchlistColumns skips non-registry
+// keys, so this stays out of the registry merge).
+export const SYMBOL_MIN_WIDTH = 96;
+export const SYMBOL_DEFAULT_WIDTH = 132;
+
+export function resolveSymbolWidth(settings?: WatchlistSettings): number {
+  const entry = settings?.columns?.find((c) => c.key === "symbol");
+  return typeof entry?.width === "number"
+    ? Math.min(600, Math.max(SYMBOL_MIN_WIDTH, entry.width))
+    : SYMBOL_DEFAULT_WIDTH;
+}
+
 // ── Column model ────────────────────────────────────────────────────────────
 export type WatchlistCellContext = {
   quote: WatchlistQuote | undefined;
