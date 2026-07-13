@@ -108,9 +108,21 @@ function readsRiskRed(kind: string, severity?: NotificationSeverity): boolean {
   );
 }
 
+// Non-info severities used to earn a left stripe; the founder killed the
+// left-border style, so severity now tints the word + card hue directly
+// (same pattern critical always used via readsRiskRed).
+function severityHue(severity?: NotificationSeverity): string | null {
+  if (severity === "warning") return "var(--c-amber)";
+  if (severity === "success") return "var(--c-green)";
+  return null;
+}
+
 // Kind renders as a plain lowercase colored word — never a bordered chip.
 function kindWordClass(kind: string, severity?: NotificationSeverity): string {
   if (readsRiskRed(kind, severity)) return "text-[var(--notif-risk)]";
+  // Literal class strings — Tailwind can't see through a template literal.
+  if (severity === "warning") return "text-[var(--c-amber)]";
+  if (severity === "success") return "text-[var(--c-green)]";
   switch (categoryOf(kind)) {
     case "trading":
       return "text-[var(--notif-trading)]";
@@ -137,24 +149,7 @@ const CATEGORY_HUE: Record<Category, string> = {
 
 function cardHue(kind: string, severity?: NotificationSeverity): string {
   if (readsRiskRed(kind, severity)) return "var(--notif-risk)";
-  return CATEGORY_HUE[categoryOf(kind)];
-}
-
-// Only non-info severities earn a stripe — the mockup's cards are calm by
-// default and let magnitude/side carry the color.
-function severityStripeClass(severity: NotificationSeverity): string | null {
-  switch (severity) {
-    // `!` so the severity edge always wins over the type-hue left border the
-    // .notif-card class sets (both are equal-specificity utility rules).
-    case "success":
-      return "border-l-2 border-l-[var(--c-green)]!";
-    case "warning":
-      return "border-l-2 border-l-[var(--c-amber)]!";
-    case "critical":
-      return "border-l-2 border-l-[var(--c-red)]!";
-    default:
-      return null;
-  }
+  return severityHue(severity) ?? CATEGORY_HUE[categoryOf(kind)];
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +425,6 @@ export function NotificationsWidget({ config }: WidgetProps) {
             const expanded = expandedKey === card.key;
             const symbol = symbolOf(newest);
             const headline = headlineText(newest, symbol);
-            const stripe = severityStripeClass(newest.severity);
             const { facts, caveat } = expanded
               ? factLines(newest)
               : { facts: [], caveat: null };
@@ -441,14 +435,10 @@ export function NotificationsWidget({ config }: WidgetProps) {
                 data-expanded={expanded}
                 style={{ "--hue": cardHue(newest.kind, newest.severity) } as CSSProperties}
                 className={cn(
-                  "notif-card group rounded-md border border-[var(--border)] transition-[border-color,opacity]",
-                  stripe,
+                  "notif-card group rounded-md border border-[var(--border)] transition-[border-color]",
                   expanded
                     ? "border-[var(--border-strong,var(--border))]"
                     : "hover:border-[var(--border-strong,var(--border))]",
-                  // Unread reads bright; read cards dim as a whole (replaces
-                  // the old unread dot). Hover restores full strength.
-                  !anyUnread && "opacity-55 hover:opacity-100",
                 )}
               >
                 <div className="flex">
@@ -466,10 +456,18 @@ export function NotificationsWidget({ config }: WidgetProps) {
                     }}
                     className="min-w-0 flex-1 cursor-pointer px-2.5 py-2 text-left"
                   >
-                    {/* micro header: kind word left, compact time flush right.
-                        Unread state is carried by whole-card brightness, not a
-                        dot. */}
-                    <div className="flex items-center gap-2">
+                    {/* micro header: unread dot + kind word left, compact time
+                        flush right. The dot slot is ALWAYS reserved (invisible
+                        once read) so kind words align identically on every
+                        card. */}
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full bg-[var(--hue)]",
+                          !anyUnread && "opacity-0",
+                        )}
+                      />
                       <span
                         className={cn(
                           "font-mono text-[length:var(--fs-micro)] lowercase tracking-[0.1em]",

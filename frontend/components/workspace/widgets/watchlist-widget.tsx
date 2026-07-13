@@ -1418,10 +1418,14 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         {/* min-width holds the columns open and drives horizontal scroll; the
             header + rows share it so they scroll together left/right. */}
         <div style={{ minWidth: contentMinWidth }}>
+          {/* Header row: sticky under the widget chrome on vertical scroll,
+              with an opaque panel bg + grain so the scroll-hint gradient never
+              ghosts through the cells (it paints behind this row instead). */}
           <div
-            className="grid border-b border-[var(--line-divider)] px-2"
+            className="sticky top-0 z-[2] grid border-b border-[var(--line-divider)] bg-[var(--panel)] px-2"
             style={{ gridTemplateColumns: gridTemplate(symbolWidth, widths) }}
           >
+            <span aria-hidden className="grain-overlay" />
             {/* Sticky symbol header cell — mirrors the row cells' frozen pane
                 (opaque bg + border-r + grain), with its own resize handle. */}
             <div

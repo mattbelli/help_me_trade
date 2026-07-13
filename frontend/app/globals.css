@@ -483,8 +483,9 @@
   }
 
   /* Notification card: dresses each card in a faint gradient + drop shadow
-     tinted to its type hue (--hue, set per card). The left edge picks up the
-     hue too, but a severity utility (border-l-[...]) still overrides it. */
+     tinted to its type hue (--hue, set per card). No left accent border —
+     founder dislikes the left-stripe style; the gradient + unread dot carry
+     the hue instead. */
   .notif-card {
     --hue: var(--fg-faint);
     background: linear-gradient(
@@ -492,7 +493,6 @@
       color-mix(in srgb, var(--hue) 9%, var(--bg-raised)) 0%,
       var(--bg-raised) 58%
     );
-    border-left: 2px solid color-mix(in srgb, var(--hue) 45%, var(--border));
     /* real drop shadow: hue mixed INTO dark (not transparent) reads as a tinted
        shadow, not a colored halo; negative spread keeps it from bleeding wide */
     box-shadow:
