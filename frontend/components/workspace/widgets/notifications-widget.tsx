@@ -68,6 +68,14 @@ const KIND_CATEGORY: Record<string, Category> = {
   morning_brief: "research",
   evening_brief: "research",
   on_request: "research",
+  // Ops / bookkeeping kinds — previously unmapped (fell to the gray "system"
+  // word even when critical). Bucketed here; critical ones still render red
+  // via the severity override in cardHue/kindWordClass.
+  attribution_orphan: "trading",
+  propose: "trading",
+  job_watchdog: "system",
+  delivery_alarm: "system",
+  schwab_health: "system",
 };
 
 function categoryOf(kind: string): Category {
@@ -78,47 +86,46 @@ function formatKind(kind: string): string {
   return kind.replace(/_/g, " ");
 }
 
-// Kind renders as a plain lowercase colored word — never a bordered chip.
-function kindWordClass(kind: string): string {
-  if (
+// Risk-red applies to the kill-switch/risk kinds AND anything critical, so the
+// word, left edge and severity stripe always agree (no gray-word-on-red-card).
+function readsRiskRed(kind: string, severity?: NotificationSeverity): boolean {
+  return (
+    severity === "critical" ||
     kind === "kill_switch" ||
     kind === "entries_halt" ||
     kind.startsWith("risk")
-  ) {
-    return "text-[var(--c-red)]";
-  }
+  );
+}
+
+// Kind renders as a plain lowercase colored word — never a bordered chip.
+function kindWordClass(kind: string, severity?: NotificationSeverity): string {
+  if (readsRiskRed(kind, severity)) return "text-[var(--notif-risk)]";
   switch (categoryOf(kind)) {
     case "trading":
-      return "text-[var(--c-accent)]";
+      return "text-[var(--notif-trading)]";
     case "flow":
-      return "text-[var(--c-violet)]";
+      return "text-[var(--notif-flow)]";
     case "alerts":
-      return "text-[var(--c-amber)]";
+      return "text-[var(--notif-alerts)]";
     case "research":
-      return "text-[var(--c-blue)]";
+      return "text-[var(--notif-research)]";
     default:
-      return "text-[var(--fg-faint)]";
+      return "text-[var(--notif-system)]";
   }
 }
 
 // The per-card hue — a CSS color the card's gradient, left edge and drop
 // shadow all tint toward, matching the type word's color above.
 const CATEGORY_HUE: Record<Category, string> = {
-  trading: "var(--c-accent)",
-  flow: "var(--c-violet)",
-  alerts: "var(--c-amber)",
-  research: "var(--c-blue)",
-  system: "var(--fg-faint)",
+  trading: "var(--notif-trading)",
+  flow: "var(--notif-flow)",
+  alerts: "var(--notif-alerts)",
+  research: "var(--notif-research)",
+  system: "var(--notif-system)",
 };
 
-function cardHue(kind: string): string {
-  if (
-    kind === "kill_switch" ||
-    kind === "entries_halt" ||
-    kind.startsWith("risk")
-  ) {
-    return "var(--c-red)";
-  }
+function cardHue(kind: string, severity?: NotificationSeverity): string {
+  if (readsRiskRed(kind, severity)) return "var(--notif-risk)";
   return CATEGORY_HUE[categoryOf(kind)];
 }
 
@@ -482,7 +489,7 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
               <li
                 key={card.key}
                 data-expanded={expanded}
-                style={{ "--hue": cardHue(newest.kind) } as CSSProperties}
+                style={{ "--hue": cardHue(newest.kind, newest.severity) } as CSSProperties}
                 className={cn(
                   "notif-card group rounded-md border border-[var(--border)] transition-colors",
                   stripe,
@@ -512,7 +519,7 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
                       <span
                         className={cn(
                           "font-mono text-[length:var(--fs-micro)] lowercase tracking-[0.1em]",
-                          kindWordClass(newest.kind),
+                          kindWordClass(newest.kind, newest.severity),
                         )}
                       >
                         {formatKind(newest.kind)}

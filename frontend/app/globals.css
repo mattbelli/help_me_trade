@@ -169,6 +169,27 @@
     /* Film-grain texture: off by default; the ember theme opts in. */
     --grain: none;
     --grain-opacity: 0;
+
+    /* ── Notification card palette (FIXED — theme-independent) ─────────────
+       Notif cards lock to these hues regardless of the active theme; only
+       brightness shifts dark↔light (light values in :root:not(.dark) below).
+       Dark values here. */
+    --notif-trading: #5ad1be;
+    --notif-flow: #b08cff;
+    --notif-alerts: #e8a15a;
+    --notif-research: #6cb0ff;
+    --notif-system: #9aa1ab;
+    --notif-risk: #ef6f6c;
+}
+
+/* Light-mode brightness variant — light themes carry no .dark class. */
+:root:not(.dark) {
+    --notif-trading: #0d9488;
+    --notif-flow: #7c3aed;
+    --notif-alerts: #b45309;
+    --notif-research: #2563eb;
+    --notif-system: #64748b;
+    --notif-risk: #dc2626;
 }
 
 [data-theme="carbon"] {
