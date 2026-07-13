@@ -8,8 +8,6 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { Bell, BellOff } from "lucide-react";
-
 import type { NotificationSeverity } from "@/lib/api";
 import { relativeTime } from "@/lib/relative-time";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -17,7 +15,6 @@ import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
-  unreadCount,
   type WorkspaceNotification,
   useNotificationStore,
 } from "@/lib/workspace/use-notification-store";
@@ -36,6 +33,20 @@ import { cn } from "@/lib/utils";
 const CATEGORIES = ["trading", "flow", "alerts", "research", "system"] as const;
 type Category = (typeof CATEGORIES)[number];
 type FilterMode = "all" | "unread" | Category;
+
+// The header ⚙ dropdown (workspace-grid) drives the filter via
+// config.notifFilter; this is the shared list of valid modes.
+export const NOTIF_FILTERS: readonly FilterMode[] = [
+  "all",
+  "unread",
+  ...CATEGORIES,
+];
+
+export function resolveNotifFilter(raw: string | undefined): FilterMode {
+  return (NOTIF_FILTERS as readonly string[]).includes(raw ?? "")
+    ? (raw as FilterMode)
+    : "all";
+}
 
 const KIND_CATEGORY: Record<string, Category> = {
   proposal: "trading",
@@ -335,13 +346,10 @@ function playDing(): void {
   }
 }
 
-const FILTER_BTN =
-  "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors";
-
 const FACT_LABEL =
   "w-[64px] shrink-0 pt-px font-mono text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]";
 
-export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
+export function NotificationsWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
 
@@ -350,12 +358,14 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
   const hydrate = useNotificationStore((s) => s.hydrate);
   const error = useNotificationStore((s) => s.error);
   const retryHydrate = useNotificationStore((s) => s.retryHydrate);
-  const markAllRead = useNotificationStore((s) => s.markAllRead);
   const markRead = useNotificationStore((s) => s.markRead);
   const dismiss = useNotificationStore((s) => s.dismiss);
   const activate = useNotificationActivate();
 
-  const [filter, setFilter] = useState<FilterMode>("all");
+  // Filter + mark-all-read + mute all live in the widget HEADER's ⚙ dropdown
+  // (workspace-grid), not an in-widget control row — widgets don't get a
+  // second header bar.
+  const filter = resolveNotifFilter(config.notifFilter);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const dingOn = config.ding !== false;
@@ -381,8 +391,6 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
       if (dingOn && !newest.read) playDing();
     }
   }, [notifications, hydrated, dingOn]);
-
-  const unread = unreadCount(notifications);
 
   const cards = useMemo(() => {
     let items = notifications;
@@ -411,64 +419,6 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden px-1.5 py-1">
-      <div className="mb-1.5 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-1">
-        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
-          {(["all", "unread", ...CATEGORIES] as FilterMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={cn(
-                FILTER_BTN,
-                filter === mode
-                  ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
-                  : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
-              )}
-              onClick={() => setFilter(mode)}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {unread > 0 ? (
-            <span className="font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
-              {unread} unread
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => onConfigChange({ ding: !dingOn })}
-            aria-label={dingOn ? "Mute notification sound" : "Unmute notification sound"}
-            title={
-              dingOn
-                ? "sound on new cards — click to mute"
-                : "muted — click to unmute"
-            }
-            className={cn(
-              "rounded p-1 transition-colors",
-              dingOn
-                ? "text-[var(--fg-dim)] hover:text-foreground"
-                : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
-            )}
-          >
-            {dingOn ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
-          </button>
-          <button
-            type="button"
-            disabled={unread === 0}
-            onClick={() => markAllRead()}
-            className={cn(
-              FILTER_BTN,
-              unread === 0
-                ? "cursor-not-allowed text-[var(--fg-faint)]"
-                : "text-[var(--c-accent)] hover:bg-[var(--c-accent-soft)]",
-            )}
-          >
-            mark all read
-          </button>
-        </div>
-      </div>
-
       {cards.length === 0 ? (
         <WidgetEmpty message="No notifications" className="p-2" />
       ) : (
@@ -491,11 +441,14 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
                 data-expanded={expanded}
                 style={{ "--hue": cardHue(newest.kind, newest.severity) } as CSSProperties}
                 className={cn(
-                  "notif-card group rounded-md border border-[var(--border)] transition-colors",
+                  "notif-card group rounded-md border border-[var(--border)] transition-[border-color,opacity]",
                   stripe,
                   expanded
                     ? "border-[var(--border-strong,var(--border))]"
                     : "hover:border-[var(--border-strong,var(--border))]",
+                  // Unread reads bright; read cards dim as a whole (replaces
+                  // the old unread dot). Hover restores full strength.
+                  !anyUnread && "opacity-55 hover:opacity-100",
                 )}
               >
                 <div className="flex">
@@ -513,8 +466,9 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
                     }}
                     className="min-w-0 flex-1 cursor-pointer px-2.5 py-2 text-left"
                   >
-                    {/* micro header: kind word … unread dot · time. The dot
-                        lives on the right so text lines all start flush left. */}
+                    {/* micro header: kind word left, compact time flush right.
+                        Unread state is carried by whole-card brightness, not a
+                        dot. */}
                     <div className="flex items-center gap-2">
                       <span
                         className={cn(
@@ -524,13 +478,8 @@ export function NotificationsWidget({ config, onConfigChange }: WidgetProps) {
                       >
                         {formatKind(newest.kind)}
                       </span>
-                      <span className="ml-auto flex items-center gap-1.5">
-                        {anyUnread ? (
-                          <span className="size-1.5 shrink-0 rounded-full bg-[var(--c-accent)] shadow-[0_0_6px_var(--c-accent)]" />
-                        ) : null}
-                        <span className="font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-faint)]">
-                          {relativeTime(newest.created_at)}
-                        </span>
+                      <span className="ml-auto font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-faint)]">
+                        {relativeTime(newest.created_at)}
                       </span>
                     </div>
 

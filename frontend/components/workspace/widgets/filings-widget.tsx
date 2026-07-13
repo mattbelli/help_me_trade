@@ -74,9 +74,70 @@ function kindLabel(ev: FilingEvent): { text: string; className: string } {
   }
 }
 
+// ── Person / role normalization ─────────────────────────────────────────────
+// The raw feed is inconsistent by source: EDGAR names arrive SEC ALL-CAPS
+// ("DOE JANE"), officer titles verbatim as the filer typed them ("CEO" vs
+// "Chief Executive Officer" vs "See Remarks"). Normalize at display time so
+// history rows clean up too.
+
+// Generational/initial tokens that must not be title-cased like words.
+const NAME_SUFFIXES: Record<string, string> = {
+  JR: "Jr",
+  SR: "Sr",
+  II: "II",
+  III: "III",
+  IV: "IV",
+};
+
+function titleCaseWord(word: string): string {
+  // Keep single-letter initials as-is; title-case around hyphens/apostrophes
+  // (O'BRIEN → O'Brien, SMITH-JONES → Smith-Jones).
+  if (word.length <= 1) return word;
+  return word
+    .toLowerCase()
+    .replace(/(^|[-'])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase());
+}
+
+function normalizePerson(person: string): string {
+  const p = person.trim();
+  // Only reshape strings the SEC has shouted; congress names arrive normal.
+  if (p !== p.toUpperCase()) return p;
+  return p
+    .split(/\s+/)
+    .map((w) => NAME_SUFFIXES[w] ?? titleCaseWord(w))
+    .join(" ");
+}
+
+// Long officer titles → the acronyms everyone reads faster. Substring
+// replacement, so composites ("Chief Financial Officer & Treasurer") compress
+// too.
+const ROLE_SUBS: [RegExp, string][] = [
+  [/chief executive officer/gi, "CEO"],
+  [/chief financial officer/gi, "CFO"],
+  [/chief operating officer/gi, "COO"],
+  [/chief accounting officer/gi, "CAO"],
+  [/chief technology officer/gi, "CTO"],
+  [/chief information officer/gi, "CIO"],
+  [/chief legal officer/gi, "CLO"],
+  [/chief marketing officer/gi, "CMO"],
+  [/executive vice president/gi, "EVP"],
+  [/senior vice president/gi, "SVP"],
+  [/vice president/gi, "VP"],
+];
+
+function normalizeRole(role: string): string {
+  let r = role.trim();
+  for (const [re, sub] of ROLE_SUBS) r = r.replace(re, sub);
+  // Lowercase prose words; keep short all-caps tokens (CEO, EVP, TX, 10%).
+  return r
+    .split(/\s+/)
+    .map((w) => (/^[A-Z0-9&%]{2,4}$/.test(w) ? w : w.toLowerCase()))
+    .join(" ");
+}
+
 function whoText(ev: FilingEvent): string {
-  const person = ev.person || "—";
-  return ev.role ? `${person} · ${ev.role.toLowerCase()}` : person;
+  const person = ev.person ? normalizePerson(ev.person) : "—";
+  return ev.role ? `${person} · ${normalizeRole(ev.role)}` : person;
 }
 
 export function FilingsWidget({ config }: WidgetProps) {
@@ -189,8 +250,12 @@ export function FilingsWidget({ config }: WidgetProps) {
                       <td className={cn(TD, "whitespace-nowrap", kind.className)}>
                         {kind.text}
                       </td>
+                      {/* w-full + max-w-0: the Who column absorbs ALL leftover
+                          table width (the other columns are nowrap/content-
+                          sized) and truncates only when genuinely out of room,
+                          so widening the widget widens this column. */}
                       <td
-                        className={cn(TD, "max-w-[24ch] truncate text-[var(--fg-dim)]")}
+                        className={cn(TD, "w-full max-w-0 truncate text-[var(--fg-dim)]")}
                         title={whoText(ev)}
                       >
                         {whoText(ev)}
