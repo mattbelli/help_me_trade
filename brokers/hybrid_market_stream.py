@@ -23,6 +23,7 @@ Alpaca via HybridMarketData.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from brokers.market_stream import (
     MAX_WS_SYMBOLS,
@@ -33,9 +34,15 @@ from brokers.schwab_market_stream import SchwabMarketStreamHub
 from brokers.symbol_class import classify_symbol
 from config.settings import broker_is_configured
 
-# SIP allows unlimited websocket symbols; give the equity child a generous cap while
-# keeping it finite. The Schwab (futures) child keeps the small default cap.
-MAX_WS_SYMBOLS_ALPACA = 100
+logger = logging.getLogger(__name__)
+
+# SIP allows unlimited websocket symbols; the cap only bounds OUR per-print work
+# (tape detector + broadcast fan-out), so keep it far above realistic usage.
+# Real usage is pinned watchlists/alerts (~30) + every open-position symbol the
+# positions widget subscribes (~100 for the momentum book): 100 was silently
+# exceeded on 2026-07-13 and the alphabetical cut starved TSLA/XLE/XLF.
+# The Schwab (futures) child keeps the small default cap.
+MAX_WS_SYMBOLS_ALPACA = 500
 
 
 def _stream_partition(symbols: set[str]) -> tuple[set[str], set[str]]:
@@ -127,7 +134,22 @@ class HybridMarketStreamHub(BaseMarketHub):
         SHARED _clients and pull in the other class's symbols.
         """
         if len(desired) > cap:
-            desired = set(sorted(desired)[:cap])
+            # Over-cap: keep every pinned symbol (watchlists + price alerts —
+            # dropping one silently freezes its quote everywhere), shed client
+            # extras alphabetically, and say so: a silent cut cost a day of
+            # debugging when it starved TSLA.
+            pinned = desired & self._pinned
+            extras = sorted(desired - pinned)[: max(0, cap - len(pinned))]
+            kept = pinned | set(extras)
+            logger.warning(
+                "market stream cap: dropping %d of %d desired symbols "
+                "(cap=%d, e.g. %s)",
+                len(desired) - len(kept),
+                len(desired),
+                cap,
+                ", ".join(sorted(desired - kept)[:8]),
+            )
+            desired = kept
         async with child._lock:
             to_add = desired - child._subscribed
             to_remove = child._subscribed - desired

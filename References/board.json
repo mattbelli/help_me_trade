@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-13T09:20:00-04:00",
+ "updated_at": "2026-07-13T15:58:00Z",
  "lanes": [
   "inbox",
   "founder",
@@ -10,8 +10,17 @@
  ],
  "cards": [
   {
+   "id": "stream-cap-schwab-lock-fix",
+   "title": "Live-quote starvation + Schwab accounts blank: raise stream cap 100->500 (pinned never shed, loud truncation), single-flight Schwab sweep w/ serve-stale",
+   "lane": "in_progress",
+   "type": "bug",
+   "priority": "high",
+   "owner": "agent",
+   "notes": "2026-07-13 incident: positions widget (98 momentum names, Jul 7) + server-pinned watchlist (Jul 10) pushed desired equity subs to ~125; MAX_WS_SYMBOLS_ALPACA=100 silently cut the alphabetical tail -> TSLA/XLE/XLF quotes frozen everywhere. Separately /api/schwab/accounts held a global lock across a ~35s Schwab sweep with a 30s TTL -> permanent sweep loop, every UI call timed out, overview hid Schwab. Fix: cap 500 + pinned-protected truncation + WARNING logs (hybrid + base hubs); schwab_accounts single-flight fetch, serve-stale, TTL 120s. Verified: 83 targeted tests green, concurrency sim (1 sweep, 3 instant stale serves). Deploy = backend bounce, then confirm TSLA ticks with workspace open."
+  },
+  {
    "id": "decision-engine-fusion-design",
-   "title": "READ: Decision Engine fusion v1 design (Fable) — scorecard reuses scorer artifact; 8 decisions in §9",
+   "title": "READ: Decision Engine fusion v1 design (Fable) \u2014 scorecard reuses scorer artifact; 8 decisions in \u00a79",
    "lane": "founder",
    "type": "decision",
    "priority": "high",
@@ -25,7 +34,7 @@
    "type": "feature",
    "priority": "high",
    "owner": "agent",
-   "notes": "Founder 2026-07-13 (overnight): column width control w/ good defaults, settings menu, editable column order + show/hide, row height, config saves WITH the watchlist; researched ToS/TradingView/Bloomberg/IBKR column sets. Built: column registry (frontend/lib/workspace/watchlist-columns.tsx, 19 cols in 5 categories - price/volume/fundamentals/position/visual), per-list settings blob {columns:[{key,visible,width}],density} validated in config/settings.py + PUT /api/watchlists/{id}; gap_pct added to /api/watchlist/market; widget rework: dynamic grid template, header-edge width drag, compact/comfortable/spacious density, settings overlay (gear in WidgetHeader), sticky ticker col on h-scroll, positions join (30s, only when position col visible); new default order Sym-D%-Last-Vol-RVOL-1d (founder ToS pref). Verified: ruff+5 new tests+typecheck clean, headless shots (default/settings/wide/scrolled) on live data. Deferred (registry absorbs later): 52w distance, RSI, SMA distance, bid/ask, IV rank, decision-score col. Pending: PR merge + deploy + founder in-browser check. | Round 2 (2026-07-13 am, founder go): +11 columns — Bid/Ask/Sprd% (WS already carried bid/ask; frontend now reads them, REST merge keeps them), vsSPY (top-level spy_change_pct in market payload), xATR move, 52w range bar + 52wH/52wL dist, SMA50/SMA200 dist, position DayP&L (client-side prev_close*qty); new 'technicals' category; Last width 76->84 (4-digit crowding). Backend: _wl_baselines_batch — 52w/ATR/SMA from 300-day bars on 6h TTL cache (~4 fetches/day/symbol; 20s poll adds zero broker requests; 10min miss-TTL on failures). Fable caught+fixed mergeQuotes wiping WS bid/ask every REST poll. ruff+8 tests+tsc green; headless-verified pre-market with LIVE WS bid/ask ticking. | Hotfix (2026-07-13, caught in deploy verify): SPY w52_low=69.005 from a vendor decimal-shift glitch bar — per-bar sanity clamp in _compute_wl_baseline (low/high inconsistent with own close -> substitute close); test added."
+   "notes": "Founder 2026-07-13 (overnight): column width control w/ good defaults, settings menu, editable column order + show/hide, row height, config saves WITH the watchlist; researched ToS/TradingView/Bloomberg/IBKR column sets. Built: column registry (frontend/lib/workspace/watchlist-columns.tsx, 19 cols in 5 categories - price/volume/fundamentals/position/visual), per-list settings blob {columns:[{key,visible,width}],density} validated in config/settings.py + PUT /api/watchlists/{id}; gap_pct added to /api/watchlist/market; widget rework: dynamic grid template, header-edge width drag, compact/comfortable/spacious density, settings overlay (gear in WidgetHeader), sticky ticker col on h-scroll, positions join (30s, only when position col visible); new default order Sym-D%-Last-Vol-RVOL-1d (founder ToS pref). Verified: ruff+5 new tests+typecheck clean, headless shots (default/settings/wide/scrolled) on live data. Deferred (registry absorbs later): 52w distance, RSI, SMA distance, bid/ask, IV rank, decision-score col. Pending: PR merge + deploy + founder in-browser check. | Round 2 (2026-07-13 am, founder go): +11 columns \u2014 Bid/Ask/Sprd% (WS already carried bid/ask; frontend now reads them, REST merge keeps them), vsSPY (top-level spy_change_pct in market payload), xATR move, 52w range bar + 52wH/52wL dist, SMA50/SMA200 dist, position DayP&L (client-side prev_close*qty); new 'technicals' category; Last width 76->84 (4-digit crowding). Backend: _wl_baselines_batch \u2014 52w/ATR/SMA from 300-day bars on 6h TTL cache (~4 fetches/day/symbol; 20s poll adds zero broker requests; 10min miss-TTL on failures). Fable caught+fixed mergeQuotes wiping WS bid/ask every REST poll. ruff+8 tests+tsc green; headless-verified pre-market with LIVE WS bid/ask ticking. | Hotfix (2026-07-13, caught in deploy verify): SPY w52_low=69.005 from a vendor decimal-shift glitch bar \u2014 per-bar sanity clamp in _compute_wl_baseline (low/high inconsistent with own close -> substitute close); test added."
   },
   {
    "id": "theme-editor-knobs",
@@ -34,7 +43,7 @@
    "type": "build",
    "priority": "normal",
    "owner": "agent",
-   "notes": "Founder 2026-07-12: many editor colors did nothing / were cryptic / controlled too much (changing Border also moved chart gridlines). Redefined the color model as ~25 semantic knobs in Surface/Lines/Chart/Text sections (was ~50 confusing rows + group/bulk-swatch machinery). Knob vars are now canonical per [data-theme] block; legacy/shadcn names derive from them via :root var() aliases so the ~1500 consumers are untouched/zero-risk and one knob cascades everywhere. Real splits wired: chart grid off --border (--chart-grid), inner hairlines off borders (--line-divider, shadcn Separator + conservative 49-file sweep), widget header its own surface (--surface-header), chart line off candle-up (--chart-line), candles independent of status colors, grid dots + title + column-header their own knobs. Dead removed: --c-glow, --chart-1..5, 7 sidebar-* vars, legacy EDITABLE_TOKENS/tokens path; c-command/yellow/cyan/violet folded into warn/info. Custom-theme storage v1->v2 (clean break, founder not attached). 4 core themes identical-by-construction. Snapshot/rebuild map: References/THEME_TOKENS.md. tsc exit 0 + dev-compile GET / 200 no CSS errors. Pending founder in-browser check + knob tuning. Branch worktree-theme-knobs-rebuild -> draft PR. MERGED + deployed to serv 2026-07-12. Follow-up polish (fix/theme-notif-polish): (1) restored a distinct --c-violet — the consolidation had folded violet into --info, collapsing the notifications flow/convergence cards to the same blue as research; (2) notif-card drop shadow now mixes the hue INTO a dark base (was mixed into transparent at 38-55% = a bleeding colored halo) + tighter blur/negative spread so it reads as a tinted shadow, not a glow; (3) rAF-coalesced the theme-editor live preview (was a full-app repaint + chart redraw per color-picker input event -> laggy in Edge/Chromium). 2026-07-13 (fix/grid-dot-wysiwyg): Grid-dots knob was rendered at 5% opacity via color-mix so edits were imperceptible; now renders var(--surface-grid-dot) directly (1px dots) with per-theme defaults set to the resolved faint color -> knob is WYSIWYG, default look unchanged. 2026-07-13 (fix/grid-dot-workspace): that only fixed the LEGACY .canvas-surface shell; the actual workspace cockpit draws its own dot grid in workspace-grid.tsx (was hardcoded --fg-faint 30%) -> repointed to var(--surface-grid-dot); defaults recomputed to fg-faint-30%-over-background per theme (carbon #2a2e34 etc.) so the workspace grid is unchanged but the knob now drives it."
+   "notes": "Founder 2026-07-12: many editor colors did nothing / were cryptic / controlled too much (changing Border also moved chart gridlines). Redefined the color model as ~25 semantic knobs in Surface/Lines/Chart/Text sections (was ~50 confusing rows + group/bulk-swatch machinery). Knob vars are now canonical per [data-theme] block; legacy/shadcn names derive from them via :root var() aliases so the ~1500 consumers are untouched/zero-risk and one knob cascades everywhere. Real splits wired: chart grid off --border (--chart-grid), inner hairlines off borders (--line-divider, shadcn Separator + conservative 49-file sweep), widget header its own surface (--surface-header), chart line off candle-up (--chart-line), candles independent of status colors, grid dots + title + column-header their own knobs. Dead removed: --c-glow, --chart-1..5, 7 sidebar-* vars, legacy EDITABLE_TOKENS/tokens path; c-command/yellow/cyan/violet folded into warn/info. Custom-theme storage v1->v2 (clean break, founder not attached). 4 core themes identical-by-construction. Snapshot/rebuild map: References/THEME_TOKENS.md. tsc exit 0 + dev-compile GET / 200 no CSS errors. Pending founder in-browser check + knob tuning. Branch worktree-theme-knobs-rebuild -> draft PR. MERGED + deployed to serv 2026-07-12. Follow-up polish (fix/theme-notif-polish): (1) restored a distinct --c-violet \u2014 the consolidation had folded violet into --info, collapsing the notifications flow/convergence cards to the same blue as research; (2) notif-card drop shadow now mixes the hue INTO a dark base (was mixed into transparent at 38-55% = a bleeding colored halo) + tighter blur/negative spread so it reads as a tinted shadow, not a glow; (3) rAF-coalesced the theme-editor live preview (was a full-app repaint + chart redraw per color-picker input event -> laggy in Edge/Chromium). 2026-07-13 (fix/grid-dot-wysiwyg): Grid-dots knob was rendered at 5% opacity via color-mix so edits were imperceptible; now renders var(--surface-grid-dot) directly (1px dots) with per-theme defaults set to the resolved faint color -> knob is WYSIWYG, default look unchanged. 2026-07-13 (fix/grid-dot-workspace): that only fixed the LEGACY .canvas-surface shell; the actual workspace cockpit draws its own dot grid in workspace-grid.tsx (was hardcoded --fg-faint 30%) -> repointed to var(--surface-grid-dot); defaults recomputed to fg-faint-30%-over-background per theme (carbon #2a2e34 etc.) so the workspace grid is unchanged but the knob now drives it."
   },
   {
    "id": "board-wider-responsive-lanes",
@@ -53,7 +62,7 @@
    "type": "ui",
    "priority": "normal",
    "owner": "serv",
-   "notes": "2026-07-12. Founder: cards should pop — dress them up with a hue/gradient matching the type (report ready=blue, earnings=amber, convergence=violet, trading=accent, risk/kill=red). Added a .notif-card utility in globals.css: faint 135deg gradient + colored left edge + soft drop shadow with a hue-tinted glow (intensifies on hover/expand), all driven by a per-card --hue CSS var (cardHue() mirrors the type-word color map). Severity stripe made !important so it still wins the left edge. Verified visually via headless screenshot of the real card markup+theme vars. UI-only, pending in-browser check. Follow-up 2026-07-13 (fix/notif-fixed-palette): founder wants notif colors LOCKED to a fixed palette regardless of theme (only dark/light brightness). Added --notif-{trading,flow,alerts,research,system,risk} (dark in :root, light in :root:not(.dark)); cardHue()/kindWordClass() now read those instead of the theme knobs (--c-accent/amber/blue/violet/fg-faint). Fixed 5 orphan kinds (job_watchdog/attribution_orphan/delivery_alarm/schwab_health/propose) that fell to the gray system word -> mapped into buckets; and any critical-severity card now reads red for word+hue+stripe (job_watchdog was a gray word on a red card). tsc exit 0."
+   "notes": "2026-07-12. Founder: cards should pop \u2014 dress them up with a hue/gradient matching the type (report ready=blue, earnings=amber, convergence=violet, trading=accent, risk/kill=red). Added a .notif-card utility in globals.css: faint 135deg gradient + colored left edge + soft drop shadow with a hue-tinted glow (intensifies on hover/expand), all driven by a per-card --hue CSS var (cardHue() mirrors the type-word color map). Severity stripe made !important so it still wins the left edge. Verified visually via headless screenshot of the real card markup+theme vars. UI-only, pending in-browser check. Follow-up 2026-07-13 (fix/notif-fixed-palette): founder wants notif colors LOCKED to a fixed palette regardless of theme (only dark/light brightness). Added --notif-{trading,flow,alerts,research,system,risk} (dark in :root, light in :root:not(.dark)); cardHue()/kindWordClass() now read those instead of the theme knobs (--c-accent/amber/blue/violet/fg-faint). Fixed 5 orphan kinds (job_watchdog/attribution_orphan/delivery_alarm/schwab_health/propose) that fell to the gray system word -> mapped into buckets; and any critical-severity card now reads red for word+hue+stripe (job_watchdog was a gray word on a red card). tsc exit 0."
   },
   {
    "id": "ci-self-hosted-runner",
@@ -62,7 +71,7 @@
    "type": "infra",
    "priority": "normal",
    "owner": "serv",
-   "notes": "2026-07-12. Main was red since Jul 11 night: 8 stale tests (routing-matrix push demotion, 3 new job loops, unstubbed FINRA source doing live calls from CI) — fixed in PR #31. Actions cap unsustainable (~11 min/run on free 2000 min/mo) -> serv registered as self-hosted runner, systemd user unit capped 4 cores/6G, suite 6m vs 9m hosted — PR #32. Caught + fixed ambient-ollama leak: keyless provider auto-resolution probed localhost:11434 and ran real qwen3:8b inference from tests; conftest pins OLLAMA_BASE_URL to a dead port. Both PRs green, ready for review — merge #31 then #32 (or #32 alone, it contains #31)."
+   "notes": "2026-07-12. Main was red since Jul 11 night: 8 stale tests (routing-matrix push demotion, 3 new job loops, unstubbed FINRA source doing live calls from CI) \u2014 fixed in PR #31. Actions cap unsustainable (~11 min/run on free 2000 min/mo) -> serv registered as self-hosted runner, systemd user unit capped 4 cores/6G, suite 6m vs 9m hosted \u2014 PR #32. Caught + fixed ambient-ollama leak: keyless provider auto-resolution probed localhost:11434 and ran real qwen3:8b inference from tests; conftest pins OLLAMA_BASE_URL to a dead port. Both PRs green, ready for review \u2014 merge #31 then #32 (or #32 alone, it contains #31)."
   },
   {
    "id": "news-reader-view",
@@ -75,7 +84,7 @@
   },
   {
    "id": "bars-split-adjustment",
-   "title": "Charts ignored stock splits — CRWD $800→$200 cliff (Alpaca adjustment=raw)",
+   "title": "Charts ignored stock splits \u2014 CRWD $800\u2192$200 cliff (Alpaca adjustment=raw)",
    "lane": "done",
    "type": "bug",
    "priority": "high",
@@ -107,7 +116,7 @@
    "type": "build",
    "priority": "high",
    "owner": "agent",
-   "notes": "Diagnosed 2026-07-11: both widgets worked but had no drivers (setup scan manual-only since Jul 3; decision journal empty because no strategy armed — correct). Shipped: setup_scan_nightly job (weekdays >=17:30 ET, once/day, restart-safe), cross-artifact zone dedup in register_ideas, ranker failure no longer aborts scan, sweep stamps last_price, widget Open tab shows Last (distance-from-zone) + Expires. Spec: References/IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11.md (Phase B: direction/shorts, chat + decision-engine registration, proposal->idea_id bridge). Pending in-browser check. First nightly run: Mon Jul 13 evening."
+   "notes": "Diagnosed 2026-07-11: both widgets worked but had no drivers (setup scan manual-only since Jul 3; decision journal empty because no strategy armed \u2014 correct). Shipped: setup_scan_nightly job (weekdays >=17:30 ET, once/day, restart-safe), cross-artifact zone dedup in register_ideas, ranker failure no longer aborts scan, sweep stamps last_price, widget Open tab shows Last (distance-from-zone) + Expires. Spec: References/IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11.md (Phase B: direction/shorts, chat + decision-engine registration, proposal->idea_id bridge). Pending in-browser check. First nightly run: Mon Jul 13 evening."
   },
   {
    "id": "flow-intelligence",
@@ -121,17 +130,17 @@
   },
   {
    "id": "flow-wildcard-probe",
-   "title": "PROBE Mon open: OPRA trades wildcard DATA RATE (ACK confirmed Sat — does data flow + msg/s?)",
+   "title": "PROBE Mon open: OPRA trades wildcard DATA RATE (ACK confirmed Sat \u2014 does data flow + msg/s?)",
    "lane": "next",
    "type": "probe",
    "priority": "high",
    "owner": "agent",
-   "notes": "2026-07-11 Sat probe: {'action':'subscribe','trades':['*']} -> {'T':'subscription','trades':['*']} ACKED on the current plan (scripts/opra_wildcard_probe.py; won the 1-conn slot by retry-on-406 during a backend bounce). Remaining Monday questions: (1) does data actually FLOW under * (ACK != stream), (2) market-wide msg rate + client-side headroom (OPRA ~50M+ trades/day, open bursts 10-20x avg — python client must keep up), (3) lag under load. If flow confirmed: coarse tier = the full tape, snapshot rotation unnecessary, DTE quotas shrink to the 1,000-quote confirmation budget. 2026-07-12: run with --capture research/options_flow/tape_2026-07-13_open.mpk so the open tape is replayable offline (scripts/opra_replay_bench.py); merge flow-stream-cpu PR first — client hot path is 3x faster and the stats line now logs lag_p50/p95.",
+   "notes": "2026-07-11 Sat probe: {'action':'subscribe','trades':['*']} -> {'T':'subscription','trades':['*']} ACKED on the current plan (scripts/opra_wildcard_probe.py; won the 1-conn slot by retry-on-406 during a backend bounce). Remaining Monday questions: (1) does data actually FLOW under * (ACK != stream), (2) market-wide msg rate + client-side headroom (OPRA ~50M+ trades/day, open bursts 10-20x avg \u2014 python client must keep up), (3) lag under load. If flow confirmed: coarse tier = the full tape, snapshot rotation unnecessary, DTE quotas shrink to the 1,000-quote confirmation budget. 2026-07-12: run with --capture research/options_flow/tape_2026-07-13_open.mpk so the open tape is replayable offline (scripts/opra_replay_bench.py); merge flow-stream-cpu PR first \u2014 client hot path is 3x faster and the stats line now logs lag_p50/p95.",
    "updated_at": "2026-07-12"
   },
   {
    "id": "flow-dte-diversity",
-   "title": "Flow detector: DTE-diversity active set — catch long-dated whale flow live",
+   "title": "Flow detector: DTE-diversity active set \u2014 catch long-dated whale flow live",
    "lane": "next",
    "type": "build",
    "priority": "high",
@@ -141,12 +150,12 @@
   },
   {
    "id": "push-importance-scoring",
-   "title": "Importance-scored pushes — replace count budget with an unusualness threshold",
+   "title": "Importance-scored pushes \u2014 replace count budget with an unusualness threshold",
    "lane": "in_progress",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "2026-07-10: OBSERVE PHASE LIVE — every confluence card carries 'score X.X' + drivers (size as multiple of per-name floor via log2, RVOL multiple, level distance in ATR + alert bonus, breadth, cross-source side agreement, interest boost held>alerted>active-list, ext-hours flagged). Cap at 100/day = everything pushes. NEXT: founder watches scores a few days, names the noise line, then the gate flips to score>=threshold (count budget stays as backstop only); optional auto-threshold to a target pushes/day."
+   "notes": "2026-07-10: OBSERVE PHASE LIVE \u2014 every confluence card carries 'score X.X' + drivers (size as multiple of per-name floor via log2, RVOL multiple, level distance in ATR + alert bonus, breadth, cross-source side agreement, interest boost held>alerted>active-list, ext-hours flagged). Cap at 100/day = everything pushes. NEXT: founder watches scores a few days, names the noise line, then the gate flips to score>=threshold (count budget stays as backstop only); optional auto-threshold to a target pushes/day."
   },
   {
    "id": "tape-widget-surface",
@@ -168,7 +177,7 @@
   },
   {
    "id": "equity-tape-events",
-   "title": "Equity tape events — blocks + dark-pool prints (FINRA TRF, exchange D)",
+   "title": "Equity tape events \u2014 blocks + dark-pool prints (FINRA TRF, exchange D)",
    "lane": "done",
    "type": "feature",
    "priority": "high",
@@ -177,7 +186,7 @@
   },
   {
    "id": "confluence-engine",
-   "title": "Confluence engine — any 2 watched things converge (flow/tape/RVOL/level)",
+   "title": "Confluence engine \u2014 any 2 watched things converge (flow/tape/RVOL/level)",
    "lane": "done",
    "type": "feature",
    "priority": "high",
@@ -186,48 +195,48 @@
   },
   {
    "id": "avg-cost-day-attribution",
-   "title": "Calendar day P&L — avg-cost attribution for partial closes (SHIPPED)",
+   "title": "Calendar day P&L \u2014 avg-cost attribution for partial closes (SHIPPED)",
    "lane": "done",
    "type": "fix",
    "priority": "high",
    "owner": "serv",
-   "notes": "2026-07-10 founder: 'trades in 3 Schwab accounts not representing correctly' + 'calendar stuck on indi'. Diagnosis: sync + account scoping were CORRECT end-to-end (ledger qty reconciles exactly vs broker in all 4 accounts; per-account API responses verified distinct) — the boundary last-flat realized method showed $0.00 for scale-outs around core positions, so every tile was 0 and account switching looked dead. SHIPPED: daily_avg_cost_realized (db/analytics.py) — running avg-cost per (account,symbol), books partial closes on trade day, flat-to-flat == boundary; intraday order via new exec_time (json_extract raw_json $.time); date-only import rows = buys-before-sells; pre-history sells never fabricated (unattributed + ≈ flag, covers keep phantom cost out of basis, heals at flats). Boundary stays headline truth. Live-verified: indi Jul9 +2,526.53 / joint +1,285.09 / roth-joint +639.07 (all match real fills). 57 tests. Deployed."
+   "notes": "2026-07-10 founder: 'trades in 3 Schwab accounts not representing correctly' + 'calendar stuck on indi'. Diagnosis: sync + account scoping were CORRECT end-to-end (ledger qty reconciles exactly vs broker in all 4 accounts; per-account API responses verified distinct) \u2014 the boundary last-flat realized method showed $0.00 for scale-outs around core positions, so every tile was 0 and account switching looked dead. SHIPPED: daily_avg_cost_realized (db/analytics.py) \u2014 running avg-cost per (account,symbol), books partial closes on trade day, flat-to-flat == boundary; intraday order via new exec_time (json_extract raw_json $.time); date-only import rows = buys-before-sells; pre-history sells never fabricated (unattributed + \u2248 flag, covers keep phantom cost out of basis, heals at flats). Boundary stays headline truth. Live-verified: indi Jul9 +2,526.53 / joint +1,285.09 / roth-joint +639.07 (all match real fills). 57 tests. Deployed."
   },
   {
    "id": "options-chain-viewer",
-   "title": "Options-chain viewer v2 — Webull-style accordion, SHIPPED + founder-screenshot-verified",
+   "title": "Options-chain viewer v2 \u2014 Webull-style accordion, SHIPPED + founder-screenshot-verified",
    "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "v2 SHIPPED 2026-07-10 (founder redesign w/ ToS/Schwab/Webull references, Webull preferred): expiration accordion (nearest TRADEABLE auto-expands — post-close skips the expired 0DTE chain; (W) weekly markers, DTE), strict right-aligned tabular grid bid/ask hugging the strike spine (bid green/ask red), ITM region tint, spot-divider row (SPY · 751.71) auto-scrolled into view, strikes 6/10/20/40/all selector (default 10, server-side ATM window, persisted in widget config), 'as of 3:59 pm et' staleness note (close quotes persist after hours — data was never missing, v1 presentation was). Monitored Composer round + orchestrator config-type fix; 16 endpoint tests + ruff + tsc; deployed + verified via headless screenshot at 1920px (v1 complaints all cleared). Deferred: calls/puts-only toggle, per-expiry implied-move header stats."
+   "notes": "v2 SHIPPED 2026-07-10 (founder redesign w/ ToS/Schwab/Webull references, Webull preferred): expiration accordion (nearest TRADEABLE auto-expands \u2014 post-close skips the expired 0DTE chain; (W) weekly markers, DTE), strict right-aligned tabular grid bid/ask hugging the strike spine (bid green/ask red), ITM region tint, spot-divider row (SPY \u00b7 751.71) auto-scrolled into view, strikes 6/10/20/40/all selector (default 10, server-side ATM window, persisted in widget config), 'as of 3:59 pm et' staleness note (close quotes persist after hours \u2014 data was never missing, v1 presentation was). Monitored Composer round + orchestrator config-type fix; 16 endpoint tests + ruff + tsc; deployed + verified via headless screenshot at 1920px (v1 complaints all cleared). Deferred: calls/puts-only toggle, per-expiry implied-move header stats."
   },
   {
    "id": "chart-ux-founder-round-0709",
-   "title": "Chart UX round (founder feedback) — SHIPPED to tree, visual check pending",
+   "title": "Chart UX round (founder feedback) \u2014 SHIPPED to tree, visual check pending",
    "lane": "done",
    "type": "ui",
    "priority": "high",
    "owner": "serv",
-   "notes": "2026-07-09 evening, founder heading out, built+committed: (1) volume pane-separator hover no longer flares green (was blocking alert placement); (2) alert lines 1px dotted, NO axis price pill — bell titles 🔔+/🔔−/🔔 (above/below/cross), ↻ suffix = repeating; cross=neutral; (3) NEW eye menu on chart frame toolbar: show/hide Alerts + Drawings, persisted per-widget; (4) tick-flash peak theme-tuned (--tick-flash-mix 32% dark / 16% light — was invisible on dark) + TRIAL: last price tinted by day direction. tsc green. Founder must eyeball: bell glyph render on canvas, flash intensity, price tint keep-or-revert."
+   "notes": "2026-07-09 evening, founder heading out, built+committed: (1) volume pane-separator hover no longer flares green (was blocking alert placement); (2) alert lines 1px dotted, NO axis price pill \u2014 bell titles \ud83d\udd14+/\ud83d\udd14\u2212/\ud83d\udd14 (above/below/cross), \u21bb suffix = repeating; cross=neutral; (3) NEW eye menu on chart frame toolbar: show/hide Alerts + Drawings, persisted per-widget; (4) tick-flash peak theme-tuned (--tick-flash-mix 32% dark / 16% light \u2014 was invisible on dark) + TRIAL: last price tinted by day direction. tsc green. Founder must eyeball: bell glyph render on canvas, flash intensity, price tint keep-or-revert."
   },
   {
    "id": "options-flow-phase3",
-   "title": "Options-flow Phase 3 — streaming + sweeps + enrichment SHIPPED + DEPLOYED",
+   "title": "Options-flow Phase 3 \u2014 streaming + sweeps + enrichment SHIPPED + DEPLOYED",
    "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "3a (7b5728c) + 3b (fadbd90) BOTH COMMITTED 2026-07-09. 3b hand-written (no dispatch, per serv-fork-storm rule): signals/options_flow/sweeps.py — SWP-1 500ms clusters, >=3-exchange sweep / one-exchange >=5-print split, $25k/$250k-index floors, F-1/F-2/F-3 per print, ISO condition S corroborates never gates, direction = majority classified premium (never guessed); api/main.py 1s sweep loop consumes stream prints, at-print DIR-1 vs live quote cache (fresh<=5s -> stream_quote), events -> db + existing convergence/push budget (sweep added to _FLOW_EVENT_TYPES; budget code untouched); widget sweep label (violet). 144 tests + ruff + tsc green. OPTIONS_FLOW_STREAM_ENABLED=1 set in .env. DEPLOY PENDING: classifier requires a human — founder runs ./tools/serv-deploy.sh both (~6s swap). Watch after deploy: 'options_flow stream:' connect + 60s stats lines (quote msg rate — HOT_QUOTE_MAX=150 may need lowering if CPU creeps), 'options_flow sweeps:' event lines, one ws conn/account (probes now conflict with prod). Residuals: partial clusters lost on restart (poll stays authoritative); stream emits sweeps only (blocks/UV/pressure stay on the 30s poll). | 2026-07-09 deployed live (founder: 'just deploy yourself')."
+   "notes": "3a (7b5728c) + 3b (fadbd90) BOTH COMMITTED 2026-07-09. 3b hand-written (no dispatch, per serv-fork-storm rule): signals/options_flow/sweeps.py \u2014 SWP-1 500ms clusters, >=3-exchange sweep / one-exchange >=5-print split, $25k/$250k-index floors, F-1/F-2/F-3 per print, ISO condition S corroborates never gates, direction = majority classified premium (never guessed); api/main.py 1s sweep loop consumes stream prints, at-print DIR-1 vs live quote cache (fresh<=5s -> stream_quote), events -> db + existing convergence/push budget (sweep added to _FLOW_EVENT_TYPES; budget code untouched); widget sweep label (violet). 144 tests + ruff + tsc green. OPTIONS_FLOW_STREAM_ENABLED=1 set in .env. DEPLOY PENDING: classifier requires a human \u2014 founder runs ./tools/serv-deploy.sh both (~6s swap). Watch after deploy: 'options_flow stream:' connect + 60s stats lines (quote msg rate \u2014 HOT_QUOTE_MAX=150 may need lowering if CPU creeps), 'options_flow sweeps:' event lines, one ws conn/account (probes now conflict with prod). Residuals: partial clusters lost on restart (poll stays authoritative); stream emits sweeps only (blocks/UV/pressure stay on the 30s poll). | 2026-07-09 deployed live (founder: 'just deploy yourself')."
   },
   {
    "id": "options-flow-phase2",
-   "title": "Options-flow screener Phase 1+2 — MERGED + ENABLED LIVE 2026-07-09 (founder go)",
+   "title": "Options-flow screener Phase 1+2 \u2014 MERGED + ENABLED LIVE 2026-07-09 (founder go)",
    "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "LIVE 2026-07-09 ~11:15 ET on founder 'merge it and enable it'. Build: commits 4c19f9e (2a pure detection: F-1/F-2/F-3 filters, BLK-1 blocks, DIR-1 quote rule + directional pressure), ff58ff6 (2b: read-only OPRA trades/quotes/conditions client + PollState 30s poll loop + daily OI refresh + intraday UV-1), 139e643 (2c: convergence watch — flow+RVOL>=1.5+level-touch -> >=2 components -> ONE push under 5/day deny-by-default persisted budget; solo >=$1M). 126 hermetic tests + ruff green; adversarial review SAFE-WITH-NITS, MAJOR fixed in-round (solo dedup per underlying/type/day). ENABLE SEQUENCE DONE: merged f0fddee -> main; backfill 23 watchlist names (futures excluded) = 64,444 rows/61 buckets; ZSCORE_STD_FLOOR=1242.65 committed (bfdfa2a) w/ derivation in research/options_flow/thresholds.md; OPTIONS_FLOW_ENABLED=1 in .env; serv-deploy both (backend PID 553659, frontend 553910, clean boot). SPY/QQQ kept in w/ $250k floor + 0DTE exclusion. Watch: first convergence/solo pushes respect the 5/day budget; EOD scan tonight. NEXT: Phase 3 (msgpack websocket + SWP-1 sweeps + at-print DIR-1 — gate lifted per multi-user direction) + P-3 market-hours probe (condition-code frequencies to validate F-1/F-2)."
+   "notes": "LIVE 2026-07-09 ~11:15 ET on founder 'merge it and enable it'. Build: commits 4c19f9e (2a pure detection: F-1/F-2/F-3 filters, BLK-1 blocks, DIR-1 quote rule + directional pressure), ff58ff6 (2b: read-only OPRA trades/quotes/conditions client + PollState 30s poll loop + daily OI refresh + intraday UV-1), 139e643 (2c: convergence watch \u2014 flow+RVOL>=1.5+level-touch -> >=2 components -> ONE push under 5/day deny-by-default persisted budget; solo >=$1M). 126 hermetic tests + ruff green; adversarial review SAFE-WITH-NITS, MAJOR fixed in-round (solo dedup per underlying/type/day). ENABLE SEQUENCE DONE: merged f0fddee -> main; backfill 23 watchlist names (futures excluded) = 64,444 rows/61 buckets; ZSCORE_STD_FLOOR=1242.65 committed (bfdfa2a) w/ derivation in research/options_flow/thresholds.md; OPTIONS_FLOW_ENABLED=1 in .env; serv-deploy both (backend PID 553659, frontend 553910, clean boot). SPY/QQQ kept in w/ $250k floor + 0DTE exclusion. Watch: first convergence/solo pushes respect the 5/day budget; EOD scan tonight. NEXT: Phase 3 (msgpack websocket + SWP-1 sweeps + at-print DIR-1 \u2014 gate lifted per multi-user direction) + P-3 market-hours probe (condition-code frequencies to validate F-1/F-2)."
   },
   {
    "id": "toolbar-redesign-b",
@@ -236,56 +245,56 @@
    "type": "feature",
    "priority": "medium",
    "owner": "serv",
-   "notes": "Founder-driven redesign (2 Fable mockup passes -> approved Direction B). workspace-toolbar.tsx rebuilt: LEFT = StandInMark logo + HMT + dynamic FEED CHIP (green live dot; SIP/BOATS teal when paid real-time, IEX dim when free; PAPER blue/REAL amber; alpaca only in popover; recheck stays); CENTER empty; RIGHT = Main + PORT/BP/DAY/UPL ledger + privacy eye + bell/settings/theme + clock. REMOVED Pages menu + copilot/messages icon (Ctrl/Cmd+J still opens copilot) + MoneyTypeBadge. Privacy eye now COLLAPSES the ledger into the eye (max-w->0 + translateX + opacity 240ms) and Main slides adjacent — no more ledger masking. marketSessionNow() mirrors market_clock.py for the feed word. typecheck clean, no dangling imports. Deploy pending; founder in-browser eyeball for tweaks. | POLISH R2 2026-07-09: theme trigger = lone Moon icon (no text); account selector = plain dropdown (no bubble, truncates instead of clipping) + table menu color-coded green Real / amber Paper w/ leading dots; feed chip PAPER->amber/REAL->green (theme-independent, popover env badge too) + PAPER baseline-aligned; hairline dividers logo<->chip and icons<->clock. typecheck clean. Deployed. Founder eyeball. NEXT: dark/light/system theme editor behind the moon. | OPUS POLISH 2026-07-09: killed the account-trigger box (added a `plain` variant to shadcn SelectTrigger — no border/ring/rounding/padding + no line-clamp that was clipping the 'O'; other Select callers untouched, plain defaults false); account menu = just 'Overview' + tighter density (px-2 py-1, fs-micro headers); ADDED dark/light mode layer — Dark|Light|System toggle behind the moon, themes grouped light/dark, per-theme set-default star, new use-theme-mode-store (localStorage hmt-theme-mode-v1, SSR-safe), ThemeSystemSync follows OS prefers-color-scheme when System. typecheck clean. Deployed; founder eyeball."
+   "notes": "Founder-driven redesign (2 Fable mockup passes -> approved Direction B). workspace-toolbar.tsx rebuilt: LEFT = StandInMark logo + HMT + dynamic FEED CHIP (green live dot; SIP/BOATS teal when paid real-time, IEX dim when free; PAPER blue/REAL amber; alpaca only in popover; recheck stays); CENTER empty; RIGHT = Main + PORT/BP/DAY/UPL ledger + privacy eye + bell/settings/theme + clock. REMOVED Pages menu + copilot/messages icon (Ctrl/Cmd+J still opens copilot) + MoneyTypeBadge. Privacy eye now COLLAPSES the ledger into the eye (max-w->0 + translateX + opacity 240ms) and Main slides adjacent \u2014 no more ledger masking. marketSessionNow() mirrors market_clock.py for the feed word. typecheck clean, no dangling imports. Deploy pending; founder in-browser eyeball for tweaks. | POLISH R2 2026-07-09: theme trigger = lone Moon icon (no text); account selector = plain dropdown (no bubble, truncates instead of clipping) + table menu color-coded green Real / amber Paper w/ leading dots; feed chip PAPER->amber/REAL->green (theme-independent, popover env badge too) + PAPER baseline-aligned; hairline dividers logo<->chip and icons<->clock. typecheck clean. Deployed. Founder eyeball. NEXT: dark/light/system theme editor behind the moon. | OPUS POLISH 2026-07-09: killed the account-trigger box (added a `plain` variant to shadcn SelectTrigger \u2014 no border/ring/rounding/padding + no line-clamp that was clipping the 'O'; other Select callers untouched, plain defaults false); account menu = just 'Overview' + tighter density (px-2 py-1, fs-micro headers); ADDED dark/light mode layer \u2014 Dark|Light|System toggle behind the moon, themes grouped light/dark, per-theme set-default star, new use-theme-mode-store (localStorage hmt-theme-mode-v1, SSR-safe), ThemeSystemSync follows OS prefers-color-scheme when System. typecheck clean. Deployed; founder eyeball."
   },
   {
    "id": "alpaca-feed-indicator",
-   "title": "Toolbar indicator: Alpaca SIP (real-time) vs IEX (free) — code done, deploy pending",
+   "title": "Toolbar indicator: Alpaca SIP (real-time) vs IEX (free) \u2014 code done, deploy pending",
    "lane": "done",
    "type": "feature",
    "priority": "low",
    "owner": "serv",
-   "notes": "Founder ask: show which Alpaca data tier you're on under the broker dropdown so you can confirm free-plan vs SIP + verify a SIP upgrade took. Extends /api/broker alpaca entry with data_feed={configured,tier,feed,overnight_feed} from brokers/alpaca_tier.py; adds ?recheck_feed=1 (clears the 6h tier cache) so an upgrade shows immediately. Frontend: line in workspace-toolbar.tsx broker dropdown (SIP·real-time / IEX·free + 'overnight delayed ~15m'; 'auto-detected' tag when configured=auto) + a recheck button. Read-only observability, fail-soft. Brief: tools/composer-bridge/briefs/alpaca-feed-indicator.md | DONE+verified 2026-07-08: /api/broker alpaca entry now carries data_feed{configured,tier,feed,overnight_feed} (this box: sip/paid/sip/boats); ?recheck_feed=1 clears the 6h cache. Toolbar: green SIP tag on the broker trigger + 'Market data: SIP·real-time / IEX·free' dropdown line (auto-detected tag, 'overnight delayed ~15m' on IEX) + recheck button. 15 tests + ruff + typecheck green. Hand-fixed the SIP text token --c-green-bg->--c-green (fg vs bg)."
+   "notes": "Founder ask: show which Alpaca data tier you're on under the broker dropdown so you can confirm free-plan vs SIP + verify a SIP upgrade took. Extends /api/broker alpaca entry with data_feed={configured,tier,feed,overnight_feed} from brokers/alpaca_tier.py; adds ?recheck_feed=1 (clears the 6h tier cache) so an upgrade shows immediately. Frontend: line in workspace-toolbar.tsx broker dropdown (SIP\u00b7real-time / IEX\u00b7free + 'overnight delayed ~15m'; 'auto-detected' tag when configured=auto) + a recheck button. Read-only observability, fail-soft. Brief: tools/composer-bridge/briefs/alpaca-feed-indicator.md | DONE+verified 2026-07-08: /api/broker alpaca entry now carries data_feed{configured,tier,feed,overnight_feed} (this box: sip/paid/sip/boats); ?recheck_feed=1 clears the 6h cache. Toolbar: green SIP tag on the broker trigger + 'Market data: SIP\u00b7real-time / IEX\u00b7free' dropdown line (auto-detected tag, 'overnight delayed ~15m' on IEX) + recheck button. 15 tests + ruff + typecheck green. Hand-fixed the SIP text token --c-green-bg->--c-green (fg vs bg)."
   },
   {
    "id": "chart-history-depth",
-   "title": "Chart history depth: daily/weekly/monthly back ~5-10y (was ~1y) — code done, frontend deploy pending",
+   "title": "Chart history depth: daily/weekly/monthly back ~5-10y (was ~1y) \u2014 code done, frontend deploy pending",
    "lane": "done",
    "type": "feature",
    "priority": "medium",
    "owner": "serv",
-   "notes": "Dispatched to Composer 2026-07-08. Cap was purely the frontend chart-time.ts per-timeframe days (1D=365,1W=365,1M=1825); backend /api/bars already allows days<=3650 and Alpaca SIP has data to 2016 (verified: 2641 daily bars + native weekly to 2016-01-04 in one un-paginated call, free — we already pay SIP). Bump 1D->1825(5y), 1W->3650, 1M->3650 + sync the backend prewarm spec. Equity deep history = Alpaca native; futures weekly/monthly bounded by Schwab (out of scope). Brief: tools/composer-bridge/briefs/chart-history-depth.md | DONE+verified 2026-07-08: chart-time.ts 1D=1825/1W=3650/1M=3650 + backend prewarm synced. Live backend serves it: AAPL 1D=1253 bars to 2021, 1W=522 to 2016, 1M=120 to 2016. Frontend rebuild pending (batch w/ overnight badge)."
+   "notes": "Dispatched to Composer 2026-07-08. Cap was purely the frontend chart-time.ts per-timeframe days (1D=365,1W=365,1M=1825); backend /api/bars already allows days<=3650 and Alpaca SIP has data to 2016 (verified: 2641 daily bars + native weekly to 2016-01-04 in one un-paginated call, free \u2014 we already pay SIP). Bump 1D->1825(5y), 1W->3650, 1M->3650 + sync the backend prewarm spec. Equity deep history = Alpaca native; futures weekly/monthly bounded by Schwab (out of scope). Brief: tools/composer-bridge/briefs/chart-history-depth.md | DONE+verified 2026-07-08: chart-time.ts 1D=1825/1W=3650/1M=3650 + backend prewarm synced. Live backend serves it: AAPL 1D=1253 bars to 2021, 1W=522 to 2016, 1M=120 to 2016. Frontend rebuild pending (batch w/ overnight badge)."
   },
   {
    "id": "alpaca-data-tier-autodetect",
-   "title": "Alpaca data-tier auto-detect (free vs SIP) — code done + verified",
+   "title": "Alpaca data-tier auto-detect (free vs SIP) \u2014 code done + verified",
    "lane": "done",
    "type": "feature",
    "priority": "medium",
    "owner": "serv",
-   "notes": "Foundation for multi-user + 24/5. Add data_feed=auto: probe feed=sip entitlement (200=paid->sip, 403=free->iex), cache w/ TTL, re-probe picks up an upgrade. Explicit sip/iex still wins (founder's box unchanged, no probe). Exposes data_tier() for the overnight brief. Degrade-not-false-downgrade on ambiguous errors. Brief: tools/composer-bridge/briefs/alpaca-data-tier-autodetect.md | DONE+verified 2026-07-08: new brokers/alpaca_tier.py; _data_feed is now a resolving property (explicit sip/iex = no probe, auto = cached SIP-entitlement probe w/ 6h TTL, degrade-not-false-downgrade). 33 targeted tests pass. Founder's explicit-sip box proven unchanged + ZERO probe calls. Nits (non-blocking): sync probe blocks event loop for auto-tier cold cache (never for sip box); VALID_ALPACA_DATA_FEEDS now unused. NOTE: Composer dispatch wedged 1h on the full pytest suite (repo full-suite hangs) — code was already done; killed + reviewed manually."
+   "notes": "Foundation for multi-user + 24/5. Add data_feed=auto: probe feed=sip entitlement (200=paid->sip, 403=free->iex), cache w/ TTL, re-probe picks up an upgrade. Explicit sip/iex still wins (founder's box unchanged, no probe). Exposes data_tier() for the overnight brief. Degrade-not-false-downgrade on ambiguous errors. Brief: tools/composer-bridge/briefs/alpaca-data-tier-autodetect.md | DONE+verified 2026-07-08: new brokers/alpaca_tier.py; _data_feed is now a resolving property (explicit sip/iex = no probe, auto = cached SIP-entitlement probe w/ 6h TTL, degrade-not-false-downgrade). 33 targeted tests pass. Founder's explicit-sip box proven unchanged + ZERO probe calls. Nits (non-blocking): sync probe blocks event loop for auto-tier cold cache (never for sip box); VALID_ALPACA_DATA_FEEDS now unused. NOTE: Composer dispatch wedged 1h on the full pytest suite (repo full-suite hangs) \u2014 code was already done; killed + reviewed manually."
   },
   {
    "id": "overnight-24-5-boats",
-   "title": "True 24/5 overnight: equity quote + candles from Blue Ocean (boats) — code done, deploy pending",
+   "title": "True 24/5 overnight: equity quote + candles from Blue Ocean (boats) \u2014 code done, deploy pending",
    "lane": "done",
    "type": "feature",
    "priority": "medium",
    "owner": "serv",
-   "notes": "Depends on data_tier(). Overnight (8pm-4am) sip is empty; boats has full candles + real-time quote on paid. Verified: boats overnight window=73 5m bars (complement of sip, clean union); feed=overnight is snapshot-only (400 on bars). Quote feed=boats(paid)/overnight(free-indicative); candles always boats (free=~15m delayed). Union-merge boats o/n candles into the sip intraday series (fail-soft, ext+intraday only); free tier carries a delayed/indicative badge (honesty). Brief: tools/composer-bridge/briefs/overnight-24-5-boats.md | DONE+reviewed 2026-07-08: alpaca.py boats leg + union-merge (sip-wins-overlap, fail-soft, intraday+ext only) + aget_ext_quotes feed override; hybrid routes overnight quote paid->boats(fallback sip)/free->overnight+delayed; market_stream.py WS-url resolves auto (fix for #2's new default); api surfaces overnight_delayed (free-tier only); frontend chart merges overnight forming candle + '24h·dly' badge (reuses ext badge). 47 targeted tests + ruff + typecheck green. Founder(paid) = real-time boats, no badge. DEPLOY PENDING (backend restart + frontend rebuild); overnight ticks testable after 8pm ET."
+   "notes": "Depends on data_tier(). Overnight (8pm-4am) sip is empty; boats has full candles + real-time quote on paid. Verified: boats overnight window=73 5m bars (complement of sip, clean union); feed=overnight is snapshot-only (400 on bars). Quote feed=boats(paid)/overnight(free-indicative); candles always boats (free=~15m delayed). Union-merge boats o/n candles into the sip intraday series (fail-soft, ext+intraday only); free tier carries a delayed/indicative badge (honesty). Brief: tools/composer-bridge/briefs/overnight-24-5-boats.md | DONE+reviewed 2026-07-08: alpaca.py boats leg + union-merge (sip-wins-overlap, fail-soft, intraday+ext only) + aget_ext_quotes feed override; hybrid routes overnight quote paid->boats(fallback sip)/free->overnight+delayed; market_stream.py WS-url resolves auto (fix for #2's new default); api surfaces overnight_delayed (free-tier only); frontend chart merges overnight forming candle + '24h\u00b7dly' badge (reuses ext badge). 47 targeted tests + ruff + typecheck green. Founder(paid) = real-time boats, no badge. DEPLOY PENDING (backend restart + frontend rebuild); overnight ticks testable after 8pm ET."
   },
   {
    "id": "schwab-token-stale-durable-fix",
-   "title": "Schwab token-stale ~weekly outage — durable fix (both legs) SHIPPED + DEPLOYED + verified live",
+   "title": "Schwab token-stale ~weekly outage \u2014 durable fix (both legs) SHIPPED + DEPLOYED + verified live",
    "lane": "done",
    "type": "ops",
    "priority": "high",
    "owner": "serv",
-   "notes": "Closes the recurring outage (memory schwab-token-stale-in-memory): 6am reauth cron mints a fresh token but the running hmt-backend keeps the OLD revoked refresh token -> 400 invalid_grant on all Schwab calls until manual restart. TWO legs coded by Composer + reviewed by Opus (2026-07-08). Leg 1 (scripts/schwab_reauth.py): success-mint path only (NOT --skip-if-fresh) calls _restart_backend() = read-only `systemctl show` MainPID + SIGTERM so systemd Restart=always respawns with the fresh token; no sudo, fail-soft (never changes reauth exit code). Leg 2 (brokers/hybrid_market_data.py + alpaca.py): equity extended-hours quotes now source from Alpaca SIP (new aget_ext_quotes -> /v2/stocks/snapshots) so a Schwab outage can't blank equity pre/post charts; Schwab fundamentals/total_volume/regular_last merge on top fail-soft (allowlist, never clobbers ext); futures unchanged. All consumers .get()-guarded -> either outage degrades, never crashes a poll. Regression test = the 2026-07-08 Schwab-raises case still returns ext_last from Alpaca. ruff green; 34 hybrid/stream/alpaca tests green. SIP feed inherited from the same self._data_feed the live bars already run on (feed=sip verified live per sip-hybrid-data). DEPLOYED + verified live 2026-07-08 12:37 ET (backend restart, new PID 1236064): journal shows GET data.alpaca.markets/v2/stocks/snapshots?...&feed=sip -> 200 (new ext-quote leg firing on SIP), Schwab supplemental /quotes -> 200, futures pricehistory -> 200, ZERO invalid_grant/errors. Leg 1 (reauth restart) is dormant until the next 6am mint that actually rotates (~Jul 15) — that rotation will now self-heal instead of blanking Schwab."
+   "notes": "Closes the recurring outage (memory schwab-token-stale-in-memory): 6am reauth cron mints a fresh token but the running hmt-backend keeps the OLD revoked refresh token -> 400 invalid_grant on all Schwab calls until manual restart. TWO legs coded by Composer + reviewed by Opus (2026-07-08). Leg 1 (scripts/schwab_reauth.py): success-mint path only (NOT --skip-if-fresh) calls _restart_backend() = read-only `systemctl show` MainPID + SIGTERM so systemd Restart=always respawns with the fresh token; no sudo, fail-soft (never changes reauth exit code). Leg 2 (brokers/hybrid_market_data.py + alpaca.py): equity extended-hours quotes now source from Alpaca SIP (new aget_ext_quotes -> /v2/stocks/snapshots) so a Schwab outage can't blank equity pre/post charts; Schwab fundamentals/total_volume/regular_last merge on top fail-soft (allowlist, never clobbers ext); futures unchanged. All consumers .get()-guarded -> either outage degrades, never crashes a poll. Regression test = the 2026-07-08 Schwab-raises case still returns ext_last from Alpaca. ruff green; 34 hybrid/stream/alpaca tests green. SIP feed inherited from the same self._data_feed the live bars already run on (feed=sip verified live per sip-hybrid-data). DEPLOYED + verified live 2026-07-08 12:37 ET (backend restart, new PID 1236064): journal shows GET data.alpaca.markets/v2/stocks/snapshots?...&feed=sip -> 200 (new ext-quote leg firing on SIP), Schwab supplemental /quotes -> 200, futures pricehistory -> 200, ZERO invalid_grant/errors. Leg 1 (reauth restart) is dormant until the next 6am mint that actually rotates (~Jul 15) \u2014 that rotation will now self-heal instead of blanking Schwab."
   },
   {
    "id": "sip-hybrid-data",
-   "title": "SIP hybrid data routing SHIPPED + flipped live — equities/ETFs -> Alpaca SIP, futures -> Schwab",
+   "title": "SIP hybrid data routing SHIPPED + flipped live \u2014 equities/ETFs -> Alpaca SIP, futures -> Schwab",
    "lane": "done",
    "type": "ops",
    "priority": "high",
@@ -294,12 +303,12 @@
   },
   {
    "id": "schwab-waf-breaker",
-   "title": "Schwab REST rate governor — REVERTED (regressed watchlist cold-start); needs recalibration + off-hours load test",
+   "title": "Schwab REST rate governor \u2014 REVERTED (regressed watchlist cold-start); needs recalibration + off-hours load test",
    "lane": "backlog",
    "type": "ops",
    "priority": "low",
    "owner": "serv",
-   "notes": "DEPLOYED then REVERTED 2026-07-07 ~2:50pm ET. The 4/s global limit was too low for real cold-start load (multiple devices x watchlist bars + prewarm), serializing what was parallel-6 -> watchlist REST timed out at 30s. Rolled back to the WAF-hotfix breaker; app restored (18ms watchlist). Root fix is the SIP hybrid (equities off Schwab drains the WAF surface), making the governor mostly moot. If still needed for futures: much higher rate, real interactive priority, off-hours load test. Adversarial review had passed SAFE-WITH-NITS; the miss was rate calibration + deploying during market hours. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) — governor now MOSTLY MOOT (equities no longer touch Schwab REST); only relevant if the futures-only remainder ever needs pacing. Moved to backlog."
+   "notes": "DEPLOYED then REVERTED 2026-07-07 ~2:50pm ET. The 4/s global limit was too low for real cold-start load (multiple devices x watchlist bars + prewarm), serializing what was parallel-6 -> watchlist REST timed out at 30s. Rolled back to the WAF-hotfix breaker; app restored (18ms watchlist). Root fix is the SIP hybrid (equities off Schwab drains the WAF surface), making the governor mostly moot. If still needed for futures: much higher rate, real interactive priority, off-hours load test. Adversarial review had passed SAFE-WITH-NITS; the miss was rate calibration + deploying during market hours. | 2026-07-07: SIP hybrid SHIPPED + flipped live (equities off Schwab) \u2014 governor now MOSTLY MOOT (equities no longer touch Schwab REST); only relevant if the futures-only remainder ever needs pacing. Moved to backlog."
   },
   {
    "id": "stream-staleness-detector",
@@ -417,7 +426,7 @@
    "type": "bug",
    "priority": "normal",
    "owner": "serv",
-   "notes": "Hysteresis + group_key + one-shot race SHIPPED 2026-07-08 (see BUILD row). 2026-07-09: the REGULAR-hours sibling got its live incident (phantom NVDA alert @ \\$192.21, real ~\\$201.8, via unfiltered SIP prints) and SHIPPED same-day (1148e4b): TRADE_EXCLUDE_CONDITIONS + 3% band + corroboration + swept-path alerts + streak escape hatch on _on_trade; two-round adversarial review SAFE-WITH-NITS. STILL REMAINING (this card): ext-path TICK_BAND_PCT_EXT ~0.10 tightening (ext band is still 50%) — mirror the new trade-guard shape; also follow-up idea from review: fetch/cache the SIP condition table from Alpaca meta instead of hardcoding (options-flow already does this). Adversarial review required (quote path)."
+   "notes": "Hysteresis + group_key + one-shot race SHIPPED 2026-07-08 (see BUILD row). 2026-07-09: the REGULAR-hours sibling got its live incident (phantom NVDA alert @ \\$192.21, real ~\\$201.8, via unfiltered SIP prints) and SHIPPED same-day (1148e4b): TRADE_EXCLUDE_CONDITIONS + 3% band + corroboration + swept-path alerts + streak escape hatch on _on_trade; two-round adversarial review SAFE-WITH-NITS. STILL REMAINING (this card): ext-path TICK_BAND_PCT_EXT ~0.10 tightening (ext band is still 50%) \u2014 mirror the new trade-guard shape; also follow-up idea from review: fetch/cache the SIP condition table from Alpaca meta instead of hardcoding (options-flow already does this). Adversarial review required (quote path)."
   },
   {
    "id": "money-path-highs",
@@ -462,7 +471,7 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "Founder ask 2026-07-07. Subscribe held symbols on the existing market WS (use-watchlist-market pattern); REST snapshot (30s) = baseline for qty/cost/day_pl; per tick apply delta qty*(px-px_snap) to value/unrealized/day_pl (exact; poll re-baselines mid-window trades). Applies to positions widget (paper+real) and toolbar/portfolio aggregates. No new REST traffic - WAF-safe. Dispatch AFTER legibility round 2 lands (one tree-writer). DEPLOYED :3001 2026-07-07 — new useLiveMarks hook (WS, regular price only, ignores ext frames); paper value/unrealized + real unrealized/day_pl delta-marked with tick flash; awaiting founder eyeball before commit (batch with legibility rounds)."
+   "notes": "Founder ask 2026-07-07. Subscribe held symbols on the existing market WS (use-watchlist-market pattern); REST snapshot (30s) = baseline for qty/cost/day_pl; per tick apply delta qty*(px-px_snap) to value/unrealized/day_pl (exact; poll re-baselines mid-window trades). Applies to positions widget (paper+real) and toolbar/portfolio aggregates. No new REST traffic - WAF-safe. Dispatch AFTER legibility round 2 lands (one tree-writer). DEPLOYED :3001 2026-07-07 \u2014 new useLiveMarks hook (WS, regular price only, ignores ext frames); paper value/unrealized + real unrealized/day_pl delta-marked with tick flash; awaiting founder eyeball before commit (batch with legibility rounds)."
   },
   {
    "id": "chart-ext-hours-candles",
@@ -480,7 +489,7 @@
    "type": "ui",
    "priority": "high",
    "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-07 — awaiting founder eyeball before commit. Founder-approved: raise the floor keep the ceiling (micro/table/body/title +1px). FloatingPanel now clamps+snaps to the footer strip top; ResizeObserver reclamp fixes the 10%-off-screen spawn. Ch3 = new --c-cyan per theme (warm had amber==yellow same hex). ROUND 2 in progress: ceiling +1 (emph 15/hero 20/widget-title 14), MD paper v2 (near-neutral + film grain, green killed), prose cap 100ch, focusRequest consumed (fixes widget re-flash on page switch)."
+   "notes": "DEPLOYED :3001 2026-07-07 \u2014 awaiting founder eyeball before commit. Founder-approved: raise the floor keep the ceiling (micro/table/body/title +1px). FloatingPanel now clamps+snaps to the footer strip top; ResizeObserver reclamp fixes the 10%-off-screen spawn. Ch3 = new --c-cyan per theme (warm had amber==yellow same hex). ROUND 2 in progress: ceiling +1 (emph 15/hero 20/widget-title 14), MD paper v2 (near-neutral + film grain, green killed), prose cap 100ch, focusRequest consumed (fixes widget re-flash on page switch)."
   },
   {
    "id": "backend-coldstart-schwab-burst",
@@ -499,20 +508,20 @@
    "type": "bug",
    "priority": "high",
    "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed + one hand-fix). Root cause: bars-cache hit returns stale tail; live merge fused the gap (long candle) or fabricated one jumped bucket (gap). Fix: invalidateBars() export + freshness gate in live merge (intraday, ≥2 intervals stale → ONE cache-busting refetch, no merge; de-duped by ref cleared when fetch lands); steps>1 rollover now unreachable + defensive-returns to refetch; Fable review added an off-hours cooldown (max(2×interval,300s)) — without it, overnight/pre-market ext ticks on an unhealable stale tail (no new intraday bars) would refetch-loop all night per chart (backend spam/WAF risk). Forming-bar updates + single-step rollover byte-identical; daily exempt (interval=0 + object-time guard). Typecheck clean, zero new lint. FOUNDER VERIFY: watch for gaps/long candles through the session; round-trip workaround no longer needed. UNCOMMITTED pending eyeball."
+   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed + one hand-fix). Root cause: bars-cache hit returns stale tail; live merge fused the gap (long candle) or fabricated one jumped bucket (gap). Fix: invalidateBars() export + freshness gate in live merge (intraday, \u22652 intervals stale \u2192 ONE cache-busting refetch, no merge; de-duped by ref cleared when fetch lands); steps>1 rollover now unreachable + defensive-returns to refetch; Fable review added an off-hours cooldown (max(2\u00d7interval,300s)) \u2014 without it, overnight/pre-market ext ticks on an unhealable stale tail (no new intraday bars) would refetch-loop all night per chart (backend spam/WAF risk). Forming-bar updates + single-step rollover byte-identical; daily exempt (interval=0 + object-time guard). Typecheck clean, zero new lint. FOUNDER VERIFY: watch for gaps/long candles through the session; round-trip workaround no longer needed. UNCOMMITTED pending eyeball."
   },
   {
    "id": "positions-widget-schwab",
-   "title": "Positions widget follows account scope → shows real Schwab positions (Stage B)",
+   "title": "Positions widget follows account scope \u2192 shows real Schwab positions (Stage B)",
    "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck clean, zero backend diffs, id format schwab_<last4> verified against brokers/schwab_accounts.py:154). Widget follows toolbar scope: real scopes read useRealAccounts()→/api/schwab/accounts (30s TTL, no new poller; all_real shows ••last4 badges); paper scopes unchanged; overview = REAL/PAPER toggle, never blends (equity-curve pattern); REAL/PAPER header badge; ClickableSymbol tickers. FOUNDER EYEBALL pending (he is live in a real trade). Follow-up carded separately: open-orders widget same treatment. UNCOMMITTED until founder approves (rides with watchlist-hold-drag in the tree). | Founder correction same day: REAL/PAPER header bar REMOVED (second-header rule, now a memory: no-second-widget-headers) — toolbar scope is the only switch; overview keeps original paper behavior. Redeployed."
+   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck clean, zero backend diffs, id format schwab_<last4> verified against brokers/schwab_accounts.py:154). Widget follows toolbar scope: real scopes read useRealAccounts()\u2192/api/schwab/accounts (30s TTL, no new poller; all_real shows \u2022\u2022last4 badges); paper scopes unchanged; overview = REAL/PAPER toggle, never blends (equity-curve pattern); REAL/PAPER header badge; ClickableSymbol tickers. FOUNDER EYEBALL pending (he is live in a real trade). Follow-up carded separately: open-orders widget same treatment. UNCOMMITTED until founder approves (rides with watchlist-hold-drag in the tree). | Founder correction same day: REAL/PAPER header bar REMOVED (second-header rule, now a memory: no-second-widget-headers) \u2014 toolbar scope is the only switch; overview keeps original paper behavior. Redeployed."
   },
   {
    "id": "per-strat-pnl-view",
-   "title": "Per-strategy P&L/exposure view (attribution Phase 1 — measure only)",
+   "title": "Per-strategy P&L/exposure view (attribution Phase 1 \u2014 measure only)",
    "lane": "next",
    "type": "feature",
    "priority": "normal",
@@ -521,12 +530,12 @@
   },
   {
    "id": "watchlist-hold-drag",
-   "title": "Watchlist: kill edit mode → hold-anywhere-to-drag + drag-to-trash delete",
+   "title": "Watchlist: kill edit mode \u2192 hold-anywhere-to-drag + drag-to-trash delete",
    "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed; typecheck clean, zero new lint). Edit mode GONE (pencil/⋮⋮ dots/red − badges); header + opens add-row (price-alerts pattern); hold ~300ms anywhere non-link → row lifts → drag reorder; Trash2 appears next to + while held (via new use-watchlist-drag-store), pointer-drop on it deletes. Quick tap still publishes; ticker/ⓘ unaffected; pageActive remount fix untouched. FOUNDER EYEBALL pending → then commit. Brief: tools/composer-bridge/briefs/watchlist-hold-drag.md | Round 3 in flight: opaque confirm pill + confirm-on-drag-out + row-follows-pointer (founder round-2 feedback: confirm illegible, wants confirm on drag path, row should come with pointer; likes the red)."
+   "notes": "DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed; typecheck clean, zero new lint). Edit mode GONE (pencil/\u22ee\u22ee dots/red \u2212 badges); header + opens add-row (price-alerts pattern); hold ~300ms anywhere non-link \u2192 row lifts \u2192 drag reorder; Trash2 appears next to + while held (via new use-watchlist-drag-store), pointer-drop on it deletes. Quick tap still publishes; ticker/\u24d8 unaffected; pageActive remount fix untouched. FOUNDER EYEBALL pending \u2192 then commit. Brief: tools/composer-bridge/briefs/watchlist-hold-drag.md | Round 3 in flight: opaque confirm pill + confirm-on-drag-out + row-follows-pointer (founder round-2 feedback: confirm illegible, wants confirm on drag path, row should come with pointer; likes the red)."
   },
   {
    "id": "delta-audit-highs",
@@ -543,8 +552,8 @@
    "type": "decision",
    "priority": "normal",
    "owner": "founder",
-   "title": "DESIGN CALL: per-strategy attribution — virtual sub-books, measure now / enforce at promotion",
-   "notes": "Fable decision memo 2026-07-06 → research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo. | FOUNDER APPROVED Option B 2026-07-06 (virtual sub-books, two phases; memo sub-recs accepted: $ notional budgets, same-symbol-across-strategies allowed). Phase 1 measure-view carded → per-strat-pnl-view; Phase 2 enforcement rides the combined-book promotion round."
+   "title": "DESIGN CALL: per-strategy attribution \u2014 virtual sub-books, measure now / enforce at promotion",
+   "notes": "Fable decision memo 2026-07-06 \u2192 research/fable/2026-07-06_memo-per-strategy-attribution.md. strategy_id plumbing already end-to-end (managed_positions/fill_attribution/journal); missing = P&L view (cheap, soon) + RiskEngine budgets (at combined-book promotion). 3 sub-calls in memo. | FOUNDER APPROVED Option B 2026-07-06 (virtual sub-books, two phases; memo sub-recs accepted: $ notional budgets, same-symbol-across-strategies allowed). Phase 1 measure-view carded \u2192 per-strat-pnl-view; Phase 2 enforcement rides the combined-book promotion round."
   },
   {
    "id": "terminal-float-mode",
@@ -562,16 +571,16 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "Founder-live fixes shipped same night: corner RESIZE grip added (all panels), spawn-off-screen fixed (measured-box clamp), bottom-edge \"latching\" fixed (cramped-axis magnet skip), MD viewer 78vh. DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck green, zero new lint). New FloatingPanel/useFloatingSnap (portal, z-65 above terminal, no backdrop — cockpit stays live behind it; drag by header; 24px magnet, 6 targets: L/R/h-center + toolbar-top/bottom/v-center; settle-on-release ≤120ms, instant under reduced motion). Applied: company-info modal (desktop; mobile Dialog unchanged), research MD viewer (desktop; mobile fullscreen unchanged), \"Open full report\" now opens the report iframe IN-APP in a floating panel (~900px×85vh) w/ open-in-tab ↗ escape hatch (was a new-tab link — founder can veto). dialog.tsx untouched (settings etc. pixel-identical). Deferred: theme editor not moved onto the shared hook; per-surface position memory. Same deploy carries terminal T2 polish round (caret baseline fix, 13px --fs-terminal, full-width prose via Thread fullWidth prop)."
+   "notes": "Founder-live fixes shipped same night: corner RESIZE grip added (all panels), spawn-off-screen fixed (measured-box clamp), bottom-edge \"latching\" fixed (cramped-axis magnet skip), MD viewer 78vh. DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed, typecheck green, zero new lint). New FloatingPanel/useFloatingSnap (portal, z-65 above terminal, no backdrop \u2014 cockpit stays live behind it; drag by header; 24px magnet, 6 targets: L/R/h-center + toolbar-top/bottom/v-center; settle-on-release \u2264120ms, instant under reduced motion). Applied: company-info modal (desktop; mobile Dialog unchanged), research MD viewer (desktop; mobile fullscreen unchanged), \"Open full report\" now opens the report iframe IN-APP in a floating panel (~900px\u00d785vh) w/ open-in-tab \u2197 escape hatch (was a new-tab link \u2014 founder can veto). dialog.tsx untouched (settings etc. pixel-identical). Deferred: theme editor not moved onto the shared hook; per-surface position memory. Same deploy carries terminal T2 polish round (caret baseline fix, 13px --fs-terminal, full-width prose via Thread fullWidth prop)."
   },
   {
    "id": "memory-onboarding-interview",
-   "title": "Copilot onboarding interview → seeds standing memory (the copilot's CLAUDE.md)",
+   "title": "Copilot onboarding interview \u2192 seeds standing memory (the copilot's CLAUDE.md)",
    "lane": "backlog",
    "type": "feature",
    "priority": "medium",
    "owner": "serv",
-   "notes": "Founder-sparked 2026-07-05: first-run guided conversation (who you are, goals, risk comfort, schedule, communication style) writing user_authored preference/directive rows with verbatim-quote provenance; skippable + revisitable from Settings. Rides the memory-overhaul write path (Phase 1+) and renders via the design doc's Standing Memory block (Tier A, ≤8 directives / ~700 tok). Behavioral-pattern memories stay agent_inferred+(unconfirmed) per the authority model; no stored emotional-state reads (tone-adapt only). GATED ON: memory-overhaul Phase 0/1 shipping first.",
+   "notes": "Founder-sparked 2026-07-05: first-run guided conversation (who you are, goals, risk comfort, schedule, communication style) writing user_authored preference/directive rows with verbatim-quote provenance; skippable + revisitable from Settings. Rides the memory-overhaul write path (Phase 1+) and renders via the design doc's Standing Memory block (Tier A, \u22648 directives / ~700 tok). Behavioral-pattern memories stay agent_inferred+(unconfirmed) per the authority model; no stored emotional-state reads (tone-adapt only). GATED ON: memory-overhaul Phase 0/1 shipping first.",
    "updated_at": "2026-07-05"
   },
   {
@@ -581,17 +590,17 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (commit 68d40d1, deployed :3001): grab dots only in edit mode (reorder = edit-mode handle, red − replaces sparkline while editing, rows flush-left like positions); earnings badge 9→10px font-medium; '0 open' meta dropped; price-alerts + moved into widget header (config.adding), second header row deleted. Pending founder in-browser confirm.",
+   "notes": "SHIPPED 2026-07-05 (commit 68d40d1, deployed :3001): grab dots only in edit mode (reorder = edit-mode handle, red \u2212 replaces sparkline while editing, rows flush-left like positions); earnings badge 9\u219210px font-medium; '0 open' meta dropped; price-alerts + moved into widget header (config.adding), second header row deleted. Pending founder in-browser confirm.",
    "updated_at": "2026-07-05"
   },
   {
    "id": "memory-overhaul",
-   "title": "Memory overhaul: P0+P1 SHIPPED (judge + tools + trust surface live) — P2 retrieval/injection next",
+   "title": "Memory overhaul: P0+P1 SHIPPED (judge + tools + trust surface live) \u2014 P2 retrieval/injection next",
    "lane": "next",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "Phase 1 DEPLOYED 2026-07-06 (Opus-coded, Fable adversarial review FIX-FIRST→fixed in-round): LLM judge w/ code-enforced containment behind all writers; save_memory/forget_memory tools (authority NEVER minted from model args — hallucinated-quote attack closed; forget refuses founder rules); widget provenance/pin/Confirm/History/restore; PATCH locked to agent_inferred→user_confirmed; 40-case eval harness; hermetic tests (was silently grading with live gemma). Live-verified: real-LLM save→agent_inferred, PATCH mint→400, FTS ok. NEXT: Phase 2 per design §5 — ollama pull nomic-embed-text, hybrid FTS5+cosine retrieval, mem0 REMOVED, injection ON (after terminal T2 — shared chat surface). Phase 3 = lifecycle/thesis expiry.",
+   "notes": "Phase 1 DEPLOYED 2026-07-06 (Opus-coded, Fable adversarial review FIX-FIRST\u2192fixed in-round): LLM judge w/ code-enforced containment behind all writers; save_memory/forget_memory tools (authority NEVER minted from model args \u2014 hallucinated-quote attack closed; forget refuses founder rules); widget provenance/pin/Confirm/History/restore; PATCH locked to agent_inferred\u2192user_confirmed; 40-case eval harness; hermetic tests (was silently grading with live gemma). Live-verified: real-LLM save\u2192agent_inferred, PATCH mint\u2192400, FTS ok. NEXT: Phase 2 per design \u00a75 \u2014 ollama pull nomic-embed-text, hybrid FTS5+cosine retrieval, mem0 REMOVED, injection ON (after terminal T2 \u2014 shared chat surface). Phase 3 = lifecycle/thesis expiry.",
    "updated_at": "2026-07-12"
   },
   {
@@ -601,7 +610,7 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (commit 6548251, deployed :3001): Ctrl/⌘+wheel zooms charts, plain wheel scrolls page (+hint pill); middle-mouse-drag pans canvas; header-title centering regression fixed same night (descender paint room, screenshot-verified). Founder confirmed charts fine.",
+   "notes": "SHIPPED 2026-07-05 (commit 6548251, deployed :3001): Ctrl/\u2318+wheel zooms charts, plain wheel scrolls page (+hint pill); middle-mouse-drag pans canvas; header-title centering regression fixed same night (descender paint room, screenshot-verified). Founder confirmed charts fine.",
    "updated_at": "2026-07-05"
   },
   {
@@ -611,7 +620,7 @@
    "type": "feature",
    "priority": "medium",
    "owner": "serv",
-   "notes": "Founder verdict 2026-07-06: drag-hint pill was noise — REMOVED same night (do not re-add). Viewport-aware placement + scroll+flash stay, deployed + committed. Card can move to done after founder morning eyeball.",
+   "notes": "Founder verdict 2026-07-06: drag-hint pill was noise \u2014 REMOVED same night (do not re-add). Viewport-aware placement + scroll+flash stay, deployed + committed. Card can move to done after founder morning eyeball.",
    "updated_at": "2026-07-05"
   },
   {
@@ -631,17 +640,17 @@
    "type": "ops",
    "priority": "high",
    "owner": "founder",
-   "notes": "DONE 2026-07-05 — founder pushed brand/ to main (stand_in mark: README + 4 SVG cuts + exploration doc).",
+   "notes": "DONE 2026-07-05 \u2014 founder pushed brand/ to main (stand_in mark: README + 4 SVG cuts + exploration doc).",
    "updated_at": "2026-07-05"
   },
   {
    "id": "theme-editor-floating",
-   "title": "Theme editor: kill the scrim/blur — draggable floating window over the live workspace",
+   "title": "Theme editor: kill the scrim/blur \u2014 draggable floating window over the live workspace",
    "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): Base-UI modal Dialog (scrim + backdrop-blur-xs + scroll-lock + focus-trap) → non-modal floating window via createPortal: no scrim/blur, title-bar pointer-capture drag with viewport clamping, z-[65] (above console/picker, below banner/toast), motionStd fade-scale open, Escape closes without trapping. Verified: body scroll unlocked, Alt+2 page-switch works with editor open. Editor internals untouched. ROUND 2 (founder feedback): var rows renamed to what they actually drive — Chart group is now Canvas / Candle up / Candle down (dead shadcn chart-1..5 slots removed from the editor; editing them did nothing); redundant var-name sublines replaced by real one-line descriptions (var name moved to tooltip); --grain-opacity is an editable GRAIN row; clones now capture --grain/--grain-opacity.",
+   "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): Base-UI modal Dialog (scrim + backdrop-blur-xs + scroll-lock + focus-trap) \u2192 non-modal floating window via createPortal: no scrim/blur, title-bar pointer-capture drag with viewport clamping, z-[65] (above console/picker, below banner/toast), motionStd fade-scale open, Escape closes without trapping. Verified: body scroll unlocked, Alt+2 page-switch works with editor open. Editor internals untouched. ROUND 2 (founder feedback): var rows renamed to what they actually drive \u2014 Chart group is now Canvas / Candle up / Candle down (dead shadcn chart-1..5 slots removed from the editor; editing them did nothing); redundant var-name sublines replaced by real one-line descriptions (var name moved to tooltip); --grain-opacity is an editable GRAIN row; clones now capture --grain/--grain-opacity.",
    "updated_at": "2026-07-05"
   },
   {
@@ -651,7 +660,7 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): warm theme replaced by Ember (id kept, label swapped) — bg #242321, panels #2b2925, chrome #17181a, amber accent #d99a52, soft green/red #a3b565/#d9705c; fg-faint lifted to #7f766a (3.5:1) for 9px readability, wezterm #4e4840 kept for borders/decoration. Film grain = inline SVG fractalNoise tile via --grain/--grain-opacity (0.08) + .grain-surface util, applied to canvas + widget headers (one-liner to extend). All widget headers unified to the chart's 14px scale. Orchestrator fix: --chart-accent reverted to green #a3b565 (candle guardrail — agent had set amber). Founder eyeball pending; grain-behind-everything trial = add .grain-surface to WidgetCard. ROUND 2 (founder feedback 2026-07-05): surfaces neutralized to carbon grey (#202020/#262626/#2d2d2c — warmth now lives only in text/accent, no brown cast), candles muted (#97a06e/#c47767), grain extended to ALL widget panels (.grain-surface on WidgetCard; header layer removed to avoid doubling).",
+   "notes": "SHIPPED 2026-07-05 (Opus round, diff-reviewed): warm theme replaced by Ember (id kept, label swapped) \u2014 bg #242321, panels #2b2925, chrome #17181a, amber accent #d99a52, soft green/red #a3b565/#d9705c; fg-faint lifted to #7f766a (3.5:1) for 9px readability, wezterm #4e4840 kept for borders/decoration. Film grain = inline SVG fractalNoise tile via --grain/--grain-opacity (0.08) + .grain-surface util, applied to canvas + widget headers (one-liner to extend). All widget headers unified to the chart's 14px scale. Orchestrator fix: --chart-accent reverted to green #a3b565 (candle guardrail \u2014 agent had set amber). Founder eyeball pending; grain-behind-everything trial = add .grain-surface to WidgetCard. ROUND 2 (founder feedback 2026-07-05): surfaces neutralized to carbon grey (#202020/#262626/#2d2d2c \u2014 warmth now lives only in text/accent, no brown cast), candles muted (#97a06e/#c47767), grain extended to ALL widget panels (.grain-surface on WidgetCard; header layer removed to avoid doubling).",
    "updated_at": "2026-07-05"
   },
   {
@@ -661,7 +670,7 @@
    "type": "feature",
    "priority": "low",
    "owner": "serv",
-   "notes": "Founder uses Iosevka Nerd Font in wezterm and likes it. Trial as the app's mono (self-hosted woff2 — CSP blocks external fonts; check license/subsetting + tabular-nums support before switching). Parked by founder: 'change color for now'."
+   "notes": "Founder uses Iosevka Nerd Font in wezterm and likes it. Trial as the app's mono (self-hosted woff2 \u2014 CSP blocks external fonts; check license/subsetting + tabular-nums support before switching). Parked by founder: 'change color for now'."
   },
   {
    "id": "mobile-approval-device-auth",
@@ -669,24 +678,24 @@
    "lane": "next",
    "type": "safety",
    "priority": "high",
-   "notes": "mobile-approval audit S1: approval authorizes on payload_hash + ONE static token — anyone holding it can approve trades, biometrics are client-side theater to the server. #34 covered settings/kill-switch, NOT approval. Interim: separate approve-scope token, header-only, rate-limited, approver identity logged; full fix = per-device key (Secure Enclave signature). This is the mission-critical path (phone approval unlock)."
+   "notes": "mobile-approval audit S1: approval authorizes on payload_hash + ONE static token \u2014 anyone holding it can approve trades, biometrics are client-side theater to the server. #34 covered settings/kill-switch, NOT approval. Interim: separate approve-scope token, header-only, rate-limited, approver identity logged; full fix = per-device key (Secure Enclave signature). This is the mission-critical path (phone approval unlock)."
   },
   {
    "id": "safety-fill-attribution-orphan",
-   "title": "record_strategy_fill swallows errors → filled BUY with no stop/exit (safety M1)",
+   "title": "record_strategy_fill swallows errors \u2192 filled BUY with no stop/exit (safety M1)",
    "lane": "done",
    "type": "bug",
    "priority": "high",
-   "notes": "SHIPPED 33ca3c3 (2026-07-06 overnight): retry → durable quarantine (fill_attribution_orphans) → critical page from the reconcile loop; adversarial review SAFE-WITH-NITS, its MAJOR (lost page on notify persist failure) fixed + regression test. Follow-up card orphan-repair-surface. safety-execution audit M1, code-verified still present (trading/position_ledger.py:153 bare except → return None). If the ledger insert fails after a fill, the position is unmanaged indefinitely — no stop, no target, no time-exit; only a log line. Fix: critical push on fill-with-missing-ledger-row +"
+   "notes": "SHIPPED 33ca3c3 (2026-07-06 overnight): retry \u2192 durable quarantine (fill_attribution_orphans) \u2192 critical page from the reconcile loop; adversarial review SAFE-WITH-NITS, its MAJOR (lost page on notify persist failure) fixed + regression test. Follow-up card orphan-repair-surface. safety-execution audit M1, code-verified still present (trading/position_ledger.py:153 bare except \u2192 return None). If the ledger insert fails after a fill, the position is unmanaged indefinitely \u2014 no stop, no target, no time-exit; only a log line. Fix: critical push on fill-with-missing-ledger-row +"
   },
   {
    "id": "safety-killswitch-blocks-exits",
-   "title": "BUILD: HALT state (entries_halted) — kill-switch/exits split per approved memo (Option C)",
+   "title": "BUILD: HALT state (entries_halted) \u2014 kill-switch/exits split per approved memo (Option C)",
    "lane": "done",
    "type": "safety",
    "priority": "normal",
    "owner": "founder",
-   "notes": "FOUNDER APPROVED Option C 2026-07-06 (memo research/fable/2026-07-06_memo-killswitch-exits.md): new HALT state blocks exposure-increasing orders, reduce-only exits keep flowing; breaker hard stage (risk_engine.py:426) retargets to HALT instead of kill switch; kill switch unchanged = human-only total freeze (+ critical page w/ open-position count when armed). Memo sub-recs accepted: HALT pauses momentum rebalance entirely; HALT disarm = normal token. trading/ change → full adversarial review. Queue after delta-audit money-path HIGHs (same neighborhood, separate rounds). SHIPPED 2026-07-07: HALT/FREEZE split live in code (commit pending); breaker hard stage arms HALT (exits keep flowing), kill switch human-only total; mid-bleed disarm pinned by test; momentum rebalance fully paused under HALT."
+   "notes": "FOUNDER APPROVED Option C 2026-07-06 (memo research/fable/2026-07-06_memo-killswitch-exits.md): new HALT state blocks exposure-increasing orders, reduce-only exits keep flowing; breaker hard stage (risk_engine.py:426) retargets to HALT instead of kill switch; kill switch unchanged = human-only total freeze (+ critical page w/ open-position count when armed). Memo sub-recs accepted: HALT pauses momentum rebalance entirely; HALT disarm = normal token. trading/ change \u2192 full adversarial review. Queue after delta-audit money-path HIGHs (same neighborhood, separate rounds). SHIPPED 2026-07-07: HALT/FREEZE split live in code (commit pending); breaker hard stage arms HALT (exits keep flowing), kill switch human-only total; mid-bleed disarm pinned by test; momentum rebalance fully paused under HALT."
   },
   {
    "id": "research-book-reproducibility",
@@ -694,7 +703,7 @@
    "lane": "backlog",
    "type": "research",
    "priority": "high",
-   "notes": "The headline Sharpe 1.42 / Jensen alpha / PBO=0.000 for the armed combined book exist only in gitignored _edgehunt/ scratch — not reproducible, not CI-guarded; a sign error would never be caught. Audit's highest-value research move: commit the NAV/CAPM/PBO/DSR pipeline + golden fixture. Gates how much to trust the book's numbers at all. Whole backtesting audit is otherwise untracked (walk-forward, 2008 sample, threshold sensitivity, paper protocol — see doc)."
+   "notes": "The headline Sharpe 1.42 / Jensen alpha / PBO=0.000 for the armed combined book exist only in gitignored _edgehunt/ scratch \u2014 not reproducible, not CI-guarded; a sign error would never be caught. Audit's highest-value research move: commit the NAV/CAPM/PBO/DSR pipeline + golden fixture. Gates how much to trust the book's numbers at all. Whole backtesting audit is otherwise untracked (walk-forward, 2008 sample, threshold sensitivity, paper protocol \u2014 see doc)."
   },
   {
    "id": "llm-eval-harness",
@@ -706,11 +715,11 @@
   },
   {
    "id": "llm-mem0-inert",
-   "title": "mem0 semantic search is dead code — replace with FTS5 (LLM audit)",
+   "title": "mem0 semantic search is dead code \u2014 replace with FTS5 (LLM audit)",
    "lane": "backlog",
    "type": "bug",
    "priority": "normal",
-   "notes": "mem0 .search() mis-parses {results:[...]} → silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt — carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep). → 2026-07-05: ABSORBED into memory-overhaul Phase 2 (founder lane) — the write-side junk was the bigger half (see References/MEMORY_SYSTEM_REPORT.md); FTS5-vs-sqlite-vec is decided there, not here.",
+   "notes": "mem0 .search() mis-parses {results:[...]} \u2192 silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt \u2014 carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep). \u2192 2026-07-05: ABSORBED into memory-overhaul Phase 2 (founder lane) \u2014 the write-side junk was the bigger half (see References/MEMORY_SYSTEM_REPORT.md); FTS5-vs-sqlite-vec is decided there, not here.",
    "updated_at": "2026-07-05"
   },
   {
@@ -719,7 +728,7 @@
    "lane": "backlog",
    "type": "ops",
    "priority": "normal",
-   "notes": "test-eval + state-release audits both flag this as the highest risk-moved-per-hour: (1) CI check that any commit touching trading/ or db/order_executions carries a SAFETY-REVIEWED: trailer (the adversarial-review discipline, enforced mechanically); (2) requirements are all >= with no lockfile — pin via uv.lock for reproducible deploys."
+   "notes": "test-eval + state-release audits both flag this as the highest risk-moved-per-hour: (1) CI check that any commit touching trading/ or db/order_executions carries a SAFETY-REVIEWED: trailer (the adversarial-review discipline, enforced mechanically); (2) requirements are all >= with no lockfile \u2014 pin via uv.lock for reproducible deploys."
   },
   {
    "id": "ops-deploy-dedup-reset",
@@ -727,7 +736,7 @@
    "lane": "done",
    "type": "ops",
    "priority": "normal",
-   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): RVOL dedup persisted to earnings_alerts_sent (rvol:{symbol}:{ET-date}); restarts no longer re-fire phone alerts (earnings/price already persisted). _rvol_alert_last_date / _schwab_health_last_date / _schwab_snapshot_last_date + profile cooldowns are in-memory; every deploy resets them → duplicate pushes. Earnings/reports already got this right (DB-backed) — move the other three to the same pattern. Alert fatigue = named mission risk."
+   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): RVOL dedup persisted to earnings_alerts_sent (rvol:{symbol}:{ET-date}); restarts no longer re-fire phone alerts (earnings/price already persisted). _rvol_alert_last_date / _schwab_health_last_date / _schwab_snapshot_last_date + profile cooldowns are in-memory; every deploy resets them \u2192 duplicate pushes. Earnings/reports already got this right (DB-backed) \u2014 move the other three to the same pattern. Alert fatigue = named mission risk."
   },
   {
    "id": "mobile-card-incomplete-data",
@@ -735,7 +744,7 @@
    "lane": "backlog",
    "type": "bug",
    "priority": "normal",
-   "notes": "mobile-approval audit M1: a limit order's card can read 'Market' if fields are missing — the founder approves terms he can't fully see, on the trust-critical surface. Fail-closed: card refuses to render Approve when sizing fields are absent."
+   "notes": "mobile-approval audit M1: a limit order's card can read 'Market' if fields are missing \u2014 the founder approves terms he can't fully see, on the trust-critical surface. Fail-closed: card refuses to render Approve when sizing fields are absent."
   },
   {
    "id": "safety-bad-tick-guard",
@@ -743,7 +752,7 @@
    "lane": "backlog",
    "type": "bug",
    "priority": "normal",
-   "notes": "A single bad tick into RiskEngine's live quote can mis-size an order or trip false concentration checks. The chart/hub already have 3x bad-tick filters (2026-07-01) — extend the same deviation-band sanity to the quote the sizing path consumes."
+   "notes": "A single bad tick into RiskEngine's live quote can mis-size an order or trip false concentration checks. The chart/hub already have 3x bad-tick filters (2026-07-01) \u2014 extend the same deviation-band sanity to the quote the sizing path consumes."
   },
   {
    "id": "data-correctness-m-tail",
@@ -751,7 +760,7 @@
    "lane": "backlog",
    "type": "bug",
    "priority": "normal",
-   "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar→$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5."
+   "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar\u2192$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5."
   },
   {
    "id": "decision-engine-phase1",
@@ -759,7 +768,7 @@
    "lane": "backlog",
    "type": "feature",
    "priority": "normal",
-   "notes": "The architecture-level Decision Engine build (single agent loop, native tool-calling, DecisionCard contract, score_symbols batch) is unstarted. NOTE: Phase-5a structures.py + conviction lane + idea_outcomes already shipped a narrower version of the same 'deterministic owns numbers, LLM vetoes' principle — scope Phase 1 against what 5a proved before building. Gated on llm-eval-harness existing. | 2026-07-06: scope-vs-5a RESOLVED — Fable execution spec research/fable/2026-07-06_phase1-2-execution-spec.md supersedes roadmap §7 rows 1-2. 1a tool-calling in ai/llm/, 1b one Python loop (web→proxy, delete legacy /api/chat), 1c eval harness; Phase 2 wraps 5a (DecisionCard = typed view of validated idea, bridge→create_phone_proposal), gated on 5b."
+   "notes": "The architecture-level Decision Engine build (single agent loop, native tool-calling, DecisionCard contract, score_symbols batch) is unstarted. NOTE: Phase-5a structures.py + conviction lane + idea_outcomes already shipped a narrower version of the same 'deterministic owns numbers, LLM vetoes' principle \u2014 scope Phase 1 against what 5a proved before building. Gated on llm-eval-harness existing. | 2026-07-06: scope-vs-5a RESOLVED \u2014 Fable execution spec research/fable/2026-07-06_phase1-2-execution-spec.md supersedes roadmap \u00a77 rows 1-2. 1a tool-calling in ai/llm/, 1b one Python loop (web\u2192proxy, delete legacy /api/chat), 1c eval harness; Phase 2 wraps 5a (DecisionCard = typed view of validated idea, bridge\u2192create_phone_proposal), gated on 5b."
   },
   {
    "id": "audit-low-tail",
@@ -775,17 +784,17 @@
    "lane": "next",
    "type": "feature",
    "priority": "high",
-   "notes": "Founder ask 2026-07-05: JSON import = transactions only; API has no historical balances; daily equity snapshots only accrue since 7/1 — so period P&L has no broker-truth anchor. Parse monthly statement PDFs (text-layer, pdfplumber) from gitignored data/imports/statements/: per account extract beginning/ending value + month-end positions table. Dry-run-first. New balance-anchors table; P&L views reconcile ledger-computed change vs statement change and flag drift. Bonus: the statement at the export-window start reads the TRUE TSLA/PLTR/GME baselines (supersedes the inferred manual_adjustment pending on ledger-offsets card). Futures/ToS PDFs = separate importer (existing thread).",
+   "notes": "Founder ask 2026-07-05: JSON import = transactions only; API has no historical balances; daily equity snapshots only accrue since 7/1 \u2014 so period P&L has no broker-truth anchor. Parse monthly statement PDFs (text-layer, pdfplumber) from gitignored data/imports/statements/: per account extract beginning/ending value + month-end positions table. Dry-run-first. New balance-anchors table; P&L views reconcile ledger-computed change vs statement change and flag drift. Bonus: the statement at the export-window start reads the TRUE TSLA/PLTR/GME baselines (supersedes the inferred manual_adjustment pending on ledger-offsets card). Futures/ToS PDFs = separate importer (existing thread).",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
   {
    "id": "db-retention",
-   "title": "DB growth: retention runs but can't shrink the file — hourly keepers + no VACUUM (ops HIGH-3)",
+   "title": "DB growth: retention runs but can't shrink the file \u2014 hourly keepers + no VACUUM (ops HIGH-3)",
    "lane": "done",
    "type": "ops",
    "priority": "high",
-   "notes": "SHIPPED c5b183d+ae937c7 (2026-07-06 overnight): keeper aging 90d→daily, analytics trim 7d (sole reader is latest-only — verified), observability in retention log. Live: prune trimmed 22,615 blobs, supervised VACUUM+checkpoint took trading.db 652MB→481MB. File now plateaus. pre-memory-p0.db snapshot (639MB) still in data/ — founder may delete for another ~640MB disk. Diagnosis 2026-07-05 (corrects earlier 'no prune anywhere'): db/retention.py IS wired + runs daily (journalctl confirms). But (1) the one-time supervised VACUUM (tools/db_maintenance.py --vacuum) never ran, so freed pages are never reclaimed; (2) the design keeps one full-width snapshot per HOUR for",
+   "notes": "SHIPPED c5b183d+ae937c7 (2026-07-06 overnight): keeper aging 90d\u2192daily, analytics trim 7d (sole reader is latest-only \u2014 verified), observability in retention log. Live: prune trimmed 22,615 blobs, supervised VACUUM+checkpoint took trading.db 652MB\u2192481MB. File now plateaus. pre-memory-p0.db snapshot (639MB) still in data/ \u2014 founder may delete for another ~640MB disk. Diagnosis 2026-07-05 (corrects earlier 'no prune anywhere'): db/retention.py IS wired + runs daily (journalctl confirms). But (1) the one-time supervised VACUUM (tools/db_maintenance.py --vacuum) never ran, so freed pages are never reclaimed; (2) the design keeps one full-width snapshot per HOUR for",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -795,7 +804,7 @@
    "lane": "founder",
    "type": "research",
    "priority": "high",
-   "notes": "Market reopens Monday. Your verdict gates #42 Setup Book — nothing arms until you say ideas are worth arming.",
+   "notes": "Market reopens Monday. Your verdict gates #42 Setup Book \u2014 nothing arms until you say ideas are worth arming.",
    "owner": "founder",
    "updated_at": "2026-07-04"
   },
@@ -805,13 +814,13 @@
    "lane": "done",
    "type": "bug",
    "priority": "normal",
-   "notes": "RESOLVED WITHOUT ADJUSTMENT 2026-07-06: founder approved the $0 offsets, but live ledger check showed the residuals SELF-RESOLVED since 07-02 (H5 leg-summing repair + sync work): TSLA nets 0.0 through 2026-07-02, PLTR/GME zero in all accounts. No manual_adjustment inserted. Today's TSLA -200 = live trading, buy leg pending hourly sync (expected self-heal; #17 nightly recon is the permanent watchdog — still worth building). Founder PDF question answered: transaction-level statement backfill IS possible later if wanted; offsets don't block it.",
+   "notes": "RESOLVED WITHOUT ADJUSTMENT 2026-07-06: founder approved the $0 offsets, but live ledger check showed the residuals SELF-RESOLVED since 07-02 (H5 leg-summing repair + sync work): TSLA nets 0.0 through 2026-07-02, PLTR/GME zero in all accounts. No manual_adjustment inserted. Today's TSLA -200 = live trading, buy leg pending hourly sync (expected self-heal; #17 nightly recon is the permanent watchdog \u2014 still worth building). Founder PDF question answered: transaction-level statement backfill IS possible later if wanted; offsets don't block it.",
    "owner": "founder",
    "updated_at": "2026-07-04"
   },
   {
    "id": "reddit-oauth-creds",
-   "title": "Reddit access for buzz collector — solved via RSS, no app needed",
+   "title": "Reddit access for buzz collector \u2014 solved via RSS, no app needed",
    "lane": "done",
    "type": "ops",
    "priority": "normal",
@@ -835,7 +844,7 @@
    "lane": "done",
    "type": "feature",
    "priority": "high",
-   "notes": "ALL 4 ROUNDS SHIPPED 2026-07-05: (1) ticker-link-gaps, (2) motion batch (motion.ts scale + reduced-motion, M1 tick-flash, M2 crossfade, N3 toast, D2 hover-lift), (3) T1+T2 type ladder (12 sizes → 6-step --fs vars, one micro-label tracking) + T4 double-titles, (4) empty-states kit. Committed 961ba91→(round4). Deploy = build + serv-deploy back-to-back. Founder eyeball items: tick-flash needs live quotes (Monday); overall look pass in browser.",
+   "notes": "ALL 4 ROUNDS SHIPPED 2026-07-05: (1) ticker-link-gaps, (2) motion batch (motion.ts scale + reduced-motion, M1 tick-flash, M2 crossfade, N3 toast, D2 hover-lift), (3) T1+T2 type ladder (12 sizes \u2192 6-step --fs vars, one micro-label tracking) + T4 double-titles, (4) empty-states kit. Committed 961ba91\u2192(round4). Deploy = build + serv-deploy back-to-back. Founder eyeball items: tick-flash needs live quotes (Monday); overall look pass in browser.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -855,7 +864,7 @@
    "lane": "done",
    "type": "bug",
    "priority": "normal",
-   "notes": "SHIPPED 2026-07-05: ClickableSymbol wired in orders blotter (all 3 tabs, side-coloring preserved), price-alerts rows, and pnl-scatter (point-click publishes symbol — the row-publish analog for a chart); all 3 widgets now channelAware. Bonus: fixed a pre-existing nested-<button> hydration error in the research widget list rows (caught by headless smoke). Typecheck + eslint + headless smoke green; deploy with the polish rounds.",
+   "notes": "SHIPPED 2026-07-05: ClickableSymbol wired in orders blotter (all 3 tabs, side-coloring preserved), price-alerts rows, and pnl-scatter (point-click publishes symbol \u2014 the row-publish analog for a chart); all 3 widgets now channelAware. Bonus: fixed a pre-existing nested-<button> hydration error in the research widget list rows (caught by headless smoke). Typecheck + eslint + headless smoke green; deploy with the polish rounds.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -865,7 +874,7 @@
    "lane": "done",
    "type": "feature",
    "priority": "normal",
-   "notes": "SHIPPED 2026-07-05 (round 4 of the UI series): widget-states.tsx kit (WidgetEmpty/WidgetLoading terminal shimmer skeleton/WidgetError) adopted across ~25 widgets; trust-critical fix VERIFIED by forced-error probe — positions/open-orders/notifications render 'Failed to fetch [retry]' when the API dies, never silent-empty; empty pages get a quiet add-widget CTA. Deploy pending with the full series.",
+   "notes": "SHIPPED 2026-07-05 (round 4 of the UI series): widget-states.tsx kit (WidgetEmpty/WidgetLoading terminal shimmer skeleton/WidgetError) adopted across ~25 widgets; trust-critical fix VERIFIED by forced-error probe \u2014 positions/open-orders/notifications render 'Failed to fetch [retry]' when the API dies, never silent-empty; empty pages get a quiet add-widget CTA. Deploy pending with the full series.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -875,7 +884,7 @@
    "lane": "next",
    "type": "feature",
    "priority": "high",
-   "notes": "UI AUDIT (References/UI_AUDIT.md, 2026-07-05) reinforces this as the #1 UI issue: two complete UIs in two design languages are live at once, and the legacy /trading route ships a manual Buy/Sell terminal that contradicts the cockpit mission. Original scope stands: workspace at / + a few dedicated new-shell pages; fix notification/chat deep-links that exit to old routes; gaps first (memory widget create/edit/search, RunningNow roll-up). Audit adds: research page vs research widget = two looks for one feature — unify on the terminal look as part of this retirement.",
+   "notes": "UI AUDIT (References/UI_AUDIT.md, 2026-07-05) reinforces this as the #1 UI issue: two complete UIs in two design languages are live at once, and the legacy /trading route ships a manual Buy/Sell terminal that contradicts the cockpit mission. Original scope stands: workspace at / + a few dedicated new-shell pages; fix notification/chat deep-links that exit to old routes; gaps first (memory widget create/edit/search, RunningNow roll-up). Audit adds: research page vs research widget = two looks for one feature \u2014 unify on the terminal look as part of this retirement.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -885,7 +894,7 @@
    "lane": "done",
    "type": "feature",
    "priority": "high",
-   "notes": "SHIPPED on main (7b6cf03), per BUILD.md. State machine (research/idea_tracker.py: pending→triggered→won/lost/expired/invalidated/data_gap incl. conservative same-bar rules), storage (db/idea_outcomes.py SQLite table + win-rate summary), 30-min market-hours scheduler (api/main.py), and 13-test suite (tests/test_idea_tracker.py) all confirmed working. GET /api/ideas/outcomes exists. UI consumption split out as idea-outcomes-ui.",
+   "notes": "SHIPPED on main (7b6cf03), per BUILD.md. State machine (research/idea_tracker.py: pending\u2192triggered\u2192won/lost/expired/invalidated/data_gap incl. conservative same-bar rules), storage (db/idea_outcomes.py SQLite table + win-rate summary), 30-min market-hours scheduler (api/main.py), and 13-test suite (tests/test_idea_tracker.py) all confirmed working. GET /api/ideas/outcomes exists. UI consumption split out as idea-outcomes-ui.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -895,7 +904,7 @@
    "lane": "done",
    "type": "feature",
    "priority": "normal",
-   "notes": "SHIPPED + deployed 2026-07-05 (eyeball pending): `/add idea outcomes` — summary strip (resolved N + honest win rate, '—' until data), per-status chips, Open/Resolved tabs, click-to-chart tickers, notes on hover, 60s poll. BONUS FIX while building: the tracker was killing weekend-registered ideas as data_gap (closed-market sweeps counted as fetch failures — all 4 day-one ideas were dead); root-caused, fixed, +2 regression tests, and all 4 ideas RESTORED to pending for Monday. Deferred as before: founder-verdict UI, conviction-lane A/B via origin.",
+   "notes": "SHIPPED + deployed 2026-07-05 (eyeball pending): `/add idea outcomes` \u2014 summary strip (resolved N + honest win rate, '\u2014' until data), per-status chips, Open/Resolved tabs, click-to-chart tickers, notes on hover, 60s poll. BONUS FIX while building: the tracker was killing weekend-registered ideas as data_gap (closed-market sweeps counted as fetch failures \u2014 all 4 day-one ideas were dead); root-caused, fixed, +2 regression tests, and all 4 ideas RESTORED to pending for Monday. Deferred as before: founder-verdict UI, conviction-lane A/B via origin.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -905,17 +914,17 @@
    "lane": "done",
    "type": "bug",
    "priority": "high",
-   "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) — it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
+   "notes": "FIXED, deployed, founder-verified (charts stay put after page switching). Real trigger wasn't the copilot padding (already guarded) \u2014 it was page switching: react-grid-layout remounts per page while the grid's col count updated a frame LATE, so a wide page mounted against the previous page's cols and RGL's correctBounds clamped the right charts leftward on top of the others; the next drag-stop then persisted those clamped positions wholesale. cols/width are now derived synchronously from (layout, host width), so a remount can never see mismatched cols.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
   {
    "id": "regime-sleeves",
-   "title": "Regime sleeves MERGED + deployed — dark until founder arms them",
+   "title": "Regime sleeves MERGED + deployed \u2014 dark until founder arms them",
    "lane": "done",
    "type": "safety",
    "priority": "high",
-   "notes": "Full ceremony complete: spec → PC build → serv adversarial review (4 real bugs incl. live-repro'd HIGH: disabled sleeve orphaned its open positions) → PC fix (ccbad64) → serv delta re-review w/ independent test runs (35/35) → founder squash-merge (4584356) → deployed, dormancy endpoint verified: both sleeves enabled:false, propose-only. ARM in Settings → Strategies when ready — that starts the paper clock. Follow-ups: _scan_generals pending-count fix (this week, non-gating); PC regens post-#28 research numbers.",
+   "notes": "Full ceremony complete: spec \u2192 PC build \u2192 serv adversarial review (4 real bugs incl. live-repro'd HIGH: disabled sleeve orphaned its open positions) \u2192 PC fix (ccbad64) \u2192 serv delta re-review w/ independent test runs (35/35) \u2192 founder squash-merge (4584356) \u2192 deployed, dormancy endpoint verified: both sleeves enabled:false, propose-only. ARM in Settings \u2192 Strategies when ready \u2014 that starts the paper clock. Follow-ups: _scan_generals pending-count fix (this week, non-gating); PC regens post-#28 research numbers.",
    "owner": "founder",
    "updated_at": "2026-07-04T03:37:00Z"
   },
@@ -925,7 +934,7 @@
    "lane": "done",
    "type": "bug",
    "priority": "normal",
-   "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) — pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
+   "notes": "FIXED + deployed 2026-07-05: mirrored the reviewed _vol_cluster_count pattern (list_paper_order_proposals pending_phone w/ expiry guard + approving, source + side=buy filter) \u2014 pending cards now occupy slots AND mark their symbol busy. 2 regression tests, both empirically verified to fail on the old code. Adversarial Sonnet review: SAFE (change is strictly conservative; sell proposals can't consume entry slots; exit path unaffected). Suite 1496 green.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -935,7 +944,7 @@
    "lane": "done",
    "type": "feature",
    "priority": "high",
-   "notes": "SHIPPED + deployed 2026-07-05 (founder moved the gate up so A/B journals from judging day one). One batched LLM call per scan over no-structure candidates; up to 2 nominations, 'no conviction' fully OK; same validate_ideas pipeline (long-only, sanity bounds, no win%); origin stamped SERVER-side (LLM-provided origin ignored); fail-soft (conviction errors never touch structure lane); paper gets a labeled 'Conviction ideas (LLM-originated — unproven)' section; idea_outcomes gains origin column + by_origin win-rate split; widget shows LLM chip + per-origin summary. HARD-blocked from proposals: 5c bridge must filter origin != structure. Suite 1509 green.",
+   "notes": "SHIPPED + deployed 2026-07-05 (founder moved the gate up so A/B journals from judging day one). One batched LLM call per scan over no-structure candidates; up to 2 nominations, 'no conviction' fully OK; same validate_ideas pipeline (long-only, sanity bounds, no win%); origin stamped SERVER-side (LLM-provided origin ignored); fail-soft (conviction errors never touch structure lane); paper gets a labeled 'Conviction ideas (LLM-originated \u2014 unproven)' section; idea_outcomes gains origin column + by_origin win-rate split; widget shows LLM chip + per-origin summary. HARD-blocked from proposals: 5c bridge must filter origin != structure. Suite 1509 green.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -945,7 +954,7 @@
    "lane": "backlog",
    "type": "ops",
    "priority": "normal",
-   "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) — makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
+   "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) \u2014 makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -965,7 +974,7 @@
    "lane": "backlog",
    "type": "research",
    "priority": "low",
-   "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) — adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data — trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
+   "notes": "Founder-discussed 2026-07-05. Decision notes so this doesn't get re-derived: adapter/routing layer already exists (brokers/base.py protocols + factory per-account routing) \u2014 adding a broker = one adapter file. The REAL ship-it work is multi-tenant: per-user broker OAuth/credential storage, and market-data licensing (cannot redistribute our Schwab/Alpaca SIP feed to other users; real-time redistribution needs exchange agreements). Alpaca Broker API is the intended on-ramp for embedded per-end-user accounts w/ entitlements. Also parked: Alpaca SIP $99/mo upgrade for our own equity data \u2014 trigger = (a) a Schwab equity-data failure costs a real decision, (b) sleeves armed + decisions depend on consolidated prints, or (c) options-chain work needs OPRA.",
    "owner": "founder",
    "updated_at": "2026-07-05"
   },
@@ -975,7 +984,7 @@
    "lane": "done",
    "type": "ops",
    "priority": "high",
-   "notes": "CLOSED 2026-07-05: founder confirmed the PC pull folder holds dated trading-*.db files 6/20→7/5 (accumulating, not overwriting). Full chain verified: serv 03:00 sqlite .backup + integrity_check + config tarball (14-day retention), restore drill PASSED, PC pulls over Tailscale on wake (07:29 login observed). #36 fully done.",
+   "notes": "CLOSED 2026-07-05: founder confirmed the PC pull folder holds dated trading-*.db files 6/20\u21927/5 (accumulating, not overwriting). Full chain verified: serv 03:00 sqlite .backup + integrity_check + config tarball (14-day retention), restore drill PASSED, PC pulls over Tailscale on wake (07:29 login observed). #36 fully done.",
    "owner": "founder",
    "updated_at": "2026-07-05"
   },
@@ -985,13 +994,13 @@
    "lane": "done",
    "type": "bug",
    "priority": "normal",
-   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): done_for_day branches on fill progress — partial→partially_filled (attribution fires, keeps polling per Alpaca docs), zero-fill→expired. Naive alias REJECTED by adversarial review (would have silently skipped attribution on partials). Fill reports for orders resting at day-end never fire; found in #35 H3 review.",
+   "notes": "SHIPPED 64123b4 (2026-07-06 overnight): done_for_day branches on fill progress \u2014 partial\u2192partially_filled (attribution fires, keeps polling per Alpaca docs), zero-fill\u2192expired. Naive alias REJECTED by adversarial review (would have silently skipped attribution on partials). Fill reports for orders resting at day-end never fire; found in #35 H3 review.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
   {
    "id": "37",
-   "title": "Data-correctness tail: UTC→ET dates, day_pl deposits, FIFO leak",
+   "title": "Data-correctness tail: UTC\u2192ET dates, day_pl deposits, FIFO leak",
    "lane": "next",
    "type": "bug",
    "priority": "normal",
@@ -1025,7 +1034,7 @@
    "lane": "in_progress",
    "type": "research",
    "priority": "normal",
-   "notes": "Founder design session 2026-07-05. Doctrine: code detects (mention-velocity anomaly = counts vs rolling 14-day same-ET-hour baseline), LLM interprets (catalyst digging, qualitative only — never sentiment scores); social text = adversarial data (pump risk) behind the untrusted-content guard, influences judgment fields only, never levels. P1 (IN PROGRESS, Composer): accumulator loop — free Reddit JSON (WSB/stocks/investing/StockMarket) + StockTwits trending → social_mentions table + /api/social/buzz|trending with honest 'warming' state until baselines exist (start collecting NOW; the denominator needs weeks). P2: social block in veto-grade + conviction prompts (reinforce/kill with named reasons). P3: buzz-anomaly symbols injected as scan CANDIDATES (capped, source-tagged for A/B) — buzz nominates, the pipeline still has to find something real. P4: buzz alerts, only if P2/P3 prove value in the outcome tracker. No paid social APIs.",
+   "notes": "Founder design session 2026-07-05. Doctrine: code detects (mention-velocity anomaly = counts vs rolling 14-day same-ET-hour baseline), LLM interprets (catalyst digging, qualitative only \u2014 never sentiment scores); social text = adversarial data (pump risk) behind the untrusted-content guard, influences judgment fields only, never levels. P1 (IN PROGRESS, Composer): accumulator loop \u2014 free Reddit JSON (WSB/stocks/investing/StockMarket) + StockTwits trending \u2192 social_mentions table + /api/social/buzz|trending with honest 'warming' state until baselines exist (start collecting NOW; the denominator needs weeks). P2: social block in veto-grade + conviction prompts (reinforce/kill with named reasons). P3: buzz-anomaly symbols injected as scan CANDIDATES (capped, source-tagged for A/B) \u2014 buzz nominates, the pipeline still has to find something real. P4: buzz alerts, only if P2/P3 prove value in the outcome tracker. No paid social APIs.",
    "owner": "serv",
    "updated_at": "2026-07-05"
   },
@@ -1075,7 +1084,7 @@
    "lane": "backlog",
    "type": "ops",
    "priority": "low",
-   "notes": "2026-07-06 overnight data point: tests/test_proposal_intake.py + test_phone_proposals fail on CLEAN main too (risk_blocked vs proposed, TTL None) — env/settings leakage into tests, same non-hermetic class as the live-Schwab hang. Make suite hermetic.",
+   "notes": "2026-07-06 overnight data point: tests/test_proposal_intake.py + test_phone_proposals fail on CLEAN main too (risk_blocked vs proposed, TTL None) \u2014 env/settings leakage into tests, same non-hermetic class as the live-Schwab hang. Make suite hermetic.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -1095,7 +1104,7 @@
    "lane": "done",
    "type": "ops",
    "priority": "low",
-   "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): /api/version + 5-min/tab-focus check + persistent reload toast (one per session, fails soft in dev). Armed from the NEXT deploy onward. Rapid deploys leave open tabs on stale builds → weird nav failures. App should detect the server build changed and prompt reload.",
+   "notes": "SHIPPED f01a8e2 (2026-07-06 overnight): /api/version + 5-min/tab-focus check + persistent reload toast (one per session, fails soft in dev). Armed from the NEXT deploy onward. Rapid deploys leave open tabs on stale builds \u2192 weird nav failures. App should detect the server build changed and prompt reload.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -1125,7 +1134,7 @@
    "lane": "backlog",
    "type": "safety",
    "priority": "low",
-   "notes": "Gates ever enabling allow_short_selling — blocked until then.",
+   "notes": "Gates ever enabling allow_short_selling \u2014 blocked until then.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -1145,7 +1154,7 @@
    "lane": "backlog",
    "type": "feature",
    "priority": "normal",
-   "notes": "Open thread — needed for retrospective completeness.",
+   "notes": "Open thread \u2014 needed for retrospective completeness.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -1155,7 +1164,7 @@
    "lane": "done",
    "type": "feature",
    "priority": "high",
-   "notes": "3 consecutive scans → identical structure sets. Code detects, LLM vetoes/grades.",
+   "notes": "3 consecutive scans \u2192 identical structure sets. Code detects, LLM vetoes/grades.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -1195,7 +1204,7 @@
    "lane": "done",
    "type": "research",
    "priority": "high",
-   "notes": "Planner→specialists→critic→editor; proprietary data first-class; founder-approved papers.",
+   "notes": "Planner\u2192specialists\u2192critic\u2192editor; proprietary data first-class; founder-approved papers.",
    "owner": "serv",
    "updated_at": "2026-07-03"
   },
@@ -1225,7 +1234,7 @@
    "lane": "done",
    "type": "idea",
    "priority": "normal",
-   "notes": "i dont think it should blur the background and should be able to be moved and sized | DONE: MD viewer is a FloatingPanel now — no backdrop blur (cockpit stays live behind it), header-drag movable, corner-resize, magnet snap; this week: bottom clamped to the footer bar + off-screen spawn fixed + theme-derived paper bg + grain + 100ch prose.",
+   "notes": "i dont think it should blur the background and should be able to be moved and sized | DONE: MD viewer is a FloatingPanel now \u2014 no backdrop blur (cockpit stays live behind it), header-drag movable, corner-resize, magnet snap; this week: bottom clamped to the footer bar + off-screen spawn fixed + theme-derived paper bg + grain + 100ch prose.",
    "owner": "founder",
    "updated_at": "2026-07-06"
   },
@@ -1236,7 +1245,7 @@
    "type": "fix",
    "priority": "high",
    "owner": "mac",
-   "notes": "2026-07-07. Founder reported phone running HOT / draining during test phase. Root cause: use-market-ws.ts auto-reconnected but only paused on null token — no AppState handling, so the live quote stream stayed open behind the lock screen, waking JS+radio on every tick during market hours. Fix: appActive flag from an AppState listener gates the connect effect (!token || !appActive); background → existing cleanup closes socket + clears timer, foreground → fresh reconnect. tsc green, no new lint. Dev-build heat (React Compiler + Fast Refresh) is separate — true battery verdict needs a release build."
+   "notes": "2026-07-07. Founder reported phone running HOT / draining during test phase. Root cause: use-market-ws.ts auto-reconnected but only paused on null token \u2014 no AppState handling, so the live quote stream stayed open behind the lock screen, waking JS+radio on every tick during market hours. Fix: appActive flag from an AppState listener gates the connect effect (!token || !appActive); background \u2192 existing cleanup closes socket + clears timer, foreground \u2192 fresh reconnect. tsc green, no new lint. Dev-build heat (React Compiler + Fast Refresh) is separate \u2014 true battery verdict needs a release build."
   },
   {
    "id": "mobile-chat-history",
@@ -1245,7 +1254,7 @@
    "type": "feature",
    "priority": "high",
    "owner": "mac",
-   "notes": "2026-07-07. Founder: auto-save all + browse list. Stream switched temporary→saved (use-chat creates session on first turn, serv persists via finalize_chat_turn, temporary fallback if create fails); loadSession() maps stored parts→transcript; chat-history.tsx overlay (list pinned-first, tap-load, swipe-delete, pin) on serv's existing /api/chat/sessions* API. tsc+lint clean. PENDING on-device test. Follow-up: legacy Swipeable import is deprecated in RNGH 2.31 (works, warns) → ReanimatedSwipeable."
+   "notes": "2026-07-07. Founder: auto-save all + browse list. Stream switched temporary\u2192saved (use-chat creates session on first turn, serv persists via finalize_chat_turn, temporary fallback if create fails); loadSession() maps stored parts\u2192transcript; chat-history.tsx overlay (list pinned-first, tap-load, swipe-delete, pin) on serv's existing /api/chat/sessions* API. tsc+lint clean. PENDING on-device test. Follow-up: legacy Swipeable import is deprecated in RNGH 2.31 (works, warns) \u2192 ReanimatedSwipeable."
   },
   {
    "id": "mobile-day-pnl-endpoint",
@@ -1263,25 +1272,25 @@
    "type": "feature",
    "priority": "high",
    "owner": "mac",
-   "notes": "2026-07-07 (PENDING device test). Assistant bubbles render themed markdown (tables/headings/lists/code) via existing react-native-markdown-display (chat-markdown-styles.ts); tool-call timeline (tool-timeline.tsx + ToolStep on ChatTurn) replaces the single 'using a tool' hint — per-tool running→done/failed with query/symbol detail. Pairs with mobile-chat-brain-migration (serv) — client is ready to display web-quality output once the brain lands. Watch: per-token markdown key remounts (fine under chunked stream; revisit at real streaming)."
+   "notes": "2026-07-07 (PENDING device test). Assistant bubbles render themed markdown (tables/headings/lists/code) via existing react-native-markdown-display (chat-markdown-styles.ts); tool-call timeline (tool-timeline.tsx + ToolStep on ChatTurn) replaces the single 'using a tool' hint \u2014 per-tool running\u2192done/failed with query/symbol detail. Pairs with mobile-chat-brain-migration (serv) \u2014 client is ready to display web-quality output once the brain lands. Watch: per-token markdown key remounts (fine under chunked stream; revisit at real streaming)."
   },
   {
    "id": "perception-portfolio-scope",
-   "title": "Perception layer: get_context(scope=\"portfolio\") — fold bespoke book tools into the general read surface",
+   "title": "Perception layer: get_context(scope=\"portfolio\") \u2014 fold bespoke book tools into the general read surface",
    "lane": "backlog",
    "type": "chore",
    "priority": "low",
    "owner": "serv",
-   "notes": "2026-07-11 audit of References/PERCEPTION_LAYER.md: layer is ~90% built & functionally complete. This is the one remaining IN-CHARTER read gap. Copilot is NOT blind to the book today (get_portfolio_snapshot + get_agent_status already work) — but those are exactly the bespoke per-data read tools the locked principle forbids ('reads are general, never add a tool just to expose data'). Task: build build_portfolio_context in ai/perception/ reusing the existing snapshot/schwab/proposals readers, add scope='portfolio' branch to get_context, add the manifest line; keep the old tools as thin aliases so nothing breaks. Money-DISPLAY path (not the chokepoint) → wants a Sonnet money-display review + deploy. Foundational tidiness, ZERO user-visible benefit now; payoff = one read interface for the future MCP/multi-user/Decision-Engine consumers. Deferred by founder 2026-07-11 in favor of finishing charts."
+   "notes": "2026-07-11 audit of References/PERCEPTION_LAYER.md: layer is ~90% built & functionally complete. This is the one remaining IN-CHARTER read gap. Copilot is NOT blind to the book today (get_portfolio_snapshot + get_agent_status already work) \u2014 but those are exactly the bespoke per-data read tools the locked principle forbids ('reads are general, never add a tool just to expose data'). Task: build build_portfolio_context in ai/perception/ reusing the existing snapshot/schwab/proposals readers, add scope='portfolio' branch to get_context, add the manifest line; keep the old tools as thin aliases so nothing breaks. Money-DISPLAY path (not the chokepoint) \u2192 wants a Sonnet money-display review + deploy. Foundational tidiness, ZERO user-visible benefit now; payoff = one read interface for the future MCP/multi-user/Decision-Engine consumers. Deferred by founder 2026-07-11 in favor of finishing charts."
   },
   {
    "id": "perception-scorer-facts-consistency",
-   "title": "Decision Engine: do NOT wire scorer to eat the perception facts object — display-consistency sliver only",
+   "title": "Decision Engine: do NOT wire scorer to eat the perception facts object \u2014 display-consistency sliver only",
    "lane": "backlog",
    "type": "feature",
    "priority": "normal",
    "owner": "serv",
-   "notes": "2026-07-11 recon KILLED the PERCEPTION_LAYER.md aspiration that 'the same facts object feeds signals/decision_scorer.py'. Doing it literally is a CALIBRATION TRAP: the scorer feeds a TRAINED model whose features come from research bars (cached SQLite, 800d, full precision via research/features.py); build_symbol_context uses LIVE provider bars (420d, rounded for display) and only ~3 of ~18 features overlap — feeding the model the display facts would silently break the win%. Also circular: build_symbol_context already CALLS score_symbol for its decision_score field. The scorer MUST keep its research-bar pipeline (training parity). Only safe/valuable piece: when the copilot EXPLAINS a proposal, read the scorer's own top_factors so what the user is TOLD matches what was DECIDED — never touches model input. Real Decision-Engine quality work lives in decision-engine-phase1, not here."
+   "notes": "2026-07-11 recon KILLED the PERCEPTION_LAYER.md aspiration that 'the same facts object feeds signals/decision_scorer.py'. Doing it literally is a CALIBRATION TRAP: the scorer feeds a TRAINED model whose features come from research bars (cached SQLite, 800d, full precision via research/features.py); build_symbol_context uses LIVE provider bars (420d, rounded for display) and only ~3 of ~18 features overlap \u2014 feeding the model the display facts would silently break the win%. Also circular: build_symbol_context already CALLS score_symbol for its decision_score field. The scorer MUST keep its research-bar pipeline (training parity). Only safe/valuable piece: when the copilot EXPLAINS a proposal, read the scorer's own top_factors so what the user is TOLD matches what was DECIDED \u2014 never touches model input. Real Decision-Engine quality work lives in decision-engine-phase1, not here."
   },
   {
    "id": "chart-ext-hours-shading-port",
@@ -1290,25 +1299,25 @@
    "type": "chore",
    "priority": "low",
    "owner": "serv",
-   "notes": "2026-07-11: the one visual feature not carried over when TradingView was deleted. TV drew faint low-alpha full-height background bands behind pre/post-market candles (old lib/chart-session-bands.ts, recoverable from git). Native draws the ext-hours candles + price line but not the background tint. Per-bar session classifier intradayBarSession already lives in lib/chart-time.ts (native-safe) — port = a background-fill pass in the engine's draw (series.ts) keyed off each intraday bar's session. Visual-only, subtle; won't be caught by typecheck — judge in-browser."
+   "notes": "2026-07-11: the one visual feature not carried over when TradingView was deleted. TV drew faint low-alpha full-height background bands behind pre/post-market candles (old lib/chart-session-bands.ts, recoverable from git). Native draws the ext-hours candles + price line but not the background tint. Per-bar session classifier intradayBarSession already lives in lib/chart-time.ts (native-safe) \u2014 port = a background-fill pass in the engine's draw (series.ts) keyed off each intraday bar's session. Visual-only, subtle; won't be caught by typecheck \u2014 judge in-browser."
   },
   {
    "id": "flow-notif-redesign",
-   "title": "Flow + notifications redesign (surfaces 3+4) — info-design overhaul",
+   "title": "Flow + notifications redesign (surfaces 3+4) \u2014 info-design overhaul",
    "lane": "in_progress",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "2026-07-11 founder: our data is good but under-presented; study top terminals → design to our terminal UI. Research workflow (7 Sonnet agents: Bookmap/databento/Sierra, Unusual Whales/Cheddar/Tradytics, tos/TradingView, alert UX, Tufte/Bloomberg + audit of our current widget & notif bodies) → References/FLOW_VIZ_DESIGN_2026-07-11.md (artifact). Then Opus-built before/after MOCKUP (References/flow_notif_mockup.html, artifact) for surfaces 3+4 (share one grammar). LOCKED decisions: strip hues (side = only saturated color, type = muted word), composite unusualness score = default sort (hover-inspectable, built from vol_zscore/vol_oi_ratio/size), honesty flag VISIBLE not tooltip (fixes the caveat-in-title red-team miss), fixed columns, magnitude = row weight, 3-tier notifications (headline/detail-card/chat) + one shared format_alert() at the push chokepoint + de-dupe/batch. OPEN: premium-floor default (shown as a control), keep 5 type words vs collapse. NEXT: founder reacts to mockup → Opus critic pass → build (options-flow widget FIRST, then notifications). Chart flow-overlay (surface 2) PARKED until these ship."
+   "notes": "2026-07-11 founder: our data is good but under-presented; study top terminals \u2192 design to our terminal UI. Research workflow (7 Sonnet agents: Bookmap/databento/Sierra, Unusual Whales/Cheddar/Tradytics, tos/TradingView, alert UX, Tufte/Bloomberg + audit of our current widget & notif bodies) \u2192 References/FLOW_VIZ_DESIGN_2026-07-11.md (artifact). Then Opus-built before/after MOCKUP (References/flow_notif_mockup.html, artifact) for surfaces 3+4 (share one grammar). LOCKED decisions: strip hues (side = only saturated color, type = muted word), composite unusualness score = default sort (hover-inspectable, built from vol_zscore/vol_oi_ratio/size), honesty flag VISIBLE not tooltip (fixes the caveat-in-title red-team miss), fixed columns, magnitude = row weight, 3-tier notifications (headline/detail-card/chat) + one shared format_alert() at the push chokepoint + de-dupe/batch. OPEN: premium-floor default (shown as a control), keep 5 type words vs collapse. NEXT: founder reacts to mockup \u2192 Opus critic pass \u2192 build (options-flow widget FIRST, then notifications). Chart flow-overlay (surface 2) PARKED until these ship."
   },
   {
    "id": "chart-flow-overlay",
-   "title": "Chart flow-overlay — big buys / sweeps / option flow ON the chart (surface 2, PARKED)",
+   "title": "Chart flow-overlay \u2014 big buys / sweeps / option flow ON the chart (surface 2, PARKED)",
    "lane": "backlog",
    "type": "feature",
    "priority": "normal",
    "owner": "serv",
-   "notes": "2026-07-11 PARKED until notifications + options-flow widget ship (founder call; also benefits from their color/glyph/honesty grammar being settled first). From FLOW_VIZ_DESIGN_2026-07-11.md: a marker LANE under price (not glyphs pinned to candles) — color=side, shape=event type, size=log(notional); equity aggressor bubbles feasible today off the same _on_trade tick-rule; zoom-aware clustering; toolbar toggle (flow: off/equity/options/both), never floating. Feasibility ceiling: no L2/MBO → no heatmap/DOM/true absorption; any sweep marker labeled PROXY. Parked founder-liked variant also lives here: trade-prints bubble overlay."
+   "notes": "2026-07-11 PARKED until notifications + options-flow widget ship (founder call; also benefits from their color/glyph/honesty grammar being settled first). From FLOW_VIZ_DESIGN_2026-07-11.md: a marker LANE under price (not glyphs pinned to candles) \u2014 color=side, shape=event type, size=log(notional); equity aggressor bubbles feasible today off the same _on_trade tick-rule; zoom-aware clustering; toolbar toggle (flow: off/equity/options/both), never floating. Feasibility ceiling: no L2/MBO \u2192 no heatmap/DOM/true absorption; any sweep marker labeled PROXY. Parked founder-liked variant also lives here: trade-prints bubble overlay."
   },
   {
    "id": "flow-llm-brief-gated",
@@ -1317,7 +1326,7 @@
    "type": "feature",
    "priority": "normal",
    "owner": "serv",
-   "notes": "2026-07-11 founder idea. NOT per-print (token burn). Gate on the composite unusualness score crossing a high floor → only the top ~1% of events get a ONE-SHOT LLM brief, CACHED on the event (one call, stored). Shown only in the expanded drawer's 'why' line, never inline on every row. = a stepping-stone to the Decision Engine (deterministic owns numbers, LLM adds narrative). Build LATER; needs the score + a threshold + a cache column. Ties to [[decision-engine-priority]], alert-batching, latency rules."
+   "notes": "2026-07-11 founder idea. NOT per-print (token burn). Gate on the composite unusualness score crossing a high floor \u2192 only the top ~1% of events get a ONE-SHOT LLM brief, CACHED on the event (one call, stored). Shown only in the expanded drawer's 'why' line, never inline on every row. = a stepping-stone to the Decision Engine (deterministic owns numbers, LLM adds narrative). Build LATER; needs the score + a threshold + a cache column. Ties to [[decision-engine-priority]], alert-batching, latency rules."
   },
   {
    "id": "watchlist-organization-folders",
@@ -1340,11 +1349,11 @@
   },
   {
    "id": "fr-1783787089",
-   "title": "decision journal is useless — needs real outcome tracking, and clarify vs idea outcomes",
+   "title": "decision journal is useless \u2014 needs real outcome tracking, and clarify vs idea outcomes",
    "lane": "inbox",
    "type": "idea",
    "priority": "normal",
-   "notes": "2026-07-11 founder: decision journal shows AI decisions but just says 'never filled' — wants to actively track what was recommended, whether/when it filled, running P&L while open, when the trade closes, and a ping when it's executed (tagged to the strategy it's following). Currently it's just an inert list. Also confused whether decision-journal and idea-outcomes ([[idea-outcomes]]/[[idea-outcomes-ui]], already shipped) are meant to be two different things or should be merged/reconciled — needs a design pass to decide, likely backend + frontend work either way.",
+   "notes": "2026-07-11 founder: decision journal shows AI decisions but just says 'never filled' \u2014 wants to actively track what was recommended, whether/when it filled, running P&L while open, when the trade closes, and a ping when it's executed (tagged to the strategy it's following). Currently it's just an inert list. Also confused whether decision-journal and idea-outcomes ([[idea-outcomes]]/[[idea-outcomes-ui]], already shipped) are meant to be two different things or should be merged/reconciled \u2014 needs a design pass to decide, likely backend + frontend work either way.",
    "owner": "founder",
    "updated_at": "2026-07-11"
   },
@@ -1354,7 +1363,7 @@
    "lane": "inbox",
    "type": "bug",
    "priority": "normal",
-   "notes": "2026-07-11 founder: calendar widget grows fine horizontally but the day grid doesn't get any bigger when resized vertically — wants it to resize on both axes and keep a roughly square cell/grid shape at any size.",
+   "notes": "2026-07-11 founder: calendar widget grows fine horizontally but the day grid doesn't get any bigger when resized vertically \u2014 wants it to resize on both axes and keep a roughly square cell/grid shape at any size.",
    "owner": "founder",
    "updated_at": "2026-07-11"
   },
@@ -1364,7 +1373,7 @@
    "lane": "inbox",
    "type": "idea",
    "priority": "normal",
-   "notes": "2026-07-11 founder: wants the exact time shown next to the date on orders. Likely the same gap as [[fill-time-on-orders]] (fill time truncated to date-only at import) — check that card before scoping new work.",
+   "notes": "2026-07-11 founder: wants the exact time shown next to the date on orders. Likely the same gap as [[fill-time-on-orders]] (fill time truncated to date-only at import) \u2014 check that card before scoping new work.",
    "owner": "founder",
    "updated_at": "2026-07-11"
   },
@@ -1380,7 +1389,7 @@
   },
   {
    "id": "fr-1783787093",
-   "title": "themes: deep founder-driven pass — too many settings with no visible effect",
+   "title": "themes: deep founder-driven pass \u2014 too many settings with no visible effect",
    "lane": "inbox",
    "type": "idea",
    "priority": "normal",
@@ -1430,12 +1439,12 @@
   },
   {
    "id": "native-chart-engine",
-   "title": "Native chart engine — replace TradingView lightweight-charts with our own canvas renderer",
+   "title": "Native chart engine \u2014 replace TradingView lightweight-charts with our own canvas renderer",
    "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "2026-07-11 PHASE 3 FINAL — TRADINGVIEW DELETED (code-complete, ⚠️ pending deploy + in-browser check). lightweight-charts removed from the repo (package + fancy-canvas transitive). Workspace chart widget renders ONLY NativeChart (A/B toggle + config.chartEngine field gone); tv-light-chart.tsx + TV-only helpers (chart-trendline, chart-session-bands) deleted; chart-time.ts decoupled; TV attribution link removed. Legacy /trading + /charts pages RETIRED (founder chose retire): routes redirect to /workspace, dead components + nav items removed. Fast-follow CLOSED: right-click over oscillator/volume pane no longer eats the browser menu (dead zone). Adversarial review = SHIP (caught the legacy-page toolbar-drop trap → resolved by retiring the pages). tsc clean; net -2,144 lines. Known minor follow-up: ext-hours session background shading not ported to native (see chart-ext-hours-shading-port). Op note: built in-place → live server serving stale chunks until tools/serv-deploy.sh frontend restart. Earlier this session: STUDIES (SMA/EMA overlays + RSI/MACD panes) shipped; level ×N clustering benched."
+   "notes": "2026-07-11 PHASE 3 FINAL \u2014 TRADINGVIEW DELETED (code-complete, \u26a0\ufe0f pending deploy + in-browser check). lightweight-charts removed from the repo (package + fancy-canvas transitive). Workspace chart widget renders ONLY NativeChart (A/B toggle + config.chartEngine field gone); tv-light-chart.tsx + TV-only helpers (chart-trendline, chart-session-bands) deleted; chart-time.ts decoupled; TV attribution link removed. Legacy /trading + /charts pages RETIRED (founder chose retire): routes redirect to /workspace, dead components + nav items removed. Fast-follow CLOSED: right-click over oscillator/volume pane no longer eats the browser menu (dead zone). Adversarial review = SHIP (caught the legacy-page toolbar-drop trap \u2192 resolved by retiring the pages). tsc clean; net -2,144 lines. Known minor follow-up: ext-hours session background shading not ported to native (see chart-ext-hours-shading-port). Op note: built in-place \u2192 live server serving stale chunks until tools/serv-deploy.sh frontend restart. Earlier this session: STUDIES (SMA/EMA overlays + RSI/MACD panes) shipped; level \u00d7N clustering benched."
   },
   {
    "id": "copilot-terminal-redesign",
@@ -1444,7 +1453,7 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "T2 DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed — shared thread.tsx/markdown-text.tsx changes verified additive, dock/mobile default paths byte-identical; typecheck green, new files lint-clean). Shipped: flat mono transcript over the SHARED runtime (dock+terminal same thread by construction), plain text→chat (stub dead), flat tool rows (approvals reuse ToolFallbackApproval untouched), inline proposal cards via toolUI, $SYM/known-ticker links→Ch1, thread switcher (CopilotThreadHistory), command interleave anchors, Esc=interrupt while streaming, activity glyph on strip+header, [mem:ID] chips dormant (NEXT_PUBLIC_MEM_CHIPS / hmt-mem-chips / ?memchips=1). FOUNDER EYEBALL: ⌘K feel, propose→approve in terminal (paper), Esc interrupt, flat-skin look. Known deferrals: mem-chip session deep-link nav; 44rem thread column width (widening = thread.tsx layout edit, punted); transcript uses built-in Thread autoscroll. NEXT: T3 speed pass to budgets, then T4 commands-both-ways, T5 dock demolition.",
+   "notes": "T2 DEPLOYED :3001 2026-07-06 (Opus-coded, Fable diff-reviewed \u2014 shared thread.tsx/markdown-text.tsx changes verified additive, dock/mobile default paths byte-identical; typecheck green, new files lint-clean). Shipped: flat mono transcript over the SHARED runtime (dock+terminal same thread by construction), plain text\u2192chat (stub dead), flat tool rows (approvals reuse ToolFallbackApproval untouched), inline proposal cards via toolUI, $SYM/known-ticker links\u2192Ch1, thread switcher (CopilotThreadHistory), command interleave anchors, Esc=interrupt while streaming, activity glyph on strip+header, [mem:ID] chips dormant (NEXT_PUBLIC_MEM_CHIPS / hmt-mem-chips / ?memchips=1). FOUNDER EYEBALL: \u2318K feel, propose\u2192approve in terminal (paper), Esc interrupt, flat-skin look. Known deferrals: mem-chip session deep-link nav; 44rem thread column width (widening = thread.tsx layout edit, punted); transcript uses built-in Thread autoscroll. NEXT: T3 speed pass to budgets, then T4 commands-both-ways, T5 dock demolition.",
    "updated_at": "2026-07-06"
   },
   {
@@ -1463,7 +1472,7 @@
    "lane": "done",
    "type": "bug",
    "priority": "high",
-   "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 — watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles — ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence — flag if it bugs you.",
+   "notes": "Round 2 (2026-07-05, from your live report) FIXED + DEPLOYED + live-verified: (a) /ES showed 7523 vs real 7557 \u2014 watchlist price came from Schwab's futures DAILY bars, which were missing the July-3 half session the 5-min bars had; price now rolls forward from the newer Globex session (price/change/high/low/volume + sparkline). (b) SPY 744.78 label vs ~745.8 candles \u2014 ext_price was nulled when session=closed (weekend) though Schwab still serves the last extended print; weekends now show it everywhere: watchlist EXT badge, chart dashed ext line, chart header price. Verified live: /ES 7557/+0.45%, SPY ext 745.74. Round 1 (fail-loud 502 on empty batch, mobile additive merge, ext line pre/post/overnight) also deployed. REMAINING: phone bundle refresh (mobile merge fix + weekend-EXT badge ride that), founder eyeball of the ext line in the live overnight session from Sun 20:00 ET. Positions-widget price (broker snapshot, Schwab derived marketValue/qty on 20s poll) is a separate smaller divergence \u2014 flag if it bugs you.",
    "owner": "serv",
    "updated_at": "2026-07-04"
   },
@@ -1483,7 +1492,7 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "FOUNDER-FLAGGED 2026-07-07. Founder saw web chain ~12 tool calls into a full report while mobile punted ('no tool results… I'll run scans next turn') — mobile is on single-pass plan_tools (ai/chat/mobile_agent.py), NOT iterative native tool-calling. Migrate POST /api/chat/stream onto ai/chat/loop.py, ENCODING iteration into the unchanged 6-event mobile SSE contract (do NOT point at web /api/chat = AI-SDK UIMessageStream, client can't parse). Preserve: propose_order→create_phone_proposal (phone biometric approve), create_rule gate, saved-mode persistence. Real token streaming falls out for free. Full brief: References/MAC_TO_SERV_2026-07-08_mobile-chat-brain.md. Client rendering (markdown bubbles + tool-call timeline) shipping in parallel Mac-side."
+   "notes": "FOUNDER-FLAGGED 2026-07-07. Founder saw web chain ~12 tool calls into a full report while mobile punted ('no tool results\u2026 I'll run scans next turn') \u2014 mobile is on single-pass plan_tools (ai/chat/mobile_agent.py), NOT iterative native tool-calling. Migrate POST /api/chat/stream onto ai/chat/loop.py, ENCODING iteration into the unchanged 6-event mobile SSE contract (do NOT point at web /api/chat = AI-SDK UIMessageStream, client can't parse). Preserve: propose_order\u2192create_phone_proposal (phone biometric approve), create_rule gate, saved-mode persistence. Real token streaming falls out for free. Full brief: References/MAC_TO_SERV_2026-07-08_mobile-chat-brain.md. Client rendering (markdown bubbles + tool-call timeline) shipping in parallel Mac-side."
   },
   {
    "id": "mobile-chat-toolxml-leak",
@@ -1492,7 +1501,7 @@
    "type": "bug",
    "priority": "high",
    "owner": "serv",
-   "notes": "Founder hit live 2026-07-07: assistant bubble printed <function_calls> XML instead of an answer. SERV-side: ai/chat/mobile_agent.py:150 final complete() reuses the full agentic _system_prompt() (tool catalog + 'call the tools') but has no native tool-parsing → model emits tool XML as text → streams to client as content. Fix: give the final synthesis call a tools-free prompt, OR migrate mobile onto ai/chat/loop.py (unified brain). Client guard shipped (strip-tool-markup.ts) is damage-control only. Full writeup: References/MAC_REPLY_2026-07-08.md."
+   "notes": "Founder hit live 2026-07-07: assistant bubble printed <function_calls> XML instead of an answer. SERV-side: ai/chat/mobile_agent.py:150 final complete() reuses the full agentic _system_prompt() (tool catalog + 'call the tools') but has no native tool-parsing \u2192 model emits tool XML as text \u2192 streams to client as content. Fix: give the final synthesis call a tools-free prompt, OR migrate mobile onto ai/chat/loop.py (unified brain). Client guard shipped (strip-tool-markup.ts) is damage-control only. Full writeup: References/MAC_REPLY_2026-07-08.md."
   },
   {
    "id": "hydration-418-followup",
@@ -1510,16 +1519,16 @@
    "type": "tooling",
    "priority": "high",
    "owner": "serv",
-   "notes": "2026-07-06: round-2 watchlist shipped an illegible (transparent) delete-confirm — passed diff review + typecheck + build because nothing RENDERS the UI before the founder. Build: headless chromium (playwright) script that loads :3001/workspace (or a component harness page), drives basic flows, and drops screenshots the orchestrator eyeballs before deploy. Dev-only tool, no CI gate initially. Port rules: dev servers 3005+."
+   "notes": "2026-07-06: round-2 watchlist shipped an illegible (transparent) delete-confirm \u2014 passed diff review + typecheck + build because nothing RENDERS the UI before the founder. Build: headless chromium (playwright) script that loads :3001/workspace (or a component harness page), drives basic flows, and drops screenshots the orchestrator eyeballs before deploy. Dev-only tool, no CI gate initially. Port rules: dev servers 3005+."
   },
   {
    "id": "flow-intelligence-design-review",
-   "title": "READ: flow intelligence design (Fable deep-dive) — burst + cluster detectors, 2 new widgets, push policy",
+   "title": "READ: flow intelligence design (Fable deep-dive) \u2014 burst + cluster detectors, 2 new widgets, push policy",
    "lane": "done",
    "type": "decision",
    "priority": "high",
    "owner": "founder",
-   "notes": "References/FLOW_INTELLIGENCE_DESIGN_2026-07-11.md. Key calls: rolling 30-min burst replaces day-net pressure as the intraday primitive; small-print cluster detector (your slicing hypothesis, floor on the AGGREGATE: >=$500k/25 prints); TWAP/iceberg deferred but instrumented now; quotes-follow-heat (40 standing + 20 escalation); 2 new widgets (flow pressure now, flow patterns after ~3-4wk data); watchlist bursts >=$1M push to phone, market-wide pushes ship OFF until you arm a floor. Week-1 core is transport-agnostic — ships either way after Monday's wildcard rate probe."
+   "notes": "References/FLOW_INTELLIGENCE_DESIGN_2026-07-11.md. Key calls: rolling 30-min burst replaces day-net pressure as the intraday primitive; small-print cluster detector (your slicing hypothesis, floor on the AGGREGATE: >=$500k/25 prints); TWAP/iceberg deferred but instrumented now; quotes-follow-heat (40 standing + 20 escalation); 2 new widgets (flow pressure now, flow patterns after ~3-4wk data); watchlist bursts >=$1M push to phone, market-wide pushes ship OFF until you arm a floor. Week-1 core is transport-agnostic \u2014 ships either way after Monday's wildcard rate probe."
   },
   {
    "id": "schwab-boot-burst-ramp",
