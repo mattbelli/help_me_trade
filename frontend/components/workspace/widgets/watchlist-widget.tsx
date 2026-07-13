@@ -294,12 +294,12 @@ function WatchlistAddRow({
 
 type Quote = ReturnType<typeof useWatchlistMarket>["quotes"][string];
 
-const EXT_SESSION_BADGE: Record<string, { label: string; title: string }> = {
-  pre: { label: "PRE", title: "Pre-market" },
-  post: { label: "AFT", title: "After-hours" },
-  overnight: { label: "24h", title: "Overnight (24/5)" },
-  closed: { label: "EXT", title: "Last extended-hours trade (market closed)" },
-};
+// Sessions whose display price is the extended-hours print. The per-row
+// session badges that used to ride along (PRE/AFT/24h on EVERY row) were
+// dropped 2026-07-13 — the session is global context, so decorating every row
+// said nothing (TradingView rule: decorate exceptions only). The one
+// per-symbol exception still worth a marker is a delayed overnight quote.
+const EXT_PRICE_SESSIONS = new Set(["pre", "post", "overnight", "closed"]);
 
 const HOLD_MS = 300;
 const MOVE_CANCEL_PX = 6;
@@ -415,24 +415,28 @@ function WatchlistSymbolRow({
   }, []);
 
   const session = quote?.market_session;
+  const useExtPrice =
+    session != null &&
+    EXT_PRICE_SESSIONS.has(session) &&
+    quote?.ext_price != null;
   const extBadge =
-    session && session in EXT_SESSION_BADGE && quote?.ext_price != null
-      ? {
-          ...EXT_SESSION_BADGE[session],
-          title: quote.overnight_delayed
-            ? `${EXT_SESSION_BADGE[session].title} — delayed ~15 min`
-            : EXT_SESSION_BADGE[session].title,
-          label:
-            session === "overnight" && quote.overnight_delayed
-              ? "24h·dly"
-              : EXT_SESSION_BADGE[session].label,
-        }
+    useExtPrice && session === "overnight" && quote?.overnight_delayed
+      ? { label: "dly", title: "Overnight (24/5) — delayed ~15 min" }
       : null;
-  const displayPrice = extBadge ? (quote?.ext_price ?? 0) : (quote?.price ?? 0);
-  const displayChangePct = extBadge
+  const displayPrice = useExtPrice ? (quote?.ext_price ?? 0) : (quote?.price ?? 0);
+  const displayChangePct = useExtPrice
     ? (quote?.ext_change_pct ?? 0)
     : (quote?.change_pct ?? 0);
   const positive = displayChangePct >= 0;
+
+  // Overnight is the one session where rows genuinely differ: 24/5 names and
+  // futures keep trading (violet dot = live), the rest are frozen until
+  // pre-market (dim the row — the pro "stale quote" convention). Every other
+  // session renders rows plain: state, not capability.
+  const isFutures = symbol.startsWith("/");
+  const overnightAlive = session === "overnight" && (isOvernight || isFutures);
+  const overnightDead =
+    session === "overnight" && !isOvernight && !isFutures;
 
   const nextEarningsDate = quote?.next_earnings ?? null;
   const earningsDays =
@@ -512,6 +516,8 @@ function WatchlistSymbolRow({
           // height and carries the density padding itself, so the column
           // boundary lines run edge-to-edge vertically.
           "group/row group relative grid px-2 hover:bg-[var(--bg-hover)]",
+          // Frozen-for-the-night rows read dim (quote is stale until pre).
+          overnightDead && "opacity-60",
           selected &&
             "bg-[var(--surface-selected)] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--c-accent)]",
           willDelete &&
@@ -581,13 +587,18 @@ function WatchlistSymbolRow({
           )}
         >
           <span aria-hidden className="grain-overlay" />
+          {/* Session-state dot: shown ONLY during the overnight session, on
+              rows still trading (24/5 names + futures). The slot is always
+              reserved so tickers don't shift when the session rolls over. */}
           <span
             className="flex size-1.5 shrink-0 items-center justify-center"
-            title={isOvernight ? "Tradable 24/5 overnight" : undefined}
-            aria-label={isOvernight ? "Tradable 24/5 overnight" : undefined}
+            title={overnightAlive ? "Trading now — overnight (24/5)" : undefined}
+            aria-label={
+              overnightAlive ? "Trading now — overnight (24/5)" : undefined
+            }
           >
-            {isOvernight ? (
-              <span className="size-1.5 rounded-full bg-[var(--c-green-bg)]" />
+            {overnightAlive ? (
+              <span className="size-1.5 rounded-full bg-[var(--c-violet)]" />
             ) : null}
           </span>
           <ClickableSymbol
