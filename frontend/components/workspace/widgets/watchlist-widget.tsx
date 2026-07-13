@@ -518,8 +518,9 @@ function WatchlistSymbolRow({
           "group/row group relative grid px-2 hover:bg-[var(--bg-hover)]",
           // Frozen-for-the-night rows read dim (quote is stale until pre).
           overnightDead && "opacity-60",
-          selected &&
-            "bg-[var(--surface-selected)] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--c-accent)]",
+          // Selection = the surface fill alone — no left accent bar (founder
+          // killed the left-stripe style app-wide).
+          selected && "bg-[var(--surface-selected)]",
           willDelete &&
             "rounded opacity-50 ring-1 ring-[var(--c-red)] bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]",
           confirming &&
@@ -587,20 +588,6 @@ function WatchlistSymbolRow({
           )}
         >
           <span aria-hidden className="grain-overlay" />
-          {/* Session-state dot: shown ONLY during the overnight session, on
-              rows still trading (24/5 names + futures). The slot is always
-              reserved so tickers don't shift when the session rolls over. */}
-          <span
-            className="flex size-1.5 shrink-0 items-center justify-center"
-            title={overnightAlive ? "Trading now — overnight (24/5)" : undefined}
-            aria-label={
-              overnightAlive ? "Trading now — overnight (24/5)" : undefined
-            }
-          >
-            {overnightAlive ? (
-              <span className="size-1.5 rounded-full bg-[var(--c-violet)]" />
-            ) : null}
-          </span>
           <ClickableSymbol
             symbol={symbol}
             linked={linked}
@@ -610,6 +597,17 @@ function WatchlistSymbolRow({
             // centered on the ticker at any --fs size, not low toward the baseline.
             className="truncate font-medium leading-none"
           />
+          {/* Session-state dot AFTER the ticker (TradingView placement): shown
+              only during the overnight session on rows still trading (24/5
+              names + futures). Leading with the ticker keeps it flush with the
+              SYM header and the hover/selected inset tight. */}
+          {overnightAlive ? (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-[var(--c-violet)]"
+              title="Trading now — overnight (24/5)"
+              aria-label="Trading now — overnight (24/5)"
+            />
+          ) : null}
           {showEarningsBadge && nextEarningsDate ? (
             <span
               className="shrink-0 rounded px-1 py-px font-medium font-mono text-[length:var(--fs-table)] leading-none"
