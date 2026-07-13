@@ -353,7 +353,19 @@ class BaseMarketHub:
     async def _sync_upstream(self) -> None:
         desired = self._all_symbols()
         if len(desired) > MAX_WS_SYMBOLS:
-            desired = set(sorted(desired)[:MAX_WS_SYMBOLS])
+            # Over-cap: never shed pinned symbols (watchlists + alerts) — a
+            # dropped symbol's quote silently freezes everywhere. Shed client
+            # extras alphabetically and log it.
+            pinned = desired & self._pinned
+            extras = sorted(desired - pinned)[: max(0, MAX_WS_SYMBOLS - len(pinned))]
+            kept = pinned | set(extras)
+            logger.warning(
+                "market stream cap: dropping %d of %d desired symbols (cap=%d)",
+                len(desired) - len(kept),
+                len(desired),
+                MAX_WS_SYMBOLS,
+            )
+            desired = kept
         async with self._lock:
             to_add = desired - self._subscribed
             to_remove = self._subscribed - desired
