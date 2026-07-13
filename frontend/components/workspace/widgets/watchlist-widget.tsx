@@ -507,7 +507,7 @@ function WatchlistSymbolRow({
           // boundary lines run edge-to-edge vertically.
           "group/row group relative grid px-2 hover:bg-[var(--bg-hover)]",
           selected &&
-            "bg-[var(--c-accent-soft)] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--c-accent)]",
+            "bg-[var(--surface-selected)] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--c-accent)]",
           willDelete &&
             "rounded opacity-50 ring-1 ring-[var(--c-red)] bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]",
           confirming &&
@@ -566,11 +566,11 @@ function WatchlistSymbolRow({
           className={cn(
             "sticky left-0 z-[1] inline-flex min-w-0 items-center gap-1 border-r border-[var(--line-divider)] pr-1",
             densityClass,
-            // Opaque accent tint — accent-soft is translucent, so scrolled
-            // columns would ghost through the sticky cell and the tint would
-            // stack on the row's own.
+            // --surface-selected is a solid per-theme hex (editor knob), so
+            // the sticky cell can repaint it opaquely — scrolled columns
+            // can't ghost through and the tint can't stack on the row's own.
             selected
-              ? "bg-[color-mix(in_srgb,var(--text-accent)_12%,var(--panel))]"
+              ? "bg-[var(--surface-selected)]"
               : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
           )}
         >
@@ -1307,18 +1307,20 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       }
 
       const cur = selectedSymbol ? list.indexOf(selectedSymbol) : -1;
+      // Arrow moves publish immediately (like a click) — the founder drives
+      // the linked chart by holding ↑/↓, no Enter needed.
+      const moveTo = (symbol: string) => {
+        setSelectedSymbol(symbol);
+        publish(symbol);
+      };
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          setSelectedSymbol(
-            list[cur < 0 ? 0 : Math.min(cur + 1, list.length - 1)],
-          );
+          moveTo(list[cur < 0 ? 0 : Math.min(cur + 1, list.length - 1)]);
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedSymbol(
-            list[cur < 0 ? list.length - 1 : Math.max(cur - 1, 0)],
-          );
+          moveTo(list[cur < 0 ? list.length - 1 : Math.max(cur - 1, 0)]);
           break;
         case "Enter":
           if (cur >= 0) {
@@ -1413,7 +1415,10 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         tabIndex={0}
         onKeyDown={handleListKeyDown}
         onBlur={handleListBlur}
-        className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--border-strong)]"
+        // No scroller padding: the sticky header and the row border-b lines
+        // must span the full widget width — padding left see-through gutters
+        // beside the header where scrolled rows ghosted into view.
+        className="min-h-0 flex-1 overflow-auto scroll-shadow-y outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--border-strong)]"
       >
         {/* min-width holds the columns open and drives horizontal scroll; the
             header + rows share it so they scroll together left/right. */}
