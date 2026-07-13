@@ -81,6 +81,9 @@
     --surface-header: #181b21;
     --surface-widget: #181b21;
     --surface-hover: #1e2228;
+    /* Selected row / active item fill — solid hex (≈12% accent over widget)
+       so sticky cells can repaint it opaquely. */
+    --surface-selected: #203134;
     --surface-inset: #0e1013;
     /* LINES */
     --line-border: #262b33;
@@ -200,6 +203,7 @@
     --surface-header: #181b21;
     --surface-widget: #181b21;
     --surface-hover: #1e2228;
+    --surface-selected: #203134;
     --surface-inset: #0e1013;
     --line-border: #262b33;
     --line-divider: #262b33;
@@ -234,6 +238,7 @@
     --surface-header: #262626;
     --surface-widget: #262626;
     --surface-hover: #2d2d2c;
+    --surface-selected: #3c342b;
     --surface-inset: #161617;
     --line-border: #353533;
     --line-divider: #353533;
@@ -272,6 +277,7 @@
     --surface-header: #0d0d0f;
     --surface-widget: #0d0d0f;
     --surface-hover: #17171a;
+    --surface-selected: #241c35;
     --surface-inset: #000000;
     --line-border: #26262a;
     --line-divider: #26262a;
@@ -309,6 +315,7 @@
     --surface-header: #ffffff;
     --surface-widget: #ffffff;
     --surface-hover: #eef0f3;
+    --surface-selected: #e5ecfd;
     --surface-inset: #eceef1;
     --line-border: #e2e5ea;
     --line-divider: #e2e5ea;

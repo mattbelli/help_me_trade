@@ -39,6 +39,7 @@ export const THEME_SECTIONS: ThemeSection[] = [
       { var: "--surface-header", label: "Header", desc: "each widget's title bar" },
       { var: "--surface-widget", label: "Widget body", desc: "widget / card / popover surface" },
       { var: "--surface-hover", label: "Hover", desc: "row & control hover fill" },
+      { var: "--surface-selected", label: "Selection", desc: "selected row / active item fill" },
       { var: "--surface-inset", label: "Inset", desc: "sunken wells, toolbar tiles, rails" },
     ],
   },
