@@ -54,10 +54,16 @@ const EMPTY_SYMBOLS: string[] = [];
 
 // Every column — the pinned symbol column included — is a fixed px track, so a
 // resize moves ONLY the dragged boundary (Excel-like); the columns right of it
-// shift as a block. Shared by the header + every row (inline style — widths
-// are dynamic per the persisted settings blob).
+// shift as a block. The LAST column alone is minmax(w, 1fr): when the widget is
+// wider than the columns it stretches to the right border (founder: whatever is
+// furthest right stays "locked to the end" — no dead zone past the 52W bar).
+// Shared by the header + every row (inline style — widths are dynamic per the
+// persisted settings blob).
 function gridTemplate(symbolWidth: number, widths: number[]): string {
-  return `${symbolWidth}px ${widths.map((w) => `${w}px`).join(" ")}`;
+  const tracks = widths.map((w, i) =>
+    i === widths.length - 1 ? `minmax(${w}px,1fr)` : `${w}px`,
+  );
+  return `${symbolWidth}px ${tracks.join(" ")}`;
 }
 
 // Vertical boundary line drawn on every non-first cell (header + rows) — makes
@@ -908,8 +914,14 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     () => effectiveColumns.filter((c) => c.visible),
     [effectiveColumns],
   );
+  // The LAST column ignores its stored width and uses its registry minWidth:
+  // its track is minmax(min, 1fr), so it exactly fills to the widget's right
+  // border (never a dead zone, never forced overflow from a stale wide save).
   const widths = useMemo(
-    () => visibleColumns.map((c) => c.width),
+    () =>
+      visibleColumns.map((c, i) =>
+        i === visibleColumns.length - 1 ? c.def.minWidth : c.width,
+      ),
     [visibleColumns],
   );
   const contentMinWidth = useMemo(
