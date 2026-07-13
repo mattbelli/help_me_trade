@@ -11,8 +11,10 @@ import { motionStd, useMotionSafe } from "@/lib/workspace/motion";
 import {
   applyInlinePreview,
   captureThemeVars,
+  captureThemeVarsFor,
   clearInlinePreview,
   flushInlinePreview,
+  GRAIN_URL,
   isHexColor,
   normalizeHex,
   resolveEditorPreviewIsDark,
@@ -33,8 +35,11 @@ const PANEL_WIDTH = 416; // w-[26rem]
 type ThemeEditorDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Absent ⇒ clone-the-current-theme mode. */
+  /** Absent ⇒ clone mode. */
   editingId?: string;
+  /** Clone mode only: seed from THIS theme's palette instead of the active
+      one — the "edit a built-in" flow (saves as a new custom copy). */
+  cloneBaseId?: string;
 };
 
 function baseLabel(base: string, customName: string | undefined): string {
@@ -48,6 +53,7 @@ export function ThemeEditorDialog({
   open,
   onOpenChange,
   editingId,
+  cloneBaseId,
 }: ThemeEditorDialogProps) {
   const { theme, setTheme } = useTheme();
   const themes = useCustomThemeStore((s) => s.themes);
@@ -76,7 +82,7 @@ export function ThemeEditorDialog({
 
   // Seed when a fresh editor session opens (render-time adjust on prop change —
   // the React-endorsed "store previous value in state" pattern, not an effect).
-  const sessionKey = open ? `${editingId ?? "clone"}` : null;
+  const sessionKey = open ? `${editingId ?? cloneBaseId ?? "clone"}` : null;
   const [seededKey, setSeededKey] = useState<string | null>(null);
   if (seededKey !== sessionKey) {
     setSeededKey(sessionKey);
@@ -90,6 +96,12 @@ export function ThemeEditorDialog({
       setName(editing.name);
       setVars({ ...editing.vars });
       setCloneBase(editing.base);
+    } else if (cloneBaseId) {
+      // "Edit" on a built-in: seed from ITS palette (no theme switch needed);
+      // saving creates a custom copy — the factory theme stays intact.
+      setName(`${baseLabel(cloneBaseId, undefined)} copy`);
+      setVars(captureThemeVarsFor(cloneBaseId));
+      setCloneBase(cloneBaseId);
     } else {
       // Clone-current mode: snapshot the resolved active theme.
       setName("");
@@ -110,6 +122,23 @@ export function ThemeEditorDialog({
 
   function handleVarChange(cssVar: string, raw: string) {
     const next = { ...vars, [cssVar]: raw };
+    setVars(next);
+    applyInlinePreview(next);
+  }
+
+  // Film-grain slider: one value drives both grain vars — opacity, plus the
+  // noise tile itself so themes that never had grain (carbon/oled/light
+  // clones) can turn it on.
+  const grainPct = Math.round(
+    (Number.parseFloat(vars["--grain-opacity"] ?? "0") || 0) * 100,
+  );
+
+  function handleGrainChange(pct: number) {
+    const next = {
+      ...vars,
+      "--grain-opacity": String(pct / 100),
+      "--grain": pct > 0 ? GRAIN_URL : "none",
+    };
     setVars(next);
     applyInlinePreview(next);
   }
@@ -275,6 +304,37 @@ export function ThemeEditorDialog({
               {section.knobs.map(renderKnob)}
             </div>
           ))}
+          <div className="flex flex-col gap-1.5">
+            <span className="font-mono text-[length:var(--fs-micro)] tracking-[0.12em] uppercase text-[var(--fg-faint)]">
+              Texture
+            </span>
+            <div className="flex items-center gap-2 pl-2">
+              <div
+                className="flex w-32 shrink-0 flex-col leading-tight"
+                title="--grain-opacity"
+              >
+                <span className="font-mono text-[length:var(--fs-table)] text-foreground">
+                  Film grain
+                </span>
+                <span className="font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                  noise over widget surfaces
+                </span>
+              </div>
+              <input
+                type="range"
+                aria-label="Film grain"
+                min={0}
+                max={20}
+                step={1}
+                value={grainPct}
+                onChange={(e) => handleGrainChange(Number(e.target.value))}
+                className="h-1 flex-1 cursor-pointer accent-[var(--c-accent)]"
+              />
+              <span className="w-8 shrink-0 text-right font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-dim)]">
+                {grainPct}%
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="-mx-4 -mb-4 flex items-center gap-2 rounded-b-xl border-t border-[var(--line-divider)] bg-[var(--bg-inset)]/50 p-3">
