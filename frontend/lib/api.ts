@@ -417,10 +417,22 @@ export type ChartLayoutItem = {
   symbol: string;
 };
 
+export type WatchlistColumnSetting = {
+  key: string;
+  visible: boolean;
+  width?: number;
+};
+
+export type WatchlistSettings = {
+  columns?: WatchlistColumnSetting[];
+  density?: "compact" | "comfortable" | "spacious";
+};
+
 export type Watchlist = {
   id: string;
   name: string;
   symbols: string[];
+  settings?: WatchlistSettings;
 };
 
 export type WatchlistsState = {
@@ -439,6 +451,7 @@ export type WatchlistQuote = {
   sparkline: number[];
   intraday?: number[];
   prev_close?: number;
+  gap_pct?: number | null;
   volume?: number;
   day_high?: number;
   day_low?: number;
@@ -491,7 +504,7 @@ export async function createWatchlist(
 
 export async function updateWatchlist(
   id: string,
-  patch: { name?: string; symbols?: string[] },
+  patch: { name?: string; symbols?: string[]; settings?: WatchlistSettings },
 ): Promise<WatchlistsState> {
   const res = await apiFetch(`${API_BASE}/api/watchlists/${encodeURIComponent(id)}`, {
     method: "PUT",

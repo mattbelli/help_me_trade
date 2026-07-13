@@ -2658,8 +2658,15 @@ def api_create_watchlist(body: dict = Body(...)):
     symbols = body.get("symbols")
     if symbols is not None and not isinstance(symbols, list):
         return JSONResponse({"error": "symbols must be a list"}, status_code=400)
+    settings = body.get("settings")
+    if settings is not None and not isinstance(settings, dict):
+        return JSONResponse({"error": "settings must be an object"}, status_code=400)
     try:
-        state = create_watchlist(name, symbols if isinstance(symbols, list) else None)
+        state = create_watchlist(
+            name,
+            symbols if isinstance(symbols, list) else None,
+            settings if isinstance(settings, dict) else None,
+        )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     return state
@@ -2669,15 +2676,19 @@ def api_create_watchlist(body: dict = Body(...)):
 def api_update_watchlist(list_id: str, body: dict = Body(...)):
     name = body.get("name")
     symbols = body.get("symbols")
+    settings = body.get("settings")
     if name is not None and not isinstance(name, str):
         return JSONResponse({"error": "name must be a string"}, status_code=400)
     if symbols is not None and not isinstance(symbols, list):
         return JSONResponse({"error": "symbols must be a list"}, status_code=400)
+    if settings is not None and not isinstance(settings, dict):
+        return JSONResponse({"error": "settings must be an object"}, status_code=400)
     try:
         state = update_watchlist(
             list_id,
             name=name if isinstance(name, str) else None,
             symbols=symbols if isinstance(symbols, list) else None,
+            settings=settings if isinstance(settings, dict) else None,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -2871,6 +2882,14 @@ async def api_watchlist_market(symbols: str = ""):
         ext_price_val = eq.get("ext_last") if session in _ext_sessions else None
         ext_change_val = eq.get("ext_change_pct") if session in _ext_sessions else None
 
+        # Gap at the open vs prior close — from the daily bar already in hand.
+        gap_pct: float | None = None
+        try:
+            if prev and len(bars) >= 2:
+                gap_pct = round((float(latest.open) - prev) / prev * 100, 2)
+        except (TypeError, ValueError):
+            pass
+
         quotes[sym] = {
             "price": price,
             "change_pct": round(change_pct, 2),
@@ -2879,6 +2898,7 @@ async def api_watchlist_market(symbols: str = ""):
             "volume": float(latest.volume),
             "day_high": float(latest.high),
             "day_low": float(latest.low),
+            "gap_pct": gap_pct,
             "intraday": intraday,
             "market_session": session,
             "ext_price": ext_price_val,

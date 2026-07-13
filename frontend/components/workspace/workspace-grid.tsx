@@ -479,12 +479,35 @@ function WidgetRemoveButton({
 function WatchlistHeaderControls({
   adding,
   onToggleAdding,
+  settingsOpen,
+  onToggleSettings,
 }: {
   adding: boolean;
   onToggleAdding: () => void;
+  settingsOpen: boolean;
+  onToggleSettings: () => void;
 }) {
   return (
     <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleSettings();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label="Columns & display"
+        title="Columns & display"
+        aria-pressed={settingsOpen}
+        className={cn(
+          "workspace-no-drag inline-flex items-center justify-center rounded p-1 outline-none hover:bg-[var(--bg-hover)]",
+          settingsOpen
+            ? "text-[var(--c-accent)]"
+            : "text-[var(--fg-dim)] hover:text-foreground",
+        )}
+      >
+        <SlidersHorizontal className="size-3.5" />
+      </button>
       <button
         type="button"
         onClick={(e) => {
@@ -649,6 +672,10 @@ function WidgetHeader({
               adding={config.adding ?? false}
               onToggleAdding={() =>
                 onConfigChange({ adding: !config.adding })
+              }
+              settingsOpen={config.settingsOpen ?? false}
+              onToggleSettings={() =>
+                onConfigChange({ settingsOpen: !config.settingsOpen })
               }
             />
           ) : null}

@@ -12,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Reorder, useDragControls } from "motion/react";
-import { Sparkline } from "@/components/trading/sparkline";
+import { Check, GripVertical } from "lucide-react";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
   WidgetEmpty,
@@ -21,9 +21,12 @@ import {
 } from "@/components/workspace/widget-states";
 import {
   fetchOvernightTradable,
+  fetchSnapshot,
   fetchWatchlists,
   searchSymbols,
   updateWatchlist,
+  type Position,
+  type WatchlistSettings,
   type WatchlistsState,
 } from "@/lib/api";
 import { useWatchlistMarket } from "@/lib/use-watchlist-market";
@@ -32,44 +35,25 @@ import { usePageActive } from "@/lib/workspace/page-active-context";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
+import {
+  DEFAULT_DENSITY,
+  DENSITY_OPTIONS,
+  DENSITY_ROW_CLASS,
+  daysUntil,
+  resolveWatchlistColumns,
+  type ResolvedWatchlistColumn,
+  type WatchlistCellContext,
+  type WatchlistDensity,
+} from "@/lib/workspace/watchlist-columns";
 import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
 
-function rowGrid(): string {
-  return "grid grid-cols-[minmax(0,1fr)_4.5rem_3.25rem_3rem_3.25rem] items-center gap-x-1";
-}
-
-function rvolColor(value: number): string {
-  if (value >= 3) return "var(--c-red)";
-  if (value >= 2) return "var(--c-amber)";
-  if (value >= 1.5) return "var(--c-yellow)";
-  return "var(--fg-dim)";
-}
-
-function formatPct(value: number): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function formatPrice(value: number): string {
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function daysUntil(dateStr: string): number | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
-  if (!match) return null;
-
-  const [, year, month, day] = match;
-  const target = new Date(Number(year), Number(month) - 1, Number(day));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const diffMs = target.getTime() - today.getTime();
-  return Math.round(diffMs / (24 * 60 * 60 * 1000));
+// The pinned symbol column: minmax(96px,1fr) flex; registry columns follow as
+// fixed px tracks. Shared by the header + every row (inline style — widths are
+// dynamic per the persisted settings blob).
+function gridTemplate(widths: number[]): string {
+  return `minmax(96px,1fr) ${widths.map((w) => `${w}px`).join(" ")}`;
 }
 
 function earningsBadgeLabel(days: number): string {
@@ -319,6 +303,11 @@ function pointInRect(x: number, y: number, rect: DOMRect | null): boolean {
 function WatchlistSymbolRow({
   symbol,
   quote,
+  position,
+  columns,
+  widths,
+  contentMinWidth,
+  densityClass,
   isOvernight,
   linked,
   selected,
@@ -334,6 +323,11 @@ function WatchlistSymbolRow({
 }: {
   symbol: string;
   quote: Quote | undefined;
+  position: Position | undefined;
+  columns: ResolvedWatchlistColumn[];
+  widths: number[];
+  contentMinWidth: number;
+  densityClass: string;
   isOvernight: boolean;
   linked: boolean;
   selected: boolean;
@@ -432,6 +426,16 @@ function WatchlistSymbolRow({
 
   const priceFlash = usePriceFlash(quote ? displayPrice : null);
 
+  const cellCtx: WatchlistCellContext = {
+    quote,
+    position,
+    displayPrice,
+    displayChangePct,
+    positive,
+    extBadge: extBadge ? { label: extBadge.label, title: extBadge.title } : null,
+    priceFlash,
+  };
+
   return (
     <Reorder.Item
       ref={itemRef}
@@ -488,8 +492,8 @@ function WatchlistSymbolRow({
     >
       <div
         className={cn(
-          rowGrid(),
-          "group/row group relative px-2 py-1.5 hover:bg-[var(--bg-hover)]",
+          "group/row group relative grid items-center gap-x-1 px-2 hover:bg-[var(--bg-hover)]",
+          densityClass,
           selected &&
             "bg-[var(--c-accent-soft)] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--c-accent)]",
           willDelete &&
@@ -497,6 +501,10 @@ function WatchlistSymbolRow({
           confirming &&
             "bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]",
         )}
+        style={{
+          gridTemplateColumns: gridTemplate(widths),
+          minWidth: contentMinWidth,
+        }}
       >
         {confirming ? (
           <div
@@ -506,7 +514,7 @@ function WatchlistSymbolRow({
             // EVERY theme (ember #0e1013 / carbon #0e1013 / warm #161617 /
             // oled #000000 / light #eceef1) — never a color-mix-with-transparent
             // — so it fully covers the red-tinted row underneath. Absolute so it
-            // isn't crushed into the 3.25rem sparkline grid cell.
+            // isn't crushed into a fixed grid cell.
             className="absolute inset-y-1 right-1.5 z-10 flex items-center gap-1.5 rounded border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 font-mono text-[length:var(--fs-table)] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
           >
             <span className="whitespace-nowrap text-[var(--c-red)]">
@@ -536,7 +544,21 @@ function WatchlistSymbolRow({
             </button>
           </div>
         ) : null}
-        <span className="inline-flex min-w-0 items-center gap-1">
+        {/* Pinned symbol cell — sticky-left with an opaque background so the
+            ticker stays legible while the extra columns scroll under it. At rest
+            no Reorder.Item transform is applied, so sticky resolves against the
+            list's horizontal scrollport correctly. */}
+        <div
+          className={cn(
+            "sticky left-0 z-[1] inline-flex min-w-0 items-center gap-1",
+            // Opaque accent tint — accent-soft is translucent, so scrolled
+            // columns would ghost through the sticky cell and the tint would
+            // stack on the row's own.
+            selected
+              ? "bg-[color-mix(in_srgb,var(--text-accent)_12%,var(--panel))]"
+              : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
+          )}
+        >
           <span
             className="flex size-1.5 shrink-0 items-center justify-center"
             title={isOvernight ? "Tradable 24/5 overnight" : undefined}
@@ -564,80 +586,154 @@ function WatchlistSymbolRow({
               {earningsBadgeLabel(earningsDays)}
             </span>
           ) : null}
-
-        </span>
-        <div className="flex justify-end" title={extBadge?.title}>
-          <span
+        </div>
+        {columns.map((col) => (
+          <div
+            key={col.def.key}
             className={cn(
-              "-mx-0.5 inline-flex w-fit items-center justify-end gap-0.5 rounded px-0.5 tabular-nums",
-              // Trial (founder 2026-07-09): standard terminal treatment — last
-              // price carries day direction as state; the bg flash is the event.
-              quote
-                ? positive
-                  ? "text-[var(--c-green)]"
-                  : "text-[var(--c-red)]"
-                : "text-foreground",
-              priceFlash === "up" && "tick-flash-up",
-              priceFlash === "down" && "tick-flash-down",
+              "min-w-0",
+              col.def.align === "right" ? "text-right" : "text-left",
             )}
           >
-            {quote ? formatPrice(displayPrice) : "—"}
-            {extBadge ? (
-              <span className="rounded px-0.5 font-mono text-[length:var(--fs-micro)] leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)]">
-                {extBadge.label}
-              </span>
-            ) : null}
-          </span>
-        </div>
-        <span
-          className={cn(
-            "text-right tabular-nums",
-            quote
-              ? positive
-                ? "text-[var(--c-green)]"
-                : "text-[var(--c-red)]"
-              : "text-[var(--fg-dim)]",
-          )}
-        >
-          {quote ? formatPct(displayChangePct) : "—"}
-        </span>
-        {quote?.rvol?.value != null ? (
-          <span
-            className={cn(
-              "text-right tabular-nums",
-              quote.rvol.state === "overnight" && "opacity-50",
-            )}
-            style={{ color: rvolColor(quote.rvol.value) }}
-            title={
-              quote.rvol.state === "overnight"
-                ? "Yesterday's volume (pre-market)"
-                : `${quote.rvol.value.toFixed(2)}× normal volume for this time of day`
-            }
-          >
-            {quote.rvol.value.toFixed(1)}×
-          </span>
-        ) : (
-          <span className="text-right tabular-nums text-[var(--fg-faint)]">—</span>
-        )}
-        <div className="flex justify-end">
-          <Sparkline
-            values={
-              (quote?.intraday?.length ? quote.intraday : quote?.sparkline) ??
-              []
-            }
-            width={48}
-            height={18}
-            className={
-              quote
-                ? positive
-                  ? "text-[var(--c-green)]"
-                  : "text-[var(--c-red)]"
-                : "text-[var(--fg-faint)]"
-            }
-          />
-        </div>
+            {col.def.cell(cellCtx)}
+          </div>
+        ))}
       </div>
     </Reorder.Item>
+  );
+}
+
+// One row in the settings overlay's column list. Its own useDragControls lets
+// the grip be the sole drag handle while a click on the rest toggles visibility.
+function ColumnSettingRow({
+  col,
+  onToggle,
+}: {
+  col: ResolvedWatchlistColumn;
+  onToggle: (key: string) => void;
+}) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      value={col.def.key}
+      dragListener={false}
+      dragControls={controls}
+      className={cn(
+        "flex items-center gap-2 rounded px-1 py-1 hover:bg-[var(--bg-hover)]",
+        !col.visible && "opacity-50",
+      )}
+    >
+      <button
+        type="button"
+        aria-label={`Reorder ${col.def.title}`}
+        onPointerDown={(e) => controls.start(e)}
+        className="flex cursor-grab touch-none items-center text-[var(--fg-faint)] active:cursor-grabbing"
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onToggle(col.def.key)}
+        className="flex flex-1 items-center gap-2 text-left"
+      >
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          {col.visible ? (
+            <Check className="size-3 text-[var(--text-accent)]" />
+          ) : null}
+        </span>
+        <span className="text-foreground">{col.def.title}</span>
+        <span className="lowercase text-[var(--fg-faint)]">
+          {col.def.category}
+        </span>
+      </button>
+    </Reorder.Item>
+  );
+}
+
+function WatchlistSettingsPanel({
+  resolved,
+  density,
+  onReorder,
+  onToggle,
+  onSetDensity,
+  onReset,
+  onClose,
+}: {
+  resolved: ResolvedWatchlistColumn[];
+  density: WatchlistDensity;
+  onReorder: (keys: string[]) => void;
+  onToggle: (key: string) => void;
+  onSetDensity: (d: WatchlistDensity) => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  const orderKeys = useMemo(
+    () => resolved.map((c) => c.def.key),
+    [resolved],
+  );
+
+  return (
+    <div
+      className="absolute inset-0 z-10 overflow-y-auto p-2 font-mono text-[length:var(--fs-table)] scroll-shadow-y"
+      // .scroll-shadow-y sets the `background` shorthand, which wipes any
+      // background-color utility — paint the opaque fill inline (same pattern
+      // as the add-row suggestions dropdown above).
+      style={{ backgroundColor: "var(--panel)" }}
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+          density
+        </span>
+        {DENSITY_OPTIONS.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            onClick={() => onSetDensity(o.key)}
+            className={cn(
+              "flex items-center gap-0.5",
+              density === o.key
+                ? "text-[var(--text-accent)]"
+                : "text-[var(--fg-dim)] hover:text-foreground",
+            )}
+          >
+            {density === o.key ? <Check className="size-3" /> : null}
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      <Reorder.Group
+        axis="y"
+        values={orderKeys}
+        onReorder={onReorder}
+        className="m-0 list-none space-y-0.5 p-0"
+      >
+        {resolved.map((col) => (
+          <ColumnSettingRow
+            key={col.def.key}
+            col={col}
+            onToggle={onToggle}
+          />
+        ))}
+      </Reorder.Group>
+
+      <div className="mt-2 flex items-center justify-between border-t border-[var(--line-divider)] pt-2">
+        <button
+          type="button"
+          onClick={onReset}
+          className="text-[var(--fg-dim)] hover:text-foreground"
+        >
+          reset to defaults
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[var(--text-accent)] hover:opacity-80"
+        >
+          done
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -654,7 +750,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const widgetRectRef = useRef<DOMRect | null>(null);
   const [sortState, setSortState] = useState<{
-    key: "symbol" | "price" | "change_pct" | "rvol";
+    key: string;
     dir: "asc" | "desc";
   } | null>(null);
   const [overnightSymbols, setOvernightSymbols] = useState<Set<string>>(
@@ -726,6 +822,233 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
 
   const symbolsKey = useMemo(() => symbols.join(","), [symbols]);
 
+  // ── Column settings (per-watchlist, persisted via the settings blob) ───────
+  const [localSettings, setLocalSettings] = useState<
+    WatchlistSettings | undefined
+  >(undefined);
+  // Transient width override for the column currently being resize-dragged;
+  // committed to settings on pointerup (avoids a persist per mousemove).
+  const [widthOverride, setWidthOverride] = useState<{
+    key: string;
+    width: number;
+  } | null>(null);
+
+  const listId = displayList?.id;
+  const displayListRef = useRef(displayList);
+  const prevListIdRef = useRef<string | null>(null);
+  const onConfigChangeRef = useRef(onConfigChange);
+  // Keep latest-value refs in sync (declared BEFORE the switch effect so it runs
+  // first on each commit, giving that effect fresh values without re-firing it).
+  useEffect(() => {
+    displayListRef.current = displayList;
+    onConfigChangeRef.current = onConfigChange;
+  });
+
+  // On watchlist switch: adopt the newly-active list's saved settings and close
+  // the settings panel (only on an actual switch, not first mount).
+  useEffect(() => {
+    if (!listId) return;
+    setLocalSettings(displayListRef.current?.settings);
+    setWidthOverride(null);
+    if (prevListIdRef.current && prevListIdRef.current !== listId) {
+      onConfigChangeRef.current({ settingsOpen: false });
+    }
+    prevListIdRef.current = listId;
+  }, [listId]);
+
+  const resolved = useMemo(
+    () => resolveWatchlistColumns(localSettings),
+    [localSettings],
+  );
+
+  // Apply the in-flight resize width to the dragged column only.
+  const effectiveColumns = useMemo(
+    () =>
+      widthOverride
+        ? resolved.map((c) =>
+            c.def.key === widthOverride.key
+              ? { ...c, width: widthOverride.width }
+              : c,
+          )
+        : resolved,
+    [resolved, widthOverride],
+  );
+
+  const visibleColumns = useMemo(
+    () => effectiveColumns.filter((c) => c.visible),
+    [effectiveColumns],
+  );
+  const widths = useMemo(
+    () => visibleColumns.map((c) => c.width),
+    [visibleColumns],
+  );
+  const contentMinWidth = useMemo(
+    () => 96 + widths.reduce((sum, w) => sum + w, 0),
+    [widths],
+  );
+
+  const density: WatchlistDensity = localSettings?.density ?? DEFAULT_DENSITY;
+  const densityClass = DENSITY_ROW_CLASS[density];
+
+  // Persist a settings blob (optimistic local update + debounced PUT). Passing
+  // `{}` resets the list to registry defaults (server drops the blob).
+  const persistTimer = useRef<number | null>(null);
+  const persistSettings = useCallback(
+    (next: WatchlistSettings) => {
+      setLocalSettings(next);
+      const id = displayListRef.current?.id;
+      if (!id) return;
+      if (persistTimer.current != null) {
+        window.clearTimeout(persistTimer.current);
+      }
+      persistTimer.current = window.setTimeout(() => {
+        void updateWatchlist(id, { settings: next })
+          .then(setState)
+          .catch(() => {
+            /* keep the optimistic local state on failure */
+          });
+      }, 400);
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      if (persistTimer.current != null) {
+        window.clearTimeout(persistTimer.current);
+      }
+    },
+    [],
+  );
+
+  const buildSettings = useCallback(
+    (cols: ResolvedWatchlistColumn[], d: WatchlistDensity): WatchlistSettings => ({
+      columns: cols.map((c) => ({
+        key: c.def.key,
+        visible: c.visible,
+        width: c.width,
+      })),
+      density: d,
+    }),
+    [],
+  );
+
+  const handleColumnReorder = useCallback(
+    (keys: string[]) => {
+      const byKey = new Map(resolved.map((c) => [c.def.key, c]));
+      const next = keys
+        .map((k) => byKey.get(k))
+        .filter((c): c is ResolvedWatchlistColumn => c != null);
+      persistSettings(buildSettings(next, density));
+    },
+    [resolved, density, persistSettings, buildSettings],
+  );
+
+  const handleColumnToggle = useCallback(
+    (key: string) => {
+      const next = resolved.map((c) =>
+        c.def.key === key ? { ...c, visible: !c.visible } : c,
+      );
+      persistSettings(buildSettings(next, density));
+    },
+    [resolved, density, persistSettings, buildSettings],
+  );
+
+  const handleSetDensity = useCallback(
+    (d: WatchlistDensity) => {
+      persistSettings(buildSettings(resolved, d));
+    },
+    [resolved, persistSettings, buildSettings],
+  );
+
+  const handleResetColumns = useCallback(() => {
+    persistSettings({});
+  }, [persistSettings]);
+
+  // ── Column resize (header edge drag) ───────────────────────────────────────
+  const resizeRef = useRef<{
+    key: string;
+    startX: number;
+    startWidth: number;
+    minWidth: number;
+    current: number;
+  } | null>(null);
+
+  const onResizePointerDown = useCallback(
+    (e: ReactPointerEvent, col: ResolvedWatchlistColumn) => {
+      e.stopPropagation();
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      resizeRef.current = {
+        key: col.def.key,
+        startX: e.clientX,
+        startWidth: col.width,
+        minWidth: col.def.minWidth,
+        current: col.width,
+      };
+    },
+    [],
+  );
+
+  const onResizePointerMove = useCallback((e: ReactPointerEvent) => {
+    const r = resizeRef.current;
+    if (!r) return;
+    const next = Math.min(
+      600,
+      Math.max(r.minWidth, r.startWidth + (e.clientX - r.startX)),
+    );
+    r.current = next;
+    setWidthOverride({ key: r.key, width: next });
+  }, []);
+
+  const onResizePointerUp = useCallback(
+    (e: ReactPointerEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      resizeRef.current = null;
+      setWidthOverride(null);
+      const next = resolved.map((c) =>
+        c.def.key === r.key ? { ...c, width: r.current } : c,
+      );
+      persistSettings(buildSettings(next, density));
+    },
+    [resolved, density, persistSettings, buildSettings],
+  );
+
+  // ── Positions (only fetched when a position column is visible) ─────────────
+  const needPositions = useMemo(
+    () => visibleColumns.some((c) => c.def.category === "position"),
+    [visibleColumns],
+  );
+  const [positions, setPositions] = useState<Record<string, Position>>({});
+
+  useEffect(() => {
+    // No position column shown → don't fetch. Any last-known positions stay in
+    // state but are never read (no position cell renders them), so leaving them
+    // is harmless and avoids a cascading setState here.
+    if (!needPositions) return;
+    let cancelled = false;
+    const load = () => {
+      fetchSnapshot()
+        .then((snap) => {
+          if (cancelled) return;
+          const map: Record<string, Position> = {};
+          for (const p of snap.positions) map[p.symbol] = p;
+          setPositions(map);
+        })
+        .catch(() => {
+          /* leave the last-known positions in place on a transient failure */
+        });
+    };
+    load();
+    const id = window.setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [needPositions]);
+
   useEffect(() => {
     if (symbols.length === 0) return;
 
@@ -752,27 +1075,32 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
 
   const baseOrder = dragOrder ?? symbols;
 
+  // Sortable keys → their value extractor (symbol handled specially below).
+  const sortValueMap = useMemo(() => {
+    const map: Record<
+      string,
+      (q: Quote | undefined, pos: Position | undefined) => number | string | null
+    > = {};
+    for (const c of resolved) {
+      if (c.def.sortValue) map[c.def.key] = c.def.sortValue;
+    }
+    return map;
+  }, [resolved]);
+
   const sortedSymbols = useMemo(() => {
     if (!sortState) return baseOrder;
 
     const { key, dir } = sortState;
     const mul = dir === "asc" ? 1 : -1;
 
-    return [...baseOrder].sort((a, b) => {
-      const getValue = (sym: string): number | string | null => {
-        const q = quotes[sym];
-        switch (key) {
-          case "symbol":
-            return sym;
-          case "price":
-            return q?.price ?? null;
-          case "change_pct":
-            return q?.change_pct ?? null;
-          case "rvol":
-            return q?.rvol?.value ?? null;
-        }
-      };
+    const getValue = (sym: string): number | string | null => {
+      if (key === "symbol") return sym;
+      const fn = sortValueMap[key];
+      if (!fn) return null;
+      return fn(quotes[sym], positions[sym]);
+    };
 
+    return [...baseOrder].sort((a, b) => {
       const va = getValue(a);
       const vb = getValue(b);
       const aMissing = va == null;
@@ -786,20 +1114,17 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       }
       return mul * ((va as number) - (vb as number));
     });
-  }, [baseOrder, sortState, quotes]);
+  }, [baseOrder, sortState, quotes, positions, sortValueMap]);
 
-  const handleSortHeaderClick = useCallback(
-    (key: "symbol" | "price" | "change_pct" | "rvol") => {
-      setSortState((prev) => {
-        if (prev?.key === key) {
-          if (prev.dir === "asc") return { key, dir: "desc" };
-          return null;
-        }
-        return { key, dir: "asc" };
-      });
-    },
-    [],
-  );
+  const handleSortHeaderClick = useCallback((key: string) => {
+    setSortState((prev) => {
+      if (prev?.key === key) {
+        if (prev.dir === "asc") return { key, dir: "desc" };
+        return null;
+      }
+      return { key, dir: "asc" };
+    });
+  }, []);
 
   const removeSymbol = useCallback(
     async (symbol: string) => {
@@ -999,11 +1324,26 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     return <WidgetEmpty message="No active watchlist" />;
   }
 
+  const headerCellClass =
+    "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase";
+
   return (
     <div
       ref={widgetRef}
-      className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]"
+      className="relative flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]"
     >
+      {config.settingsOpen ? (
+        <WatchlistSettingsPanel
+          resolved={resolved}
+          density={density}
+          onReorder={handleColumnReorder}
+          onToggle={handleColumnToggle}
+          onSetDensity={handleSetDensity}
+          onReset={handleResetColumns}
+          onClose={() => onConfigChange({ settingsOpen: false })}
+        />
+      ) : null}
+
       {marketLoading ? (
         <div className="border-b border-[var(--line-divider)] px-3 py-0.5">
           <span className="text-[length:var(--fs-table)] text-[var(--fg-faint)]">loading…</span>
@@ -1017,91 +1357,121 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         onBlur={handleListBlur}
         className="min-h-0 flex-1 overflow-auto px-1.5 py-1 scroll-shadow-y outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--border-strong)]"
       >
-        <div
-          className={cn(
-            rowGrid(),
-            "gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5",
-          )}
-        >
-          {(
-            [
-              { label: "Sym", key: "symbol" as const },
-              { label: "Last", key: "price" as const },
-              { label: "Δ%", key: "change_pct" as const },
-              { label: "RVOL", key: "rvol" as const },
-              { label: "1d" },
-            ] as const
-          ).map((h, idx) =>
-            "key" in h ? (
-              <button
-                key={h.label}
-                type="button"
-                onClick={() => handleSortHeaderClick(h.key)}
+        {/* min-width holds the columns open and drives horizontal scroll; the
+            header + rows share it so they scroll together left/right. */}
+        <div style={{ minWidth: contentMinWidth }}>
+          <div
+            className={cn(
+              "grid items-center gap-x-1 border-b border-[var(--line-divider)] px-2",
+              densityClass,
+            )}
+            style={{ gridTemplateColumns: gridTemplate(widths) }}
+          >
+            <button
+              type="button"
+              onClick={() => handleSortHeaderClick("symbol")}
+              className={cn(
+                headerCellClass,
+                "sticky left-0 z-[1] bg-[var(--panel)] text-left",
+              )}
+            >
+              Sym
+              {sortState?.key === "symbol" ? (
+                <span className="ml-0.5">
+                  {sortState.dir === "asc" ? "▲" : "▼"}
+                </span>
+              ) : null}
+            </button>
+            {visibleColumns.map((col) => (
+              <div
+                key={col.def.key}
                 className={cn(
-                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
-                  idx === 0 ? "text-left" : "text-right",
+                  "relative select-none",
+                  col.def.align === "right" ? "text-right" : "text-left",
                 )}
               >
-                {h.label}
-                {sortState?.key === h.key ? (
-                  <span className="ml-0.5">{sortState.dir === "asc" ? "▲" : "▼"}</span>
-                ) : null}
-              </button>
-            ) : (
-              <span
-                key={h.label}
-                className={cn(
-                  "text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
-                  idx === 0 ? "text-left" : "text-right",
-                )}
-              >
-                {h.label}
-              </span>
-            ),
-          )}
-        </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    col.def.sortable && handleSortHeaderClick(col.def.key)
+                  }
+                  className={cn(
+                    headerCellClass,
+                    "w-full",
+                    col.def.align === "right" ? "text-right" : "text-left",
+                    col.def.sortable ? "cursor-pointer" : "cursor-default",
+                  )}
+                >
+                  {col.def.label}
+                  {sortState?.key === col.def.key ? (
+                    <span className="ml-0.5">
+                      {sortState.dir === "asc" ? "▲" : "▼"}
+                    </span>
+                  ) : null}
+                </button>
+                {/* Right-edge resize handle. workspace-no-drag + stopPropagation
+                    keep it from sorting or dragging the widget. */}
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label={`Resize ${col.def.title}`}
+                  onPointerDown={(e) => onResizePointerDown(e, col)}
+                  onPointerMove={onResizePointerMove}
+                  onPointerUp={onResizePointerUp}
+                  onClick={(e) => e.stopPropagation()}
+                  className="workspace-no-drag absolute top-0 right-0 h-full w-[5px] cursor-col-resize touch-none hover:bg-[var(--border-strong)]"
+                />
+              </div>
+            ))}
+          </div>
 
-        {config.adding ? (
-          <WatchlistAddRow
-            symbols={symbols}
-            activeListId={displayList.id}
-            onAdded={handleSymbolAdded}
-            onClose={() => onConfigChange({ adding: false })}
-            onPublish={publish}
-          />
-        ) : null}
-
-        <Reorder.Group
-          // Remount the motion list when this page becomes visible so the rows
-          // mount fresh at their final position — otherwise the hidden→visible
-          // page-position swap makes layout="position" slide them in from the
-          // top-left on every switch.
-          key={pageActive ? "shown" : "hidden"}
-          axis="y"
-          values={sortedSymbols}
-          onReorder={setDragOrder}
-          className={cn("m-0 list-none p-0", isDragging && "select-none")}
-        >
-          {sortedSymbols.map((symbol) => (
-            <WatchlistSymbolRow
-              key={symbol}
-              symbol={symbol}
-              quote={quotes[symbol]}
-              isOvernight={overnightSymbols.has(symbol.toUpperCase())}
-              linked={linked}
-              selected={selectedSymbol === symbol}
-              confirming={confirmDelete === symbol}
-              onPublish={() => publish(symbol)}
-              onSelect={() => setSelectedSymbol(symbol)}
-              onDragStart={handleDragStart}
-              onReorderEnd={handleReorderEnd}
-              onDragOutRelease={() => armDeleteFromDrag(symbol)}
-              onConfirmAccept={acceptConfirmDelete}
-              onConfirmCancel={cancelConfirmDelete}
-              getWidgetRect={getWidgetRect}
+          {config.adding ? (
+            <WatchlistAddRow
+              symbols={symbols}
+              activeListId={displayList.id}
+              onAdded={handleSymbolAdded}
+              onClose={() => onConfigChange({ adding: false })}
+              onPublish={publish}
             />
-          ))}
-        </Reorder.Group>
+          ) : null}
+
+          <Reorder.Group
+            // Remount the motion list when this page becomes visible so the rows
+            // mount fresh at their final position — otherwise the hidden→visible
+            // page-position swap makes layout="position" slide them in from the
+            // top-left on every switch.
+            key={pageActive ? "shown" : "hidden"}
+            axis="y"
+            values={sortedSymbols}
+            onReorder={setDragOrder}
+            className={cn("m-0 list-none p-0", isDragging && "select-none")}
+          >
+            {sortedSymbols.map((symbol) => (
+              <WatchlistSymbolRow
+                key={symbol}
+                symbol={symbol}
+                quote={quotes[symbol]}
+                position={positions[symbol]}
+                columns={visibleColumns}
+                widths={widths}
+                contentMinWidth={contentMinWidth}
+                densityClass={densityClass}
+                isOvernight={overnightSymbols.has(symbol.toUpperCase())}
+                linked={linked}
+                selected={selectedSymbol === symbol}
+                confirming={confirmDelete === symbol}
+                onPublish={() => publish(symbol)}
+                onSelect={() => setSelectedSymbol(symbol)}
+                onDragStart={handleDragStart}
+                onReorderEnd={handleReorderEnd}
+                onDragOutRelease={() => armDeleteFromDrag(symbol)}
+                onConfirmAccept={acceptConfirmDelete}
+                onConfirmCancel={cancelConfirmDelete}
+                getWidgetRect={getWidgetRect}
+              />
+            ))}
+          </Reorder.Group>
+        </div>
       </div>
     </div>
   );

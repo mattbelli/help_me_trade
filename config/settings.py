@@ -514,6 +514,44 @@ def _slug_watchlist_id(name: str) -> str:
     return slug or f"list-{uuid.uuid4().hex[:8]}"
 
 
+_WATCHLIST_DENSITIES = {"compact", "comfortable", "spacious"}
+
+
+def normalize_watchlist_settings(raw: object) -> dict | None:
+    """Validate a per-list display-settings blob (columns/order/widths, row
+    density). Unknown column keys are kept as-is — the frontend owns the column
+    registry and silently drops keys it doesn't know, so old servers never
+    strip columns added by a newer frontend."""
+    if not isinstance(raw, dict):
+        return None
+    out: dict = {}
+
+    columns_in = raw.get("columns")
+    if isinstance(columns_in, list):
+        columns: list[dict] = []
+        seen: set[str] = set()
+        for item in columns_in[:64]:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key", "")).strip()
+            if not key or len(key) > 40 or key in seen:
+                continue
+            seen.add(key)
+            col: dict = {"key": key, "visible": bool(item.get("visible", True))}
+            width = item.get("width")
+            if isinstance(width, (int, float)):
+                col["width"] = max(40, min(600, int(width)))
+            columns.append(col)
+        if columns:
+            out["columns"] = columns
+
+    density = raw.get("density")
+    if isinstance(density, str) and density in _WATCHLIST_DENSITIES:
+        out["density"] = density
+
+    return out or None
+
+
 def normalize_watchlists_state(state: dict) -> dict:
     lists_in = state.get("lists")
     if not isinstance(lists_in, list) or not lists_in:
@@ -535,7 +573,11 @@ def normalize_watchlists_state(state: dict) -> dict:
         seen_ids.add(list_id)
         name = str(item.get("name", list_id)).strip() or list_id
         symbols = normalize_watchlist(item.get("symbols", []))
-        lists.append({"id": list_id, "name": name, "symbols": symbols})
+        entry = {"id": list_id, "name": name, "symbols": symbols}
+        list_settings = normalize_watchlist_settings(item.get("settings"))
+        if list_settings is not None:
+            entry["settings"] = list_settings
+        lists.append(entry)
 
     if not lists:
         symbols = normalize_watchlist(DEFAULT_SETTINGS["watchlist"])
@@ -615,7 +657,11 @@ def set_active_watchlist(list_id: str) -> dict:
     return _save_watchlists_state({**state, "active_id": list_id})
 
 
-def create_watchlist(name: str, symbols: list[str] | None = None) -> dict:
+def create_watchlist(
+    name: str,
+    symbols: list[str] | None = None,
+    settings: dict | None = None,
+) -> dict:
     clean_name = name.strip() or "New list"
     state = get_watchlists_state()
     base_id = _slug_watchlist_id(clean_name)
@@ -628,6 +674,9 @@ def create_watchlist(name: str, symbols: list[str] | None = None) -> dict:
         "name": clean_name,
         "symbols": normalize_watchlist(symbols or []),
     }
+    clean_settings = normalize_watchlist_settings(settings)
+    if clean_settings is not None:
+        new_list["settings"] = clean_settings
     return _save_watchlists_state(
         {
             **state,
@@ -642,6 +691,7 @@ def update_watchlist(
     *,
     name: str | None = None,
     symbols: list[str] | None = None,
+    settings: dict | None = None,
 ) -> dict:
     state = get_watchlists_state()
     if not _find_watchlist(state, list_id):
@@ -657,6 +707,12 @@ def update_watchlist(
             updated["name"] = name.strip() or item["name"]
         if symbols is not None:
             updated["symbols"] = normalize_watchlist(symbols)
+        if settings is not None:
+            clean = normalize_watchlist_settings(settings)
+            if clean is not None:
+                updated["settings"] = clean
+            else:
+                updated.pop("settings", None)
         lists.append(updated)
 
     return _save_watchlists_state({**state, "lists": lists})
