@@ -27,6 +27,7 @@ type Options = {
 
 export function useWatchlistMarket({ symbols, enabled = true }: Options) {
   const [quotes, setQuotes] = useState<Record<string, WatchlistQuote>>({});
+  const [spyChangePct, setSpyChangePct] = useState<number | null>(null);
   const [live, setLive] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -62,18 +63,37 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
           ext_price: patch.ext_price ?? prev[symbol]?.ext_price ?? null,
           ext_change_pct: patch.ext_change_pct ?? prev[symbol]?.ext_change_pct ?? null,
           market_session: patch.market_session ?? prev[symbol]?.market_session,
+          // REST polls don't carry bid/ask, so the last WS values must survive
+          // the merge — carry them forward when a frame omits them.
+          bid: patch.bid ?? prev[symbol]?.bid ?? null,
+          ask: patch.ask ?? prev[symbol]?.ask ?? null,
         },
       }));
     }
 
     function mergeQuotes(next: Record<string, WatchlistQuote>) {
-      setQuotes((prev) => ({ ...prev, ...next }));
+      // REST payloads never carry bid/ask (WS-only fields) — a plain spread
+      // would wipe them on every 20s poll, blanking the Bid/Ask/Sprd columns.
+      setQuotes((prev) => {
+        const out = { ...prev };
+        for (const [sym, q] of Object.entries(next)) {
+          out[sym] = {
+            ...q,
+            bid: q.bid ?? prev[sym]?.bid ?? null,
+            ask: q.ask ?? prev[sym]?.ask ?? null,
+          };
+        }
+        return out;
+      });
     }
 
     async function refreshMarket() {
       try {
         const data = await fetchWatchlistMarket(symbolList);
-        if (!cancelled) mergeQuotes(data);
+        if (!cancelled) {
+          mergeQuotes(data.quotes);
+          setSpyChangePct(data.spyChangePct);
+        }
       } catch {
         // Keep streaming prices if REST refresh fails.
       } finally {
@@ -105,6 +125,8 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
             ext_price?: number | null;
             ext_change_pct?: number | null;
             market_session?: WatchlistQuote["market_session"];
+            bid?: number | null;
+            ask?: number | null;
             live?: boolean;
           };
           if (msg.type === "quotes" && msg.quotes) {
@@ -120,6 +142,8 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
               ext_price: msg.ext_price,
               ext_change_pct: msg.ext_change_pct,
               market_session: msg.market_session,
+              bid: msg.bid,
+              ask: msg.ask,
             });
             setLive(true);
             setLoading(false);
@@ -153,5 +177,5 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
     };
   }, [enabled, key]);
 
-  return { quotes, live, loading };
+  return { quotes, spyChangePct, live, loading };
 }
