@@ -10,6 +10,15 @@
  ],
  "cards": [
   {
+   "id": "widget-consistency-pass",
+   "title": "Widget consistency pass: per-widget formatting/style cleanup (filings, options flow, notifications, …)",
+   "lane": "in_progress",
+   "type": "feature",
+   "priority": "high",
+   "owner": "agent",
+   "notes": "Founder 2026-07-13: widget formatting inconsistent — dedicate real effort to one consistent style per widget. Round 1 (fix/widget-consistency-pass): filings Who column now flexes with widget width + SEC names title-cased + officer titles → acronyms (CEO/CFO/EVP…); options-flow sticky header was transparent (undefined --bg var) → opaque --panel (same fix in options-chain + journal); notifications filter row → header ⚙ dropdown (filter + sound + mark-all-read, filter persisted in config.notifFilter), unread = whole-card brightness (read dims 55%) replacing the dot, unread count in header meta; relativeTime unified compact (now/5m/2h ≤3 chars) + reports-widget ad-hoc formatter removed. Headless-verified on live data. Follow-ups: more widgets to sweep per the same rules (see memory widget-style-consistency)."
+  },
+  {
    "id": "stream-cap-schwab-lock-fix",
    "title": "Live-quote starvation + Schwab accounts blank: raise stream cap 100->500 (pinned never shed, loud truncation), single-flight Schwab sweep w/ serve-stale",
    "lane": "done",

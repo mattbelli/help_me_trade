@@ -83,7 +83,7 @@ function ToggleButton({
       className={cn(
         "px-2 py-0.5 text-[length:var(--fs-body)] font-medium uppercase tracking-[0.08em] transition-colors",
         active
-          ? "bg-[var(--c-accent)] text-[var(--bg)]"
+          ? "bg-[var(--c-accent)] text-[var(--c-on-accent)]"
           : "text-[var(--fg-dim)] hover:text-foreground",
       )}
     >

@@ -12,7 +12,7 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, SlidersHorizontal, X } from "lucide-react";
+import { Bell, BellOff, Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, SlidersHorizontal, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -50,9 +50,18 @@ import { usePriceFlash } from "@/lib/workspace/use-price-flash";
 import { OSCILLATOR_STUDIES, OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { getWidgetDefinition } from "@/lib/workspace/widget-registry";
 
+import {
+  unreadCount,
+  useNotificationStore,
+} from "@/lib/workspace/use-notification-store";
+
 import { ChannelSelector } from "./channel-selector";
 import { SymbolSearchInput } from "./symbol-search-input";
 import { WatchlistListSelector } from "./widgets/watchlist-list-selector";
+import {
+  NOTIF_FILTERS,
+  resolveNotifFilter,
+} from "./widgets/notifications-widget";
 import { WorkspaceWidgetPicker } from "./workspace-widget-picker";
 
 const ROW_HEIGHT_PX = 48;
@@ -602,6 +611,94 @@ function OptionsFlowHeaderControls({
   );
 }
 
+/** Notifications header: unread count + one ⚙ dropdown holding the category
+    filter, the new-card sound toggle, and mark-all-read — replacing the old
+    in-widget filter/button row (widgets don't get a second header bar). */
+function NotificationsHeaderControls({
+  config,
+  onConfigChange,
+}: {
+  config: WidgetInstanceConfig;
+  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+}) {
+  const notifications = useNotificationStore((s) => s.notifications);
+  const markAllRead = useNotificationStore((s) => s.markAllRead);
+  const unread = unreadCount(notifications);
+  const filter = resolveNotifFilter(config.notifFilter);
+  const dingOn = config.ding !== false;
+
+  return (
+    <>
+      {unread > 0 ? (
+        <span className="font-mono text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
+          {unread} unread
+        </span>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          type="button"
+          className={cn(
+            "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)]",
+            filter === "all"
+              ? "text-[var(--fg-dim)] hover:text-foreground"
+              : "text-[var(--c-accent)]",
+          )}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label="Notification filter & options"
+          title="Filter & options"
+        >
+          <SlidersHorizontal className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="min-w-40 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+        >
+          <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+            show
+          </div>
+          {NOTIF_FILTERS.map((mode) => (
+            <DropdownMenuItem
+              key={mode}
+              onClick={() => onConfigChange({ notifFilter: mode })}
+              className={cn(
+                "flex items-center justify-between gap-3 px-2 py-1 lowercase",
+                filter === mode ? "text-foreground" : "text-[var(--fg-dim)]",
+              )}
+            >
+              {mode}
+              {filter === mode ? <Check className="size-3" /> : null}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            onClick={() => onConfigChange({ ding: !dingOn })}
+            className="flex items-center justify-between gap-3 px-2 py-1 text-[var(--fg-dim)]"
+          >
+            sound on new
+            {dingOn ? (
+              <Bell className="size-3" />
+            ) : (
+              <BellOff className="size-3 text-[var(--fg-faint)]" />
+            )}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={unread === 0}
+            onClick={() => markAllRead()}
+            className={cn(
+              "px-2 py-1",
+              unread === 0 ? "text-[var(--fg-faint)]" : "text-[var(--c-accent)]",
+            )}
+          >
+            mark all read{unread > 0 ? ` (${unread})` : ""}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
 function WidgetHeader({
   widgetType,
   channelAware,
@@ -707,6 +804,12 @@ function WidgetHeader({
       ) : null}
       {widgetType === "options-flow" && config && onConfigChange ? (
         <OptionsFlowHeaderControls
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      ) : null}
+      {widgetType === "notifications" && config && onConfigChange ? (
+        <NotificationsHeaderControls
           config={config}
           onConfigChange={onConfigChange}
         />

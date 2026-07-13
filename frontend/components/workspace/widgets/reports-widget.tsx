@@ -19,24 +19,10 @@ import {
   injectReportTheme,
 } from "@/lib/report-theme";
 import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
+import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
-
-function formatRelativeTime(iso: string): string {
-  const ts = Date.parse(iso);
-  if (Number.isNaN(ts)) return iso;
-  const deltaSec = Math.round((Date.now() - ts) / 1000);
-  if (deltaSec < 60) return "just now";
-  if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)}m ago`;
-  if (deltaSec < 86400) return `${Math.floor(deltaSec / 3600)}h ago`;
-  return new Date(ts).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function kindLabel(kind: string): string {
   return kind.replace(/_/g, " ");
@@ -69,7 +55,7 @@ function ReportListItem({
         <span className="rounded-sm border border-[var(--border)] px-1 text-[var(--fg-dim)] uppercase">
           {kindLabel(report.kind)}
         </span>
-        <span>{formatRelativeTime(report.generated_at)}</span>
+        <span>{relativeTime(report.generated_at)}</span>
       </p>
     </button>
   );
@@ -114,7 +100,7 @@ function ReportViewer({ report }: { report: ReportRow }) {
     <div className="h-full overflow-auto p-3 scroll-shadow-y">
       <p className="font-mono text-[length:var(--fs-body)] text-foreground">{report.title}</p>
       <p className="mt-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
-        {formatRelativeTime(report.generated_at)}
+        {relativeTime(report.generated_at)}
       </p>
       <pre className="mt-3 font-mono text-[length:var(--fs-title)] leading-relaxed whitespace-pre-wrap text-[var(--fg-dim)]">
         {report.body}
