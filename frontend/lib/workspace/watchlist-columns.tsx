@@ -149,9 +149,10 @@ function earningsColor(days: number): string {
   return "var(--fg-dim)";
 }
 
-// Horizontal min–max track with a marker at `px`. Shared by the day-range and
-// 52-week-range columns (identical rendering, different bounds). DASH when a
-// bound or the price is missing or the range is degenerate.
+// Horizontal min–max track with a marker at `px`, bookended by the low and
+// high prices. Shared by the day-range and 52-week-range columns (identical
+// rendering, different bounds). DASH when a bound or the price is missing or
+// the range is degenerate.
 function RangeBar({
   lo,
   hi,
@@ -166,13 +167,19 @@ function RangeBar({
   if (lo == null || hi == null || px == null || hi <= lo) return DASH;
   const pos = Math.min(1, Math.max(0, (px - lo) / (hi - lo))) * 100;
   return (
-    <div className="flex w-full items-center" title={title}>
-      <div className="relative h-[2px] w-full bg-[var(--line-divider)]">
+    <div className="flex w-full items-center gap-1.5" title={title}>
+      <span className="shrink-0 font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-faint)]">
+        {formatPrice(lo)}
+      </span>
+      <div className="relative h-[2px] min-w-6 flex-1 bg-[var(--line-divider)]">
         <span
           className="absolute top-1/2 h-2 w-[2px] -translate-y-1/2 bg-[var(--text-accent)]"
           style={{ left: `${pos}%` }}
         />
       </div>
+      <span className="shrink-0 font-mono text-[length:var(--fs-micro)] tabular-nums text-[var(--fg-faint)]">
+        {formatPrice(hi)}
+      </span>
     </div>
   );
 }
@@ -391,8 +398,8 @@ export const WATCHLIST_COLUMNS: WatchlistColumnDef[] = [
     label: "Range",
     title: "Day range",
     category: "price",
-    defaultWidth: 76,
-    minWidth: 48,
+    defaultWidth: 170,
+    minWidth: 120,
     align: "right",
     sortable: false,
     defaultVisible: false,
@@ -753,8 +760,8 @@ export const WATCHLIST_COLUMNS: WatchlistColumnDef[] = [
     label: "52w",
     title: "52-week range",
     category: "technicals",
-    defaultWidth: 76,
-    minWidth: 48,
+    defaultWidth: 170,
+    minWidth: 120,
     align: "right",
     sortable: false,
     defaultVisible: false,
