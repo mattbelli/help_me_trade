@@ -39,6 +39,8 @@ export type WidgetInstanceConfig = {
   flowTypes?: FlowTypeKey[];
   /** Notifications: ding on new card arrival. Undefined = on. */
   ding?: boolean;
+  /** Notifications: header ⚙ filter — "all" | "unread" | a category. */
+  notifFilter?: string;
 };
 
 /** Options-flow event kinds, filterable from the widget's ⚙ menu. */

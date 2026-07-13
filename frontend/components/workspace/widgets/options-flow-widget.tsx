@@ -341,7 +341,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
           <div className={cn("relative", GRID_MIN)}>
             {/* column header — sortable like the watchlist */}
             <div
-              className="sticky top-0 z-20 grid items-center gap-x-2 border-b border-[var(--line-divider)] bg-[var(--bg)] px-2 py-1 text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em]"
+              className="sticky top-0 z-20 grid items-center gap-x-2 border-b border-[var(--line-divider)] bg-[var(--panel)] px-2 py-1 text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em]"
               style={{ gridTemplateColumns: GRID_COLS }}
             >
               <span className={cn(headCls, sortableCls, sort.key === "score" && "text-[var(--c-accent)]")} onClick={() => handleSort("score")}>score{arrow("score")}</span>
