@@ -1594,7 +1594,13 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
             axis="y"
             values={sortedSymbols}
             onReorder={setDragOrder}
-            className={cn("m-0 list-none p-0", isDragging && "select-none")}
+            // select-none ALWAYS (not only while dragging): a click with a
+            // 1px pointer wobble text-selects the row, and the browser paints
+            // its native selection wash over the content but NOT the row
+            // padding — the founder's recurring "blue row with a dark notch on
+            // the left" artifact. Rows are controls (click = publish, drag =
+            // reorder); text selection has no job here.
+            className="m-0 list-none p-0 select-none"
           >
             {sortedSymbols.map((symbol) => (
               <WatchlistSymbolRow
