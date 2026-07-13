@@ -43,7 +43,7 @@ export type WatchlistColumnDef = {
   key: string;
   label: string;
   title: string;
-  category: "price" | "volume" | "fundamentals" | "position" | "visual";
+  category: "price" | "volume" | "fundamentals" | "technicals" | "position" | "visual";
   defaultWidth: number;
   minWidth: number;
   align: "left" | "right";
@@ -124,6 +124,74 @@ function earningsColor(days: number): string {
   return "var(--fg-dim)";
 }
 
+// Horizontal min–max track with a marker at `px`. Shared by the day-range and
+// 52-week-range columns (identical rendering, different bounds). DASH when a
+// bound or the price is missing or the range is degenerate.
+function RangeBar({
+  lo,
+  hi,
+  px,
+  title,
+}: {
+  lo: number | null | undefined;
+  hi: number | null | undefined;
+  px: number | null | undefined;
+  title: string;
+}): ReactNode {
+  if (lo == null || hi == null || px == null || hi <= lo) return DASH;
+  const pos = Math.min(1, Math.max(0, (px - lo) / (hi - lo))) * 100;
+  return (
+    <div className="flex w-full items-center" title={title}>
+      <div className="relative h-[2px] w-full bg-[var(--line-divider)]">
+        <span
+          className="absolute top-1/2 h-2 w-[2px] -translate-y-1/2 bg-[var(--text-accent)]"
+          style={{ left: `${pos}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Percent distance of `px` from a reference level: (px - ref) / ref * 100.
+// Null when either side is missing or the reference is 0. Shared by the
+// 52-week-high/low and SMA-distance columns (sortValue + cell).
+function pctFrom(
+  px: number | null | undefined,
+  ref: number | null | undefined,
+): number | null {
+  if (px == null || ref == null || ref === 0) return null;
+  return ((px - ref) / ref) * 100;
+}
+
+// Bid-ask spread as a percent of the mid. Null unless both sides are > 0.
+function bidAskSpreadPct(q: WatchlistQuote | undefined): number | null {
+  const bid = q?.bid;
+  const ask = q?.ask;
+  if (bid == null || ask == null || bid <= 0 || ask <= 0) return null;
+  return ((ask - bid) / ((ask + bid) / 2)) * 100;
+}
+
+// Today's move in ATR units: (price - prev_close) / atr14. Null when a term is
+// missing or ATR is 0. All derived calcs use quote.price (regular-session
+// close), not the ext-session display price.
+function atrMove(q: WatchlistQuote | undefined): number | null {
+  const px = q?.price;
+  const pc = q?.prev_close;
+  const atr = q?.atr14;
+  if (px == null || pc == null || atr == null || atr === 0) return null;
+  return (px - pc) / atr;
+}
+
+// Position day P&L: (price - prev_close) * qty. Null unless both a prev close
+// and a position exist.
+function posDayPl(
+  q: WatchlistQuote | undefined,
+  pos: Position | undefined,
+): number | null {
+  if (!pos || q?.price == null || q?.prev_close == null) return null;
+  return (q.price - q.prev_close) * pos.qty;
+}
+
 // ── The registry (canonical order after the pinned symbol column) ───────────
 export const WATCHLIST_COLUMNS: WatchlistColumnDef[] = [
   {
@@ -151,7 +219,7 @@ export const WATCHLIST_COLUMNS: WatchlistColumnDef[] = [
     label: "Last",
     title: "Last price",
     category: "price",
-    defaultWidth: 76,
+    defaultWidth: 84,
     minWidth: 56,
     align: "right",
     sortable: true,
@@ -306,19 +374,9 @@ export const WATCHLIST_COLUMNS: WatchlistColumnDef[] = [
     cell: ({ quote }) => {
       const lo = quote?.day_low;
       const hi = quote?.day_high;
-      const px = quote?.price;
-      if (lo == null || hi == null || px == null || hi <= lo) return DASH;
-      const pos = Math.min(1, Math.max(0, (px - lo) / (hi - lo))) * 100;
-      return (
-        <div className="flex w-full items-center" title={`${formatPrice(lo)} – ${formatPrice(hi)}`}>
-          <div className="relative h-[2px] w-full bg-[var(--line-divider)]">
-            <span
-              className="absolute top-1/2 h-2 w-[2px] -translate-y-1/2 bg-[var(--text-accent)]"
-              style={{ left: `${pos}%` }}
-            />
-          </div>
-        </div>
-      );
+      const title =
+        lo != null && hi != null ? `${formatPrice(lo)} – ${formatPrice(hi)}` : "";
+      return <RangeBar lo={lo} hi={hi} px={quote?.price} title={title} />;
     },
   },
   {
@@ -555,6 +613,245 @@ export const WATCHLIST_COLUMNS: WatchlistColumnDef[] = [
       return (
         <span className={cn("tabular-nums", greenRed(pct >= 0))}>
           {formatPct(pct)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "bid",
+    label: "Bid",
+    title: "Bid price",
+    category: "price",
+    defaultWidth: 64,
+    minWidth: 48,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => q?.bid ?? null,
+    cell: ({ quote }) =>
+      quote?.bid != null ? (
+        <span className="tabular-nums text-foreground">
+          {formatPrice(quote.bid)}
+        </span>
+      ) : (
+        DASH
+      ),
+  },
+  {
+    key: "ask",
+    label: "Ask",
+    title: "Ask price",
+    category: "price",
+    defaultWidth: 64,
+    minWidth: 48,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => q?.ask ?? null,
+    cell: ({ quote }) =>
+      quote?.ask != null ? (
+        <span className="tabular-nums text-foreground">
+          {formatPrice(quote.ask)}
+        </span>
+      ) : (
+        DASH
+      ),
+  },
+  {
+    key: "spread",
+    label: "Sprd",
+    title: "Bid-ask spread %",
+    category: "price",
+    defaultWidth: 56,
+    minWidth: 44,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => bidAskSpreadPct(q),
+    cell: ({ quote }) => {
+      const v = bidAskSpreadPct(quote);
+      if (v == null) return DASH;
+      return (
+        <span className="tabular-nums text-foreground">
+          {`${v.toFixed(2)}%`}
+        </span>
+      );
+    },
+  },
+  {
+    key: "vs_spy",
+    label: "vsSPY",
+    title: "Day change vs SPY",
+    category: "technicals",
+    defaultWidth: 60,
+    minWidth: 44,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => q?.vs_spy ?? null,
+    cell: ({ quote }) =>
+      quote?.vs_spy != null ? (
+        <span className={cn("tabular-nums", greenRed(quote.vs_spy >= 0))}>
+          {formatPct(quote.vs_spy)}
+        </span>
+      ) : (
+        DASH
+      ),
+  },
+  {
+    key: "atr_move",
+    label: "×ATR",
+    title: "Move vs typical (ATR)",
+    category: "technicals",
+    defaultWidth: 56,
+    minWidth: 44,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => atrMove(q),
+    cell: ({ quote }) => {
+      const v = atrMove(quote);
+      if (v == null) return DASH;
+      const sign = v > 0 ? "+" : "";
+      return (
+        <span
+          className={cn("tabular-nums", greenRed(v >= 0))}
+          title="today's move ÷ 14-day ATR"
+        >
+          {`${sign}${v.toFixed(1)}×`}
+        </span>
+      );
+    },
+  },
+  {
+    key: "range_52w",
+    label: "52w",
+    title: "52-week range",
+    category: "technicals",
+    defaultWidth: 76,
+    minWidth: 48,
+    align: "right",
+    sortable: false,
+    defaultVisible: false,
+    cell: ({ quote }) => {
+      const lo = quote?.w52_low;
+      const hi = quote?.w52_high;
+      const title =
+        lo != null && hi != null ? `${formatPrice(lo)} – ${formatPrice(hi)}` : "";
+      return <RangeBar lo={lo} hi={hi} px={quote?.price} title={title} />;
+    },
+  },
+  {
+    key: "dist_52w_high",
+    label: "52wH",
+    title: "From 52-week high",
+    category: "technicals",
+    defaultWidth: 60,
+    minWidth: 44,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => pctFrom(q?.price, q?.w52_high),
+    cell: ({ quote }) => {
+      const v = pctFrom(quote?.price, quote?.w52_high);
+      if (v == null) return DASH;
+      return (
+        <span
+          className={cn(
+            "tabular-nums",
+            v >= 0 ? "text-[var(--c-green)]" : "text-foreground",
+          )}
+        >
+          {formatPct(v)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "dist_52w_low",
+    label: "52wL",
+    title: "From 52-week low",
+    category: "technicals",
+    defaultWidth: 60,
+    minWidth: 44,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => pctFrom(q?.price, q?.w52_low),
+    cell: ({ quote }) => {
+      const v = pctFrom(quote?.price, quote?.w52_low);
+      if (v == null) return DASH;
+      return (
+        <span
+          className={cn(
+            "tabular-nums",
+            v <= 0 ? "text-[var(--c-red)]" : "text-foreground",
+          )}
+        >
+          {formatPct(v)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "sma50_dist",
+    label: "SMA50",
+    title: "From 50-day average",
+    category: "technicals",
+    defaultWidth: 60,
+    minWidth: 44,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => pctFrom(q?.price, q?.sma50),
+    cell: ({ quote }) => {
+      const v = pctFrom(quote?.price, quote?.sma50);
+      if (v == null) return DASH;
+      return (
+        <span className={cn("tabular-nums", greenRed(v >= 0))}>
+          {formatPct(v)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "sma200_dist",
+    label: "SMA200",
+    title: "From 200-day average",
+    category: "technicals",
+    defaultWidth: 64,
+    minWidth: 44,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q) => pctFrom(q?.price, q?.sma200),
+    cell: ({ quote }) => {
+      const v = pctFrom(quote?.price, quote?.sma200);
+      if (v == null) return DASH;
+      return (
+        <span className={cn("tabular-nums", greenRed(v >= 0))}>
+          {formatPct(v)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "pos_day_pl",
+    label: "DayP&L",
+    title: "Position day P&L",
+    category: "position",
+    defaultWidth: 68,
+    minWidth: 52,
+    align: "right",
+    sortable: true,
+    defaultVisible: false,
+    sortValue: (q, pos) => posDayPl(q, pos),
+    cell: ({ quote, position }) => {
+      const v = posDayPl(quote, position);
+      if (v == null) return DASH;
+      return (
+        <span className={cn("tabular-nums", greenRed(v >= 0))}>
+          {formatMoney(v)}
         </span>
       );
     },

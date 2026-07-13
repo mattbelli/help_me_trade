@@ -146,6 +146,7 @@ from db.workspace import (
     save_workspace_layout,
     save_workspace_pages,
 )
+from signals import indicators
 from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.momentum import refresh_universe_bars
 from signals.regime import refresh_regime_macro
@@ -2741,6 +2742,62 @@ async def _wl_cached_bars_batch(
     return out
 
 
+# 52-week / ATR / SMA baselines move once a day, so they're computed from a
+# 300-day daily-bar fetch on a LONG TTL (~4 fetches/day/symbol) — the 20-s poll
+# itself never adds broker requests for them. Kept separate from
+# _wl_bars_cache because that cache is keyed (symbol, timeframe) and a 300-day
+# entry would collide with the 12-day one.
+_wl_baseline_cache: dict[str, tuple[float, dict | None]] = {}
+_WL_BASELINE_TTL_S = 6 * 3600.0
+_WL_BASELINE_MISS_TTL_S = 600.0  # retry sooner when the fetch failed/was empty
+
+
+def _compute_wl_baseline(bars: list) -> dict | None:
+    if len(bars) < 20:
+        return None
+    closes = [float(b.close) for b in bars]
+    highs = [float(b.high) for b in bars]
+    lows = [float(b.low) for b in bars]
+
+    def _r(v: float | None) -> float | None:
+        return round(v, 4) if v is not None else None
+
+    return {
+        "w52_high": _r(max(highs[-252:])),
+        "w52_low": _r(min(lows[-252:])),
+        "atr14": _r(indicators.atr(highs, lows, closes, 14)),
+        "sma50": _r(indicators.sma(closes, 50)),
+        "sma200": _r(indicators.sma(closes, 200)),
+    }
+
+
+async def _wl_baselines_batch(provider, symbols: list[str]) -> dict[str, dict | None]:
+    now = time.time()
+    out: dict[str, dict | None] = {}
+    missing: list[str] = []
+    for sym in symbols:
+        hit = _wl_baseline_cache.get(sym)
+        if hit is not None:
+            ttl = _WL_BASELINE_TTL_S if hit[1] is not None else _WL_BASELINE_MISS_TTL_S
+            if now - hit[0] < ttl:
+                out[sym] = hit[1]
+                continue
+        missing.append(sym)
+    if missing:
+        try:
+            fetched = await provider.aget_stock_bars_batch(
+                missing, timeframe="1Day", days=300
+            )
+        except BrokerError:
+            logger.warning("Watchlist baseline bars fetch failed", exc_info=True)
+            fetched = {}
+        for sym in missing:
+            baseline = _compute_wl_baseline(fetched.get(sym) or [])
+            _wl_baseline_cache[sym] = (now, baseline)
+            out[sym] = baseline
+    return out
+
+
 @app.get("/api/watchlist/market")
 async def api_watchlist_market(symbols: str = ""):
     try:
@@ -2770,6 +2827,27 @@ async def api_watchlist_market(symbols: str = ""):
         bars_by_symbol = await _wl_cached_bars_batch(provider, symbol_list, days=12)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
+
+    # Slow tier: 52w/ATR/SMA baselines (equities only; long-TTL cache).
+    equity_symbols = [s for s in symbol_list if not s.startswith("/")]
+    baselines = await _wl_baselines_batch(provider, equity_symbols)
+
+    # SPY day change for the "vs SPY" relative-performance column — one
+    # cache-shared bars call (free when SPY is already on the list).
+    spy_change_pct: float | None = None
+    try:
+        spy_bars = (await _wl_cached_bars_batch(provider, ["SPY"], days=12)).get(
+            "SPY"
+        ) or []
+        if len(spy_bars) >= 2 and float(spy_bars[-2].close):
+            spy_change_pct = round(
+                (float(spy_bars[-1].close) - float(spy_bars[-2].close))
+                / float(spy_bars[-2].close)
+                * 100,
+                2,
+            )
+    except BrokerError:
+        logger.warning("Watchlist SPY change fetch failed", exc_info=True)
 
     if symbol_list and not any(bars_by_symbol.get(s) for s in symbol_list):
         logger.error(
@@ -2899,6 +2977,11 @@ async def api_watchlist_market(symbols: str = ""):
             "day_high": float(latest.high),
             "day_low": float(latest.low),
             "gap_pct": gap_pct,
+            "w52_high": (baselines.get(sym) or {}).get("w52_high"),
+            "w52_low": (baselines.get(sym) or {}).get("w52_low"),
+            "atr14": (baselines.get(sym) or {}).get("atr14"),
+            "sma50": (baselines.get(sym) or {}).get("sma50"),
+            "sma200": (baselines.get(sym) or {}).get("sma200"),
             "intraday": intraday,
             "market_session": session,
             "ext_price": ext_price_val,
@@ -2931,7 +3014,7 @@ async def api_watchlist_market(symbols: str = ""):
         except Exception:
             logger.debug("apply_extended failed for %s", sym, exc_info=True)
 
-    return {"quotes": quotes}
+    return {"quotes": quotes, "spy_change_pct": spy_change_pct}
 
 
 _profile_build_attempts: dict[str, float] = {}

@@ -466,6 +466,15 @@ export type WatchlistQuote = {
   market_cap?: number | null;
   last_earnings?: string | null;
   next_earnings?: string | null;
+  bid?: number | null;
+  ask?: number | null;
+  w52_high?: number | null;
+  w52_low?: number | null;
+  atr14?: number | null;
+  sma50?: number | null;
+  sma200?: number | null;
+  // Derived in the widget from spy_change_pct, not sent by the server.
+  vs_spy?: number | null;
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {
@@ -535,7 +544,10 @@ export async function deleteWatchlist(id: string): Promise<WatchlistsState> {
 
 export async function fetchWatchlistMarket(
   symbols?: string[],
-): Promise<Record<string, WatchlistQuote>> {
+): Promise<{
+  quotes: Record<string, WatchlistQuote>;
+  spyChangePct: number | null;
+}> {
   const params = symbols?.length
     ? new URLSearchParams({ symbols: symbols.join(",") })
     : new URLSearchParams();
@@ -549,7 +561,10 @@ export async function fetchWatchlistMarket(
     );
   }
   const data = await res.json();
-  return data.quotes ?? {};
+  return {
+    quotes: data.quotes ?? {},
+    spyChangePct: data.spy_change_pct ?? null,
+  };
 }
 
 export async function fetchWatchlist(): Promise<string[]> {

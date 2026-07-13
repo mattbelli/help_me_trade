@@ -1068,10 +1068,22 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     };
   }, [symbolsKey, symbols]);
 
-  const { quotes, loading: marketLoading } = useWatchlistMarket({
+  const { quotes, spyChangePct, loading: marketLoading } = useWatchlistMarket({
     symbols,
     enabled: symbols.length > 0,
   });
+
+  // Enrich each quote with its day-change spread vs SPY once here (single
+  // source), so the vs_spy column reads q.vs_spy without per-cell math. When
+  // SPY's change is unknown, leave vs_spy unset (the column shows DASH).
+  const enrichedQuotes = useMemo(() => {
+    if (spyChangePct == null) return quotes;
+    const out: Record<string, Quote> = {};
+    for (const [sym, q] of Object.entries(quotes)) {
+      out[sym] = { ...q, vs_spy: q.change_pct - spyChangePct };
+    }
+    return out;
+  }, [quotes, spyChangePct]);
 
   const baseOrder = dragOrder ?? symbols;
 
@@ -1097,7 +1109,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       if (key === "symbol") return sym;
       const fn = sortValueMap[key];
       if (!fn) return null;
-      return fn(quotes[sym], positions[sym]);
+      return fn(enrichedQuotes[sym], positions[sym]);
     };
 
     return [...baseOrder].sort((a, b) => {
@@ -1114,7 +1126,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       }
       return mul * ((va as number) - (vb as number));
     });
-  }, [baseOrder, sortState, quotes, positions, sortValueMap]);
+  }, [baseOrder, sortState, enrichedQuotes, positions, sortValueMap]);
 
   const handleSortHeaderClick = useCallback((key: string) => {
     setSortState((prev) => {
@@ -1450,7 +1462,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
               <WatchlistSymbolRow
                 key={symbol}
                 symbol={symbol}
-                quote={quotes[symbol]}
+                quote={enrichedQuotes[symbol]}
                 position={positions[symbol]}
                 columns={visibleColumns}
                 widths={widths}
