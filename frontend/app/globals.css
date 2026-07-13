@@ -76,7 +76,7 @@
        working untouched. Defaults here = the carbon palette. */
     /* SURFACE (back → front) */
     --surface-canvas: #131519;
-    --surface-grid-dot: #e9e7e3;   /* rendered ~5% in .canvas-surface */
+    --surface-grid-dot: #1e2023;   /* the literal dot color — rendered directly (WYSIWYG) */
     --surface-toolbar: #181b21;
     --surface-header: #181b21;
     --surface-widget: #181b21;
@@ -195,7 +195,7 @@
 [data-theme="carbon"] {
     color-scheme: dark;
     --surface-canvas: #131519;
-    --surface-grid-dot: #e9e7e3;
+    --surface-grid-dot: #1e2023;
     --surface-toolbar: #181b21;
     --surface-header: #181b21;
     --surface-widget: #181b21;
@@ -229,7 +229,7 @@
 [data-theme="warm"] {
     color-scheme: dark;
     --surface-canvas: #202020;
-    --surface-grid-dot: #d3ccbe;
+    --surface-grid-dot: #292828;
     --surface-toolbar: #262626;
     --surface-header: #262626;
     --surface-widget: #262626;
@@ -267,7 +267,7 @@
 [data-theme="oled"] {
     color-scheme: dark;
     --surface-canvas: #000000;
-    --surface-grid-dot: #e9e7e3;
+    --surface-grid-dot: #0c0c0b;
     --surface-toolbar: #0d0d0f;
     --surface-header: #0d0d0f;
     --surface-widget: #0d0d0f;
@@ -304,7 +304,7 @@
     /* Light theme: the wash sits on a bright row — 16% is already legible. */
     --tick-flash-mix: 16%;
     --surface-canvas: #f5f6f8;
-    --surface-grid-dot: #1b1f24;
+    --surface-grid-dot: #eaebed;
     --surface-toolbar: #ffffff;
     --surface-header: #ffffff;
     --surface-widget: #ffffff;
@@ -431,7 +431,7 @@
     background-color: var(--surface-canvas);
     background-image: radial-gradient(
       circle at 1px 1px,
-      color-mix(in oklch, var(--surface-grid-dot) 5%, transparent) 1px,
+      var(--surface-grid-dot) 1px,
       transparent 0
     );
     background-size: 22px 22px;
