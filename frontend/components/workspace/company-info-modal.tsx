@@ -90,10 +90,13 @@ export function CompanyInfoModal({
       <FloatingPanel
         open={open}
         onClose={onClose}
-        initialWidth={512}
+        initialWidth={720}
         initialHeight={560}
         ariaLabel={symbol ?? "Company"}
-        className="w-full max-w-lg max-h-[85vh]"
+        // Square-ish card centered on screen: the height cap sits well short
+        // of the viewport so the panel never stretches into a full-height
+        // column glued to the bottom strip (the body scrolls instead).
+        className="w-[min(720px,92vw)] max-h-[min(600px,78vh)]"
         contentClassName="overflow-y-auto p-6"
         header={
           <span className="font-mono text-[length:var(--fs-title)] leading-snug">
