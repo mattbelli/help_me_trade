@@ -91,12 +91,13 @@ export function CompanyInfoModal({
         open={open}
         onClose={onClose}
         initialWidth={720}
-        initialHeight={560}
+        initialHeight={680}
         ariaLabel={symbol ?? "Company"}
-        // Square-ish card centered on screen: the height cap sits well short
-        // of the viewport so the panel never stretches into a full-height
-        // column glued to the bottom strip (the body scrolls instead).
-        className="w-[min(720px,92vw)] max-h-[min(600px,78vh)]"
+        // Centered card: the height cap sits short of the viewport so the
+        // panel never stretches into a full-height column glued to the bottom
+        // strip (the body scrolls instead). Tall enough to show the full
+        // fundamentals table plus the start of the news list.
+        className="w-[min(720px,92vw)] max-h-[min(760px,85vh)]"
         contentClassName="overflow-y-auto p-6"
         header={
           <span className="font-mono text-[length:var(--fs-title)] leading-snug">
