@@ -17,6 +17,7 @@ import { useChatSettings } from "@/lib/chat-settings-context";
 import { fetchDefaultModelOptions } from "@/lib/ai-models";
 import { subscribeSettingsSaved } from "@/lib/settings-events";
 import { PageSwitcher } from "@/components/workspace/page-switcher";
+import { WorkspaceSwitcher } from "@/components/workspace/workspace-switcher";
 import { TerminalHistorySidebar } from "./terminal-history-sidebar";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
@@ -1027,6 +1028,7 @@ export function Terminal() {
           <span className="rounded-sm border border-[var(--border)] px-1.5 py-0.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
             Ch1
           </span>
+          <WorkspaceSwitcher />
           <PageSwitcher />
           <button
             type="button"

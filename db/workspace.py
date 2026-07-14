@@ -154,6 +154,83 @@ def save_workspace_pages(pages_state: dict, db_path: Path = DEFAULT_DB_PATH) -> 
         conn.commit()
 
 
+MAX_WORKSPACES = 8
+DEFAULT_WORKSPACE_ID = "ws-default"
+
+
+def _is_valid_workspaces_state(state: object) -> bool:
+    if not isinstance(state, dict):
+        return False
+    workspaces = state.get("workspaces")
+    default_id = state.get("defaultWorkspaceId")
+    if not isinstance(workspaces, dict) or not isinstance(default_id, str):
+        return False
+    if not workspaces or len(workspaces) > MAX_WORKSPACES:
+        return False
+    for ws in workspaces.values():
+        if not isinstance(ws, dict):
+            return False
+        if not isinstance(ws.get("id"), str) or not isinstance(ws.get("name"), str):
+            return False
+        if not _is_valid_pages_state(ws.get("pages_state")):
+            return False
+    return default_id in workspaces
+
+
+def load_workspaces(db_path: Path = DEFAULT_DB_PATH) -> dict | None:
+    """Return stored workspaces state, auto-migrating from the pages blob.
+
+    First load after the workspaces feature ships wraps the existing pages
+    state as a single "Main" workspace and persists it.
+    """
+    try:
+        init_workspace_tables(db_path)
+        with _connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT value FROM workspace_state WHERE key = 'workspaces'",
+            ).fetchone()
+        if row is not None:
+            parsed = json.loads(row[0])
+            if _is_valid_workspaces_state(parsed):
+                return parsed
+
+        pages_state = load_workspace_pages(db_path)
+        if pages_state is None:
+            return None
+        state = {
+            "workspaces": {
+                DEFAULT_WORKSPACE_ID: {
+                    "id": DEFAULT_WORKSPACE_ID,
+                    "name": "Main",
+                    "pages_state": pages_state,
+                }
+            },
+            "defaultWorkspaceId": DEFAULT_WORKSPACE_ID,
+        }
+        save_workspaces(state, db_path)
+        return state
+    except Exception:
+        return None
+
+
+def save_workspaces(state: dict, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Upsert the workspaces state. Last-write-wins."""
+    init_workspace_tables(db_path)
+    now = datetime.now(UTC).isoformat()
+    value = json.dumps(state)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO workspace_state (key, value, updated_at)
+            VALUES ('workspaces', ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                           updated_at = excluded.updated_at
+            """,
+            (value, now),
+        )
+        conn.commit()
+
+
 MAX_CUSTOM_THEMES = 24
 
 
