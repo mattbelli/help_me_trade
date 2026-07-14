@@ -64,6 +64,18 @@ OPTIONS_FLOW_MAX_CONTRACTS_PER_UNDERLYING = 800  # design §4; EOD scan contract
 
 # --- Intraday poll (design §4) ---------------------------------------------------
 ACTIVE_SET_PER_UNDERLYING = 60  # design §4; top contracts per underlying in active set
+
+# Chain-snapshot fetch for the intraday active set. The vendor page default is 100
+# contracts ALPHABETICAL — and an OCC sorts expiry, then C before P, then strike — so a
+# bare call returns one expiry of CALLS and never reaches a put. Measured 2026-07-14:
+# SPY has 13,730 live contracts across 35 expiries (6,865 puts), and the bare call the
+# poll had always used returned 100 calls at one expiry = 0.7% of the chain, which made
+# put_net structurally zero for SPY/QQQ/TSLA. Same trap the chain viewer hit and fixed
+# on 2026-07-09 (BUILD.md); the poll was never carried across.
+# Cost measured the same day: SPY's full chain = 14 pages in 1.16s; ~18s for the whole
+# watchlist per 300s refresh, ~0.3% of the 10,000/min market-data budget.
+CHAIN_SNAPSHOT_PAGE_LIMIT = 1000  # VENDOR: Alpaca documents limit max=1000 per page
+CHAIN_SNAPSHOT_MAX_PAGES = 20  # SELF: SPY needed 14 on 2026-07-14; over this logs loudly
 ACTIVE_SET_REFRESH_SECONDS = 300  # design §4; refresh active set every 5 min
 POLL_QUOTE_CHUNK = 100  # design §4; quote/trades chunk size (Alpaca ≤100 symbols)
 POLL_COLD_START_LOOKBACK_MINUTES = 30  # cursor floor for cursor-less contracts; bounds the

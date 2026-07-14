@@ -1557,6 +1557,17 @@ class AlpacaAdapter:
                 page_token = data.get("next_page_token")
                 if not page_token:
                     break
+            else:
+                if page_token:
+                    # Stopping with pages left means the tail is dropped in the
+                    # vendor's own alphabetical order — never do that silently.
+                    logger.warning(
+                        "Option chain snapshot capped at %d pages for %s "
+                        "(%d contracts fetched, more available)",
+                        max_pages,
+                        sym,
+                        len(out),
+                    )
         except Exception:
             return out
         return out
