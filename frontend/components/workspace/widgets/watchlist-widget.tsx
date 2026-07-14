@@ -491,7 +491,13 @@ function WatchlistSymbolRow({
         if (outside) onDragOutRelease();
         else onReorderEnd();
       }}
-      className="border-b border-[var(--line-divider)]"
+      // [will-change:auto]!: framer flips will-change to "transform" on the
+      // first layout animation and NEVER resets it, so every row stays
+      // promoted to its own GPU layer — where this 1px border-b rasterizes
+      // away at rest (lines vanish until a hover repaint). The stylesheet
+      // !important beats framer's inline style; rows still composite while
+      // actually animating.
+      className="border-b border-[var(--line-divider)] [will-change:auto]!"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={clearHold}
