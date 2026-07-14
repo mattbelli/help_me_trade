@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 OPRA_WS_URL = "wss://stream.data.alpaca.markets/v1beta1/opra"
 
 SUB_REFRESH_SECONDS = 300
+ACK_SETTLE_SECONDS = 10.0  # grace for a refresh's own subscription echoes to land
 PRINT_FLUSH_SECONDS = 1.0
 QUOTE_SUB_DEBOUNCE_SECONDS = 5.0
 HOUSEKEEPING_TICK_SECONDS = 0.05
@@ -125,6 +126,12 @@ class OptionsFlowStream:
 
         self._subscribed_trades: set[str] = set()
         self._subscribed_quotes: set[str] = set()
+        # Server-confirmed state from "subscription" echo frames; None until the
+        # first echo of a connection. _subscribed_* is what we *sent*, this is
+        # what the server *acked* — the 2026-07-14 open-blindness bug lived in
+        # exactly that gap, so divergence is surfaced instead of assumed away.
+        self._acked_trades: set[str] | None = None
+        self._acked_quotes: set[str] | None = None
         self._quote_cache: dict[str, tuple[float, float, int]] = {}
         self._quote_ring: dict[str, deque[tuple[int, float, float]]] = {}
         self._hot_print_ms: dict[str, int] = {}
@@ -262,6 +269,8 @@ class OptionsFlowStream:
                 # stream silently receives no data after a reconnect.
                 self._subscribed_trades = set()
                 self._subscribed_quotes = set()
+                self._acked_trades = None
+                self._acked_quotes = None
                 if ws is not None:
                     try:
                         close = ws.close
@@ -479,18 +488,37 @@ class OptionsFlowStream:
             self._lag_samples_ms.clear()
         logger.info(
             "options_flow stream stats: msgs=%s prints=%s skipped_no_meta=%s "
-            "reconnects=%s trade_subs=%s quote_subs=%s collected=%s "
-            "lag_p50_ms=%s lag_p95_ms=%s",
+            "reconnects=%s trade_subs=%s quote_subs=%s ack_trades=%s ack_quotes=%s "
+            "collected=%s lag_p50_ms=%s lag_p95_ms=%s",
             self.msgs,
             self.prints,
             self.skipped_no_meta,
             self.reconnects,
             len(self._subscribed_trades),
             len(self._subscribed_quotes),
+            "-" if self._acked_trades is None else len(self._acked_trades),
+            "-" if self._acked_quotes is None else len(self._acked_quotes),
             len(self.collected_prints),
             lag_p50,
             lag_p95,
         )
+        # Quote subs churn between refreshes (hot-quote adds), so only trade
+        # divergence is treated as an alarm; ACK_SETTLE skips the transient
+        # window while a refresh's own echoes are still in flight.
+        if (
+            self._acked_trades is not None
+            and self._acked_trades != self._subscribed_trades
+            and now_mono - self._last_sub_refresh_mono >= ACK_SETTLE_SECONDS
+        ):
+            logger.warning(
+                "options_flow stream: server-confirmed trade subs diverge from "
+                "client state: sent=%s acked=%s missing=%s unexpected=%s — the "
+                "stream may be silently missing flow",
+                len(self._subscribed_trades),
+                len(self._acked_trades),
+                len(self._subscribed_trades - self._acked_trades),
+                len(self._acked_trades - self._subscribed_trades),
+            )
 
     def _handle_frame(self, raw: bytes | str) -> None:
         for item in _unpack_frame(raw):
@@ -500,6 +528,23 @@ class OptionsFlowStream:
                 self._on_trade(item)
             elif msg_type == "q":
                 self._on_quote(item)
+            elif msg_type == "subscription":
+                self._on_subscription_ack(item)
+            elif msg_type == "error":
+                logger.warning(
+                    "options_flow stream: server error frame: code=%s msg=%s",
+                    item.get("code"),
+                    item.get("msg"),
+                )
+
+    def _on_subscription_ack(self, item: dict[str, Any]) -> None:
+        # The server echoes its FULL current subscription state on every change.
+        trades = item.get("trades")
+        if isinstance(trades, list):
+            self._acked_trades = {str(s).strip().upper() for s in trades}
+        quotes = item.get("quotes")
+        if isinstance(quotes, list):
+            self._acked_quotes = {str(s).strip().upper() for s in quotes}
 
     def _on_trade(self, item: dict[str, Any]) -> None:
         occ = str(item.get("S") or "").strip().upper()

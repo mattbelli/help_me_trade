@@ -109,6 +109,8 @@ class ScriptWS:
         self._block_after = block_after
         self.closed = False
         self._closed_evt = asyncio.Event()
+        self._server_trades: set[str] = set()
+        self._server_quotes: set[str] = set()
         self._inbound.put_nowait(_pack([{"T": "success", "msg": "connected"}]))
 
     async def recv(self) -> bytes:
@@ -153,13 +155,22 @@ class ScriptWS:
                 await self._inbound.put(
                     _pack([{"T": "success", "msg": "authenticated"}])
                 )
-        elif action == "subscribe":
-            ack = {"T": "subscription"}
-            if "trades" in payload:
-                ack["trades"] = payload["trades"]
-            if "quotes" in payload:
-                ack["quotes"] = payload["quotes"]
-            await self._inbound.put(_pack([ack]))
+        elif action in ("subscribe", "unsubscribe"):
+            # Like the real server: apply the change, echo FULL current state.
+            op = set.update if action == "subscribe" else set.difference_update
+            op(self._server_trades, payload.get("trades") or [])
+            op(self._server_quotes, payload.get("quotes") or [])
+            await self._inbound.put(
+                _pack(
+                    [
+                        {
+                            "T": "subscription",
+                            "trades": sorted(self._server_trades),
+                            "quotes": sorted(self._server_quotes),
+                        }
+                    ]
+                )
+            )
 
     async def close(self) -> None:
         self.closed = True
@@ -407,6 +418,91 @@ async def test_subscription_diff_incremental(monkeypatch: pytest.MonkeyPatch) ->
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_subscription_ack_tracked_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The server's subscription echo becomes the confirmed (acked) state."""
+    ws = ScriptWS()
+    current = [OCC, OCC2]
+
+    stream = OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: list(current),
+        meta_for=_meta_for,
+        connect_factory=_connector(ws),
+    )
+    monkeypatch.setattr(
+        "signals.options_flow.stream.SUB_REFRESH_SECONDS", 0.05, raising=False
+    )
+
+    task = asyncio.create_task(stream.run())
+    try:
+        await asyncio.sleep(0.08)
+        assert stream._acked_trades == {OCC, OCC2}
+
+        current[:] = [OCC2, OCC3]
+        await ws._inbound.put(_quote_frame(OCC2))
+        await asyncio.sleep(0.12)
+        assert stream._acked_trades == {OCC2, OCC3}
+    finally:
+        stream.stop()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+def _bare_stream() -> OptionsFlowStream:
+    return OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: [],
+        meta_for=_meta_for,
+    )
+
+
+def test_ack_divergence_warns_in_stats(caplog: pytest.LogCaptureFixture) -> None:
+    """A persistent sent-vs-acked trade-sub gap must warn, not stay silent."""
+    import logging
+    import time
+
+    stream = _bare_stream()
+    stream._subscribed_trades = {OCC, OCC2}
+    stream._handle_frame(_pack([{"T": "subscription", "trades": [OCC], "quotes": []}]))
+
+    with caplog.at_level(logging.INFO, logger="signals.options_flow.stream"):
+        stream._maybe_log_stats(time.monotonic())
+    assert "ack_trades=1" in caplog.text
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings and "diverge" in warnings[0].getMessage()
+
+    # Once the ack matches, a later stats pass must not warn.
+    caplog.clear()
+    stream._handle_frame(
+        _pack([{"T": "subscription", "trades": [OCC, OCC2], "quotes": []}])
+    )
+    stream._last_stats_log_mono = 0.0
+    with caplog.at_level(logging.INFO, logger="signals.options_flow.stream"):
+        stream._maybe_log_stats(time.monotonic())
+    assert "ack_trades=2" in caplog.text
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_error_frame_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """Post-handshake server error frames must surface, not vanish."""
+    import logging
+
+    stream = _bare_stream()
+    with caplog.at_level(logging.WARNING, logger="signals.options_flow.stream"):
+        stream._handle_frame(
+            _pack([{"T": "error", "code": 405, "msg": "symbol limit exceeded"}])
+        )
+    assert "code=405" in caplog.text and "symbol limit exceeded" in caplog.text
 
 
 @pytest.mark.asyncio
