@@ -123,11 +123,22 @@ async def main(secs: int, capture: str | None) -> None:
               f"max={lags_ms[-1] if n else float('nan'):,.0f}")
         print(f"client busy: {busy_s:.1f}s of {wall:.0f}s wall "
               f"({busy_s / wall * 100:.0f}% of one core for recv+parse)")
-        verdict = (
-            "branch W viable (extrapolate open-burst headroom before committing)"
-            if n and pct(0.95) < 2_000 and busy_s / wall < 0.5
-            else "branch C — wildcard too hot for this client as-is"
-        )
+        cpu_ok = busy_s / wall < 0.5
+        lag_ok = bool(n) and pct(0.95) < 2_000
+        if lag_ok and cpu_ok:
+            verdict = "branch W viable (extrapolate open-burst headroom before committing)"
+        elif not cpu_ok:
+            verdict = "branch C — this client cannot keep up (recv+parse is CPU-bound)"
+        else:
+            # 2026-07-14 open: p95 8.1s while the client used 0.4% of one core. lag is
+            # (recv wall - exchange print ts), so it measures Alpaca's delivery, not our
+            # cost; a capped set may or may not shrink their queue. Don't read a failed
+            # lag budget as "the client is too slow" — that sent us at the wrong fix.
+            verdict = (
+                "lag over budget BUT client idle — delivery latency is UPSTREAM "
+                "(Alpaca fanout queue), not client cost. Capping the set is unproven; "
+                "optimizing this client would change nothing."
+            )
         print("verdict:", verdict)
 
     if cap_file is not None:

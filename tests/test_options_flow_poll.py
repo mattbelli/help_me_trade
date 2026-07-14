@@ -249,6 +249,121 @@ def test_active_set_ranks_and_caps_at_60(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "NVDA260821C00000000" not in st.active
 
 
+def test_active_set_seeds_from_oi_when_nothing_traded_today(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At the bell the today-trade ranking is empty by construction; seed from OI.
+
+    Without this the stream stayed unsubscribed through the open burst.
+    """
+    import signals.options_flow.poll as poll_mod
+
+    monkeypatch.setattr(poll_mod, "ACTIVE_SET_PER_UNDERLYING", 2)
+
+    yesterday = "2026-07-08"
+    adapter = FakeAdapter(
+        contracts_by_u={
+            "NVDA": [
+                _contract("NVDA260821C00190000", oi=100),
+                _contract("NVDA260821C00200000", oi=900),
+                _contract("NVDA260821C00210000", oi=500),
+            ],
+        },
+        snapshots_by_u={
+            "NVDA": {
+                "NVDA260821C00190000": _snapshot_trade(ts=f"{yesterday}T19:59:00Z"),
+                "NVDA260821C00200000": _snapshot_trade(ts=f"{yesterday}T19:59:00Z"),
+                "NVDA260821C00210000": _snapshot_trade(ts=f"{yesterday}T19:59:00Z"),
+            },
+        },
+    )
+    st = PollState()
+    run_poll_once(
+        adapter,
+        symbols=["NVDA"],
+        today_et=TODAY,
+        now_ms=NOW_MS,
+        state=st,
+    )
+    assert set(st.active) == {"NVDA260821C00200000", "NVDA260821C00210000"}
+
+
+def test_oi_seed_stays_inside_stream_trade_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every underlying seeds at once, so the seed must fit the stream's sub budget.
+
+    _desired_trades() clips alphabetically, so overflowing it would silently drop
+    whole underlyings from the back of the alphabet.
+    """
+    import signals.options_flow.poll as poll_mod
+
+    monkeypatch.setattr(poll_mod, "STREAM_TRADES_MAX", 4)
+    monkeypatch.setattr(poll_mod, "ACTIVE_SET_PER_UNDERLYING", 60)
+
+    yesterday = "2026-07-08"
+    contracts_by_u: dict[str, list[dict]] = {}
+    snapshots_by_u: dict[str, dict] = {}
+    for u in ("AAPL", "NVDA"):
+        contracts_by_u[u] = [
+            _contract(f"{u}260821C{i:08d}", oi=100 + i, underlying=u) for i in range(5)
+        ]
+        snapshots_by_u[u] = {
+            f"{u}260821C{i:08d}": _snapshot_trade(ts=f"{yesterday}T19:59:00Z")
+            for i in range(5)
+        }
+    adapter = FakeAdapter(
+        contracts_by_u=contracts_by_u, snapshots_by_u=snapshots_by_u
+    )
+    st = PollState()
+    run_poll_once(
+        adapter,
+        symbols=["AAPL", "NVDA"],
+        today_et=TODAY,
+        now_ms=NOW_MS,
+        state=st,
+    )
+    # budget 4 over 2 underlyings → top 2 by OI each, not 5 each
+    assert len(st.active) == 4
+    assert set(st.active) == {
+        "AAPL260821C00000004",
+        "AAPL260821C00000003",
+        "NVDA260821C00000004",
+        "NVDA260821C00000003",
+    }
+
+
+def test_active_set_prefers_today_trades_over_oi_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once real prints exist the OI seed must not shadow them."""
+    import signals.options_flow.poll as poll_mod
+
+    monkeypatch.setattr(poll_mod, "ACTIVE_SET_PER_UNDERLYING", 1)
+
+    adapter = FakeAdapter(
+        contracts_by_u={
+            "NVDA": [
+                _contract("NVDA260821C00190000", oi=100),
+                _contract("NVDA260821C00200000", oi=900),
+            ],
+        },
+        snapshots_by_u={
+            # only the low-OI contract has actually traded today
+            "NVDA": {"NVDA260821C00190000": _snapshot_trade(ts=f"{TODAY}T14:00:00Z")},
+        },
+    )
+    st = PollState()
+    run_poll_once(
+        adapter,
+        symbols=["NVDA"],
+        today_et=TODAY,
+        now_ms=NOW_MS,
+        state=st,
+    )
+    assert set(st.active) == {"NVDA260821C00190000"}
+
+
 # --- UV-1 piggyback ---------------------------------------------------------------
 
 
