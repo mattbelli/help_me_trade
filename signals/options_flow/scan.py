@@ -27,6 +27,31 @@ logger = logging.getLogger(__name__)
 _BARS_CHUNK = 100
 
 
+def eligible_underlyings(symbols: list[str]) -> list[str]:
+    """Watchlist symbols that can actually carry Alpaca options, capped.
+
+    Shared by the nightly scan and the intraday poll. Two traps this closes:
+    futures roots (/ES, /CL, /NQ) 400 on the options endpoints, so each one burned an
+    underlying slot AND a REST call per cycle for nothing; and callers pass a *sorted*
+    watchlist, so a silent truncation drops whatever sorts last (SPY, TSLA, XLE) rather
+    than whatever matters least. Going over the cap is now a warning, not a quiet drop.
+    """
+    eligible = [
+        s.strip().upper()
+        for s in symbols
+        if s and str(s).strip() and not str(s).strip().startswith("/")
+    ]
+    if len(eligible) > OPTIONS_FLOW_MAX_UNDERLYINGS:
+        logger.warning(
+            "options_flow: %d option-eligible underlyings exceeds the cap of %d — "
+            "NOT watching %s",
+            len(eligible),
+            OPTIONS_FLOW_MAX_UNDERLYINGS,
+            ",".join(eligible[OPTIONS_FLOW_MAX_UNDERLYINGS:]),
+        )
+    return eligible[:OPTIONS_FLOW_MAX_UNDERLYINGS]
+
+
 def _int_oi(v: Any) -> int | None:
     """Parse open_interest from Alpaca (string, int, float, or None)."""
     if v is None:
@@ -233,11 +258,7 @@ def run_eod_scan(
 
     Returns ``{"underlyings": n, "events": k, "daily_rows": m}`` for logging.
     """
-    capped = [
-        s.strip().upper()
-        for s in symbols
-        if s and str(s).strip()
-    ][:OPTIONS_FLOW_MAX_UNDERLYINGS]
+    capped = eligible_underlyings(symbols)
 
     n_underlyings = 0
     n_events = 0

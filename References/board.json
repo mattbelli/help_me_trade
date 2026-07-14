@@ -10,6 +10,16 @@
   ],
   "cards": [
     {
+      "id": "flow-underlying-coverage",
+      "title": "Flow watcher never watched SPY/TSLA — alphabetical underlying truncation + futures burning slots",
+      "lane": "in_progress",
+      "type": "bug",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Found chasing the STREAM_TRADES_MAX alphabetical clip (flow-open-blindness follow-up); the clip turned out to be the SMALL half. MEASURED against the live chain 2026-07-14 16:31 UTC: _all_watchlist_symbols() returns sorted(set(...)) and both options_flow paths then did [:OPTIONS_FLOW_MAX_UNDERLYINGS] — i.e. underlyings were selected ALPHABETICALLY. With 33 watchlist symbols and a cap of 25, that silently evicted SHAZ,SLB,SLV,SPCX,SPY,TSLA,XLE,XLF: **SPY and TSLA — the two biggest options-flow names there are — were never watched at all**, intraday OR nightly (scan.py had the same line). Worse, 3 of the 25 slots were burned on futures roots (/CL,/ES,/NQ) which 400 on Alpaca's options endpoints and sort FIRST on the leading '/', so they were guaranteed to waste a slot + a REST call every cycle. FIX: shared scan.eligible_underlyings() (futures filtered, over-cap = loud WARNING naming the dropped tickers instead of a silent slice) used by both scan.py and poll.py; cap 25→30 so the real watchlist fits (30 eligible = 30). Contract level: _refresh_active_set now allocates the STREAM_TRADES_MAX budget ROUND-ROBIN by rank across underlyings — every underlying's #1 before any underlying's #2 — so a busy name can't crowd out a quiet one and nothing dies by spelling; shallow underlyings use less than their share and the deep ones keep the surplus. Over-budget is logged. VERIFIED live: newly covered = SHAZ,SLB,SLV,SPCX,SPY,TSLA,XLE,XLF; futures no longer requested; zero underlyings with no coverage. 179 options_flow tests green, ruff clean. TRADE-OFF (flagged): deep names (AAPL/NVDA/QQQ) now share the 1,000-sub budget with 30 underlyings instead of 22, so their per-name depth drops from up to 60. Worth it — covering SPY/TSLA at depth ~33-50 beats covering NVDA at 60 and SPY at 0. FOLLOW-UP: constants.py says the vendor acked 1,500+ trade subs and the 2026-07-14 probe proved the client has ~150x headroom, so raising STREAM_TRADES_MAX 1000→1500 is likely free — but unverified; a 405 'symbol limit exceeded' would now surface via PR #72's error-frame logging. Needs deploy + next-open verify.",
+      "updated_at": "2026-07-14"
+    },
+    {
       "id": "flow-open-blindness",
       "title": "Flow watcher was blind through the open (trade_subs=0 at the bell) — OI seed + open-aware resubscribe",
       "lane": "in_progress",

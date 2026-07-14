@@ -53,7 +53,10 @@ INDEX_MEGACAP_SET = frozenset({"SPY", "QQQ", "IWM", "DIA"})  # design §5 F-3 / 
 # --- Retention + watchlist scope (design §4) -------------------------------------
 EVENTS_PRUNE_DAYS = 180  # design §4; options_flow_events retention
 DAILY_PRUNE_DAYS = 400  # design §4; options_flow_daily retention
-OPTIONS_FLOW_MAX_UNDERLYINGS = 25  # design §4; watchlist cap
+# design §4; watchlist cap. Raised 25→30 (2026-07-14): the cap took the
+# alphabetically-first N of a sorted watchlist, so SPY/TSLA/XLE/XLF/SLV were
+# silently never watched. Over the cap is now a loud warning, not a quiet drop.
+OPTIONS_FLOW_MAX_UNDERLYINGS = 30
 # Cap contracts fetched per underlying for EOD bars (rank by OI desc). Keeps the
 # nightly scan bounded: ~25 × 800 ≪ Alpaca's practical request budget; most
 # liquid contracts win so UV-1 still sees the names that can clear MIN_OI.

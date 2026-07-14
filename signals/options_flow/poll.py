@@ -20,7 +20,6 @@ from signals.options_flow.constants import (
     CANCEL_CONDITIONS,
     EXT_HOURS_CONDITIONS,
     LATE_OOS_CONDITIONS,
-    OPTIONS_FLOW_MAX_UNDERLYINGS,
     POLL_COLD_START_LOOKBACK_MINUTES,
     POLL_QUOTE_CHUNK,
     STREAM_TRADES_MAX,
@@ -40,6 +39,7 @@ from signals.options_flow.scan import (
     _dte_days,
     _int_oi,
     _normalize_right,
+    eligible_underlyings,
 )
 
 logger = logging.getLogger(__name__)
@@ -416,25 +416,34 @@ def _log_unknown_conditions(codes: list[str], state: PollState) -> None:
             logger.debug("options_flow poll: unknown trade condition code %r", c)
 
 
+def _allocate_active(picks_by_u: dict[str, list[str]], budget: int) -> list[tuple[str, str]]:
+    """Round-robin by rank across underlyings, up to the stream's sub budget.
+
+    Taking every underlying's #1 before any underlying's #2 means a busy name can't
+    crowd out a quiet one, and nothing is dropped for how its ticker is spelled —
+    _desired_trades() clips sorted(state.active) at STREAM_TRADES_MAX, i.e. purely
+    alphabetically, so anything we hand it beyond the budget dies by spelling.
+    """
+    out: list[tuple[str, str]] = []
+    if budget <= 0:
+        return out
+    depth = max((len(occs) for occs in picks_by_u.values()), default=0)
+    for i in range(depth):
+        for u, occs in picks_by_u.items():
+            if i < len(occs):
+                out.append((u, occs[i]))
+                if len(out) >= budget:
+                    return out
+    return out
+
+
 def _refresh_oi(
     adapter: Any,
     symbols: list[str],
     today_et: str,
     state: PollState,
 ) -> None:
-    capped = [
-        s.strip().upper()
-        for s in symbols
-        if s and str(s).strip()
-    ][:OPTIONS_FLOW_MAX_UNDERLYINGS]
-
-    # Unlike the live-trade ranking (only a handful of contracts per underlying trade),
-    # the OI seed fills every underlying at once, so the watchlist seeding together must
-    # stay inside the stream's trade-sub budget — _desired_trades() clips alphabetically
-    # and would silently drop underlyings from the back of the alphabet.
-    seed_cap = min(
-        ACTIVE_SET_PER_UNDERLYING, STREAM_TRADES_MAX // max(len(capped), 1)
-    )
+    capped = eligible_underlyings(symbols)
 
     for u in capped:
         try:
@@ -458,7 +467,7 @@ def _refresh_oi(
                 if meta is not None and occ in state.active:
                     state.active[occ] = meta
             seeds.sort(reverse=True)
-            state.oi_seed[u] = [occ for _, occ in seeds[:seed_cap]]
+            state.oi_seed[u] = [occ for _, occ in seeds[:ACTIVE_SET_PER_UNDERLYING]]
         except Exception:
             logger.exception("options_flow poll: OI refresh failed for %s", u)
             continue
@@ -476,13 +485,10 @@ def _refresh_active_set(
     counters: dict[str, Any] | None = None,
 ) -> int:
     """Rebuild active set; run intraday UV-1 piggyback. Returns uv1 events inserted."""
-    capped = [
-        s.strip().upper()
-        for s in symbols
-        if s and str(s).strip()
-    ][:OPTIONS_FLOW_MAX_UNDERLYINGS]
+    capped = eligible_underlyings(symbols)
 
     new_active: dict[str, dict] = {}
+    picks_by_u: dict[str, list[str]] = {}
     uv1_count = 0
 
     for u in capped:
@@ -512,13 +518,25 @@ def _refresh_active_set(
                 # construction, which used to leave the stream unsubscribed through the
                 # open. Seed from prior-session OI so the burst is covered.
                 picks = state.oi_seed.get(u, [])
-            for occ in picks:
-                meta = _meta_from_occ(occ, u, today_et)
-                if meta is not None:
-                    new_active[occ] = meta
+            picks_by_u[u] = picks
         except Exception:
             logger.exception("options_flow poll: active-set refresh failed for %s", u)
             continue
+
+    wanted = sum(len(occs) for occs in picks_by_u.values())
+    if wanted > STREAM_TRADES_MAX:
+        logger.info(
+            "options_flow poll: %d ranked contracts over the %d sub budget — "
+            "allocating round-robin across %d underlyings (~%d each)",
+            wanted,
+            STREAM_TRADES_MAX,
+            len(picks_by_u),
+            STREAM_TRADES_MAX // max(len(picks_by_u), 1),
+        )
+    for u, occ in _allocate_active(picks_by_u, STREAM_TRADES_MAX):
+        meta = _meta_from_occ(occ, u, today_et)
+        if meta is not None:
+            new_active[occ] = meta
 
     state.active = new_active
 
