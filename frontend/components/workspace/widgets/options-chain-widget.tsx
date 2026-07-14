@@ -200,6 +200,10 @@ function renderMetric(
 }
 
 function ChainHeader({ wide }: { wide: boolean }) {
+  // Call side mirrors the put side across the strike: calls left-aligned,
+  // puts right-aligned, so values sit symmetrically about the center column.
+  const callLabelClass =
+    "border-r border-[var(--line-divider)] px-1.5 text-left text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
   const labelClass =
     "border-r border-[var(--line-divider)] px-1.5 text-right text-[length:var(--fs-micro)] lowercase text-[var(--fg-faint)]";
   const strikeClass =
@@ -210,7 +214,7 @@ function ChainHeader({ wide }: { wide: boolean }) {
       <div className="sticky top-0 z-10 grid grid-cols-[repeat(7,minmax(0,1fr))_5rem_repeat(7,minmax(0,1fr))] border-b border-[var(--line-divider)] bg-[var(--panel)] px-2 py-0.5">
         {(["oi", "vol", "iv", "δ", "last", "ask", "bid"] as const).map(
           (label) => (
-            <span key={`c-${label}`} className={labelClass}>
+            <span key={`c-${label}`} className={callLabelClass}>
               {label}
             </span>
           ),
@@ -230,7 +234,7 @@ function ChainHeader({ wide }: { wide: boolean }) {
   return (
     <div className="sticky top-0 z-10 grid grid-cols-[repeat(3,minmax(0,1fr))_5rem_repeat(3,minmax(0,1fr))] border-b border-[var(--line-divider)] bg-[var(--panel)] px-2 py-0.5">
       {(["last", "ask", "bid"] as const).map((label) => (
-        <span key={`c-${label}`} className={labelClass}>
+        <span key={`c-${label}`} className={callLabelClass}>
           {label}
         </span>
       ))}
@@ -312,7 +316,8 @@ function ChainRow({
       {(wide ? callWide : callNarrow).map((cell, idx) => (
         <span
           key={`c-${idx}`}
-          className={cn("flex items-center justify-end border-r border-[var(--line-divider)] px-1.5 py-0.5", callTint)}
+          // justify-start mirrors the put side's justify-end across the strike.
+          className={cn("flex items-center justify-start border-r border-[var(--line-divider)] px-1.5 py-0.5", callTint)}
         >
           {cell}
         </span>
