@@ -625,6 +625,7 @@ async def test_process_solo_dedup_per_underlying_type_day(
 async def test_process_solo_skipped_when_convergence_covers_underlying(
     monkeypatch: pytest.MonkeyPatch,
     notify_recorder: list[_NotifyCall],
+    dedup_store: dict[str, bool],
 ) -> None:
     cumfrac = _linear_cumfrac()
     profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": cumfrac})()
