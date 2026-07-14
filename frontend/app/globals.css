@@ -139,8 +139,10 @@
     --sidebar: var(--surface-inset);
     --panel: var(--surface-widget);
     --bg-raised: var(--surface-toolbar);
+    --bg-elevated: var(--surface-toolbar);
     --bg-inset: var(--surface-inset);
     --bg-hover: var(--surface-hover);
+    --fg: var(--foreground);
     --fg-dim: var(--text-secondary);
     --fg-faint: var(--text-faint);
     --fg-widget-title: var(--text-title);
@@ -149,6 +151,7 @@
     /* distinct accent for the notifications flow/convergence taxonomy — kept a
        real hue (not folded into --info) so flow cards don't match research */
     --c-violet: #b08cff;
+    --c-purple: var(--c-violet);
     --c-blue: var(--info);
     --c-cyan: var(--info);
     --c-green: var(--pos);
@@ -471,6 +474,32 @@
      z-0 so it never double-grains the widgets sitting on it. */
   .grain-above::before {
     z-index: 3;
+  }
+
+  /* AI chat prose (.aui-md wraps every assistant markdown block — terminal
+     transcript + mobile chat). The transcript chrome (user echo, tool rows,
+     commands) stays in the terminal mono font; the assistant's PROSE reads in
+     the sans face with a book-like measure so long replies stop being a wall
+     of same-weight mono. Headings pick up the accent color — structure gets a
+     brightness level of its own instead of weight-only differences. Code
+     (inline + blocks) stays mono. */
+  .aui-md {
+    font-family: var(--font-sans);
+    font-size: calc(var(--fs-terminal, 14px) + 1px);
+    max-width: 46rem;
+  }
+  .aui-md :is(h1, h2, h3) {
+    color: var(--c-accent);
+  }
+  .aui-md :is(h4, h5, h6) {
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.85em;
+  }
+  .aui-md pre,
+  .aui-md code {
+    font-family: var(--font-mono);
   }
 
   /* Research markdown "paper": scope film-grain locally (paired with
