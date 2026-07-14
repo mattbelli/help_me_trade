@@ -17,6 +17,7 @@ import { useChatSettings } from "@/lib/chat-settings-context";
 import { fetchDefaultModelOptions } from "@/lib/ai-models";
 import { subscribeSettingsSaved } from "@/lib/settings-events";
 import { PageSwitcher } from "@/components/workspace/page-switcher";
+import { SharedPageNotice } from "@/components/workspace/shared-page-notice";
 import { WorkspaceSwitcher } from "@/components/workspace/workspace-switcher";
 import { TerminalHistorySidebar } from "./terminal-history-sidebar";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
@@ -999,6 +1000,8 @@ export function Terminal() {
           {suggestionsList}
         </div>
       ) : null}
+
+      <SharedPageNotice />
 
       {/* Input strip — always visible at the bottom (the collapsed terminal). */}
       <form

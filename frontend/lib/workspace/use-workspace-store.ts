@@ -12,7 +12,10 @@ import {
   loadLegacyV2Layout,
   localStoragePagesPersistence,
   localStorageWorkspacesPersistence,
+  MAX_LIBRARY_PAGES,
+  MAX_PAGES_PER_WORKSPACE,
   MAX_WORKSPACES,
+  pagesStateForWorkspace,
   saveActiveWorkspaceId,
   wrapLayoutAsPagesState,
   wrapPagesAsWorkspacesState,
@@ -31,7 +34,6 @@ import {
 } from "./widget-registry";
 
 const LOCKED_STORAGE_KEY = "hmt-workspace-locked";
-const MAX_PAGES = 5;
 
 /** Inclusive grid-row range currently visible in the scroll viewport. */
 type VisibleRows = { top: number; bottom: number };
@@ -39,9 +41,12 @@ type VisibleRows = { top: number; bottom: number };
 type WorkspaceState = {
   pages: Record<string, WorkspacePage>;
   activePageId: string;
-  // Named groups of pages. `pages`/`activePageId` above are the LIVE editing
-  // state of the active workspace; every persist writes them back into
-  // `workspaces[activeWorkspaceId].pages_state`.
+  // The page LIBRARY: every saved page, independent of workspaces. Workspaces
+  // reference library pages by id (linked — the same page in two workspaces is
+  // one object). `pages`/`activePageId` above are the LIVE editing view of the
+  // active workspace; every persist folds edits back into the library and the
+  // active workspace's pageIds.
+  pageLibrary: Record<string, WorkspacePage>;
   workspaces: Record<string, WorkspaceSnapshot>;
   activeWorkspaceId: string;
   defaultWorkspaceId: string;
@@ -64,9 +69,18 @@ type WorkspaceState = {
   ) => void;
   removeWidget: (id: string, pageId?: string) => void;
   addPage: (name?: string) => string | null;
+  addPageFromLibrary: (id: string) => boolean;
   renamePage: (id: string, name: string) => void;
-  deletePage: (id: string) => boolean;
+  /** Drop the page from the active workspace — it stays in the library. */
+  removePageFromWorkspace: (id: string) => boolean;
+  /** Delete from the library and every workspace. Refuses if it's the only
+      page of some workspace. */
+  deletePageEverywhere: (id: string) => boolean;
   duplicatePage: (id: string) => string | null;
+  /** Detach a private copy for the active workspace: clones the page and swaps
+      the reference here; other workspaces keep the original. */
+  forkPage: (id: string) => string | null;
+  movePage: (id: string, dir: -1 | 1) => void;
   setActivePage: (id: string) => void;
   switchWorkspace: (id: string) => void;
   addWorkspace: (name: string, duplicateCurrent?: boolean) => string | null;
@@ -229,10 +243,12 @@ function sanitizePagesState(state: WorkspacePagesState): WorkspacePagesState {
   return { pages, activePageId };
 }
 
-function nextPageId(pages: Record<string, WorkspacePage>): string {
-  let n = Object.keys(pages).length + 1;
+// Page ids must be unique across the whole LIBRARY, not just the active
+// workspace — a colliding id would silently alias two pages together.
+function nextPageId(library: Record<string, WorkspacePage>): string {
+  let n = Object.keys(library).length + 1;
   let id = `page-${n}`;
-  while (pages[id]) {
+  while (library[id]) {
     n += 1;
     id = `page-${n}`;
   }
@@ -282,24 +298,46 @@ if (typeof window !== "undefined") {
   window.addEventListener("pagehide", flushOnHide);
 }
 
-// Fold the live pages state back into the active workspace and persist the
-// whole workspaces set (localStorage + debounced server PUT). Also keeps the
-// legacy per-pages cache warm so a rolled-back bundle still finds a layout.
+function fullStateOf(s: {
+  pageLibrary: Record<string, WorkspacePage>;
+  workspaces: Record<string, WorkspaceSnapshot>;
+  defaultWorkspaceId: string;
+}): WorkspacesState {
+  return {
+    version: 2,
+    pages: s.pageLibrary,
+    workspaces: s.workspaces,
+    defaultWorkspaceId: s.defaultWorkspaceId,
+  };
+}
+
+// Fold the live pages view back into the library + the active workspace's
+// pageIds and persist everything (localStorage + debounced server PUT). Also
+// keeps the legacy per-pages cache warm so a rolled-back bundle finds a layout.
 function persistPages(pagesState: WorkspacePagesState): void {
-  const { workspaces, activeWorkspaceId, defaultWorkspaceId } =
+  const { pageLibrary, workspaces, activeWorkspaceId, defaultWorkspaceId } =
     useWorkspaceStore.getState();
+  const nextLibrary = { ...pageLibrary, ...pagesState.pages };
   const active = workspaces[activeWorkspaceId];
   const nextWorkspaces = active
     ? {
         ...workspaces,
-        [activeWorkspaceId]: { ...active, pages_state: pagesState },
+        [activeWorkspaceId]: {
+          ...active,
+          pageIds: Object.keys(pagesState.pages),
+          activePageId: pagesState.activePageId,
+        },
       }
     : workspaces;
-  useWorkspaceStore.setState({ workspaces: nextWorkspaces });
-  const full: WorkspacesState = {
+  useWorkspaceStore.setState({
+    pageLibrary: nextLibrary,
+    workspaces: nextWorkspaces,
+  });
+  const full = fullStateOf({
+    pageLibrary: nextLibrary,
     workspaces: nextWorkspaces,
     defaultWorkspaceId,
-  };
+  });
   localStorageWorkspacesPersistence.save(full);
   localStoragePagesPersistence.save(pagesState);
   scheduleServerSave(full);
@@ -312,8 +350,7 @@ function persistPages(pagesState: WorkspacePagesState): void {
   }
 }
 
-// Persist a workspaces-level change (add/rename/delete/set-default) that
-// doesn't touch the live pages state.
+// Persist a workspaces/library-level change that doesn't touch the live view.
 function persistWorkspaces(state: WorkspacesState): void {
   localStorageWorkspacesPersistence.save(state);
   scheduleServerSave(state);
@@ -334,6 +371,7 @@ const INITIAL_WORKSPACES = wrapPagesAsWorkspacesState(DEFAULT_PAGES_STATE);
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   pages: DEFAULT_PAGES_STATE.pages,
   activePageId: DEFAULT_PAGES_STATE.activePageId,
+  pageLibrary: INITIAL_WORKSPACES.pages,
   workspaces: INITIAL_WORKSPACES.workspaces,
   activeWorkspaceId: INITIAL_WORKSPACES.defaultWorkspaceId,
   defaultWorkspaceId: INITIAL_WORKSPACES.defaultWorkspaceId,
@@ -401,20 +439,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         ? storedActive
         : workspacesState.defaultWorkspaceId;
 
+    const resolved =
+      pagesStateForWorkspace(workspacesState, activeWorkspaceId) ??
+      DEFAULT_PAGES_STATE;
+    const sanitized = sanitizePagesState(resolved);
     const activeWs = workspacesState.workspaces[activeWorkspaceId];
-    const sanitized = sanitizePagesState(activeWs.pages_state);
+    const pageLibrary = { ...workspacesState.pages, ...sanitized.pages };
     const workspaces = {
       ...workspacesState.workspaces,
-      [activeWorkspaceId]: { ...activeWs, pages_state: sanitized },
+      [activeWorkspaceId]: {
+        ...activeWs,
+        pageIds: Object.keys(sanitized.pages),
+        activePageId: sanitized.activePageId,
+      },
     };
-    localStorageWorkspacesPersistence.save({
-      workspaces,
-      defaultWorkspaceId: workspacesState.defaultWorkspaceId,
-    });
+    localStorageWorkspacesPersistence.save(
+      fullStateOf({
+        pageLibrary,
+        workspaces,
+        defaultWorkspaceId: workspacesState.defaultWorkspaceId,
+      }),
+    );
     localStoragePagesPersistence.save(sanitized);
     set({
       pages: sanitized.pages,
       activePageId: sanitized.activePageId,
+      pageLibrary,
       workspaces,
       activeWorkspaceId,
       defaultWorkspaceId: workspacesState.defaultWorkspaceId,
@@ -424,23 +474,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   switchWorkspace: (id) => {
-    const { workspaces, activeWorkspaceId } = get();
+    const { pageLibrary, workspaces, activeWorkspaceId, defaultWorkspaceId } =
+      get();
     const target = workspaces[id];
     if (!target || id === activeWorkspaceId) return;
     // Any pending debounced save still carries the OLD active workspace's
     // pages inside the full workspaces state — flush it before swapping.
     flushWorkspaceLayoutSave();
-    const sanitized = sanitizePagesState(target.pages_state);
+    const resolved = pagesStateForWorkspace(
+      fullStateOf({ pageLibrary, workspaces, defaultWorkspaceId }),
+      id,
+    );
+    if (!resolved) return;
+    const sanitized = sanitizePagesState(resolved);
     saveActiveWorkspaceId(id);
     set({
       activeWorkspaceId: id,
       pages: sanitized.pages,
       activePageId: sanitized.activePageId,
+      pageLibrary: { ...pageLibrary, ...sanitized.pages },
     });
   },
 
   addWorkspace: (name, duplicateCurrent) => {
-    const { workspaces, defaultWorkspaceId, pages, activePageId } = get();
+    const { pageLibrary, workspaces, defaultWorkspaceId, pages } = get();
     if (Object.keys(workspaces).length >= MAX_WORKSPACES) return null;
     let n = Object.keys(workspaces).length + 1;
     let id = `ws-${n}`;
@@ -449,20 +506,36 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       id = `ws-${n}`;
     }
     const trimmed = name.trim() || `Workspace ${n}`;
-    const pagesState: WorkspacePagesState = duplicateCurrent
-      ? (JSON.parse(
-          JSON.stringify({ pages, activePageId }),
-        ) as WorkspacePagesState)
-      : {
-          pages: { "page-1": { id: "page-1", name: "Page 1", layout: [] } },
-          activePageId: "page-1",
-        };
+
+    // Both paths mint NEW library pages: duplicating deep-copies the live
+    // pages (a variant workspace must not edit the originals — that's what
+    // linking is for), a fresh workspace starts with one blank page.
+    const srcPages = duplicateCurrent
+      ? Object.values(pages)
+      : [{ id: "", name: "Page 1", layout: [] as WorkspaceLayoutItem[] }];
+    if (Object.keys(pageLibrary).length + srcPages.length > MAX_LIBRARY_PAGES) {
+      return null;
+    }
+    const nextLibrary = { ...pageLibrary };
+    const pageIds: string[] = [];
+    for (const src of srcPages) {
+      const pageId = nextPageId(nextLibrary);
+      const copy = JSON.parse(JSON.stringify(src)) as WorkspacePage;
+      nextLibrary[pageId] = { ...copy, id: pageId };
+      pageIds.push(pageId);
+    }
     const nextWorkspaces = {
       ...workspaces,
-      [id]: { id, name: trimmed, pages_state: pagesState },
+      [id]: { id, name: trimmed, pageIds, activePageId: pageIds[0] },
     };
-    set({ workspaces: nextWorkspaces });
-    persistWorkspaces({ workspaces: nextWorkspaces, defaultWorkspaceId });
+    set({ pageLibrary: nextLibrary, workspaces: nextWorkspaces });
+    persistWorkspaces(
+      fullStateOf({
+        pageLibrary: nextLibrary,
+        workspaces: nextWorkspaces,
+        defaultWorkspaceId,
+      }),
+    );
     get().switchWorkspace(id);
     return id;
   },
@@ -470,17 +543,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   renameWorkspace: (id, name) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const { workspaces, defaultWorkspaceId } = get();
+    const { pageLibrary, workspaces, defaultWorkspaceId } = get();
     const ws = workspaces[id];
     if (!ws) return;
     const nextWorkspaces = { ...workspaces, [id]: { ...ws, name: trimmed } };
     set({ workspaces: nextWorkspaces });
-    persistWorkspaces({ workspaces: nextWorkspaces, defaultWorkspaceId });
+    persistWorkspaces(
+      fullStateOf({
+        pageLibrary,
+        workspaces: nextWorkspaces,
+        defaultWorkspaceId,
+      }),
+    );
   },
 
   deleteWorkspace: (id) => {
-    const { workspaces, activeWorkspaceId, defaultWorkspaceId } = get();
+    const { pageLibrary, workspaces, activeWorkspaceId, defaultWorkspaceId } =
+      get();
     if (!workspaces[id] || Object.keys(workspaces).length <= 1) return false;
+    // Its pages stay in the library (they may be shared; orphans are still
+    // loadable from the manager).
     const nextWorkspaces = { ...workspaces };
     delete nextWorkspaces[id];
     const nextDefault =
@@ -489,27 +571,40 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         : defaultWorkspaceId;
     set({ workspaces: nextWorkspaces, defaultWorkspaceId: nextDefault });
     if (activeWorkspaceId === id) {
-      const fallback = nextWorkspaces[nextDefault];
-      const sanitized = sanitizePagesState(fallback.pages_state);
+      const resolved = pagesStateForWorkspace(
+        fullStateOf({
+          pageLibrary,
+          workspaces: nextWorkspaces,
+          defaultWorkspaceId: nextDefault,
+        }),
+        nextDefault,
+      );
+      const sanitized = sanitizePagesState(resolved ?? DEFAULT_PAGES_STATE);
       saveActiveWorkspaceId(nextDefault);
       set({
         activeWorkspaceId: nextDefault,
         pages: sanitized.pages,
         activePageId: sanitized.activePageId,
+        pageLibrary: { ...pageLibrary, ...sanitized.pages },
       });
     }
-    persistWorkspaces({
-      workspaces: nextWorkspaces,
-      defaultWorkspaceId: nextDefault,
-    });
+    persistWorkspaces(
+      fullStateOf({
+        pageLibrary: get().pageLibrary,
+        workspaces: nextWorkspaces,
+        defaultWorkspaceId: nextDefault,
+      }),
+    );
     return true;
   },
 
   setDefaultWorkspace: (id) => {
-    const { workspaces, defaultWorkspaceId } = get();
+    const { pageLibrary, workspaces, defaultWorkspaceId } = get();
     if (!workspaces[id] || defaultWorkspaceId === id) return;
     set({ defaultWorkspaceId: id });
-    persistWorkspaces({ workspaces, defaultWorkspaceId: id });
+    persistWorkspaces(
+      fullStateOf({ pageLibrary, workspaces, defaultWorkspaceId: id }),
+    );
   },
 
   updateLayout: (layout, pageId) => {
@@ -605,10 +700,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   addPage: (name) => {
-    const { pages } = get();
-    if (Object.keys(pages).length >= MAX_PAGES) return null;
+    const { pages, pageLibrary } = get();
+    if (Object.keys(pages).length >= MAX_PAGES_PER_WORKSPACE) return null;
+    if (Object.keys(pageLibrary).length >= MAX_LIBRARY_PAGES) return null;
 
-    const id = nextPageId(pages);
+    const id = nextPageId(pageLibrary);
     const pageNumber = Object.keys(pages).length + 1;
     const pageName = name?.trim() || `Page ${pageNumber}`;
     const newPage: WorkspacePage = { id, name: pageName, layout: [] };
@@ -618,21 +714,40 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return id;
   },
 
+  addPageFromLibrary: (id) => {
+    const { pages, pageLibrary } = get();
+    if (Object.keys(pages).length >= MAX_PAGES_PER_WORKSPACE) return false;
+    const page = pageLibrary[id];
+    if (!page || pages[id]) return false;
+    const nextPages = { ...pages, [id]: page };
+    set({ pages: nextPages, activePageId: id });
+    persistPages({ pages: nextPages, activePageId: id });
+    return true;
+  },
+
   renamePage: (id, name) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const { pages, activePageId } = get();
-    const page = pages[id];
+    const { pages, activePageId, pageLibrary, workspaces, defaultWorkspaceId } =
+      get();
+    const page = pageLibrary[id] ?? pages[id];
     if (!page) return;
-    const nextPages = {
-      ...pages,
-      [id]: { ...page, name: trimmed },
-    };
-    set({ pages: nextPages });
-    persistPages({ pages: nextPages, activePageId });
+    const renamed = { ...page, name: trimmed };
+    if (pages[id]) {
+      const nextPages = { ...pages, [id]: renamed };
+      set({ pages: nextPages });
+      persistPages({ pages: nextPages, activePageId });
+      return;
+    }
+    // Library-only page (not in the active workspace) — rename in place.
+    const nextLibrary = { ...pageLibrary, [id]: renamed };
+    set({ pageLibrary: nextLibrary });
+    persistWorkspaces(
+      fullStateOf({ pageLibrary: nextLibrary, workspaces, defaultWorkspaceId }),
+    );
   },
 
-  deletePage: (id) => {
+  removePageFromWorkspace: (id) => {
     const { pages, activePageId } = get();
     if (Object.keys(pages).length <= 1) return false;
     if (!pages[id]) return false;
@@ -645,17 +760,64 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       nextActivePageId = Object.keys(nextPages)[0];
     }
 
+    // persistPages rebuilds the workspace's pageIds from the live keys; the
+    // page itself stays in the library.
     set({ pages: nextPages, activePageId: nextActivePageId });
     persistPages({ pages: nextPages, activePageId: nextActivePageId });
     return true;
   },
 
+  deletePageEverywhere: (id) => {
+    const { pages, activePageId, pageLibrary, workspaces, defaultWorkspaceId } =
+      get();
+    if (!pageLibrary[id]) return false;
+    // A workspace must keep ≥1 page — refuse rather than invent a blank one.
+    for (const ws of Object.values(workspaces)) {
+      if (ws.pageIds.length === 1 && ws.pageIds[0] === id) return false;
+    }
+    const nextLibrary = { ...pageLibrary };
+    delete nextLibrary[id];
+    const nextWorkspaces: Record<string, WorkspaceSnapshot> = {};
+    for (const [wsId, ws] of Object.entries(workspaces)) {
+      const pageIds = ws.pageIds.filter((p) => p !== id);
+      nextWorkspaces[wsId] = {
+        ...ws,
+        pageIds,
+        activePageId: pageIds.includes(ws.activePageId)
+          ? ws.activePageId
+          : pageIds[0],
+      };
+    }
+    let nextPages = pages;
+    let nextActivePageId = activePageId;
+    if (pages[id]) {
+      nextPages = { ...pages };
+      delete nextPages[id];
+      if (activePageId === id) nextActivePageId = Object.keys(nextPages)[0];
+    }
+    set({
+      pages: nextPages,
+      activePageId: nextActivePageId,
+      pageLibrary: nextLibrary,
+      workspaces: nextWorkspaces,
+    });
+    persistWorkspaces(
+      fullStateOf({
+        pageLibrary: nextLibrary,
+        workspaces: nextWorkspaces,
+        defaultWorkspaceId,
+      }),
+    );
+    return true;
+  },
+
   duplicatePage: (id) => {
-    const { pages } = get();
-    if (Object.keys(pages).length >= MAX_PAGES) return null;
-    const src = pages[id];
+    const { pages, pageLibrary } = get();
+    if (Object.keys(pages).length >= MAX_PAGES_PER_WORKSPACE) return null;
+    if (Object.keys(pageLibrary).length >= MAX_LIBRARY_PAGES) return null;
+    const src = pages[id] ?? pageLibrary[id];
     if (!src) return null;
-    const newId = nextPageId(pages);
+    const newId = nextPageId(pageLibrary);
     const copy = JSON.parse(JSON.stringify(src)) as WorkspacePage;
     const newPage: WorkspacePage = {
       ...copy,
@@ -666,6 +828,40 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ pages: nextPages, activePageId: newId });
     persistPages({ pages: nextPages, activePageId: newId });
     return newId;
+  },
+
+  forkPage: (id) => {
+    const { pages, activePageId, pageLibrary } = get();
+    const src = pages[id];
+    if (!src) return null;
+    if (Object.keys(pageLibrary).length >= MAX_LIBRARY_PAGES) return null;
+    const newId = nextPageId(pageLibrary);
+    const copy = JSON.parse(JSON.stringify(src)) as WorkspacePage;
+    const newPage: WorkspacePage = { ...copy, id: newId };
+    // Swap the reference IN PLACE (same pill position); other workspaces keep
+    // the original page.
+    const nextPages: Record<string, WorkspacePage> = {};
+    for (const key of Object.keys(pages)) {
+      if (key === id) nextPages[newId] = newPage;
+      else nextPages[key] = pages[key];
+    }
+    const nextActivePageId = activePageId === id ? newId : activePageId;
+    set({ pages: nextPages, activePageId: nextActivePageId });
+    persistPages({ pages: nextPages, activePageId: nextActivePageId });
+    return newId;
+  },
+
+  movePage: (id, dir) => {
+    const { pages, activePageId } = get();
+    const keys = Object.keys(pages);
+    const idx = keys.indexOf(id);
+    const target = idx + dir;
+    if (idx === -1 || target < 0 || target >= keys.length) return;
+    [keys[idx], keys[target]] = [keys[target], keys[idx]];
+    const nextPages: Record<string, WorkspacePage> = {};
+    for (const key of keys) nextPages[key] = pages[key];
+    set({ pages: nextPages });
+    persistPages({ pages: nextPages, activePageId });
   },
 
   setActivePage: (id) => {
