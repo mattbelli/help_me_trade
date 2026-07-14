@@ -430,13 +430,11 @@ function WatchlistSymbolRow({
   const positive = displayChangePct >= 0;
 
   // Overnight is the one session where rows genuinely differ: 24/5 names and
-  // futures keep trading (violet dot = live), the rest are frozen until
-  // pre-market (dim the row — the pro "stale quote" convention). Every other
-  // session renders rows plain: state, not capability.
-  const isFutures = symbol.startsWith("/");
-  const overnightAlive = session === "overnight" && (isOvernight || isFutures);
+  // futures keep trading, the rest are frozen until pre-market (dim the row —
+  // the pro "stale quote" convention). Every other session renders rows plain:
+  // state, not capability.
   const overnightDead =
-    session === "overnight" && !isOvernight && !isFutures;
+    session === "overnight" && !isOvernight && !symbol.startsWith("/");
 
   const nextEarningsDate = quote?.next_earnings ?? null;
   const earningsDays =
@@ -603,20 +601,12 @@ function WatchlistSymbolRow({
             // centered on the ticker at any --fs size, not low toward the baseline.
             className="truncate font-medium leading-none"
           />
-          {/* Session-state dot AFTER the ticker (TradingView placement): shown
-              only during the overnight session on rows still trading (24/5
-              names + futures). Leading with the ticker keeps it flush with the
-              SYM header and the hover/selected inset tight. */}
-          {overnightAlive ? (
-            <span
-              className="size-1.5 shrink-0 rounded-full bg-[var(--c-violet)]"
-              title="Trading now — overnight (24/5)"
-              aria-label="Trading now — overnight (24/5)"
-            />
-          ) : null}
+          {/* ml-auto pins the earnings badge to the cell's right edge so
+              badges form a tidy right-aligned column instead of zig-zagging
+              after tickers of varying width. */}
           {showEarningsBadge && nextEarningsDate ? (
             <span
-              className="shrink-0 rounded px-1 py-px font-medium font-mono text-[length:var(--fs-table)] leading-none"
+              className="ml-auto shrink-0 rounded px-1 py-px font-medium font-mono text-[length:var(--fs-table)] leading-none"
               style={earningsBadgeStyle(earningsDays)}
               title={`Earnings ${nextEarningsDate}`}
             >
