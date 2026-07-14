@@ -4088,24 +4088,9 @@ def _is_valid_pages_state(state: object) -> bool:
 
 
 def _is_valid_workspaces_state(state: object) -> bool:
-    from db.workspace import MAX_WORKSPACES
+    from db.workspace import _is_valid_workspaces_state as _valid
 
-    if not isinstance(state, dict):
-        return False
-    workspaces = state.get("workspaces")
-    default_id = state.get("defaultWorkspaceId")
-    if not isinstance(workspaces, dict) or not isinstance(default_id, str):
-        return False
-    if not workspaces or len(workspaces) > MAX_WORKSPACES:
-        return False
-    for ws in workspaces.values():
-        if not isinstance(ws, dict):
-            return False
-        if not isinstance(ws.get("id"), str) or not isinstance(ws.get("name"), str):
-            return False
-        if not _is_valid_pages_state(ws.get("pages_state")):
-            return False
-    return default_id in workspaces
+    return _valid(state)
 
 
 @app.get("/api/workspace/workspaces")
@@ -4124,9 +4109,11 @@ def api_put_workspaces(body: dict = Body(...)):
         return JSONResponse(
             {
                 "error": (
-                    "workspaces_state must have a workspaces map (≤8, each with "
-                    "string id, name and a valid pages_state) and a "
-                    "defaultWorkspaceId that exists in the map"
+                    "workspaces_state must be v2: version=2, a pages library "
+                    "(1-24 valid pages), a workspaces map (≤8, each with string "
+                    "id, name, 1-5 unique pageIds that exist in the library and "
+                    "an activePageId among them) and a defaultWorkspaceId that "
+                    "exists in the map"
                 )
             },
             status_code=400,

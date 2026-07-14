@@ -83,19 +83,39 @@ export type WorkspacePagesState = {
   activePageId: string;
 };
 
-/** A named group of pages — one cockpit arrangement (e.g. widescreen vs laptop). */
+/** A named group of pages — one cockpit arrangement (e.g. widescreen vs laptop).
+    Pages are LINKED, not owned: `pageIds` reference the shared page library, so
+    the same page in two workspaces is one object — edits apply everywhere. */
 export type WorkspaceSnapshot = {
+  id: string;
+  name: string;
+  pageIds: string[];
+  activePageId: string;
+};
+
+export type WorkspacesState = {
+  version: 2;
+  /** The page library — every saved page, whether or not any workspace uses it. */
+  pages: Record<string, WorkspacePage>;
+  workspaces: Record<string, WorkspaceSnapshot>;
+  defaultWorkspaceId: string;
+};
+
+/** v1 (2026-07-14, lived one night): each workspace embedded its own pages_state. */
+type WorkspaceSnapshotV1 = {
   id: string;
   name: string;
   pages_state: WorkspacePagesState;
 };
 
-export type WorkspacesState = {
-  workspaces: Record<string, WorkspaceSnapshot>;
+type WorkspacesStateV1 = {
+  workspaces: Record<string, WorkspaceSnapshotV1>;
   defaultWorkspaceId: string;
 };
 
 export const MAX_WORKSPACES = 8;
+export const MAX_PAGES_PER_WORKSPACE = 5;
+export const MAX_LIBRARY_PAGES = 24;
 export const DEFAULT_WORKSPACE_ID = "ws-default";
 
 export interface LayoutPersistence {
@@ -282,14 +302,69 @@ export const localStoragePagesPersistence = {
   },
 };
 
-const WORKSPACES_STORAGE_KEY = "hmt-workspaces-v1";
+const WORKSPACES_STORAGE_KEY_V1 = "hmt-workspaces-v1";
+const WORKSPACES_STORAGE_KEY = "hmt-workspaces-v2";
 // Per-DEVICE choice: which workspace this browser shows. Deliberately NOT on
 // the server — the widescreen and the laptop each remember their own.
 const ACTIVE_WORKSPACE_KEY = "hmt-active-workspace";
 
+function isValidPage(raw: unknown): raw is WorkspacePage {
+  if (!raw || typeof raw !== "object") return false;
+  const p = raw as Record<string, unknown>;
+  return (
+    typeof p.id === "string" &&
+    typeof p.name === "string" &&
+    Array.isArray(p.layout) &&
+    p.layout.every(isValidLayoutItem)
+  );
+}
+
 export function isValidWorkspacesState(raw: unknown): raw is WorkspacesState {
   if (!raw || typeof raw !== "object") return false;
   const o = raw as Record<string, unknown>;
+  if (o.version !== 2) return false;
+  const pages = o.pages;
+  const workspaces = o.workspaces;
+  if (
+    !pages ||
+    typeof pages !== "object" ||
+    !workspaces ||
+    typeof workspaces !== "object" ||
+    typeof o.defaultWorkspaceId !== "string"
+  ) {
+    return false;
+  }
+  const library = pages as Record<string, unknown>;
+  const libEntries = Object.values(library);
+  if (libEntries.length === 0 || libEntries.length > MAX_LIBRARY_PAGES) {
+    return false;
+  }
+  if (!libEntries.every(isValidPage)) return false;
+
+  const wsEntries = Object.values(workspaces as Record<string, unknown>);
+  if (wsEntries.length === 0 || wsEntries.length > MAX_WORKSPACES) return false;
+  for (const ws of wsEntries) {
+    if (!ws || typeof ws !== "object") return false;
+    const w = ws as Record<string, unknown>;
+    if (typeof w.id !== "string" || typeof w.name !== "string") return false;
+    const pageIds = w.pageIds;
+    if (!Array.isArray(pageIds) || pageIds.length === 0) return false;
+    if (pageIds.length > MAX_PAGES_PER_WORKSPACE) return false;
+    if (!pageIds.every((id) => typeof id === "string" && id in library)) {
+      return false;
+    }
+    if (new Set(pageIds).size !== pageIds.length) return false;
+    if (typeof w.activePageId !== "string" || !pageIds.includes(w.activePageId)) {
+      return false;
+    }
+  }
+  return o.defaultWorkspaceId in (workspaces as Record<string, unknown>);
+}
+
+function isValidWorkspacesStateV1(raw: unknown): raw is WorkspacesStateV1 {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  if ("version" in o) return false;
   const workspaces = o.workspaces;
   if (
     !workspaces ||
@@ -298,9 +373,9 @@ export function isValidWorkspacesState(raw: unknown): raw is WorkspacesState {
   ) {
     return false;
   }
-  const entries = Object.entries(workspaces as Record<string, unknown>);
+  const entries = Object.values(workspaces as Record<string, unknown>);
   if (entries.length === 0 || entries.length > MAX_WORKSPACES) return false;
-  for (const [, ws] of entries) {
+  for (const ws of entries) {
     if (!ws || typeof ws !== "object") return false;
     const w = ws as Record<string, unknown>;
     if (typeof w.id !== "string" || typeof w.name !== "string") return false;
@@ -309,10 +384,40 @@ export function isValidWorkspacesState(raw: unknown): raw is WorkspacesState {
   return o.defaultWorkspaceId in (workspaces as Record<string, unknown>);
 }
 
+/** Hoist v1 embedded pages into the shared library. Original page ids survive
+    where unique; collisions across workspaces get fresh `pg-N` ids. */
+export function migrateWorkspacesV1(v1: WorkspacesStateV1): WorkspacesState {
+  const library: Record<string, WorkspacePage> = {};
+  const workspaces: Record<string, WorkspaceSnapshot> = {};
+  let counter = 1;
+  for (const ws of Object.values(v1.workspaces)) {
+    const idMap: Record<string, string> = {};
+    for (const [oldId, page] of Object.entries(ws.pages_state.pages)) {
+      let newId = oldId;
+      while (newId in library) {
+        newId = `pg-${counter}`;
+        counter += 1;
+      }
+      idMap[oldId] = newId;
+      library[newId] = { ...page, id: newId };
+    }
+    const pageIds = Object.keys(ws.pages_state.pages).map((id) => idMap[id]);
+    const activePageId =
+      idMap[ws.pages_state.activePageId] ?? pageIds[0];
+    workspaces[ws.id] = { id: ws.id, name: ws.name, pageIds, activePageId };
+  }
+  return {
+    version: 2,
+    pages: library,
+    workspaces,
+    defaultWorkspaceId: v1.defaultWorkspaceId,
+  };
+}
+
 export function wrapPagesAsWorkspacesState(
   pagesState: WorkspacePagesState,
 ): WorkspacesState {
-  return {
+  return migrateWorkspacesV1({
     workspaces: {
       [DEFAULT_WORKSPACE_ID]: {
         id: DEFAULT_WORKSPACE_ID,
@@ -321,7 +426,26 @@ export function wrapPagesAsWorkspacesState(
       },
     },
     defaultWorkspaceId: DEFAULT_WORKSPACE_ID,
-  };
+  });
+}
+
+/** Resolve a workspace's live pages view: an ORDERED record following pageIds
+    (Object.keys order drives the page pills). Unknown refs are dropped. */
+export function pagesStateForWorkspace(
+  state: WorkspacesState,
+  workspaceId: string,
+): WorkspacePagesState | null {
+  const ws = state.workspaces[workspaceId];
+  if (!ws) return null;
+  const pages: Record<string, WorkspacePage> = {};
+  for (const id of ws.pageIds) {
+    const page = state.pages[id];
+    if (page) pages[id] = page;
+  }
+  if (Object.keys(pages).length === 0) return null;
+  const activePageId =
+    ws.activePageId in pages ? ws.activePageId : Object.keys(pages)[0];
+  return { pages, activePageId };
 }
 
 export const localStorageWorkspacesPersistence = {
@@ -329,9 +453,19 @@ export const localStorageWorkspacesPersistence = {
     if (typeof window === "undefined") return null;
     try {
       const raw = window.localStorage.getItem(WORKSPACES_STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as unknown;
-      return isValidWorkspacesState(parsed) ? parsed : null;
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown;
+        if (isValidWorkspacesState(parsed)) return parsed;
+      }
+      // One-time migration from the v1 cache (shipped the night before v2).
+      const rawV1 = window.localStorage.getItem(WORKSPACES_STORAGE_KEY_V1);
+      if (rawV1) {
+        const parsedV1 = JSON.parse(rawV1) as unknown;
+        if (isValidWorkspacesStateV1(parsedV1)) {
+          return migrateWorkspacesV1(parsedV1);
+        }
+      }
+      return null;
     } catch {
       return null;
     }
