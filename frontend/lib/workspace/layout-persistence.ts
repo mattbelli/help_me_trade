@@ -83,6 +83,21 @@ export type WorkspacePagesState = {
   activePageId: string;
 };
 
+/** A named group of pages — one cockpit arrangement (e.g. widescreen vs laptop). */
+export type WorkspaceSnapshot = {
+  id: string;
+  name: string;
+  pages_state: WorkspacePagesState;
+};
+
+export type WorkspacesState = {
+  workspaces: Record<string, WorkspaceSnapshot>;
+  defaultWorkspaceId: string;
+};
+
+export const MAX_WORKSPACES = 8;
+export const DEFAULT_WORKSPACE_ID = "ws-default";
+
 export interface LayoutPersistence {
   load(): WorkspaceLayoutItem[] | null;
   save(layout: WorkspaceLayoutItem[]): void;
@@ -266,6 +281,83 @@ export const localStoragePagesPersistence = {
     window.localStorage.setItem(STORAGE_KEY_V3, JSON.stringify(state));
   },
 };
+
+const WORKSPACES_STORAGE_KEY = "hmt-workspaces-v1";
+// Per-DEVICE choice: which workspace this browser shows. Deliberately NOT on
+// the server — the widescreen and the laptop each remember their own.
+const ACTIVE_WORKSPACE_KEY = "hmt-active-workspace";
+
+export function isValidWorkspacesState(raw: unknown): raw is WorkspacesState {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  const workspaces = o.workspaces;
+  if (
+    !workspaces ||
+    typeof workspaces !== "object" ||
+    typeof o.defaultWorkspaceId !== "string"
+  ) {
+    return false;
+  }
+  const entries = Object.entries(workspaces as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > MAX_WORKSPACES) return false;
+  for (const [, ws] of entries) {
+    if (!ws || typeof ws !== "object") return false;
+    const w = ws as Record<string, unknown>;
+    if (typeof w.id !== "string" || typeof w.name !== "string") return false;
+    if (!isValidPagesState(w.pages_state)) return false;
+  }
+  return o.defaultWorkspaceId in (workspaces as Record<string, unknown>);
+}
+
+export function wrapPagesAsWorkspacesState(
+  pagesState: WorkspacePagesState,
+): WorkspacesState {
+  return {
+    workspaces: {
+      [DEFAULT_WORKSPACE_ID]: {
+        id: DEFAULT_WORKSPACE_ID,
+        name: "Main",
+        pages_state: pagesState,
+      },
+    },
+    defaultWorkspaceId: DEFAULT_WORKSPACE_ID,
+  };
+}
+
+export const localStorageWorkspacesPersistence = {
+  load(): WorkspacesState | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(WORKSPACES_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      return isValidWorkspacesState(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  },
+  save(state: WorkspacesState): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(WORKSPACES_STORAGE_KEY, JSON.stringify(state));
+  },
+};
+
+export function loadActiveWorkspaceId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveActiveWorkspaceId(id: string): void {
+  try {
+    window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
+  } catch {
+    // ignore quota / private mode
+  }
+}
 
 /** @deprecated Legacy v2 cache — kept for one-time client fallback only. */
 export const localStorageLayoutPersistence: LayoutPersistence = {

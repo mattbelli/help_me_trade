@@ -4087,6 +4087,54 @@ def _is_valid_pages_state(state: object) -> bool:
     return all(_is_valid_workspace_page(page) for page in pages.values())
 
 
+def _is_valid_workspaces_state(state: object) -> bool:
+    from db.workspace import MAX_WORKSPACES
+
+    if not isinstance(state, dict):
+        return False
+    workspaces = state.get("workspaces")
+    default_id = state.get("defaultWorkspaceId")
+    if not isinstance(workspaces, dict) or not isinstance(default_id, str):
+        return False
+    if not workspaces or len(workspaces) > MAX_WORKSPACES:
+        return False
+    for ws in workspaces.values():
+        if not isinstance(ws, dict):
+            return False
+        if not isinstance(ws.get("id"), str) or not isinstance(ws.get("name"), str):
+            return False
+        if not _is_valid_pages_state(ws.get("pages_state")):
+            return False
+    return default_id in workspaces
+
+
+@app.get("/api/workspace/workspaces")
+def api_get_workspaces():
+    from db.workspace import load_workspaces
+
+    return {"workspaces_state": load_workspaces()}
+
+
+@app.put("/api/workspace/workspaces")
+def api_put_workspaces(body: dict = Body(...)):
+    from db.workspace import save_workspaces
+
+    workspaces_state = body.get("workspaces_state")
+    if not _is_valid_workspaces_state(workspaces_state):
+        return JSONResponse(
+            {
+                "error": (
+                    "workspaces_state must have a workspaces map (≤8, each with "
+                    "string id, name and a valid pages_state) and a "
+                    "defaultWorkspaceId that exists in the map"
+                )
+            },
+            status_code=400,
+        )
+    save_workspaces(workspaces_state)
+    return {"ok": True}
+
+
 @app.get("/api/workspace/pages")
 def api_get_workspace_pages():
     return {"pages_state": load_workspace_pages()}

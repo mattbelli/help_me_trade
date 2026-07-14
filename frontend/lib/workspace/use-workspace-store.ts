@@ -3,18 +3,25 @@
 import { create } from "zustand";
 
 import { CHART_TIMEFRAMES } from "@/lib/chart-time";
-import { fetchWorkspacePages, saveWorkspacePages } from "@/lib/api";
+import { fetchWorkspaces, saveWorkspacePages, saveWorkspaces } from "@/lib/api";
 
 import {
   DEFAULT_PAGES_STATE,
   DEFAULT_WORKSPACE_LAYOUT,
+  loadActiveWorkspaceId,
   loadLegacyV2Layout,
   localStoragePagesPersistence,
+  localStorageWorkspacesPersistence,
+  MAX_WORKSPACES,
+  saveActiveWorkspaceId,
   wrapLayoutAsPagesState,
+  wrapPagesAsWorkspacesState,
   type WidgetInstanceConfig,
   type WorkspaceLayoutItem,
   type WorkspacePage,
   type WorkspacePagesState,
+  type WorkspaceSnapshot,
+  type WorkspacesState,
 } from "./layout-persistence";
 import { useChannelStore } from "./use-channel-store";
 import { GRID_DEFAULT_COLS } from "./grid-metrics";
@@ -32,6 +39,12 @@ type VisibleRows = { top: number; bottom: number };
 type WorkspaceState = {
   pages: Record<string, WorkspacePage>;
   activePageId: string;
+  // Named groups of pages. `pages`/`activePageId` above are the LIVE editing
+  // state of the active workspace; every persist writes them back into
+  // `workspaces[activeWorkspaceId].pages_state`.
+  workspaces: Record<string, WorkspaceSnapshot>;
+  activeWorkspaceId: string;
+  defaultWorkspaceId: string;
   hydrated: boolean;
   locked: boolean;
   pickerOpen: boolean;
@@ -53,7 +66,13 @@ type WorkspaceState = {
   addPage: (name?: string) => string | null;
   renamePage: (id: string, name: string) => void;
   deletePage: (id: string) => boolean;
+  duplicatePage: (id: string) => string | null;
   setActivePage: (id: string) => void;
+  switchWorkspace: (id: string) => void;
+  addWorkspace: (name: string, duplicateCurrent?: boolean) => string | null;
+  renameWorkspace: (id: string, name: string) => void;
+  deleteWorkspace: (id: string) => boolean;
+  setDefaultWorkspace: (id: string) => void;
   toggleLock: () => void;
   setPickerOpen: (open: boolean) => void;
   openPicker: () => void;
@@ -223,25 +242,25 @@ function nextPageId(pages: Record<string, WorkspacePage>): string {
 
 // ── Debounced server save ──────────────────────────────────────────────────────
 let _serverSaveTimer: ReturnType<typeof setTimeout> | null = null;
-let _pendingPagesState: WorkspacePagesState | null = null;
+let _pendingWorkspacesState: WorkspacesState | null = null;
 let _hasPendingServerSave = false;
 const SERVER_SAVE_DEBOUNCE_MS = 500;
 
 function flushPendingServerSave(): void {
-  if (!_pendingPagesState) return;
-  const state = _pendingPagesState;
-  _pendingPagesState = null;
-  void saveWorkspacePages(state)
+  if (!_pendingWorkspacesState) return;
+  const state = _pendingWorkspacesState;
+  _pendingWorkspacesState = null;
+  void saveWorkspaces(state)
     .catch((err) => {
       console.warn("[workspace] server save error (swallowed):", err);
     })
     .finally(() => {
-      if (!_pendingPagesState) _hasPendingServerSave = false;
+      if (!_pendingWorkspacesState) _hasPendingServerSave = false;
     });
 }
 
-function scheduleServerSave(pagesState: WorkspacePagesState): void {
-  _pendingPagesState = pagesState;
+function scheduleServerSave(state: WorkspacesState): void {
+  _pendingWorkspacesState = state;
   _hasPendingServerSave = true;
   if (_serverSaveTimer !== null) clearTimeout(_serverSaveTimer);
   _serverSaveTimer = setTimeout(() => {
@@ -263,9 +282,41 @@ if (typeof window !== "undefined") {
   window.addEventListener("pagehide", flushOnHide);
 }
 
+// Fold the live pages state back into the active workspace and persist the
+// whole workspaces set (localStorage + debounced server PUT). Also keeps the
+// legacy per-pages cache warm so a rolled-back bundle still finds a layout.
 function persistPages(pagesState: WorkspacePagesState): void {
+  const { workspaces, activeWorkspaceId, defaultWorkspaceId } =
+    useWorkspaceStore.getState();
+  const active = workspaces[activeWorkspaceId];
+  const nextWorkspaces = active
+    ? {
+        ...workspaces,
+        [activeWorkspaceId]: { ...active, pages_state: pagesState },
+      }
+    : workspaces;
+  useWorkspaceStore.setState({ workspaces: nextWorkspaces });
+  const full: WorkspacesState = {
+    workspaces: nextWorkspaces,
+    defaultWorkspaceId,
+  };
+  localStorageWorkspacesPersistence.save(full);
   localStoragePagesPersistence.save(pagesState);
-  scheduleServerSave(pagesState);
+  scheduleServerSave(full);
+  // TRANSITIONAL: also PUT the legacy pages endpoint while the backend may
+  // predate /api/workspace/workspaces — its server-side migration wraps the
+  // pages blob, so keeping that blob fresh means no edits are lost across the
+  // switchover. Drop once the workspaces endpoint is confirmed live.
+  if (activeWorkspaceId === defaultWorkspaceId) {
+    void saveWorkspacePages(pagesState);
+  }
+}
+
+// Persist a workspaces-level change (add/rename/delete/set-default) that
+// doesn't touch the live pages state.
+function persistWorkspaces(state: WorkspacesState): void {
+  localStorageWorkspacesPersistence.save(state);
+  scheduleServerSave(state);
 }
 
 /** Flush any debounced layout save (e.g. on workspace unmount). */
@@ -278,9 +329,14 @@ export function flushWorkspaceLayoutSave(): void {
 }
 // ── Store ──────────────────────────────────────────────────────────────────────
 
+const INITIAL_WORKSPACES = wrapPagesAsWorkspacesState(DEFAULT_PAGES_STATE);
+
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   pages: DEFAULT_PAGES_STATE.pages,
   activePageId: DEFAULT_PAGES_STATE.activePageId,
+  workspaces: INITIAL_WORKSPACES.workspaces,
+  activeWorkspaceId: INITIAL_WORKSPACES.defaultWorkspaceId,
+  defaultWorkspaceId: INITIAL_WORKSPACES.defaultWorkspaceId,
   hydrated: false,
   locked: false,
   pickerOpen: false,
@@ -306,61 +362,154 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   hydrate: async () => {
     if (get().hydrated && _hasPendingServerSave) return;
 
-    let serverPages: WorkspacePagesState | null = null;
+    // Resolve the full workspaces set: server (which auto-migrates from the
+    // old pages blob) → localStorage cache → legacy pages/v2 caches wrapped as
+    // a single "Main" workspace → factory default.
+    let workspacesState: WorkspacesState | null = null;
     try {
-      serverPages = await fetchWorkspacePages();
+      workspacesState = await fetchWorkspaces();
     } catch {
       // server unreachable — silently fall back
     }
-
-    if (serverPages && Object.keys(serverPages.pages).length > 0) {
-      const sanitized = sanitizePagesState(serverPages);
-      localStoragePagesPersistence.save(sanitized);
-      set({
-        pages: sanitized.pages,
-        activePageId: sanitized.activePageId,
-        hydrated: true,
-        locked: loadLocked(),
-      });
-      return;
+    if (!workspacesState) {
+      workspacesState = localStorageWorkspacesPersistence.load();
+    }
+    if (!workspacesState) {
+      const cachedPages = localStoragePagesPersistence.load();
+      if (cachedPages && Object.keys(cachedPages.pages).length > 0) {
+        workspacesState = wrapPagesAsWorkspacesState(cachedPages);
+      }
+    }
+    if (!workspacesState) {
+      const legacyLayout = loadLegacyV2Layout();
+      if (legacyLayout && legacyLayout.length > 0) {
+        const known = filterKnownLayout(legacyLayout);
+        const layout = known.length > 0 ? known : DEFAULT_WORKSPACE_LAYOUT;
+        workspacesState = wrapPagesAsWorkspacesState(
+          wrapLayoutAsPagesState(layout),
+        );
+      }
+    }
+    if (!workspacesState) {
+      workspacesState = wrapPagesAsWorkspacesState(DEFAULT_PAGES_STATE);
     }
 
-    const cached = localStoragePagesPersistence.load();
-    if (cached && Object.keys(cached.pages).length > 0) {
-      const sanitized = sanitizePagesState(cached);
-      localStoragePagesPersistence.save(sanitized);
-      scheduleServerSave(sanitized);
-      set({
-        pages: sanitized.pages,
-        activePageId: sanitized.activePageId,
-        hydrated: true,
-        locked: loadLocked(),
-      });
-      return;
-    }
+    // This DEVICE's workspace choice; fall back to the shared default.
+    const storedActive = loadActiveWorkspaceId();
+    const activeWorkspaceId =
+      storedActive && workspacesState.workspaces[storedActive]
+        ? storedActive
+        : workspacesState.defaultWorkspaceId;
 
-    const legacyLayout = loadLegacyV2Layout();
-    if (legacyLayout && legacyLayout.length > 0) {
-      const known = filterKnownLayout(legacyLayout);
-      const layout = known.length > 0 ? known : DEFAULT_WORKSPACE_LAYOUT;
-      const wrapped = wrapLayoutAsPagesState(layout);
-      localStoragePagesPersistence.save(wrapped);
-      scheduleServerSave(wrapped);
-      set({
-        pages: wrapped.pages,
-        activePageId: wrapped.activePageId,
-        hydrated: true,
-        locked: loadLocked(),
-      });
-      return;
-    }
-
+    const activeWs = workspacesState.workspaces[activeWorkspaceId];
+    const sanitized = sanitizePagesState(activeWs.pages_state);
+    const workspaces = {
+      ...workspacesState.workspaces,
+      [activeWorkspaceId]: { ...activeWs, pages_state: sanitized },
+    };
+    localStorageWorkspacesPersistence.save({
+      workspaces,
+      defaultWorkspaceId: workspacesState.defaultWorkspaceId,
+    });
+    localStoragePagesPersistence.save(sanitized);
     set({
-      pages: DEFAULT_PAGES_STATE.pages,
-      activePageId: DEFAULT_PAGES_STATE.activePageId,
+      pages: sanitized.pages,
+      activePageId: sanitized.activePageId,
+      workspaces,
+      activeWorkspaceId,
+      defaultWorkspaceId: workspacesState.defaultWorkspaceId,
       hydrated: true,
       locked: loadLocked(),
     });
+  },
+
+  switchWorkspace: (id) => {
+    const { workspaces, activeWorkspaceId } = get();
+    const target = workspaces[id];
+    if (!target || id === activeWorkspaceId) return;
+    // Any pending debounced save still carries the OLD active workspace's
+    // pages inside the full workspaces state — flush it before swapping.
+    flushWorkspaceLayoutSave();
+    const sanitized = sanitizePagesState(target.pages_state);
+    saveActiveWorkspaceId(id);
+    set({
+      activeWorkspaceId: id,
+      pages: sanitized.pages,
+      activePageId: sanitized.activePageId,
+    });
+  },
+
+  addWorkspace: (name, duplicateCurrent) => {
+    const { workspaces, defaultWorkspaceId, pages, activePageId } = get();
+    if (Object.keys(workspaces).length >= MAX_WORKSPACES) return null;
+    let n = Object.keys(workspaces).length + 1;
+    let id = `ws-${n}`;
+    while (workspaces[id]) {
+      n += 1;
+      id = `ws-${n}`;
+    }
+    const trimmed = name.trim() || `Workspace ${n}`;
+    const pagesState: WorkspacePagesState = duplicateCurrent
+      ? (JSON.parse(
+          JSON.stringify({ pages, activePageId }),
+        ) as WorkspacePagesState)
+      : {
+          pages: { "page-1": { id: "page-1", name: "Page 1", layout: [] } },
+          activePageId: "page-1",
+        };
+    const nextWorkspaces = {
+      ...workspaces,
+      [id]: { id, name: trimmed, pages_state: pagesState },
+    };
+    set({ workspaces: nextWorkspaces });
+    persistWorkspaces({ workspaces: nextWorkspaces, defaultWorkspaceId });
+    get().switchWorkspace(id);
+    return id;
+  },
+
+  renameWorkspace: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { workspaces, defaultWorkspaceId } = get();
+    const ws = workspaces[id];
+    if (!ws) return;
+    const nextWorkspaces = { ...workspaces, [id]: { ...ws, name: trimmed } };
+    set({ workspaces: nextWorkspaces });
+    persistWorkspaces({ workspaces: nextWorkspaces, defaultWorkspaceId });
+  },
+
+  deleteWorkspace: (id) => {
+    const { workspaces, activeWorkspaceId, defaultWorkspaceId } = get();
+    if (!workspaces[id] || Object.keys(workspaces).length <= 1) return false;
+    const nextWorkspaces = { ...workspaces };
+    delete nextWorkspaces[id];
+    const nextDefault =
+      defaultWorkspaceId === id
+        ? Object.keys(nextWorkspaces)[0]
+        : defaultWorkspaceId;
+    set({ workspaces: nextWorkspaces, defaultWorkspaceId: nextDefault });
+    if (activeWorkspaceId === id) {
+      const fallback = nextWorkspaces[nextDefault];
+      const sanitized = sanitizePagesState(fallback.pages_state);
+      saveActiveWorkspaceId(nextDefault);
+      set({
+        activeWorkspaceId: nextDefault,
+        pages: sanitized.pages,
+        activePageId: sanitized.activePageId,
+      });
+    }
+    persistWorkspaces({
+      workspaces: nextWorkspaces,
+      defaultWorkspaceId: nextDefault,
+    });
+    return true;
+  },
+
+  setDefaultWorkspace: (id) => {
+    const { workspaces, defaultWorkspaceId } = get();
+    if (!workspaces[id] || defaultWorkspaceId === id) return;
+    set({ defaultWorkspaceId: id });
+    persistWorkspaces({ workspaces, defaultWorkspaceId: id });
   },
 
   updateLayout: (layout, pageId) => {
@@ -499,6 +648,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ pages: nextPages, activePageId: nextActivePageId });
     persistPages({ pages: nextPages, activePageId: nextActivePageId });
     return true;
+  },
+
+  duplicatePage: (id) => {
+    const { pages } = get();
+    if (Object.keys(pages).length >= MAX_PAGES) return null;
+    const src = pages[id];
+    if (!src) return null;
+    const newId = nextPageId(pages);
+    const copy = JSON.parse(JSON.stringify(src)) as WorkspacePage;
+    const newPage: WorkspacePage = {
+      ...copy,
+      id: newId,
+      name: `${src.name} 2`,
+    };
+    const nextPages = { ...pages, [newId]: newPage };
+    set({ pages: nextPages, activePageId: newId });
+    persistPages({ pages: nextPages, activePageId: newId });
+    return newId;
   },
 
   setActivePage: (id) => {

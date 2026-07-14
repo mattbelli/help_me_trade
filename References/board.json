@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "workspaces-saved-pages",
+      "title": "Workspaces: save pages + named groups of pages, per-device active",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "fable",
+      "notes": "Founder overnight ask ('kind of a big one'): save individual pages, group them into named WORKSPACES (widescreen vs laptop), per-device selection. Spec: References/WORKSPACES_SPEC.md. Shipped: backend workspaces KV + GET/PUT /api/workspace/workspaces (migrates the pages blob to a 'Main' workspace; 9 tests), store layer (live pages fold back into the active workspace; localStorage hmt-active-workspace = per-device choice; transitional legacy /pages PUT so no edits are lost before the backend restart), workspace switcher in the bottom strip (switch/new/duplicate/rename/delete/set-default), page context menu gains Duplicate. ⚠ server sync activates at the NEXT BACKEND RESTART (not bounced overnight — needs founder auth or the Jul-15 reauth-cron restart); until then workspaces are per-device localStorage. Founder review pending."
+    },
+    {
       "id": "widget-consistency-pass",
       "title": "Widget consistency pass: per-widget formatting/style cleanup (filings, options flow, notifications, …)",
       "lane": "in_progress",

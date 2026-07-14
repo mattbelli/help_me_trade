@@ -1,6 +1,11 @@
 import type { AiSettings } from "./ai-settings";
 import type { CustomTheme } from "./workspace/custom-themes";
-import type { WorkspaceLayoutItem, WorkspacePagesState } from "./workspace/layout-persistence";
+import type {
+  WorkspaceLayoutItem,
+  WorkspacePagesState,
+  WorkspacesState,
+} from "./workspace/layout-persistence";
+import { isValidWorkspacesState } from "./workspace/layout-persistence";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -1355,6 +1360,32 @@ export async function saveWorkspacePages(
     });
   } catch (err) {
     console.warn("[workspace] server pages save failed:", err);
+  }
+}
+
+export async function fetchWorkspaces(): Promise<WorkspacesState | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/workspaces`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const state: unknown = data.workspaces_state;
+    return isValidWorkspacesState(state) ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspaces(state: WorkspacesState): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/workspaces`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaces_state: state }),
+    });
+  } catch (err) {
+    console.warn("[workspace] server workspaces save failed:", err);
   }
 }
 

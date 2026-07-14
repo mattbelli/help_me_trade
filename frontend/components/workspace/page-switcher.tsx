@@ -149,6 +149,7 @@ export function PageSwitcher() {
   const addPage = useWorkspaceStore((s) => s.addPage);
   const renamePage = useWorkspaceStore((s) => s.renamePage);
   const deletePage = useWorkspaceStore((s) => s.deletePage);
+  const duplicatePage = useWorkspaceStore((s) => s.duplicatePage);
 
   const pageIds = Object.keys(pages);
   const atCap = pageIds.length >= MAX_PAGES;
@@ -281,6 +282,18 @@ export function PageSwitcher() {
               >
                 Rename
               </button>
+              {!atCap ? (
+                <button
+                  type="button"
+                  className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                  onClick={() => {
+                    duplicatePage(contextMenu.pageId);
+                    setContextMenu(null);
+                  }}
+                >
+                  Duplicate
+                </button>
+              ) : null}
               {canDelete ? (
                 <button
                   type="button"
