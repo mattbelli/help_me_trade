@@ -23,6 +23,7 @@ from signals.options_flow.constants import (
     OPTIONS_FLOW_MAX_UNDERLYINGS,
     POLL_COLD_START_LOOKBACK_MINUTES,
     POLL_QUOTE_CHUNK,
+    STREAM_TRADES_MAX,
 )
 from signals.options_flow.detect import detect_uv1
 from signals.options_flow.intraday import (
@@ -148,6 +149,7 @@ class PollState:
     active: dict[str, dict] = field(default_factory=dict)
     cursors: dict[str, str] = field(default_factory=dict)
     oi: dict[str, int] = field(default_factory=dict)
+    oi_seed: dict[str, list[str]] = field(default_factory=dict)
     oi_day: str | None = None
     last_active_refresh_ms: int = 0
     day_prints: dict[str, list[dict]] = field(default_factory=dict)
@@ -161,6 +163,7 @@ class PollState:
         self.active.clear()
         self.cursors.clear()
         self.oi.clear()
+        self.oi_seed.clear()
         self.oi_day = None
         self.last_active_refresh_ms = 0
         self.day_prints.clear()
@@ -425,6 +428,14 @@ def _refresh_oi(
         if s and str(s).strip()
     ][:OPTIONS_FLOW_MAX_UNDERLYINGS]
 
+    # Unlike the live-trade ranking (only a handful of contracts per underlying trade),
+    # the OI seed fills every underlying at once, so the watchlist seeding together must
+    # stay inside the stream's trade-sub budget — _desired_trades() clips alphabetically
+    # and would silently drop underlyings from the back of the alphabet.
+    seed_cap = min(
+        ACTIVE_SET_PER_UNDERLYING, STREAM_TRADES_MAX // max(len(capped), 1)
+    )
+
     for u in capped:
         try:
             contracts = adapter.get_option_contracts(
@@ -432,6 +443,7 @@ def _refresh_oi(
             )
             if not isinstance(contracts, list):
                 continue
+            seeds: list[tuple[int, str]] = []
             for c in contracts:
                 if not isinstance(c, dict):
                     continue
@@ -441,9 +453,12 @@ def _refresh_oi(
                 oi = _int_oi(c.get("open_interest"))
                 if oi is not None:
                     state.oi[occ] = oi
+                    seeds.append((oi, occ))
                 meta = _meta_from_contract({**c, "underlying_symbol": u}, today_et)
                 if meta is not None and occ in state.active:
                     state.active[occ] = meta
+            seeds.sort(reverse=True)
+            state.oi_seed[u] = [occ for _, occ in seeds[:seed_cap]]
         except Exception:
             logger.exception("options_flow poll: OI refresh failed for %s", u)
             continue
@@ -491,7 +506,13 @@ def _refresh_active_set(
                 ranked.append((ts_ms, size, str(occ).strip().upper(), snap))
 
             ranked.sort(key=lambda t: (t[0], t[1]), reverse=True)
-            for _, _, occ, _snap in ranked[:ACTIVE_SET_PER_UNDERLYING]:
+            picks = [occ for _, _, occ, _snap in ranked[:ACTIVE_SET_PER_UNDERLYING]]
+            if not picks:
+                # Nothing has traded today yet — at the bell this ranking is empty by
+                # construction, which used to leave the stream unsubscribed through the
+                # open. Seed from prior-session OI so the burst is covered.
+                picks = state.oi_seed.get(u, [])
+            for occ in picks:
                 meta = _meta_from_occ(occ, u, today_et)
                 if meta is not None:
                     new_active[occ] = meta
