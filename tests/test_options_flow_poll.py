@@ -213,6 +213,27 @@ def test_oi_refresh_handles_string_and_none(tmp_path: Path) -> None:
     assert "AAPL260821P00140000" not in st.oi
 
 
+# --- underlying eligibility ---------------------------------------------------------
+
+
+def test_eligible_underlyings_drops_futures_and_warns_over_cap(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Futures roots can't carry Alpaca options; over-cap must be loud, not silent."""
+    import logging
+
+    import signals.options_flow.scan as scan_mod
+    from signals.options_flow.scan import eligible_underlyings
+
+    monkeypatch.setattr(scan_mod, "OPTIONS_FLOW_MAX_UNDERLYINGS", 3)
+    with caplog.at_level(logging.WARNING, logger="signals.options_flow.scan"):
+        got = eligible_underlyings(["/ES", "/CL", "AAPL", "MSFT", "NVDA", "SPY", "TSLA"])
+
+    # /ES and /CL used to burn 2 of the slots (and a 400ing REST call) each cycle.
+    assert got == ["AAPL", "MSFT", "NVDA"]
+    assert "NOT watching SPY,TSLA" in caplog.text
+
+
 # --- active set -------------------------------------------------------------------
 
 
@@ -247,6 +268,45 @@ def test_active_set_ranks_and_caps_at_60(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "NVDA260821C00000003" in st.active
     assert "NVDA260821C00000002" in st.active
     assert "NVDA260821C00000000" not in st.active
+
+
+def test_active_set_allocates_budget_round_robin_not_alphabetically(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Over budget, every underlying keeps its top picks — no ticker dies by spelling.
+
+    _desired_trades() clips sorted(state.active) at STREAM_TRADES_MAX, so anything
+    handed to it past the budget is dropped purely alphabetically (SPY/TSLA sort last).
+    """
+    import signals.options_flow.poll as poll_mod
+
+    monkeypatch.setattr(poll_mod, "STREAM_TRADES_MAX", 4)
+    monkeypatch.setattr(poll_mod, "ACTIVE_SET_PER_UNDERLYING", 60)
+
+    snaps_by_u: dict[str, dict] = {}
+    for u in ("AAAA", "ZZZZ"):
+        snaps_by_u[u] = {
+            f"{u}260821C{i:08d}": _snapshot_trade(ts=f"{TODAY}T14:{i:02d}:00Z", size=10 + i)
+            for i in range(5)
+        }
+    adapter = FakeAdapter(
+        contracts_by_u={"AAAA": [], "ZZZZ": []}, snapshots_by_u=snaps_by_u
+    )
+    st = PollState()
+    run_poll_once(
+        adapter,
+        symbols=["AAAA", "ZZZZ"],
+        today_et=TODAY,
+        now_ms=NOW_MS,
+        state=st,
+    )
+
+    assert len(st.active) == 4
+    first = [o for o in st.active if o.startswith("AAAA")]
+    last = [o for o in st.active if o.startswith("ZZZZ")]
+    assert len(first) == 2 and len(last) == 2, f"budget not shared: {sorted(st.active)}"
+    # and each kept its OWN top-ranked contract (i=4 is newest+largest)
+    assert {"AAAA260821C00000004", "ZZZZ260821C00000004"} <= set(st.active)
 
 
 def test_active_set_seeds_from_oi_when_nothing_traded_today(
