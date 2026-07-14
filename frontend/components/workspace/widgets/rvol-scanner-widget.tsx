@@ -168,7 +168,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
               </span>
               {/* Symbol */}
               <span className="group/sym inline-flex min-w-0 items-center gap-0.5">
-                <span className="truncate font-medium text-[var(--c-accent)] underline-offset-2 hover:underline">
+                <span className="truncate font-medium text-[var(--c-accent)] uppercase underline-offset-2 hover:underline">
                   {row.symbol}
                 </span>
                 <span

@@ -415,7 +415,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                           }
                         }}
                         className={cn(
-                          "truncate font-medium text-[var(--c-accent)]",
+                          "truncate font-medium text-[var(--c-accent)] uppercase",
                           linked ? "cursor-pointer hover:underline" : "cursor-default",
                         )}
                       >

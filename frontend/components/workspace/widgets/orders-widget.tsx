@@ -149,7 +149,6 @@ function FilledTab({
                       symbol={sym}
                       linked={linked}
                       onActivate={() => publish(sym)}
-                      className={sideClass(e.side)}
                     />
                   ) : (
                     "—"
@@ -323,7 +322,6 @@ function RejectedTab({
                   symbol={x.symbol}
                   linked={linked}
                   onActivate={() => publish(x.symbol)}
-                  className={sideClass(x.side)}
                 />
               </td>
               <td

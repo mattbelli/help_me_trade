@@ -31,14 +31,16 @@ export function ClickableSymbol({
             onActivate();
           }}
           className={cn(
-            "cursor-pointer text-[var(--c-accent)] underline-offset-2 transition-colors hover:underline",
+            "cursor-pointer text-[var(--c-accent)] uppercase underline-offset-2 transition-colors hover:underline",
             className,
           )}
         >
           {symbol}
         </button>
       ) : (
-        <span className={cn("text-[var(--c-accent)]", className)}>{symbol}</span>
+        <span className={cn("text-[var(--c-accent)] uppercase", className)}>
+          {symbol}
+        </span>
       )}
       <button
         type="button"
@@ -47,7 +49,7 @@ export function ClickableSymbol({
           openTickerInfo(symbol);
         }}
         aria-label={`${symbol} info`}
-        className="text-[var(--fg)] opacity-0 transition-opacity group-hover/sym:opacity-100 group-hover/row:opacity-100 focus-visible:opacity-100"
+        className="text-[var(--fg-dim)] opacity-0 transition-opacity group-hover/sym:opacity-100 group-hover/row:opacity-100 focus-visible:opacity-100"
       >
         <Info className="size-3.5" />
       </button>

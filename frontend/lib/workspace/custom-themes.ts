@@ -233,11 +233,28 @@ function withDerivedVars(vars: Record<string, string>): Record<string, string> {
 }
 
 export function buildCustomThemeCss(themes: CustomTheme[]): string {
+  // Themes saved before newer knobs/chrome vars existed carry no value for
+  // them, so those vars would cascade to :root's CARBON colors — off-palette
+  // on any non-carbon base (the midnight-oil "doesn't work" class of bug).
+  // Backfill every missing var from the theme's own BASE built-in instead;
+  // the theme's saved values always win. Captured once per base per rebuild
+  // (injection runs on hydrate + save, not per frame).
+  const baseCache = new Map<string, Record<string, string>>();
+  const baseVarsFor = (id: string | undefined): Record<string, string> | null => {
+    if (!isBuiltinTheme(id) || typeof window === "undefined") return null;
+    let vars = baseCache.get(id);
+    if (!vars) {
+      vars = captureThemeVarsFor(id);
+      baseCache.set(id, vars);
+    }
+    return vars;
+  };
   return themes
-    .map(
-      (t) =>
-        `[data-theme="${t.id}"]{color-scheme:${t.colorScheme};${varBlock(withDerivedVars(t.vars))}}`,
-    )
+    .map((t) => {
+      const base = baseVarsFor(t.base);
+      const vars = base ? { ...base, ...t.vars } : t.vars;
+      return `[data-theme="${t.id}"]{color-scheme:${t.colorScheme};${varBlock(withDerivedVars(vars))}}`;
+    })
     .join("\n");
 }
 
