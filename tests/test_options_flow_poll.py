@@ -82,6 +82,7 @@ class FakeAdapter:
         self.conditions = conditions or {"I": "electronic"}
         self.raise_snapshot_on = {s.upper() for s in (raise_snapshot_on or set())}
         self.trades_calls: list[tuple[list[str], str]] = []
+        self.chain_calls: list[tuple[str, int | None, int]] = []
 
     def get_option_trade_conditions(self) -> dict[str, str]:
         return dict(self.conditions)
@@ -96,9 +97,18 @@ class FakeAdapter:
         del expiration_date_gte, limit
         return list(self.contracts_by_u.get(underlying.strip().upper(), []))
 
-    def get_option_chain_snapshot(self, underlying: str, feed: str = "opra") -> dict:
-        del feed
+    def get_option_chain_snapshot(
+        self,
+        underlying: str,
+        feed: str = "opra",
+        *,
+        expiration_date: str | None = None,
+        limit: int | None = None,
+        max_pages: int = 1,
+    ) -> dict:
+        del feed, expiration_date
         u = underlying.strip().upper()
+        self.chain_calls.append((u, limit, max_pages))
         if u in self.raise_snapshot_on:
             raise RuntimeError(f"boom:{u}")
         return dict(self.snapshots_by_u.get(u, {}))
@@ -232,6 +242,30 @@ def test_eligible_underlyings_drops_futures_and_warns_over_cap(
     # /ES and /CL used to burn 2 of the slots (and a 400ing REST call) each cycle.
     assert got == ["AAPL", "MSFT", "NVDA"]
     assert "NOT watching SPY,TSLA" in caplog.text
+
+
+def test_active_set_pages_the_chain_instead_of_the_bare_vendor_page() -> None:
+    """The bare call returns the vendor's 100-contract ALPHABETICAL page.
+
+    An OCC sorts expiry -> C before P -> strike, so one bare page = one expiry of
+    calls and never a put. Measured 2026-07-14: SPY returned 100 calls of 13,730
+    live contracts (6,865 of them puts), which made put_net structurally zero.
+    """
+    adapter = _base_adapter()
+    st = PollState()
+    run_poll_once(
+        adapter,
+        symbols=["NVDA"],
+        today_et=TODAY,
+        now_ms=NOW_MS,
+        state=st,
+    )
+    assert adapter.chain_calls, "active-set refresh never fetched the chain"
+    _u, limit, max_pages = adapter.chain_calls[0]
+    assert max_pages > 1, "one page IS the vendor's alphabetical default — no puts"
+    assert limit and limit > 100, "the vendor's 100-per-page default is the bug"
+    assert limit == C.CHAIN_SNAPSHOT_PAGE_LIMIT
+    assert max_pages == C.CHAIN_SNAPSHOT_MAX_PAGES
 
 
 # --- active set -------------------------------------------------------------------

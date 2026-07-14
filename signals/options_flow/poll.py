@@ -18,6 +18,8 @@ from signals.options_flow.constants import (
     ACTIVE_SET_PER_UNDERLYING,
     ACTIVE_SET_REFRESH_SECONDS,
     CANCEL_CONDITIONS,
+    CHAIN_SNAPSHOT_MAX_PAGES,
+    CHAIN_SNAPSHOT_PAGE_LIMIT,
     EXT_HOURS_CONDITIONS,
     LATE_OOS_CONDITIONS,
     POLL_COLD_START_LOOKBACK_MINUTES,
@@ -493,7 +495,14 @@ def _refresh_active_set(
 
     for u in capped:
         try:
-            snaps = adapter.get_option_chain_snapshot(u)
+            # Must be paginated+limited: the vendor's bare default is 100 contracts in
+            # OCC-alphabetical order = one expiry of calls, so the ranking below never
+            # saw a put for the liquid names. See CHAIN_SNAPSHOT_* in constants.
+            snaps = adapter.get_option_chain_snapshot(
+                u,
+                limit=CHAIN_SNAPSHOT_PAGE_LIMIT,
+                max_pages=CHAIN_SNAPSHOT_MAX_PAGES,
+            )
             if not isinstance(snaps, dict):
                 continue
 

@@ -20,8 +20,19 @@ and the research opened one door that must be probed BEFORE building the coarse 
    not a compromise of either.
 2. **"Trades broad, quotes narrow" is vendor-intended, not our workaround.** Polygon/Massive
    independently enforces the identical asymmetry: options *trades* channel supports `*`
-   wildcard; options *quotes* capped at 1,000/connection, no wildcard. Alpaca documents the
-   1,000 cap as a *quotes* cap (Algo Trader Plus tier).
+   wildcard; options *quotes* capped at 1,000/connection, no wildcard.
+   > ⚠️ **CORRECTED 2026-07-14.** This item originally ended: *"Alpaca documents the 1,000 cap
+   > as a quotes cap (Algo Trader Plus tier)."* **That is false.** No Alpaca doc states a
+   > numeric options-quote cap at any tier — the 1,000 figure is **Polygon's**, imported here
+   > by mistake, and this file then became the source other work trusted. Alpaca's real
+   > asymmetry is narrower: `*` is *forbidden* on option quotes ("there are simply too many of
+   > them") and *allowed* on trades. The direction of the asymmetry holds; the number does not.
+   > Our own `research/options_flow/ws_probe_2026-07-09.md` had already established this —
+   > 1,506 subs ACKed with no error, *"treat 1,000 as our own budget, not a vendor wall"* — so
+   > the claim was refutable from inside the repo the day it was written. `HOT_QUOTE_MAX=60`
+   > and `STREAM_TRADES_MAX=1000` are **entirely our own budgets**; the binding constraint on
+   > quotes is client CPU (and Alpaca's reactive `407 slow client`), not permission.
+   > See `References/DATA_LAYER_LIMITS_AUDIT_2026-07-14.md`.
 3. **Our $25k premium floor = Unusual Whales' confirmed default** ($25k or ≥150 contracts to
    display). The one industry parameter anyone publishes, and we already match it.
 4. **Our DIR-1 aggressor rule is the standard heuristic** (at/above ask = buy-side — Barchart's

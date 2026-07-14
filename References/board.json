@@ -10,6 +10,16 @@
   ],
   "cards": [
     {
+      "id": "flow-chain-pool-truncation",
+      "title": "Flow engine ran on 0.7% of the chain — bare snapshot = 100 alphabetical contracts, SPY/QQQ/TSLA never saw a put",
+      "lane": "in_progress",
+      "type": "bug",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "THE root data bug, found in the 2026-07-14 data-layer limits audit (founder: 'this is the data, without good data this app is nothing'). poll.py called adapter.get_option_chain_snapshot(u) BARE; the method defaults to limit=None/max_pages=1 = Alpaca's own page default of 100 contracts ALPHABETICAL. An OCC sorts expiry -> C before P -> strike, so one bare page = the nearest expiry, CALLS ONLY. MEASURED live 2026-07-14: SPY has 13,730 contracts / 35 expiries / 6,865 puts and we saw 100 calls at one expiry = 0.7% of the chain. 11 of 30 underlyings NEVER saw a put (AMD,CRWD,GLD,GS,KLAC,MU,NBIS,QQQ,SPCX,SPY,TSLA — it hits the MOST liquid names hardest, since more strikes means the page fills with calls before reaching P); 22 of 30 saw one expiry. IMPACT: aggregate_directional_pressure tracks call_net/put_net, so put_net was STRUCTURALLY ZERO for our three biggest names — every SPY/QQQ/TSLA directional read was bullish by construction. A signal fabricated by omission. ACTIVE_SET_PER_UNDERLYING=60 never once selected on merit; it picked 60 from a pre-truncated alphabetical 100, which is why every cap we debated was downstream of a gutted pool. ⚠️ WE ALREADY KNEW: BUILD.md 2026-07-09 records the identical diagnosis ('unfiltered snapshot pages alphabetically -> one expiry, no puts') — found and fixed in the CHAIN VIEWER only (options_chain.py: expiration_date + limit=1000 + max_pages=3, live-verified NVDA 25 expirations x 86 strikes both sides). The poll was never carried across, and the method docstring enshrined it: 'Defaults (no filter, one page) keep the original single-page behavior the poll's active-set relies on.' The UI the founder reads manually was correct; the engine meant to think for him was not. FIX: page the chain (CHAIN_SNAPSHOT_PAGE_LIMIT=1000 vendor max, CHAIN_SNAPSHOT_MAX_PAGES=20; SPY needs 14 = 1.16s, whole watchlist ~16s per 300s refresh, ~0.3% of the 10,000/min REST budget) + the pager now WARNS when it truncates instead of dropping the tail silently. VERIFIED against the LIVE chain: active set = 1000 contracts, 395 puts / 605 calls, 30 underlyings, 29 distinct expiries; SPY now 20 puts / 16 calls (was 0 puts). 196 tests green, ruff clean. New test is a true behavioural repro (old code fails: 'one page IS the vendor's alphabetical default — no puts'). CONSEQUENCE FLAGGED: ~1,800 contracts now rank active vs the 1,000 sub budget, so STREAM_TRADES_MAX binds HARD for the first time (~33-36 per underlying). Vendor acked 1,506 and the client has ~150x headroom, so 1000->1500 is probably free — unverified; a 405 would now surface via PR #72's error-frame logging. See References/DATA_LAYER_LIMITS_AUDIT_2026-07-14.md. Land AFTER the close (multiplies the candidate pool ~50x; not a market-hours change).",
+      "updated_at": "2026-07-14"
+    },
+    {
       "id": "flow-underlying-coverage",
       "title": "Flow watcher never watched SPY/TSLA — FIXED + VERIFIED LIVE 2026-07-14 (0 → 16 TSLA events in 3 min)",
       "lane": "done",
