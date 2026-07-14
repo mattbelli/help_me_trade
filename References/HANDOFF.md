@@ -10,7 +10,21 @@ this file, append the old full version there as a new dated section.*
 
 ---
 
-## ▶ START HERE (2026-07-13 overnight) — Watchlist v3 round 1: column registry + settings + per-list config
+## ▶ START HERE (2026-07-14 overnight) — Workspaces shipped (⚠ backend restart pending) + 6-item polish batch
+
+> Founder pre-bed batch, all shipped + deployed (PRs #65–#68 merged; BUILD.md 2026-07-14 rows):
+> options-chain call side mirrored (left-aligned), company-info card 720×~760 centered, tickers
+> uppercase app-wide + orders side-color off tickers, undefined-var fixes (--fg/--bg-elevated/
+> --c-purple), custom themes backfill missing knobs from their BASE (midnight-oil bug class),
+> AI-chat prose in Inter + accent headings + 46rem measure (.aui-md), ticker HOVER PREVIEW card
+> (200ms, right side, full-info click-through), and **WORKSPACES** (References/WORKSPACES_SPEC.md):
+> named groups of pages, per-device active (localStorage `hmt-active-workspace`), switcher in the
+> bottom strip, page Duplicate. ⚠ NEW BACKEND ENDPOINTS (`/api/workspace/workspaces`) NEED AN
+> hmt-backend RESTART (not bounced overnight — needs founder auth, or the Jul-15 reauth-cron
+> restart does it); until then workspaces are per-device only and a transitional legacy /pages PUT
+> keeps the server blob fresh. Founder in-browser review pending on the whole batch.
+
+## ▶ EARLIER (2026-07-13 overnight) — Watchlist v3 round 1: column registry + settings + per-list config
 
 > Founder overnight ask: column widths (good defaults), settings menu, order/show-hide, row height,
 > config saved WITH the watchlist, exhaustive researched column set (ToS the UX reference). Shipped on
