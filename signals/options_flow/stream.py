@@ -427,6 +427,12 @@ class OptionsFlowStream:
             or now_mono - self._last_sub_refresh_mono >= SUB_REFRESH_SECONDS
         ):
             await self._refresh_subscriptions(ws)
+            return
+        # This cadence is anchored to connect time, not the market clock. The set turns
+        # non-empty at the open, mid-window, so waiting for the next tick left us blind
+        # for the remainder of it. Subscribe as soon as there is anything to subscribe to.
+        if not self._subscribed_trades and self._desired_trades():
+            await self._refresh_subscriptions(ws, force=True)
 
     async def _maybe_apply_quote_subs(self, ws: Any, now_mono: float) -> None:
         if not self._pending_quote_adds:

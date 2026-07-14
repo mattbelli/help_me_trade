@@ -506,6 +506,50 @@ def test_error_frame_logged(caplog: pytest.LogCaptureFixture) -> None:
 
 
 @pytest.mark.asyncio
+async def test_subscribes_as_soon_as_set_fills_mid_cadence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connect pre-open with an empty set, then the bell fills it mid-window.
+
+    SUB_REFRESH_SECONDS is anchored to connect time, not the market clock, so waiting
+    for the next tick left the stream unsubscribed through the open burst.
+    """
+    ws = ScriptWS()
+    current: list[str] = []
+
+    stream = OptionsFlowStream(
+        key="k",
+        secret="s",
+        on_prints=lambda _b: None,
+        get_subscription_set=lambda: list(current),
+        meta_for=_meta_for,
+        connect_factory=_connector(ws),
+    )
+    # Long cadence: without the fix nothing would resubscribe for another 5 minutes.
+    monkeypatch.setattr(
+        "signals.options_flow.stream.SUB_REFRESH_SECONDS", 300.0, raising=False
+    )
+
+    task = asyncio.create_task(stream.run())
+    try:
+        await asyncio.sleep(0.08)
+        assert not [
+            m for m in ws.sent if m.get("action") == "subscribe" and "trades" in m
+        ]
+
+        current[:] = [OCC]  # the bell: active set appears
+        await asyncio.sleep(0.12)
+        subs = [m for m in ws.sent if m.get("action") == "subscribe" and "trades" in m]
+        assert subs, "stream stayed unsubscribed after the active set filled"
+        assert subs[-1]["trades"] == [OCC]
+    finally:
+        stream.stop()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
 async def test_reconnect_backoff_and_resubscribe(monkeypatch: pytest.MonkeyPatch) -> None:
     sleeps: list[float] = []
 
