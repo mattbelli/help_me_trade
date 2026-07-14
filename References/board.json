@@ -29,6 +29,16 @@
       "notes": "Founder overnight ask ('kind of a big one'): save individual pages, group them into named WORKSPACES (widescreen vs laptop), per-device selection. Spec: References/WORKSPACES_SPEC.md. Shipped: backend workspaces KV + GET/PUT /api/workspace/workspaces (migrates the pages blob to a 'Main' workspace; 9 tests), store layer (live pages fold back into the active workspace; localStorage hmt-active-workspace = per-device choice; transitional legacy /pages PUT so no edits are lost before the backend restart), workspace switcher in the bottom strip (switch/new/duplicate/rename/delete/set-default), page context menu gains Duplicate. ⚠ server sync activates at the NEXT BACKEND RESTART (not bounced overnight — needs founder auth or the Jul-15 reauth-cron restart); until then workspaces are per-device localStorage. v2 (2026-07-14 morning, founder feedback): normalized to a PAGE LIBRARY + linked workspaces — pages saved independent of workspaces, workspaces reference pageIds; founder calls: linked edits everywhere (one-time shared-page notice + 'detach a copy here' fork) + expanding bottom-strip manager (two panes: workspaces | pages+library, reorder/rename/remove vs delete-everywhere); + pg button gains From-library menu; v1→v2 + pages-blob migrations both sides (13 backend tests); smoke-verified headless. Founder review pending."
     },
     {
+      "id": "flow-sub-ack-reconcile",
+      "title": "Flow stream: reconcile subscriptions against server acks (silent-blindness alarm)",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Follow-up hardening from the PR #71 review (flow-open-blindness): the deepest lesson of the open-blindness bug is that the stream sat silently unsubscribed for weeks because it ignores Alpaca's 'subscription' echo and post-handshake 'error' frames — _subscribed_trades is optimistic (assumes every subscribe succeeded). This PR is LOG-ONLY: parse the subscription echo into a server-confirmed set, add ack_trades/ack_quotes to the minute stats line, WARN when confirmed trade subs persistently diverge from client state (10s settle grace so a refresh's own echoes land first; quote subs excluded from the alarm — they churn via hot-quote adds), and WARN on any server error frame. Converts the whole silent-blindness failure class into a <=1min visible alarm; wins in both branch-W and branch-C worlds. Verified: 3 new tests (divergence warns / matching ack doesn't / error frame logged) + ScriptWS upgraded to echo FULL server state like the real feed; 16 stream tests green; replay bench on the real 7/14 open tape unchanged (149k msgs/s — hot path untouched). ⚠ SEQUENCING: deploy AFTER tomorrow's open verifies PR #71 — the bell experiment must run on exactly the reviewed code.",
+      "updated_at": "2026-07-14"
+    },
+    {
       "id": "widget-consistency-pass",
       "title": "Widget consistency pass: per-widget formatting/style cleanup (filings, options flow, notifications, …)",
       "lane": "in_progress",
