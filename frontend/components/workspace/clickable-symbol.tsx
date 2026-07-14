@@ -2,6 +2,7 @@
 
 import { Info } from "lucide-react";
 
+import { SymbolHoverCard } from "@/components/workspace/symbol-hover-card";
 import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
 import { cn } from "@/lib/utils";
 
@@ -23,25 +24,27 @@ export function ClickableSymbol({
     // so siblings aligned against it (the watchlist live dot) center on the
     // inflated invisible box instead of the visible glyphs.
     <span className="group/sym inline-flex items-center gap-0.5 leading-none">
-      {linked ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onActivate();
-          }}
-          className={cn(
-            "cursor-pointer text-[var(--c-accent)] uppercase underline-offset-2 transition-colors hover:underline",
-            className,
-          )}
-        >
-          {symbol}
-        </button>
-      ) : (
-        <span className={cn("text-[var(--c-accent)] uppercase", className)}>
-          {symbol}
-        </span>
-      )}
+      <SymbolHoverCard symbol={symbol}>
+        {linked ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onActivate();
+            }}
+            className={cn(
+              "cursor-pointer text-[var(--c-accent)] uppercase underline-offset-2 transition-colors hover:underline",
+              className,
+            )}
+          >
+            {symbol}
+          </button>
+        ) : (
+          <span className={cn("text-[var(--c-accent)] uppercase", className)}>
+            {symbol}
+          </span>
+        )}
+      </SymbolHoverCard>
       <button
         type="button"
         onClick={(e) => {
