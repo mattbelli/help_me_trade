@@ -47,6 +47,11 @@ class EquityTapeRunner:
         self.proxy = LocalMarketProxy(
             on_daily_bar_symbols_change=self.stream.set_daily_bar_symbols
         )
+        # Couple proxy availability to upstream health: while our Alpaca socket
+        # is down, the hub must see a refused/dropped connection, not a silent
+        # "connected" feed with no data.
+        self.stream.on_connect = lambda: self.proxy.set_upstream_healthy(True)
+        self.stream.on_disconnect = lambda: self.proxy.set_upstream_healthy(False)
         self.detector = TapeDetector()
         self.sweeps = SweepAggregator()
         self.velocity = VelocityDetector()
@@ -65,13 +70,16 @@ class EquityTapeRunner:
 
     def _on_quote(self, m: dict[str, Any], now_ms: float) -> None:
         symbol = m.get("S")
-        bid = m.get("bp")
-        ask = m.get("ap")
-        if not symbol or bid is None or ask is None:
+        try:
+            bid = float(m["bp"])
+            ask = float(m["ap"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if not symbol:
             return
         ts_ms = ts_to_ms(m.get("t")) or now_ms
-        self._nbbo[symbol] = (float(bid), float(ask), ts_ms)
-        self.spreads.on_quote(symbol, float(bid), float(ask))
+        self._nbbo[symbol] = (bid, ask, ts_ms)
+        self.spreads.on_quote(symbol, bid, ask)
         if self.proxy.wants("quotes", symbol):
             self.proxy.publish("quotes", symbol, to_json_msg(m))
 

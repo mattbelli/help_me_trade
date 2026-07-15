@@ -8,6 +8,7 @@ NBBOs misclassify often enough that direction past that age is "undetermined".
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 import msgpack
@@ -25,7 +26,7 @@ from signals.equity_stream.detectors import (
     side_vs_nbbo,
 )
 from signals.equity_stream.proxy import LocalMarketProxy, _Client
-from signals.equity_stream.stream import to_json_msg, ts_to_iso, ts_to_ms
+from signals.equity_stream.stream import EquityStream, to_json_msg, ts_to_iso, ts_to_ms
 from signals.equity_tape import TapeDetector
 
 _BUCKET_MS = VELOCITY_BUCKET_SECONDS * 1000.0
@@ -322,3 +323,98 @@ def test_market_ws_url_points_at_proxy_when_flag_set(monkeypatch):
     monkeypatch.delenv("EQUITY_TAPE_PROXY_URL")
     monkeypatch.setenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", "0")
     assert alpaca_market_ws_url().startswith("wss://stream.data.alpaca.markets/v2/")
+
+
+# --- review findings 2026-07-15 (adversarial pass on PR #81) ----------------------------
+
+
+_TRADE = {
+    "S": "SPY", "p": 630.0, "s": 500_000, "x": "D", "c": [],
+    "t": "2026-07-15T14:00:00Z", "i": 1,
+}
+
+
+def test_hub_tape_tap_stands_down_under_external_collector(monkeypatch):
+    """Under the flag, the hub's in-process detector tap must not run: its
+    deque is never drained and the profile loader does blocking file I/O on
+    the API event loop (HIGH review finding)."""
+    from brokers.market_stream import AlpacaMarketStreamHub
+
+    calls: list[dict] = []
+
+    monkeypatch.setenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", "1")
+    hub = AlpacaMarketStreamHub()
+    hub.tape_detector.on_print = lambda **kw: calls.append(kw)
+    asyncio.run(hub._on_trade(dict(_TRADE)))
+    assert calls == []
+
+    monkeypatch.setenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", "0")
+    hub2 = AlpacaMarketStreamHub()
+    hub2.tape_detector.on_print = lambda **kw: calls.append(kw)
+    asyncio.run(hub2._on_trade(dict(_TRADE)))
+    assert len(calls) == 1
+
+
+def test_proxy_refuses_and_drops_clients_while_upstream_down():
+    """A collector whose upstream auth fails must not serve a silent
+    'connected' feed — the hub has to SEE the outage (MEDIUM-HIGH finding)."""
+
+    sent: list[str] = []
+    closed: list[bool] = []
+
+    class FakeWS:
+        async def send(self, data):
+            sent.append(data)
+
+        async def close(self):
+            closed.append(True)
+
+    async def scenario():
+        p = LocalMarketProxy()
+        assert not p.upstream_healthy  # boots unhealthy until first connect
+        await p._handle(FakeWS())  # refused with an error frame, then closed
+        assert "upstream not connected" in sent[0]
+        assert closed == [True]
+
+        p.set_upstream_healthy(True)
+        ws2 = FakeWS()
+        p._clients[ws2] = _Client()
+        p.set_upstream_healthy(False)  # upstream died: drop everyone
+        await asyncio.sleep(0)
+        assert closed == [True, True]
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_isolates_callback_errors():
+    """One malformed message must never tear down the wildcard connection
+    (MEDIUM finding) — the error is counted, the next message still flows."""
+    quotes_seen: list[dict] = []
+
+    def bad_trade(m, now_ms):
+        raise ValueError("malformed print")
+
+    s = EquityStream(
+        key="k", secret="s",
+        on_trade=bad_trade,
+        on_quote=lambda m, now_ms: quotes_seen.append(m),
+    )
+    frame = msgpack.packb(
+        [
+            {"T": "t", "S": "SPY", "p": 630.0},
+            {"T": "q", "S": "SPY", "bp": 629.9, "ap": 630.0},
+        ]
+    )
+    s._dispatch(frame)  # must not raise
+    assert s.callback_errors == 1
+    assert len(quotes_seen) == 1
+
+
+def test_runner_on_quote_guards_malformed_fields():
+    from signals.equity_stream.runner import EquityTapeRunner
+
+    r = EquityTapeRunner(key="k", secret="s")
+    r._on_quote({"S": "SPY", "bp": "garbage", "ap": 630.0}, 1000.0)
+    assert "SPY" not in r._nbbo
+    r._on_quote({"S": "SPY", "bp": 629.9, "ap": 630.0, "t": None}, 1000.0)
+    assert r._nbbo["SPY"] == (629.9, 630.0, 1000.0)

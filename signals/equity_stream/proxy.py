@@ -58,6 +58,12 @@ class LocalMarketProxy:
         # Union view per channel — the hot path asks wants() 17k times/s, so
         # membership must be one set lookup, rebuilt only on subscription edits.
         self._union: dict[str, set[str]] = {ch: set() for ch in _CHANNELS}
+        # Mirror of the upstream socket's health. While False, new clients are
+        # refused and existing ones are dropped — the hub must SEE the outage
+        # (its reconnect loop + logs), not sit "connected" on a silent proxy.
+        # This mirrors real-Alpaca semantics: when Alpaca is down, the hub's
+        # own socket dies too.
+        self._upstream_healthy = False
 
     # -- hot path ----------------------------------------------------------------
 
@@ -85,6 +91,23 @@ class LocalMarketProxy:
     def union_size(self, channel: str) -> int:
         return len(self._union[channel])
 
+    # -- upstream health -----------------------------------------------------------
+
+    def set_upstream_healthy(self, healthy: bool) -> None:
+        self._upstream_healthy = healthy
+        if not healthy:
+            for ws in list(self._clients):
+                try:
+                    asyncio.get_running_loop().create_task(ws.close())
+                except RuntimeError:
+                    # No running loop (tests / teardown) — registry cleanup
+                    # still happens in each handler's finally.
+                    pass
+
+    @property
+    def upstream_healthy(self) -> bool:
+        return self._upstream_healthy
+
     # -- server ------------------------------------------------------------------
 
     async def serve(self) -> None:
@@ -106,6 +129,18 @@ class LocalMarketProxy:
                 logger.warning("dailyBars change callback failed", exc_info=True)
 
     async def _handle(self, ws: Any) -> None:
+        if not self._upstream_healthy:
+            # An error frame fails the hub's handshake loudly (BrokerError →
+            # its reconnect backoff) instead of freezing a "connected" feed.
+            try:
+                await ws.send(
+                    json.dumps(
+                        [{"T": "error", "code": 503, "msg": "upstream not connected"}]
+                    )
+                )
+            finally:
+                await ws.close()
+            return
         client = _Client()
         self._clients[ws] = client
         sender = asyncio.create_task(self._sender(ws, client))

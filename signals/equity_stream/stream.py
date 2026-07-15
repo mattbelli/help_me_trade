@@ -88,10 +88,16 @@ class EquityStream:
         self._daily_syms: set[str] = set()
         self._daily_dirty = False
         self._running = True
+        # Health hooks (assigned by the runner): the proxy must refuse/drop
+        # clients while upstream is down, or the hub freezes silently while
+        # looking "connected".
+        self.on_connect: Callable[[], None] | None = None
+        self.on_disconnect: Callable[[], None] | None = None
         # stats
         self.msgs: dict[str, int] = {}
         self.reconnects = 0
         self.vendor_errors = 0
+        self.callback_errors = 0
         self._lag_samples: list[float] = []
         self._lag_tick = 0
 
@@ -138,6 +144,7 @@ class EquityStream:
                         "equity stream connected: trades[*] quotes[*] dailyBars=%d",
                         len(applied_daily),
                     )
+                    self._signal(self.on_connect)
                     while self._running:
                         if self._daily_dirty:
                             applied_daily = await self._apply_daily_diff(
@@ -149,8 +156,10 @@ class EquityStream:
                             continue
                         self._dispatch(raw)
             except asyncio.CancelledError:
+                self._signal(self.on_disconnect)
                 raise
             except Exception as exc:
+                self._signal(self.on_disconnect)
                 if not self._running:
                     break
                 self.reconnects += 1
@@ -159,6 +168,15 @@ class EquityStream:
                 )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, RECONNECT_MAX_SEC)
+        self._signal(self.on_disconnect)
+
+    def _signal(self, hook: Callable[[], None] | None) -> None:
+        if hook is None:
+            return
+        try:
+            hook()
+        except Exception:
+            logger.warning("stream health hook failed", exc_info=True)
 
     async def _handshake(self, ws: Any) -> None:
         first = msgpack.unpackb(await ws.recv(), raw=False)
@@ -200,14 +218,26 @@ class EquityStream:
         for m in batch:
             t = m.get("T", "?")
             self.msgs[t] = self.msgs.get(t, 0) + 1
+            # Callback exceptions must never escape: one malformed message
+            # among ~11k symbols would otherwise tear down the whole wildcard
+            # connection and dark the tape for a reconnect+backoff window.
             if t == "t":
                 self._sample_lag(m, now_ms)
-                self._on_trade(m, now_ms)
+                try:
+                    self._on_trade(m, now_ms)
+                except Exception:
+                    self._count_callback_error(m)
             elif t == "q":
                 self._sample_lag(m, now_ms)
-                self._on_quote(m, now_ms)
+                try:
+                    self._on_quote(m, now_ms)
+                except Exception:
+                    self._count_callback_error(m)
             elif t in ("d", "db") and self._on_daily_bar is not None:
-                self._on_daily_bar(m)
+                try:
+                    self._on_daily_bar(m)
+                except Exception:
+                    self._count_callback_error(m)
             elif t == "error":
                 self.vendor_errors += 1
                 logger.warning("equity stream vendor error frame: %s", m)
@@ -218,6 +248,17 @@ class EquityStream:
                     m.get("quotes"),
                     len(m.get("dailyBars") or []),
                 )
+
+    def _count_callback_error(self, m: dict[str, Any]) -> None:
+        self.callback_errors += 1
+        if self.callback_errors == 1 or self.callback_errors % 1000 == 0:
+            logger.warning(
+                "stream callback error #%d on %s %s",
+                self.callback_errors,
+                m.get("T"),
+                m.get("S"),
+                exc_info=True,
+            )
 
     def _sample_lag(self, m: dict[str, Any], now_ms: float) -> None:
         self._lag_tick += 1

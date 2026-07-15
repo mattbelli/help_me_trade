@@ -170,6 +170,13 @@ class BaseMarketHub:
         from signals.equity_tape import TapeDetector
 
         self.tape_detector = TapeDetector()
+        # When the standalone equity collector owns the tape, the in-hub tap is
+        # pure waste: its deque is never drained (the flush loop stands down)
+        # and every first $1M+ print per symbol runs blocking volume-profile
+        # file I/O on THIS process's event loop.
+        self._external_tape = os.environ.get(
+            "EQUITY_TAPE_EXTERNAL_COLLECTOR", "0"
+        ).strip() not in ("0", "false", "no")
 
     async def start(self) -> None:
         if self._running:
@@ -704,18 +711,20 @@ class AlpacaMarketStreamHub(BaseMarketHub):
         # derivatively-priced crosses are often the genuine institutional
         # blocks, legit on the tape even though they never update the
         # consolidated last price. The detector carries its own off-market
-        # guard (±10% vs last admitted) against corrupt prints.
+        # guard (±10% vs last admitted) against corrupt prints. Skipped when
+        # the external collector runs the same detector market-wide.
         try:
-            self.tape_detector.on_print(
-                symbol=symbol,
-                price=price_f,
-                size=item.get("s"),
-                exchange=item.get("x"),
-                conditions=conditions,
-                ts=item.get("t"),
-                trade_id=item.get("i"),
-                prev_price=self._prev_prices.get(symbol),
-            )
+            if not self._external_tape:
+                self.tape_detector.on_print(
+                    symbol=symbol,
+                    price=price_f,
+                    size=item.get("s"),
+                    exchange=item.get("x"),
+                    conditions=conditions,
+                    ts=item.get("t"),
+                    trade_id=item.get("i"),
+                    prev_price=self._prev_prices.get(symbol),
+                )
         except Exception:
             logger.debug("Tape detector failed for %s", symbol, exc_info=True)
 
