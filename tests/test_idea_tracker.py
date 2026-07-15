@@ -13,6 +13,7 @@ from db.idea_outcomes import (
     get_summary,
     init_idea_outcomes_tables,
     list_open,
+    list_recent_resolved,
     register_ideas,
     update_outcome,
 )
@@ -631,3 +632,69 @@ def test_sweep_collects_transitions(idea_db) -> None:
     assert t["status"] == "triggered"
     assert t["symbol"] == "AAPL"
     assert t["entry_low"] is not None and t["stop"] is not None
+
+
+def test_post_close_idea_is_not_graded_by_its_own_birth_bar(idea_db) -> None:
+    """REGRESSION (NTSK, 2026-07-14): an idea minted AFTER the close must not be
+    resolved against that day's already-complete bar.
+
+    The nightly scan ran at 17:44 ET on a +11% breakout day (open 12.48, low
+    12.40, close 14.27) and proposed buying the 14.23-14.37 zone with a 13.59
+    stop. The sweep replayed that same bar and marked it LOST on the 12.40
+    morning low — price action from hours BEFORE the breakout the idea was
+    built on. It was declared dead four minutes after it was created.
+    """
+    as_of = "2026-07-14T21:44:09+00:00"  # 17:44 ET — after the 16:00 close
+    _register(
+        idea_db,
+        symbol="NTSK",
+        as_of=as_of,
+        entry_low="14.23",
+        entry_high="14.37",
+        stop="13.59",
+        targets=["16.75", "23.63"],
+    )
+    birth_bar = [_bar(date(2026, 7, 14), low=12.40, high=14.478, close=14.27)]
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=birth_bar):
+        counts = sweep_open_ideas(now=datetime(2026, 7, 14, 21, 48, 20), db_path=idea_db)
+
+    assert counts.get("lost", 0) == 0
+    assert counts.get("triggered", 0) == 0
+    rows = list_open(db_path=idea_db)
+    assert rows[0]["status"] == "pending"
+
+
+def test_post_close_idea_grades_normally_from_the_next_session(idea_db) -> None:
+    """The flip side: the NEXT session's bar resolves it as usual."""
+    _register(
+        idea_db,
+        symbol="NTSK",
+        as_of="2026-07-14T21:44:09+00:00",
+        entry_low="14.23",
+        entry_high="14.37",
+        stop="13.59",
+        targets=["16.75", "23.63"],
+    )
+    bars = [
+        _bar(date(2026, 7, 14), low=12.40, high=14.478, close=14.27),  # birth bar
+        _bar(date(2026, 7, 15), low=13.00, high=14.40, close=13.10),  # real stop-out
+    ]
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts = sweep_open_ideas(now=datetime(2026, 7, 15, 21, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1
+    rows = list_recent_resolved(db_path=idea_db)
+    assert rows[0]["resolved_at"] == "2026-07-15"
+
+
+def test_intraday_idea_still_uses_its_own_session(idea_db) -> None:
+    """Pre-close ideas are unaffected: the session is still ahead of them."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")  # 10:00 ET
+    bars = [_bar(date(2026, 1, 6), low=94, high=101)]
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts = sweep_open_ideas(now=datetime(2026, 1, 6, 20, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1
