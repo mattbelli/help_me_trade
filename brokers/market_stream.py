@@ -16,6 +16,7 @@ import asyncio
 import collections
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -35,6 +36,16 @@ logger = logging.getLogger(__name__)
 
 
 def alpaca_market_ws_url(feed: str | None = None) -> str:
+    # The stocks stream allows ONE connection per account (measured 2026-07-15:
+    # second connection → 406 connection limit exceeded). When the standalone
+    # equity collector owns that socket, the hub dials the collector's local
+    # proxy instead — same JSON protocol, watchlist slice of the wildcard tape.
+    if os.environ.get("EQUITY_TAPE_EXTERNAL_COLLECTOR", "0").strip() not in (
+        "0",
+        "false",
+        "no",
+    ):
+        return os.environ.get("EQUITY_TAPE_PROXY_URL", "ws://127.0.0.1:8767")
     configured = normalize_alpaca_data_feed(
         feed if feed is not None else alpaca_config().get("data_feed", "auto")
     )
@@ -159,6 +170,13 @@ class BaseMarketHub:
         from signals.equity_tape import TapeDetector
 
         self.tape_detector = TapeDetector()
+        # When the standalone equity collector owns the tape, the in-hub tap is
+        # pure waste: its deque is never drained (the flush loop stands down)
+        # and every first $1M+ print per symbol runs blocking volume-profile
+        # file I/O on THIS process's event loop.
+        self._external_tape = os.environ.get(
+            "EQUITY_TAPE_EXTERNAL_COLLECTOR", "0"
+        ).strip() not in ("0", "false", "no")
 
     async def start(self) -> None:
         if self._running:
@@ -677,7 +695,11 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             msg_type = item.get("T")
             if msg_type == "t":
                 await self._on_trade(item)
-            elif msg_type == "db":
+            elif msg_type in ("d", "db"):
+                # Alpaca's stocks v2 daily-bar type is "d"; "db" kept for the
+                # shape this handler was originally written against. Verified
+                # 2026-07-15: only matching "db" left the dailyBars channel
+                # dead-on-arrival (real frames were silently ignored).
                 await self._on_daily_bar(item)
 
     async def _on_trade(self, item: dict[str, Any]) -> None:
@@ -693,18 +715,20 @@ class AlpacaMarketStreamHub(BaseMarketHub):
         # derivatively-priced crosses are often the genuine institutional
         # blocks, legit on the tape even though they never update the
         # consolidated last price. The detector carries its own off-market
-        # guard (±10% vs last admitted) against corrupt prints.
+        # guard (±10% vs last admitted) against corrupt prints. Skipped when
+        # the external collector runs the same detector market-wide.
         try:
-            self.tape_detector.on_print(
-                symbol=symbol,
-                price=price_f,
-                size=item.get("s"),
-                exchange=item.get("x"),
-                conditions=conditions,
-                ts=item.get("t"),
-                trade_id=item.get("i"),
-                prev_price=self._prev_prices.get(symbol),
-            )
+            if not self._external_tape:
+                self.tape_detector.on_print(
+                    symbol=symbol,
+                    price=price_f,
+                    size=item.get("s"),
+                    exchange=item.get("x"),
+                    conditions=conditions,
+                    ts=item.get("t"),
+                    trade_id=item.get("i"),
+                    prev_price=self._prev_prices.get(symbol),
+                )
         except Exception:
             logger.debug("Tape detector failed for %s", symbol, exc_info=True)
 

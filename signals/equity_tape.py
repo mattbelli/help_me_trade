@@ -107,6 +107,12 @@ class TapeDetector:
             return None
 
         notional = price * size_i
+        # Every floor is >= BLOCK_MIN_NOTIONAL_USD, so a sub-$1M print can never
+        # pass — skip before notional_floor() touches the volume-profile loader.
+        # Matters market-wide (the collector feeds ~4k prints/s across ~11k
+        # symbols; without this, every symbol's first print stats a profile file).
+        if notional < BLOCK_MIN_NOTIONAL_USD:
+            return None
         floor = self.notional_floor(symbol, price)
         if notional < floor:
             return None
