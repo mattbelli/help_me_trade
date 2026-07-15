@@ -43,6 +43,10 @@ async def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # The API's 15s health probe is a bare TCP connect; websockets.server logs
+    # each one as a full InvalidMessage traceback. Loopback-only listener —
+    # silence the handshake noise.
+    logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
 
     if not _flag("EQUITY_TAPE_EXTERNAL_COLLECTOR"):
         logger.error(
