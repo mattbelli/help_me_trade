@@ -126,7 +126,14 @@ class EquityStream:
         while self._running:
             try:
                 async with websockets.connect(
-                    self._url, max_size=None, ping_interval=20, ping_timeout=20
+                    self._url,
+                    max_size=None,
+                    ping_interval=20,
+                    ping_timeout=20,
+                    # Alpaca negotiates frame encoding off this handshake header;
+                    # without it the server sends JSON text frames and unpackb
+                    # gets str (proven live 2026-07-15 — first collector boot).
+                    additional_headers={"Content-Type": "application/msgpack"},
                 ) as ws:
                     await self._handshake(ws)
                     backoff = RECONNECT_BASE_SEC

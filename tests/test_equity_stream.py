@@ -456,3 +456,26 @@ def test_runner_on_quote_guards_malformed_fields():
     assert "SPY" not in r._nbbo
     r._on_quote({"S": "SPY", "bp": 629.9, "ap": 630.0, "t": None}, 1000.0)
     assert r._nbbo["SPY"] == (629.9, 630.0, 1000.0)
+
+
+def test_stream_connect_requests_msgpack_frames(monkeypatch):
+    """Alpaca picks frame encoding off the handshake Content-Type header;
+    without it the server sends JSON text and unpackb dies on str (proven
+    live 2026-07-15 on the collector's first boot)."""
+    import signals.equity_stream.stream as stream_mod
+
+    captured: dict = {}
+
+    def fake_connect(url, **kwargs):
+        captured.update(kwargs)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(stream_mod.websockets, "connect", fake_connect)
+    s = EquityStream(key="k", secret="s", on_trade=None, on_quote=None)
+    try:
+        asyncio.run(s.run())
+    except asyncio.CancelledError:
+        pass
+    assert captured.get("additional_headers", {}).get("Content-Type") == (
+        "application/msgpack"
+    )
