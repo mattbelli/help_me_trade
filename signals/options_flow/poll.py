@@ -15,16 +15,21 @@ from typing import Any
 from db import options_flow as of_db
 from imports.option_symbol import parse_occ_symbol
 from signals.options_flow.constants import (
+    ACTIVE_SET_LONG_DTE_MIN,
     ACTIVE_SET_PER_UNDERLYING,
     ACTIVE_SET_REFRESH_SECONDS,
     CANCEL_CONDITIONS,
     CHAIN_SNAPSHOT_MAX_PAGES,
     CHAIN_SNAPSHOT_PAGE_LIMIT,
     EXT_HOURS_CONDITIONS,
+    INDEX_MEGACAP_SET,
     LATE_OOS_CONDITIONS,
+    LONG_DTE_THRESHOLD_DAYS,
     POLL_COLD_START_LOOKBACK_MINUTES,
     POLL_QUOTE_CHUNK,
+    QUOTE_ANCHOR_BUDGET,
     STREAM_TRADES_MAX,
+    ZERO_DTE_EXCLUDE,
 )
 from signals.options_flow.detect import detect_uv1
 from signals.options_flow.intraday import (
@@ -53,6 +58,89 @@ _MS_PER_SEC = 1000
 
 def _session_start_iso(today_et: str) -> str:
     return f"{today_et}T13:30:00Z"
+
+
+def _day_dollar_volume(snap: dict, trade: dict) -> float:
+    """Rank contracts by money traded today, not recency.
+
+    The prior key ``(ts_ms, size)`` made the active set "the 60 most recently
+    traded contracts" — 0DTE churn wins that by construction, while a $2M block
+    from three minutes ago loses to a 1-lot from two seconds ago. Day volume x
+    last price approximates premium traded today; falls back to the last trade's
+    notional at the bell, when dailyBar hasn't formed yet.
+    """
+    try:
+        price = float(trade.get("p") or 0)
+    except (TypeError, ValueError):
+        price = 0.0
+    day = snap.get("dailyBar") or snap.get("daily_bar") or {}
+    try:
+        vol = float(day.get("v") or 0) if isinstance(day, dict) else 0.0
+    except (TypeError, ValueError):
+        vol = 0.0
+    if vol > 0 and price > 0:
+        return vol * price
+    try:
+        return price * float(trade.get("s") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _skip_index_zero_dte(underlying: str, dte: int | None) -> bool:
+    """0-1DTE prints on index/megacap names are DISCARDED downstream by
+    ZERO_DTE_EXCLUDE — subscribing them burns the slot for prints we throw away
+    (measured 2026-07-15: 57-60% of SPY/QQQ's active set)."""
+    return (
+        ZERO_DTE_EXCLUDE
+        and underlying in INDEX_MEGACAP_SET
+        and dte is not None
+        and dte <= 1
+    )
+
+
+def _select_active_picks(
+    candidates: list[tuple[float, int, str]], limit: int
+) -> list[tuple[float, int, str]]:
+    """Top ``limit`` candidates by score with a long-dated floor.
+
+    ``candidates`` are ``(score, dte, occ)``. Measured (07-14 market-wide tape):
+    65% of >=100k-premium flow lives at DTE>=90, but a pure dollar-volume rank
+    still skews short-dated — so guarantee ACTIVE_SET_LONG_DTE_MIN picks from
+    DTE>=LONG_DTE_THRESHOLD_DAYS when supply exists, swapping out the
+    lowest-scored short-dated picks.
+    """
+    ranked = sorted(candidates, key=lambda c: (c[0], c[2]), reverse=True)
+    picks = list(ranked[:limit])
+    have_long = sum(1 for c in picks if c[1] >= LONG_DTE_THRESHOLD_DAYS)
+    need = ACTIVE_SET_LONG_DTE_MIN - have_long
+    if need > 0:
+        pool = [c for c in ranked[limit:] if c[1] >= LONG_DTE_THRESHOLD_DAYS][:need]
+        j = 0
+        for i in range(len(picks) - 1, -1, -1):
+            if j >= len(pool):
+                break
+            if picks[i][1] < LONG_DTE_THRESHOLD_DAYS:
+                picks[i] = pool[j]
+                j += 1
+    return picks
+
+
+def anchor_quote_symbols(state: PollState | None = None) -> list[str]:
+    """Standing quote anchors: the active set's top contracts by rank score,
+    globally, clipped to QUOTE_ANCHOR_BUDGET.
+
+    Pre-positioned so the FIRST print on a hot contract classifies against a
+    live quote — the reactive pool only subscribes after a print, so it always
+    misses the print that made the contract hot. Pre-open the scores fall back
+    to prior-session OI (the seed), so anchors exist before the bell.
+    """
+    st = state if state is not None else _default_state
+    ranked = sorted(
+        st.active.items(),
+        key=lambda kv: (float(kv[1].get("rank_score") or 0.0), kv[0]),
+        reverse=True,
+    )
+    return [occ for occ, _ in ranked[:QUOTE_ANCHOR_BUDGET]]
 
 
 def _parse_ts_ms(ts: str) -> int | None:
@@ -493,6 +581,7 @@ def _refresh_active_set(
     picks_by_u: dict[str, list[str]] = {}
     uv1_count = 0
 
+    score_by_occ: dict[str, float] = {}
     for u in capped:
         try:
             # Must be paginated+limited: the vendor's bare default is 100 contracts in
@@ -506,22 +595,28 @@ def _refresh_active_set(
             if not isinstance(snaps, dict):
                 continue
 
-            ranked: list[tuple[int, int, str, dict]] = []
+            candidates: list[tuple[float, int, str]] = []
             for occ, snap in snaps.items():
                 if not isinstance(snap, dict):
                     continue
                 trade = snap.get("latestTrade") or snap.get("latest_trade") or {}
                 if not isinstance(trade, dict) or not _trade_is_today(trade, today_et):
                     continue
-                ts_ms = _parse_ts_ms(str(trade.get("t") or "")) or 0
-                try:
-                    size = int(trade.get("s") or 0)
-                except (TypeError, ValueError):
-                    size = 0
-                ranked.append((ts_ms, size, str(occ).strip().upper(), snap))
+                sym = str(occ).strip().upper()
+                parsed = parse_occ_symbol(sym)
+                if parsed is None:
+                    continue
+                dte = _dte_days(parsed.expiration.isoformat(), today_et)
+                if _skip_index_zero_dte(u, dte):
+                    continue
+                candidates.append(
+                    (_day_dollar_volume(snap, trade), dte if dte is not None else 0, sym)
+                )
 
-            ranked.sort(key=lambda t: (t[0], t[1]), reverse=True)
-            picks = [occ for _, _, occ, _snap in ranked[:ACTIVE_SET_PER_UNDERLYING]]
+            picked = _select_active_picks(candidates, ACTIVE_SET_PER_UNDERLYING)
+            for score, _dte, sym in picked:
+                score_by_occ[sym] = score
+            picks = [sym for _, _, sym in picked]
             if not picks:
                 # Nothing has traded today yet — at the bell this ranking is empty by
                 # construction, which used to leave the stream unsubscribed through the
@@ -545,6 +640,9 @@ def _refresh_active_set(
     for u, occ in _allocate_active(picks_by_u, STREAM_TRADES_MAX):
         meta = _meta_from_occ(occ, u, today_et)
         if meta is not None:
+            # Anchor ranking: traded score, else prior-session OI (the seed path —
+            # pre-open nothing has traded, but OI still orders the anchors).
+            meta["rank_score"] = score_by_occ.get(occ) or float(state.oi.get(occ) or 0)
             new_active[occ] = meta
 
     state.active = new_active

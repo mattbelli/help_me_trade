@@ -21,6 +21,8 @@ import websockets
 from signals.options_flow.constants import (
     HOT_QUOTE_MAX,
     HOT_QUOTE_TTL_SECONDS,
+    OPRA_QUOTE_SUB_CAP,
+    QUOTE_ANCHOR_BUDGET,
     QUOTE_STALE_FOR_DIR1_SECONDS,
     STREAM_TRADES_MAX,
 )
@@ -113,12 +115,14 @@ class OptionsFlowStream:
         meta_for: Callable[[str], dict | None],
         *,
         connect_factory: Callable[[], Any] | None = None,
+        get_anchor_quotes: Callable[[], list[str]] | None = None,
     ) -> None:
         self._key = key.strip()
         self._secret = secret.strip()
         self._on_prints = on_prints
         self._get_subscription_set = get_subscription_set
         self._meta_for = meta_for
+        self._get_anchor_quotes = get_anchor_quotes
         self._connect_factory = connect_factory or _default_connect
 
         self._stopped = False
@@ -365,6 +369,49 @@ class OptionsFlowStream:
         ranked = sorted(active.items(), key=lambda kv: kv[1], reverse=True)
         return {occ for occ, _ in ranked[:HOT_QUOTE_MAX]}
 
+    def _desired_quotes(self, now_ms: int, extra_hot: set[str] | None = None) -> set[str]:
+        """Anchors + the reactive hot pool, clipped to the measured vendor cap.
+
+        Anchors (standing, QUOTE_ANCHOR_BUDGET) are pre-positioned by the poll's
+        dollar-volume ranking so the FIRST print on a hot contract classifies
+        against a live quote; the hot pool (HOT_QUOTE_MAX, recency-ranked) chases
+        whatever prints outside the anchors. ``extra_hot`` joins the recency
+        ranking as if it printed now (the pending-escalation path). Anchors keep
+        their slots when the union would exceed OPRA_QUOTE_SUB_CAP — the reactive
+        tail is what gets trimmed.
+        """
+        anchors: list[str] = []
+        if self._get_anchor_quotes is not None:
+            try:
+                anchors = [
+                    str(s).strip().upper()
+                    for s in (self._get_anchor_quotes() or [])
+                    if str(s).strip()
+                ]
+            except Exception:
+                logger.exception("options_flow stream: anchor quote getter failed")
+        desired = set(anchors[:QUOTE_ANCHOR_BUDGET])
+
+        ttl_ms = HOT_QUOTE_TTL_SECONDS * _MS_PER_SEC
+        merged = {
+            occ: ts
+            for occ, ts in self._hot_print_ms.items()
+            if now_ms - ts <= ttl_ms
+        }
+        for occ in extra_hot or ():
+            # Pending adds are exempt from the TTL — they are pending precisely
+            # because they just printed; rank them by their stamp when we have one.
+            merged.setdefault(occ, self._hot_print_ms.get(occ, now_ms))
+        hot_ranked = sorted(merged.items(), key=lambda kv: kv[1], reverse=True)
+        hot_added = 0
+        for occ, _ts in hot_ranked:
+            if hot_added >= HOT_QUOTE_MAX or len(desired) >= OPRA_QUOTE_SUB_CAP:
+                break
+            if occ not in desired:
+                desired.add(occ)
+                hot_added += 1
+        return desired
+
     def _prune_quote_cache(self, now_ms: int) -> None:
         cutoff = now_ms - QUOTE_CACHE_MAX_AGE_MS
         stale = [occ for occ, (_, _, ts) in self._quote_cache.items() if ts < cutoff]
@@ -412,7 +459,7 @@ class OptionsFlowStream:
             desired=desired_trades,
         )
 
-        desired_quotes = self._desired_hot_quotes(now_ms)
+        desired_quotes = self._desired_quotes(now_ms)
         self._subscribed_quotes = await self._diff_and_send(
             ws,
             channel="quotes",
@@ -440,13 +487,7 @@ class OptionsFlowStream:
         if now_mono - self._last_quote_sub_mono < QUOTE_SUB_DEBOUNCE_SECONDS:
             return
         now_ms = int(time.time() * 1000)
-        desired = self._desired_hot_quotes(now_ms) | self._pending_quote_adds
-        if len(desired) > HOT_QUOTE_MAX:
-            merged = dict(self._hot_print_ms)
-            for occ in self._pending_quote_adds:
-                merged.setdefault(occ, now_ms)
-            ranked = sorted(merged.items(), key=lambda kv: kv[1], reverse=True)
-            desired = {occ for occ, _ in ranked[:HOT_QUOTE_MAX]}
+        desired = self._desired_quotes(now_ms, extra_hot=self._pending_quote_adds)
         self._pending_quote_adds.clear()
         self._last_quote_sub_mono = now_mono
         self._subscribed_quotes = await self._diff_and_send(
