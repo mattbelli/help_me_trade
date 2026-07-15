@@ -226,6 +226,13 @@ _OPTIONS_FLOW_STREAM_ENABLED = os.environ.get(
 _OPTIONS_FLOW_EXTERNAL_COLLECTOR = os.environ.get(
     "OPTIONS_FLOW_EXTERNAL_COLLECTOR", "0"
 ).strip() not in ("0", "false", "no")
+# Same ownership pattern for the STOCKS socket: "1" = tools/equity_collector.py
+# owns the wildcard tape (and runs market-wide tape detection + the confluence
+# watch itself); the hub dials the collector's local proxy and this process's
+# tape flush loop stands down.
+_EQUITY_TAPE_EXTERNAL_COLLECTOR = os.environ.get(
+    "EQUITY_TAPE_EXTERNAL_COLLECTOR", "0"
+).strip() not in ("0", "false", "no")
 OPTIONS_FLOW_POLL_SECONDS = max(
     10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30"))
 )
@@ -914,8 +921,20 @@ async def _equity_tape_flush_loop() -> None:
     from db.equity_tape import insert_event as _insert_tape_event
     from signals.options_flow.convergence import process_events
 
+    if _EQUITY_TAPE_EXTERNAL_COLLECTOR:
+        logger.info(
+            "equity tape: external collector owns detection "
+            "(EQUITY_TAPE_EXTERNAL_COLLECTOR=1); flush loop standing down"
+        )
+
     while True:
         await asyncio.sleep(_EQUITY_TAPE_FLUSH_SECONDS)
+        if _EQUITY_TAPE_EXTERNAL_COLLECTOR:
+            # The collector persists + converges market-wide; draining the
+            # hub's (bounded, maxlen=256) detector here would double-process.
+            # Keep beating so the health registry doesn't flag this loop.
+            mark_alive("equity_tape_flush")
+            continue
         try:
             detector = getattr(market_hub, "tape_detector", None)
             events: list[dict] = []

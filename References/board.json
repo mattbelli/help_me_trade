@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "equity-tape-collector",
+      "title": "Equity tape collector \u2014 market-wide wildcard stream (trades+quotes), sweeps/velocity detection, local proxy for the hub",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "2026-07-15: measured live \u2014 stocks v2 allows wildcard on BOTH channels (unlike OPRA); whole-market tape = 17k msgs/s ~= 9% of one core fully decoded in Python, lag p50 14ms; 1 conn/account (2nd 406s). Build: tools/equity_collector.py owns the socket; signals/equity_stream/ = stream (wildcard msgpack client) + detectors (ISO sweeps w/ NBBO-at-print direction, print-velocity spikes vs own baseline, spread stats calibration-only) + proxy (local Alpaca-JSON fanout the API hub dials via EQUITY_TAPE_EXTERNAL_COLLECTOR=1); market-wide TapeDetector (blocks/dark-pool) moves out-of-process, API flush loop stands down; events land in equity_tape_events + convergence unchanged. Deferred: liquidity-vacuum EVENTS (needs measured spread baselines first), sector net-aggressor flow. NEXT: merge -> founder installs unit (sudo) -> verify vs close burst; close-burst probe 19:50Z today measures the worst case before it owns the socket."
+    },
+    {
       "id": "overnight-ext-quote-stale",
       "title": "Overnight quote showed -10% on a stock that closed +11% \u2014 boats feed served a 20.6h-old ghost print as live",
       "lane": "in_progress",

@@ -16,6 +16,7 @@ import asyncio
 import collections
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -35,6 +36,16 @@ logger = logging.getLogger(__name__)
 
 
 def alpaca_market_ws_url(feed: str | None = None) -> str:
+    # The stocks stream allows ONE connection per account (measured 2026-07-15:
+    # second connection → 406 connection limit exceeded). When the standalone
+    # equity collector owns that socket, the hub dials the collector's local
+    # proxy instead — same JSON protocol, watchlist slice of the wildcard tape.
+    if os.environ.get("EQUITY_TAPE_EXTERNAL_COLLECTOR", "0").strip() not in (
+        "0",
+        "false",
+        "no",
+    ):
+        return os.environ.get("EQUITY_TAPE_PROXY_URL", "ws://127.0.0.1:8767")
     configured = normalize_alpaca_data_feed(
         feed if feed is not None else alpaca_config().get("data_feed", "auto")
     )
