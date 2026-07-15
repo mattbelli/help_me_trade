@@ -19,6 +19,7 @@ class _FakeChild:
         self.single_calls: list[str] = []
         self.quote_calls: list[list[str]] = []
         self.ext_quote_calls: list[list[str]] = []
+        self.ext_not_before: list[object] = []
 
     async def aget_stock_bars(self, symbol, *, timeframe="1Day", days=180, extended_hours=False):
         self.single_calls.append(symbol)
@@ -28,8 +29,9 @@ class _FakeChild:
         self.batch_calls.append(list(symbols))
         return {s: [f"{self.name}:{s}"] for s in symbols}
 
-    async def aget_ext_quotes(self, symbols, *, feed=None):
+    async def aget_ext_quotes(self, symbols, *, feed=None, not_before=None):
         self.ext_quote_calls.append((list(symbols), feed))
+        self.ext_not_before.append(not_before)
         return {
             s: {"ext_last": 100.0, "ext_change_pct": 1.5}
             for s in symbols
@@ -276,7 +278,7 @@ async def test_overnight_quotes_fallback_to_default_feed_when_overnight_empty(
 ) -> None:
     hybrid, alpaca, _schwab = _hybrid()
 
-    async def _empty_then_default(symbols, *, feed=None):
+    async def _empty_then_default(symbols, *, feed=None, not_before=None):
         alpaca.ext_quote_calls.append((list(symbols), feed))
         if feed == "boats":
             return {}
@@ -303,6 +305,68 @@ async def test_overnight_quotes_fallback_to_default_feed_when_overnight_empty(
 
 
 @pytest.mark.asyncio
+async def test_overnight_passes_staleness_guard_to_alpaca(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Overnight must carry a not_before cutoff; the daytime path must not."""
+    hybrid, alpaca, _schwab = _hybrid()
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "overnight"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_quote_feed", lambda _a: "boats"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_delayed", lambda _a: False
+    )
+
+    await hybrid.aget_quotes(["AAPL"])
+    assert alpaca.ext_not_before[0] is not None
+
+    hybrid2, alpaca2, _s2 = _hybrid()
+    monkeypatch.setattr("brokers.hybrid_market_data.market_session", lambda: "post")
+    await hybrid2.aget_quotes(["AAPL"])
+    assert alpaca2.ext_not_before == [None]
+
+
+@pytest.mark.asyncio
+async def test_overnight_fallback_is_per_symbol_not_all_or_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mixed watchlist: AAPL trades overnight, NTSK does not. NTSK's stale
+    print is dropped by the guard, so only NTSK falls back to the default feed —
+    AAPL must keep its genuine overnight price."""
+    hybrid, alpaca, _schwab = _hybrid()
+
+    async def _ext(symbols, *, feed=None, not_before=None):
+        alpaca.ext_quote_calls.append((list(symbols), feed))
+        if feed == "boats":
+            # NTSK's ghost print was rejected by the staleness guard.
+            return {"AAPL": {"ext_last": 200.0, "ext_change_pct": 0.4}}
+        return {s: {"ext_last": 14.44, "ext_change_pct": 1.22} for s in symbols}
+
+    alpaca.aget_ext_quotes = _ext  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data.market_session", lambda: "overnight"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_quote_feed", lambda _a: "boats"
+    )
+    monkeypatch.setattr(
+        "brokers.hybrid_market_data._overnight_delayed", lambda _a: False
+    )
+
+    out = await hybrid.aget_quotes(["AAPL", "NTSK"])
+
+    assert alpaca.ext_quote_calls == [
+        (["AAPL", "NTSK"], "boats"),
+        (["NTSK"], None),
+    ]
+    assert out["AAPL"]["ext_last"] == 200.0
+    assert out["NTSK"]["ext_last"] == 14.44
+
+
+@pytest.mark.asyncio
 async def test_overnight_ext_change_pct_recomputed_from_regular_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -320,7 +384,7 @@ async def test_overnight_ext_change_pct_recomputed_from_regular_close(
     )
     hybrid, alpaca, schwab = _hybrid()
 
-    async def _ext(symbols, *, feed=None):
+    async def _ext(symbols, *, feed=None, not_before=None):
         alpaca.ext_quote_calls.append((list(symbols), feed))
         return {s: {"ext_last": 100.0, "ext_change_pct": 0.0} for s in symbols}
 

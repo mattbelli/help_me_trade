@@ -10,6 +10,7 @@ from typing import Any
 
 from ai.research.data_sources import _bar_date, fetch_daily_bars_since
 from db.idea_outcomes import list_sweepable, update_outcome
+from trading.market_hours import _ET, is_after_close
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,31 @@ def _parse_as_of_date(as_of: str) -> date:
         except ValueError:
             return datetime.now(UTC).date()
     return dt.date()
+
+
+def _first_evaluable_date(as_of: str) -> date:
+    """The first session that can legitimately grade this idea.
+
+    An idea minted after the close describes a session that is already history,
+    so grading it against that day's bar resolves it on price action that
+    PREDATES it. NTSK (2026-07-14): scanned at 17:44 ET on a +11% breakout day
+    — open 12.48, low 12.40, close 14.27 — with entry zone 14.23-14.37 and stop
+    13.59. The sweep replayed that same bar four minutes later, saw the 12.40
+    morning low under the stop, and marked the idea LOST. That low happened
+    hours before the breakout the idea was built on. The earliest session the
+    idea could actually be traded in is the next trading day.
+    """
+    raw = str(as_of or "").strip()
+    try:
+        dt: datetime | None = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        dt = None
+    if dt is None or dt.tzinfo is None:
+        # Date-only or unparseable — no clock to place against the close, so
+        # keep the legacy same-day basis rather than invent a session boundary.
+        return _parse_as_of_date(as_of)
+    et_date = dt.astimezone(_ET).date()
+    return _add_trading_days(et_date, 1) if is_after_close(dt) else et_date
 
 
 def _is_trading_day(d: date) -> bool:
@@ -119,12 +145,12 @@ def _process_pending(
             "notes": "invalid snapshot prices",
         }
 
-    as_of_date = _parse_as_of_date(str(row["as_of"]))
-    expiry_date = _add_trading_days(as_of_date, IDEA_TTL_DAYS)
+    start_date = _first_evaluable_date(str(row["as_of"]))
+    expiry_date = _add_trading_days(start_date, IDEA_TTL_DAYS)
 
     for bar in bars:
         bar_date = _bar_date(bar)
-        if bar_date is None or bar_date < as_of_date:
+        if bar_date is None or bar_date < start_date:
             continue
 
         bar_low = _parse_decimal(getattr(bar, "low", None))
@@ -289,8 +315,12 @@ def _process_triggered(
 
 
 def _sweep_row(row: dict[str, Any], *, now_date: date, db_path: Path | None = None) -> str | None:
-    as_of_date = _parse_as_of_date(str(row["as_of"]))
-    bars = fetch_daily_bars_since(str(row["symbol"]), as_of_date)
+    # Fetch from the first EVALUABLE session, not as_of: an idea minted after
+    # tonight's close has no bar to read until tomorrow, and the tri-state
+    # contract then reports [] ("no session yet") rather than a resolvable bar.
+    bars = fetch_daily_bars_since(
+        str(row["symbol"]), _first_evaluable_date(str(row["as_of"]))
+    )
     outcome_id = int(row["id"])
     status = str(row["status"])
     db_kwargs = {} if db_path is None else {"db_path": db_path}
