@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-15T21:40:00.937477+00:00",
+  "updated_at": "2026-07-15T22:31:41.721501+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "vix-spike-symbol-target",
+      "title": "vix_spike auto-bought the wrong symbol on a VIX spike \u2014 symbol gate + SPY targeting",
+      "lane": "in_progress",
+      "type": "fix",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "2026-07-15: found while answering 'why do 4 of my 5 enabled strats never trigger?'. _vix_spike_check was purely regime-driven and NEVER read ctx.sym \u2014 on VIX>28 from calm it returned True for all 503 sp500 names, and the scan auto-bought whichever sorted first: $10k of 'A' (Agilent), entry_mode=auto, rationale 'buy-fear A long'. Its docstring claimed 'SPY-only' but strategy_scan.py:421 unconditionally skipped SPY (fetched as the market benchmark for every strategy), so it could NEVER buy its stated target. Dormant only because VIX is 16.5 \u2014 it would have misfired exactly when the market panics. FOUNDER CALL 2026-07-15: the sleeve buys SPY, the index (matches the docstring + the notional==max_deployed==$10k one-position sizing). FIX: symbol gate in _vix_spike_check (fail-closed on wrong/unset symbol); 'symbol' registered in VIX_SPIKE_ENTRY_PARAM_KEYS (load-bearing \u2014 strategy_scan.py:376 filters ctx.params to entry_param_keys, so an unregistered key is invisible to the predicate); target_symbol in strategy_scan overrides universe + bypasses the SPY benchmark-skip, honoured ONLY for kinds that register 'symbol'; seed _VIX_SPIKE_DEFAULT_PARAMS carries symbol=SPY so new installs aren't dead. 3 regression tests (all fail on main with 'assert True is False'). Reviewed by 2 parallel Opus reviewers, split mandate: static adversary found no bypass path (session_node_spy + vol_event both stay dead, triple-gated before target_symbol is computed); dynamic prover reproduced the bug through the real funnel and proved the fix end-to-end (main: ORDERS=[('auto_execute_entry','A','10000')] -> branch armed: [(...,'SPY','10000')]). Prover also proved SPY is NOT in the sp500 universe, so the skip-bypass alone was insufficient \u2014 the symbols=[target_symbol] override is what makes SPY reachable. SHIPS DISARMED: the live vix_spike row has no 'symbol' param, so post-merge it's inert (0 passed / 0 orders \u2014 safe, and strictly better than buying Agilent, but not working). FOLLOW-UPS: (1) arming = add \"symbol\":\"SPY\" to the live row + deploy; (2) FOUNDER DECISION \u2014 max_deployed_usd(10000) == notional(10000) on acct_alpaca_strat1, shared with dip_refined/earnings_drift/steepyc_dip; _open_exposure counts the WHOLE account, so vix_spike breaks its loop whenever a sibling holds anything \u2014 and VIX spikes co-occur with dips, i.e. it goes quiet exactly when it should fire. Needs a dedicated account or a raised cap. (3) pre-existing, flagged not fixed: the 'SPY only' universe option in the UI picker (strategy_universe.py:38) is still a no-op \u2014 two ways to say SPY-only, only the un-exposed one works."
+    },
+    {
+      "id": "earnings-drift-calendar-blind",
+      "title": "earnings_drift is structurally blind \u2014 Finnhub calendar has almost no PAST announcement dates",
+      "lane": "next",
+      "type": "fix",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "2026-07-15: enabled since 06-22, has NEVER opened a position \u2014 and it's not market conditions, it's a real bug. is_earnings_drift_entry needs a PAST earnings date to score the blowout (strategy_features.py:312-313), but the calendar holds 976 future dates vs only 75 past (MIN(date)=2026-05-26) -> 450/503 symbols excluded outright. Two measured provider bugs: (a) signals/earnings_refresh.py _MAX_CHUNK_DAYS=30 \u2014 the comment claims 30-day chunks stay under Finnhub's 1500-row cap; FALSE in earnings season (chunk 07-14..08-12 returns exactly 1500 rows spanning only 08-06..08-12, silently dropping three weeks; 7-day chunks return the same range complete). (b) DEFAULT_DAYS_BACK=120 is fiction \u2014 Finnhub free /calendar/earnings serves only a rolling ~30-day window regardless of `from` (04-15..05-14 and 05-15..06-13 both return 0 rows). Per-symbol afetch_past_earnings_dates (730d) also returns nothing and has ZERO production callers (signals/finnhub.py:116, tests only). IMPACT NOW: 314 S&P names report in the current entry window (07-17..07-31) \u2014 Q2 season, exactly when this should fire \u2014 and only 8 have the past date needed to evaluate. Their Q1 (late-April) dates are permanently unreachable. It has never had a fair chance to fire. FIX: AlphaVantage EARNINGS (key already configured) returns 121 quarters of real reportedDate incl. AAPL 2026-04-30. WARNING: do NOT use Finnhub /stock/earnings \u2014 its `period` is the fiscal period END (AAPL 2026-03-31), not the announce date (04-30); it would silently score the blowout on the wrong bars. Also fix the chunker to 7 days and delete the DAYS_BACK fiction."
+    },
     {
       "id": "equity-tape-collector",
       "title": "Equity tape collector \u2014 market-wide wildcard stream (trades+quotes), sweeps/velocity detection, local proxy for the hub",
