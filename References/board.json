@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-15T20:57:12.652630+00:00",
+  "updated_at": "2026-07-15T21:39:25.713082+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -1624,6 +1624,15 @@
       "priority": "high",
       "owner": "serv",
       "notes": "IN PROGRESS 2026-07-07 (founder go: implement warmup + fully test cooldown + better way). Design chosen: single global async token-bucket limiter gating all 4 Schwab async entry points + the 2 background loops (prewarm, baseline seeder); interactive requests preempt background so live charts never starve; the boot ramp falls out for free (no separate ramp code). Circuit breaker unified at the same chokepoint as backstop, now with hermetic tests (open/gate/half-open/close, injected clock). ~4/sec sustained, burst ~8. Coder dispatched; mandatory adversarial review of the quote path before deploy."
+    },
+    {
+      "id": "idea-ledger-flywheel",
+      "title": "Idea ledger flywheel: every idea from every source registered + graded + live-calibrated (Wilson/Brier), REASON v1 vs v2 A/B, scorecard UI, gated phone delivery",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "OPENED 2026-07-15 (founder direction: idea generation frequency IS the calibration flywheel \u2014 log everything, trade nothing extra). Deliverable 1 SHIPPED: References/IDEA_LEDGER_SPEC_2026-07-15.md \u2014 end-to-end design (extends existing idea_outcomes ledger + sweep_open_ideas grader; NEW: register_idea narrow API w/ dedup/cooldown, SPY-alpha leg, signals/idea_calibration.py [Wilson LB/Brier/MIN_N=10/regime disjoint-CI], dossier builder, REASON v1 vs v2 as competing origins, ideas-feed + source-scorecard widgets, phone card Wilson-LB-or-unproven). Fix site for the 2026-07-08 honesty strip located: signals/push.py::_la_content_state drops the gate fields \u2014 spec invariant 9.8 pins it. 4 phases w/ verify steps; phase 1 = ledger columns + convergence wired. Build starts after equity-collector deploy verify."
     }
   ]
 }
