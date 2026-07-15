@@ -32,9 +32,35 @@ from datetime import datetime
 from brokers.factory import get_broker
 from brokers.market_clock import market_session as _market_session
 from config.settings import alpaca_config, broker_is_configured
+from signals.options_flow.constants import PREOPEN_WARM_MINUTES
 from trading.market_hours import _ET, _SESSION_OPEN
 
 logger = logging.getLogger(__name__)
+
+
+def _in_preopen_warm(now: datetime | None = None) -> bool:
+    """Within PREOPEN_WARM_MINUTES of today's open (time-of-day only).
+
+    The OI seed needs only prior-session data, so the poll can build + subscribe
+    the active set before the bell instead of ~50s after it (measured 07-15: the
+    session gate held the seed hostage through the open burst). Callers must ALSO
+    check ``market_session() == "pre"`` — that delegates holiday/weekend logic to
+    the market clock instead of duplicating it here.
+    """
+    now_et = (now or datetime.now(tz=_ET)).astimezone(_ET)
+    open_dt = now_et.replace(
+        hour=_SESSION_OPEN[0], minute=_SESSION_OPEN[1], second=0, microsecond=0
+    )
+    delta_s = (open_dt - now_et).total_seconds()
+    return 0 < delta_s <= PREOPEN_WARM_MINUTES * 60
+
+
+def _flow_session_active() -> bool:
+    """Regular hours, or the pre-open warm window."""
+    session = _market_session()
+    if session == "regular":
+        return True
+    return session == "pre" and _in_preopen_warm()
 
 
 def build_sweep_detail(
@@ -186,9 +212,16 @@ class OptionsFlowRunner:
     def subscription_set(self) -> list[str]:
         from signals.options_flow.poll import active_subscription_symbols
 
-        if _market_session() != "regular":
+        if not _flow_session_active():
             return []
         return active_subscription_symbols()
+
+    def anchor_quotes(self) -> list[str]:
+        from signals.options_flow.poll import anchor_quote_symbols
+
+        if not _flow_session_active():
+            return []
+        return anchor_quote_symbols()
 
     def on_prints(self, batch: list[dict]) -> None:
         stream = self.stream
@@ -199,9 +232,9 @@ class OptionsFlowRunner:
     # --- pipeline legs ---
 
     async def intraday_once(self) -> None:
-        """Regular-hours intraday options-flow poll; fail-soft."""
+        """Regular-hours intraday options-flow poll (+ pre-open warm); fail-soft."""
         try:
-            if _market_session() != "regular":
+            if not _flow_session_active():
                 return
 
             try:
@@ -406,6 +439,7 @@ class OptionsFlowRunner:
             on_prints=self.on_prints,
             get_subscription_set=self.subscription_set,
             meta_for=self.meta_for,
+            get_anchor_quotes=self.anchor_quotes,
         )
         self.stream = stream
         logger.info("options_flow stream: starting OPRA websocket (DARK collector)")

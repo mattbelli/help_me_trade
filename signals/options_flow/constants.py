@@ -90,7 +90,28 @@ SWEEP_CLOSE_GRACE_MS = 1_000  # close a cluster only after late prints can no lo
 
 # --- OPRA websocket stream (design §5/§7; probe 2026-07-09) --------------------
 STREAM_TRADES_MAX = 1000  # design §7; our trade-sub budget (vendor acked 1,500+)
-HOT_QUOTE_MAX = 60  # design §7; narrow quote subs — live soak 2026-07-09: 150 subs ≈ 2,100
+# --- Quote budgets (re-derived 2026-07-15 from live measurement) ------------------
+# Probed against the live OPRA ws: Alpaca ACKs exactly 1,000 option-quote subs and
+# 405s ("symbol limit exceeded") at 2,000. Delivery at 1,000 subs measured 14.4
+# quotes/s/contract ≈ 0.09 cores — the 07-09 soak's "150 subs ≈ 52% of a core" was
+# ~39x high, and HOT_QUOTE_MAX=60 was sized off it. Budgets below fill the vendor
+# cap with 50 slots of headroom for subscribe/unsubscribe churn.
+OPRA_QUOTE_SUB_CAP = 1000  # vendor-enforced, measured 2026-07-15
+# Standing near-the-money/high-$-volume contracts, pre-positioned so the FIRST print
+# on a hot contract classifies against a live quote (reactive subs miss it).
+QUOTE_ANCHOR_BUDGET = 600
+HOT_QUOTE_MAX = 350  # reactive escalation pool (was 60 — sized off the wrong soak)
+
+# Active-set selection quotas (measured, 07-14 market-wide tape: >=100k-premium
+# prints put 65% of their premium in DTE>=90 and only 3.6% in DTE<=2; index/megacap
+# 0-1DTE prints are DISCARDED by ZERO_DTE_EXCLUDE downstream, so subscribing them
+# wastes the slot — 57-60% of SPY/QQQ's slots before this quota).
+LONG_DTE_THRESHOLD_DAYS = 46
+ACTIVE_SET_LONG_DTE_MIN = 15  # per underlying, when supply exists
+
+# Pre-open warm window: the OI seed needs only prior-session data, so let the poll
+# run shortly before the bell — subscribed through the open instead of ~50s late.
+PREOPEN_WARM_MINUTES = 10
 # msg/s ≈ 52% of a core on the event loop; hottest contracts dominate prints, so 60 keeps
 # most DIR-1 coverage at a fraction of the flood
 HOT_QUOTE_TTL_SECONDS = 300  # design §7; quote sub lifetime after last print
