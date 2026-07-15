@@ -24,10 +24,18 @@ restart() {
   echo "[$svc] active=$(systemctl is-active "$svc") newMainPID=$newpid (was $pid)"
 }
 
+# The flow collector rides along with backend deploys — but only if its unit
+# is installed (it's optional; see SERVER_SETUP.md "hmt-flow-collector").
+restart_collector_if_present() {
+  if systemctl cat hmt-flow-collector.service >/dev/null 2>&1; then
+    restart hmt-flow-collector
+  fi
+}
+
 target="${1:-both}"
 case "$target" in
-  backend)  restart hmt-backend ;;
+  backend)  restart hmt-backend; restart_collector_if_present ;;
   frontend) restart hmt-frontend ;;
-  both)     restart hmt-backend; restart hmt-frontend ;;
+  both)     restart hmt-backend; restart hmt-frontend; restart_collector_if_present ;;
   *) echo "usage: $0 [backend|frontend|both]"; exit 2 ;;
 esac

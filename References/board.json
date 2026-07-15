@@ -29,6 +29,16 @@
       "updated_at": "2026-07-14"
     },
     {
+      "id": "flow-collector-extraction",
+      "title": "Options-flow pipeline extracted to its own process (hmt-flow-collector)",
+      "lane": "in_progress",
+      "type": "ops",
+      "priority": "high",
+      "owner": "agent",
+      "updated_at": "2026-07-14",
+      "notes": "Motivated by the OPEN 2026-07-13 backend loop-stall incident (20-30s asyncio stalls killed both streams; in-process OPRA collector = suspect): a stalled API loop blinds the stream, a hot open can starve the trading loops. The glue (intraday poll + sweep consumer + stream owner, previously UNTESTED in the api/main.py god-file) moved verbatim to signals/options_flow/runner.py; both hosts share it — API in-process (legacy default, unchanged) or tools/flow_collector.py standalone. Interlock: OPTIONS_FLOW_EXTERNAL_COLLECTOR=1 in the shared .env flips ownership atomically (API refuses to start it in-process, collector refuses to start without it — never two OPRA sockets, Alpaca 406s the second). Cross-process bridge = data/trading.db (WAL already on every connection). Collector re-reads settings each poll tick (new config.settings.reload_settings) so watchlist edits in the API propagate without restart. serv-deploy.sh restarts the collector with backend deploys when the unit exists. 8 new tests pin the seams (first coverage this glue has ever had); 405 api.main-importing + flow tests green, ruff clean. SEQUENCING: do NOT deploy before the 2026-07-15 open verifies PRs #71-#76 on the current single-process architecture (one variable at a time). FOUNDER: one-time sudo to install the unit — see SERVER_SETUP.md 'hmt-flow-collector' (flip .env flag + enable unit + backend restart; rollback = reverse both)."
+    },
+    {
       "id": "flow-underlying-coverage",
       "title": "Flow watcher never watched SPY/TSLA \u2014 FIXED + VERIFIED LIVE 2026-07-14 (0 \u2192 16 TSLA events in 3 min)",
       "lane": "done",

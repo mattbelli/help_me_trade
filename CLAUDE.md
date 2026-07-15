@@ -93,6 +93,16 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
   targets). Delivery + execution are the strong foundation; **decision quality is what makes the app worth
   using.** See `References/BUILD.md` → "★ The Decision Engine" section. Win%/ranks must be **calibrated, never
   fabricated.** Active founder+orchestrator deep-research effort — do not treat as a someday-footnote.
+- **★ The product is CONNECTING THE DOTS, not proving edge per mechanism.** The value is *multiple angles on one
+  trade* — flow prints here → what's the underlying's volume? is this a support/resistance level? what do the
+  fundamentals say? what are social threads saying? — fused into a picture the user reasons over and **decides**
+  on. The user makes the call; we supply the angles, not a verdict. **So: "this signal has no proven edge" is
+  NEVER an argument against building a perception source.** Nobody has clean standalone edge in any one
+  mechanism; demanding it per-component is a thought-terminating move that kills the fusion layer that *is* the
+  product. Edge-hunting (backtests, validation) is **one workstream, not the gate on all others.** What the
+  honesty rules actually constrain is **presentation, not construction**: never dress an unvalidated angle as a
+  scored/validated signal, never fabricate a win% — label it as perception and let the user weigh it. Build the
+  angle; be honest about what it is.
 - `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
   `References/SERVER_SETUP.md` (the home Linux server this now runs on).
 - **Kill any dev/smoke server you spawn when you're done.** Headless-UI/screenshot checks spin up a Next

@@ -250,6 +250,18 @@ def load_settings() -> dict[str, Any]:
         return copy.deepcopy(_settings_cache)
 
 
+def reload_settings() -> None:
+    """Drop the in-process cache so the next load re-reads the settings file.
+
+    Needed by processes that don't own settings writes (the flow collector):
+    the API saves watchlist edits to the file, but this cache never sees them
+    cross-process. Cheap — the next load_settings() rebuilds once.
+    """
+    global _settings_cache
+    with _settings_lock:
+        _settings_cache = None
+
+
 def save_settings(settings: dict[str, Any]) -> None:
     global _settings_cache
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)

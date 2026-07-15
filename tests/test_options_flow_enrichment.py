@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from api.main import _build_sweep_detail
+from signals.options_flow.runner import build_sweep_detail as _build_sweep_detail
 
 
 def test_build_sweep_detail_full_snapshot() -> None:
