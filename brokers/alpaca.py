@@ -37,6 +37,8 @@ def _trade_at_or_after(trade: dict, cutoff: datetime) -> bool:
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
     return ts >= cutoff
+
+
 _NON_INTRADAY_TIMEFRAMES = frozenset({"1Day", "1Week", "1Month"})
 _OVERNIGHT_BARS_FEED = "boats"
 
