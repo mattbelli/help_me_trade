@@ -23,6 +23,22 @@ logger = logging.getLogger(__name__)
 
 _MAX_BAR_PAGES = 50
 _BATCH_BARS_PATH = "/v2/stocks/bars"
+
+
+def _trade_at_or_after(trade: dict, cutoff: datetime) -> bool:
+    """True if `trade`'s timestamp is at/after `cutoff`. Untimed trades fail."""
+    raw = trade.get("t")
+    if not isinstance(raw, str) or not raw:
+        return False
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts >= cutoff
+
+
 _NON_INTRADAY_TIMEFRAMES = frozenset({"1Day", "1Week", "1Month"})
 _OVERNIGHT_BARS_FEED = "boats"
 
@@ -917,8 +933,20 @@ class AlpacaAdapter:
     _EXT_QUOTES_CHUNK = 200
 
     @staticmethod
-    def _parse_ext_quote_snapshot(snap: dict) -> dict | None:
-        """Map one Alpaca stock snapshot to {ext_last, ext_change_pct}."""
+    def _parse_ext_quote_snapshot(
+        snap: dict, *, not_before: datetime | None = None
+    ) -> dict | None:
+        """Map one Alpaca stock snapshot to {ext_last, ext_change_pct}.
+
+        `not_before` rejects a snapshot whose last trade predates that instant.
+        The overnight venue has no trades in most names, and its snapshot keeps
+        serving the last trade it EVER saw: NTSK showed a 100-share print from
+        the prior overnight session — 20.6h and one +11% regular day stale — as
+        the live price, painting -10% on a stock that had closed +11%. A trade
+        older than the last regular close has been superseded by that close, so
+        the snapshot is treated as absent and the caller falls back to the
+        consolidated feed.
+        """
         if not isinstance(snap, dict):
             return None
 
@@ -926,6 +954,9 @@ class AlpacaAdapter:
         quote = snap.get("latestQuote") or {}
         daily_bar = snap.get("dailyBar") or {}
         prev_daily = snap.get("prevDailyBar") or {}
+
+        if not_before is not None and not _trade_at_or_after(trade, not_before):
+            return None
 
         def _f(v: object) -> float | None:
             try:
@@ -967,12 +998,18 @@ class AlpacaAdapter:
         return {"ext_last": ext_last, "ext_change_pct": ext_change_pct}
 
     async def aget_ext_quotes(
-        self, symbols: list[str], *, feed: str | None = None
+        self,
+        symbols: list[str],
+        *,
+        feed: str | None = None,
+        not_before: datetime | None = None,
     ) -> dict[str, dict]:
         """Snapshot batch for extended-hours last price + % move.
 
         Default feed is the daytime SIP/IEX feed; callers may override (e.g.
-        ``boats`` / ``overnight`` during the 8pm–4am session).
+        ``boats`` / ``overnight`` during the 8pm–4am session). `not_before` drops
+        symbols whose last trade predates that instant, so a venue with no trades
+        cannot serve a stale one as the live price.
 
         Returns {SYMBOL: {ext_last, ext_change_pct}}. Fail-soft: partial/empty on
         error, never raises — callers must not crash when Alpaca hiccups.
@@ -1004,7 +1041,9 @@ class AlpacaAdapter:
                 )
                 continue
             for sym in chunk:
-                parsed = self._parse_ext_quote_snapshot(data.get(sym) or {})
+                parsed = self._parse_ext_quote_snapshot(
+                    data.get(sym) or {}, not_before=not_before
+                )
                 if parsed is not None:
                     out[sym] = parsed
         return out

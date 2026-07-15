@@ -24,12 +24,13 @@ future is actually routed (a Schwab-less setup still serves equities).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from brokers.base import MarketDataProvider
 from brokers.market_clock import market_session
 from brokers.symbol_class import classify_symbol
+from trading.market_hours import last_session_close
 
 if TYPE_CHECKING:
     from brokers.alpaca import StockBar
@@ -233,15 +234,29 @@ class HybridMarketData:
 
         session = market_session()
         quote_feed: str | None = None
+        not_before: datetime | None = None
         if session == "overnight":
             quote_feed = _overnight_quote_feed(self.alpaca)
+            # The overnight venue trades few names. Its snapshot still reports the
+            # last trade it ever saw, so a symbol with no overnight market serves a
+            # print from a PRIOR session as if it were live (NTSK: a 20.6h-old
+            # 100-share print rendered -10% on a stock that closed +11%). Anything
+            # older than the last regular close was superseded by that close.
+            not_before = last_session_close(datetime.now(UTC))
         delayed = _overnight_delayed(self.alpaca)
 
         merged: dict[str, dict] = {}
         try:
-            ext = await self.alpaca.aget_ext_quotes(equity_syms, feed=quote_feed)
-            if session == "overnight" and quote_feed is not None and not ext:
-                ext = await self.alpaca.aget_ext_quotes(equity_syms)
+            ext = await self.alpaca.aget_ext_quotes(
+                equity_syms, feed=quote_feed, not_before=not_before
+            )
+            if session == "overnight" and quote_feed is not None:
+                # Per-symbol, not all-or-nothing: on a mixed watchlist the actively
+                # traded names have fresh overnight prints while the rest must fall
+                # back to the consolidated feed's last real trade.
+                missing = [s for s in equity_syms if s not in ext]
+                if missing:
+                    ext.update(await self.alpaca.aget_ext_quotes(missing))
             merged.update(ext)
         except Exception:
             logger.warning(
