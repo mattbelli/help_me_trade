@@ -165,7 +165,9 @@ class EquityTapeRunner:
                 events: list[dict[str, Any]] = []
                 while self.detector.pending:
                     events.append(self.detector.pending.popleft())
-                events.extend(self.sweeps.flush(time.time() * 1000.0))
+                now_ms = time.time() * 1000.0
+                events.extend(self.sweeps.flush(now_ms))
+                events.extend(self.velocity.flush(now_ms))
                 if self._pending:
                     events.extend(self._pending)
                     self._pending = []

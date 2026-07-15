@@ -249,13 +249,7 @@ class VelocityDetector:
             return None
 
         event = self._close_bucket(symbol, st)
-        # Empty buckets between prints decay the baseline toward zero — a name
-        # that went quiet must not keep its hot baseline. 60 zero-updates at
-        # alpha=0.05 ≈ ×0.05, so deeper gaps are indistinguishable from reset.
-        gap = min(max(idx - st["idx"] - 1, 0), 60)
-        for _ in range(gap):
-            st["baseline"] *= 1.0 - VELOCITY_EMA_ALPHA
-            st["buckets_seen"] += 1
+        self._decay_gap(st, idx)
         st["idx"] = idx
         st["count"] = 1
         st["gross"] = price * size
@@ -263,6 +257,36 @@ class VelocityDetector:
         st["shares"] = size
         st["last_price"] = price
         return event
+
+    def flush(self, now_ms: float) -> list[dict[str, Any]]:
+        """Close every bucket whose window has ended — without this, a spike in
+        the final bucket before a symbol goes silent would only be judged when
+        (if ever) the next print arrived."""
+        current_idx = int(now_ms // (VELOCITY_BUCKET_SECONDS * 1000.0))
+        out: list[dict[str, Any]] = []
+        for symbol, st in self._sym.items():
+            if current_idx <= st["idx"] or st["count"] == 0:
+                continue
+            ev = self._close_bucket(symbol, st)
+            if ev is not None:
+                out.append(ev)
+            self._decay_gap(st, current_idx)
+            st["idx"] = current_idx
+            st["count"] = 0
+            st["gross"] = 0.0
+            st["net"] = 0.0
+            st["shares"] = 0
+        return out
+
+    @staticmethod
+    def _decay_gap(st: dict[str, Any], new_idx: int) -> None:
+        # Empty buckets between prints decay the baseline toward zero — a name
+        # that went quiet must not keep its hot baseline. 60 zero-updates at
+        # alpha=0.05 ≈ ×0.05, so deeper gaps are indistinguishable from reset.
+        gap = min(max(new_idx - st["idx"] - 1, 0), 60)
+        for _ in range(gap):
+            st["baseline"] *= 1.0 - VELOCITY_EMA_ALPHA
+            st["buckets_seen"] += 1
 
     def _close_bucket(self, symbol: str, st: dict[str, Any]) -> dict[str, Any] | None:
         count = st["count"]

@@ -410,6 +410,44 @@ def test_dispatch_isolates_callback_errors():
     assert len(quotes_seen) == 1
 
 
+def test_velocity_flush_emits_final_bucket_without_a_next_print():
+    """Opus review: a 30+ print burst followed by silence must still emit —
+    the periodic flush closes ended buckets, not just the next print."""
+    v = VelocityDetector()
+    base = 1_000_000_000.0
+    t0 = _warm(v, "X", base)
+    for j in range(40):
+        assert (
+            v.on_print(
+                symbol="X", price=10.0, size=100, ts_ms=t0 + j * 10.0,
+                signed_notional=1000.0,
+            )
+            is None
+        )
+    # no further prints ever — flush after the bucket ends must emit
+    events = v.flush(t0 + _BUCKET_MS + 1)
+    assert len(events) == 1
+    assert events[0]["detail"]["prints"] == 40
+    # and flushing again is idempotent (bucket already closed)
+    assert v.flush(t0 + 2 * _BUCKET_MS) == []
+
+
+def test_hub_accepts_alpaca_daily_bar_type_d(monkeypatch):
+    """Opus review (verified live): Alpaca sends T='d' for daily bars; the hub
+    only matched 'db', leaving the dailyBars channel dead-on-arrival."""
+    import json
+
+    from brokers.market_stream import AlpacaMarketStreamHub, QuoteState
+
+    monkeypatch.setenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", "0")
+    hub = AlpacaMarketStreamHub()
+    hub._quotes["SPY"] = QuoteState(price=630.0, prev_close=625.0)
+    asyncio.run(
+        hub._handle_alpaca_message(json.dumps([{"T": "d", "S": "SPY", "c": 628.0}]))
+    )
+    assert hub._quotes["SPY"].price == 628.0
+
+
 def test_runner_on_quote_guards_malformed_fields():
     from signals.equity_stream.runner import EquityTapeRunner
 

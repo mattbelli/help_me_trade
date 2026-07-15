@@ -695,7 +695,11 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             msg_type = item.get("T")
             if msg_type == "t":
                 await self._on_trade(item)
-            elif msg_type == "db":
+            elif msg_type in ("d", "db"):
+                # Alpaca's stocks v2 daily-bar type is "d"; "db" kept for the
+                # shape this handler was originally written against. Verified
+                # 2026-07-15: only matching "db" left the dailyBars channel
+                # dead-on-arrival (real frames were silently ignored).
                 await self._on_daily_bar(item)
 
     async def _on_trade(self, item: dict[str, Any]) -> None:
