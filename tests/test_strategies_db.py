@@ -416,3 +416,50 @@ def test_entry_mode_defaults_and_migrates(tmp_path: Path) -> None:
     with connect(db) as conn:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(strategies)")}
     assert "entry_mode" in cols
+
+
+def test_notional_pct_defaults_null_and_migrates(tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    seed_default_strategies(db_path=db)
+
+    # Seeded rows size off notional_usd — percent sizing is strictly opt-in.
+    row = get_strategy("dip_buy", db_path=db)
+    assert row is not None
+    assert row["notional_pct"] is None
+
+    init_strategy_tables(db)
+    with connect(db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(strategies)")}
+    assert "notional_pct" in cols
+
+
+def test_notional_pct_round_trips_and_clears(tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    seed_default_strategies(db_path=db)
+
+    updated = update_strategy("dip_buy", notional_pct=2.5, db_path=db)
+    assert updated["notional_pct"] == 2.5
+    assert get_strategy("dip_buy", db_path=db)["notional_pct"] == 2.5
+    # list_strategies must surface it too (its own SELECT column list).
+    listed = next(s for s in list_strategies(db_path=db) if s["id"] == "dip_buy")
+    assert listed["notional_pct"] == 2.5
+
+    # Omitting the field leaves it alone (sentinel default, not None).
+    untouched = update_strategy("dip_buy", notional_usd=600, db_path=db)
+    assert untouched["notional_pct"] == 2.5
+
+    # An explicit None clears it — back to static-dollar sizing.
+    cleared = update_strategy("dip_buy", notional_pct=None, db_path=db)
+    assert cleared["notional_pct"] is None
+
+
+def test_notional_pct_validation(tmp_path: Path) -> None:
+    db = _migrated_db(tmp_path)
+    seed_default_strategies(db_path=db)
+
+    for bad in (0, -1, 100.1, 1000):
+        with pytest.raises(ValueError, match="notional_pct"):
+            update_strategy("dip_buy", notional_pct=bad, db_path=db)
+
+    # Boundary: 100% of equity is allowed (all-in is a legitimate config).
+    assert update_strategy("dip_buy", notional_pct=100, db_path=db)["notional_pct"] == 100.0

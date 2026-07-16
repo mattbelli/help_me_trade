@@ -108,6 +108,8 @@ def _patch_scan_env(
     *,
     strategy_enabled: bool = False,
     notional: float = 500,
+    notional_pct: float | None = None,
+    equity: float | None = None,
     watchlist: list[str] | None = None,
     held: list[str] | None = None,
     account_id: str | None = None,
@@ -127,6 +129,8 @@ def _patch_scan_env(
         account_id=bound_account,
         db_path=db,
     )
+    if notional_pct is not None:
+        update_strategy("dip_buy", notional_pct=notional_pct, db_path=db)
 
     if watchlist is not None:
         monkeypatch.setattr(
@@ -142,9 +146,14 @@ def _patch_scan_env(
         "signals.strategy_scan.get_broker_for_account", lambda _acct: MagicMock()
     )
 
-    snapshot = (
+    snapshot: dict | None = (
         {"positions": [{"symbol": s} for s in held]} if held is not None else None
     )
+    if equity is not None:
+        snapshot = {
+            **(snapshot or {"positions": []}),
+            "account": {"portfolio_value": equity},
+        }
 
     def _snapshot(_broker, *, account_id=None, db_path=None):
         return snapshot
@@ -716,3 +725,115 @@ def test_inflight_auto_exposure_counts_cross_symbol_dedups_held(tmp_path) -> Non
     )
     assert count == 1  # AAPL only (MSFT held, NVDA is earnings_drift)
     assert value == 300.0  # 3 * 100
+
+
+@pytest.mark.asyncio
+async def test_notional_pct_sizes_off_account_equity(monkeypatch, tmp_path: Path) -> None:
+    """notional_pct set => order is pct of the snapshot's portfolio_value, not notional_usd."""
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        notional=750,  # must be IGNORED once a percent is configured
+        notional_pct=2.0,
+        equity=100_000.0,
+        watchlist=[PASS_SYMBOL],
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert len(result) == 1
+    candidate = propose_mock.await_args.args[0]
+    assert candidate.notional_usd == Decimal("2000")  # 2% of $100k, not $750
+
+
+@pytest.mark.asyncio
+async def test_notional_pct_compounds_with_equity(monkeypatch, tmp_path: Path) -> None:
+    """Same 2% config sizes bigger on a bigger book — the point of percent sizing."""
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        notional_pct=2.0,
+        equity=250_000.0,
+        watchlist=[PASS_SYMBOL],
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    await run_strategy_scan(db_path=db)
+
+    assert propose_mock.await_args.args[0].notional_usd == Decimal("5000")
+
+
+@pytest.mark.asyncio
+async def test_notional_pct_without_equity_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    """FAIL-CLOSED: percent sizing with no snapshot equity SKIPS — never falls back to $."""
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        notional=750,
+        notional_pct=2.0,
+        equity=None,  # snapshot carries no account/portfolio_value
+        watchlist=[PASS_SYMBOL],
+    )
+    fetch_mock = AsyncMock(return_value=_passing_bar_payload())
+    monkeypatch.setattr("signals.strategy_scan._fetch_stock_bars", fetch_mock)
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert result == []
+    propose_mock.assert_not_called()  # NOT sized at the stale $750
+    fetch_mock.assert_not_called()  # skipped before spending a broker fetch
+
+
+@pytest.mark.asyncio
+async def test_notional_pct_zero_equity_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    """A zero/garbage portfolio_value is unusable equity — skip, don't size off $."""
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        notional=750,
+        notional_pct=2.0,
+        equity=0.0,
+        watchlist=[PASS_SYMBOL],
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    result = await run_strategy_scan(db_path=db)
+
+    assert result == []
+    propose_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_notional_usd_still_used_when_pct_unset(monkeypatch, tmp_path: Path) -> None:
+    """Unchanged behaviour: no percent configured => the static dollar amount, even
+    when the snapshot has equity available."""
+    propose_mock, db = _patch_scan_env(
+        monkeypatch,
+        tmp_path,
+        strategy_enabled=True,
+        notional=750,
+        equity=100_000.0,
+        watchlist=[PASS_SYMBOL],
+    )
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    await run_strategy_scan(db_path=db)
+
+    assert propose_mock.await_args.args[0].notional_usd == Decimal("750")

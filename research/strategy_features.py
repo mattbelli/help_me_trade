@@ -297,11 +297,16 @@ def is_earnings_drift_entry(
     """Pre-earnings drift after a blowout — LONG-only entry, point-in-time at idx.
 
     Mirrors research/earnings_strategy.py: if the PRIOR earnings produced a
-    blowout-UP reaction (close[j+1]/close[j-1]-1 >= blowout_pct), buy ~entry_lead_td
-    trading days before the NEXT earnings (exit ~exit_lead_td days before — never
-    holds through the announcement). `earnings_dates` is the symbol's known
-    earnings dates (live: from db.earnings_calendar). No look-ahead: only the prior
-    earnings' reaction (already realized) is used; the next date only times entry.
+    blowout-UP reaction (close[j+1]/close[j-1]-1 >= blowout_pct), buy EXACTLY
+    entry_lead_td trading days before the NEXT earnings (exit ~exit_lead_td days
+    before — never holds through the announcement). `earnings_dates` is the symbol's
+    known earnings dates (live: from db.earnings_calendar). No look-ahead: only the
+    prior earnings' reaction (already realized) is used; the next date only times entry.
+
+    Entry is at EXACTLY the lead, not anywhere inside the window: the validated
+    backtest enters at `entry_idx = jn - entry_lead_td` and always holds
+    entry_lead_td - exit_lead_td days (~9). Entering later is a DIFFERENT trade with
+    a shorter hold that the validation does NOT cover — miss the day, skip the cycle.
     """
     if idx < 0 or idx >= len(bars):
         return False
@@ -335,9 +340,9 @@ def is_earnings_drift_entry(
     if gap_td < min_gap_td or gap_td > max_gap_td:
         return False
 
-    # In the pre-earnings holding window: at/just-inside the entry lead, but not yet
-    # past the exit lead. One-entry-per-signal upstream keeps it from re-firing.
-    return exit_lead_td < td_to_next <= entry_lead_td
+    # Exactly at the entry lead — the validated backtest's entry day. A late entry
+    # (anywhere inside the window) is a shorter, unvalidated hold, so it doesn't fire.
+    return td_to_next == entry_lead_td
 
 
 def is_vix_spike_entry(

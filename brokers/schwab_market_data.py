@@ -489,19 +489,9 @@ class SchwabMarketData:
             div_yield = _f(fundamental.get("divYield"))
             shares_outstanding = _f(fundamental.get("sharesOutstanding"))
 
-            # Schwab returns lastEarningsDate as an ISO string ("2026-04-30T00:00:00Z"),
-            # NOT epoch-ms — take the date part. (Schwab gives no nextEarningsDate.)
-            last_earnings_raw = fundamental.get("lastEarningsDate")
-            last_earnings_date: str | None = None
-            if isinstance(last_earnings_raw, str) and len(last_earnings_raw) >= 10:
-                last_earnings_date = last_earnings_raw[:10]
-            elif last_earnings_raw is not None:
-                try:
-                    last_earnings_date = datetime.fromtimestamp(
-                        int(last_earnings_raw) / 1000, tz=UTC
-                    ).strftime("%Y-%m-%d")
-                except (TypeError, ValueError, OSError):
-                    pass
+            # lastEarningsDate is deliberately NOT parsed: past announce dates come from
+            # SEC EDGAR (free, keyless), so no capability is gated on holding a Schwab
+            # account. See signals/earnings_edgar.py.
 
             out[sym.upper()] = {
                 "regular_last": reg_last,
@@ -514,21 +504,20 @@ class SchwabMarketData:
                 "eps": eps,
                 "div_yield": div_yield,
                 "shares_outstanding": shares_outstanding,
-                "last_earnings_date": last_earnings_date,
             }
         return out
 
     async def aget_quotes(self, symbols: list[str]) -> dict[str, dict]:
         """Batch quote fetch; returns {SYMBOL: {regular_last, regular_change_pct,
         ext_last, ext_change_pct, prev_close, total_volume, pe_ratio, eps, div_yield,
-        shares_outstanding, last_earnings_date}} with None for absent fields.
+        shares_outstanding}} with None for absent fields.
 
         total_volume is the cumulative day volume from Schwab's quote.totalVolume field.
         Useful for efficient market-wide RVOL screening without per-symbol bar calls.
 
-        Fundamental fields (pe_ratio, eps, div_yield, shares_outstanding,
-        last_earnings_date) come from Schwab's fundamental block and may be None for
-        symbols without that data (e.g. ETFs).
+        Fundamental fields (pe_ratio, eps, div_yield, shares_outstanding) come from
+        Schwab's fundamental block and may be None for symbols without that data
+        (e.g. ETFs). Earnings dates are NOT sourced here — see signals/earnings_edgar.py.
 
         Raises BrokerError on hard failure (non-200 or unexpected response shape).
         """

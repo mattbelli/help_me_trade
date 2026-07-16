@@ -540,9 +540,6 @@ async def test_aget_quotes_raises_broker_error_on_http_failure() -> None:
 # fundamental block parsing tests
 # ---------------------------------------------------------------------------
 
-# lastEarningsDate epoch-ms → 2026-04-25 UTC
-_LAST_EARNINGS_EPOCH_MS = 1_777_075_200_000  # 2026-04-25T00:00:00Z
-
 _QUOTES_WITH_FUNDAMENTAL = {
     "AAPL": {
         "quote": {"lastPrice": 211.0, "closePrice": 210.0, "totalVolume": 50_000_000},
@@ -553,7 +550,9 @@ _QUOTES_WITH_FUNDAMENTAL = {
             "eps": 7.42,
             "divYield": 0.52,
             "sharesOutstanding": 15_200_000_000,
-            "lastEarningsDate": _LAST_EARNINGS_EPOCH_MS,
+            # Present in Schwab's payload but deliberately not parsed — earnings dates
+            # come from SEC EDGAR so nothing is gated on a Schwab account.
+            "lastEarningsDate": 1_777_075_200_000,
         },
     },
     "ETF": {
@@ -578,14 +577,14 @@ async def test_aget_quotes_parses_fundamental_fields() -> None:
     assert aapl["eps"] == pytest.approx(7.42)
     assert aapl["div_yield"] == pytest.approx(0.52)
     assert aapl["shares_outstanding"] == pytest.approx(15_200_000_000)
-    assert aapl["last_earnings_date"] == "2026-04-25"
+    # Severed on purpose: Schwab supplies lastEarningsDate, we don't read it (EDGAR does).
+    assert "last_earnings_date" not in aapl
 
     etf = result["ETF"]
     assert etf["pe_ratio"] is None
     assert etf["eps"] is None
     assert etf["div_yield"] is None
     assert etf["shares_outstanding"] is None
-    assert etf["last_earnings_date"] is None
 
 
 def test_market_cap_computation_from_shares_and_price() -> None:

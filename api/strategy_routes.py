@@ -19,6 +19,17 @@ router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 # mechanical kill lines (References/REGIME_SLEEVES_SPEC.md).
 _PROPOSE_ONLY_IDS = frozenset({"session_node_spy", "generals_dip", "vol_event"})
 
+# Percent-of-equity sizing is resolved in signals.strategy_scan._resolve_notional,
+# which only runs for the generic-scan kinds. These four size themselves off
+# notional_usd in their OWN paths (momentum's rebalance, the regime sleeves' loop,
+# session-node), so storing a percent for them would persist a sizing rule that
+# silently never applies to their orders. Reject it rather than mislead — the UI
+# hides the control, and this blocks a direct API call too. Clearing (null) is
+# always allowed.
+_PERCENT_SIZING_UNSUPPORTED_IDS = frozenset(
+    {"momentum_sp500", "generals_dip", "vol_event", "session_node_spy"}
+)
+
 
 def _strategy_to_api(strategy: dict[str, Any]) -> dict[str, Any]:
     out = dict(strategy)
@@ -118,6 +129,20 @@ def api_update_strategy(
             content={"detail": f"{strategy_id} is propose-only"},
         )
 
+    if (
+        strategy_id in _PERCENT_SIZING_UNSUPPORTED_IDS
+        and body.get("notional_pct") is not None
+    ):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": (
+                    f"{strategy_id} sizes off a fixed notional — percent-of-equity "
+                    "is not wired into its scan path"
+                )
+            },
+        )
+
     try:
         updated = update_strategy(
             strategy_id,
@@ -126,6 +151,8 @@ def api_update_strategy(
             notional_usd=body.get("notional_usd")
             if "notional_usd" in body
             else None,
+            # Sentinel-defaulted: an explicit null clears percent sizing (back to $).
+            notional_pct=body.get("notional_pct") if "notional_pct" in body else ...,
             exit_mode=body.get("exit_mode") if "exit_mode" in body else None,
             entry_mode=body.get("entry_mode") if "entry_mode" in body else None,
             alert_style=body.get("alert_style") if "alert_style" in body else None,

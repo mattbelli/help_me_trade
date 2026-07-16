@@ -32,6 +32,22 @@ import {
 // rather than an empty string. "" is the real unbound value sent to the API.
 const UNBOUND = "__unbound__";
 
+// Per-trade sizing is either a static dollar amount or a percent of account equity
+// (the mode the PC-validated config uses — it compounds with the book).
+type SizingMode = "dollars" | "percent";
+const DEFAULT_NOTIONAL_PCT = 2;
+
+// These size themselves off the fixed notional in their own scan paths (momentum's
+// rebalance, the regime sleeves' loop, session-node) — percent isn't wired into them,
+// so don't offer a control that would silently not apply. Mirrors the server's
+// _PERCENT_SIZING_UNSUPPORTED_IDS, which rejects it outright.
+const PERCENT_SIZING_UNSUPPORTED_IDS = new Set([
+  "momentum_sp500",
+  "generals_dip",
+  "vol_event",
+  "session_node_spy",
+]);
+
 type StrategyDoc = {
   trigger: string;
   action: string;
@@ -166,6 +182,9 @@ type StrategyDraft = {
   enabled: boolean;
   account_id: string;
   notional_usd: number;
+  // null = static-dollar sizing (notional_usd); a number = percent of account equity,
+  // resolved at scan time. Exactly one of the two is live — never both.
+  notional_pct: number | null;
   entry_mode: "auto" | "propose";
   exit_mode: "auto" | "propose";
   params: Record<string, unknown>;
@@ -187,6 +206,7 @@ function strategyToDraft(strategy: Strategy): StrategyDraft {
     enabled: strategy.enabled,
     account_id: strategy.account_id ?? "",
     notional_usd: strategy.notional_usd,
+    notional_pct: strategy.notional_pct,
     entry_mode: strategy.entry_mode ?? "propose",
     exit_mode: strategy.exit_mode,
     params: { ...strategy.params },
@@ -207,6 +227,9 @@ function buildPatch(
   if (draft.account_id !== original.account_id) patch.account_id = draft.account_id;
   if (draft.notional_usd !== original.notional_usd) {
     patch.notional_usd = draft.notional_usd;
+  }
+  if (draft.notional_pct !== original.notional_pct) {
+    patch.notional_pct = draft.notional_pct;
   }
   if (draft.entry_mode !== original.entry_mode) patch.entry_mode = draft.entry_mode;
   if (draft.exit_mode !== original.exit_mode) patch.exit_mode = draft.exit_mode;
@@ -245,6 +268,9 @@ function StrategyCard({
 
   const [expanded, setExpanded] = useState(false);
   const [notionalText, setNotionalText] = useState(String(strategy.notional_usd));
+  const [pctText, setPctText] = useState(
+    strategy.notional_pct === null ? "" : String(strategy.notional_pct),
+  );
   const [farSupportText, setFarSupportText] = useState(
     hasFarSupportMin ? String(strategy.params.far_support_min) : "",
   );
@@ -315,6 +341,14 @@ function StrategyCard({
   const boundAccountLabel = draft.account_id
     ? (accounts.find((a) => a.id === draft.account_id)?.label ?? "Unbound")
     : "Unbound";
+  // Mode is derived, not separate state — notional_pct being set IS "percent mode",
+  // so the control can never disagree with what the scanner will actually do.
+  const supportsPercentSizing = !PERCENT_SIZING_UNSUPPORTED_IDS.has(strategy.id);
+  const sizingMode: SizingMode = draft.notional_pct === null ? "dollars" : "percent";
+  const sizingSummary =
+    sizingMode === "percent"
+      ? `${draft.notional_pct}% of equity`
+      : `$${draft.notional_usd.toLocaleString()}`;
   const collapsedMeta = isSessionNode ? "SPY" : draft.universe;
 
   return (
@@ -335,7 +369,7 @@ function StrategyCard({
                 <span className="shrink-0 text-[11px] text-[var(--c-amber)]">• unsaved</span>
               )}
               <span className="truncate text-xs text-muted-foreground">
-                {boundAccountLabel} · {collapsedMeta}
+                {boundAccountLabel} · {collapsedMeta} · {sizingSummary}
               </span>
             </button>
           </div>
@@ -451,22 +485,70 @@ function StrategyCard({
               )}
             </TerminalField>
 
-            <TerminalField label="Notional ($)">
-              <TerminalInput
-                type="number"
-                min={0}
-                step={50}
-                value={notionalText}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setNotionalText(raw);
-                  updateDraft((d) => ({
-                    ...d,
-                    notional_usd: raw === "" ? 0 : Number(raw),
-                  }));
-                }}
-              />
-            </TerminalField>
+            {supportsPercentSizing && (
+              <TerminalField label="Size by">
+                <Select
+                  value={sizingMode}
+                  onValueChange={(v) =>
+                    updateDraft((d) => ({
+                      ...d,
+                      // Switching to percent seeds the last typed value (or 2%);
+                      // switching back to dollars clears it, which is what tells the
+                      // scanner to size off notional_usd again.
+                      notional_pct:
+                        v === "percent"
+                          ? (Number(pctText) || DEFAULT_NOTIONAL_PCT)
+                          : null,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8 bg-[var(--bg-inset)] border-[var(--border)] font-mono text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dollars">fixed dollars</SelectItem>
+                    <SelectItem value="percent">percent of equity</SelectItem>
+                  </SelectContent>
+                </Select>
+              </TerminalField>
+            )}
+
+            {sizingMode === "percent" ? (
+              <TerminalField label="Size (% of equity)">
+                <TerminalInput
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={pctText}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setPctText(raw);
+                    updateDraft((d) => ({
+                      ...d,
+                      notional_pct: raw === "" ? null : Number(raw),
+                    }));
+                  }}
+                />
+              </TerminalField>
+            ) : (
+              <TerminalField label="Notional ($)">
+                <TerminalInput
+                  type="number"
+                  min={0}
+                  step={50}
+                  value={notionalText}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setNotionalText(raw);
+                    updateDraft((d) => ({
+                      ...d,
+                      notional_usd: raw === "" ? 0 : Number(raw),
+                    }));
+                  }}
+                />
+              </TerminalField>
+            )}
 
             <TerminalField label="Entry mode">
               {isSessionNode ? (
@@ -583,6 +665,31 @@ function StrategyCard({
             What the strategy scans — independent of the watchlist you&apos;re
             viewing. Broad market keeps it faithful to the backtest; pin a
             specific watchlist to constrain it.
+          </p>
+
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {!supportsPercentSizing ? (
+              <>
+                Sizing <span className="text-[var(--c-green)]">fixed dollars</span> —
+                this strategy sizes its own orders off {sizingSummary} in its scan
+                path, so percent-of-equity doesn&apos;t apply to it.
+              </>
+            ) : sizingMode === "percent" ? (
+              <>
+                Sizing <span className="text-[var(--c-amber)]">percent of equity</span> —
+                each trade is {draft.notional_pct}% of the bound account&apos;s value at
+                signal time, so it grows and shrinks with the book (how the validated
+                config sizes). The fixed notional is ignored while this mode is on. If
+                the account&apos;s equity isn&apos;t available, the scan{" "}
+                <strong>skips the strategy</strong> rather than guess a size.
+              </>
+            ) : (
+              <>
+                Sizing <span className="text-[var(--c-green)]">fixed dollars</span> — every
+                trade is the same {sizingSummary}, regardless of account size. Switch to
+                percent of equity to compound with the book.
+              </>
+            )}
           </p>
 
           <p className="text-[11px] text-muted-foreground">

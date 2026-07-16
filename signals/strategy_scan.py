@@ -96,6 +96,50 @@ def _held_symbols_for_account(
     return _held_symbols(snapshot)
 
 
+def _resolve_notional(
+    strategy: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+) -> float | None:
+    """Per-trade notional — percent of equity when set, else the static dollar amount.
+
+    Returns None when the strategy must be skipped (caller returns no candidates).
+
+    FAIL-CLOSED on the percent path: if notional_pct is set but the snapshot carries
+    no positive portfolio_value, we skip rather than fall back to notional_usd —
+    sizing a real order off absent/stale equity is exactly the wrong-sized-order
+    failure, and silently sizing by a different rule than the user configured is
+    worse than not trading this tick.
+    """
+    pct = strategy.get("notional_pct")
+    if pct is not None and float(pct) > 0:
+        account = (snapshot or {}).get("account") or {}
+        try:
+            equity = float(account.get("portfolio_value") or 0.0)
+        except (TypeError, ValueError):
+            equity = 0.0
+        if equity <= 0:
+            logger.warning(
+                "Strategy %s skipped — sized at %.2f%% of equity but the account "
+                "snapshot has no usable portfolio_value (fail-closed: NOT falling "
+                "back to notional_usd)",
+                strategy["id"],
+                float(pct),
+            )
+            return None
+        notional = float(pct) / 100.0 * equity
+    else:
+        notional = float(strategy.get("notional_usd") or 0)
+
+    if notional <= 0:
+        logger.debug(
+            "Strategy %s skipped — notional is %.2f",
+            strategy["id"],
+            notional,
+        )
+        return None
+    return notional
+
+
 def _open_exposure(snapshot: dict[str, Any] | None) -> tuple[int, float]:
     """(open-position count, total |market_value|) from an account snapshot."""
     if not snapshot:
@@ -300,15 +344,6 @@ async def _run_strategy(
         )
         return []
 
-    notional = float(strategy.get("notional_usd") or 0)
-    if notional <= 0:
-        logger.debug(
-            "Strategy %s skipped — notional is %.2f",
-            strategy["id"],
-            notional,
-        )
-        return []
-
     account_id = strategy.get("account_id")
     if not account_id:
         logger.debug("Strategy %s skipped — no bound account", strategy["id"])
@@ -330,6 +365,18 @@ async def _run_strategy(
         and exec_mode in ("dry_run", "paper")
         and strategy["id"] != "session_node_spy"
     )
+
+    # Snapshot first: it's a local DB read (broker + account only), and percent-of-
+    # equity sizing needs its portfolio_value. Resolving notional here keeps the
+    # unsized/unsizable early-out ahead of the broker bar fetch, as before.
+    snapshot = get_latest_snapshot(
+        broker_name, account_id=str(account_id), db_path=db_path
+    )
+    held = _held_symbols(snapshot)
+    notional = _resolve_notional(strategy, snapshot)
+    if notional is None:
+        return []
+
     # The strategy's OWN universe (decoupled from the cockpit's active watchlist).
     symbols = resolve_universe_spec(strategy.get("universe"))
     fetch_symbols = sorted(set(symbols) | {SPY_SYMBOL})
@@ -369,10 +416,6 @@ async def _run_strategy(
     spy_bars = _stock_bars_to_dated(spy_raw)
     spy_idx = len(spy_bars) - 1
 
-    snapshot = get_latest_snapshot(
-        broker_name, account_id=str(account_id), db_path=db_path
-    )
-    held = _held_symbols(snapshot)
     entry_params = filter_entry_params(spec, strategy.get("params") or {})
 
     # Per-strategy risk caps (None = uncapped). Committed exposure = already-open

@@ -246,7 +246,8 @@ async def test_earnings_within_lead_auto_exits(
 ) -> None:
     db = _db(tmp_path)
     _seed_account(db)
-    today = "2026-06-22T12:00:00+00:00"
+    # Mon 15:50 ET — inside the final session's exit window (hour unknown => non-amc).
+    today = "2026-06-22T19:50:00+00:00"
     monkeypatch.setattr("trading.exit_engine.now_iso", lambda: today)
     upsert_earnings([{"symbol": "AAPL", "date": "2026-06-23"}], db_path=db)
     update_strategy("earnings_drift", exit_mode="auto", db_path=db)
