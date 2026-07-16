@@ -53,12 +53,21 @@ ingredients were already in this repo, and the anchored agent walked past them):
    in-browser check" rather than blocking. **Update `References/board.json` in the SAME commit that does the
    work** — a git hook *blocks* any product-code commit that doesn't also touch `board.json`/`BUILD.md` (see
    **Board discipline** below). Same discipline as BUILD/HANDOFF; a stale board defeats its purpose.
-4. **Minimize the Opus main-loop token cost** ("you are the expensive one"). Delegate: code → Composer;
-   recon/review/research → **Sonnet subagents**; keep the main loop short — don't do heavy generation or broad
-   file-reading inline when a subagent can. `/model sonnet` for routine turns is the user's biggest lever.
-   **Scope: routine mechanics ONLY — this rule never trumps "★ THE BEST IDEAS WIN"** (ideation on
-   product-edge problems is worth every token; spawning fresh-context agents to generate/debate ideas is a
-   no-brainer, founder-confirmed).
+4. **Route depth by stakes, never by task size** (recalibrated 2026-07-16 — the old rule here, "minimize
+   the Opus main-loop token cost," optimized the wrong variable and probably cost us quality: the exit
+   engine shipped dead behind a shallow test assumption; the wildcard fiction was recorded as fact and
+   shaped a committed design; the 07-15 Sonnet→Opus review upgrade already proved cheaper single passes
+   missed disjoint real bugs). The axis is **load-bearing vs mechanical**, not "routine turn" vs not — a
+   one-line constant can be load-bearing (the 0DTE skip), a 500-line widget can be mechanical.
+   - **Always maximum depth**: `trading/` + risk + execution; architecture decisions; anything feeding the
+     Decision Engine; and ANY claim about system state that will be recorded as fact (memories, docs,
+     board, design inputs) — cheap-model recon may *locate* things, but its assertions are hypotheses
+     until verified against code or live state.
+   - **Cheap stays right for**: mechanical edits, formatting, file-location sweeps, UI polish iterations.
+     Delegation (Composer for code, Sonnet for sweeps) survives — depth concentrates in the REVIEW of
+     delegated work, which is where it pays.
+   - **Under budget pressure, drop scope — never depth on load-bearing work.** A smaller thing built
+     deeply beats a bigger thing built shallow; a shallow mechanism has no edge (see ★ THE BEST IDEAS WIN).
 
 ## Board discipline — what earns a card, and keeping it honest
 The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work; a
