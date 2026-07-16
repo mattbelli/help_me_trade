@@ -182,6 +182,33 @@ def test_fixture_robustness_cut_still_beats_spy(fixture_df: pd.DataFrame) -> Non
     assert s["book_sharpe"] > s["spy_sharpe"]
 
 
+def test_fixture_metrics_cross_check_empyrical(fixture_df: pd.DataFrame) -> None:
+    """Independent-implementation guard: our Sharpe/CAGR/maxDD/alpha/beta must match
+    empyrical-reloaded's on the same fixture. Catches the class of error CI can't
+    otherwise see — our own math agreeing with itself. (Sortino is deliberately not
+    cross-checked: empyrical uses full-sample downside deviation, we use the std of
+    negative months — different definitions, both fine, not comparable.)"""
+    ep = pytest.importorskip("empyrical")
+
+    clean = fixture_df.dropna(subset=["book_ret", "spy_ret"])
+    book = pd.Series(clean["book_ret"].values)
+    spy = pd.Series(clean["spy_ret"].values)
+    rf = clean["rf"].values
+
+    ours = compute_stats(clean, "cross-check")
+    assert ours is not None
+    capm = capm_regression(clean["book_ret"].values, clean["spy_ret"].values, rf, "cross-check")
+
+    assert ours["book_sharpe"] == pytest.approx(ep.sharpe_ratio(book, period="monthly"), rel=1e-9)
+    assert ours["book_cagr"] == pytest.approx(ep.annual_return(book, period="monthly"), rel=1e-9)
+    assert ours["book_maxdd"] == pytest.approx(ep.max_drawdown(book), rel=1e-9)
+
+    # CAPM on excess returns (rf varies monthly, so subtract it and pass risk_free=0)
+    ep_alpha, ep_beta = ep.alpha_beta(book - rf, spy - rf, risk_free=0.0, period="monthly")
+    assert capm["alpha_annual"] == pytest.approx(ep_alpha, rel=1e-9)
+    assert capm["beta"] == pytest.approx(ep_beta, rel=1e-9)
+
+
 # ── Tier 3: local integration (PC only — needs the research DBs) ──────────────
 
 
