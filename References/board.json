@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T13:54:40.006667+00:00",
+  "updated_at": "2026-07-16T14:23:36.561711+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "exit-engine-snapshot-id-mismatch",
+      "title": "\u26a0\ufe0f Exit engine dead since D3 \u2014 snapshot guard compared broker UUID vs ledger id, skipped every position",
+      "lane": "in_progress",
+      "type": "bug",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Found 2026-07-16 digging into the repeating 'snapshot account mismatch' WARNING: account_snapshots.account_id stores the BROKER-side id (Alpaca UUID) while the exit engine compared it to the internal acct_* id \u2014 never equal, so the fail-closed guard rejected every snapshot, every cycle (945 warnings on 07-16 morning alone) and run_exit_engine skipped every position (zero exit-engine closes ever; stops/targets/earnings exits all inert). Live urgency: 7 earnings_drift positions must exit 2026-07-29 (1 td before their 07-30 prints). Fix: _snapshot_from_run now carries poll_runs.account_id (internal) as top-level snapshot['account_id'] (same convention as get_all_latest_snapshots); guard compares that. Fallback rejection (audit M5 defense, see data-correctness-m-tail) preserved + regression test pinning the UUID case. Reviews returned 2026-07-16: prover 11/11 PROVEN + 133/133 tests; adversary zero CRIT/HIGH/MED (1 NIT: duplicate test \u2014 folded into the pre-existing test_wrong_account_snapshot_is_rejected). Pending: merge, deploy, live verify (warning gone + exit cycle processes strat1)."
+    },
     {
       "id": "market-hours-no-holiday-calendar",
       "title": "\u26a0\ufe0f No holiday calendar \u2014 a market holiday in the exit window can hold a position THROUGH its print",
@@ -909,7 +918,7 @@
       "lane": "backlog",
       "type": "bug",
       "priority": "normal",
-      "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar\u2192$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5."
+      "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar\u2192$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5. | 2026-07-16 exit-engine review follow-ups (same M5 fallback family, pre-existing): proposal_intake._size_candidate + RiskEngine.validate consume get_latest_snapshot WITHOUT the account-mismatch guard \u2014 no snapshot for the target account silently sizes/validates against the broker-wide fallback (another account's buying power); ai/chat/tools.py:333 falls back to the broker UUID for display on NULL account_id."
     },
     {
       "id": "decision-engine-phase1",

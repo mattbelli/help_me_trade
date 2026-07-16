@@ -54,9 +54,12 @@ def _save_snapshot(
     account_id: str = "acct_1",
     positions: list[Position] | None = None,
     broker: str = "alpaca",
+    broker_account_id: str | None = None,
 ) -> None:
+    # In production Account.id is the broker-side id (an Alpaca UUID), never the
+    # internal ledger id — default them equal only for tests that don't care.
     account = Account(
-        id=account_id,
+        id=broker_account_id or account_id,
         status="ACTIVE",
         cash=50_000.0,
         buying_power=100_000.0,
@@ -194,6 +197,30 @@ async def test_dip_stop_auto_dispatches_sell(
     assert notify["push"] is True
     assert notify["data"]["exit_mode"] == "auto"
     assert notify["data"]["execution_id"] == "exec_x"
+
+
+@pytest.mark.asyncio
+async def test_broker_uuid_snapshot_still_processed(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production snapshots carry the BROKER-side account id (an Alpaca UUID) in
+    account["id"]; the engine must match on the poll run's internal id and still
+    process the position. Matching on the broker id rejected every real snapshot
+    and silently disabled all exits (skip/no_snapshot on every cycle)."""
+    db = _db(tmp_path)
+    _seed_account(db)
+    _save_snapshot(
+        db,
+        positions=[_position(avg_entry_price=100.0, current_price=96.0, qty=10.0)],
+        broker_account_id="17efe48b-992e-48cd-bf43-2e2a9f6e07f2",
+    )
+    _open_managed(db, params={"stop_pct": -3.0})
+
+    outcomes = await run_exit_engine(db_path=db)
+
+    assert len(outcomes) == 1
+    assert outcomes[0]["action"] == "exit"
+    assert len(exit_stubs["submit_calls"]) == 1
 
 
 @pytest.mark.asyncio

@@ -553,7 +553,11 @@ async def run_exit_engine(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, 
         # account has no snapshot yet — which can be ANOTHER account's. Acting on the
         # wrong portfolio would make every row look "gone" and mass-close them, or
         # size a sell against the wrong position. Reject a mismatch (fail-closed).
-        if snapshot and (snapshot.get("account") or {}).get("id") != account_id:
+        # Compare the poll run's INTERNAL account id — snapshot["account"]["id"] is
+        # the broker-side id (an Alpaca UUID) and never equals a ledger acct_* id,
+        # so checking it rejected every snapshot and made the engine skip every
+        # position (no exits, no closure reconcile) since D3 shipped.
+        if snapshot and snapshot.get("account_id") != account_id:
             logger.warning(
                 "exit engine: snapshot account mismatch for %s — treating as no snapshot",
                 account_id,
