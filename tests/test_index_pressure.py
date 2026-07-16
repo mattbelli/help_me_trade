@@ -15,7 +15,7 @@ from db.index_pressure import (
     upsert_minutes,
 )
 from signals.options_flow.opening_pressure import (
-    OpeningPressure,
+    PressureGauge,
     window_minute,
 )
 
@@ -61,11 +61,27 @@ def test_window_minute_edges():
     assert window_minute(_ts(10, 0, 0)) is None
 
 
+def test_close_window_edges():
+    assert window_minute(_ts(15, 29, 59), "close") is None
+    assert window_minute(_ts(15, 30, 0), "close") == 0
+    assert window_minute(_ts(15, 59, 59), "close") == 29
+    assert window_minute(_ts(16, 0, 0), "close") is None
+
+
+def test_close_gauge_collects_only_its_window():
+    g = PressureGauge("close")
+    g.add_print(_print(ts_ms=_ts(9, 45)))  # open-window print — ignored
+    g.add_print(_print(ts_ms=_ts(15, 45)))
+    snap = g.snapshot()["SPY"]
+    assert snap["n_prints"] == 1
+    assert snap["bull_usd"] == 20000.0
+
+
 # --- bull/bear mapping ---------------------------------------------------------------
 
 
 def test_direction_right_mapping():
-    op = OpeningPressure()
+    op = PressureGauge()
     prem = 2.0 * 100 * 100.0  # $20k each
     op.add_print(_print(right="call", direction="buy_side"))  # bull
     op.add_print(_print(right="put", direction="sell_side"))  # bull
@@ -83,7 +99,7 @@ def test_direction_right_mapping():
 
 
 def test_filters_universe_window_spreads_dust():
-    op = OpeningPressure()
+    op = PressureGauge()
     op.add_print(_print(sym="XYZ"))  # not in universe
     op.add_print(_print(ts_ms=_ts(10, 30)))  # outside window
     op.add_print(_print(likely_spread=True))  # spread-tagged
@@ -94,7 +110,7 @@ def test_filters_universe_window_spreads_dust():
 
 
 def test_minute_rows_shape():
-    op = OpeningPressure()
+    op = PressureGauge()
     op.add_print(_print(ts_ms=_ts(9, 30, 5)))
     op.add_print(_print(ts_ms=_ts(9, 30, 40)))
     op.add_print(_print(sym="QQQ", ts_ms=_ts(9, 59, 1), direction="sell_side"))
@@ -193,5 +209,36 @@ def test_perception_resource_reads_and_caveats(tmp_path: Path):
 
     empty = _read_index_pressure({"date": "2026-07-14"}, db_path=db)
     assert empty == [
-        {"date": "2026-07-14", "unavailable": True, "window_et": "09:30-10:00"}
+        {
+            "date": "2026-07-14",
+            "unavailable": True,
+            "window": "open",
+            "window_et": "09:30-10:00",
+        }
     ]
+
+
+def test_windows_are_separate_series(tmp_path: Path):
+    db = tmp_path / "ip.db"
+    upsert_minutes([("SPY", "2026-07-16", 0, 100.0, 0.0, 0.0, 1)], db_path=db)
+    upsert_minutes(
+        [("SPY", "2026-07-16", 0, 0.0, 900.0, 0.0, 2)], window="close", db_path=db
+    )
+    assert day_summary("2026-07-16", db_path=db)[0]["net_usd"] == 100.0
+    assert day_summary("2026-07-16", window="close", db_path=db)[0]["net_usd"] == -900.0
+    assert baseline_days(db_path=db) == 1
+    assert baseline_days(window="close", db_path=db) == 1
+
+
+def test_api_close_window_param():
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get(
+            "/api/index-pressure", params={"date": "2020-01-02", "window": "close"}
+        )
+        bad = client.get("/api/index-pressure", params={"window": "midday"})
+    assert resp.status_code == 200
+    assert resp.json()["window_et"] == "15:30-16:00"
+    assert resp.json()["rows"] == []  # only the open window was seeded for this date
+    assert bad.status_code == 400

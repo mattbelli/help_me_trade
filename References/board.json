@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T16:37:46.895574+00:00",
+  "updated_at": "2026-07-16T17:21:56.480029+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "index-pressure-gauge",
-      "title": "Opening index flow pressure gauge \u2014 SPY/QQQ/IWM/SPX(W) + megacaps, 9:30-10:00 ET",
+      "title": "Index flow pressure gauges \u2014 open + close bookends (SPY/QQQ/IWM/SPX(W) + megacaps)",
       "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "agent",
-      "notes": "Founder-committed (07-15) perception source, built 2026-07-16 after the bell verify cleared its gate. Pure aggregator (signals/options_flow/opening_pressure.py) rides the collector sweep_loop's classified prints beside D-1/D-2; per-minute rows persist to index_pressure_minutes (db/index_pressure.py, regime.py-pattern calibration store, coverage-stamped via stream.is_market_wide); GET /api/index-pressure; index_pressure perception resource (+aliases) so chat answers 'what was index flow this am'; compact index-pressure widget (net premium, bull/bear split bar, classified %, uncalibrated footer). Honesty: raw premium only, unclassified surfaced never guessed, no abnormal-flag until >=20 baseline days. Universe incl. SPXW/SPX (wildcard-tape-only names; capped lane excludes index 0DTE). 8 new tests; ruff+tsc green. Pending: deploy (collector restart AFTER close \u2014 owns the OPRA socket), first live window 07-17 open."
+      "notes": "Founder-committed (07-15) perception source, built 2026-07-16 after the bell verify cleared its gate. Pure aggregator (signals/options_flow/opening_pressure.py) rides the collector sweep_loop's classified prints beside D-1/D-2; per-minute rows persist to index_pressure_minutes (db/index_pressure.py, regime.py-pattern calibration store, coverage-stamped via stream.is_market_wide); GET /api/index-pressure; index_pressure perception resource (+aliases) so chat answers 'what was index flow this am'; compact index-pressure widget (net premium, bull/bear split bar, classified %, uncalibrated footer). Honesty: raw premium only, unclassified surfaced never guessed, no abnormal-flag until >=20 baseline days. Universe incl. SPXW/SPX (wildcard-tape-only names; capped lane excludes index 0DTE). 8 new tests; ruff+tsc green. Pending: deploy (collector restart AFTER close \u2014 owns the OPRA socket), first live window 07-17 open. | Same day (founder asked 'what about closing pressure? why 1 min?'): generalized to BOTH session bookends pre-deploy (window column in the PK \u2014 free while the table exists nowhere); close window 15:30-16:00 ET is its own calibration series; widget footer got an open/close word-toggle. 1-min BUCKETS kept (matches D-1/D-2; finer = fake precision vs DIR-1 quote lag at the open) but the DB FLUSH dropped 60s->10s so the widget ticks live in-window. 12 gauge tests now."
     },
     {
       "id": "exit-engine-snapshot-id-mismatch",

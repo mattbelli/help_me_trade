@@ -2922,9 +2922,12 @@ async def api_options_flow(
 
 
 @app.get("/api/index-pressure")
-async def api_index_pressure(date: str | None = None, series: str | None = None):
-    """Opening-window (09:30-10:00 ET) index/megacap flow pressure — raw perception.
+async def api_index_pressure(
+    date: str | None = None, series: str | None = None, window: str = "open"
+):
+    """Session-bookend index/megacap flow pressure — raw perception.
 
+    ``window=open`` (09:30-10:00 ET, default) or ``close`` (15:30-16:00 ET).
     Premium-weighted net imbalance per underlying (bull = call buys + put sells;
     bear = put buys + call sells; the undetermined remainder is surfaced as
     ``unclassified_usd``, never guessed). NOT a signal: no score, no win%, and no
@@ -2934,19 +2937,25 @@ async def api_index_pressure(date: str | None = None, series: str | None = None)
     """
     from db.index_pressure import baseline_days, day_summary, minute_series
 
+    win = window.strip().lower()
+    if win not in ("open", "close"):
+        return JSONResponse(
+            {"error": "window must be 'open' or 'close'"}, status_code=400
+        )
     target = (date or datetime.now(_ET).date().isoformat()).strip()
     try:
         payload: dict = {
             "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
             "date": target,
-            "window_et": "09:30-10:00",
-            "rows": day_summary(target),
-            "baseline_days": baseline_days(),
+            "window": win,
+            "window_et": "09:30-10:00" if win == "open" else "15:30-16:00",
+            "rows": day_summary(target, window=win),
+            "baseline_days": baseline_days(window=win),
         }
         if series:
             payload["series"] = {
                 "underlying": series.strip().upper(),
-                "minutes": minute_series(target, series),
+                "minutes": minute_series(target, series, window=win),
             }
     except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
         return JSONResponse({"error": str(exc)}, status_code=500)

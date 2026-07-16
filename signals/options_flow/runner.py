@@ -312,14 +312,22 @@ class OptionsFlowRunner:
         from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
         from signals.options_flow.convergence import process_events
         from signals.options_flow.intraday import classify_direction, tag_likely_spreads
-        from signals.options_flow.opening_pressure import OpeningPressure
+        from signals.options_flow.opening_pressure import PressureGauge
         from signals.options_flow.rolling import RollingFlow
         from signals.options_flow.sweeps import SweepBuffer
 
+        def _fresh_gauges() -> dict[str, PressureGauge]:
+            return {w: PressureGauge(w) for w in ("open", "close")}
+
+        # Flush stops shortly after each window closes; the 5-min grace covers
+        # late-arriving prints whose ts still falls inside the window.
+        gauge_cutoff_min = {"open": 10 * 60 + 5, "close": 16 * 60 + 5}
+
         buffer = SweepBuffer()
         rolling = RollingFlow()
-        opening = OpeningPressure()
+        gauges = _fresh_gauges()
         rolling_last_check = 0.0
+        gauge_last_flush = 0.0
         buffer_day = ""
         stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
 
@@ -339,7 +347,7 @@ class OptionsFlowRunner:
                 if buffer_day != today_et:
                     buffer = SweepBuffer()
                     rolling = RollingFlow()
-                    opening = OpeningPressure()
+                    gauges = _fresh_gauges()
                     buffer_day = today_et
 
                 if batch:
@@ -362,11 +370,12 @@ class OptionsFlowRunner:
                         p["direction_basis"] = basis
                     tag_likely_spreads(batch)
                     buffer.add(batch)
-                    # D-1/D-2 rolling detectors + opening gauge ride the same
-                    # classified prints (the gauge self-filters to its window/universe)
+                    # D-1/D-2 rolling detectors + pressure gauges ride the same
+                    # classified prints (gauges self-filter to window/universe)
                     for p in batch:
                         rolling.add_print(p)
-                        opening.add_print(p)
+                        for gauge in gauges.values():
+                            gauge.add_print(p)
 
                 # burst/cluster checks step once a minute (1-min bucket granularity)
                 now_mono = time.time()
@@ -380,16 +389,22 @@ class OptionsFlowRunner:
                             of_db.insert_event(ev)
                     except Exception:
                         logger.exception("options_flow rolling: check failed")
-                    # Opening gauge flush: rewrite the window's minute rows (upsert =
-                    # last write wins, whole window held in memory). Stops at 10:05 ET —
-                    # the window closes 10:00, the grace covers late-arriving prints
-                    # whose ts still falls inside it; rows are final after that.
-                    if now_et.hour * 60 + now_et.minute <= 10 * 60 + 5:
+                # Gauge flush on its own 10s cadence — the write is tiny (≤13 syms ×
+                # 30 rows, last-write-wins upsert of in-memory running totals), and a
+                # 60s flush would make the widget lag the tape by up to a minute
+                # during the exact half hours the gauge exists for.
+                if now_mono - gauge_last_flush >= 10.0:
+                    gauge_last_flush = now_mono
+                    now_min = now_et.hour * 60 + now_et.minute
+                    for win, gauge in gauges.items():
+                        if now_min > gauge_cutoff_min[win]:
+                            continue
                         try:
-                            rows = opening.minute_rows(today_et)
+                            rows = gauge.minute_rows(today_et)
                             if rows:
                                 ip_db.upsert_minutes(
                                     rows,
+                                    window=win,
                                     coverage=(
                                         "market_wide"
                                         if stream.is_market_wide
@@ -398,7 +413,7 @@ class OptionsFlowRunner:
                                 )
                         except Exception:
                             logger.exception(
-                                "options_flow opening pressure: flush failed"
+                                "options_flow pressure gauge: %s flush failed", win
                             )
 
                 events = buffer.close_ready(int(time.time() * 1000), today_et)

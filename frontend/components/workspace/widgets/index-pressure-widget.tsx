@@ -42,8 +42,9 @@ function SplitBar({ row }: { row: IndexPressureRow }) {
   );
 }
 
-export function IndexPressureWidget({ config }: WidgetProps) {
+export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
+  const windowKey = config.pressureWindow ?? "open";
   const { publish } = usePublishSymbol(channel);
   const [data, setData] = useState<IndexPressureResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,12 +52,12 @@ export function IndexPressureWidget({ config }: WidgetProps) {
 
   const load = useCallback(async () => {
     try {
-      setData(await fetchIndexPressure());
+      setData(await fetchIndexPressure(windowKey));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to load");
     }
-  }, []);
+  }, [windowKey]);
 
   useEffect(() => {
     void load();
@@ -66,11 +67,43 @@ export function IndexPressureWidget({ config }: WidgetProps) {
     };
   }, [load]);
 
+  const windowToggle = (
+    <span className="ml-auto flex gap-2">
+      {(["open", "close"] as const).map((w) => (
+        <button
+          key={w}
+          type="button"
+          onClick={() => onConfigChange({ pressureWindow: w })}
+          className={cn(
+            "lowercase",
+            w === windowKey
+              ? "text-[var(--text-primary)]"
+              : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
+          )}
+        >
+          {w}
+        </button>
+      ))}
+    </span>
+  );
+
   if (error) return <WidgetError message={error} onRetry={() => void load()} />;
   if (!data) return <WidgetLoading />;
   if (data.rows.length === 0) {
     return (
-      <WidgetEmpty message="no opening-window flow yet — gauge fills 9:30–10:00 ET" />
+      <div className="flex h-full flex-col">
+        <div className="min-h-0 flex-1">
+          <WidgetEmpty
+            message={`no ${windowKey}-window flow yet — gauge fills ${
+              windowKey === "open" ? "9:30–10:00" : "15:30–16:00"
+            } ET`}
+          />
+        </div>
+        <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
+          <span>net premium (bull − bear)</span>
+          {windowToggle}
+        </div>
+      </div>
     );
   }
 
@@ -105,11 +138,14 @@ export function IndexPressureWidget({ config }: WidgetProps) {
           </div>
         ))}
       </div>
-      <div className="border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
-        {data.window_et} ET open window · net premium (bull − bear) · % = side-classified
-        {calibrated ? null : (
-          <span> · uncalibrated ({data.baseline_days}d of baseline)</span>
-        )}
+      <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
+        <span>
+          {data.window_et} ET · net premium (bull − bear) · % = side-classified
+          {calibrated ? null : (
+            <span> · uncalibrated ({data.baseline_days}d of baseline)</span>
+          )}
+        </span>
+        {windowToggle}
       </div>
     </div>
   );

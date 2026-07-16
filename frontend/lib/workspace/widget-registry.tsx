@@ -145,7 +145,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "index-pressure",
     title: "index pressure",
     description:
-      "Opening-window (9:30-10:00 ET) options-flow imbalance for the index complex + megacaps — raw perception, not a signal",
+      "Session-bookend (open 9:30-10:00 / close 15:30-16:00 ET) options-flow imbalance for the index complex + megacaps — raw perception, not a signal",
     channelAware: true,
     component: IndexPressureWidget,
     defaultSize: { w: 8, h: 4, minW: 4, minH: 3 },

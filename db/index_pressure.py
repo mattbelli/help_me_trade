@@ -22,13 +22,14 @@ def init_index_pressure_table(db_path: Path = DEFAULT_DB_PATH) -> None:
             CREATE TABLE IF NOT EXISTS index_pressure_minutes (
                 underlying TEXT NOT NULL,
                 date TEXT NOT NULL,
+                window TEXT NOT NULL DEFAULT 'open',
                 minute INTEGER NOT NULL,
                 bull_usd REAL NOT NULL DEFAULT 0,
                 bear_usd REAL NOT NULL DEFAULT 0,
                 unclassified_usd REAL NOT NULL DEFAULT 0,
                 n_prints INTEGER NOT NULL DEFAULT 0,
                 coverage TEXT,
-                PRIMARY KEY (underlying, date, minute)
+                PRIMARY KEY (underlying, date, window, minute)
             )
             """
         )
@@ -38,6 +39,7 @@ def init_index_pressure_table(db_path: Path = DEFAULT_DB_PATH) -> None:
 def upsert_minutes(
     rows: list[tuple[str, str, int, float, float, float, int]],
     *,
+    window: str = "open",
     coverage: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
@@ -54,23 +56,25 @@ def upsert_minutes(
         conn.executemany(
             """
             INSERT INTO index_pressure_minutes (
-                underlying, date, minute, bull_usd, bear_usd, unclassified_usd,
-                n_prints, coverage
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(underlying, date, minute) DO UPDATE SET
+                underlying, date, window, minute, bull_usd, bear_usd,
+                unclassified_usd, n_prints, coverage
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(underlying, date, window, minute) DO UPDATE SET
                 bull_usd = excluded.bull_usd,
                 bear_usd = excluded.bear_usd,
                 unclassified_usd = excluded.unclassified_usd,
                 n_prints = excluded.n_prints,
                 coverage = excluded.coverage
             """,
-            [(*r, coverage) for r in rows],
+            [(r[0], r[1], window, *r[2:], coverage) for r in rows],
         )
         conn.commit()
     return len(rows)
 
 
-def day_summary(date: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+def day_summary(
+    date: str, *, window: str = "open", db_path: Path = DEFAULT_DB_PATH
+) -> list[dict]:
     """Per-underlying window totals for one date, biggest |net| first."""
     init_index_pressure_table(db_path)
     with _connect(db_path) as conn:
@@ -84,10 +88,10 @@ def day_summary(date: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
                    COUNT(*) AS minutes_with_data,
                    MAX(minute) AS last_minute
             FROM index_pressure_minutes
-            WHERE date = ?
+            WHERE date = ? AND window = ?
             GROUP BY underlying
             """,
-            (date,),
+            (date, window),
         ).fetchall()
     out = []
     for r in rows:
@@ -111,7 +115,11 @@ def day_summary(date: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
 
 
 def minute_series(
-    date: str, underlying: str, *, db_path: Path = DEFAULT_DB_PATH
+    date: str,
+    underlying: str,
+    *,
+    window: str = "open",
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict]:
     """Per-minute rows for one (date, underlying), minute ascending (sparkline feed)."""
     init_index_pressure_table(db_path)
@@ -120,10 +128,10 @@ def minute_series(
             """
             SELECT minute, bull_usd, bear_usd, unclassified_usd, n_prints
             FROM index_pressure_minutes
-            WHERE date = ? AND underlying = ?
+            WHERE date = ? AND underlying = ? AND window = ?
             ORDER BY minute
             """,
-            (date, underlying.strip().upper()),
+            (date, underlying.strip().upper(), window),
         ).fetchall()
     return [
         {
@@ -137,11 +145,12 @@ def minute_series(
     ]
 
 
-def baseline_days(*, db_path: Path = DEFAULT_DB_PATH) -> int:
+def baseline_days(*, window: str = "open", db_path: Path = DEFAULT_DB_PATH) -> int:
     """How many distinct dates have accrued — the calibration warm-up gate."""
     init_index_pressure_table(db_path)
     with _connect(db_path) as conn:
         row = conn.execute(
-            "SELECT COUNT(DISTINCT date) FROM index_pressure_minutes"
+            "SELECT COUNT(DISTINCT date) FROM index_pressure_minutes WHERE window = ?",
+            (window,),
         ).fetchone()
     return int(row[0]) if row else 0

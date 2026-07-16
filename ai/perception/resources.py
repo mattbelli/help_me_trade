@@ -537,15 +537,20 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
     date = str(filters.get("date") or "").strip() or datetime.now(
         ZoneInfo("America/New_York")
     ).date().isoformat()
-    rows = day_summary(date, db_path=db_path)
+    window = str(filters.get("window") or "open").strip().lower()
+    if window not in ("open", "close"):
+        return [{"error": "window must be 'open' or 'close'"}]
+    window_et = "09:30-10:00" if window == "open" else "15:30-16:00"
+    rows = day_summary(date, window=window, db_path=db_path)
     if not rows:
-        return [{"date": date, "unavailable": True, "window_et": "09:30-10:00"}]
-    days = baseline_days(db_path=db_path)
+        return [{"date": date, "unavailable": True, "window": window, "window_et": window_et}]
+    days = baseline_days(window=window, db_path=db_path)
     out = []
     for r in rows:
         r = dict(r)
         r["date"] = date
-        r["window_et"] = "09:30-10:00"
+        r["window"] = window
+        r["window_et"] = window_et
         r["baseline_days"] = days
         # Honesty stamp: raw premium sums, not a validated signal; the unclassified
         # remainder is real flow whose aggressor side could not be determined.
@@ -857,14 +862,16 @@ RESOURCES: dict[str, dict[str, Any]] = {
     },
     "index_pressure": {
         "description": (
-            "Opening-window (09:30-10:00 ET) options-flow pressure for the index "
-            "complex (SPY/QQQ/IWM/DIA/SPX) + saturated megacaps — premium-weighted "
-            "net imbalance (bull = call buys + put sells, bear = put buys + call "
-            "sells) with the unclassified remainder surfaced. Raw perception with "
-            "a caveat, never a signal or score."
+            "Session-bookend options-flow pressure for the index complex "
+            "(SPY/QQQ/IWM/DIA/SPX) + saturated megacaps — premium-weighted net "
+            "imbalance (bull = call buys + put sells, bear = put buys + call "
+            "sells) with the unclassified remainder surfaced. Windows: open "
+            "(09:30-10:00 ET) and close (15:30-16:00 ET). Raw perception with a "
+            "caveat, never a signal or score."
         ),
         "filters": {
             "date": "optional YYYY-MM-DD — default today (ET)",
+            "window": "optional — open (default) | close",
         },
         "read": _read_index_pressure,
     },
@@ -905,6 +912,7 @@ _RESOURCE_ALIASES = {
     "pressure": "index_pressure",
     "index_flow": "index_pressure",
     "opening_pressure": "index_pressure",
+    "closing_pressure": "index_pressure",
     "gauge": "index_pressure",
 }
 

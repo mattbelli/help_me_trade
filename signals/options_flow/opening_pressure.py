@@ -1,8 +1,10 @@
-"""Opening index flow pressure gauge — net premium imbalance for the first 30 minutes.
+"""Index flow pressure gauges — net premium imbalance at the session bookends.
 
-The committed hypothesis (memory: opening-index-flow-pressure): the net opening-window
-options-flow imbalance on the index complex + saturated megacaps is a market-posture
-read the founder wants glanceable every morning. This module MEASURES it — raw
+Two fixed 30-minute windows: the open (09:30-10:00 ET — the committed hypothesis,
+memory: opening-index-flow-pressure) and the close (15:30-16:00 ET — MOC-adjacent
+repositioning), each its own calibration series. Net options-flow imbalance on the
+index complex + saturated megacaps is a market-posture read the founder wants
+glanceable every morning and afternoon. This module MEASURES it — raw
 premium sums with an honest unclassified fraction. It fabricates nothing: no score,
 no win%, no "abnormal" flag until a per-minute baseline has accrued enough days
 (the volume_profile discipline; baselines accrue silently from day one).
@@ -30,16 +32,21 @@ from signals.options_flow.intraday import is_hygiene_excluded
 
 _ET = ZoneInfo("America/New_York")
 
-# Window geometry: [09:30, 10:00) ET, 1-min buckets.
+# Window geometry: two fixed 30-minute session bookends, 1-min buckets. The open
+# window reads positioning at the day's most information-dense half hour; the close
+# window catches MOC-adjacent repositioning into the bell.
 WINDOW_MINUTES = 30
-_OPEN_MINUTE = 9 * 60 + 30
+WINDOWS: dict[str, int] = {
+    "open": 9 * 60 + 30,  # [09:30, 10:00) ET
+    "close": 15 * 60 + 30,  # [15:30, 16:00) ET
+}
 
 # The fixed gauge universe. SPX + SPXW both listed: SPXW-rooted contracts appear on
 # the wildcard tape under either root depending on the series. NDX/NDXP/RUT are not
 # on this feed at all (QQQ/IWM carry them); revisit if the vendor adds them.
 INDEX_UNDERLYINGS = ("SPY", "QQQ", "IWM", "DIA", "SPX", "SPXW")
 MEGACAP_UNDERLYINGS = ("TSLA", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL")
-OPENING_PRESSURE_UNDERLYINGS = frozenset(INDEX_UNDERLYINGS + MEGACAP_UNDERLYINGS)
+PRESSURE_UNDERLYINGS = frozenset(INDEX_UNDERLYINGS + MEGACAP_UNDERLYINGS)
 
 # Mirror rolling.py's ingest dust floor so the two stream consumers agree on what
 # counts as flow at all.
@@ -54,24 +61,27 @@ class _MinuteCell:
     n_prints: int = 0
 
 
-def window_minute(ts_ms: int) -> int | None:
-    """Bucket index 0..29 for a print inside [09:30, 10:00) ET, else None."""
+def window_minute(ts_ms: int, window: str = "open") -> int | None:
+    """Bucket index 0..29 for a print inside the window, else None."""
     dt = datetime.fromtimestamp(ts_ms / 1000, tz=_ET)
-    offset = dt.hour * 60 + dt.minute - _OPEN_MINUTE
+    offset = dt.hour * 60 + dt.minute - WINDOWS[window]
     if 0 <= offset < WINDOW_MINUTES:
         return offset
     return None
 
 
-class OpeningPressure:
-    """One instance per session day; feed prints, read snapshots/minute rows."""
+class PressureGauge:
+    """One instance per (session day, window); feed prints, read snapshots/rows."""
 
-    def __init__(self) -> None:
+    def __init__(self, window: str = "open") -> None:
+        if window not in WINDOWS:
+            raise ValueError(f"unknown pressure window {window!r}")
+        self.window = window
         self._cells: dict[str, dict[int, _MinuteCell]] = defaultdict(dict)
 
     def add_print(self, p: dict) -> None:
         sym = str(p.get("underlying") or "").strip().upper()
-        if sym not in OPENING_PRESSURE_UNDERLYINGS:
+        if sym not in PRESSURE_UNDERLYINGS:
             return
         if is_hygiene_excluded(p.get("conditions") or []):
             return
@@ -88,7 +98,7 @@ class OpeningPressure:
         prem = price * size * 100.0
         if prem < _DUST_MIN_USD:
             return
-        minute = window_minute(ts_ms)
+        minute = window_minute(ts_ms, self.window)
         if minute is None:
             return
 

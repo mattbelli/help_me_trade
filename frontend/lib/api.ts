@@ -684,6 +684,7 @@ export type IndexPressureRow = {
 export type IndexPressureResult = {
   as_of: string;
   date: string;
+  window: "open" | "close";
   window_et: string;
   rows: IndexPressureRow[];
   baseline_days: number;
@@ -770,9 +771,11 @@ export async function fetchOptionsFlow(
 }
 
 export async function fetchIndexPressure(
+  window?: "open" | "close",
   date?: string,
 ): Promise<IndexPressureResult> {
   const params = new URLSearchParams();
+  if (window) params.set("window", window);
   if (date) params.set("date", date);
   const qs = params.size > 0 ? `?${params}` : "";
   const res = await apiFetch(`${API_BASE}/api/index-pressure${qs}`, {
