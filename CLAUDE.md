@@ -18,23 +18,30 @@ and still trust it. The hard part is **decision quality + risk + trust**, not au
 built). Prioritize agent-decision + risk + phone delivery; deprioritize manual-trader polish (DOM ladder,
 greeks chains, fancy chart tools) and especially un-guarded real-money execution.
 
-## ★ THE BEST IDEAS WIN — read this before building anything (founder directive 2026-07-16)
-A basic, first-thought mechanism has **no edge** — the product IS problem solving and creative forward
-thinking. Token count is NEVER a reason to skip ideation on a product-edge problem (rule 4's cost discipline
-covers routine mechanics, not thinking). Standing practice, learned the hard way (a zero-context external
-chatbot out-generated the deeply-anchored main loop on the options quote-cap problem — the winning ideas'
-ingredients were already in this repo, and the anchored agent walked past them):
-- **On any design fork or constraint problem, generate alternatives before building** — including a
-  **zero-context ideation pass**: spawn a fresh agent given ONLY the problem statement, no repo context.
-  Deep context anchors; fresh eyes see past the walls the repo's own doctrines build. Method diversity
-  (already proven for adversarial review) applies to idea GENERATION too.
-- **Treat "forbidden" heuristics as measurable methods.** Honesty rules constrain what we PRESENT to the
-  user, never what we measure. "We never guess" means never present a guess as fact — it does not mean
-  never grade a guess against ground truth to learn its error rate.
-- **Attack the premise, not just the question.** When asked "is there a way to do X?", also answer the
-  inverted question actually being asked. Never present the first workable design as THE design.
-- **Never give up on a constraint** until cheap-and-clever has been exhausted and measured; only then buy
-  the clean solution — with the failure record attached.
+## ★ THE BEST IDEAS WIN — the reasoning loop for anything that matters (founder directive 2026-07-16)
+On **architecture decisions, real problem solving, and high-importance edits**, do NOT emit the first
+coherent answer. Run the loop: **reason → check → reason → check → reason → check** — every "check" tests
+the current best answer against something REAL (the code as it is, live data, a measurement, an adversarial
+read), and each pass either survives the check or changes because of it. Stop when another check stops
+changing the answer — never merely when the answer sounds right. A basic first-thought mechanism has no
+edge; token count never gates this loop (rule 4's cost discipline covers mechanics, not thinking).
+
+**When you think there isn't a solution, the dead end is evidence about your METHOD, not the problem.
+Switch thinking methods and go again.** Switches that have already won here:
+- **Invert the question.** "What plan gives us all quotes?" was unsolvable; "what removes the need for
+  standing quotes at all?" had answers.
+- **Turn walls into variables.** A "forbidden" heuristic is a measurable method — honesty rules constrain
+  what we PRESENT to the user, never what we measure against ground truth to learn an error rate.
+- **Inventory adjacent ingredients.** The winning pieces are often already in this repo, walked past
+  because doctrine anchored you (the tick test and the poll lane sat here the whole time).
+- **Run a zero-context pass.** Spawn a fresh agent given ONLY the problem statement, no repo context —
+  fresh eyes see past walls the repo's own doctrines build (a basic external chatbot once out-generated
+  the deeply-anchored main loop; never again).
+- **Work backwards from the ideal.** Assume the perfect mechanism exists, describe it, then find which
+  constraint supposedly forbids it — and CHECK whether that constraint is measured reality or inherited
+  assumption.
+Never conclude "impossible," "no edge available," or "we must buy it" until at least two DIFFERENT thinking
+methods have failed and the failure is measured, not assumed.
 
 ## How to work (the established cadence)
 1. **Route the CODER by stakes — quality first; writing slop 10x faster loses to well-thought-out slow

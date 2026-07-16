@@ -1,8 +1,10 @@
 # Help Me Trade — Agent Brief
 
-**★ THE BEST IDEAS WIN.** Before building any mechanism, read the directive at the top of `CLAUDE.md`:
-generate alternatives (including a zero-context ideation pass) before building; a basic first-thought
-mechanism has no edge; token count never gates ideation on product-edge problems.
+**★ THE BEST IDEAS WIN.** On architecture decisions, problem solving, and high-importance edits, run the
+loop from the top of `CLAUDE.md`: **reason → check → reason → check** against something real, until checks
+stop changing the answer — and when you think there isn't a solution, that's evidence about your METHOD,
+not the problem: switch thinking methods (invert the question, turn walls into measurable variables,
+inventory adjacent ingredients, zero-context pass, work backwards from the ideal) and go again.
 
 **What this is:** An autonomous trading agent (not a generic chatbot) whose engine is one continuous loop: PERCEIVE → REASON → DECIDE → ACT → DELIVER → LEARN. FastAPI backend (Python, port 8000) + Next.js frontend (port 3001). Brokers: Alpaca (paper primary) + Schwab. Storage: local SQLite (WAL). LLM: provider-agnostic factory (Anthropic, OpenAI, DeepSeek, Ollama, mock). The dashboard is a cockpit to configure and supervise the agent; the loop runs server-side. **Roadmap (what to build next):** `References/BUILD.md`. **Loop architecture + tech research:** `References/AGENT_LOOP_RESEARCH.md`.
 
