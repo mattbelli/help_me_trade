@@ -177,6 +177,51 @@ def test_put_round_trips_risk_caps(strategy_api_client: TestClient) -> None:
     assert resp.status_code == 400
 
 
+def test_put_round_trips_notional_pct(strategy_api_client: TestClient) -> None:
+    # Seeded rows are dollar-sized — percent is opt-in.
+    listed = {s["id"]: s for s in strategy_api_client.get("/api/strategies").json()["strategies"]}
+    assert listed["dip_buy"]["notional_pct"] is None
+
+    resp = strategy_api_client.put("/api/strategies/dip_buy", json={"notional_pct": 2.5})
+    assert resp.status_code == 200
+    assert resp.json()["strategy"]["notional_pct"] == 2.5
+
+    # An unrelated update must not disturb the configured percent.
+    resp = strategy_api_client.put("/api/strategies/dip_buy", json={"notional_usd": 900})
+    assert resp.status_code == 200
+    assert resp.json()["strategy"]["notional_pct"] == 2.5
+
+    # Explicit null switches back to static-dollar sizing.
+    resp = strategy_api_client.put("/api/strategies/dip_buy", json={"notional_pct": None})
+    assert resp.status_code == 200
+    assert resp.json()["strategy"]["notional_pct"] is None
+
+
+@pytest.mark.parametrize(
+    "strategy_id", ["momentum_sp500", "generals_dip", "vol_event", "session_node_spy"]
+)
+def test_put_rejects_notional_pct_where_sizing_is_not_wired(
+    strategy_api_client: TestClient, strategy_id: str
+) -> None:
+    """These size off notional_usd in their own scan paths — storing a percent for
+    them would persist a sizing rule that silently never applies to their orders."""
+    resp = strategy_api_client.put(f"/api/strategies/{strategy_id}", json={"notional_pct": 2.0})
+    assert resp.status_code == 400
+    assert "percent-of-equity" in resp.json()["detail"]
+
+    # Clearing must still be allowed (never trap a row in a mode it can't leave).
+    resp = strategy_api_client.put(f"/api/strategies/{strategy_id}", json={"notional_pct": None})
+    assert resp.status_code == 200
+    assert resp.json()["strategy"]["notional_pct"] is None
+
+
+@pytest.mark.parametrize("bad", [0, -1, 100.5])
+def test_put_rejects_invalid_notional_pct(strategy_api_client: TestClient, bad: float) -> None:
+    resp = strategy_api_client.put("/api/strategies/dip_buy", json={"notional_pct": bad})
+    assert resp.status_code == 400
+    assert "notional_pct" in resp.json()["detail"]
+
+
 def test_universes_endpoint_lists_builtin(strategy_api_client: TestClient) -> None:
     resp = strategy_api_client.get("/api/strategies/universes")
     assert resp.status_code == 200

@@ -153,6 +153,11 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute(
                 "ALTER TABLE strategies ADD COLUMN last_rebalanced_month TEXT"
             )
+        # Percent-of-equity sizing. NULL = size off the static notional_usd (the
+        # existing behaviour); set = notional is (pct/100 * account equity) at scan
+        # time, so the sleeve compounds like the PC-validated config.
+        if "notional_pct" not in existing:
+            conn.execute("ALTER TABLE strategies ADD COLUMN notional_pct REAL")
         conn.commit()
 
 
@@ -165,12 +170,15 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         params = {}
     max_concurrent = row["max_concurrent_positions"]
     max_deployed = row["max_deployed_usd"]
+    notional_pct = row["notional_pct"]
     return {
         "id": row["id"],
         "name": row["name"],
         "enabled": bool(row["enabled"]),
         "account_id": row["account_id"],
         "notional_usd": float(row["notional_usd"]),
+        # None = size off notional_usd; set = percent of account equity at scan time.
+        "notional_pct": float(notional_pct) if notional_pct is not None else None,
         "exit_mode": row["exit_mode"],
         "entry_mode": row["entry_mode"],
         "params": params,
@@ -201,10 +209,10 @@ def list_strategies(
         try:
             rows = conn.execute(
                 f"""
-                SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       entry_mode, params_json, universe, max_concurrent_positions,
-                       max_deployed_usd, alert_style, last_rebalanced_month,
-                       created_at, updated_at
+                SELECT id, name, enabled, account_id, notional_usd, notional_pct,
+                       exit_mode, entry_mode, params_json, universe,
+                       max_concurrent_positions, max_deployed_usd, alert_style,
+                       last_rebalanced_month, created_at, updated_at
                 FROM strategies
                 {where}
                 ORDER BY created_at
@@ -225,10 +233,10 @@ def get_strategy(
         try:
             row = conn.execute(
                 """
-                SELECT id, name, enabled, account_id, notional_usd, exit_mode,
-                       entry_mode, params_json, universe, max_concurrent_positions,
-                       max_deployed_usd, alert_style, last_rebalanced_month,
-                       created_at, updated_at
+                SELECT id, name, enabled, account_id, notional_usd, notional_pct,
+                       exit_mode, entry_mode, params_json, universe,
+                       max_concurrent_positions, max_deployed_usd, alert_style,
+                       last_rebalanced_month, created_at, updated_at
                 FROM strategies
                 WHERE id = ?
                 """,
@@ -245,6 +253,9 @@ def update_strategy(
     enabled: bool | None = None,
     account_id: str | None = ...,  # type: ignore[assignment]
     notional_usd: float | None = None,
+    # Sentinel default (not None) so an explicit None CLEARS it — the user must be
+    # able to switch a strategy back from percent-of-equity to static-dollar sizing.
+    notional_pct: float | None = ...,  # type: ignore[assignment]
     exit_mode: str | None = None,
     entry_mode: str | None = None,
     alert_style: str | None = None,
@@ -273,6 +284,13 @@ def update_strategy(
         raise ValueError("notional_usd must be >= 0")
 
     if (
+        notional_pct is not ...
+        and notional_pct is not None
+        and not 0 < notional_pct <= 100
+    ):
+        raise ValueError("notional_pct must be > 0 and <= 100")
+
+    if (
         max_concurrent_positions is not ...
         and max_concurrent_positions is not None
         and max_concurrent_positions < 0
@@ -298,6 +316,9 @@ def update_strategy(
     if notional_usd is not None:
         fields.append("notional_usd = ?")
         values.append(float(notional_usd))
+    if notional_pct is not ...:
+        fields.append("notional_pct = ?")
+        values.append(float(notional_pct) if notional_pct is not None else None)
     if exit_mode is not None:
         fields.append("exit_mode = ?")
         values.append(exit_mode)

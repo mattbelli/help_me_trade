@@ -7,6 +7,8 @@ export type Strategy = {
   account_id: string | null;
   account_label: string | null;
   notional_usd: number;
+  /** null = size off notional_usd; set = percent of account equity at scan time. */
+  notional_pct: number | null;
   exit_mode: "auto" | "propose";
   entry_mode: "auto" | "propose";
   alert_style?: "per_trade" | "summary";
@@ -36,6 +38,8 @@ export type StrategyPatch = Partial<{
   enabled: boolean;
   account_id: string;
   notional_usd: number;
+  /** Explicit null clears percent sizing (back to the static dollar amount). */
+  notional_pct: number | null;
   exit_mode: "auto" | "propose";
   entry_mode: "auto" | "propose";
   alert_style: "per_trade" | "summary";
