@@ -26,7 +26,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from signals.options_flow.constants import INDEX_MEGACAP_SET
+from signals.options_flow.constants import INDEX_MEGACAP_SET, ZERO_DTE_EXCLUDE
 from signals.options_flow.intraday import is_hygiene_excluded
 
 # --- window geometry --------------------------------------------------------------
@@ -117,6 +117,18 @@ class RollingFlow:
         sym = str(p.get("underlying") or "").strip().upper()
         if not sym:
             return
+        # Pin pre-gauge-lane behavior: index/megacap 0-1 DTE never reached these
+        # detectors (unsubscribed before the gauge lane existed; excluded by policy
+        # F-3 everywhere else). The gauge lane subscribes them FOR THE GAUGE ONLY —
+        # without this guard, bursts/clusters would silently change character the
+        # day the lane ships. (audit 2026-07-16 F1)
+        if ZERO_DTE_EXCLUDE and sym in INDEX_MEGACAP_SET:
+            try:
+                dte = int(p["dte"]) if p.get("dte") is not None else None
+            except (TypeError, ValueError):
+                dte = None
+            if dte is not None and dte <= 1:
+                return
         minute = ts_ms // BUCKET_MS
         buckets = self._buckets[sym]
         b = buckets.get(minute)

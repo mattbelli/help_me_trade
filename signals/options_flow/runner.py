@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -36,6 +37,39 @@ from signals.options_flow.constants import PREOPEN_WARM_MINUTES
 from trading.market_hours import _ET, _SESSION_OPEN
 
 logger = logging.getLogger(__name__)
+
+
+# --- print lab (classification-method ground truth) --------------------------------
+# During the gauge windows, dump every classified print WITH the quote DIR-1 used to
+# data/research/print_lab/<date>.jsonl. Purpose: grade the cheap classification
+# methods the founder proposed (tick test, delta-adjusted tick test, sampled-quote
+# back-pairing) against true at-print classification on the subscribed slice —
+# measured accuracy decides whether the quote-cap problem dissolves for free or the
+# paid paired feed is justified. Bounded: window-gated, fail-soft, plain JSONL.
+_PRINT_LAB_DIR = None  # resolved lazily so import order can't bite
+
+
+def _print_lab_write(rows: list[dict], now_et: datetime) -> None:
+    """One append per drain cycle (never per print — the open burst is hundreds/s)."""
+    global _PRINT_LAB_DIR
+    if not rows:
+        return
+    minute = now_et.hour * 60 + now_et.minute
+    if not (565 <= minute <= 605 or 925 <= minute <= 965):
+        return
+    try:
+        if _PRINT_LAB_DIR is None:
+            from db.base import DEFAULT_DB_PATH
+
+            _PRINT_LAB_DIR = DEFAULT_DB_PATH.parent / "research" / "print_lab"
+            _PRINT_LAB_DIR.mkdir(parents=True, exist_ok=True)
+        import json as _json
+
+        path = _PRINT_LAB_DIR / f"{now_et.date().isoformat()}.jsonl"
+        with path.open("a") as f:
+            f.write("\n".join(_json.dumps(r) for r in rows) + "\n")
+    except Exception:
+        logger.debug("print lab write failed", exc_info=True)
 
 
 def _in_preopen_warm(now: datetime | None = None) -> bool:
@@ -227,6 +261,23 @@ class OptionsFlowRunner:
         stream = self.stream
         if stream is None:
             return
+        # deque(maxlen) drops oldest SILENTLY on overflow — count it (audit F7a).
+        # Safe margin today (~530 prints/min peak vs 5,000 cap, 1s drain), but the
+        # gauge lane raises open-burst print rates on exactly the minutes we care
+        # about; a silent drop here would truncate the gauge invisibly.
+        maxlen = stream.collected_prints.maxlen
+        overflow = (
+            len(stream.collected_prints) + len(batch) - maxlen
+            if maxlen is not None
+            else 0
+        )
+        if overflow > 0:
+            stream.dropped_prints += overflow
+            logger.warning(
+                "options_flow stream: collected_prints overflow — dropped %s oldest "
+                "(consumer lagging)",
+                overflow,
+            )
         stream.collected_prints.extend(batch)
 
     # --- pipeline legs ---
@@ -307,17 +358,34 @@ class OptionsFlowRunner:
 
     async def sweep_loop(self) -> None:
         """Phase 3b consumer: stream prints → at-print DIR-1 → SWP-1 sweeps → events."""
+        import db.index_pressure as ip_db
         import db.options_flow as of_db
         from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
         from signals.options_flow.convergence import process_events
         from signals.options_flow.intraday import classify_direction, tag_likely_spreads
+        from signals.options_flow.opening_pressure import WINDOWS, PressureGauge
         from signals.options_flow.rolling import RollingFlow
         from signals.options_flow.sweeps import SweepBuffer
+        from trading.market_calendar import is_early_close
+
+        def _fresh_gauges() -> dict[str, PressureGauge]:
+            return {w: PressureGauge(w) for w in WINDOWS}
+
+        # Flush stops shortly after each window closes; the 5-min grace covers
+        # late-arriving prints whose ts still falls inside the window.
+        gauge_cutoff_min = {
+            w: start + length + 5 for w, (start, length) in WINDOWS.items()
+        }
 
         buffer = SweepBuffer()
         rolling = RollingFlow()
+        gauges = _fresh_gauges()
+        gauge_final: set[str] = set()  # windows finalized today (day row written)
+        gauge_seen: set[str] = set()  # windows THIS process was alive inside
         rolling_last_check = 0.0
+        gauge_last_flush = 0.0
         buffer_day = ""
+        half_day = False
         stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
 
         while True:
@@ -336,12 +404,18 @@ class OptionsFlowRunner:
                 if buffer_day != today_et:
                     buffer = SweepBuffer()
                     rolling = RollingFlow()
+                    gauges = _fresh_gauges()
+                    gauge_final = set()
+                    gauge_seen = set()
+                    half_day = is_early_close(now_et.date())
                     buffer_day = today_et
 
                 if batch:
+                    lab_rows: list[dict] = []
                     for p in batch:
                         direction = "undetermined"
                         basis = "none"
+                        lab_quote: tuple[float, float, int] | None = None
                         q = stream.quote_at(
                             str(p.get("occ_symbol") or ""),
                             int(p.get("ts_ms") or 0),
@@ -349,6 +423,7 @@ class OptionsFlowRunner:
                         if q is not None:
                             bid, ask, q_ts_ms = q
                             if abs(int(p.get("ts_ms") or 0) - q_ts_ms) <= stale_ms:
+                                lab_quote = q
                                 direction = classify_direction(
                                     price=float(p.get("price") or 0), bid=bid, ask=ask
                                 )
@@ -356,11 +431,35 @@ class OptionsFlowRunner:
                                     basis = "stream_quote"
                         p["direction"] = direction
                         p["direction_basis"] = basis
+                        lab_rows.append(
+                            {
+                                "ts_ms": p.get("ts_ms"),
+                                "occ": p.get("occ_symbol"),
+                                "u": p.get("underlying"),
+                                "price": p.get("price"),
+                                "size": p.get("size"),
+                                "dte": p.get("dte"),
+                                "dir": direction,
+                                "basis": basis,
+                                "bid": lab_quote[0] if lab_quote else None,
+                                "ask": lab_quote[1] if lab_quote else None,
+                                "q_ts_ms": lab_quote[2] if lab_quote else None,
+                            }
+                        )
+                    _print_lab_write(lab_rows, now_et)
                     tag_likely_spreads(batch)
                     buffer.add(batch)
-                    # D-1/D-2 rolling detectors ride the same classified prints
+                    # D-1/D-2 rolling detectors + pressure gauges ride the same
+                    # classified prints (gauges self-filter to window/universe).
+                    # Coverage mode is stamped per print at ACCRUAL time (audit F2),
+                    # from server-ACKED state — never rewritten by later flushes.
+                    mode = (
+                        "market_wide" if stream.acked_market_wide else "gauge_lane"
+                    )
                     for p in batch:
                         rolling.add_print(p)
+                        for gauge in gauges.values():
+                            gauge.add_print(p, mode=mode)
 
                 # burst/cluster checks step once a minute (1-min bucket granularity)
                 now_mono = time.time()
@@ -374,6 +473,81 @@ class OptionsFlowRunner:
                             of_db.insert_event(ev)
                     except Exception:
                         logger.exception("options_flow rolling: check failed")
+                # Gauge flush on its own 10s cadence — the write is tiny (≤13 syms ×
+                # 30 rows, last-write-wins upsert of in-memory running totals), and a
+                # 60s flush would make the widget lag the tape by up to a minute
+                # during the exact half hours the gauge exists for.
+                if now_mono - gauge_last_flush >= 10.0:
+                    gauge_last_flush = now_mono
+                    now_min = now_et.hour * 60 + now_et.minute
+                    for win, gauge in gauges.items():
+                        if win in gauge_final:
+                            continue
+                        # Half days (13:00 close): there IS no 15:30-16:00 session —
+                        # never record one; finalize the day row as session_type=half
+                        # so the absence is interpretable forever (audit F5/F6).
+                        if half_day and win == "close":
+                            try:
+                                ip_db.record_day(
+                                    date=today_et,
+                                    window=win,
+                                    session_type="half",
+                                    minutes_observed=0,
+                                    syms=0,
+                                    coverage_modes=None,
+                                    writer_pid=os.getpid(),
+                                    finalized=True,
+                                )
+                                gauge_final.add(win)
+                            except Exception:
+                                logger.exception(
+                                    "options_flow pressure gauge: half-day record "
+                                    "failed"
+                                )
+                            continue
+                        start_min = WINDOWS[win][0]
+                        if start_min <= now_min <= gauge_cutoff_min[win]:
+                            gauge_seen.add(win)
+                        finalize = now_min > gauge_cutoff_min[win]
+                        # Never finalize a window this process wasn't alive inside
+                        # (review H2): a post-close restart would otherwise assert
+                        # a finalized "0 minutes observed" for a window somebody
+                        # else may have watched — the DB merge is monotone as a
+                        # second defense, but don't even make the claim.
+                        if finalize and win not in gauge_seen:
+                            gauge_final.add(win)
+                            continue
+                        try:
+                            rows = gauge.minute_rows(today_et)
+                            if rows:
+                                ip_db.upsert_minutes(rows, window=win)
+                            if rows or finalize:
+                                stats = gauge.window_stats()
+                                ip_db.record_day(
+                                    date=today_et,
+                                    window=win,
+                                    session_type="full",
+                                    minutes_observed=stats["minutes_observed"],
+                                    syms=stats["syms"],
+                                    coverage_modes=stats["coverage_modes"],
+                                    writer_pid=os.getpid(),
+                                    finalized=finalize,
+                                )
+                                if finalize:
+                                    gauge_final.add(win)
+                                    logger.info(
+                                        "options_flow pressure gauge: %s window "
+                                        "final — syms=%s minutes=%s/%s coverage=%s",
+                                        win,
+                                        stats["syms"],
+                                        stats["minutes_observed"],
+                                        WINDOWS[win][1],
+                                        stats["coverage_modes"],
+                                    )
+                        except Exception:
+                            logger.exception(
+                                "options_flow pressure gauge: %s flush failed", win
+                            )
 
                 events = buffer.close_ready(int(time.time() * 1000), today_et)
                 if not events:

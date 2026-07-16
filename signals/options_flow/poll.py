@@ -22,6 +22,10 @@ from signals.options_flow.constants import (
     CHAIN_SNAPSHOT_MAX_PAGES,
     CHAIN_SNAPSHOT_PAGE_LIMIT,
     EXT_HOURS_CONDITIONS,
+    GAUGE_FETCH_UNDERLYINGS,
+    GAUGE_LANE_BUDGET,
+    GAUGE_UNDERLYINGS,
+    GAUGE_ZERO_DTE_PICKS,
     INDEX_MEGACAP_SET,
     LATE_OOS_CONDITIONS,
     LONG_DTE_THRESHOLD_DAYS,
@@ -205,6 +209,19 @@ def _meta_from_occ(occ: str, underlying_hint: str, today_et: str) -> dict | None
         "expiry": expiry,
         "dte": dte,
     }
+
+
+def _near_expiries(today_et: str, n: int = 2) -> list[str]:
+    """The next `n` calendar dates from today — the 0-1 DTE expiry candidates.
+
+    Calendar days, not trading days: an expiration_date query for a non-expiry
+    date just returns empty, which is cheaper than being clever.
+    """
+    from datetime import date as _date
+    from datetime import timedelta as _td
+
+    d0 = _date.fromisoformat(today_et)
+    return [(d0 + _td(days=i)).isoformat() for i in range(n)]
 
 
 def _trade_is_today(trade: dict, today_et: str) -> bool:
@@ -534,8 +551,14 @@ def _refresh_oi(
     state: PollState,
 ) -> None:
     capped = eligible_underlyings(symbols)
+    # Gauge names get OI seeds too — the seed IS the pre-open subscription (the
+    # bell's first minutes ride it until today's trades exist to rank), and the
+    # open window's first minutes are exactly what the gauge exists to measure.
+    # The seed path intentionally has no 0-1 DTE skip: big-OI same-day expiries
+    # seed the gauge's coverage at the bell (audit 2026-07-16 F1).
+    fetch_order = list(capped) + [u for u in GAUGE_FETCH_UNDERLYINGS if u not in capped]
 
-    for u in capped:
+    for u in fetch_order:
         try:
             contracts = adapter.get_option_contracts(
                 u, expiration_date_gte=today_et, limit=1000
@@ -576,13 +599,21 @@ def _refresh_active_set(
 ) -> int:
     """Rebuild active set; run intraday UV-1 piggyback. Returns uv1 events inserted."""
     capped = eligible_underlyings(symbols)
+    # Gauge lane (audit 2026-07-16 F1): the index-pressure universe is GUARANTEED
+    # coverage — fetched regardless of watchlists, outside the watchlist cap (so a
+    # full watchlist can never evict SPY), allocated BEFORE the regular budget (so
+    # over-budget clipping can never drop it). SPX rides fail-soft: if the vendor
+    # won't serve its chain, the per-underlying try/except below skips it and the
+    # gauge simply accrues no SPX/SPXW rows.
+    fetch_order = list(capped) + [u for u in GAUGE_FETCH_UNDERLYINGS if u not in capped]
 
     new_active: dict[str, dict] = {}
     picks_by_u: dict[str, list[str]] = {}
+    gauge_picks_by_u: dict[str, list[str]] = {}
     uv1_count = 0
 
     score_by_occ: dict[str, float] = {}
-    for u in capped:
+    for u in fetch_order:
         try:
             # Must be paginated+limited: the vendor's bare default is 100 contracts in
             # OCC-alphabetical order = one expiry of calls, so the ranking below never
@@ -594,8 +625,33 @@ def _refresh_active_set(
             )
             if not isinstance(snaps, dict):
                 continue
+            # SPXW pagination trap (measured live 2026-07-16): OCC symbols sort
+            # SPX-root (monthlies) strictly before SPXW-root (dailies), so the paged
+            # whole-chain fetch exhausts its budget on monthlies and the gauge's
+            # 0-1 DTE dailies never appear. For gauge index names, ALSO fetch the
+            # next two expiries explicitly — small, complete by construction.
+            if u in GAUGE_UNDERLYINGS and u in INDEX_MEGACAP_SET:
+                for exp_date in _near_expiries(today_et):
+                    try:
+                        exp_snaps = adapter.get_option_chain_snapshot(
+                            u,
+                            expiration_date=exp_date,
+                            limit=CHAIN_SNAPSHOT_PAGE_LIMIT,
+                            max_pages=CHAIN_SNAPSHOT_MAX_PAGES,
+                        )
+                        if isinstance(exp_snaps, dict):
+                            for occ, s in exp_snaps.items():
+                                snaps.setdefault(occ, s)
+                    except Exception:
+                        logger.debug(
+                            "options_flow poll: per-expiry fetch failed for %s %s",
+                            u,
+                            exp_date,
+                            exc_info=True,
+                        )
 
             candidates: list[tuple[float, int, str]] = []
+            gauge_zero_dte: list[tuple[float, int, str]] = []
             for occ, snap in snaps.items():
                 if not isinstance(snap, dict):
                     continue
@@ -608,10 +664,28 @@ def _refresh_active_set(
                     continue
                 dte = _dte_days(parsed.expiration.isoformat(), today_et)
                 if _skip_index_zero_dte(u, dte):
+                    # Gauge lane: the skip stays for the REGULAR set (the detectors
+                    # discard these prints), but the index-pressure gauge WANTS the
+                    # 0-1 DTE tape — collect the skipped contracts for its own picks.
+                    if u in GAUGE_UNDERLYINGS:
+                        gauge_zero_dte.append(
+                            (
+                                _day_dollar_volume(snap, trade),
+                                dte if dte is not None else 0,
+                                sym,
+                            )
+                        )
                     continue
                 candidates.append(
                     (_day_dollar_volume(snap, trade), dte if dte is not None else 0, sym)
                 )
+
+            if gauge_zero_dte:
+                gauge_zero_dte.sort(key=lambda c: (c[0], c[2]), reverse=True)
+                gauge_top = gauge_zero_dte[:GAUGE_ZERO_DTE_PICKS]
+                for score, _dte, sym in gauge_top:
+                    score_by_occ[sym] = score
+                gauge_picks_by_u[u] = [sym for _, _, sym in gauge_top]
 
             picked = _select_active_picks(candidates, ACTIVE_SET_PER_UNDERLYING)
             for score, _dte, sym in picked:
@@ -627,17 +701,31 @@ def _refresh_active_set(
             logger.exception("options_flow poll: active-set refresh failed for %s", u)
             continue
 
+    # Gauge lane allocates FIRST from its own budget — the regular set's clipping
+    # can never evict it, and it can never eat more than GAUGE_LANE_BUDGET slots.
+    for u, occ in _allocate_active(
+        gauge_picks_by_u, min(GAUGE_LANE_BUDGET, STREAM_TRADES_MAX)
+    ):
+        meta = _meta_from_occ(occ, u, today_et)
+        if meta is not None:
+            meta["rank_score"] = score_by_occ.get(occ) or float(state.oi.get(occ) or 0)
+            meta["gauge_lane"] = True
+            new_active[occ] = meta
+
     wanted = sum(len(occs) for occs in picks_by_u.values())
-    if wanted > STREAM_TRADES_MAX:
+    regular_budget = STREAM_TRADES_MAX - len(new_active)
+    if wanted > regular_budget:
         logger.info(
             "options_flow poll: %d ranked contracts over the %d sub budget — "
             "allocating round-robin across %d underlyings (~%d each)",
             wanted,
-            STREAM_TRADES_MAX,
+            regular_budget,
             len(picks_by_u),
-            STREAM_TRADES_MAX // max(len(picks_by_u), 1),
+            regular_budget // max(len(picks_by_u), 1),
         )
-    for u, occ in _allocate_active(picks_by_u, STREAM_TRADES_MAX):
+    for u, occ in _allocate_active(picks_by_u, regular_budget):
+        if occ in new_active:
+            continue
         meta = _meta_from_occ(occ, u, today_et)
         if meta is not None:
             # Anchor ranking: traded score, else prior-session OI (the seed path —
