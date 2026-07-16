@@ -39,6 +39,39 @@ from trading.market_hours import _ET, _SESSION_OPEN
 logger = logging.getLogger(__name__)
 
 
+# --- print lab (classification-method ground truth) --------------------------------
+# During the gauge windows, dump every classified print WITH the quote DIR-1 used to
+# data/research/print_lab/<date>.jsonl. Purpose: grade the cheap classification
+# methods the founder proposed (tick test, delta-adjusted tick test, sampled-quote
+# back-pairing) against true at-print classification on the subscribed slice —
+# measured accuracy decides whether the quote-cap problem dissolves for free or the
+# paid paired feed is justified. Bounded: window-gated, fail-soft, plain JSONL.
+_PRINT_LAB_DIR = None  # resolved lazily so import order can't bite
+
+
+def _print_lab_write(rows: list[dict], now_et: datetime) -> None:
+    """One append per drain cycle (never per print — the open burst is hundreds/s)."""
+    global _PRINT_LAB_DIR
+    if not rows:
+        return
+    minute = now_et.hour * 60 + now_et.minute
+    if not (565 <= minute <= 605 or 925 <= minute <= 965):
+        return
+    try:
+        if _PRINT_LAB_DIR is None:
+            from db.base import DEFAULT_DB_PATH
+
+            _PRINT_LAB_DIR = DEFAULT_DB_PATH.parent / "research" / "print_lab"
+            _PRINT_LAB_DIR.mkdir(parents=True, exist_ok=True)
+        import json as _json
+
+        path = _PRINT_LAB_DIR / f"{now_et.date().isoformat()}.jsonl"
+        with path.open("a") as f:
+            f.write("\n".join(_json.dumps(r) for r in rows) + "\n")
+    except Exception:
+        logger.debug("print lab write failed", exc_info=True)
+
+
 def _in_preopen_warm(now: datetime | None = None) -> bool:
     """Within PREOPEN_WARM_MINUTES of today's open (time-of-day only).
 
@@ -378,9 +411,11 @@ class OptionsFlowRunner:
                     buffer_day = today_et
 
                 if batch:
+                    lab_rows: list[dict] = []
                     for p in batch:
                         direction = "undetermined"
                         basis = "none"
+                        lab_quote: tuple[float, float, int] | None = None
                         q = stream.quote_at(
                             str(p.get("occ_symbol") or ""),
                             int(p.get("ts_ms") or 0),
@@ -388,6 +423,7 @@ class OptionsFlowRunner:
                         if q is not None:
                             bid, ask, q_ts_ms = q
                             if abs(int(p.get("ts_ms") or 0) - q_ts_ms) <= stale_ms:
+                                lab_quote = q
                                 direction = classify_direction(
                                     price=float(p.get("price") or 0), bid=bid, ask=ask
                                 )
@@ -395,6 +431,22 @@ class OptionsFlowRunner:
                                     basis = "stream_quote"
                         p["direction"] = direction
                         p["direction_basis"] = basis
+                        lab_rows.append(
+                            {
+                                "ts_ms": p.get("ts_ms"),
+                                "occ": p.get("occ_symbol"),
+                                "u": p.get("underlying"),
+                                "price": p.get("price"),
+                                "size": p.get("size"),
+                                "dte": p.get("dte"),
+                                "dir": direction,
+                                "basis": basis,
+                                "bid": lab_quote[0] if lab_quote else None,
+                                "ask": lab_quote[1] if lab_quote else None,
+                                "q_ts_ms": lab_quote[2] if lab_quote else None,
+                            }
+                        )
+                    _print_lab_write(lab_rows, now_et)
                     tag_likely_spreads(batch)
                     buffer.add(batch)
                     # D-1/D-2 rolling detectors + pressure gauges ride the same
