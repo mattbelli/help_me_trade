@@ -232,6 +232,29 @@ matching arm B says that noise doesn't drive the result. **Live uses Finnhub's a
 hour, so the shipped version should do modestly better than measured.**
 
 ## Caveats (unchanged from the brief's standing rules)
-Per-trade deltas only — no portfolio-sim levels quoted. Entry fills at signal close (known pre-existing
-fidelity gap, applies equally to every arm). EDGAR-derived history is the biased-but-conservative proxy;
-the live gate is Finnhub `amc` + fail-closed on `bmo`/`dmh`/null, exactly as pre-specified.
+Per-trade deltas only in the tables above — no portfolio-sim levels quoted there. Entry fills at signal
+close (known pre-existing fidelity gap, applies equally to every arm). EDGAR-derived history is the
+biased-but-conservative proxy; the live gate is Finnhub `amc` + fail-closed on `bmo`/`dmh`/null, exactly
+as pre-specified.
+
+## SHIPPING SPEC (founder-approved 2026-07-15): sell at day-D OPEN, not close
+
+Portfolio-level check (accrual-marked sim, fixed 10%/position max 10 concurrent — the sizing policy chosen
+in `EDGE_HUNT_FINDINGS.md` Round 6; levels are model-marked and optimistic, the ORDERING is the result):
+
+| exit on AMC day | CAGR | maxDD | Sharpe |
+|---|---|---|---|
+| baseline (day before, `jn-1` close) | 20.43% | 21.12% | 3.28 |
+| extra day, sell at CLOSE (MOC) | 21.62% | 24.28% | 3.35 |
+| **extra day, sell at OPEN (MOO)** | **22.27%** | **22.87%** | **3.54** |
+
+The overnight gap into report day carries nearly all the drift (+0.206 of the +0.227 per-trade delta);
+the report-day session adds ~2bps at the cost of much higher variance and the deeper drawdown. The OPEN
+exit wins on every axis AND is operationally safer: market-on-open, flat ~6.5h before the earliest AMC
+print, and the ~7% mislabeled-BMO contamination hurts less. Selection honesty: the open-exit was a
+robustness cut (specified before results, motivated by conservatism), not a pre-registered arm — but both
+variants clear significance independently and the pick is the MORE conservative mechanic.
+
+**Live rule: enter 10td before earnings; exit at the NEXT OPEN after the `jn-1` close when Finnhub's
+forward hour says `amc` (i.e. hold overnight into report day, MOO exit), else exit at the `jn-1` close.
+Fail closed on `bmo`/`dmh`/null.**
