@@ -248,7 +248,7 @@ def _latest_run_id_for_account(
 
 def _snapshot_from_run(conn: sqlite3.Connection, run_id: int, broker: str) -> dict:
     run = conn.execute(
-        "SELECT captured_at FROM poll_runs WHERE id = ?", (run_id,)
+        "SELECT captured_at, account_id FROM poll_runs WHERE id = ?", (run_id,)
     ).fetchone()
     account_row = conn.execute(
         "SELECT * FROM account_snapshots WHERE poll_run_id = ?", (run_id,)
@@ -303,6 +303,10 @@ def _snapshot_from_run(conn: sqlite3.Connection, run_id: int, broker: str) -> di
     return {
         "broker": broker,
         "captured_at": run["captured_at"],
+        # Internal ledger account id (poll_runs.account_id) — NOT account["id"],
+        # which is the broker-side id (an Alpaca UUID). Callers that must verify
+        # which account a snapshot belongs to compare against this field.
+        "account_id": run["account_id"],
         "account": account,
         "position_count": len(positions),
         "positions": positions,
