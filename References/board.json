@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T04:42:36.044210+00:00",
+  "updated_at": "2026-07-16T04:52:10.837266+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,24 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "market-hours-no-holiday-calendar",
+      "title": "\u26a0\ufe0f No holiday calendar \u2014 a market holiday in the exit window can hold a position THROUGH its print",
+      "lane": "next",
+      "type": "fix",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Found 2026-07-16 while verifying the live deploy. trading/market_hours.py is self-described 'v1 \u2014 weekdays only, no holiday calendar' with a `# TODO: Alpaca /v2/clock for holidays` on BOTH is_market_open and is_after_close. And research/strategy_features.py::_trading_days_until is HOLIDAY-NAIVE by its own docstring ('Mon-Fri count... May drift ~1-2 days vs the real calendar'). \n\u2605 WHY THIS IS NOW A FAT TAIL, NOT A ROUNDING ERROR: earnings_drift is LIVE + auto, and its entire safety property is 'exit exactly 1 trading day before the print, never hold through it'. A holiday inside the window makes td OVERCOUNT (it counts the holiday as a trading day) \u2014 we think we have 2 days when we have 1. Then ON the holiday, is_market_open() wrongly returns True (it's a weekday), the bmo rule fires at 15:45, and the order QUEUES to the next session's open \u2014 **which is the print day**. That is holding through the announcement: the exact event exit_lead_td=1 exists to prevent. \n\u2705 NOT A RISK THIS SEASON: no US equity market holidays between 2026-07-16 and Labor Day (2026-09-07), so the whole Q2 window is clean. \u26a0\ufe0f It bites in the Q4-earnings window \u2014 MLK Day sits in mid-January. Fix before then; don't let a bad fill discover it. \nFIX: Alpaca /v2/clock (or its calendar endpoint) for the real session calendar, wired into BOTH market_hours and _trading_days_until \u2014 they must agree or the two gates disagree about what a trading day is. Cache it; it's static per day."
+    },
+    {
+      "id": "notional-orders-fractional",
+      "title": "Notional orders \u2014 buy $X worth, let the broker do the fractional shares (chokepoint PR)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Founder 2026-07-16: 'why not just buy 10000 worth and allow fractional shares'. Correct \u2014 Alpaca supports NOTIONAL orders natively (send a dollar amount, broker computes fractional shares; market + TIF=day only, which is exactly our case). It's also what the backtest models: research/portfolio.py sizes per_trade_fraction x equity with NO share granularity at all. \nTODAY: trading/proposal_intake.py:81 does `qty = floor(notional_usd / price)` ourselves; brokers/base.py PlaceOrderRequest has `qty` and no `notional`; the adapter body sends qty only. \nGAIN IS SMALL on deployment \u2014 measured at $10k/position over the live sp500: avg **98.8%** deployed, worst 65.0% (NVR $6,498 -> 1 share), 0 names unbuyable => ~+0.24pp CAGR. NOT the reason to do it. \n\u2605 THE REAL REASON \u2014 the `qty < 1 -> {'status':'too_small'}` drop (proposal_intake.py:90) is EQUITY-DEPENDENT and biases the recovery. notional_pct=10 means the dollar size SHRINKS with equity: at $100k every S&P name is buyable, but at $60k NVR ($6,498) becomes unbuyable and silently leaves the universe; lower still and AZO/FIX/GWW/SNDK follow. **The strategy's universe quietly narrows exactly when it's performing worst.** Notional removes the failure mode at any account size. \nIt also SIMPLIFIES the chokepoint: max_order_value_usd is checked as qty x price today; with notional you compare the dollar figure directly, and the integral-qty guard (risk_engine.py:221) stops mattering. \n\u26d4 TRAP \u2014 do NOT unlock fractional by reusing `intent.rebalance`: that flag ALSO exempts the daily-order + open-order throttles (see the comment on OrderIntent). Marking earnings entries as rebalances would silently disable two risk caps as a side effect. \nSCOPE: OrderIntent -> ExecutionService.submit -> RiskEngine.validate -> brokers/base.PlaceOrderRequest -> alpaca.aplace_order body. That's the sacred path => own PR + TWO adversarial reviewers ([[review-agents-opus]] split mandate). Exits are unaffected (they sell a known qty read from the live position \u2014 nothing to size)."
+    },
     {
       "id": "earnings-drift-extra-day",
       "title": "earnings_drift: does holding ONE EXTRA DAY on AMC reporters pay? (PC experiment briefed)",
