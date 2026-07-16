@@ -485,3 +485,62 @@ the stored 6,624 baseline exactly). **Δ +0.227%/trade conditional on AMC (CI [+
 (hold-through-everything loses significance, gap-day variance visible: bmo extra-day stdev 7.15 vs amc 3.19).
 Measured on biased-conservative EDGAR labels ⇒ a FLOOR; live gates on Finnhub's forward hour, fail-closed on
 bmo/dmh/null. **Directly shippable: ~+12% EV lift on the sleeve for zero extra trades.**
+
+---
+
+# Round 7 — universe expansion: Russell Mid Cap C&P + two methodology audits (2026-07-16, founder-directed)
+
+Infrastructure first: Norgate Platinum confirmed **still active**; `bars.db` expanded 909 → **2,204 Norgate
+symbols** (6.1M bars; Russell Mid Cap Current & Past added — 2,024 new names, 984 pre-2010 delistings skipped;
+bars end 2026-06-18 pending a manual NDU update click). EDGAR earnings refetched for every cached symbol.
+Expanded strategy build (same rules, **0.30% RT cost** for mid-cap spreads) → `earnings_labeled_midcap.db`:
+13,046 setups / 1,238 symbols; canonical 6,624 S&P dataset untouched. Universe membership snapshotted to
+`data/research/universe_snapshot.json` (2026-07-16). Scripts (committed): `survivorship_wedge.py`,
+`ordering_fragility.py`, `midcap_expansion.py`. Alpaca symbol audit: 99.0–99.8% of S&P 500 / Russell Mid Cap /
+Russell 2000 members tradable — execution is not a constraint at any cap tier we'd use.
+
+## ⚠ METHODOLOGY — same-day tie order can inject look-ahead into `backtest_portfolio`
+`backtest_portfolio` date-sorts **stably**, so same-day signals compete for scarce slots in caller list order.
+Sorting the trade list by anything touching the return column silently rigs crowded days: on the 6,624-trade
+baseline, return-ascending ties give **−3.3% CAGR**, return-descending **+45.4%** — vs a tight fair envelope of
+**18.96% ± 0.83pts (sd)** across 10 return-blind shuffles (DB order sits at the mean, so Rounds 6/6a stand).
+Rules going forward: (1) never deterministically sort trade lists fed to the sim by any outcome-correlated key;
+(2) report portfolio numbers as the mean over ≥10 shuffled orderings. Flip side worth remembering: the fair-vs-
+lookahead gap (19% → 45%) says **crowded-day signal selection is a huge open lever** if any live-knowable
+ranker exists (blowout magnitude isn't it — Round 6 kill).
+
+## ✔ MEASURED — the survivorship wedge on this strategy (and why it's not a simple haircut)
+Same sim, trades filtered to today's S&P 500 members (= what free survivor-biased data would show): per-trade
+quality is *overstated* (0.95% vs 0.89% honest) but portfolio CAGR is *understated* (16.5% vs 19.0%) — dropping
+the 27% of trades in later-departed names starves the 10-slot book, and idle slots cost more than the quality
+bump pays. Smoothness is overstated both ways (maxDD 17.1% vs 22.2%, Sharpe 1.42 vs 1.34). So a scalar
+"survivorship haircut" corrects the wrong direction on CAGR — bias is strategy- and metric-dependent; the
+founder's post-lapse plan is cached history (never expires) + forward live collection (unbiased by
+construction), not statistical add-back. Silver lining: departed-only trades still made +0.73%/trade / 54.9%
+win — the blowout condition partially shelters the strategy from delisting-bound names, and the edge is not
+"buy future index winners."
+
+## ✘ KILLED (as a book addition) — mid-cap expansion at current settings
+10 × 10%, fair-shuffle means [min..max over 10 seeds]:
+
+| config | n | CAGR | maxDD | Sharpe | invested | per-trade |
+|---|---|---|---|---|---|---|
+| A. S&P 500 C&P only (0.20%) | 6,624 | **18.96%** [17.3..20.0] | 23.5% | 1.33 | 47.8% | 0.890% |
+| B. mid-cap-only new names (0.30%) | 6,521 | 13.72% [11.7..15.8] | 31.4% | 0.91 | 41.4% | 0.457% |
+| C. combined | 13,145 | 16.88% [15.3..19.3] | 41.8% | 0.96 | 59.3% | 0.675% |
+| D. combined, mid legs 0.40% | 13,145 | 15.62% | 42.5% | 0.90 | 59.3% | 0.625% |
+| E. combined, S&P-priority tiering | 13,145 | 16.60% | 40.6% | 0.96 | 59.3% | — |
+
+The blowout edge **exists** in mid caps (B positive at honest costs) but at *half* the per-trade strength
+(0.46% vs 0.89%), roughly matching SPY standalone with deeper DD. Merging fills more capital (48% → 59%
+invested) yet **loses ~2 CAGR points and nearly doubles maxDD**: weak mid-cap signals steal multi-day slots
+from stronger S&P ones. Day-level S&P-priority tiering (E, return-blind, live-implementable) doesn't fix it —
+slots are held ~13 days, so priority at entry can't protect against a mid-cap taken Monday blocking a better
+S&P signal Wednesday. **Keep the sleeve S&P-only.** Revisit only as a *capacity* answer (if the account ever
+outgrows S&P signal flow) or with a mid-cap-specific quality gate — not as a CAGR play.
+
+## Bottom line (round 7)
+Universe expansion was worth building (data + wedge + audits now permanent assets) and honest to kill as a
+book upgrade: **more signals ≠ better book when the marginal signal is weaker and slots are shared.** Round 6's
+"second *uncorrelated* sleeve" conclusion survives — same-strategy-more-names is correlated and dilutive. The
+two audits (tie-order look-ahead, survivorship wedge) harden every future portfolio number we publish.
