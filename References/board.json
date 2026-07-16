@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T20:59:44.380045+00:00",
+  "updated_at": "2026-07-16T21:23:24.757171+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "index-0dte-concentration-study",
+      "title": "Index 0DTE concentration study \u2014 how few strikes reproduce the full-chain picture?",
+      "lane": "in_progress",
+      "type": "research",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder 2026-07-16: measure before sizing the subscription pools (his 500/300/200 idea + ATM/3%/5% ladder theory). Phase A (LIVE since 15:25 ET 07-16): tools/index_chain_sampler.py \u2014 read-only REST full-chain 0-1DTE snapshots (SPY/QQQ/IWM/DIA/SPX + TSLA/NVDA/AAPL) every 60s through both gauge windows -> data/research/chain_samples/<date>.jsonl; analysis = per-minute volume deltas -> concentration curves (top-N by $vol vs moneyness ladder vs full chain). Smoke 15:01 ET: 4,128 live 0-1DTE rows incl SPX 1,186 (chain endpoint serves SPX \u2014 validates gauge-lane fail-soft too). Phase B (design pending Phase A shape): signed-pressure fidelity needs the full classified tape \u2014 2nd-account OPRA socket probe or capture window. Gates: >=1wk ordinary days before any pool-size decision; 07-17 is OpEx = its own cell; volume-only data can NOT answer direction fidelity (don't over-conclude). Pool split itself = constants change on the existing gauge lane once measured. | PREREG LOCKED 2026-07-16 (founder-specified, before first data): References/CLASSIFICATION_LAB_PREREG_2026-07-16.md \u2014 3 methods (naive tick, delta-adjusted w/ gamma+vega terms, sampled-quote back-pairing strict-backward + interpolated at 15/30/60s), metrics incl. premium-weighted directional bias + spike-conditioning (the danger-zone gate) + net-gauge fidelity; thresholds set: >=85% agreement, <=5pp asymmetry, >=95% window-net sign agreement ON SPIKE MINUTES; >=5 ordinary sessions, OpEx cells separate. Sampler upgraded to 15s + quotes/greeks/IV."
+    },
     {
       "id": "options-data-plan-decision",
       "title": "Greenlight: options data plan \u2014 stop squeezing the quote cap, or buy headroom (~$199/mo)?",
