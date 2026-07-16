@@ -444,3 +444,57 @@ mirrors the sim's `max_gross_exposure=1.0`).
 
 **Honest expectation:** the real maxDD will EXCEED 21.1% (linear accrual smooths troughs; the builder
 fills at signal close while live fires intraday). Both optimisms point the same way. Budget for worse.
+
+---
+
+# ROUND 5 — can we tell bmo/amc? Yes. Can we USE it? No. (2026-07-16)
+
+**Question:** `exit_lead_td=1` exists ONLY because we couldn't tell whether earnings printed before the
+open or after the close. EDGAR's `acceptanceDateTime` gives a session ⇒ could AMC reporters hold ONE
+EXTRA DAY (sell at D's close; the report lands hours later)? That's ~+11% drift exposure on a 9-day hold,
+across the **45%** of events that are AMC. Free, from data we already fetch.
+
+**Answer: NO — and the reason is structural, not statistical.**
+
+## The measurement (EDGAR-derived hour vs Finnhub-supplied, same symbol+date)
+```
+comparable events : 64
+AGREE             : 59  (92%)
+confusion (finnhub -> edgar):
+  bmo -> bmo : 33 ✓      bmo -> amc : 2 ✗  (HRL, PEP)
+  amc -> amc : 26 ✓      amc -> dmh : 2 ✗  (UAL, JBHT)
+                         bmo -> dmh : 1 ✗  (C)
+```
+92% agreement — the method works. **But EVERY error goes the same way: EDGAR reports the session LATER
+than it truly was. Never earlier.**
+
+## Why that's fatal here
+**You cannot file an 8-K before you release the earnings.** `acceptanceDateTime` is therefore a **lower
+bound on lateness** — filing lag can only push a BMO release into looking like `dmh`/`amc`, never the
+reverse.
+
+⇒ **EDGAR's hour is reliable in exactly the direction that's useless, and unreliable in the only
+direction we'd bet on:**
+- EDGAR says `bmo` ⇒ certainly bmo — but that's the case where we already exit early and gain nothing.
+- EDGAR says `amc` ⇒ **might be a lagged BMO. 2 of its 28 amc calls were actually bmo = a 7% FALSE-AMC
+  rate.**
+
+A false AMC means **holding THROUGH the earnings print** — precisely what `exit_lead_td=1` exists to
+prevent, and the fattest-tailed risk in the strategy. Trading ~+0.1% of extra drift against a 7% chance
+of eating a random earnings gap is a bad bet.
+
+**It compounds:** an exit decision needs the FORWARD session, which EDGAR cannot know (no 8-K yet). You'd
+infer it from history — only **78% of companies are 100% session-consistent** across their last ~8
+quarters (ABBV 4amc/4bmo and AMP 4/4 are coin flips) — and that history is itself 7% wrong on AMC.
+≈73% confidence on a fat-tailed downside.
+
+## Verdict
+- ✅ **`exit_lead_td=1` was right and STAYS.** The founder's original reasoning holds.
+- ✅ The hour is still worth having: it fills the **40%** of calendar rows where Finnhub supplies no hour
+  at all, and it's good for display.
+- ⛔ Do **not** use it to shorten the exit lead. If this is ever revisited, it needs a source of the
+  *announcement* time (not the filing time) for the *forward* event — and even then it's an unvalidated
+  variant needing its own pre-registered test.
+
+*(Methodology note — third idea today killed by a 4-minute measurement: the `dmh` bucket looked like a
+curiosity until it turned out to be the tell that filing-time ≠ release-time.)*
