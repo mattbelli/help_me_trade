@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from research.strategy_features import _trading_days_until
+from trading.market_hours import is_after_close, is_market_open
+
+_ET = ZoneInfo("America/New_York")
+# Earliest ET wall-clock at which the final-session exit may fire. Late enough to
+# fill near the close the backtest models, early enough to leave ~45 loop passes.
+_EXIT_WINDOW_OPEN_ET = (15, 45)
 
 
 @dataclass(frozen=True)
@@ -135,23 +144,91 @@ def evaluate_dip_exit(
     )
 
 
+def _et_now(stamp: str) -> datetime | None:
+    """`stamp` as a tz-aware America/New_York instant, or None if unknowable.
+
+    A naive stamp (e.g. a date-only `"2026-01-06"`) has no knowable ET offset, so
+    neither its ET calendar date nor any session judgement can be derived from it.
+    Callers must treat None as "no intraday clock", never as "before close".
+    """
+    try:
+        dt = datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    return dt.astimezone(_ET) if dt.utcoffset() is not None else None
+
+
 def evaluate_earnings_exit(
     *,
     today: str,
     earnings_dates: list[str],
     holding_days: int | None = None,
     params: dict[str, Any],
+    hour_for: Callable[[str], str | None] | None = None,
 ) -> ExitDecision:
-    exit_lead_td = int(params.get("exit_lead_td", 1))
-    today_key = today[:10]
+    """Earnings-drift exit: never hold through a print; time the fill the backtest models.
 
-    future = sorted(d for d in earnings_dates if d and d[:10] > today_key)
+    All dates are ET calendar dates. `today` arrives as UTC (`now_iso()`), whose date has
+    already rolled over by 20:00 ET — reading it as the trading date fires the exit a full
+    session early and forfeits a day of drift.
+
+    `hour_for(date) -> "bmo" | "amc" | "dmh" | None` resolves the forward event's session.
+    Rules, where `td` is trading days to the print:
+
+    * `td == 0` (report day) — EXIT unconditionally. The backstop: an `amc` print is still
+      ahead, a `bmo` print already happened and this is damage control.
+    * `td == 1`, `amc` — EXIT only once the session has closed. The print lands after the
+      close, so the position holds through it and the `day` order the broker queues fills
+      at the report day's OPEN, capturing the overnight gap that carries most of the edge
+      (PC 2010-2026: +0.227%/trade conditional on `amc`).
+    * `td == 1`, anything else — EXIT only inside 15:45-16:00 ET, filling near the close as
+      the backtest does. It must NOT fire after the close: a queued `day` order releases at
+      the report day's open, which for a `bmo` reporter is AFTER its print.
+    * `td > 1` — hold.
+
+    FAILS CLOSED: anything that is not exactly `"amc"` (None, other sessions, an unknown
+    hour, a raising `hour_for`) takes the non-`amc` path. A wrong `amc` means holding
+    through the print, the event this sleeve exists to dodge.
+    """
+    exit_lead_td = int(params.get("exit_lead_td", 1))
+    et_now = _et_now(today)
+    today_key = et_now.date().isoformat() if et_now is not None else today[:10]
+
+    future = sorted(d for d in earnings_dates if d and d[:10] >= today_key)
     next_e: str | None = future[0] if future else None
     td: int | None = None
+    session: str | None = None
+    rule: str | None = None
 
     if next_e is not None:
-        td = _trading_days_until(today, next_e)
-        if 0 <= td <= exit_lead_td:
+        if hour_for is not None:
+            try:
+                session = hour_for(next_e)
+            except Exception:
+                session = None
+        td = _trading_days_until(today_key, next_e)
+
+        if td <= 0:
+            # Report day — out regardless of session, the backstop for a missed window.
+            # td < 0 needs dates that will not parse; exiting is the safe read of that too.
+            rule, should_exit = "report_day", True
+        elif td <= exit_lead_td:
+            if et_now is None:
+                # No intraday clock: fall back to the date-granularity rule, which exits
+                # on the lead day rather than risking a hold into the print.
+                rule, should_exit = "lead_td", True
+            elif session == "amc":
+                rule, should_exit = "amc_after_close", is_after_close(et_now)
+            else:
+                rule = "lead_td_close"
+                should_exit = is_market_open(et_now) and (
+                    et_now.hour,
+                    et_now.minute,
+                ) >= _EXIT_WINDOW_OPEN_ET
+        else:
+            rule, should_exit = "hold_until_lead", False
+
+        if should_exit:
             return ExitDecision(
                 "exit",
                 "earnings",
@@ -160,6 +237,8 @@ def evaluate_earnings_exit(
                     "next_earnings": next_e,
                     "td_to_earnings": td,
                     "exit_lead_td": exit_lead_td,
+                    "session": session,
+                    "exit_rule": rule,
                 },
             )
 
@@ -181,6 +260,9 @@ def evaluate_earnings_exit(
     detail = {"next_earnings": next_e}
     if td is not None:
         detail["td_to_earnings"] = td
+        # A hold at td == 1 is a decision, not an absence of one: record why.
+        detail["session"] = session
+        detail["exit_rule"] = rule
     return ExitDecision("hold", "hold", detail=detail)
 
 

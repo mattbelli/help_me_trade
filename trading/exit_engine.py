@@ -16,7 +16,7 @@ from typing import Any
 
 from db.accounts import get_account
 from db.base import DEFAULT_DB_PATH, now_iso
-from db.earnings_calendar import earnings_dates_for
+from db.earnings_calendar import earnings_dates_for, earnings_hour
 from db.managed_positions import close_position, list_open_positions, update_exit_state
 from db.order_executions import get_execution
 from db.paper_orders import get_proposal
@@ -259,6 +259,7 @@ async def _process_managed_position(
             earnings_dates=earnings_dates_for(symbol, db_path=db_path),
             holding_days=holding_days,
             params=row["params"],
+            hour_for=lambda d: earnings_hour(symbol, d, db_path=db_path),
         )
     elif kind == "dip":
         decision = evaluate_dip_exit(
