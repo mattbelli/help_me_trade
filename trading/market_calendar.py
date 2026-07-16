@@ -116,3 +116,24 @@ def is_trading_day(d: date) -> bool:
     if d in _AD_HOC_CLOSURES:
         return False
     return d not in _nyse_holidays(d.year)
+
+
+def is_early_close(d: date) -> bool:
+    """True if `d` is an NYSE half-day (13:00 ET close).
+
+    The recurring three: July 3 (only when it trades — July 4 on a Saturday makes
+    July 3 the observed full holiday, which is_trading_day already excludes), the
+    day after Thanksgiving, and Christmas Eve when it falls Mon-Thu (a Friday
+    Dec 24 is the observed full holiday for a Saturday Christmas). This names the
+    DATES only; session times stay out of scope here — is_market_open() still
+    reads True through a half-day's closed afternoon (board:
+    market-hours-half-day-early-close). Consumers like the index-pressure close
+    window use this to avoid recording a 15:30-16:00 window that didn't exist.
+    """
+    if not is_trading_day(d):
+        return False
+    if d.month == 7 and d.day == 3:
+        return True
+    if d == _nth_weekday(d.year, 11, 3, 4) + timedelta(days=1):
+        return True
+    return d.month == 12 and d.day == 24

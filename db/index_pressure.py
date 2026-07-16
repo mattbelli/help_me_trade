@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from db.base import DEFAULT_DB_PATH
+from db.base import DEFAULT_DB_PATH, now_iso
 from db.base import connect as _connect
 
 
@@ -29,7 +29,26 @@ def init_index_pressure_table(db_path: Path = DEFAULT_DB_PATH) -> None:
                 unclassified_usd REAL NOT NULL DEFAULT 0,
                 n_prints INTEGER NOT NULL DEFAULT 0,
                 coverage TEXT,
+                updated_at TEXT,
                 PRIMARY KEY (underlying, date, window, minute)
+            )
+            """
+        )
+        # Per-day completeness sidecar (audit F5): makes every absence interpretable —
+        # "quiet minute" vs "restart-truncated" vs "collector down" vs "half day".
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS index_pressure_days (
+                date TEXT NOT NULL,
+                window TEXT NOT NULL,
+                session_type TEXT NOT NULL DEFAULT 'full',
+                minutes_observed INTEGER NOT NULL DEFAULT 0,
+                syms INTEGER NOT NULL DEFAULT 0,
+                coverage_modes TEXT,
+                writer_pid INTEGER,
+                writers INTEGER NOT NULL DEFAULT 1,
+                finalized_at TEXT,
+                PRIMARY KEY (date, window)
             )
             """
         )
@@ -37,39 +56,111 @@ def init_index_pressure_table(db_path: Path = DEFAULT_DB_PATH) -> None:
 
 
 def upsert_minutes(
-    rows: list[tuple[str, str, int, float, float, float, int]],
+    rows: list[tuple[str, str, int, float, float, float, int, str | None]],
     *,
     window: str = "open",
-    coverage: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
-    """Upsert (underlying, date, minute, bull, bear, unclassified, n_prints) rows.
+    """Upsert (underlying, date, minute, bull, bear, uncls, n_prints, coverage) rows.
 
-    Re-upserting the same minute REPLACES its values (the aggregator holds the
+    Re-upserting the same minute REPLACES its totals (the aggregator holds the
     whole window in memory and rewrites running totals each flush — last write
     wins, so a mid-window restart only loses prints, never double-counts them).
+    Coverage is provenance, stamped at accrual time: a stored value is never
+    replaced by a DIFFERENT one — a genuine lane change mid-minute lands as
+    'mixed' from the aggregator itself, and a post-restart flush that lost the
+    original mode cannot silently relabel history (audit F2).
     """
     if not rows:
         return 0
     init_index_pressure_table(db_path)
+    now = now_iso()
     with _connect(db_path) as conn:
         conn.executemany(
             """
             INSERT INTO index_pressure_minutes (
                 underlying, date, window, minute, bull_usd, bear_usd,
-                unclassified_usd, n_prints, coverage
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                unclassified_usd, n_prints, coverage, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(underlying, date, window, minute) DO UPDATE SET
                 bull_usd = excluded.bull_usd,
                 bear_usd = excluded.bear_usd,
                 unclassified_usd = excluded.unclassified_usd,
                 n_prints = excluded.n_prints,
-                coverage = excluded.coverage
+                coverage = CASE
+                    WHEN index_pressure_minutes.coverage IS NULL
+                        THEN excluded.coverage
+                    WHEN excluded.coverage IS NULL
+                        OR excluded.coverage = index_pressure_minutes.coverage
+                        THEN index_pressure_minutes.coverage
+                    ELSE 'mixed'
+                END,
+                updated_at = excluded.updated_at
             """,
-            [(r[0], r[1], window, *r[2:], coverage) for r in rows],
+            [(r[0], r[1], window, *r[2:], now) for r in rows],
         )
         conn.commit()
     return len(rows)
+
+
+def record_day(
+    *,
+    date: str,
+    window: str,
+    session_type: str,
+    minutes_observed: int,
+    syms: int,
+    coverage_modes: str | None,
+    writer_pid: int,
+    finalized: bool,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """Upsert the per-day completeness row; bumps `writers` on a pid change
+    (a restart marker readable forever, audit F5)."""
+    init_index_pressure_table(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO index_pressure_days (
+                date, window, session_type, minutes_observed, syms,
+                coverage_modes, writer_pid, writers, finalized_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+            ON CONFLICT(date, window) DO UPDATE SET
+                session_type = excluded.session_type,
+                minutes_observed = excluded.minutes_observed,
+                syms = excluded.syms,
+                coverage_modes = excluded.coverage_modes,
+                writers = index_pressure_days.writers
+                    + (index_pressure_days.writer_pid != excluded.writer_pid),
+                writer_pid = excluded.writer_pid,
+                finalized_at = COALESCE(
+                    index_pressure_days.finalized_at, excluded.finalized_at
+                )
+            """,
+            (
+                date,
+                window,
+                session_type,
+                minutes_observed,
+                syms,
+                coverage_modes,
+                writer_pid,
+                now_iso() if finalized else None,
+            ),
+        )
+        conn.commit()
+
+
+def day_record(
+    date: str, window: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> dict | None:
+    init_index_pressure_table(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM index_pressure_days WHERE date = ? AND window = ?",
+            (date, window),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def day_summary(
@@ -86,7 +177,8 @@ def day_summary(
                    SUM(unclassified_usd) AS unclassified_usd,
                    SUM(n_prints) AS n_prints,
                    COUNT(*) AS minutes_with_data,
-                   MAX(minute) AS last_minute
+                   MAX(minute) AS last_minute,
+                   GROUP_CONCAT(DISTINCT coverage) AS coverage
             FROM index_pressure_minutes
             WHERE date = ? AND window = ?
             GROUP BY underlying
@@ -108,6 +200,7 @@ def day_summary(
                 "n_prints": int(r["n_prints"]),
                 "minutes_with_data": int(r["minutes_with_data"]),
                 "last_minute": int(r["last_minute"]),
+                "coverage": r["coverage"],
             }
         )
     out.sort(key=lambda d: abs(d["net_usd"]), reverse=True)
@@ -126,7 +219,7 @@ def minute_series(
     with _connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT minute, bull_usd, bear_usd, unclassified_usd, n_prints
+            SELECT minute, bull_usd, bear_usd, unclassified_usd, n_prints, coverage
             FROM index_pressure_minutes
             WHERE date = ? AND underlying = ? AND window = ?
             ORDER BY minute
@@ -140,6 +233,7 @@ def minute_series(
             "bear_usd": float(r["bear_usd"]),
             "unclassified_usd": float(r["unclassified_usd"]),
             "n_prints": int(r["n_prints"]),
+            "coverage": r["coverage"],
         }
         for r in rows
     ]

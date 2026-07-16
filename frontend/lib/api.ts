@@ -679,6 +679,7 @@ export type IndexPressureRow = {
   n_prints: number;
   minutes_with_data: number;
   last_minute: number;
+  coverage: string | null;
 };
 
 export type IndexPressureResult = {

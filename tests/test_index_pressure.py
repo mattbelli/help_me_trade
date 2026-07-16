@@ -116,8 +116,8 @@ def test_minute_rows_shape():
     op.add_print(_print(sym="QQQ", ts_ms=_ts(9, 59, 1), direction="sell_side"))
     rows = op.minute_rows("2026-07-16")
     assert rows == [
-        ("QQQ", "2026-07-16", 29, 0.0, 20000.0, 0.0, 1),
-        ("SPY", "2026-07-16", 0, 40000.0, 0.0, 0.0, 2),
+        ("QQQ", "2026-07-16", 29, 0.0, 20000.0, 0.0, 1, None),
+        ("SPY", "2026-07-16", 0, 40000.0, 0.0, 0.0, 2, None),
     ]
 
 
@@ -127,25 +127,93 @@ def test_minute_rows_shape():
 def test_upsert_is_last_write_wins(tmp_path: Path):
     db = tmp_path / "ip.db"
     upsert_minutes(
-        [("SPY", "2026-07-16", 0, 100.0, 0.0, 0.0, 1)], coverage="watchlist_capped", db_path=db
+        [("SPY", "2026-07-16", 0, 100.0, 0.0, 0.0, 1, "gauge_lane")], db_path=db
     )
-    # same minute re-flushed with grown totals — replaces, never accumulates
+    # same minute re-flushed with grown totals — TOTALS replace, never accumulate;
+    # coverage is provenance and degrades to 'mixed' rather than being relabeled.
     upsert_minutes(
-        [("SPY", "2026-07-16", 0, 250.0, 50.0, 25.0, 3)], coverage="market_wide", db_path=db
+        [("SPY", "2026-07-16", 0, 250.0, 50.0, 25.0, 3, "market_wide")], db_path=db
     )
     rows = minute_series("2026-07-16", "SPY", db_path=db)
     assert rows == [
-        {"minute": 0, "bull_usd": 250.0, "bear_usd": 50.0, "unclassified_usd": 25.0, "n_prints": 3}
+        {
+            "minute": 0,
+            "bull_usd": 250.0,
+            "bear_usd": 50.0,
+            "unclassified_usd": 25.0,
+            "n_prints": 3,
+            "coverage": "mixed",
+        }
     ]
+
+
+def test_upsert_never_relabels_coverage(tmp_path: Path):
+    db = tmp_path / "ip.db"
+    upsert_minutes(
+        [("SPY", "2026-07-16", 5, 100.0, 0.0, 0.0, 1, "gauge_lane")], db_path=db
+    )
+    # A post-restart flush that lost the mode (None) must not erase provenance.
+    upsert_minutes([("SPY", "2026-07-16", 5, 90.0, 0.0, 0.0, 1, None)], db_path=db)
+    (row,) = minute_series("2026-07-16", "SPY", db_path=db)
+    assert row["coverage"] == "gauge_lane"
+    assert row["bull_usd"] == 90.0  # totals still last-write-wins
+
+
+def test_coverage_stamped_at_accrual_and_mixes():
+    g = PressureGauge()
+    g.add_print(_print(ts_ms=_ts(9, 40, 5)), mode="gauge_lane")
+    g.add_print(_print(ts_ms=_ts(9, 40, 30)), mode="gauge_lane")
+    (row,) = g.minute_rows("2026-07-16")
+    assert row[7] == "gauge_lane"
+    g.add_print(_print(ts_ms=_ts(9, 40, 50)), mode="market_wide")
+    (row,) = g.minute_rows("2026-07-16")
+    assert row[7] == "mixed"
+
+
+def test_record_day_tracks_writers_and_finalizes_once(tmp_path: Path):
+    from db.index_pressure import day_record, record_day
+
+    db = tmp_path / "ip.db"
+    record_day(
+        date="2026-07-16", window="open", session_type="full", minutes_observed=12,
+        syms=5, coverage_modes="gauge_lane", writer_pid=100, finalized=False, db_path=db,
+    )
+    record_day(
+        date="2026-07-16", window="open", session_type="full", minutes_observed=30,
+        syms=9, coverage_modes="gauge_lane", writer_pid=200, finalized=True, db_path=db,
+    )
+    rec = day_record("2026-07-16", "open", db_path=db)
+    assert rec["writers"] == 2  # pid change = restart marker
+    assert rec["minutes_observed"] == 30
+    first_final = rec["finalized_at"]
+    assert first_final is not None
+    record_day(
+        date="2026-07-16", window="open", session_type="full", minutes_observed=30,
+        syms=9, coverage_modes="gauge_lane", writer_pid=200, finalized=True, db_path=db,
+    )
+    assert day_record("2026-07-16", "open", db_path=db)["finalized_at"] == first_final
+
+
+def test_is_early_close_dates():
+    from datetime import date
+
+    from trading.market_calendar import is_early_close
+
+    assert is_early_close(date(2026, 11, 27))  # day after Thanksgiving 2026
+    assert is_early_close(date(2026, 12, 24))  # Thursday Christmas Eve
+    assert is_early_close(date(2025, 7, 3))  # Thursday, July 4th on Friday
+    assert not is_early_close(date(2026, 7, 3))  # observed holiday (Jul 4 = Sat)
+    assert not is_early_close(date(2027, 12, 24))  # observed holiday (Dec 25 = Sat)
+    assert not is_early_close(date(2026, 7, 16))  # ordinary Thursday
 
 
 def test_day_summary_totals_and_order(tmp_path: Path):
     db = tmp_path / "ip.db"
     upsert_minutes(
         [
-            ("SPY", "2026-07-16", 0, 100.0, 300.0, 100.0, 2),
-            ("SPY", "2026-07-16", 1, 100.0, 0.0, 0.0, 1),
-            ("QQQ", "2026-07-16", 5, 900.0, 100.0, 0.0, 4),
+            ("SPY", "2026-07-16", 0, 100.0, 300.0, 100.0, 2, None),
+            ("SPY", "2026-07-16", 1, 100.0, 0.0, 0.0, 1, None),
+            ("QQQ", "2026-07-16", 5, 900.0, 100.0, 0.0, 4, None),
         ],
         db_path=db,
     )
@@ -170,10 +238,9 @@ def test_api_index_pressure_route():
     # A synthetic far-past date so the shared test DB can't collide with other tests.
     upsert_minutes(
         [
-            ("SPY", "2020-01-02", 0, 1_000_000.0, 250_000.0, 500_000.0, 40),
-            ("SPY", "2020-01-02", 3, 200_000.0, 0.0, 0.0, 5),
+            ("SPY", "2020-01-02", 0, 1_000_000.0, 250_000.0, 500_000.0, 40, "gauge_lane"),
+            ("SPY", "2020-01-02", 3, 200_000.0, 0.0, 0.0, 5, "gauge_lane"),
         ],
-        coverage="market_wide",
     )
     with TestClient(app, base_url="http://127.0.0.1") as client:
         resp = client.get(
@@ -199,7 +266,9 @@ def test_perception_resource_reads_and_caveats(tmp_path: Path):
     from ai.perception.resources import _read_index_pressure
 
     db = tmp_path / "ip.db"
-    upsert_minutes([("QQQ", "2026-07-16", 2, 750_000.0, 250_000.0, 0.0, 9)], db_path=db)
+    upsert_minutes(
+        [("QQQ", "2026-07-16", 2, 750_000.0, 250_000.0, 0.0, 9, "gauge_lane")], db_path=db
+    )
     rows = _read_index_pressure({"date": "2026-07-16"}, db_path=db)
     (row,) = rows
     assert row["underlying"] == "QQQ"
@@ -220,9 +289,11 @@ def test_perception_resource_reads_and_caveats(tmp_path: Path):
 
 def test_windows_are_separate_series(tmp_path: Path):
     db = tmp_path / "ip.db"
-    upsert_minutes([("SPY", "2026-07-16", 0, 100.0, 0.0, 0.0, 1)], db_path=db)
     upsert_minutes(
-        [("SPY", "2026-07-16", 0, 0.0, 900.0, 0.0, 2)], window="close", db_path=db
+        [("SPY", "2026-07-16", 0, 100.0, 0.0, 0.0, 1, None)], db_path=db
+    )
+    upsert_minutes(
+        [("SPY", "2026-07-16", 0, 0.0, 900.0, 0.0, 2, None)], window="close", db_path=db
     )
     assert day_summary("2026-07-16", db_path=db)[0]["net_usd"] == 100.0
     assert day_summary("2026-07-16", window="close", db_path=db)[0]["net_usd"] == -900.0
@@ -242,3 +313,15 @@ def test_api_close_window_param():
     assert resp.json()["window_et"] == "15:30-16:00"
     assert resp.json()["rows"] == []  # only the open window was seeded for this date
     assert bad.status_code == 400
+
+
+def test_rolling_detectors_still_exclude_index_zero_dte():
+    """The gauge lane subscribes index 0-1 DTE FOR THE GAUGE ONLY — bursts/clusters
+    must not change character the day the lane ships (audit F1 pin)."""
+    from signals.options_flow.rolling import RollingFlow
+
+    r = RollingFlow()
+    r.add_print(_print(dte=0, occ_symbol="SPY260716C00630000"))
+    r.add_print(_print(sym="NVDA", dte=0, occ_symbol="NVDA260716C00170000"))
+    assert "SPY" not in r._buckets  # index 0DTE pinned out
+    assert "NVDA" in r._buckets  # single names keep 0DTE, as before

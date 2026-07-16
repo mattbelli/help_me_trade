@@ -16,8 +16,9 @@ import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
-// The window is fixed (09:30-10:00 ET) and rows are final by 10:05, so a lazy
-// poll is plenty; during the window itself the minute rows land every ~60s.
+// Windows are fixed session bookends; rows are final ~5 min after each closes.
+// The collector flushes minute rows every ~10s in-window, so a 10s poll tracks
+// the tape essentially live during the half hours the gauge exists for.
 const POLL_MS = 10_000;
 
 function fmtNet(v: number): string {
@@ -108,6 +109,12 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
   }
 
   const calibrated = data.baseline_days >= 20;
+  // Surface a lane anomaly (mixed/unexpected coverage) — silence means the normal
+  // guaranteed gauge lane; anything else must be visible, not smoothed over.
+  const lanes = new Set(
+    data.rows.map((r) => r.coverage).filter((c): c is string => Boolean(c)),
+  );
+  lanes.delete("gauge_lane");
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -144,6 +151,9 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
           {calibrated ? null : (
             <span> · uncalibrated ({data.baseline_days}d of baseline)</span>
           )}
+          {lanes.size > 0 ? (
+            <span className="text-[var(--warn)]"> · lane: {[...lanes].join(",")}</span>
+          ) : null}
         </span>
         {windowToggle}
       </div>

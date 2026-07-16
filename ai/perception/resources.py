@@ -554,7 +554,11 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
         r["baseline_days"] = days
         # Honesty stamp: raw premium sums, not a validated signal; the unclassified
         # remainder is real flow whose aggressor side could not be determined.
-        caveat = f"raw opening-window premium; {r['classified_frac']:.0%} side-classified"
+        caveat = (
+            f"raw {window}-window premium; {r['classified_frac']:.0%} side-classified"
+        )
+        if r.get("coverage"):
+            caveat += f"; lane: {r['coverage']}"
         if days < 20:
             caveat += f"; uncalibrated ({days} baseline days)"
         r["caveat"] = caveat

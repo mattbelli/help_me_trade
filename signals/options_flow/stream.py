@@ -141,6 +141,7 @@ class OptionsFlowStream:
         self._hot_print_ms: dict[str, int] = {}
         self._pending_prints: list[dict] = []
         self._pending_quote_adds: set[str] = set()
+        self.dropped_prints = 0  # collected_prints overflow (consumer lag) — audit F7a
 
         self._last_flush_mono = 0.0
         self._last_quote_sub_mono = 0.0
@@ -182,9 +183,15 @@ class OptionsFlowStream:
         return self._quote_cache.get(occ.strip().upper())
 
     @property
-    def is_market_wide(self) -> bool:
-        """True while the trades tape is the ``*`` wildcard (vs the capped set)."""
-        return "*" in self._subscribed_trades
+    def acked_market_wide(self) -> bool:
+        """True only when the SERVER has acked a ``*`` wildcard trades sub.
+
+        Based on acked state, not sent state — the 2026-07-14 open-blindness bug
+        lived in exactly that gap. No production code path subscribes ``*`` today
+        (audit 2026-07-16 F1); this exists so coverage stamps flip honestly if a
+        wildcard lane ever ships.
+        """
+        return bool(self._acked_trades) and "*" in self._acked_trades
 
     def quote_at(self, occ: str, ts_ms: int) -> tuple[float, float, int] | None:
         """Quote prevailing at print time: newest ring entry at-or-before ``ts_ms``."""
@@ -541,7 +548,7 @@ class OptionsFlowStream:
         logger.info(
             "options_flow stream stats: msgs=%s prints=%s skipped_no_meta=%s "
             "reconnects=%s trade_subs=%s quote_subs=%s ack_trades=%s ack_quotes=%s "
-            "collected=%s lag_p50_ms=%s lag_p95_ms=%s",
+            "collected=%s dropped=%s lag_p50_ms=%s lag_p95_ms=%s",
             self.msgs,
             self.prints,
             self.skipped_no_meta,
@@ -551,6 +558,7 @@ class OptionsFlowStream:
             "-" if self._acked_trades is None else len(self._acked_trades),
             "-" if self._acked_quotes is None else len(self._acked_quotes),
             len(self.collected_prints),
+            self.dropped_prints,
             lag_p50,
             lag_p95,
         )

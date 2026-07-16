@@ -684,3 +684,70 @@ def test_per_underlying_print_cap_enforced() -> None:
         assert st.day_prints["NVDA"][-1]["size"] == 4
     finally:
         poll_mod._DAY_PRINTS_CAP = original_cap
+
+
+# --- Gauge lane (audit 2026-07-16 F1) -------------------------------------------------
+
+
+def test_gauge_lane_subscribes_index_zero_dte() -> None:
+    """SPY 0-1 DTE stays OUT of the regular set (detectors discard those prints)
+    but lands in the active set via the gauge lane, flagged gauge_lane."""
+    snaps = {
+        # 0DTE (expiry == TODAY) — the regular path skips these for SPY
+        "SPY260709C00629000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=500),
+        "SPY260709P00627000": _snapshot_trade(ts=f"{TODAY}T14:02:00Z", size=400),
+        # far-dated — regular pick
+        "SPY260821C00640000": _snapshot_trade(ts=f"{TODAY}T14:03:00Z", size=100),
+    }
+    adapter = FakeAdapter(contracts_by_u={"SPY": []}, snapshots_by_u={"SPY": snaps})
+    st = PollState()
+    run_poll_once(adapter, symbols=["SPY"], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    assert "SPY260821C00640000" in st.active
+    assert st.active["SPY260821C00640000"].get("gauge_lane") is None
+    assert "SPY260709C00629000" in st.active
+    assert st.active["SPY260709C00629000"]["gauge_lane"] is True
+    assert "SPY260709P00627000" in st.active
+    assert st.active["SPY260709P00627000"]["gauge_lane"] is True
+
+
+def test_gauge_universe_fetched_beyond_watchlist() -> None:
+    """Gauge names are guaranteed coverage — fetched even when no watchlist has
+    them, outside the watchlist cap (audit F1: IWM/DIA/SPX etc. accrued zero rows
+    forever because the underlying set was watchlist-only)."""
+    snaps = {"QQQ260821C00500000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=50)}
+    adapter = FakeAdapter(contracts_by_u={"NVDA": []}, snapshots_by_u={"QQQ": snaps})
+    st = PollState()
+    run_poll_once(adapter, symbols=["NVDA"], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    fetched = {u for u, _, _ in adapter.chain_calls}
+    assert {"NVDA", "SPY", "QQQ", "IWM", "DIA", "SPX", "AMZN"} <= fetched
+    assert "QQQ260821C00500000" in st.active  # picked without any watchlist
+
+
+def test_gauge_lane_survives_budget_squeeze(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gauge picks allocate BEFORE the regular budget — an over-budget regular set
+    can never evict them (the PR #73 alphabetical-clip lesson, applied to the lane)."""
+    import signals.options_flow.poll as poll_mod
+
+    monkeypatch.setattr(poll_mod, "STREAM_TRADES_MAX", 3)
+
+    snaps_spy = {
+        "SPY260709C00629000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=500),
+    }
+    snaps_nvda = {
+        f"NVDA260821C{i:08d}": _snapshot_trade(ts=f"{TODAY}T14:{i:02d}:00Z", size=10 + i)
+        for i in range(5)
+    }
+    adapter = FakeAdapter(
+        contracts_by_u={"NVDA": [], "SPY": []},
+        snapshots_by_u={"SPY": snaps_spy, "NVDA": snaps_nvda},
+    )
+    st = PollState()
+    run_poll_once(
+        adapter, symbols=["NVDA", "SPY"], today_et=TODAY, now_ms=NOW_MS, state=st
+    )
+
+    assert len(st.active) == 3
+    assert st.active["SPY260709C00629000"]["gauge_lane"] is True  # survived
+    assert sum(1 for o in st.active if o.startswith("NVDA")) == 2  # clipped remainder

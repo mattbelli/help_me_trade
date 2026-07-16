@@ -28,29 +28,29 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from signals.options_flow.constants import GAUGE_UNDERLYINGS
 from signals.options_flow.intraday import is_hygiene_excluded
+from signals.options_flow.rolling import CLUSTER_PRINT_MIN_USD
 
 _ET = ZoneInfo("America/New_York")
 
-# Window geometry: two fixed 30-minute session bookends, 1-min buckets. The open
-# window reads positioning at the day's most information-dense half hour; the close
-# window catches MOC-adjacent repositioning into the bell.
-WINDOW_MINUTES = 30
-WINDOWS: dict[str, int] = {
-    "open": 9 * 60 + 30,  # [09:30, 10:00) ET
-    "close": 15 * 60 + 30,  # [15:30, 16:00) ET
+# Window geometry: (start-minute-ET, length-minutes), 1-min buckets. The open window
+# reads positioning at the day's most information-dense half hour; the close window
+# catches MOC-adjacent repositioning into the bell. Length is per-window so future
+# windows (OpEx pin, midday) aren't forced into 30 minutes.
+WINDOWS: dict[str, tuple[int, int]] = {
+    "open": (9 * 60 + 30, 30),  # [09:30, 10:00) ET
+    "close": (15 * 60 + 30, 30),  # [15:30, 16:00) ET
 }
 
-# The fixed gauge universe. SPX + SPXW both listed: SPXW-rooted contracts appear on
-# the wildcard tape under either root depending on the series. NDX/NDXP/RUT are not
-# on this feed at all (QQQ/IWM carry them); revisit if the vendor adds them.
-INDEX_UNDERLYINGS = ("SPY", "QQQ", "IWM", "DIA", "SPX", "SPXW")
-MEGACAP_UNDERLYINGS = ("TSLA", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL")
-PRESSURE_UNDERLYINGS = frozenset(INDEX_UNDERLYINGS + MEGACAP_UNDERLYINGS)
+# The fixed gauge universe lives in constants.py next to the subscription lane that
+# guarantees it (GAUGE_FETCH_UNDERLYINGS / GAUGE_ZERO_DTE_PICKS) so the print filter
+# and the lane can never drift apart. Re-exported for callers/tests.
+PRESSURE_UNDERLYINGS = GAUGE_UNDERLYINGS
 
-# Mirror rolling.py's ingest dust floor so the two stream consumers agree on what
-# counts as flow at all.
-_DUST_MIN_USD = 2_000
+# rolling.py's ingest dust floor — imported, not duplicated, so the two stream
+# consumers agree on what counts as flow at all.
+_DUST_MIN_USD = CLUSTER_PRINT_MIN_USD
 
 
 @dataclass
@@ -59,13 +59,18 @@ class _MinuteCell:
     bear_usd: float = 0.0
     unclassified_usd: float = 0.0
     n_prints: int = 0
+    # Subscription-lane provenance, stamped at ACCRUAL time (audit F2): the first
+    # print's mode sticks; a mid-minute mode change degrades to "mixed". Never
+    # retroactively rewritten by later flushes.
+    coverage: str | None = None
 
 
 def window_minute(ts_ms: int, window: str = "open") -> int | None:
-    """Bucket index 0..29 for a print inside the window, else None."""
+    """Bucket index 0..length-1 for a print inside the window, else None."""
+    start, length = WINDOWS[window]
     dt = datetime.fromtimestamp(ts_ms / 1000, tz=_ET)
-    offset = dt.hour * 60 + dt.minute - WINDOWS[window]
-    if 0 <= offset < WINDOW_MINUTES:
+    offset = dt.hour * 60 + dt.minute - start
+    if 0 <= offset < length:
         return offset
     return None
 
@@ -79,7 +84,9 @@ class PressureGauge:
         self.window = window
         self._cells: dict[str, dict[int, _MinuteCell]] = defaultdict(dict)
 
-    def add_print(self, p: dict) -> None:
+    def add_print(self, p: dict, *, mode: str | None = None) -> None:
+        """Accrue one print. ``mode`` is the subscription-lane label at this moment
+        (e.g. "gauge_lane" / "market_wide"), recorded per minute-cell."""
         sym = str(p.get("underlying") or "").strip().upper()
         if sym not in PRESSURE_UNDERLYINGS:
             return
@@ -106,6 +113,11 @@ class PressureGauge:
         cell = cells.get(minute)
         if cell is None:
             cell = cells[minute] = _MinuteCell()
+        if mode is not None:
+            if cell.coverage is None:
+                cell.coverage = mode
+            elif cell.coverage != mode:
+                cell.coverage = "mixed"
 
         right = str(p.get("right") or "").strip().lower()[:1]
         direction = str(p.get("direction") or "undetermined")
@@ -123,16 +135,40 @@ class PressureGauge:
 
     # --- reads ------------------------------------------------------------------
 
-    def minute_rows(self, date_et: str) -> list[tuple[str, str, int, float, float, float, int]]:
-        """(underlying, date, minute, bull, bear, unclassified, n_prints) rows."""
+    def minute_rows(
+        self, date_et: str
+    ) -> list[tuple[str, str, int, float, float, float, int, str | None]]:
+        """(underlying, date, minute, bull, bear, unclassified, n_prints, coverage)."""
         rows = []
         for sym in sorted(self._cells):
             for minute in sorted(self._cells[sym]):
                 c = self._cells[sym][minute]
                 rows.append(
-                    (sym, date_et, minute, c.bull_usd, c.bear_usd, c.unclassified_usd, c.n_prints)
+                    (
+                        sym,
+                        date_et,
+                        minute,
+                        c.bull_usd,
+                        c.bear_usd,
+                        c.unclassified_usd,
+                        c.n_prints,
+                        c.coverage,
+                    )
                 )
         return rows
+
+    def window_stats(self) -> dict:
+        """Per-window completeness for the day sidecar + finalize log line."""
+        minutes: set[int] = set()
+        modes: set[str] = set()
+        for cells in self._cells.values():
+            minutes.update(cells.keys())
+            modes.update(c.coverage for c in cells.values() if c.coverage)
+        return {
+            "syms": len(self._cells),
+            "minutes_observed": len(minutes),
+            "coverage_modes": ",".join(sorted(modes)) if modes else None,
+        }
 
     def snapshot(self) -> dict[str, dict]:
         """Per-underlying window totals: net/bull/bear/unclassified/classified_frac."""
