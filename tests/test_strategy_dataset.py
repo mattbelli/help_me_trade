@@ -205,8 +205,11 @@ def _symbol_bars_with_single_momentum_entry(
     closes.append(base_21d)
     for i in range(1, 22):
         closes.append(base_21d + (target - base_21d) * i / 21)
+    # Drift the post-entry closes upward: next-open fills mean a flat close
+    # leaves the following open exactly at breakeven, which the sim treats as
+    # a (gap-through) stop fill.
     while len(closes) < bar_count:
-        closes.append(closes[-1])
+        closes.append(closes[-1] * 1.005)
 
     entry_close = closes[entry_idx]
     highs_override, lows_override = _runner_forward_overrides(
@@ -261,8 +264,9 @@ def _symbol_bars_with_single_consec_down_entry(
     peak = closes[-1]
     for step in range(1, down_days):
         closes.append(peak * (1.0 - 0.02 * step))
+    # Post-entry drift for the same breakeven-open reason as the momentum bars.
     while len(closes) < bar_count:
-        closes.append(closes[-1])
+        closes.append(closes[-1] * 1.005)
 
     entry_close = closes[entry_idx]
     highs_override, lows_override = _runner_forward_overrides(
@@ -311,6 +315,7 @@ def _build_momentum_params(
         "source": "test",
         "bars_db_path": bars_db,
         "strategy_db_path": strategy_db,
+        "cost_pct": 0.0,
         "strategy_type": "momentum",
     }
     return params, entry_date, entry_idx, spy_bars, symbol_bars
@@ -351,6 +356,7 @@ def _build_rsi2_params(
         "source": "test",
         "bars_db_path": bars_db,
         "strategy_db_path": strategy_db,
+        "cost_pct": 0.0,
         "strategy_type": "rsi2",
     }
     return params, entry_date, entry_idx, spy_bars, symbol_bars
@@ -391,6 +397,7 @@ def _build_consec_down_params(
         "source": "test",
         "bars_db_path": bars_db,
         "strategy_db_path": strategy_db,
+        "cost_pct": 0.0,
         "strategy_type": "consec_down",
     }
     return params, entry_date, entry_idx, spy_bars, symbol_bars

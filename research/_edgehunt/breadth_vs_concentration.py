@@ -68,6 +68,7 @@ def run_portfolio(rows, *, max_concurrent: int, fraction: float) -> dict:
         trades,
         max_concurrent=max_concurrent,
         per_trade_fraction=fraction,
+        cost_pct=0.0,  # blended_return_pct is stored net of the build-time cost
     )
 
 
