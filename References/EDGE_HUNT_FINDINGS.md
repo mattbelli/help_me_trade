@@ -469,3 +469,14 @@ backtest episode (≈32% model-marked) or trailing-2y return goes negative while
 Sizing policy settled: **fixed 10% of equity per position, max 10 concurrent, skip when full** — simplest rule
 won every control. Ranking-by-reaction and dynamic rebalancing are both honest kills. The next CAGR unlock is
 a second uncorrelated signal source to fill the ~50% idle time, not leverage or cleverer sizing on this sleeve.
+
+## ✔ CONFIRMED (round 6 addendum, 2026-07-15) — the AMC extra-day exit PAYS
+Serv-briefed experiment (`References/EARNINGS_DRIFT_EXTRA_DAY_EXPERIMENT.md` — full results appended there):
+hold earnings_drift through the report day and sell at its close when the session is AMC (print lands after
+the close). 4 pre-registered arms + negative control on EDGAR `acceptanceDateTime`-derived sessions (53,315
+events refetched with the raw stamp; live rule `session_hour` imported, not reimplemented; arm A reproduced
+the stored 6,624 baseline exactly). **Δ +0.227%/trade conditional on AMC (CI [+0.058, +0.402], p=0.005),
++0.11%/trade portfolio-wide; survives the conservative day-D-OPEN fill (p<0.0001)**; negative control behaved
+(hold-through-everything loses significance, gap-day variance visible: bmo extra-day stdev 7.15 vs amc 3.19).
+Measured on biased-conservative EDGAR labels ⇒ a FLOOR; live gates on Finnhub's forward hour, fail-closed on
+bmo/dmh/null. **Directly shippable: ~+12% EV lift on the sleeve for zero extra trades.**

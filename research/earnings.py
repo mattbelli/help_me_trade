@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS earnings (
     symbol TEXT NOT NULL,
     cik TEXT NOT NULL,
     date TEXT NOT NULL,
+    accepted_at TEXT,
     PRIMARY KEY (cik, date)
 )
 """
@@ -41,16 +42,25 @@ CREATE INDEX IF NOT EXISTS idx_earnings_symbol ON earnings (symbol)
 def _ensure_schema(conn) -> None:
     conn.execute(_CREATE_EARNINGS)
     conn.execute(_CREATE_EARNINGS_INDEX)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(earnings)")}
+    if "accepted_at" not in cols:
+        conn.execute("ALTER TABLE earnings ADD COLUMN accepted_at TEXT")
     conn.commit()
 
 
-def _parse_earnings_from_submissions(recent: dict) -> list[str]:
-    """Given a filings.recent-style dict, return 8-K Item-2.02 filingDates."""
+def _parse_earnings_from_submissions(recent: dict) -> list[tuple[str, str | None]]:
+    """Given a filings.recent-style dict, return 8-K Item-2.02 (filingDate, acceptanceDateTime).
+
+    The raw ISO acceptance stamp is stored, NOT a derived bmo/amc label — the label
+    bakes in a threshold guess; the raw stamp can be re-derived under stricter rules
+    without a refetch (see EARNINGS_DRIFT_EXTRA_DAY_EXPERIMENT.md).
+    """
     forms = recent.get("form") or []
     filing_dates = recent.get("filingDate") or []
     items_list = recent.get("items") or []
+    accepted_list = recent.get("acceptanceDateTime") or []
 
-    dates: list[str] = []
+    rows: list[tuple[str, str | None]] = []
     for i, form in enumerate(forms):
         if form != "8-K":
             continue
@@ -58,8 +68,9 @@ def _parse_earnings_from_submissions(recent: dict) -> list[str]:
         if "2.02" not in (items or ""):
             continue
         if i < len(filing_dates):
-            dates.append(str(filing_dates[i]))
-    return dates
+            accepted = accepted_list[i] if i < len(accepted_list) else None
+            rows.append((str(filing_dates[i]), str(accepted) if accepted else None))
+    return rows
 
 
 def _resolve_cik(
@@ -106,23 +117,30 @@ def _fetch_submission_blocks(client, cik: str) -> list[dict]:
     return blocks
 
 
-def _collect_earnings_dates(client, cik: str) -> list[str]:
-    """Fetch all submission blocks and extract unique 8-K Item-2.02 dates."""
-    all_dates: list[str] = []
+def _collect_earnings_dates(client, cik: str) -> list[tuple[str, str | None]]:
+    """Fetch all submission blocks and extract unique 8-K Item-2.02 (date, accepted_at).
+
+    Same-date duplicates (amendments/refilings) keep the EARLIEST acceptance stamp —
+    the original release is what timed the announcement.
+    """
+    by_date: dict[str, str | None] = {}
     for block in _fetch_submission_blocks(client, cik):
-        all_dates.extend(_parse_earnings_from_submissions(block))
-    return sorted(set(all_dates))
+        for d, accepted in _parse_earnings_from_submissions(block):
+            prior = by_date.get(d)
+            if d not in by_date or (accepted and (prior is None or accepted < prior)):
+                by_date[d] = accepted
+    return sorted(by_date.items())
 
 
-def _upsert_earnings(conn, symbol: str, cik: str, dates: list[str]) -> None:
+def _upsert_earnings(conn, symbol: str, cik: str, dates: list[tuple[str, str | None]]) -> None:
     if not dates:
         return
     conn.executemany(
         """
-        INSERT OR REPLACE INTO earnings (symbol, cik, date)
-        VALUES (?, ?, ?)
+        INSERT OR REPLACE INTO earnings (symbol, cik, date, accepted_at)
+        VALUES (?, ?, ?, ?)
         """,
-        [(symbol, cik, d) for d in dates],
+        [(symbol, cik, d, accepted) for d, accepted in dates],
     )
 
 
