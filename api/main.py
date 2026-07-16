@@ -24,6 +24,7 @@ from api.device_routes import router as device_router
 from api.journal_routes import router as journal_router
 from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
+from api.orderflow_routes import router as orderflow_router
 from api.orders_routes import router as orders_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
@@ -1284,6 +1285,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Help Me Trade", lifespan=lifespan)
 app.include_router(ai_router)
 app.include_router(device_router)
+app.include_router(orderflow_router)
 app.include_router(trade_router)
 app.include_router(performance_router)
 app.include_router(strategy_router)

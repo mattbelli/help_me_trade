@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const url = 'http://127.0.0.1:3000/orderflow?call=1914389641555558635';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1600, height: 1000 } });
+const errs = [];
+p.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
+p.on('pageerror', e => errs.push('PAGEERR: '+e.message));
+await p.goto(url, { waitUntil: 'networkidle', timeout: 45000 }).catch(e=>errs.push('GOTO: '+e.message));
+await p.waitForTimeout(4000);
+await p.screenshot({ path: '../data/research/_edgehunt/screenshots/widgets_live.png', fullPage: false });
+console.log('console/page errors:', errs.length ? JSON.stringify(errs.slice(0,8), null, 2) : 'NONE');
+await b.close();

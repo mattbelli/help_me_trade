@@ -8,6 +8,10 @@ import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
 import { JournalWidget } from "@/components/workspace/widgets/journal-widget";
 import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
+import { OrderflowDomWidget } from "@/components/workspace/widgets/orderflow-dom-widget";
+import { OrderflowFootprintWidget } from "@/components/workspace/widgets/orderflow-footprint-widget";
+import { OrderflowHeatmapWidget } from "@/components/workspace/widgets/orderflow-heatmap-widget";
+import { OrderflowTapeWidget } from "@/components/workspace/widgets/orderflow-tape-widget";
 import { PerformanceWidget } from "@/components/workspace/widgets/performance-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
 import { MemoryWidget } from "@/components/workspace/widgets/memory-widget";
@@ -242,6 +246,35 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: CompanyInfoWidget,
     defaultSize: { w: 12, h: 9, minW: 6, minH: 5 },
+  },
+  // ── Order-flow widgets ────────────────────────────────────────────────────
+  {
+    id: "orderflow-footprint",
+    title: "footprint",
+    description: "ES MBO footprint+candle+delta — call selector, scrubber, pan/zoom",
+    component: OrderflowFootprintWidget as WidgetDefinition["component"],
+    defaultSize: { w: 14, h: 9, minW: 8, minH: 5 },
+  },
+  {
+    id: "orderflow-dom",
+    title: "DOM ladder",
+    description: "Depth of market at the scrubber cursor (1s resolution)",
+    component: OrderflowDomWidget as WidgetDefinition["component"],
+    defaultSize: { w: 5, h: 9, minW: 3, minH: 4 },
+  },
+  {
+    id: "orderflow-tape",
+    title: "time & sales",
+    description: "Order tape ±2 min around the scrubber cursor",
+    component: OrderflowTapeWidget as WidgetDefinition["component"],
+    defaultSize: { w: 5, h: 6, minW: 3, minH: 3 },
+  },
+  {
+    id: "orderflow-heatmap",
+    title: "liquidity heatmap",
+    description: "Bid/ask liquidity heatmap — syncs with footprint time-view",
+    component: OrderflowHeatmapWidget as WidgetDefinition["component"],
+    defaultSize: { w: 14, h: 5, minW: 6, minH: 3 },
   },
 ];
 

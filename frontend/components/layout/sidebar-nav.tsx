@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   Bot,
   Brain,
   CandlestickChart,
@@ -77,6 +78,12 @@ const NAV_ITEMS: {
     label: "Automations",
     description: "Strategies, scans, reports & alerts",
     icon: Zap,
+  },
+  {
+    href: "/orderflow",
+    label: "Order Flow",
+    description: "DOM ladder · tape · /ES MBO",
+    icon: Activity,
   },
 ];
 
