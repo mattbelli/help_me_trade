@@ -22,6 +22,7 @@ from signals.trade_context import (
     SMA200_PERIOD,
     DatedBar,
 )
+from trading.market_calendar import is_trading_day
 
 
 def _price_vs_ma(close: float, ma: float | None) -> str | None:
@@ -261,11 +262,13 @@ def is_momentum_entry(
 
 
 def _trading_days_until(from_date: str, to_date: str) -> int:
-    """Approx trading days from from_date (exclusive) to to_date (inclusive).
+    """Trading days from from_date (exclusive) to to_date (inclusive).
 
-    Mon-Fri count, HOLIDAY-NAIVE — a live approximation of the backtest's exact
-    bar-index gap, since the next earnings is a future date with no bar yet. May
-    drift ~1-2 days vs the real calendar over a few weeks (documented caveat).
+    NYSE-calendar-aware (weekends AND holidays skipped, via
+    trading.market_calendar) — a live stand-in for the backtest's exact bar-index
+    gap, since the next earnings is a future date with no bar yet. Getting the
+    holiday count right is load-bearing: an over-count in the earnings exit window
+    delays the exit and can hold a position into the print.
     """
     try:
         start = date.fromisoformat(from_date[:10])
@@ -278,7 +281,7 @@ def _trading_days_until(from_date: str, to_date: str) -> int:
     cur = start
     while cur < end:
         cur += timedelta(days=1)
-        if cur.weekday() < 5:
+        if is_trading_day(cur):
             days += 1
     return days
 
