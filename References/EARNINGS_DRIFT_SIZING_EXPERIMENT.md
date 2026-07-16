@@ -312,3 +312,69 @@ everywhere else. Deny-by-default with one granted exception; the error string "f
 supported" is misleading — it IS supported, just not permitted for that caller. earnings_drift needs the
 same exception for the identical reason the gate's own comment gives ("~24% in cash and drop every name
 priced above the per-name budget"). Chokepoint change ⇒ own PR + 2 adversarial reviewers.
+
+---
+
+# ROUND 3 — Covid gate, rebalancing, deployment ceiling (2026-07-16)
+*PC: `research/_edgehunt/covid_and_rebalance.py` (uncommitted; review caveats in its docstring).*
+
+## 1. Covid gate: PASSES — the drawdown advantage is real
+Breadth's curve has **11 distinct ≥5% drawdown episodes across six macro events**: 2011 (debt ceiling),
+2015–16, 2018 Q4, 2020, 2022 (two legs), April 2025. Covid is deepest at 13.2%, but 2022 (12.4%) and
+2018 (12.2%) are right behind. **Splice 2020 out entirely**: breadth maxDD 13.2% → 12.4%; concentrated
+18.0% → 14.2% — **breadth still wins ex-Covid**, and its Sharpe edge persists. Nothing here is a 2020
+artifact. (Caveat from the run: the ex-2020 **CAGR** column is directional only; **exDD/exSharpe** are
+the valid gate.)
+
+## 2. Rebalancing is DEAD — killed by the control, not by churn
+Churn was NOT the problem (5bps one-way ≈ 0.9% CAGR/yr; a 25% tolerance band cuts turnover a third for
+almost nothing). **The reviewer-demanded control config killed it**: fixed **50 × 10%, no rebalancing at
+all** → CAGR 20.4% / maxDD 21.1%, vs the rebalance rule after realistic churn → 20.0% / 21.9%.
+⇒ **The entire apparent rebalance advantage was a DEPLOYMENT-level effect, not a rebalancing effect.**
+Equal-weighting mid-flight buys operational complexity, intra-trade churn, and *slightly worse* numbers
+than simply sizing bigger at entry. **Keep the fixed fraction; pick deployment with the fraction knob.**
+(Methodology note worth keeping: this is what insisting on the boring control arm buys you.)
+
+## 3. ★ The deployment ceiling is SIGNAL-limited — the strategic result
+The 95%-deployed / ~35%-CAGR scenario **cannot happen with this sleeve.** Signals cluster into earnings
+seasons; average concurrent ≈ **10**. Even "take everything, equal-weight to 95%" only averages **53%**
+deployed. **Getting to 95% average deployment requires MORE UNCORRELATED SIGNAL SOURCES — other sleeves
+filling the quiet weeks — not a rebalancing rule.**
+⇒ The idle 65% is **not a bug to engineer away; it's a slot marked "another sleeve goes here."**
+earnings_drift alone cannot fill strat1 because earnings only happen 4×/year. **This confirms the
+combined book from data, not intuition** — and reframes the roadmap: the next win is a sleeve that fires
+when this one is QUIET (→ `turn_of_month`, `residual_momentum` in
+`References/STRATEGY_VALIDATION_QUEUE_2026-07-08.md`), not more tuning here.
+
+On leverage: **50 × 10% already IS the 2× lever over 50 × 5%**, and drawdown scaled almost exactly
+proportionally (13.2% → 21.1%). Extrapolating, ~15% fractions put a 2020-style episode **above 30%**.
+
+## ⚠️⚠️ THE LEVELS ARE FICTION — only the RANKINGS are valid
+Two admitted model optimisms, both pushing the same way:
+1. **Linear accrual** — the sim marks each open trade as a straight ramp entry→exit, so the daily equity
+   curve is a gentle slope where reality is jagged. That suppresses daily vol ⇒ **inflates Sharpe AND
+   shallows every trough. Real maxDD WILL exceed these numbers.**
+2. **The earnings builder fills at signal close**; live fires intraday at market (`strategy_scan.py`'s
+   own "Fidelity caveat"). Mild optimism.
+
+⇒ **A Sharpe of 3.07 (ex-2020) is not a real number** — no equity strategy sustains that; the best funds
+live at 1–2. 1.47 is fiction too. **Breadth > concentration is the finding; the levels are not
+publishable.** Never surface these Sharpes to the user as if calibrated
+([[decision-engine-honesty-redteam]]). Translate 21.1% modelled DD as *"at least 21%, probably
+meaningfully worse, on a sleeve with zero live trades."*
+
+## DECISION: fixed fraction, 50 slots, **5%**
+| fraction | model CAGR | model maxDD |
+|---|---|---|
+| **5% (chosen)** | ~13.5% | ~13.2% |
+| 10% | 20.4% | 21.1% |
+
+**Why 5% and not 10%:** three factors compound the same direction — the model admits it understates
+drawdown (linear accrual), the fills are optimistic (close vs intraday), and this sleeve has **never
+placed a live order**. The fraction can be raised any day after a measured season; a 30% live drawdown
+cannot be un-lived. The failure mode that kills this product is not a bad quarter — it's the founder
+losing trust in the agent. **5% buys the model-vs-reality measurement cheaply; 10% spends the trust
+before the data exists.**
+
+**Arm with:** `notional_pct=5`, `max_concurrent_positions=50`, `max_deployed_usd=100000` (= equity;
+mirrors the sim's `max_gross_exposure=1.0` — higher is unmodelled leverage).
