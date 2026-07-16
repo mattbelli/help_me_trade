@@ -539,6 +539,13 @@ slots are held ~13 days, so priority at entry can't protect against a mid-cap ta
 S&P signal Wednesday. **Keep the sleeve S&P-only.** Revisit only as a *capacity* answer (if the account ever
 outgrows S&P signal flow) or with a mid-cap-specific quality gate — not as a CAGR play.
 
+**Benchmark context (total-return B&H over the same window):** SPY 14.92%/−33.7%, IWR (Russell Mid Cap)
+12.59%/−40.6%, MDY 12.20%, IWM 11.78%. So the mid-cap sleeve **beats its own asset class** (+1.1pts over IWR,
+maxDD −31% vs −41%, at only ~41% invested) — the mechanism transfers, now confirmed in a second universe; what
+kills it is the class itself lagging SPY by 2.3pts/yr this window. The kill is an *allocation* verdict against
+the SPY opportunity cost, not an edge falsification. If mid caps ever lead a cycle, the validated sleeve is on
+the shelf.
+
 ## Bottom line (round 7)
 Universe expansion was worth building (data + wedge + audits now permanent assets) and honest to kill as a
 book upgrade: **more signals ≠ better book when the marginal signal is weaker and slots are shared.** Round 6's
