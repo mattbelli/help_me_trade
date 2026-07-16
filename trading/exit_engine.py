@@ -10,7 +10,7 @@ import logging
 import math
 from collections import defaultdict
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +37,9 @@ from trading.models import OrderIntent, RiskRejectedError
 from trading.proposals import create_phone_proposal
 
 logger = logging.getLogger(__name__)
+
+# Alpaca fractional qty precision (9 dp). Mirrors proposal_intake's entry-side quantum.
+_FRACTIONAL_QUANTUM = Decimal("0.000000001")
 
 _EXIT_RETRY_THROTTLE_SECONDS = 300
 
@@ -153,7 +156,7 @@ def _set_pending_marker(
     ref: str,
     reason: str,
     action: str,
-    qty: int,
+    qty: int | float,
     db_path: Path,
 ) -> None:
     ctx = {
@@ -310,13 +313,19 @@ async def _process_managed_position(
             "symbol": symbol,
         }
 
-    # (E) Scale/exit ⇒ whole-share qty from live position.
+    # (E) Scale/exit ⇒ qty from the LIVE position.
     if decision.action == "exit":
-        exit_qty = int(math.floor(live_qty))
+        # Full exit: sell the ENTIRE held position, fractional included. Flooring here
+        # would orphan a fractional remainder — a fractional position (e.g. a
+        # percent-sized earnings_drift entry) would never fully close, because the next
+        # cycle floors the dust to 0 and skips. Whole-share positions are unaffected
+        # (an integer qty stays integer).
+        live = Decimal(str(pos["qty"]))
     else:
-        exit_qty = int(math.floor(live_qty * decision.exit_fraction))
+        # Scale-out: whole shares only (unchanged).
+        live = Decimal(math.floor(live_qty * decision.exit_fraction))
 
-    if exit_qty < 1:
+    if live <= 0:
         return {
             "action": "skip",
             "reason": "qty_below_1",
@@ -324,6 +333,23 @@ async def _process_managed_position(
             "symbol": symbol,
             "decision_action": decision.action,
         }
+
+    # Canonicalize the sell qty. Quantize a fractional exit to Alpaca's 9-dp limit
+    # (ROUND_DOWN never oversells), then wire any whole-number result as an INTEGER-format
+    # Decimal — Decimal("2"), never "2.0". The snapshot qty column is REAL, so a plain
+    # 2-share position reads back as 2.0; sending "2.0" would route a non-fractionable
+    # symbol's protective sell through Alpaca's fractional engine and get it rejected,
+    # so the stop-loss would never fill. Only a genuine fractional exit sends a decimal qty.
+    allow_fractional = live != live.to_integral_value()
+    if allow_fractional:
+        live = live.quantize(_FRACTIONAL_QUANTUM, rounding=ROUND_DOWN)
+        allow_fractional = live != live.to_integral_value()  # a >9dp value may round to int
+    if not allow_fractional:
+        live = Decimal(int(live))
+    # Whole-share exits keep their historical int shape everywhere downstream (markers,
+    # proposals, notifications, return dict); only a fractional exit carries a float. The
+    # order intent uses the Decimal `live` directly.
+    exit_qty: int | float = float(live) if allow_fractional else int(live)
 
     # (F) In-flight guard — no second sell while one is pending/throttled.
     if _exit_in_flight(
@@ -351,12 +377,13 @@ async def _process_managed_position(
             session_id=None,
             symbol=symbol,
             side="sell",
-            qty=Decimal(str(exit_qty)),
+            qty=live,
             order_type="market",
             limit_price=None,
             broker=broker_name,
             asset_class="us_equity",
             account_id=row["account_id"],
+            allow_fractional=allow_fractional,
         )
         try:
             result = await ExecutionService.submit(intent, db_path=db_path)
@@ -401,14 +428,18 @@ async def _process_managed_position(
             db_path=db_path,
         )
     elif exit_mode == "propose":
+        proposal_args: dict[str, Any] = {
+            "symbol": symbol,
+            "side": "sell",
+            "qty": exit_qty,
+            "order_type": "market",
+            "account_id": row["account_id"],
+        }
+        if allow_fractional:
+            # Carry the flag so the approved sell isn't rejected by the whole-share gate.
+            proposal_args["allow_fractional"] = True
         res = await create_phone_proposal(
-            {
-                "symbol": symbol,
-                "side": "sell",
-                "qty": exit_qty,
-                "order_type": "market",
-                "account_id": row["account_id"],
-            },
+            proposal_args,
             source=f"exit:{row['strategy_id']}",
             db_path=db_path,
         )

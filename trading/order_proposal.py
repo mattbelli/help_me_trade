@@ -57,6 +57,7 @@ def order_intent_from_fields(
         occ_symbol=intent_fields.get("occ_symbol"),
         multiplier=int(str(intent_fields.get("multiplier", "1"))),
         account_id=account_id,
+        allow_fractional=bool(intent_fields.get("allow_fractional", False)),
     )
 
 
@@ -72,6 +73,7 @@ def intent_fields_from_order(
     occ_symbol: str | None,
     multiplier: int,
     account_id: str | None = None,
+    allow_fractional: bool = False,
 ) -> dict[str, Any]:
     return {
         "symbol": symbol,
@@ -84,6 +86,7 @@ def intent_fields_from_order(
         "occ_symbol": occ_symbol,
         "multiplier": str(multiplier),
         "account_id": account_id,
+        "allow_fractional": allow_fractional,
     }
 
 
@@ -255,6 +258,9 @@ def build_order_proposal_from_args(
                 ),
             }
 
+    # Fractional shares are an equity-only concept (no fractional options contracts).
+    allow_fractional = bool(args.get("allow_fractional", False)) and asset_class == "us_equity"
+
     intent_fields = intent_fields_from_order(
         symbol=symbol,
         side=side,
@@ -266,6 +272,7 @@ def build_order_proposal_from_args(
         occ_symbol=occ_symbol,
         multiplier=multiplier,
         account_id=resolved_account_id,
+        allow_fractional=allow_fractional,
     )
 
     return {

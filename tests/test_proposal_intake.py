@@ -976,3 +976,125 @@ async def test_auto_execute_entry_blocked_under_live(monkeypatch, tmp_path: Path
     assert result == {"status": "blocked_live"}
     submit_mock.assert_not_called()
     notify_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_execute_entry_fractional_sizes_and_flags(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """allow_fractional deploys the exact notional as a fractional qty (no whole-share
+    floor) and flags the intent so the risk gate permits it. A $300 order on a $650
+    stock = ~0.46 shares — which whole-share flooring would drop to zero."""
+    db = tmp_path / "auto_frac.db"
+    _patch_env(monkeypatch, db, price=650.0, symbol="NVR")
+
+    from trading.models import ExecutionResult
+
+    submit_mock = AsyncMock(
+        return_value=ExecutionResult(
+            execution_id="exec_frac_1",
+            broker_order_id=None,
+            execution_mode="paper",
+            status="submitted",
+            dry_run_log=None,
+        )
+    )
+    notify_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.notify", notify_mock)
+
+    result = await auto_execute_entry(
+        _candidate(
+            symbol="NVR",
+            notional_usd=Decimal("300"),
+            source="strategy:earnings_drift",
+            allow_fractional=True,
+        ),
+        db_path=db,
+    )
+
+    assert result == {"status": "executed", "execution_id": "exec_frac_1"}
+    intent = submit_mock.await_args.args[0]
+    assert intent.symbol == "NVR"
+    assert intent.allow_fractional is True
+    # 300 / 650 = ~0.4615 shares — fractional, not floored to 0.
+    assert Decimal("0.46") < intent.qty < Decimal("0.47")
+    assert intent.qty != intent.qty.to_integral_value()
+    # The notify data must not crash casting a fractional qty (was int(); now float()).
+    assert notify_mock.await_args.kwargs["data"]["qty"] == pytest.approx(0.4615, abs=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_whole_share_candidate_still_drops_sub_one(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Without allow_fractional, a notional smaller than one share is still too_small
+    (whole-share behavior unchanged)."""
+    db = tmp_path / "auto_whole.db"
+    _patch_env(monkeypatch, db, price=650.0, symbol="NVR")
+
+    submit_mock = AsyncMock()
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.notify", AsyncMock())
+
+    result = await auto_execute_entry(
+        _candidate(symbol="NVR", notional_usd=Decimal("300"), source="strategy:dip_buy"),
+        db_path=db,
+    )
+
+    assert result == {"status": "too_small"}
+    submit_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fractional_integral_qty_wires_as_int(monkeypatch, tmp_path: Path) -> None:
+    """A percent-sized order dividing to a whole number wires "2", not "2.000000000"."""
+    db = tmp_path / "auto_frac_int.db"
+    _patch_env(monkeypatch, db, price=650.0, symbol="NVR")
+
+    from trading.models import ExecutionResult
+
+    submit_mock = AsyncMock(
+        return_value=ExecutionResult(
+            execution_id="e", broker_order_id=None, execution_mode="paper",
+            status="submitted", dry_run_log=None,
+        )
+    )
+    monkeypatch.setattr("trading.proposal_intake.ExecutionService.submit", submit_mock)
+    monkeypatch.setattr("trading.proposal_intake.notify", AsyncMock(return_value={}))
+
+    result = await auto_execute_entry(
+        _candidate(
+            symbol="NVR", notional_usd=Decimal("1300"),  # 1300 / 650 = 2 exactly
+            source="strategy:earnings_drift", allow_fractional=True,
+        ),
+        db_path=db,
+    )
+
+    assert result["status"] == "executed"
+    intent = submit_mock.await_args.args[0]
+    assert intent.qty == Decimal("2")
+    assert str(intent.qty) == "2"
+
+
+def test_allow_fractional_plumbs_args_to_intent() -> None:
+    """The flag threads args → intent_fields → OrderIntent; a fractional qty is accepted
+    (positive) by the builder, and absence of the flag defaults to False."""
+    from trading.order_proposal import order_intent_from_fields
+
+    built = build_order_proposal_from_args(
+        {"symbol": "NVR", "side": "buy", "qty": "0.5", "order_type": "market",
+         "allow_fractional": True},
+    )
+    assert "error" not in built
+    assert built["intent_fields"]["allow_fractional"] is True
+    intent = order_intent_from_fields(
+        built["intent_fields"], proposal_id="p", session_id=None
+    )
+    assert intent.allow_fractional is True
+    assert intent.qty == Decimal("0.5")
+
+    plain = build_order_proposal_from_args(
+        {"symbol": "AAPL", "side": "buy", "qty": 3, "order_type": "market"},
+    )
+    assert plain["intent_fields"]["allow_fractional"] is False

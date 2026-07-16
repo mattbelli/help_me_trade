@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from math import floor
 from pathlib import Path
 from typing import Any
@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 AGENT_PROPOSAL_TTL_SECONDS = 1800
 _BUYING_POWER_BUFFER = Decimal("0.95")
+# Alpaca fractional orders: qty to 9 decimal places, $1 minimum notional.
+_FRACTIONAL_QUANTUM = Decimal("0.000000001")
+_MIN_FRACTIONAL_NOTIONAL = Decimal("1")
+
+
+def _quantize_fractional(qty: Decimal) -> Decimal:
+    """Round a fractional share qty DOWN to Alpaca's 9-dp precision (never over-deploy)."""
+    return qty.quantize(_FRACTIONAL_QUANTUM, rounding=ROUND_DOWN)
 # Auto-entry double-submit window: a symbol just auto-entered isn't yet "held" (snapshot
 # lag) nor a pending phone proposal, so re-scans must skip it for longer than a scan cycle
 # + snapshot refresh. 15 min comfortably covers both; once filled, the `held` set takes over.
@@ -44,6 +52,9 @@ class TradeCandidate:
     rule_id: str | None = None
     rationale: str | None = None
     account_id: str | None = None
+    # Size as a fractional share qty to deploy the exact notional (set for
+    # percent-of-equity strategies). Off by default → whole-share floor, as before.
+    allow_fractional: bool = False
 
 
 async def _size_candidate(
@@ -78,24 +89,40 @@ async def _size_candidate(
     if price is None or price <= 0:
         return {"status": "no_price"}
 
-    qty = floor(candidate.notional_usd / price)
+    raw_qty = candidate.notional_usd / price
     snapshot = get_latest_snapshot(
         broker, account_id=resolved_account_id, db_path=db_path
     )
     if snapshot is not None:
         buying_power = Decimal(str(snapshot["account"]["buying_power"]))
-        cap_qty = floor(buying_power * _BUYING_POWER_BUFFER / price)
-        qty = min(qty, cap_qty)
+        raw_qty = min(raw_qty, buying_power * _BUYING_POWER_BUFFER / price)
 
-    if qty < 1:
-        return {"status": "too_small"}
+    qty_arg: int | str
+    if candidate.allow_fractional:
+        # Deploy the exact notional as a fractional qty — no whole-share floor. This is
+        # the point of percent-of-equity sizing: 100% of the sized dollars invested, and
+        # names priced above the per-name budget stay reachable (a $6k stock on a $3k
+        # order = ~0.46 shares). Alpaca fractional = market + day TIF, which is what
+        # ExecutionService submits; allow_fractional exempts NO risk throttle.
+        qty = _quantize_fractional(raw_qty)
+        if qty * price < _MIN_FRACTIONAL_NOTIONAL:
+            return {"status": "too_small"}
+        # A whole-number result wires as an int ("2"), not "2.000000000".
+        qty_arg = str(int(qty)) if qty == qty.to_integral_value() else str(qty)
+    else:
+        qty = Decimal(floor(raw_qty))
+        if qty < 1:
+            return {"status": "too_small"}
+        qty_arg = int(qty)
 
     args: dict[str, Any] = {
         "symbol": symbol,
         "side": candidate.side,
-        "qty": int(qty),
+        "qty": qty_arg,
         "order_type": candidate.order_type,
     }
+    if candidate.allow_fractional:
+        args["allow_fractional"] = True
     if candidate.limit_price is not None:
         args["limit_price"] = candidate.limit_price
     if resolved_account_id is not None:
@@ -237,7 +264,7 @@ async def auto_execute_entry(
             data={
                 "symbol": args["symbol"],
                 "side": "buy",
-                "qty": int(args["qty"]),
+                "qty": float(args["qty"]),
                 "strategy_id": strategy_id,
                 "execution_id": result.execution_id,
             },
