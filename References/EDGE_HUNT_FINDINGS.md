@@ -253,6 +253,11 @@ account (shared-symbol exit collision, same rule as momentum).
 # Tier-1 hardening (confidence checks — generalization, PBO/DSR, regime stress)
 
 Run to build trust in the book, not chase return. `_edgehunt/hardening_*.py`. **Verdict: the book holds up.**
+*2026-07-16: the NAV/CAPM/PBO/DSR pipeline behind these numbers is now COMMITTED as
+`research/book_validation.py` + golden fixture `tests/fixtures/combined_book_monthly_nav.csv` +
+CI guard `tests/test_book_validation.py` (board card "Commit the combined-book validation pipeline").
+Committed run reproduces: Sharpe 1.418, CAGR +18.9%, maxDD −16.5%, beat 69.9%, PBO 0.0000, Jensen α
++6.43%/yr (vs +6.7% documented — three more weeks of bars, not a logic change).*
 
 - **No survivorship bias.** Residual momentum on the full survivorship-free set (676 syms incl. delisted) ≈ the
   current-500 result (Sharpe 1.19 vs 1.24; excess +6.1% vs +5.9%). The validated numbers are clean. *Caveat:*
