@@ -37,12 +37,17 @@ ingredients were already in this repo, and the anchored agent walked past them):
   the clean solution — with the failure record attached.
 
 ## How to work (the established cadence)
-1. **Delegate coding to Composer — don't hand-edit by default.** Write a precise, self-contained brief (exact
-   files, current vs desired behavior, constraints, verify steps) → `node tools/composer-bridge/dispatch.mjs
-   --brief tools/composer-bridge/briefs/<x>.md` (backgrounded, **one run at a time** — parallel runs collide
-   in the working tree) → review the real `git diff` + lint/tests **yourself** before committing. Hand-edit
-   only for surgical fixes or genuinely hard/cross-cutting work. You are the orchestrator (plan/brief/review/
-   architecture); Composer is the coder.
+1. **Route the CODER by stakes — quality first; writing slop 10x faster loses to well-thought-out slow
+   development every single time** (rewritten 2026-07-16; was "delegate to Composer by default," which
+   enshrined the fast-slop default). The bench, all available: **Claude Max plan** — Opus/Sonnet coding
+   subagents, or the orchestrator hand-editing when full-context surgical work is the right tool; **Cursor
+   plan** — Composer, plus Opus/Sonnet/Grok 4.5 routed through it (`node tools/composer-bridge/dispatch.mjs
+   --brief tools/composer-bridge/briefs/<x>.md`, backgrounded, **one tree-writer at a time** — parallel runs
+   collide in the working tree). Route like rule 4: load-bearing or subtle work → a frontier coder with
+   full context; mechanical/boilerplate → Composer/Sonnet is fine. What never changes regardless of coder:
+   a precise, self-contained brief (exact files, current vs desired behavior, constraints, verify steps),
+   and YOU review the real `git diff` + lint/tests before committing — review is where depth concentrates.
+   You are the orchestrator (plan/brief/review/architecture); pick the coder the work deserves.
 2. **Work autonomously — make the call, don't pose menus.** Pick the sensible default and proceed (investigate
    → brief → dispatch → verify → commit). Reserve questions for a genuinely blocking fork with no reasonable
    default (irreversible data loss, a real product-direction choice). Surface *results + decisions made*, not
