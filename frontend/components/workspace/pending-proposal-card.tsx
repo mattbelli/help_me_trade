@@ -78,22 +78,22 @@ export function PendingProposalCard({
           );
           break;
         case "blocked":
-          showToast(`Blocked: ${typeof body.reason === "string" ? body.reason : "risk check"}`);
+          showToast(`Blocked: ${typeof body.reason === "string" ? body.reason : "risk check"}`, "error");
           break;
         case "expired":
-          showToast("Proposal expired");
+          showToast("Proposal expired", "error");
           break;
         case "already_decided":
           showToast("Already decided");
           break;
         case "hash_mismatch":
-          showToast("Proposal changed — refresh");
+          showToast("Proposal changed — refresh", "error");
           break;
         default:
-          showToast("Approve failed");
+          showToast("Approve failed", "error");
       }
     } catch {
-      showToast("Approve failed");
+      showToast("Approve failed", "error");
     } finally {
       setPending(false);
       onResolved();
@@ -110,7 +110,7 @@ export function PendingProposalCard({
         showToast("Rejected");
       }
     } catch {
-      showToast("Reject failed");
+      showToast("Reject failed", "error");
     } finally {
       setPending(false);
       onResolved();
@@ -118,17 +118,17 @@ export function PendingProposalCard({
   }
 
   return (
-    <div className="group/row space-y-3 rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_30%,transparent)] bg-[color-mix(in_srgb,var(--c-amber)_5%,transparent)] p-3 text-sm shadow-sm">
+    <div className="group/row space-y-3 rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_30%,transparent)] bg-[color-mix(in_srgb,var(--c-amber)_5%,transparent)] p-3 text-[length:var(--fs-title)] shadow-sm">
       <div>
         <p className="font-medium text-foreground">{proposal.summary}</p>
         {countdown != null ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[length:var(--fs-body)] text-muted-foreground">
             {expired ? "Expired" : `Expires in ${countdown}`}
           </p>
         ) : null}
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[length:var(--fs-body)]">
         <div>
           <dt className="text-muted-foreground">Symbol</dt>
           <dd className="font-mono font-medium">

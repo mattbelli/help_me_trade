@@ -20,7 +20,14 @@ def triple_barrier_label(
     max_holding: int = 10,
     atr_window: int = 14,
 ) -> dict | None:
-    """Label a setup using forward bars; features must use only bars[:entry_idx+1]."""
+    """Label a setup using forward bars; features must use only bars[:entry_idx+1].
+
+    The signal fires at bars[entry_idx]'s close; the fill is the NEXT bar's open
+    (real execution). Barriers anchor to that fill and are scanned from the entry
+    bar onward. holding_days is still counted from the signal bar so that
+    entry_date + holding_days spans the whole label window (validation purging
+    relies on this).
+    """
     if entry_idx < 0 or entry_idx >= len(bars):
         return None
 
@@ -29,19 +36,23 @@ def triple_barrier_label(
     if atr_val is None:
         return None
 
-    entry_price = bars[entry_idx]["c"]
+    entry_bar_idx = entry_idx + 1
+    last_j = min(entry_idx + max_holding, len(bars) - 1)
+    if entry_bar_idx > last_j:
+        return None
+
+    entry_price = bars[entry_bar_idx]["o"]
     if entry_price <= 0 or not math.isfinite(entry_price):
         return None
 
     upper = entry_price + upper_atr_mult * atr_val
     lower = entry_price - lower_atr_mult * atr_val
 
-    last_j = min(entry_idx + max_holding, len(bars) - 1)
     outcome: str | None = None
     exit_price: float | None = None
     exit_idx: int | None = None
 
-    for j in range(entry_idx + 1, last_j + 1):
+    for j in range(entry_bar_idx, last_j + 1):
         bar = bars[j]
         for key in ("h", "l", "c"):
             price = bar[key]

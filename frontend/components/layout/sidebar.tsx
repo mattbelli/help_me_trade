@@ -52,7 +52,7 @@ export function Sidebar() {
     >
       <div
         className={cn(
-          "flex items-center border-b border-border py-4",
+          "flex items-center border-b border-[var(--line-divider)] py-4",
           showExpanded ? "px-4" : "justify-center px-0",
         )}
       >
@@ -87,7 +87,7 @@ export function Sidebar() {
 
       <div
         className={cn(
-          "mt-auto space-y-1 border-t border-border py-3",
+          "mt-auto space-y-1 border-t border-[var(--line-divider)] py-3",
           showExpanded ? "px-2" : "px-1.5",
         )}
       >

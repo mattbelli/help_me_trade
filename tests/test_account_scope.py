@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from db.account_scope import resolve_perf_scope
+from db.account_scope import PerfScope, resolve_perf_scope
 from db.trades import create_trade_account, import_trade_events, list_trade_events
 from imports.base import ParsedTradeEvent
 
@@ -38,7 +38,7 @@ def test_aggregate_real_scopes(seeded_db, workspace_id):
         workspace_id,
         get_schwab_accounts=_fake_schwab_accounts,
         db_path=db,
-    ) == (None, True, False)
+    ) == PerfScope(None, True, False, False)
 
 
 def test_all_paper_scope(seeded_db):
@@ -47,7 +47,7 @@ def test_all_paper_scope(seeded_db):
         "all_paper",
         get_schwab_accounts=_fake_schwab_accounts,
         db_path=db,
-    ) == (None, False, True)
+    ) == PerfScope(None, False, True, False)
 
 
 def test_schwab_last4_resolves_to_ledger_id(seeded_db):
@@ -56,7 +56,7 @@ def test_schwab_last4_resolves_to_ledger_id(seeded_db):
         "schwab_1025",
         get_schwab_accounts=_fake_schwab_accounts,
         db_path=db,
-    ) == (schwab_id, False, False)
+    ) == PerfScope(schwab_id, False, False, False)
 
 
 def test_unknown_schwab_falls_back_to_aggregate_real(seeded_db):
@@ -65,7 +65,7 @@ def test_unknown_schwab_falls_back_to_aggregate_real(seeded_db):
         "schwab_9999",
         get_schwab_accounts=_fake_schwab_accounts,
         db_path=db,
-    ) == (None, True, False)
+    ) == PerfScope(None, True, False, True)
 
 
 def test_valid_acct_id_returns_itself(seeded_db):
@@ -74,7 +74,7 @@ def test_valid_acct_id_returns_itself(seeded_db):
         paper_id,
         get_schwab_accounts=_fake_schwab_accounts,
         db_path=db,
-    ) == (paper_id, False, False)
+    ) == PerfScope(paper_id, False, False, False)
 
 
 def test_unknown_acct_id_falls_back(seeded_db):
@@ -83,7 +83,7 @@ def test_unknown_acct_id_falls_back(seeded_db):
         "acct_bogus",
         get_schwab_accounts=_fake_schwab_accounts,
         db_path=db,
-    ) == (None, True, False)
+    ) == PerfScope(None, True, False, True)
 
 
 def test_garbage_input_falls_back(seeded_db):
@@ -92,7 +92,21 @@ def test_garbage_input_falls_back(seeded_db):
         "nonsense",
         get_schwab_accounts=_fake_schwab_accounts,
         db_path=db,
-    ) == (None, True, False)
+    ) == PerfScope(None, True, False, True)
+
+
+def test_schwab_lookup_failure_falls_back(seeded_db):
+    db, _, _ = seeded_db
+
+    def _boom() -> dict:
+        raise RuntimeError("schwab down")
+
+    scope = resolve_perf_scope(
+        "schwab_1025",
+        get_schwab_accounts=_boom,
+        db_path=db,
+    )
+    assert scope == PerfScope(None, True, False, True)
 
 
 def _ev(sym, key):

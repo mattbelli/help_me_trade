@@ -41,7 +41,7 @@ export function CopilotThreadHistory({
           type="button"
           onClick={onAfterSelect}
           className={cn(
-            "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-[12px] text-foreground transition-colors",
+            "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-[length:var(--fs-title)] text-foreground transition-colors",
             "hover:bg-[var(--bg-hover)] focus-visible:outline-none",
           )}
         >
@@ -50,7 +50,7 @@ export function CopilotThreadHistory({
         </button>
       </ThreadListPrimitive.New>
       <AuiIf condition={(s) => s.threads.isLoading}>
-        <p className="px-2.5 py-2 text-[12px] text-[var(--fg-dim)]">Loading…</p>
+        <p className="px-2.5 py-2 text-[length:var(--fs-title)] text-[var(--fg-dim)]">Loading…</p>
       </AuiIf>
       <AuiIf condition={(s) => !s.threads.isLoading}>
         <CopilotThreadHistoryItems onAfterSelect={onAfterSelect} />
@@ -66,7 +66,7 @@ const CopilotThreadHistoryItems: FC<{ onAfterSelect: () => void }> = ({
 
   if (threadIds.length === 0) {
     return (
-      <p className="px-2.5 py-2 text-[12px] text-[var(--fg-dim)]">
+      <p className="px-2.5 py-2 text-[length:var(--fs-title)] text-[var(--fg-dim)]">
         No saved chats yet.
       </p>
     );
@@ -94,7 +94,7 @@ const CopilotThreadListItem: FC<{ onAfterSelect: () => void }> = ({
       <ThreadListItemPrimitive.Trigger
         onClick={onAfterSelect}
         className={cn(
-          "flex h-full w-full min-w-0 items-center gap-1.5 px-2.5 text-left text-[12px] text-foreground",
+          "flex h-full w-full min-w-0 items-center gap-1.5 px-2.5 text-left text-[length:var(--fs-title)] text-foreground",
           "group-hover:pe-9 group-has-data-[state=open]:pe-9 group-data-active:pe-9",
           "focus-visible:outline-none",
         )}
@@ -182,7 +182,7 @@ const CopilotThreadListItemMore: FC = () => {
         >
           <ThreadListItemMorePrimitive.Item
             className={cn(
-              "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] outline-none select-none",
+              "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[length:var(--fs-title)] outline-none select-none",
               "hover:bg-[var(--bg-hover)] focus:bg-[var(--bg-hover)]",
             )}
             onClick={openRename}
@@ -192,7 +192,7 @@ const CopilotThreadListItemMore: FC = () => {
           </ThreadListItemMorePrimitive.Item>
           <ThreadListItemMorePrimitive.Item
             className={cn(
-              "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] outline-none select-none",
+              "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[length:var(--fs-title)] outline-none select-none",
               "hover:bg-[var(--bg-hover)] focus:bg-[var(--bg-hover)]",
               pinning && "pointer-events-none opacity-50",
             )}
@@ -204,7 +204,7 @@ const CopilotThreadListItemMore: FC = () => {
           <ThreadListItemPrimitive.Delete asChild>
             <ThreadListItemMorePrimitive.Item
               className={cn(
-                "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] outline-none select-none",
+                "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[length:var(--fs-title)] outline-none select-none",
                 "text-[var(--c-red)] hover:bg-[var(--bg-hover)] focus:bg-[var(--bg-hover)]",
               )}
             >

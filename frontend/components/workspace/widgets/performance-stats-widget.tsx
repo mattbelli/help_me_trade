@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceDashboard,
   type PerformanceDashboard,
   type PerformancePeriod,
@@ -45,19 +49,19 @@ type StatProps = {
 function Stat({ label, value, sub, valueClassName }: StatProps) {
   return (
     <div className="min-w-[96px] flex-1 rounded-md border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-2">
-      <p className="truncate font-mono text-[9px] tracking-[0.1em] text-[var(--fg-faint)] uppercase">
+      <p className="truncate font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
         {label}
       </p>
       <p
         className={cn(
-          "mt-1 truncate font-mono text-[15px] font-semibold tracking-tight tabular-nums",
+          "mt-1 truncate font-mono text-[length:var(--fs-emph)] font-semibold tracking-tight tabular-nums",
           valueClassName,
         )}
       >
         {value}
       </p>
       {sub ? (
-        <p className="mt-0.5 truncate font-mono text-[9.5px] text-[var(--fg-dim)]">
+        <p className="mt-0.5 truncate font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
           {sub}
         </p>
       ) : null}
@@ -115,7 +119,7 @@ export function PerformanceStatsWidget() {
 
   const periodButtonClass = (active: boolean) =>
     cn(
-      "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+      "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
       active
         ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
         : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -123,7 +127,7 @@ export function PerformanceStatsWidget() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         {PERIODS.map(({ key, label }) => (
           <button
             key={key}
@@ -136,7 +140,7 @@ export function PerformanceStatsWidget() {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-2.5">
+      <div className="min-h-0 flex-1 overflow-auto p-2.5 scroll-shadow-y">
         {loading && !dashboard ? (
           <div className="flex flex-wrap gap-2">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -147,11 +151,9 @@ export function PerformanceStatsWidget() {
             ))}
           </div>
         ) : error && !dashboard ? (
-          <p className="p-1 font-mono text-xs text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-1" />
         ) : !dashboard ? (
-          <p className="p-1 font-mono text-xs text-[var(--fg-dim)]">
-            No performance data yet.
-          </p>
+          <WidgetEmpty message="No performance data yet." className="p-1" />
         ) : (
           <div className="flex flex-wrap gap-2">
             <Stat

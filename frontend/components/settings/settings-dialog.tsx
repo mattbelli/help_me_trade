@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   Bot,
   FileText,
   FileUp,
@@ -35,15 +36,23 @@ import {
   saveSettings,
   SECRET_MASK,
   type AppSettings,
+  type TradingSettings,
 } from "@/lib/api";
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
+import { StandInMark } from "@/components/workspace/stand-in-mark";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
+import { SettingsOrphansPanel } from "@/components/settings/settings-orphans-panel";
 import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
 import {
+  DEFAULT_ALERTS,
   DEFAULT_REPORTS,
   SettingsReportsPanel,
 } from "@/components/settings/settings-reports-panel";
+import {
+  DEFAULT_RESEARCH,
+  SettingsResearchPanel,
+} from "@/components/settings/settings-research-panel";
 import {
   DEFAULT_TRADING,
   TradingRiskSettings,
@@ -62,7 +71,8 @@ type SettingsSection =
   | "reports"
   | "ai"
   | "research"
-  | "import";
+  | "import"
+  | "orphans";
 
 const SECTIONS: {
   id: SettingsSection;
@@ -72,10 +82,11 @@ const SECTIONS: {
   { id: "brokers", label: "Brokers", icon: Wallet },
   { id: "execution", label: "Execution / Risk", icon: Shield },
   { id: "strategies", label: "Strategies", icon: Activity },
-  { id: "reports", label: "Reports", icon: FileText },
+  { id: "reports", label: "Reports / Alerts", icon: FileText },
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
   { id: "import", label: "Import", icon: FileUp },
+  { id: "orphans", label: "Unmanaged fills", icon: AlertTriangle },
 ];
 
 const EMPTY: AppSettings = {
@@ -97,9 +108,10 @@ const EMPTY: AppSettings = {
     },
   },
   ai: DEFAULT_AI_SETTINGS,
-  research: { searxng_url: "" },
+  research: DEFAULT_RESEARCH,
   trading: DEFAULT_TRADING,
   reports: DEFAULT_REPORTS,
+  alerts: DEFAULT_ALERTS,
 };
 
 export function SettingsDialog({ collapsed = false }: Props) {
@@ -112,6 +124,43 @@ export function SettingsDialog({ collapsed = false }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [section, setSection] = useState<SettingsSection>("brokers");
   const [modelsRevision, setModelsRevision] = useState(0);
+  const [adminToken, setAdminToken] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window !== "undefined") {
+      setAdminToken(sessionStorage.getItem("hmt-admin-token") ?? "");
+    }
+  }, [open]);
+
+  function buildSettingsPatch(
+    activeSection: SettingsSection,
+    settings: AppSettings,
+  ): Partial<AppSettings> {
+    switch (activeSection) {
+      case "brokers":
+        return {
+          primary_broker: settings.primary_broker,
+          brokers: settings.brokers,
+        };
+      case "execution": {
+        const {
+          kill_switch_active: _ignored,
+          entries_halted: _ignored2,
+          ...trading
+        } = settings.trading ?? DEFAULT_TRADING;
+        return { trading: trading as TradingSettings };
+      }
+      case "reports":
+        return { reports: settings.reports, alerts: settings.alerts };
+      case "ai":
+        return { ai: settings.ai };
+      case "research":
+        return { research: settings.research };
+      default:
+        return settings;
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -124,10 +173,16 @@ export function SettingsDialog({ collapsed = false }: Props) {
           ...data,
           ai: normalizeAiSettings(data.ai),
           research: {
-            searxng_url: data.research?.searxng_url ?? "",
+            ...DEFAULT_RESEARCH,
+            ...data.research,
+            model_roles: {
+              ...DEFAULT_RESEARCH.model_roles,
+              ...data.research?.model_roles,
+            },
           },
           trading: { ...DEFAULT_TRADING, ...data.trading },
           reports: { ...DEFAULT_REPORTS, ...data.reports },
+          alerts: { ...DEFAULT_ALERTS, ...data.alerts },
         }),
       )
       .catch((err) =>
@@ -145,15 +200,25 @@ export function SettingsDialog({ collapsed = false }: Props) {
     setError(null);
     setMessage(null);
     try {
-      const saved = await saveSettings(draft);
+      const patch = buildSettingsPatch(section, draft);
+      const saved = await saveSettings(
+        patch,
+        section === "execution" ? adminToken : undefined,
+      );
       setDraft({
         ...saved,
         ai: normalizeAiSettings(saved.ai),
         research: {
-          searxng_url: saved.research?.searxng_url ?? "",
+          ...DEFAULT_RESEARCH,
+          ...saved.research,
+          model_roles: {
+            ...DEFAULT_RESEARCH.model_roles,
+            ...saved.research?.model_roles,
+          },
         },
         trading: { ...DEFAULT_TRADING, ...saved.trading },
         reports: { ...DEFAULT_REPORTS, ...saved.reports },
+        alerts: { ...DEFAULT_ALERTS, ...saved.alerts },
       });
       setMessage("Settings saved. Polling will use the updated brokers.");
       setModelsRevision((n) => n + 1);
@@ -189,8 +254,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
         )}
       </DialogTrigger>
       <DialogContent className="flex h-[min(88vh,820px)] max-h-[88vh] w-[min(96vw,80rem)] flex-col gap-0 overflow-hidden border border-[var(--border)] bg-[var(--panel)] p-0 font-mono shadow-[var(--panel-shadow)] sm:!max-w-[min(96vw,80rem)]">
-        <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
-          <DialogTitle className="font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
+        <DialogHeader className="shrink-0 border-b border-[var(--line-divider)] px-6 py-4">
+          <DialogTitle className="flex items-center gap-2 font-mono text-[12px] tracking-[0.1em] uppercase text-foreground">
+            <StandInMark duo className="size-4" />
             Settings
           </DialogTitle>
           <DialogDescription className="font-mono text-[10px] text-[var(--fg-dim)]">
@@ -200,7 +266,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border bg-[var(--bg-inset)] p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
+          <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-[var(--line-divider)] bg-[var(--bg-inset)] p-2 sm:w-52 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r sm:p-4">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -458,6 +524,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
           <TradingRiskSettings
             value={draft.trading}
             onChange={(trading) => setDraft((d) => ({ ...d, trading }))}
+            adminToken={adminToken}
+            onAdminTokenChange={setAdminToken}
           />
         ) : section === "strategies" ? (
           <SettingsStrategiesPanel />
@@ -465,6 +533,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
           <SettingsReportsPanel
             value={draft.reports}
             onChange={(reports) => setDraft((d) => ({ ...d, reports }))}
+            alerts={draft.alerts}
+            onAlertsChange={(alerts) => setDraft((d) => ({ ...d, alerts }))}
           />
         ) : section === "ai" ? (
           <div className="space-y-4">
@@ -480,38 +550,20 @@ export function SettingsDialog({ collapsed = false }: Props) {
               </p>
           </div>
         ) : section === "research" ? (
-          <div className="space-y-4">
-              <TerminalField
-                label="SearXNG URL (optional)"
-                htmlFor="searxng-url"
-              >
-                <TerminalInput
-                  id="searxng-url"
-                  value={draft.research?.searxng_url ?? ""}
-                  placeholder="http://localhost:8080"
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      research: { searxng_url: e.target.value.trim() },
-                    }))
-                  }
-                />
-              </TerminalField>
-              <p className="font-mono text-[10px] text-[var(--fg-dim)]">
-                When set, deep research uses live web search instead of mock
-                snippets. You can also set{" "}
-                <code className="text-[10px]">SEARXNG_URL</code> in{" "}
-                <code className="text-[10px]">.env</code>. Env wins if both are
-                set.
-              </p>
-          </div>
+          <SettingsResearchPanel
+            value={draft.research}
+            ai={draft.ai}
+            onChange={(research) => setDraft((d) => ({ ...d, research }))}
+          />
+        ) : section === "orphans" ? (
+          <SettingsOrphansPanel />
         ) : (
           <SettingsTradesPanel />
         )}
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border px-6 py-4">
+        <div className="shrink-0 border-t border-[var(--line-divider)] px-6 py-4">
         {error && (
           <p className="mb-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
         )}
@@ -520,7 +572,9 @@ export function SettingsDialog({ collapsed = false }: Props) {
         )}
 
         <DialogFooter className="sm:justify-end">
-          {section === "import" || section === "strategies" ? (
+          {section === "import" ||
+          section === "strategies" ||
+          section === "orphans" ? (
             // These sections save their own changes inline (per-card / per-action),
             // so the global Save doesn't apply — offer a plain Done to close instead
             // of a disabled Save + a misleading "Cancel".

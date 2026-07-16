@@ -13,7 +13,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
-import { colors, haptics, MIN_TOUCH, radius, spacing, spring } from '@/theme';
+import { haptics, MIN_TOUCH, radius, spacing, spring, useColors, type Colors } from '@/theme';
 
 import { Text } from './text';
 
@@ -61,11 +61,11 @@ export function PressableScale({
 type Tone = 'primary' | 'ghost' | 'danger';
 
 // Built per-call so tone colors follow the active theme after a palette swap.
-function toneStyles(): Record<Tone, { bg: string; fg: string; border?: string }> {
+function toneStyles(palette: Colors): Record<Tone, { bg: string; fg: string; border?: string }> {
   return {
-    primary: { bg: colors.accent, fg: colors.onAccent },
-    ghost: { bg: 'transparent', fg: colors.text, border: colors.borderStrong },
-    danger: { bg: colors.negativeWash, fg: colors.negative, border: colors.negative },
+    primary: { bg: palette.accent, fg: palette.onAccent },
+    ghost: { bg: 'transparent', fg: palette.text, border: palette.borderStrong },
+    danger: { bg: palette.negativeWash, fg: palette.negative, border: palette.negative },
   };
 }
 
@@ -86,7 +86,8 @@ export function Button({
   style?: ViewStyle;
   leading?: ReactNode;
 }) {
-  const t = toneStyles()[tone];
+  const colors = useColors();
+  const t = toneStyles(colors)[tone];
   const isDisabled = disabled || loading;
   return (
     <PressableScale

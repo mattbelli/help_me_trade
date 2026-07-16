@@ -1,5 +1,3 @@
-import { TickMarkType } from "lightweight-charts";
-
 export type ChartTimeframe = {
   label: string;
   value: string;
@@ -16,9 +14,9 @@ export const CHART_TIMEFRAMES: ChartTimeframe[] = [
   { label: "15m", value: "15Min", days: 60, intraday: true },
   { label: "1H", value: "1Hour", days: 180, intraday: true },
   { label: "4H", value: "4Hour", days: 180, intraday: true },
-  { label: "1D", value: "1Day", days: 365, intraday: false },
-  { label: "1W", value: "1Week", days: 365, intraday: false },
-  { label: "1M", value: "1Month", days: 1825, intraday: false },
+  { label: "1D", value: "1Day", days: 1825, intraday: false },
+  { label: "1W", value: "1Week", days: 3650, intraday: false },
+  { label: "1M", value: "1Month", days: 3650, intraday: false },
 ];
 
 const ET = "America/New_York";
@@ -83,51 +81,47 @@ export function formatCrosshairTime(
   });
 }
 
-// lightweight-charts decides the tick DENSITY from the zoom level and tells us
-// the level of each tick via `tickMarkType` — so the axis naturally fades from
-// times → days → months → years as you zoom out. We just format each level.
-// (For intraday data, day-boundary ticks fall on the first bar of the session,
-// i.e. ≈market open, so the date appears there.)
-export function formatTickMark(
-  time: number | { year: number; month: number; day: number },
-  tickMarkType: TickMarkType,
-): string {
-  const date = timeToDate(time);
-  switch (tickMarkType) {
-    case TickMarkType.Year:
-      return date.toLocaleDateString("en-US", { timeZone: ET, year: "numeric" });
-    case TickMarkType.Month:
-      return date.toLocaleDateString("en-US", { timeZone: ET, month: "short" });
-    case TickMarkType.DayOfMonth:
-      return date.toLocaleDateString("en-US", {
-        timeZone: ET,
-        month: "short",
-        day: "numeric",
-      });
-    case TickMarkType.Time:
-      return date.toLocaleTimeString("en-US", {
-        timeZone: ET,
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      });
-    case TickMarkType.TimeWithSeconds:
-      return date.toLocaleTimeString("en-US", {
-        timeZone: ET,
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true,
-      });
-    default:
-      return "";
-  }
-}
-
 export function formatVolume(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return String(Math.round(value));
+}
+
+export type BarSession = "pre" | "regular" | "post" | "closed";
+
+// Classify an intraday bar by the ET wall-clock of its bucket START (mirrors the
+// backend brokers/market_clock.py windows). A bar that straddles a boundary belongs
+// to the session its start falls in — so the 09:30 open bar is "regular" and the
+// 15:xx→16:00 boundary bar's session is decided by where it opened. Weekend/holiday
+// bars don't exist in Schwab's ext data, so "closed" is effectively unreachable here.
+// One shared formatter + a per-timestamp memo: the session-bands primitive
+// classifies EVERY bar on EVERY chart repaint (each live tick, pan, crosshair
+// move). Constructing an Intl.DateTimeFormat per call cost ~0.2ms × thousands
+// of bars × tick rate — it pinned the main thread at ~1 FPS across the whole
+// app the first time live ticks flowed over ext-hours charts (2026-07-07).
+const ET_HM_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: ET,
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: false,
+});
+const sessionMemo = new Map<number, BarSession>();
+
+export function intradayBarSession(unixSec: number): BarSession {
+  const memo = sessionMemo.get(unixSec);
+  if (memo !== undefined) return memo;
+  const parts = ET_HM_FMT.formatToParts(new Date(unixSec * 1000));
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const mins = (hour % 24) * 60 + minute;
+  let session: BarSession;
+  if (mins >= 4 * 60 && mins < 9 * 60 + 30) session = "pre";
+  else if (mins >= 9 * 60 + 30 && mins < 16 * 60) session = "regular";
+  else if (mins >= 16 * 60 && mins < 20 * 60) session = "post";
+  else session = "closed";
+  if (sessionMemo.size > 50_000) sessionMemo.clear();
+  sessionMemo.set(unixSec, session);
+  return session;
 }
 
 export function sessionLabel(now = new Date()): string {

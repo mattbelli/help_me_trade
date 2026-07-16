@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -13,6 +14,8 @@ from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
 from db.schema_helpers import _add_column_if_missing
+
+logger = logging.getLogger(__name__)
 
 
 def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -52,6 +55,8 @@ def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         # money rule. Advisory/audit only — never read by the RiskEngine or chokepoint.
         _add_column_if_missing(conn, "order_executions", "avg_fill_price", "TEXT")
         _add_column_if_missing(conn, "order_executions", "filled_qty", "TEXT")
+        _add_column_if_missing(conn, "order_executions", "notional_usd", "TEXT")
+        _add_column_if_missing(conn, "order_executions", "short_open", "INTEGER DEFAULT 0")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_order_exec_account_created
@@ -81,6 +86,8 @@ def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
         "account_id": row["account_id"],
         "avg_fill_price": row["avg_fill_price"] if "avg_fill_price" in row.keys() else None,
         "filled_qty": row["filled_qty"] if "filled_qty" in row.keys() else None,
+        "notional_usd": row["notional_usd"] if "notional_usd" in row.keys() else None,
+        "short_open": int(row["short_open"]) if "short_open" in row.keys() else 0,
     }
 
 
@@ -155,6 +162,9 @@ def update_execution_status(
     risk_checks_json: dict[str, Any] | str | None = None,
     avg_fill_price: Decimal | str | None = None,
     filled_qty: Decimal | str | None = None,
+    notional_usd: Decimal | str | None = None,
+    short_open: int | None = None,
+    clear_notional: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any] | None:
     init_execution_tables(db_path)
@@ -173,6 +183,14 @@ def update_execution_status(
     if filled_qty is not None:
         fields.append("filled_qty = ?")
         values.append(str(filled_qty))
+    if clear_notional:
+        fields.append("notional_usd = NULL")
+    elif notional_usd is not None:
+        fields.append("notional_usd = ?")
+        values.append(str(notional_usd))
+    if short_open is not None:
+        fields.append("short_open = ?")
+        values.append(int(short_open))
     if risk_checks_json is not None:
         checks_payload = (
             risk_checks_json
@@ -231,6 +249,93 @@ def count_executions_today(
     return int(row["cnt"]) if row else 0
 
 
+def _sum_notional_rows(rows: list[sqlite3.Row], *, context: str) -> Decimal:
+    total = Decimal("0")
+    for row in rows:
+        raw = row["notional_usd"]
+        if raw is None or str(raw).strip() == "":
+            # The current order's own pending row is always NULL here by design
+            # (notional is written post-validate) — debug, not warning, to avoid
+            # training log-blindness on every validate.
+            logger.debug(
+                "order_executions.%s: row %s has NULL notional_usd — counted as 0",
+                context,
+                row["id"],
+            )
+            continue
+        total += Decimal(str(raw))
+    return total
+
+
+def sum_inflight_notional(
+    *,
+    symbol: str | None = None,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> Decimal:
+    """Sum notional of in-flight exposure-increasing orders (Decimal-safe).
+
+    Counts pending/submitted AND partially_filled: a partially filled order is a
+    LIVE working order (the unfilled remainder is still resting at the broker) whose
+    notional_usd holds the full order notional, so the reservation must keep counting
+    it until it reaches a terminal status (audit H2)."""
+    init_execution_tables(db_path)
+    clauses = [
+        "status IN ('pending', 'submitted', 'partially_filled')",
+        "(side = 'buy' OR (side = 'sell' AND short_open = 1))",
+    ]
+    params: list[Any] = []
+    if symbol is not None:
+        clauses.append("symbol = ?")
+        params.append(symbol.strip().upper())
+    if account_id is not None:
+        clauses.append("account_id = ?")
+        params.append(account_id)
+    where = " AND ".join(clauses)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT id, notional_usd FROM order_executions WHERE {where}",
+            params,
+        ).fetchall()
+    return _sum_notional_rows(rows, context="sum_inflight_notional")
+
+
+def sum_today_notional(
+    *,
+    account_id: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> Decimal:
+    """Sum today's exposure-increasing notional (UTC day, matching count_executions_today bounds).
+
+    Counts pending/submitted/partially_filled/filled: a partially_filled order's full
+    notional counts toward the daily cap while it works (audit H2).
+
+    KNOWN RESIDUAL (accepted, do not silently "fix"): a partial that later CANCELS
+    lands on status 'canceled' and drops out of this sum entirely, even though its
+    filled shares were really bought — under-counting the day by the filled portion.
+    Counting it correctly needs a filled-portion notional (filled_qty x avg_fill_price)
+    we do not cleanly have at cap time; the full-notional alternative over-counts.
+    Adversarial-review F4 accepted this residual explicitly."""
+    init_execution_tables(db_path)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    clauses = [
+        "created_at >= ?",
+        "status IN ('pending', 'submitted', 'partially_filled', 'filled')",
+        "(side = 'buy' OR (side = 'sell' AND short_open = 1))",
+    ]
+    params: list[Any] = [f"{today}T00:00:00"]
+    if account_id is not None:
+        clauses.append("account_id = ?")
+        params.append(account_id)
+    where = " AND ".join(clauses)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT id, notional_usd FROM order_executions WHERE {where}",
+            params,
+        ).fetchall()
+    return _sum_notional_rows(rows, context="sum_today_notional")
+
+
 def get_execution(
     execution_id: str, *, db_path: Path = DEFAULT_DB_PATH
 ) -> dict[str, Any] | None:
@@ -238,6 +343,26 @@ def get_execution(
     with _connect(db_path) as conn:
         row = conn.execute(
             "SELECT * FROM order_executions WHERE id = ?", (execution_id,)
+        ).fetchone()
+    return _row_to_execution(row) if row else None
+
+
+def get_execution_by_proposal(
+    proposal_id: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Most recent execution row for a proposal, if any."""
+    init_execution_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM order_executions
+            WHERE proposal_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (proposal_id,),
         ).fetchone()
     return _row_to_execution(row) if row else None
 
@@ -261,6 +386,48 @@ def list_submitted_executions(
             ORDER BY created_at ASC
             """,
             params,
+        ).fetchall()
+    return [_row_to_execution(row) for row in rows]
+
+
+def list_terminal_partial_buys(
+    *,
+    since_iso: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """BUY executions holding real filled shares that are no longer pre-fill — the
+    unmanaged-fill sweep's candidate set (audit H1/M1).
+
+    A partial fill that jumped straight to canceled/expired within one poll gap, or a
+    fill whose attribution write was lost to a restart, holds real shares with no
+    managed-position row. Such rows have side='buy', a non-empty filled_qty, and a
+    status that is neither 'pending' nor 'submitted' (those are pre-fill / actively
+    reconciling; 'partially_filled' is kept — a crash between its status write and
+    attribution can strand it too). Rows that already have an orphan of ANY status are
+    excluded here in SQL (adversarial F3) so already-quarantined executions don't re-run
+    the per-row managed/orphan lookups on every poll cycle forever. filled_qty is TEXT
+    (Decimal): the SQL only screens NULL/empty; the caller applies the Decimal ``> 0``
+    test and the managed-row lookup. Bounded by created_at >= ``since_iso`` for query
+    cost."""
+    from db.fill_attribution import init_fill_attribution_tables
+
+    init_execution_tables(db_path)
+    init_fill_attribution_tables(db_path)  # the NOT EXISTS below needs the table
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM order_executions AS oe
+            WHERE oe.side = 'buy'
+              AND oe.status NOT IN ('pending', 'submitted')
+              AND oe.filled_qty IS NOT NULL AND TRIM(oe.filled_qty) != ''
+              AND oe.created_at >= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM fill_attribution_orphans AS fo
+                  WHERE fo.execution_id = oe.id
+              )
+            ORDER BY oe.created_at ASC
+            """,
+            (since_iso,),
         ).fetchall()
     return [_row_to_execution(row) for row in rows]
 

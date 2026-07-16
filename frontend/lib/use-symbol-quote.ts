@@ -11,10 +11,26 @@ type Options = {
   enabled?: boolean;
 };
 
+type WsQuoteFrame = {
+  type?: string;
+  symbol?: string;
+  quotes?: Record<string, WatchlistQuote>;
+  price?: number;
+  live?: boolean;
+  ext_price?: number | null;
+  ext_change_pct?: number | null;
+  market_session?: WatchlistQuote["market_session"] | null;
+};
+
 export function useSymbolQuote({ symbol, enabled = true }: Options) {
   const [price, setPrice] = useState<number | undefined>();
   const [live, setLive] = useState(false);
   const [changePct, setChangePct] = useState<number | undefined>();
+  const [extPrice, setExtPrice] = useState<number | null | undefined>();
+  const [extChangePct, setExtChangePct] = useState<number | null | undefined>();
+  const [marketSession, setMarketSession] = useState<
+    WatchlistQuote["market_session"] | null | undefined
+  >();
 
   const normalized = symbol.trim().toUpperCase();
 
@@ -39,20 +55,25 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
 
       ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data) as {
-            type?: string;
-            symbol?: string;
-            quotes?: Record<string, WatchlistQuote>;
-            price?: number;
-            live?: boolean;
-          };
+          const msg = JSON.parse(event.data) as WsQuoteFrame;
           if (msg.type === "quotes" && msg.quotes?.[normalized]) {
-            setPrice(msg.quotes[normalized].price);
-            setChangePct(msg.quotes[normalized].change_pct);
+            const quote = msg.quotes[normalized];
+            setPrice(quote.price);
+            setChangePct(quote.change_pct);
+            setExtPrice(quote.ext_price);
+            setExtChangePct(quote.ext_change_pct);
+            setMarketSession(quote.market_session);
             setLive(Boolean(msg.live));
           }
           if (msg.type === "quote" && msg.symbol === normalized) {
             if (msg.price != null) setPrice(msg.price);
+            if (msg.ext_price !== undefined) setExtPrice(msg.ext_price);
+            if (msg.ext_change_pct !== undefined) {
+              setExtChangePct(msg.ext_change_pct);
+            }
+            if (msg.market_session !== undefined) {
+              setMarketSession(msg.market_session);
+            }
             setLive(true);
           }
         } catch {
@@ -80,5 +101,5 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
     };
   }, [enabled, normalized]);
 
-  return { price, live, changePct };
+  return { price, live, changePct, extPrice, extChangePct, marketSession };
 }

@@ -25,6 +25,25 @@ _MAX_BAR_PAGES = 50
 _BATCH_BARS_PATH = "/v2/stocks/bars"
 
 
+def _trade_at_or_after(trade: dict, cutoff: datetime) -> bool:
+    """True if `trade`'s timestamp is at/after `cutoff`. Untimed trades fail."""
+    raw = trade.get("t")
+    if not isinstance(raw, str) or not raw:
+        return False
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts >= cutoff
+
+
+_NON_INTRADAY_TIMEFRAMES = frozenset({"1Day", "1Week", "1Month"})
+_OVERNIGHT_BARS_FEED = "boats"
+
+
+from brokers.alpaca_tier import data_tier, effective_alpaca_feed
 from brokers.errors import BrokerError
 from config.settings import alpaca_config, normalize_alpaca_data_feed
 
@@ -72,7 +91,7 @@ class AlpacaAdapter:
         key_id: str,
         secret: str,
         data_base_url: str | None = None,
-        data_feed: str = "iex",
+        data_feed: str = "auto",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         if self._base_url.endswith("/v2"):
@@ -80,13 +99,28 @@ class AlpacaAdapter:
         self._data_base_url = (
             (data_base_url or "https://data.alpaca.markets").strip().rstrip("/")
         )
-        self._data_feed = normalize_alpaca_data_feed(data_feed)
+        self._configured_data_feed = normalize_alpaca_data_feed(data_feed)
         self._headers = {
             "APCA-API-KEY-ID": key_id,
             "APCA-API-SECRET-KEY": secret,
         }
         self._sync_client = httpx.Client(headers=self._headers, timeout=30.0)
         self._async_client: httpx.AsyncClient | None = None
+
+    @property
+    def _data_feed(self) -> str:
+        probe = self._get_data if self._configured_data_feed == "auto" else None
+        return effective_alpaca_feed(
+            configured_feed=self._configured_data_feed,
+            get_data=probe,
+        )
+
+    @property
+    def configured_data_feed(self) -> str:
+        return self._configured_data_feed
+
+    def alpaca_data_tier(self) -> str:
+        return data_tier(self)
 
     def _async_http(self) -> httpx.AsyncClient:
         if self._async_client is None or self._async_client.is_closed:
@@ -103,6 +137,11 @@ class AlpacaAdapter:
             await self._async_client.aclose()
         self._async_client = None
 
+    @property
+    def is_paper_endpoint(self) -> bool:
+        """True when this adapter's trading API base URL is Alpaca paper."""
+        return "paper-api" in self._base_url
+
     @classmethod
     def from_env(cls) -> AlpacaAdapter:
         return cls.from_settings()
@@ -114,7 +153,7 @@ class AlpacaAdapter:
         secret = merged.get("api_secret_key", "").strip()
         base_url = merged.get("api_base_url", "").strip()
         data_base_url = merged.get("data_base_url", "").strip()
-        data_feed = normalize_alpaca_data_feed(merged.get("data_feed", "iex"))
+        data_feed = normalize_alpaca_data_feed(merged.get("data_feed", "auto"))
         missing = [
             name
             for name, val in [
@@ -577,6 +616,58 @@ class AlpacaAdapter:
             symbol, timeframe=timeframe, start=start, end=end
         )
 
+    @staticmethod
+    def _is_intraday_timeframe(timeframe: str) -> bool:
+        return timeframe not in _NON_INTRADAY_TIMEFRAMES
+
+    @staticmethod
+    def _merge_bars_by_time(*series: list[StockBar]) -> list[StockBar]:
+        """Union-merge bar series by timestamp (SIP first, boats fills overnight gaps)."""
+        by_time: dict[str, StockBar] = {}
+        for bars in series:
+            for bar in bars:
+                by_time.setdefault(bar.time, bar)
+        return sorted(by_time.values(), key=lambda b: b.time)
+
+    async def _aget_bars_with_feed(
+        self,
+        symbol: str,
+        *,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        feed: str,
+    ) -> list[StockBar]:
+        symbol = symbol.strip().upper()
+        if not symbol:
+            return []
+
+        params = {
+            "timeframe": timeframe,
+            "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "limit": 10000,
+            "feed": feed,
+            "sort": "asc",
+            # Alpaca defaults to adjustment=raw — history spanning a split would
+            # show the pre-split price scale (CRWD 4:1 2026-07-02: $772 -> $191
+            # cliff). Split-only, not "all": dividends must not shift prices.
+            "adjustment": "split",
+        }
+        try:
+            data = await self._aget_all_bar_pages(
+                f"/v2/stocks/{symbol}/bars", params
+            )
+            return self._parse_stock_bars(data.get("bars") or [])
+        except Exception:
+            logger.warning(
+                "Alpaca bars fetch failed for %s (feed=%s)",
+                symbol,
+                feed,
+                exc_info=True,
+            )
+            return []
+
     async def aget_stock_bars(
         self,
         symbol: str,
@@ -585,11 +676,14 @@ class AlpacaAdapter:
         days: int = 180,
         extended_hours: bool = False,
     ) -> list[StockBar]:
-        # Free IEX feed is regular-hours only; extended_hours is ignored.
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
         return await self.aget_stock_bars_range(
-            symbol, timeframe=timeframe, start=start, end=end
+            symbol,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            extended_hours=extended_hours,
         )
 
     def get_stock_bars_range(
@@ -611,6 +705,7 @@ class AlpacaAdapter:
             "limit": 10000,
             "feed": self._data_feed,
             "sort": "asc",
+            "adjustment": "split",
         }
 
         data = self._get_all_bar_pages(f"/v2/stocks/{symbol}/bars", params)
@@ -623,24 +718,30 @@ class AlpacaAdapter:
         timeframe: str = "1Day",
         start: datetime,
         end: datetime,
+        extended_hours: bool = False,
     ) -> list[StockBar]:
         symbol = symbol.strip().upper()
         if not symbol:
             raise AlpacaError("Symbol is required")
 
-        params = {
-            "timeframe": timeframe,
-            "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "limit": 10000,
-            "feed": self._data_feed,
-            "sort": "asc",
-        }
-
-        data = await self._aget_all_bar_pages(
-            f"/v2/stocks/{symbol}/bars", params
+        bars = await self._aget_bars_with_feed(
+            symbol,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            feed=self._data_feed,
         )
-        return self._parse_stock_bars(data.get("bars") or [])
+        if extended_hours and self._is_intraday_timeframe(timeframe):
+            boats = await self._aget_bars_with_feed(
+                symbol,
+                timeframe=timeframe,
+                start=start,
+                end=end,
+                feed=_OVERNIGHT_BARS_FEED,
+            )
+            if boats:
+                bars = self._merge_bars_by_time(bars, boats)
+        return bars
 
     _assets_cache: tuple[float, list[str]] | None = None
     _overnight_cache: tuple[float, set[str]] | None = None
@@ -793,6 +894,7 @@ class AlpacaAdapter:
             "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "limit": 10000,
             "feed": self._data_feed,
+            "adjustment": "split",
         }
         return cleaned, params
 
@@ -827,6 +929,174 @@ class AlpacaAdapter:
 
         data = await self._aget_all_bar_pages(_BATCH_BARS_PATH, params)
         return self._parse_batch_bars(data.get("bars") or {})
+
+    _EXT_QUOTES_CHUNK = 200
+
+    @staticmethod
+    def _parse_ext_quote_snapshot(
+        snap: dict, *, not_before: datetime | None = None
+    ) -> dict | None:
+        """Map one Alpaca stock snapshot to {ext_last, ext_change_pct}.
+
+        `not_before` rejects a snapshot whose last trade predates that instant.
+        The overnight venue has no trades in most names, and its snapshot keeps
+        serving the last trade it EVER saw: NTSK showed a 100-share print from
+        the prior overnight session — 20.6h and one +11% regular day stale — as
+        the live price, painting -10% on a stock that had closed +11%. A trade
+        older than the last regular close has been superseded by that close, so
+        the snapshot is treated as absent and the caller falls back to the
+        consolidated feed.
+        """
+        if not isinstance(snap, dict):
+            return None
+
+        trade = snap.get("latestTrade") or {}
+        quote = snap.get("latestQuote") or {}
+        daily_bar = snap.get("dailyBar") or {}
+        prev_daily = snap.get("prevDailyBar") or {}
+
+        if not_before is not None and not _trade_at_or_after(trade, not_before):
+            return None
+
+        def _f(v: object) -> float | None:
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        ext_last = _f(trade.get("p"))
+        if ext_last is None:
+            bid = _f(quote.get("bp"))
+            ask = _f(quote.get("ap"))
+            if bid is not None and ask is not None:
+                ext_last = (bid + ask) / 2.0
+            elif bid is not None:
+                ext_last = bid
+            elif ask is not None:
+                ext_last = ask
+        if ext_last is None:
+            return None
+
+        prev_close = _f(prev_daily.get("c"))
+        reg_close = _f(daily_bar.get("c"))
+        daily_t = daily_bar.get("t") or ""
+        prev_t = prev_daily.get("t") or ""
+
+        ext_change_pct: float | None = None
+        ref: float | None = None
+        # New trading day with its own daily bar → move vs today's RTH close
+        # (post/overnight, matching Schwab's postMarketPercentChange intent).
+        if reg_close and prev_close and daily_t and prev_t and daily_t > prev_t:
+            ref = reg_close
+        elif prev_close:
+            ref = prev_close
+        elif reg_close:
+            ref = reg_close
+        if ref and ref != 0:
+            ext_change_pct = round((ext_last - ref) / ref * 100, 2)
+
+        return {"ext_last": ext_last, "ext_change_pct": ext_change_pct}
+
+    async def aget_ext_quotes(
+        self,
+        symbols: list[str],
+        *,
+        feed: str | None = None,
+        not_before: datetime | None = None,
+    ) -> dict[str, dict]:
+        """Snapshot batch for extended-hours last price + % move.
+
+        Default feed is the daytime SIP/IEX feed; callers may override (e.g.
+        ``boats`` / ``overnight`` during the 8pm–4am session). `not_before` drops
+        symbols whose last trade predates that instant, so a venue with no trades
+        cannot serve a stale one as the live price.
+
+        Returns {SYMBOL: {ext_last, ext_change_pct}}. Fail-soft: partial/empty on
+        error, never raises — callers must not crash when Alpaca hiccups.
+        """
+        resolved_feed = feed if feed is not None else self._data_feed
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols:
+            sym = raw.strip().upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                cleaned.append(sym)
+        if not cleaned:
+            return {}
+
+        out: dict[str, dict] = {}
+        for start in range(0, len(cleaned), self._EXT_QUOTES_CHUNK):
+            chunk = cleaned[start : start + self._EXT_QUOTES_CHUNK]
+            try:
+                data = await self._aget_data(
+                    "/v2/stocks/snapshots",
+                    params={"symbols": ",".join(chunk), "feed": resolved_feed},
+                )
+            except Exception:
+                logger.warning(
+                    "Alpaca ext-quote snapshot failed for %d symbols",
+                    len(chunk),
+                    exc_info=True,
+                )
+                continue
+            for sym in chunk:
+                parsed = self._parse_ext_quote_snapshot(
+                    data.get(sym) or {}, not_before=not_before
+                )
+                if parsed is not None:
+                    out[sym] = parsed
+        return out
+
+    def get_stock_snapshot_fields(self, symbol: str) -> dict[str, float] | None:
+        """Read-only equity snapshot: last price and today's daily-bar volume.
+
+        Uses ``GET /v2/stocks/snapshots``. Fail-soft — returns None on error or
+        missing fields; never raises.
+        """
+        sym = symbol.strip().upper()
+        if not sym:
+            return None
+        try:
+            data = self._get_data(
+                "/v2/stocks/snapshots",
+                params={"symbols": sym, "feed": self._data_feed},
+            )
+        except Exception:
+            logger.warning(
+                "Alpaca stock snapshot failed for %s", sym, exc_info=True
+            )
+            return None
+
+        snap = data.get(sym) if isinstance(data, dict) else None
+        if not isinstance(snap, dict):
+            return None
+
+        trade = snap.get("latestTrade") or {}
+        quote = snap.get("latestQuote") or {}
+        daily_bar = snap.get("dailyBar") or {}
+
+        def _f(v: object) -> float | None:
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        last_price = _f(trade.get("p"))
+        if last_price is None:
+            bid = _f(quote.get("bp"))
+            ask = _f(quote.get("ap"))
+            if bid is not None and ask is not None:
+                last_price = (bid + ask) / 2.0
+            elif bid is not None:
+                last_price = bid
+            elif ask is not None:
+                last_price = ask
+
+        day_volume = _f(daily_bar.get("v"))
+        if last_price is None or day_volume is None or day_volume <= 0:
+            return None
+        return {"last_price": last_price, "day_volume": day_volume}
 
     def get_forward_splits(
         self, symbols: list[str]
@@ -1006,3 +1276,337 @@ class AlpacaAdapter:
         if not isinstance(data, dict):
             return None
         return self._parse_option_snapshot(data, sym)
+
+    # --- Options-flow screener (read-only data + contracts metadata) -------------
+
+    _OPTIONS_BARS_CHUNK = 100
+    _OPTIONS_BARS_MAX_PAGES = 50
+    _OPTIONS_TRADES_CHUNK = 100
+    _OPTIONS_TRADES_MAX_PAGES = 50
+    _OPTIONS_QUOTES_CHUNK = 100
+    _OPTIONS_CONTRACTS_MAX_PAGES = 50
+
+    def get_option_bars(
+        self,
+        occ_symbols: list[str],
+        start: str,
+        end: str | None = None,
+        timeframe: str = "1Day",
+    ) -> dict[str, list[dict]]:
+        """Historical option bars (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/bars?symbols=<csv>&timeframe=…&start=…``
+        Chunks ≤100 symbols/request; paginates via ``next_page_token``.
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols or not start:
+            return {}
+        out: dict[str, list[dict]] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_BARS_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_BARS_CHUNK]
+                page_token: str | None = None
+                for _ in range(self._OPTIONS_BARS_MAX_PAGES):
+                    params: dict[str, Any] = {
+                        "symbols": ",".join(chunk),
+                        "timeframe": timeframe,
+                        "start": start,
+                    }
+                    if end:
+                        params["end"] = end
+                    if page_token:
+                        params["page_token"] = page_token
+                    data = self._get_data("/v1beta1/options/bars", params=params)
+                    if not isinstance(data, dict):
+                        break
+                    bars = data.get("bars") or {}
+                    if isinstance(bars, dict):
+                        for occ, items in bars.items():
+                            if not isinstance(items, list):
+                                continue
+                            bucket = out.setdefault(str(occ), [])
+                            for bar in items:
+                                if not isinstance(bar, dict):
+                                    continue
+                                bucket.append(
+                                    {
+                                        "t": bar.get("t"),
+                                        "o": bar.get("o"),
+                                        "h": bar.get("h"),
+                                        "l": bar.get("l"),
+                                        "c": bar.get("c"),
+                                        "v": bar.get("v"),
+                                        "n": bar.get("n"),
+                                    }
+                                )
+                    page_token = data.get("next_page_token")
+                    if not page_token:
+                        break
+        except Exception:
+            return {}
+        return out
+
+    def get_option_trades(
+        self,
+        occ_symbols: list[str],
+        *,
+        start: str,
+        end: str | None = None,
+        limit: int = 10_000,
+    ) -> dict[str, list[dict]]:
+        """Historical option trades (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/trades?symbols=<csv>&start=<RFC3339>&limit=…``
+        Chunks ≤100 symbols/request; paginates via ``next_page_token``.
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols or not start:
+            return {}
+        out: dict[str, list[dict]] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_TRADES_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_TRADES_CHUNK]
+                page_token: str | None = None
+                for _ in range(self._OPTIONS_TRADES_MAX_PAGES):
+                    params: dict[str, Any] = {
+                        "symbols": ",".join(chunk),
+                        "start": start,
+                        "limit": int(limit),
+                    }
+                    if end:
+                        params["end"] = end
+                    if page_token:
+                        params["page_token"] = page_token
+                    data = self._get_data("/v1beta1/options/trades", params=params)
+                    if not isinstance(data, dict):
+                        break
+                    trades = data.get("trades") or {}
+                    if isinstance(trades, dict):
+                        for occ, items in trades.items():
+                            if not isinstance(items, list):
+                                continue
+                            bucket = out.setdefault(str(occ), [])
+                            for trade in items:
+                                if not isinstance(trade, dict):
+                                    continue
+                                bucket.append(
+                                    {
+                                        "t": trade.get("t"),
+                                        "p": trade.get("p"),
+                                        "s": trade.get("s"),
+                                        "x": trade.get("x"),
+                                        "c": trade.get("c"),
+                                    }
+                                )
+                    page_token = data.get("next_page_token")
+                    if not page_token:
+                        break
+        except Exception:
+            return {}
+        return out
+
+    def get_option_latest_quotes(
+        self, occ_symbols: list[str]
+    ) -> dict[str, dict]:
+        """Latest option quotes (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/quotes/latest?symbols=<csv>&feed=opra``
+        Returns ``{occ: {"bid": float|None, "ask": float|None, "ts": str|None}}``.
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols:
+            return {}
+        out: dict[str, dict] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_QUOTES_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_QUOTES_CHUNK]
+                data = self._get_data(
+                    "/v1beta1/options/quotes/latest",
+                    params={"symbols": ",".join(chunk), "feed": "opra"},
+                )
+                if not isinstance(data, dict):
+                    continue
+                quotes = data.get("quotes") or {}
+                if not isinstance(quotes, dict):
+                    continue
+                for occ, raw in quotes.items():
+                    if not isinstance(raw, dict):
+                        continue
+                    bid: float | None = None
+                    ask: float | None = None
+                    try:
+                        bp = raw.get("bp")
+                        if bp is not None:
+                            b = float(bp)
+                            if b > 0:
+                                bid = b
+                    except (TypeError, ValueError):
+                        pass
+                    try:
+                        ap = raw.get("ap")
+                        if ap is not None:
+                            a = float(ap)
+                            if a > 0:
+                                ask = a
+                    except (TypeError, ValueError):
+                        pass
+                    ts = raw.get("t")
+                    ts_out = str(ts).strip() if ts else None
+                    out[str(occ).strip().upper()] = {
+                        "bid": bid,
+                        "ask": ask,
+                        "ts": ts_out,
+                    }
+        except Exception:
+            return {}
+        return out
+
+    def get_option_snapshots(
+        self, occ_symbols: list[str]
+    ) -> dict[str, dict]:
+        """Option snapshots (data API). Fail-soft ``{}`` on any error.
+
+        ``GET /v1beta1/options/snapshots?symbols=<csv>&feed=opra``
+        Returns ``{occ: snapshot}`` with vendor keys (``latestQuote``,
+        ``latestTrade``, ``greeks``, ``impliedVolatility``, ``openInterest``, …).
+        """
+        symbols = [s.strip().upper() for s in occ_symbols if s and str(s).strip()]
+        if not symbols:
+            return {}
+        out: dict[str, dict] = {}
+        try:
+            for i in range(0, len(symbols), self._OPTIONS_QUOTES_CHUNK):
+                chunk = symbols[i : i + self._OPTIONS_QUOTES_CHUNK]
+                data = self._get_data(
+                    "/v1beta1/options/snapshots",
+                    params={"symbols": ",".join(chunk), "feed": "opra"},
+                )
+                if not isinstance(data, dict):
+                    continue
+                snapshots = data.get("snapshots") or {}
+                if not isinstance(snapshots, dict):
+                    continue
+                for occ, raw in snapshots.items():
+                    if isinstance(raw, dict):
+                        out[str(occ).strip().upper()] = raw
+        except Exception:
+            return {}
+        return out
+
+    def get_option_trade_conditions(self) -> dict[str, str]:
+        """OPRA trade condition code → description mapping. Fail-soft ``{}``."""
+        try:
+            data = self._get_data("/v1beta1/options/meta/conditions/trade")
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        out: dict[str, str] = {}
+        for code, desc in data.items():
+            if code is None:
+                continue
+            out[str(code)] = str(desc) if desc is not None else ""
+        return out
+
+    def get_option_contracts(
+        self,
+        underlying: str,
+        *,
+        expiration_date_gte: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Read-only trading-API contracts metadata (OI). Fail-soft ``[]``.
+
+        ``GET /v2/options/contracts?underlying_symbols=…`` — the ONLY trading-API
+        call used by the options-flow screener; metadata only, never an order path.
+        """
+        sym = underlying.strip().upper()
+        if not sym:
+            return []
+        out: list[dict] = []
+        page_token: str | None = None
+        try:
+            for _ in range(self._OPTIONS_CONTRACTS_MAX_PAGES):
+                params: dict[str, Any] = {
+                    "underlying_symbols": sym,
+                    "limit": int(limit),
+                }
+                if expiration_date_gte:
+                    params["expiration_date_gte"] = expiration_date_gte
+                if page_token:
+                    params["page_token"] = page_token
+                data = self._request(
+                    self._base_url, "/v2/options/contracts", params=params
+                )
+                if not isinstance(data, dict):
+                    break
+                contracts = data.get("option_contracts") or data.get("contracts") or []
+                if not isinstance(contracts, list):
+                    break
+                for item in contracts:
+                    if isinstance(item, dict):
+                        out.append(item)
+                page_token = data.get("next_page_token") or data.get("page_token")
+                if not page_token:
+                    break
+        except Exception:
+            return []
+        return out
+
+    def get_option_chain_snapshot(
+        self,
+        underlying: str,
+        feed: str = "opra",
+        *,
+        expiration_date: str | None = None,
+        limit: int | None = None,
+        max_pages: int = 1,
+    ) -> dict:
+        """Chain option snapshots for an underlying. Fail-soft ``{}``.
+
+        ``GET /v1beta1/options/snapshots/{underlying}?feed=opra`` — returns the
+        merged ``snapshots`` dict. Defaults (no filter, one page) keep the
+        original single-page behavior the poll's active-set relies on; the
+        chain-viewer endpoint passes ``expiration_date`` + ``limit=1000`` +
+        ``max_pages`` — the vendor page default is 100, alphabetical, which
+        truncates to near-dated calls otherwise.
+        """
+        sym = underlying.strip().upper()
+        if not sym:
+            return {}
+        out: dict = {}
+        page_token: str | None = None
+        try:
+            for _ in range(max(1, max_pages)):
+                params: dict[str, Any] = {"feed": feed}
+                if expiration_date:
+                    params["expiration_date"] = expiration_date
+                if limit:
+                    params["limit"] = int(limit)
+                if page_token:
+                    params["page_token"] = page_token
+                data = self._get_data(
+                    f"/v1beta1/options/snapshots/{sym}", params=params
+                )
+                if not isinstance(data, dict):
+                    break
+                snapshots = data.get("snapshots")
+                if isinstance(snapshots, dict):
+                    out.update(snapshots)
+                page_token = data.get("next_page_token")
+                if not page_token:
+                    break
+            else:
+                if page_token:
+                    # Stopping with pages left means the tail is dropped in the
+                    # vendor's own alphabetical order — never do that silently.
+                    logger.warning(
+                        "Option chain snapshot capped at %d pages for %s "
+                        "(%d contracts fetched, more available)",
+                        max_pages,
+                        sym,
+                        len(out),
+                    )
+        except Exception:
+            return out
+        return out

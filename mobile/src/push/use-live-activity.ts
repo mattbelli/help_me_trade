@@ -11,10 +11,15 @@
  *   Reject calls the reject endpoint directly.
  */
 import { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addPushToStartTokenListener, addUserInteractionListener } from 'expo-widgets';
 
 import { tradeProposalActivity } from '../../widgets/trade-proposal';
 import { registerDevice, registerLiveActivityToken, rejectProposal } from '@/api/endpoints';
+import { devLog } from '@/lib/dev-log';
+
+const PUSH_TO_START_KEY = 'la.pushToStartToken.v1';
 
 export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => void } = {}) {
   const onOpenRef = useRef(onOpenApprovals);
@@ -27,11 +32,20 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
     // update tokens against — a push-STARTED activity instance can't surface its proposalId.
     let deviceToken: string | null = null;
 
+    void AsyncStorage.getItem(PUSH_TO_START_KEY)
+      .then((stored) => {
+        devLog('[LA] hydrated deviceToken from storage:', stored ? 'yes' : 'none');
+        if (stored && !deviceToken) deviceToken = stored;
+      })
+      .catch(() => {});
+
     // 1. push-to-start token → serv (lets serv START activities remotely)
     const tokenSub = addPushToStartTokenListener((e) => {
       const token = e.activityPushToStartToken;
       if (!token) return;
+      devLog('[LA] pushToStart token received');
       deviceToken = token;
+      void AsyncStorage.setItem(PUSH_TO_START_KEY, token).catch(() => {});
       void registerDevice({ token, token_type: 'la_pushtostart' }).catch(() => {});
     });
 
@@ -56,39 +70,76 @@ export function useLiveActivity({ onOpenApprovals }: { onOpenApprovals?: () => v
     const registered = new Set<string>();
     const held: ReturnType<typeof tradeProposalActivity.getInstances> = [];
     const listenerSubs: { remove: () => void }[] = [];
-    let tries = 0;
-    let captured = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const sendToken = (t: string | null | undefined) => {
       // Wait for the device token; until it lands we skip without marking registered
       // so the next poll tick retries.
+      devLog(
+        '[LA] sendToken: updateTok=',
+        !!t,
+        'deviceTok=',
+        !!deviceToken,
+        'already=',
+        registered.has(t ?? ''),
+      );
       if (!t || !deviceToken || registered.has(t)) return;
       registered.add(t);
-      void registerLiveActivityToken({ activityUpdateToken: t, deviceToken }).catch(() => {});
+      devLog('[LA] registering update token → POST /api/live-activities');
+      void registerLiveActivityToken({ activityUpdateToken: t, deviceToken }).catch((e) =>
+        devLog('[LA] register POST failed', String(e)),
+      );
     };
 
-    const poll = setInterval(() => {
-      tries += 1;
-      if (!captured) {
-        const instances = tradeProposalActivity.getInstances();
-        if (instances.length > 0) {
-          captured = true;
-          instances.forEach((inst) => {
-            held.push(inst); // keep alive so the native observer isn't released
-            listenerSubs.push(
-              inst.addPushTokenListener((e) => sendToken((e as { pushToken?: string }).pushToken)),
-            );
-          });
-        }
+    const armCapture = () => {
+      devLog('[LA] arming capture poll');
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
       }
-      held.forEach((inst) => void inst.getPushToken().then(sendToken).catch(() => {}));
-      if (tries >= 20 || (captured && registered.size > 0)) clearInterval(poll);
-    }, 2000);
+      let tries = 0;
+      let captured = false;
+
+      pollTimer = setInterval(() => {
+        tries += 1;
+        if (!captured) {
+          const instances = tradeProposalActivity.getInstances();
+          if (instances.length > 0) {
+            captured = true;
+            devLog('[LA] captured', instances.length, 'instance(s)');
+            instances.forEach((inst) => {
+              held.push(inst); // keep alive so the native observer isn't released
+              listenerSubs.push(
+                inst.addPushTokenListener((e) => sendToken((e as { pushToken?: string }).pushToken)),
+              );
+            });
+          }
+        }
+        held.forEach((inst) => void inst.getPushToken().then(sendToken).catch(() => {}));
+        // ~90s window (45 × 2s): on a COLD launch, ActivityKit hydrates
+        // `getInstances()` with a while-dead push-started activity only after a
+        // race-y delay — a short poll can miss it. The long window + the
+        // foreground re-arm together win that race in practice.
+        if (tries >= 45 || (captured && registered.size > 0)) {
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        }
+      }, 2000);
+    };
+
+    armCapture();
+
+    const appStateSub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') armCapture();
+    });
 
     return () => {
+      appStateSub.remove();
+      if (pollTimer) clearInterval(pollTimer);
       tokenSub.remove();
       interactionSub.remove();
-      clearInterval(poll);
       listenerSubs.forEach((s) => s.remove());
     };
   }, []);

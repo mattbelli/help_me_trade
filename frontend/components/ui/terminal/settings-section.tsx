@@ -22,12 +22,12 @@ function SettingsSection({
   const content = (
     <>
       {title ? (
-        <h3 className="font-mono text-[11px] tracking-[0.1em] uppercase text-foreground">
+        <h3 className="font-mono text-[length:var(--fs-body)] tracking-[0.08em] uppercase text-foreground">
           {title}
         </h3>
       ) : null}
       {description ? (
-        <p className="font-mono text-[10px] leading-snug text-[var(--fg-dim)]">
+        <p className="font-mono text-[length:var(--fs-table)] leading-snug text-[var(--fg-dim)]">
           {description}
         </p>
       ) : null}
@@ -44,12 +44,12 @@ function SettingsSection({
         {title || description ? (
           <div className="space-y-1">
             {title ? (
-              <h3 className="font-mono text-[11px] tracking-[0.1em] uppercase text-foreground">
+              <h3 className="font-mono text-[length:var(--fs-body)] tracking-[0.08em] uppercase text-foreground">
                 {title}
               </h3>
             ) : null}
             {description ? (
-              <p className="font-mono text-[10px] leading-snug text-[var(--fg-dim)]">
+              <p className="font-mono text-[length:var(--fs-table)] leading-snug text-[var(--fg-dim)]">
                 {description}
               </p>
             ) : null}

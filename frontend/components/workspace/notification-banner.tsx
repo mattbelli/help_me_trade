@@ -11,6 +11,7 @@ import {
   useNotificationStore,
 } from "@/lib/workspace/use-notification-store";
 import { useNotificationActivate } from "@/lib/workspace/use-notification-activate";
+import { motionStd } from "@/lib/workspace/motion";
 
 const AUTO_DISMISS_MS = 6_000;
 const MAX_BANNERS = 3;
@@ -86,7 +87,10 @@ export function NotificationBanner() {
 
   return (
     <div className="pointer-events-none fixed top-14 right-4 z-[70] flex w-[min(100vw-2rem,22rem)] flex-col gap-2">
-      <AnimatePresence mode="popLayout">
+      {/* initial={false}: notifications already present when the shell mounts
+          (after a hard refresh) render in their final slot instead of paint-
+          then-nudge from the off-screen enter offset. Live ones still slide in. */}
+      <AnimatePresence mode="popLayout" initial={false}>
         {active.map((banner) => (
           <motion.div
             key={banner.key}
@@ -94,7 +98,7 @@ export function NotificationBanner() {
             initial={{ opacity: 0, x: 48 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 48 }}
-            transition={{ type: "spring", stiffness: 420, damping: 32 }}
+            transition={motionStd}
             className="pointer-events-auto overflow-hidden rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_45%,transparent)] bg-[var(--panel)] shadow-[var(--panel-shadow)]"
           >
             <div className="flex items-start gap-2 px-3 py-2.5">
@@ -104,7 +108,7 @@ export function NotificationBanner() {
                 className="flex min-w-0 flex-1 items-start gap-2 text-left"
               >
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--c-amber)]" />
-                <span className="min-w-0 font-mono text-[11px]">
+                <span className="min-w-0 font-mono text-[length:var(--fs-body)]">
                   <span className="block truncate font-semibold text-foreground">
                     {banner.title}
                   </span>

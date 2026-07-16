@@ -1,19 +1,26 @@
 /**
- * The ACTIVE color tokens — what every screen consumes (`import { colors } from
- * '@/theme'`). It's a single live object: `applyColors()` swaps the palette in
- * place (Object.assign) and ThemeProvider remounts the app subtree so render-time
- * reads pick up the new values. Defaults to Carbon.
+ * The ACTIVE color tokens — what every screen consumes. Two read paths:
+ *   - `useColors()` in components (reactive; re-renders on theme switch)
+ *   - `colors` global (synced fallback for helpers / non-React code)
  *
- * NOTE: read tokens at RENDER time (`colors.bg` inside a component / inline
- * style). A module-scope capture (`const x = colors.bg`) snapshots Carbon and
- * won't follow a theme switch — build such maps inside the component instead.
+ * `applyColors()` swaps the global in place; ThemeProvider also supplies the
+ * active palette via ColorsContext. Defaults to Carbon.
  */
+import { createContext, useContext } from 'react';
+
 import { type Colors } from './make-colors';
 import { themes } from './themes';
 
 export const colors: Colors = { ...themes.carbon };
 
-/** Swap the active palette in place. ThemeProvider calls this, then remounts. */
+const ColorsContext = createContext<Colors>(colors);
+export const ColorsProvider = ColorsContext.Provider;
+
+export function useColors(): Colors {
+  return useContext(ColorsContext);
+}
+
+/** Swap the active palette in place (keeps the global synced for non-hook readers). */
 export function applyColors(next: Colors): void {
   Object.assign(colors, next);
 }

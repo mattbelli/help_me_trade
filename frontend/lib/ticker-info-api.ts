@@ -91,12 +91,23 @@ export type TickerFacts = {
   }>;
 };
 
+// FINRA consolidated short interest — settles twice monthly, publishes ~9
+// business days later; settlement_date is the data's real freshness.
+export type TickerShortInterest = {
+  short_shares?: number | null;
+  days_to_cover?: number | null;
+  change_pct?: number | null;
+  avg_daily_volume?: number | null;
+  settlement_date?: string | null;
+};
+
 export type TickerInfo = {
   symbol: string;
   profile: TickerProfile;
   metrics: TickerMetrics;
   news: TickerNewsItem[];
   facts: TickerFacts;
+  short_interest?: TickerShortInterest;
 };
 
 export async function fetchTickerInfo(symbol: string): Promise<TickerInfo> {

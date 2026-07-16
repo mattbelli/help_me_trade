@@ -77,7 +77,7 @@ on demand:** realized P&L, FIFO round-trips, behavioral analysis, split adjustme
   (base prompt + intent blocks + retrieved memories), resolves the LLM runtime config, runs tools, finalizes.
 - **`ai/chat/tools.py`** — the tool catalog + dispatcher. Read-only tools (snapshot, memories, trade history,
   performance insights, web search, **`get_option_quote`**) and the write tools (**`propose_order`**,
-  `propose_rule`). `propose_order` is where an approved proposal becomes an `OrderIntent` and enters the
+  `create_rule`). `propose_order` is where an approved proposal becomes an `OrderIntent` and enters the
   trading chokepoint; it handles equity + option, buy + sell-to-close (with a held-position pre-check).
 - **`ai/chat/memory_extract.py` + `ai/memories/`** — post-turn learning. Extracts `{preference, lesson}` pairs
   (LLM + heuristic fallback), dedupes (semantic token-overlap), and persists. mem0 is optional; SQLite is the

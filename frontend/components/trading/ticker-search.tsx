@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { searchSymbols } from "@/lib/api";
@@ -11,12 +11,25 @@ type Props = {
   onChange: (symbol: string) => void;
   onSelect: (symbol: string) => void;
   className?: string;
+  /** Symbols already on the active list — marked "on list" in the dropdown. */
+  existing?: string[];
 };
 
-export function TickerSearch({ value, onChange, onSelect, className }: Props) {
+export function TickerSearch({
+  value,
+  onChange,
+  onSelect,
+  className,
+  existing,
+}: Props) {
+  const onList = useMemo(
+    () => new Set((existing ?? []).map((s) => s.toUpperCase())),
+    [existing],
+  );
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const userTypingRef = useRef(false);
 
@@ -36,10 +49,12 @@ export function TickerSearch({ value, onChange, onSelect, className }: Props) {
         .then((symbols) => {
           setSuggestions(symbols);
           setOpen(symbols.length > 0);
+          setActiveIndex(-1);
         })
         .catch(() => {
           setSuggestions([]);
           setOpen(false);
+          setActiveIndex(-1);
         })
         .finally(() => setLoading(false));
     }, 200);
@@ -73,12 +88,29 @@ export function TickerSearch({ value, onChange, onSelect, className }: Props) {
         className="uppercase"
         onChange={(e) => {
           userTypingRef.current = true;
+          setActiveIndex(-1);
           onChange(e.target.value.toUpperCase());
         }}
         onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (suggestions.length === 0) return;
+            setOpen(true);
+            setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+            return;
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIndex((i) => Math.max(i - 1, -1));
+            return;
+          }
           if (e.key === "Enter") {
             e.preventDefault();
-            commit(value || suggestions[0] || "");
+            commit(
+              activeIndex >= 0
+                ? suggestions[activeIndex]
+                : value || suggestions[0] || "",
+            );
           }
           if (e.key === "Escape") setOpen(false);
         }}
@@ -95,21 +127,38 @@ export function TickerSearch({ value, onChange, onSelect, className }: Props) {
         </span>
       )}
       {open && suggestions.length > 0 && (
-        <ul className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-md">
-          {suggestions.map((sym) => (
-            <li key={sym}>
-              <button
-                type="button"
-                className="w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  commit(sym);
-                }}
-              >
-                {sym}
-              </button>
-            </li>
-          ))}
+        <ul
+          className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-[var(--border-strong)] py-1 shadow-2xl ring-1 ring-black/50"
+          style={{
+            backgroundColor: "color-mix(in srgb, var(--popover) 86%, #ffffff)",
+          }}
+        >
+          {suggestions.map((sym, i) => {
+            const already = onList.has(sym.toUpperCase());
+            return (
+              <li key={sym}>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--c-accent-soft)]",
+                    i === activeIndex && "bg-[var(--c-accent-soft)]",
+                  )}
+                  onMouseEnter={() => setActiveIndex(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    commit(sym);
+                  }}
+                >
+                  <span>{sym}</span>
+                  {already && (
+                    <span className="text-[10px] text-muted-foreground">
+                      on list
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

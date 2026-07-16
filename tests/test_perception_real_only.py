@@ -27,6 +27,6 @@ def test_my_trades_excludes_paper_by_default(tmp_path):
     symbols = {e["symbol"] for e in default}
     assert symbols == {"NVDA"}  # real only — paper AAPL excluded
 
-    # explicit account_id still reaches a specific (even paper) account
+    # explicit paper account_id is refused — my_trades is REAL history only
     scoped = _my_trade_events({"account_id": paper}, db_path=db)
-    assert {e["symbol"] for e in scoped} == {"AAPL"}
+    assert scoped == []

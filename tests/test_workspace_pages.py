@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from db.base import connect
 from db.workspace import (
@@ -87,11 +86,8 @@ def test_load_pages_prefers_pages_row_over_layout(tmp_db: Path) -> None:
 
 
 @pytest.fixture()
-def client():
-    from api.main import app
-
-    with TestClient(app) as c:
-        yield c
+def client(mutation_client):
+    yield mutation_client
 
 
 def test_get_pages_auto_migrates_layout(client) -> None:

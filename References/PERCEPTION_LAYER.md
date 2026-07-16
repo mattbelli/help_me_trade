@@ -56,7 +56,7 @@ question needs. Keeps tokens sane and reasoning sharp.
 A small allowlisted set, each one intentional + reviewed:
 - `create_price_alert` / `update_price_alert` / `delete_price_alert` — notifications, safe (not orders).
 - `propose_order` — routes to the chokepoint; **human approves**; no direct broker, no shorting, paper-gated.
-- `propose_rule` — NL → validated RuleSpec → approve → armed.
+- `create_rule` (né propose_rule) — NL → validated RuleSpec → created ENABLED immediately (the tool name is honest about it).
 - *(future, deliberate)* `create_report`, `create_task`.
 
 **Explicitly NOT:** no code/config/settings writes, no raw DB mutation, no direct broker calls, no

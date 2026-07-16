@@ -6,13 +6,15 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from brokers.base import Order
 from db import order_executions as order_executions_mod
 from trading.fill_tracker import (
+    _fill_report_outcome,
+    _map_broker_status,
     reconcile_open_executions,
     reconcile_pending_executions,
 )
@@ -116,6 +118,107 @@ async def test_reconcile_updates_filled_and_broadcasts(
     assert call["data"]["execution_id"] == "exec_fill1"
     assert call["data"]["status"] == "filled"
     assert call["data"]["filled_qty"] == 10.0
+
+
+# --- board #41: done_for_day must map to a terminal status ------------------
+
+
+def test_map_broker_status_aliases_done_for_day() -> None:
+    """done_for_day branches on fill progress (board #41 + adversarial review).
+
+    Regression: it used to return None, so a day order that ended the session
+    stayed 'submitted' forever. Zero-fill maps to 'expired'; ANY fill maps to
+    'partially_filled' so attribution fires and the row keeps polling (Alpaca
+    docs: done_for_day orders resume updates next trading day — not final).
+    """
+    assert _map_broker_status("done_for_day") == "expired"
+    assert _map_broker_status("done_for_day", 0) == "expired"
+    assert _map_broker_status("DONE_FOR_DAY", None) == "expired"
+    assert _map_broker_status("  done_for_day  ", "not-a-number") == "expired"
+    assert _map_broker_status("done_for_day", 4.0) == "partially_filled"
+    assert _map_broker_status("done_for_day", "4") == "partially_filled"
+    # Unknown statuses still map to None (non-terminal, keep polling).
+    assert _map_broker_status("pending_new") is None
+
+
+def test_done_for_day_outcome_semantics() -> None:
+    """Zero-fill done_for_day → expired pushes 'unfilled'; a partial routes
+    through 'partially_filled', which defers the push to the true terminal."""
+    assert _fill_report_outcome("expired", 0) == "unfilled"
+    assert _fill_report_outcome("partially_filled", 4) is None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_done_for_day_unfilled_is_terminal(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A done_for_day order with no fills settles terminal ('expired'), not stuck."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_submitted(db, execution_id="exec_dfd", broker_order_id="ord-dfd")
+
+    stub_order = Order(
+        id="ord-dfd", symbol="AAPL", qty=10.0, side="buy", order_type="market",
+        status="done_for_day", filled_qty=0.0, limit_price=None,
+    )
+    monkeypatch.setattr(
+        "trading.fill_tracker.get_broker",
+        lambda _n: type("S", (), {"aget_order": AsyncMock(return_value=stub_order)})(),
+    )
+    monkeypatch.setattr(
+        "trading.fill_tracker.notify", AsyncMock(return_value={"id": "n"})
+    )
+
+    await reconcile_open_executions("alpaca", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_dfd", db_path=db)
+    assert row is not None and row["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_done_for_day_partial_records_managed_fill(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A partially-filled done_for_day maps to 'partially_filled': the managed
+    fill records the real shares AND the row stays in the reconcile pool until
+    the broker reports the true terminal status."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_submitted(db, execution_id="exec_dfd_p", broker_order_id="ord-dfd-p")
+
+    stub_order = Order(
+        id="ord-dfd-p", symbol="AAPL", qty=10.0, side="buy", order_type="market",
+        status="done_for_day", filled_qty=4.0, limit_price=None,
+    )
+    monkeypatch.setattr(
+        "trading.fill_tracker.get_broker",
+        lambda _n: type("S", (), {"aget_order": AsyncMock(return_value=stub_order)})(),
+    )
+    monkeypatch.setattr(
+        "trading.fill_tracker.notify", AsyncMock(return_value={"id": "n"})
+    )
+    record_strategy = MagicMock()
+    record_managed = MagicMock()
+    monkeypatch.setattr(
+        "trading.fill_tracker.record_strategy_fill", record_strategy
+    )
+    monkeypatch.setattr(
+        "trading.fill_tracker.record_session_node_managed_fill", record_managed
+    )
+
+    await reconcile_open_executions("alpaca", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_dfd_p", db_path=db)
+    assert row is not None and row["status"] == "partially_filled"
+    record_strategy.assert_called_once()
+    record_managed.assert_called_once()
+    assert record_managed.call_args.kwargs["status"] == "partially_filled"
+    assert record_strategy.call_args.kwargs["status"] == "partially_filled"
+    # partially_filled stays in the reconcile pool (polled until truly terminal).
+    still_open = order_executions_mod.list_submitted_executions(
+        "alpaca", db_path=db
+    )
+    assert any(r["id"] == "exec_dfd_p" for r in still_open)
 
 
 def _seed_partial(db_path: Path, *, execution_id: str, broker_order_id: str) -> None:

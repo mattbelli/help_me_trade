@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
   Select,
@@ -11,11 +13,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { type BrokerSnapshot } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useRealAccounts } from "@/lib/workspace/use-real-accounts";
 
 function accountSelectLabel(entry: BrokerSnapshot): string {
   const base = entry.account_label ?? entry.broker;
   return entry.is_default ? `${base} (default)` : base;
+}
+
+function AccountRow({
+  dotClassName,
+  children,
+}: {
+  dotClassName?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {dotClassName ? (
+        <span
+          className={cn("size-1.5 shrink-0 rounded-full", dotClassName)}
+          aria-hidden
+        />
+      ) : null}
+      <span className="truncate">{children}</span>
+    </span>
+  );
 }
 
 type AccountSelectorProps = {
@@ -34,34 +57,54 @@ export function AccountSelector({ value, onChange }: AccountSelectorProps) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v ?? "overview")}>
       <SelectTrigger
-        size="sm"
-        className="h-7 min-w-[7rem] border-[var(--border)] bg-[var(--bg-inset)] px-2 font-mono text-[10.5px] text-foreground"
+        plain
+        className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] transition-colors hover:text-foreground data-[popup-open]:text-foreground"
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="font-mono text-[11px]">
-        <SelectItem value="overview">Overview — Real + Paper</SelectItem>
+      <SelectContent className="min-w-[13rem] font-mono text-[length:var(--fs-body)]">
+        <SelectItem value="overview" className="px-2 py-1">
+          Overview
+        </SelectItem>
 
         {realAccounts.length > 0 ? (
-          <SelectGroup>
-            <SelectLabel>Real · Schwab (read-only)</SelectLabel>
-            <SelectItem value="all_real">All Schwab</SelectItem>
+          <SelectGroup className="p-0">
+            <SelectLabel className="px-2 pt-1.5 pb-0.5 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-green)] uppercase">
+              Real · Schwab (read-only)
+            </SelectLabel>
+            <SelectItem value="all_real" className="px-2 py-1">
+              <AccountRow dotClassName="bg-[var(--c-green)]">All Schwab</AccountRow>
+            </SelectItem>
             {realAccounts.map((acct) => (
-              <SelectItem key={acct.id} value={acct.id}>
-                {acct.label}
+              <SelectItem key={acct.id} value={acct.id} className="px-2 py-1">
+                <AccountRow dotClassName="bg-[var(--c-green)]">
+                  {acct.label}
+                </AccountRow>
               </SelectItem>
             ))}
           </SelectGroup>
         ) : null}
 
         {paperSnapshots.length > 0 ? (
-          <SelectGroup>
-            <SelectLabel>Paper · Alpaca</SelectLabel>
-            <SelectItem value="all_paper">All Alpaca</SelectItem>
+          <SelectGroup className="p-0">
+            <SelectLabel className="px-2 pt-1.5 pb-0.5 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase">
+              Paper · Alpaca
+            </SelectLabel>
+            <SelectItem value="all_paper" className="px-2 py-1">
+              <AccountRow dotClassName="bg-[var(--c-amber)]">
+                All Alpaca
+              </AccountRow>
+            </SelectItem>
             {paperSnapshots.map((s) =>
               s.account_id ? (
-                <SelectItem key={s.account_id} value={s.account_id}>
-                  {accountSelectLabel(s)}
+                <SelectItem
+                  key={s.account_id}
+                  value={s.account_id}
+                  className="px-2 py-1"
+                >
+                  <AccountRow dotClassName="bg-[var(--c-amber)]">
+                    {accountSelectLabel(s)}
+                  </AccountRow>
                 </SelectItem>
               ) : null,
             )}

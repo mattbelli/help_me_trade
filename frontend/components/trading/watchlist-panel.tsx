@@ -80,6 +80,7 @@ export function WatchlistPanel({
   const [addQuery, setAddQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -136,10 +137,17 @@ export function WatchlistPanel({
   async function handleAdd(symbol: string) {
     const sym = symbol.trim().toUpperCase();
     if (!sym) return;
+    const alreadyOnList = symbols.includes(sym);
     try {
-      await addWatchlistSymbol(sym);
+      setError(null);
+      if (!alreadyOnList) await addWatchlistSymbol(sym);
       await load();
       setAddQuery("");
+      setNotice(
+        alreadyOnList
+          ? `${sym} is already in ${activeList?.name ?? "this list"}`
+          : `Added ${sym}`,
+      );
       onSelect(sym);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add symbol");
@@ -236,7 +244,7 @@ export function WatchlistPanel({
                 </li>
               ))}
             </ul>
-            <div className="border-t border-border p-1">
+            <div className="border-t border-[var(--line-divider)] p-1">
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
@@ -268,8 +276,12 @@ export function WatchlistPanel({
         <div className="flex gap-2">
           <TickerSearch
             value={addQuery}
-            onChange={setAddQuery}
+            onChange={(v) => {
+              setAddQuery(v);
+              if (notice) setNotice(null);
+            }}
             onSelect={handleAdd}
+            existing={symbols}
             className="flex-1"
           />
           <Button
@@ -284,9 +296,11 @@ export function WatchlistPanel({
         </div>
       </div>
 
-      {error && (
+      {error ? (
         <p className="px-3 pt-2 text-xs text-destructive">{error}</p>
-      )}
+      ) : notice ? (
+        <p className="px-3 pt-2 text-xs text-muted-foreground">{notice}</p>
+      ) : null}
 
       <ScrollArea className="min-h-0 flex-1 px-2 py-2">
         {loading ? (
@@ -302,7 +316,16 @@ export function WatchlistPanel({
               const session = quote?.market_session;
               const extBadge =
                 session && session in EXT_SESSION_BADGE && quote?.ext_price != null
-                  ? EXT_SESSION_BADGE[session]
+                  ? {
+                      ...EXT_SESSION_BADGE[session],
+                      title: quote.overnight_delayed
+                        ? `${EXT_SESSION_BADGE[session].title} — delayed ~15 min`
+                        : EXT_SESSION_BADGE[session].title,
+                      label:
+                        session === "overnight" && quote.overnight_delayed
+                          ? "24h·dly"
+                          : EXT_SESSION_BADGE[session].label,
+                    }
                   : null;
               const displayPrice = extBadge
                 ? (quote?.ext_price ?? 0)
@@ -454,7 +477,7 @@ export function WatchlistPanel({
   if (variant === "rail") {
     return (
       <div className={cn("flex h-full min-h-0 flex-col", className)}>
-        <div className="border-b border-border px-3 py-2">
+        <div className="border-b border-[var(--line-divider)] px-3 py-2">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium">Watchlist</p>
             {marketLive ? (

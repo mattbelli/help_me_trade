@@ -31,7 +31,7 @@ export function RailSettings({ config, onChange }: Props) {
   }
 
   return (
-    <div className="space-y-4 border-b border-border px-3 py-3">
+    <div className="space-y-4 border-b border-[var(--line-divider)] px-3 py-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Settings2 className="size-4 text-muted-foreground" strokeWidth={1.75} />

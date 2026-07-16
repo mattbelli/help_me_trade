@@ -14,13 +14,20 @@ import {
 import { ChartContainer } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceDashboard,
   type PerformancePeriod,
   type RoundTrip,
 } from "@/lib/performance-api";
 import { parseMoney } from "@/lib/trades-api";
 import { cn } from "@/lib/utils";
+import type { ChannelId } from "@/lib/workspace/channels";
 import { useDashboardPrefs } from "@/lib/workspace/use-dashboard-prefs";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import type { WidgetProps } from "@/lib/workspace/widget-registry";
 
 const PERIODS: { key: PerformancePeriod; label: string }[] = [
   { key: "month", label: "Month" },
@@ -65,14 +72,14 @@ function ScatterTooltip({
 
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 shadow-sm">
-      <p className="font-mono text-[10px] font-semibold text-foreground">
+      <p className="font-mono text-[length:var(--fs-table)] font-semibold text-foreground">
         {point.symbol}
       </p>
-      <p className="font-mono text-[10px] text-[var(--fg-dim)]">
+      <p className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
         {point.holdDays} day{point.holdDays === 1 ? "" : "s"} held
       </p>
       <p
-        className="font-mono text-[11px] font-semibold tabular-nums"
+        className="font-mono text-[length:var(--fs-body)] font-semibold tabular-nums"
         style={{ color: point.pnl >= 0 ? "var(--c-green)" : "var(--c-red)" }}
       >
         {point.pnl >= 0 ? "+" : ""}
@@ -82,7 +89,9 @@ function ScatterTooltip({
   );
 }
 
-export function PnlScatterWidget() {
+export function PnlScatterWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
   const { selectedAccountId } = useDashboardPrefs();
   const [period, setPeriod] = useState<PerformancePeriod>("all");
   const [roundTrips, setRoundTrips] = useState<RoundTrip[]>([]);
@@ -121,7 +130,7 @@ export function PnlScatterWidget() {
 
   const periodButtonClass = (active: boolean) =>
     cn(
-      "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+      "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
       active
         ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
         : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -129,12 +138,9 @@ export function PnlScatterWidget() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate font-mono text-[10px] uppercase tracking-[0.05em] text-[var(--fg-faint)]">
-            Hold time vs P&L
-          </span>
-          <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+          <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             {points.length} trade{points.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -154,16 +160,12 @@ export function PnlScatterWidget() {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && points.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : points.length === 0 ? (
-          <div className="flex h-full min-h-24 items-center justify-center">
-            <p className="font-mono text-xs text-[var(--fg-dim)]">
-              No closed trades in this period
-            </p>
-          </div>
+          <WidgetEmpty message="No closed trades in this period" />
         ) : (
           <ChartContainer config={{}} className="h-full w-full aspect-auto">
             <ScatterChart margin={{ top: 4, right: 8, left: 4, bottom: 16 }}>
@@ -198,11 +200,19 @@ export function PnlScatterWidget() {
               />
               <ReferenceLine y={0} stroke="var(--border)" strokeDasharray="3 3" />
               <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: "3 3" }} />
-              <Scatter data={points} isAnimationActive={false}>
+              <Scatter
+                data={points}
+                isAnimationActive={false}
+                cursor={linked ? "pointer" : undefined}
+                onClick={(data: { payload?: ScatterPoint }) => {
+                  const sym = data?.payload?.symbol;
+                  if (sym) publish(sym);
+                }}
+              >
                 {points.map((point, idx) => (
                   <Cell
                     key={`${point.symbol}-${idx}`}
-                    fill={point.pnl >= 0 ? "var(--c-green)" : "var(--c-red)"}
+                    fill={point.pnl >= 0 ? "var(--c-green-bg)" : "var(--c-red)"}
                   />
                 ))}
               </Scatter>

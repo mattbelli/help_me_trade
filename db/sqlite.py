@@ -103,6 +103,15 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON position_snapshots(poll_run_id)
             """
         )
+        # Same for order_snapshots: the nightly retention prune deletes by
+        # poll_run_id in 5k-id batches — unindexed, each batch full-scans while
+        # holding the write lock the 20s poll loop is waiting on.
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_order_snapshots_poll_run
+                ON order_snapshots(poll_run_id)
+            """
+        )
 
 
 def save_snapshot(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useAui } from "@assistant-ui/react";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useCallback } from "react";
 
@@ -8,7 +9,7 @@ import {
   fetchWatchlists,
   updateWatchlist,
 } from "@/lib/api";
-import { useConsoleStore } from "@/lib/workspace/use-console-store";
+import { useTerminalStore } from "@/lib/workspace/use-terminal-store";
 import {
   WORKSPACE_THEME_LABELS,
   WORKSPACE_THEMES,
@@ -34,6 +35,7 @@ export type CommandResult = {
 
 export const WORKSPACE_COMMANDS = [
   "/positions",
+  "/board",
   "/add",
   "/theme",
   "/clear",
@@ -42,11 +44,12 @@ export const WORKSPACE_COMMANDS = [
 ] as const;
 
 export function useWorkspaceCommands() {
+  const router = useRouter();
   const { showToast } = useWorkspaceToast();
   const { theme, setTheme } = useTheme();
   const openWidgetPicker = useWorkspaceStore((s) => s.openPicker);
   const addWidget = useWorkspaceStore((s) => s.addWidget);
-  const clearScrollback = useConsoleStore((s) => s.clearScrollback);
+  const clearScrollback = useTerminalStore((s) => s.clearScrollback);
   const customThemes = useCustomThemeStore((s) => s.themes);
   const aui = useAui();
 
@@ -113,6 +116,17 @@ export function useWorkspaceCommands() {
         }
       }
 
+      // Bare "/watchlist" or "/watchlist add" (no symbol) — show usage instead
+      // of the misleading "unknown command"; point widget-seekers at /add.
+      if (/^\/watchlist(\s+(add|remove))?$/i.test(value)) {
+        return {
+          handled: true,
+          error:
+            "usage: /watchlist add <symbol> · /watchlist remove <symbol> — " +
+            "for the watchlist widget use /add watchlist",
+        };
+      }
+
       const themeMatch = THEME_NAMED_RE.exec(value);
       if (themeMatch) {
         const named = themeMatch[1]?.toLowerCase();
@@ -160,6 +174,10 @@ export function useWorkspaceCommands() {
         case "/positions":
           showToast("/positions — coming soon");
           return { handled: true, output: "positions — coming soon" };
+        case "/board":
+          router.push("/board");
+          showToast("Project board");
+          return { handled: true, output: "navigating to project board" };
         case "/add": {
           const arg = value.split(/\s+/).slice(1).join(" ").trim();
           if (!arg) {
@@ -167,9 +185,19 @@ export function useWorkspaceCommands() {
             return { handled: true, output: "widget picker opened" };
           }
 
-          const widget = WIDGET_REGISTRY.find(
-            (entry) => entry.id.toLowerCase() === arg.toLowerCase(),
-          );
+          const needle = arg.toLowerCase();
+          // Exact id → title → substring of either (so "/add chain" and
+          // "/add trading calendar" both resolve).
+          const widget =
+            WIDGET_REGISTRY.find((entry) => entry.id.toLowerCase() === needle) ??
+            WIDGET_REGISTRY.find(
+              (entry) => entry.title.toLowerCase() === needle,
+            ) ??
+            WIDGET_REGISTRY.find(
+              (entry) =>
+                entry.id.toLowerCase().includes(needle) ||
+                entry.title.toLowerCase().includes(needle),
+            );
           if (!widget) {
             const ids = WIDGET_REGISTRY.map((entry) => entry.id).join(", ");
             return {
@@ -196,11 +224,11 @@ export function useWorkspaceCommands() {
         default:
           return {
             handled: true,
-            error: `unknown command: ${value.split(/\s+/)[0]}`,
+            error: `unknown command: ${value.split(/\s+/)[0]} — available: ${WORKSPACE_COMMANDS.join(" · ")}`,
           };
       }
     },
-    [addWidget, aui, clearScrollback, customThemes, openWidgetPicker, setTheme, showToast, theme],
+    [addWidget, aui, clearScrollback, customThemes, openWidgetPicker, router, setTheme, showToast, theme],
   );
 
   return { runCommand };

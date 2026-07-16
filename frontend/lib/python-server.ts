@@ -41,13 +41,14 @@ export async function fetchLlmRuntime(model?: string): Promise<LlmRuntime> {
 export async function fetchChatContext(
   userText: string,
   injectMemories = false,
+  injectJournal = true,
 ): Promise<{
   system: string;
   memories: unknown[];
 }> {
   const res = await pythonFetch("/api/chat/context", {
     method: "POST",
-    body: JSON.stringify({ userText, injectMemories }),
+    body: JSON.stringify({ userText, injectMemories, injectJournal }),
   });
   if (!res.ok) {
     throw new Error(`Chat context error ${res.status}`);
@@ -87,7 +88,14 @@ export async function finalizeChatTurn(payload: {
   });
 }
 
-export async function proxyLegacyPythonChat(body: unknown): Promise<Response> {
+/**
+ * Proxy a chat turn to the ONE Python brain (`POST /api/chat`), streaming its
+ * AI-SDK UIMessageStream bytes straight through. Used both as the default
+ * `CHAT_BRAIN=python` path (forwarding the full request body, incl. enabledTools
+ * + autoInjectMemories) and as the `CHAT_BRAIN=ts` non-native fallback. The
+ * Python endpoint owns the loop, tools, approval HITL, and session persistence.
+ */
+export async function proxyPythonChat(body: unknown): Promise<Response> {
   const res = await pythonFetch("/api/chat", {
     method: "POST",
     body: JSON.stringify(body),

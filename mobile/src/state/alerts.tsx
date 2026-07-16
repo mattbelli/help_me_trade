@@ -7,16 +7,20 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import type { MarketAlert } from '@/api/types';
+import type { FeedNotification, MarketAlert } from '@/api/types';
 
-const MAX_ALERTS = 200;
+const MAX_ALERTS = 300;
 const MAX_DISMISSED = 500; // bound the persisted set so it can't grow forever
 const DISMISSED_KEY = 'inbox.dismissed.v1';
+const READ_KEY = 'inbox.read.v1';
 
 interface AlertsValue {
   alerts: MarketAlert[];
+  notifications: FeedNotification[];
   pushAlert: (alert: MarketAlert) => void;
+  pushNotification: (notification: FeedNotification) => void;
   seed: (alerts: MarketAlert[]) => void;
+  seedNotifications: (notifications: FeedNotification[]) => void;
   readIds: Set<string>;
   isRead: (id: string) => boolean;
   markRead: (id: string) => void;
@@ -29,10 +33,32 @@ const AlertsContext = createContext<AlertsValue | null>(null);
 
 export function AlertsProvider({ children }: { children: ReactNode }) {
   const [alerts, setAlerts] = useState<MarketAlert[]>([]);
+  const [notifications, setNotifications] = useState<FeedNotification[]>([]);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const seenIds = useRef<Set<string>>(new Set());
   // Ref (not state) — only consulted at push/seed/clear time, never rendered.
   const dismissedRef = useRef<Set<string>>(new Set());
+  // Read state is persisted so a theme-switch remount (live-colors arch) doesn't
+  // wipe it — otherwise everything reads as unread again after switching themes.
+  const readHydrated = useRef(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(READ_KEY)
+      .then((raw) => {
+        if (raw) setReadIds(new Set(JSON.parse(raw) as string[]));
+      })
+      .catch(() => {})
+      .finally(() => {
+        readHydrated.current = true;
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!readHydrated.current) return; // don't overwrite stored reads before hydrate
+    let ids = [...readIds];
+    if (ids.length > MAX_DISMISSED) ids = ids.slice(ids.length - MAX_DISMISSED);
+    void AsyncStorage.setItem(READ_KEY, JSON.stringify(ids)).catch(() => {});
+  }, [readIds]);
 
   // Hydrate dismissed from storage, then drop any already-shown dismissed alerts.
   useEffect(() => {
@@ -43,6 +69,7 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
         try {
           dismissedRef.current = new Set(JSON.parse(raw) as string[]);
           setAlerts((cur) => cur.filter((a) => !(a.id && dismissedRef.current.has(a.id))));
+          setNotifications((cur) => cur.filter((n) => !(n.id && dismissedRef.current.has(n.id))));
         } catch {
           // ignore malformed storage
         }
@@ -68,18 +95,46 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
     setAlerts((prev) => [alert, ...prev].slice(0, MAX_ALERTS));
   }, []);
 
+  const pushNotification = useCallback((notification: FeedNotification) => {
+    if (notification.id && (seenIds.current.has(notification.id) || dismissedRef.current.has(notification.id))) return;
+    if (notification.id) seenIds.current.add(notification.id);
+    setNotifications((prev) => [notification, ...prev].slice(0, MAX_ALERTS));
+  }, []);
+
   const seed = useCallback((next: MarketAlert[]) => {
     const fresh = next.filter((a) => !(a.id && dismissedRef.current.has(a.id)));
-    seenIds.current = new Set(fresh.map((a) => a.id).filter(Boolean) as string[]);
+    seenIds.current = new Set([
+      ...seenIds.current,
+      ...fresh.map((a) => a.id).filter(Boolean) as string[],
+    ]);
     setAlerts(fresh.slice(0, MAX_ALERTS));
+  }, []);
+
+  const seedNotifications = useCallback((next: FeedNotification[]) => {
+    const fresh = next.filter((n) => !(n.id && dismissedRef.current.has(n.id)));
+    seenIds.current = new Set([
+      ...seenIds.current,
+      ...fresh.map((n) => n.id).filter(Boolean) as string[],
+    ]);
+    setNotifications(fresh.slice(0, MAX_ALERTS));
   }, []);
 
   const isRead = useCallback((id: string) => readIds.has(id), [readIds]);
   const markRead = useCallback((id: string) => setReadIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id))), []);
-  const markAllRead = useCallback(
-    () => setAlerts((cur) => { setReadIds(new Set(cur.map((a) => a.id).filter(Boolean) as string[])); return cur; }),
-    [],
-  );
+  const markAllRead = useCallback(() => {
+    setAlerts((curAlerts) => {
+      setNotifications((curNotifs) => {
+        setReadIds(
+          new Set([
+            ...curAlerts.map((a) => a.id).filter(Boolean),
+            ...curNotifs.map((n) => n.id).filter(Boolean),
+          ] as string[]),
+        );
+        return curNotifs;
+      });
+      return curAlerts;
+    });
+  }, []);
 
   const clearRead = useCallback(() => {
     setAlerts((cur) => {
@@ -96,11 +151,37 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
       if (changed) persistDismissed();
       return changed ? remaining : cur;
     });
+    setNotifications((cur) => {
+      const remaining: FeedNotification[] = [];
+      let changed = false;
+      for (const n of cur) {
+        if (n.id && readIds.has(n.id)) {
+          dismissedRef.current.add(n.id);
+          changed = true;
+        } else {
+          remaining.push(n);
+        }
+      }
+      if (changed) persistDismissed();
+      return changed ? remaining : cur;
+    });
   }, [readIds, persistDismissed]);
 
   const value = useMemo<AlertsValue>(
-    () => ({ alerts, pushAlert, seed, readIds, isRead, markRead, markAllRead, clearRead }),
-    [alerts, pushAlert, seed, readIds, isRead, markRead, markAllRead, clearRead],
+    () => ({
+      alerts,
+      notifications,
+      pushAlert,
+      pushNotification,
+      seed,
+      seedNotifications,
+      readIds,
+      isRead,
+      markRead,
+      markAllRead,
+      clearRead,
+    }),
+    [alerts, notifications, pushAlert, pushNotification, seed, seedNotifications, readIds, isRead, markRead, markAllRead, clearRead],
   );
   return <AlertsContext.Provider value={value}>{children}</AlertsContext.Provider>;
 }

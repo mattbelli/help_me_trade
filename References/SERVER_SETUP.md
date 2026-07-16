@@ -74,6 +74,61 @@ WantedBy=multi-user.target
 `sudo systemctl enable --now hmt-backend` (do the same for the frontend, or serve the built Next.js). Now the
 agent runs 24/7 and survives reboots.
 
+### hmt-flow-collector — the options-flow pipeline as its own process (2026-07-14)
+The intraday options-flow pipeline (30s poll + OPRA websocket + sweep consumer) can run outside the API so a
+stalled API event loop can't blind the stream and a hot open can't starve the trading loops. Same code either
+way (`signals/options_flow/runner.py`); ownership is flipped by ONE switch in the shared `.env`:
+`OPTIONS_FLOW_EXTERNAL_COLLECTOR=1` (API refuses to start it in-process, collector refuses to start without
+it — never two OPRA sockets, Alpaca 406s the second).
+
+`/etc/systemd/system/hmt-flow-collector.service`:
+```ini
+[Unit]
+Description=help_me_trade options-flow collector
+After=network-online.target
+[Service]
+WorkingDirectory=/home/<you>/help_me_trade
+ExecStart=/home/<you>/help_me_trade/.venv/bin/python tools/flow_collector.py
+Restart=always
+RestartSec=3
+User=<you>
+[Install]
+WantedBy=multi-user.target
+```
+Enable (one-time sudo): set `OPTIONS_FLOW_EXTERNAL_COLLECTOR=1` in `.env`, then
+`sudo systemctl enable --now hmt-flow-collector && tools/serv-deploy.sh backend` (the backend restart makes
+the API drop its in-process pipeline). Roll back by flipping the flag to 0 and reversing the two steps.
+Deploys that touch flow code need `systemctl restart hmt-flow-collector` too — `tools/serv-deploy.sh` handles
+it when the unit exists.
+
+### hmt-equity-collector — the market-wide equity tape as its own process (2026-07-15)
+Same extraction pattern for the STOCKS socket (also 1 connection/account — measured: second connection 406s).
+`tools/equity_collector.py` owns the Alpaca stocks v2 websocket with **wildcard trades+quotes** (measured
+midday: ~17k msgs/s ≈ 9% of one core), runs market-wide tape detection (blocks/dark pool via
+`signals/equity_tape.py`, ISO sweeps + print-velocity spikes via `signals/equity_stream/`), and serves the
+API hub its watchlist slice back over a local proxy (`ws://127.0.0.1:8767`, same Alpaca JSON protocol).
+Ownership flips with `EQUITY_TAPE_EXTERNAL_COLLECTOR=1` in `.env`: the hub dials the proxy instead of
+upstream and the API's tape flush loop stands down; the collector refuses to start without the flag.
+
+`/etc/systemd/system/hmt-equity-collector.service`:
+```ini
+[Unit]
+Description=help_me_trade equity tape collector
+After=network-online.target
+[Service]
+WorkingDirectory=/home/<you>/help_me_trade
+ExecStart=/home/<you>/help_me_trade/.venv/bin/python tools/equity_collector.py
+Restart=always
+RestartSec=3
+User=<you>
+[Install]
+WantedBy=multi-user.target
+```
+Enable (one-time sudo): set `EQUITY_TAPE_EXTERNAL_COLLECTOR=1` in `.env`, then
+`sudo systemctl enable --now hmt-equity-collector && tools/serv-deploy.sh backend`. Start order doesn't
+matter: whichever comes up second finds the socket busy/proxy missing and retries on its backoff (hub caps
+at 60s). Roll back by flipping the flag to 0 and reversing the two steps.
+
 ## 6. Networking — Tailscale + CORS (same class of fix as the LAN-IP issue)
 - Bind backend to `0.0.0.0` (service above) so it's reachable on the Tailscale interface.
 - Set `frontend/.env.local` → `NEXT_PUBLIC_API_URL=http://<server-tailscale-name>:8000`.

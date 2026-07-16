@@ -59,7 +59,7 @@ function ProposalStatusBanner({
       className={cn(
         "my-2 rounded-lg border p-3 text-sm",
         variant === "success" &&
-          "border-[var(--c-green)]/40 bg-[var(--c-green)]/10 text-[var(--c-green)]",
+          "border-[var(--c-green)]/40 bg-[var(--c-green-bg)]/10 text-[var(--c-green)]",
         variant === "rejected" &&
           "border-border/70 bg-muted/40 text-muted-foreground",
         variant === "processing" &&
@@ -87,7 +87,7 @@ function ProposalStatusBanner({
 
 export const ProposeRuleToolUI = makeAssistantToolUI<ProposalArgs, ProposalResult>(
   {
-    toolName: "propose_rule",
+    toolName: "create_rule",
     display: "standalone",
     render: ({
       args,
@@ -144,7 +144,7 @@ export const ProposeRuleToolUI = makeAssistantToolUI<ProposalArgs, ProposalResul
             <ProposalStatusBanner
               variant="rejected"
               title="Could not arm alert rule"
-              description={result.error ?? "The propose_rule tool returned an error."}
+              description={result.error ?? "The create_rule tool returned an error."}
             />
           );
         }

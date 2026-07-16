@@ -1,16 +1,27 @@
 import type { AiSettings } from "./ai-settings";
 import type { CustomTheme } from "./workspace/custom-themes";
-import type { WorkspaceLayoutItem, WorkspacePagesState } from "./workspace/layout-persistence";
+import type {
+  WorkspaceLayoutItem,
+  WorkspacePagesState,
+  WorkspacesState,
+} from "./workspace/layout-persistence";
+import { isValidWorkspacesState } from "./workspace/layout-persistence";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 export const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN ?? "";
 
-export function apiAuthHeaders(extra?: HeadersInit): HeadersInit {
+export function apiAuthHeaders(
+  extra?: HeadersInit,
+  tokenOverride?: string,
+): HeadersInit {
   const headers = new Headers(extra);
-  if (API_TOKEN) {
-    headers.set("X-API-Token", API_TOKEN);
+  // `||` not `??`: an empty-string override (untouched admin field) must fall
+  // through to API_TOKEN, else the normal token is silently dropped.
+  const token = tokenOverride || API_TOKEN;
+  if (token) {
+    headers.set("X-API-Token", token);
   }
   return headers;
 }
@@ -19,6 +30,7 @@ export async function apiFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
   timeoutMs = 20_000,
+  tokenOverride?: string,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -26,7 +38,7 @@ export async function apiFetch(
     return await fetch(input, {
       ...init,
       signal: init?.signal ?? controller.signal,
-      headers: apiAuthHeaders(init?.headers),
+      headers: apiAuthHeaders(init?.headers, tokenOverride),
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
@@ -120,6 +132,13 @@ export type BrokerSnapshot = {
   money_type?: "paper" | "real";
 };
 
+export type AlpacaDataFeedInfo = {
+  configured: "auto" | "sip" | "iex";
+  tier: "paid" | "free";
+  feed: "sip" | "iex";
+  overnight_feed: "boats" | "overnight";
+};
+
 export type BrokerInfo = {
   broker: string;
   primary_broker?: string;
@@ -128,6 +147,7 @@ export type BrokerInfo = {
     {
       enabled: boolean;
       configured: boolean;
+      data_feed?: AlpacaDataFeedInfo;
       auth?: {
         authenticated: boolean;
         message: string;
@@ -142,8 +162,18 @@ export type BrokerInfo = {
   };
 };
 
-export async function fetchBroker(): Promise<BrokerInfo> {
-  const res = await apiFetch(`${API_BASE}/api/broker`, { cache: "no-store" });
+export async function fetchBroker(options?: {
+  recheckFeed?: boolean;
+}): Promise<BrokerInfo> {
+  const params = new URLSearchParams();
+  if (options?.recheckFeed) {
+    params.set("recheck_feed", "1");
+  }
+  const query = params.toString();
+  const url = query
+    ? `${API_BASE}/api/broker?${query}`
+    : `${API_BASE}/api/broker`;
+  const res = await apiFetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }
@@ -211,6 +241,7 @@ export type BarsResponse = {
   symbol: string;
   timeframe: string;
   bars: StockBar[];
+  overnight_delayed?: boolean;
 };
 
 export async function fetchPortfolioHistory(
@@ -232,11 +263,14 @@ export async function fetchPortfolioHistory(
 
 export async function fetchBars(
   symbol: string,
-  options?: { timeframe?: string; days?: number },
+  options?: { timeframe?: string; days?: number; extended?: boolean },
 ): Promise<BarsResponse> {
   const params = new URLSearchParams({ symbol });
   if (options?.timeframe) params.set("timeframe", options.timeframe);
   if (options?.days) params.set("days", String(options.days));
+  if (options?.extended != null) {
+    params.set("extended", options.extended ? "true" : "false");
+  }
 
   const res = await apiFetch(`${API_BASE}/api/bars?${params}`, {
     cache: "no-store",
@@ -252,19 +286,48 @@ export async function fetchBars(
 
 export const SECRET_MASK = "********";
 
+export type ResearchModelRoles = {
+  planner?: string;
+  specialists?: string;
+  extraction?: string;
+  critic?: string;
+  editor?: string;
+};
+
+export type ResearchSettings = {
+  searxng_url: string;
+  model_roles?: ResearchModelRoles;
+  strong_model?: string;
+  fast_model?: string;
+  auto_delegate?: boolean;
+  effort?: string;
+};
+
 export type TradingSettings = {
   execution_mode: "dry_run" | "paper" | "live";
   kill_switch_active: boolean;
+  // HALT state — blocks exposure-increasing entries while exits still flow.
+  // Toggled only via POST /api/entries-halt (rejected by PUT /api/settings),
+  // same as kill_switch_active.
+  entries_halted: boolean;
   max_order_value_usd: number;
   max_position_pct: number;
   max_open_orders: number;
   max_daily_orders: number;
+  max_daily_loss_usd: number;
+  max_daily_notional_usd: number;
+  max_rebalance_run_notional_usd: number;
   allow_short_selling: boolean;
 };
 
 export type ReportsSettings = {
   morning_levels_enabled: boolean;
   hour_et: number;
+};
+
+export type AlertsSettings = {
+  // Daily ceiling on flow/confluence phone pushes; in-app cards are never capped.
+  max_push_per_day: number;
 };
 
 export type AppSettings = {
@@ -286,11 +349,10 @@ export type AppSettings = {
     };
   };
   ai: AiSettings;
-  research?: {
-    searxng_url: string;
-  };
+  research?: ResearchSettings;
   trading?: TradingSettings;
   reports?: ReportsSettings;
+  alerts?: AlertsSettings;
 };
 
 export async function fetchSettings(): Promise<AppSettings> {
@@ -299,16 +361,53 @@ export async function fetchSettings(): Promise<AppSettings> {
   return res.json();
 }
 
-export async function saveSettings(patch: AppSettings): Promise<AppSettings> {
-  const res = await apiFetch(`${API_BASE}/api/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
+export async function saveSettings(
+  patch: Partial<AppSettings>,
+  adminToken?: string,
+): Promise<AppSettings> {
+  const res = await apiFetch(
+    `${API_BASE}/api/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+    20_000,
+    adminToken,
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    const detail = (body as { detail?: string }).detail;
     throw new Error(
-      (body as { error?: string }).error ?? `Settings save error ${res.status}`,
+      detail ??
+        (body as { error?: string }).error ??
+        `Settings save error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function setKillSwitch(
+  active: boolean,
+  adminToken?: string,
+): Promise<{ kill_switch_active: boolean }> {
+  const res = await apiFetch(
+    `${API_BASE}/api/kill-switch`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active }),
+    },
+    20_000,
+    adminToken,
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const detail = (body as { detail?: string }).detail;
+    throw new Error(
+      detail ??
+        (body as { error?: string }).error ??
+        `Kill switch error ${res.status}`,
     );
   }
   return res.json();
@@ -323,10 +422,22 @@ export type ChartLayoutItem = {
   symbol: string;
 };
 
+export type WatchlistColumnSetting = {
+  key: string;
+  visible: boolean;
+  width?: number;
+};
+
+export type WatchlistSettings = {
+  columns?: WatchlistColumnSetting[];
+  density?: "compact" | "comfortable" | "spacious";
+};
+
 export type Watchlist = {
   id: string;
   name: string;
   symbols: string[];
+  settings?: WatchlistSettings;
 };
 
 export type WatchlistsState = {
@@ -345,6 +456,7 @@ export type WatchlistQuote = {
   sparkline: number[];
   intraday?: number[];
   prev_close?: number;
+  gap_pct?: number | null;
   volume?: number;
   day_high?: number;
   day_low?: number;
@@ -352,12 +464,22 @@ export type WatchlistQuote = {
   market_session?: "pre" | "regular" | "post" | "overnight" | "closed";
   ext_price?: number | null;
   ext_change_pct?: number | null;
+  overnight_delayed?: boolean;
   pe?: number | null;
   eps?: number | null;
   div_yield?: number | null;
   market_cap?: number | null;
   last_earnings?: string | null;
   next_earnings?: string | null;
+  bid?: number | null;
+  ask?: number | null;
+  w52_high?: number | null;
+  w52_low?: number | null;
+  atr14?: number | null;
+  sma50?: number | null;
+  sma200?: number | null;
+  // Derived in the widget from spy_change_pct, not sent by the server.
+  vs_spy?: number | null;
 };
 
 export async function fetchWatchlists(): Promise<WatchlistsState> {
@@ -396,7 +518,7 @@ export async function createWatchlist(
 
 export async function updateWatchlist(
   id: string,
-  patch: { name?: string; symbols?: string[] },
+  patch: { name?: string; symbols?: string[]; settings?: WatchlistSettings },
 ): Promise<WatchlistsState> {
   const res = await apiFetch(`${API_BASE}/api/watchlists/${encodeURIComponent(id)}`, {
     method: "PUT",
@@ -427,7 +549,10 @@ export async function deleteWatchlist(id: string): Promise<WatchlistsState> {
 
 export async function fetchWatchlistMarket(
   symbols?: string[],
-): Promise<Record<string, WatchlistQuote>> {
+): Promise<{
+  quotes: Record<string, WatchlistQuote>;
+  spyChangePct: number | null;
+}> {
   const params = symbols?.length
     ? new URLSearchParams({ symbols: symbols.join(",") })
     : new URLSearchParams();
@@ -441,7 +566,10 @@ export async function fetchWatchlistMarket(
     );
   }
   const data = await res.json();
-  return data.quotes ?? {};
+  return {
+    quotes: data.quotes ?? {},
+    spyChangePct: data.spy_change_pct ?? null,
+  };
 }
 
 export async function fetchWatchlist(): Promise<string[]> {
@@ -505,6 +633,117 @@ export async function fetchRvolScanner(
     const body = await res.json().catch(() => ({}));
     throw new Error(
       (body as { error?: string }).error ?? `RVOL scanner error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export type OptionsFlowEvent = {
+  id: string;
+  ts: string;
+  underlying: string;
+  occ_symbol: string | null;
+  right: string | null;
+  strike: number | null;
+  expiry: string | null;
+  dte: number | null;
+  otm_pct: number | null;
+  event_type: string;
+  contracts: number | null;
+  premium_usd: number | null;
+  vol_oi_ratio: number | null;
+  vol_zscore: number | null;
+  direction: "buy_side" | "sell_side" | "undetermined";
+  direction_basis: string;
+  spread_flag: boolean | null;
+  n_prints: number | null;
+  exchanges: string[];
+  reason: string;
+  caveat: string;
+  detail?: Record<string, number> | null;
+};
+
+export type OptionsFlowResult = {
+  as_of: string;
+  count: number;
+  events: OptionsFlowEvent[];
+};
+
+export type OptionsChainSide = {
+  bid: number | null;
+  ask: number | null;
+  iv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  volume: number | null;
+  oi: number | null;
+  last: number | null;
+};
+
+export type OptionsChainRow = {
+  strike: number;
+  call: OptionsChainSide;
+  put: OptionsChainSide;
+};
+
+export type OptionsChainResult = {
+  symbol: string;
+  underlying_price: number | null;
+  expirations: string[];
+  expiry: string | null;
+  rows: OptionsChainRow[];
+  as_of: string | null;
+};
+
+export type OptionsChainStrikes = 6 | 10 | 20 | 40 | "all";
+
+// OPRA option chain snapshot for one underlying + expiration (read-only).
+export async function fetchOptionsChain(
+  symbol: string,
+  expiry?: string,
+  strikes: OptionsChainStrikes | number = 10,
+): Promise<OptionsChainResult> {
+  const params = new URLSearchParams({
+    symbol: symbol.trim().toUpperCase(),
+    strikes: String(strikes),
+  });
+  if (expiry) {
+    params.set("expiry", expiry.trim().slice(0, 10));
+  }
+  const res = await apiFetch(`${API_BASE}/api/options-chain?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Options-chain error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+// Unusual options activity (Mode-A perception — facts about the tape, not a signal).
+export async function fetchOptionsFlow(
+  limit = 200,
+  symbol?: string,
+  eventType?: string,
+): Promise<OptionsFlowResult> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (symbol) {
+    params.set("symbol", symbol.trim().toUpperCase());
+  }
+  if (eventType) {
+    params.set("event_type", eventType);
+  }
+  const res = await apiFetch(`${API_BASE}/api/options-flow?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Options-flow error ${res.status}`,
     );
   }
   return res.json();
@@ -1124,6 +1363,32 @@ export async function saveWorkspacePages(
   }
 }
 
+export async function fetchWorkspaces(): Promise<WorkspacesState | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/workspace/workspaces`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const state: unknown = data.workspaces_state;
+    return isValidWorkspacesState(state) ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspaces(state: WorkspacesState): Promise<void> {
+  try {
+    await apiFetch(`${API_BASE}/api/workspace/workspaces`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaces_state: state }),
+    });
+  } catch (err) {
+    console.warn("[workspace] server workspaces save failed:", err);
+  }
+}
+
 // ── Custom themes (server-backed, mirrors workspace pages) ──────────────────────
 
 export async function fetchCustomThemes(): Promise<CustomTheme[] | null> {
@@ -1232,4 +1497,217 @@ export async function dismissNotification(
   );
   if (!res.ok) throw new Error(`Dismiss error ${res.status}`);
   return res.json();
+}
+
+export type BoardCardType =
+  | "feature"
+  | "bug"
+  | "safety"
+  | "research"
+  | "ops"
+  | "idea";
+export type BoardCardPriority = "high" | "normal" | "low";
+
+export type BoardCard = {
+  id: string;
+  title: string;
+  lane: string;
+  type: BoardCardType;
+  priority: BoardCardPriority;
+  notes: string;
+  owner: string;
+  updated_at: string;
+};
+
+export type BoardData = {
+  updated_at: string | null;
+  lanes: string[];
+  cards: BoardCard[];
+};
+
+export async function fetchBoard(): Promise<BoardData> {
+  const res = await apiFetch(`${API_BASE}/api/board`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Board error ${res.status}`);
+  const data = await res.json();
+  return data.board as BoardData;
+}
+
+export type BoardInboxAddResponse = {
+  ok: true;
+  card: BoardCard;
+};
+
+export async function addBoardInboxCard(
+  title: string,
+  notes?: string,
+): Promise<BoardInboxAddResponse> {
+  const res = await apiFetch(`${API_BASE}/api/board/inbox`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, notes: notes ?? "" }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { detail?: unknown };
+    const detail =
+      typeof data.detail === "string"
+        ? data.detail
+        : `Board inbox error ${res.status}`;
+    throw new Error(detail);
+  }
+  return res.json() as Promise<BoardInboxAddResponse>;
+}
+
+export type IdeaOutcomeStatus =
+  | "pending"
+  | "triggered"
+  | "won"
+  | "lost"
+  | "expired"
+  | "invalidated"
+  | "data_gap";
+
+export type IdeaOutcomeRow = {
+  id: number;
+  artifact_id: number;
+  idea_index: number;
+  symbol: string;
+  as_of: string;
+  entry_low: string;
+  entry_high: string;
+  stop: string;
+  targets: string[];
+  status: IdeaOutcomeStatus;
+  origin: string;
+  triggered_at: string | null;
+  resolved_at: string | null;
+  resolution_price: string | null;
+  first_target_hit: number | null;
+  mfe_pct: number | null;
+  mae_pct: number | null;
+  founder_verdict: string | null;
+  verdict: IdeaVerdict | null;
+  notes: string | null;
+  updated_at: string;
+  // Open-row context (stamped by the tracker sweep / API): why still pending.
+  last_price?: string | null;
+  last_price_at?: string | null;
+  expires_on?: string | null;
+  zone_distance_pct?: number | null;
+};
+
+export type IdeaVerdict = {
+  take_it: number;
+  entry_honest: number;
+  stop_survivable: number;
+  thesis_quality: number;
+  note?: string;
+  graded_at?: string;
+};
+
+export type IdeaGradingSummary = {
+  graded: number;
+  means: Record<string, number | null>;
+  mean_take_it: number | null;
+  numbers_wrong: number;
+  gate: {
+    min_graded: number;
+    min_mean_take_it: number;
+    max_numbers_wrong: number;
+  };
+  gate_pass: boolean;
+};
+
+export type IdeaOutcomesSummary = {
+  counts: Record<string, number>;
+  resolved: number;
+  win_rate: number | null;
+  grading?: IdeaGradingSummary;
+  by_origin?: Record<
+    string,
+    {
+      counts: Record<string, number>;
+      resolved: number;
+      win_rate: number | null;
+    }
+  >;
+};
+
+export type IdeaOutcomesResponse = {
+  summary: IdeaOutcomesSummary;
+  open: IdeaOutcomeRow[];
+  resolved: IdeaOutcomeRow[];
+};
+
+export async function getIdeaOutcomes(): Promise<IdeaOutcomesResponse> {
+  const res = await apiFetch(`${API_BASE}/api/ideas/outcomes`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Idea outcomes error ${res.status}`);
+  return res.json();
+}
+
+export type FilingKind = "insider_buy" | "stake_13d" | "congress_trade";
+
+export type FilingEvent = {
+  id: number;
+  uid: string;
+  kind: FilingKind;
+  symbol: string;
+  person: string;
+  role: string;
+  side: "buy" | "sell" | "";
+  value_usd: number | null;
+  value_label: string;
+  filed_at: string;
+  traded_at: string | null;
+  url: string;
+  detail: Record<string, unknown>;
+};
+
+export async function fetchFilings(
+  kinds?: FilingKind[],
+  limit = 150,
+): Promise<FilingEvent[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (kinds && kinds.length > 0) params.set("kinds", kinds.join(","));
+  const res = await apiFetch(`${API_BASE}/api/filings?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Filings error ${res.status}`);
+  const data = await res.json();
+  return data.events ?? [];
+}
+
+export type IdeaGradeInput = {
+  take_it: number;
+  entry_honest: number;
+  stop_survivable: number;
+  thesis_quality: number;
+  note?: string;
+};
+
+export async function gradeIdeaOutcome(
+  outcomeId: number,
+  grade: IdeaGradeInput,
+): Promise<IdeaVerdict> {
+  const res = await apiFetch(
+    `${API_BASE}/api/ideas/outcomes/${outcomeId}/grade`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(grade),
+    },
+  );
+  if (!res.ok) {
+    let detail = `Grade error ${res.status}`;
+    try {
+      const data = await res.json();
+      detail = data.error ?? data.detail ?? detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  const data = await res.json();
+  return data.verdict as IdeaVerdict;
 }

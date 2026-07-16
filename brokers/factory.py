@@ -24,6 +24,9 @@ from config.settings import (
 _broker_cache: dict[str, BrokerAdapter] = {}
 _broker_by_connection: dict[str, BrokerAdapter] = {}
 _market_data_cache: dict[str, MarketDataProvider] = {}
+# Schwab adapters are built from the token file at construction; remember the
+# file's mtime per cache slot so a cron re-mint heals a running app (CRIT-1).
+_schwab_token_mtimes: dict[str, float] = {}
 
 
 def active_broker_name() -> str:
@@ -66,6 +69,7 @@ def clear_broker_cache() -> None:
     _close_adapters(_broker_by_connection)
     _broker_by_connection.clear()
     _market_data_cache.clear()
+    _schwab_token_mtimes.clear()
 
 
 async def aclose_broker_cache() -> None:
@@ -74,6 +78,7 @@ async def aclose_broker_cache() -> None:
     await _aclose_adapters(_broker_by_connection)
     _broker_by_connection.clear()
     _market_data_cache.clear()
+    _schwab_token_mtimes.clear()
 
 
 def market_data_provider_name() -> str:
@@ -93,18 +98,59 @@ def _create_market_data_provider(name: str) -> MarketDataProvider:
                 "Schwab is not configured. Add app credentials in Settings or .env."
             )
         return SchwabMarketData.from_settings()
+    if name == "hybrid":
+        # Deny-by-default: equities MUST have a live Alpaca (SIP) source, else we'd
+        # silently route them to Schwab and re-flood the WAF the hybrid exists to drain.
+        if not broker_is_configured("alpaca"):
+            raise BrokerError(
+                "Hybrid market data requires Alpaca (SIP). Add Alpaca API keys "
+                "in Settings or .env, or set MARKET_DATA_PROVIDER=schwab."
+            )
+        from brokers.hybrid_market_data import HybridMarketData
+
+        return HybridMarketData()
     raise BrokerError(
-        f"Unknown market data provider {name!r}. Use alpaca or schwab."
+        f"Unknown market data provider {name!r}. Use alpaca, schwab, or hybrid."
     )
+
+
+def _schwab_token_mtime() -> float | None:
+    from brokers.schwab_auth import token_path
+
+    try:
+        return os.path.getmtime(token_path())
+    except OSError:
+        return None
+
+
+def _schwab_cache_is_stale(slot: str) -> bool:
+    """True when the token file changed since the cached adapter was built.
+    Fail-soft: unknown mtimes keep the cached adapter."""
+    current_mtime = _schwab_token_mtime()
+    cached_mtime = _schwab_token_mtimes.get(slot)
+    if current_mtime is None or cached_mtime is None:
+        return False
+    return current_mtime != cached_mtime
+
+
+def _remember_schwab_mtime(slot: str) -> None:
+    mtime = _schwab_token_mtime()
+    if mtime is not None:
+        _schwab_token_mtimes[slot] = mtime
 
 
 def get_market_data_provider(name: str | None = None) -> MarketDataProvider:
     provider = (name or market_data_provider_name()).strip().lower()
+    if provider == "schwab" and _schwab_cache_is_stale("market_data"):
+        _market_data_cache.pop(provider, None)
+        _schwab_token_mtimes.pop("market_data", None)
     cached = _market_data_cache.get(provider)
     if cached is not None:
         return cached
     adapter = _create_market_data_provider(provider)
     _market_data_cache[provider] = adapter
+    if provider == "schwab":
+        _remember_schwab_mtime("market_data")
     return adapter
 
 
@@ -150,21 +196,29 @@ def _create_broker(broker: str) -> BrokerAdapter:
 
 def get_broker(name: str | None = None) -> BrokerAdapter:
     broker = (name or active_broker_name()).strip().lower()
+    if broker == "schwab" and _schwab_cache_is_stale("broker"):
+        _broker_cache.pop(broker, None)
+        _schwab_token_mtimes.pop("broker", None)
     cached = _broker_cache.get(broker)
     if cached is not None:
         return cached
     adapter = _create_broker(broker)
     _broker_cache[broker] = adapter
+    if broker == "schwab":
+        _remember_schwab_mtime("broker")
     return adapter
 
 
 def get_broker_for_connection(connection: dict) -> BrokerAdapter:
     connection_id = str(connection["id"])
+    broker = str(connection["broker"]).strip().lower()
+    slot = f"conn:{connection_id}"
+    if broker == "schwab" and _schwab_cache_is_stale(slot):
+        _broker_by_connection.pop(connection_id, None)
+        _schwab_token_mtimes.pop(slot, None)
     cached = _broker_by_connection.get(connection_id)
     if cached is not None:
         return cached
-
-    broker = str(connection["broker"]).strip().lower()
     if broker == "alpaca":
         if not connection_is_configured(connection):
             raise BrokerError(
@@ -182,6 +236,8 @@ def get_broker_for_connection(connection: dict) -> BrokerAdapter:
         raise BrokerError(f"Unknown broker {broker!r}. Use alpaca or schwab.")
 
     _broker_by_connection[connection_id] = adapter
+    if broker == "schwab":
+        _remember_schwab_mtime(slot)
     return adapter
 
 

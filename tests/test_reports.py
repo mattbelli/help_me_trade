@@ -67,9 +67,14 @@ def reports_client(
     reports_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> TestClient:
     _patch_db_path(monkeypatch, reports_db)
+    monkeypatch.setattr("api.auth.API_TOKEN", "pytest-test-token")
     from api.main import app
 
-    with TestClient(app, base_url="http://127.0.0.1") as client:
+    with TestClient(
+        app,
+        base_url="http://127.0.0.1",
+        headers={"X-API-Token": "pytest-test-token"},
+    ) as client:
         yield client
 
 
@@ -254,14 +259,17 @@ async def test_morning_levels_once_dedups_same_day(
         lambda: {"morning_levels_enabled": True, "hour_et": 8},
     )
 
-    push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.push.send_alert_push", push_mock)
+    # report_ready is inbox-only in the routing matrix — assert at notify(),
+    # not send_alert_push (which is intentionally skipped for this kind).
+    notify_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.notify.notify", notify_mock)
 
     from api.main import _morning_levels_report_once
 
     await _morning_levels_report_once()
-    push_mock.assert_awaited_once()
+    notify_mock.assert_awaited_once()
+    assert notify_mock.await_args.kwargs["kind"] == "report_ready"
 
-    push_mock.reset_mock()
+    notify_mock.reset_mock()
     await _morning_levels_report_once()
-    push_mock.assert_not_awaited()
+    notify_mock.assert_not_awaited()

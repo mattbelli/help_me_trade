@@ -12,7 +12,7 @@ from typing import Any
 
 from brokers.errors import BrokerError
 from brokers.factory import get_market_data_provider
-from config.settings import trading_config
+from config.settings import is_entries_halted, trading_config
 from db.accounts import get_account
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.managed_positions import close_position, list_open_positions
@@ -387,6 +387,19 @@ async def execute_rebalance(
     if not is_market_open():
         return {"status": "market_closed", "month": month}
 
+    # HALT pauses the rebalance ENTIRELY — sells and buys alike. A rebalance is
+    # not a protective exit: letting its sell legs flow while RiskEngine blocks
+    # the buy legs would sell winners to raise cash for buys that never happen
+    # (a lopsided book). Placed before any run state is created or resumed, so
+    # zero legs dispatch; the month is never stamped and the run defers to a
+    # later scan (same shape as market_closed). Protective exits keep flowing
+    # through the exit engine — this guard is rebalance-only.
+    if is_entries_halted():
+        logger.warning(
+            "Momentum rebalance deferred for %s month=%s — entries halted", sid, month
+        )
+        return {"status": "entries_halted", "month": month}
+
     if existing_run is not None and existing_run.get("status") == "executing":
         plan = existing_run.get("plan") or {}
         # Bound the retry of a stuck run: persistent rejects keep it 'executing', and rejected
@@ -457,6 +470,9 @@ async def execute_rebalance(
     ns = 0
     failed = 0
     deployed = Decimal(0)
+    run_total = Decimal(0)
+    max_run_notional = Decimal(str(trading_config()["max_rebalance_run_notional_usd"]))
+    skipped_legs = 0
 
     for leg in sells:
         symbol = str(leg["symbol"]).strip().upper()
@@ -512,9 +528,42 @@ async def execute_rebalance(
             failed += 1
         await asyncio.sleep(_REBALANCE_PACE_SECONDS)
 
-    for leg in buys:
+    for leg_idx, leg in enumerate(buys):
         symbol = str(leg["symbol"]).strip().upper()
         qty = Decimal(str(leg["qty"]))
+        price = _latest_close(symbol, db_path=db_path)
+        if price is None:
+            skipped_legs += 1
+            logger.warning(
+                "Momentum rebalance buy skipped for %s — no price (leg not submitted)",
+                symbol,
+            )
+            continue
+        leg_notional = qty * price
+        if run_total + leg_notional > max_run_notional:
+            skipped_legs = len(buys) - leg_idx
+            logger.warning(
+                "Momentum rebalance run notional cap hit at %s — stopping (%s legs skipped)",
+                symbol,
+                skipped_legs,
+            )
+            try:
+                await notify(
+                    kind="risk_block",
+                    title="Rebalance run notional cap reached",
+                    body=(
+                        f"Stopped after {nb} buys; {skipped_legs} leg(s) skipped "
+                        f"(cap {max_run_notional} USD)"
+                    ),
+                    severity="critical",
+                    account_id=str(account_id),
+                    strategy_id=sid,
+                    push=True,
+                    db_path=db_path,
+                )
+            except Exception:
+                logger.exception("rebalance run cap notify failed")
+            break
         if recent_open_buy_exists(
             symbol,
             account_id=str(account_id),
@@ -537,9 +586,8 @@ async def execute_rebalance(
         )
         try:
             await ExecutionService.submit(intent, db_path=db_path)
-            price = _latest_close(symbol, db_path=db_path)
-            if price is not None:
-                deployed += qty * price
+            deployed += qty * price
+            run_total += leg_notional
             nb += 1
         except RiskRejectedError as exc:
             logger.warning(
@@ -571,11 +619,12 @@ async def execute_rebalance(
 
     nh = len(target_syms)
     mode = trading_config()["execution_mode"]
+    skipped_note = f", {skipped_legs} leg(s) skipped (no price)" if skipped_legs else ""
     await notify(
         kind="rebalance",
         title=f"Momentum rebalance complete: {sid} {month}",
         body=(
-            f"Bought {nb}, sold {ns}, holding {nh} · "
+            f"Bought {nb}, sold {ns}, holding {nh}{skipped_note} · "
             f"~${float(deployed):,.0f} [{mode}]"
         ),
         severity="success",

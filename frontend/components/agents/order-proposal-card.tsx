@@ -104,7 +104,7 @@ export function OrderProposalCard({
               "ml-2 inline-flex items-center rounded-full px-2 py-0.5 font-mono text-xs lowercase",
               isSell
                 ? "bg-[var(--c-red)]/15 text-[var(--c-red)]"
-                : "bg-[var(--c-green)]/15 text-[var(--c-green)]",
+                : "bg-[var(--c-green-bg)]/15 text-[var(--c-green)]",
             )}
           >
             {side.toLowerCase()}
@@ -170,7 +170,7 @@ export function OrderProposalCard({
               <dd className="font-mono text-[11px] font-medium">{input.occ_symbol}</dd>
             </div>
           ) : null}
-          <div className="col-span-2 border-t border-[var(--border)] pt-2">
+          <div className="col-span-2 border-t border-[var(--line-divider)] pt-2">
             <dt className="text-muted-foreground">Total cost (max loss)</dt>
             <dd className="text-sm font-semibold text-foreground">
               ${formatMoney(totalCost)}

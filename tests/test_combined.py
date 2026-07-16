@@ -90,6 +90,55 @@ def test_load_strategy_trades_applies_cost_and_filters(tmp_path: Path) -> None:
     assert filtered[0][0] == "2020-01-01"
 
 
+def test_load_strategy_trades_requires_explicit_cost(tmp_path: Path) -> None:
+    """Gross-or-net must be stated — no silent cost default."""
+    db = tmp_path / "strategy.db"
+    _seed_strategy_db(db, [("2020-01-01", 5, 10.0)])
+    with pytest.raises(TypeError):
+        load_strategy_trades(db)
+
+
+def test_window_excludes_trades_exiting_past_end(tmp_path: Path) -> None:
+    """TRAIN/TEST hygiene: a late-TRAIN entry whose exit lands in TEST is dropped."""
+    db = tmp_path / "strategy.db"
+    _seed_strategy_db(
+        db,
+        [
+            ("2020-12-01", 10, 5.0),  # exits 2020-12-11 — contained
+            ("2020-12-28", 10, 5.0),  # exits 2021-01-07 — leaks past the boundary
+        ],
+    )
+
+    trades = load_strategy_trades(db, cost_pct=0.0, end="2020-12-31")
+    assert [t[0] for t in trades] == ["2020-12-01"]
+
+    # Exit exactly ON the boundary is still contained.
+    boundary = load_strategy_trades(db, cost_pct=0.0, end="2021-01-07")
+    assert len(boundary) == 2
+
+
+def test_combine_windows_drop_boundary_leaking_trades(tmp_path: Path) -> None:
+    db = tmp_path / "strategy.db"
+    bars_db = tmp_path / "bars.db"
+    _seed_strategy_db(
+        db,
+        [
+            ("2020-06-01", 5, 5.0),
+            ("2020-12-28", 10, 5.0),  # exits 2021-01-07
+        ],
+    )
+    _seed_spy_bars(bars_db, start=date(2020, 6, 1), count=250)
+
+    report = combine_and_report(
+        [("dip", db, 0.0)],
+        windows={"TRAIN": ("2020-01-01", "2020-12-31"), "full": (None, None)},
+        bars_db_path=bars_db,
+    )
+
+    assert report["TRAIN"]["dip"]["n_taken"] == 1
+    assert report["full"]["dip"]["n_taken"] == 2
+
+
 def test_combine_merged_trade_count_and_cost(tmp_path: Path) -> None:
     dip_db = tmp_path / "dip.db"
     earn_db = tmp_path / "earn.db"

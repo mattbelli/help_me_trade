@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import primary_broker, short_selling_allowed
-from db.accounts import default_execution_account, get_account
+from db.accounts import (
+    account_is_execution_capable,
+    default_execution_account,
+    get_account,
+)
 from db.base import DEFAULT_DB_PATH
 from db.sqlite import get_latest_snapshot
 from imports.option_symbol import (
@@ -186,6 +190,21 @@ def build_order_proposal_from_args(
         account = get_account(str(account_id_arg), db_path=db_path)
         if account is None:
             return {"error": f"unknown account {account_id_arg!r}"}
+        # Deny-by-default at the shared proposal intake: a proposal may only ever
+        # target an execution-capable (paper/Alpaca) account. Real read-only
+        # Schwab accounts are the founder's funded money and are never tradeable —
+        # reject them here, before any proposal row is created, on EVERY surface
+        # that resolves an account (chat tool + mobile phone proposal both flow
+        # through here). ExecutionService/RiskEngine remain the backstop; this
+        # stops an un-executable Schwab proposal from ever being created/shown.
+        if not account_is_execution_capable(str(account_id_arg), db_path=db_path):
+            return {
+                "error": (
+                    f"account {account_id_arg!r} is read-only real money (e.g. a "
+                    "Schwab account) — orders can only target a paper account "
+                    "(STRAT1/STRAT2)"
+                )
+            }
     else:
         account = default_execution_account(db_path=db_path)
 

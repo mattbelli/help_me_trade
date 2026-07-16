@@ -169,21 +169,6 @@ def test_lessons_capped_and_ranked_by_drift() -> None:
 # --- DB-backed: reflection hook + route --------------------------------------------------
 
 
-class _FakeMemory:
-    """Captures MemoryService.add calls — proves the review's only write is lesson memories."""
-
-    def __init__(self) -> None:
-        self.added: list[dict[str, Any]] = []
-
-    def add(
-        self, content: str, *, memory_type: str, metadata: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        self.added.append(
-            {"content": content, "memory_type": memory_type, "metadata": metadata}
-        )
-        return {"id": len(self.added)}
-
-
 def _seed_resolved(
     db: Path, *, strategy: str, win_prob: float, outcome: str
 ) -> None:
@@ -239,32 +224,37 @@ def _seed_grade(db: Path, strategy: str, win_prob: float, wins: int, losses: int
 
 
 def test_reflection_hook_seeds_lesson_on_drift(journal_db: Path) -> None:
+    import db.ai_tables as ai_tables
+
     _seed_grade(journal_db, "dip_buy", 0.70, wins=6, losses=9)
-    mem = _FakeMemory()
-    result = run_journal_review(db_path=journal_db, memory=mem)
+    result = run_journal_review(db_path=journal_db)
 
     assert result["n_resolved"] == 15
     assert result["lessons_seeded"] == 1
-    assert len(mem.added) == 1
-    assert mem.added[0]["memory_type"] == "lesson"
-    assert mem.added[0]["metadata"] == {"source": "journal_calibration"}
-    assert "dip_buy" in mem.added[0]["content"]
+    # Judge-gated write (§4.3): the one lesson lands as a lesson memory in the store.
+    lessons = ai_tables.list_memories(memory_type="lesson", db_path=journal_db)
+    assert len(lessons) == 1
+    assert lessons[0]["source"] == "reflection"
+    assert lessons[0]["metadata"] == {"source": "journal_calibration"}
+    assert "dip_buy" in lessons[0]["content"]
 
 
 def test_reflection_hook_silent_on_insufficient(journal_db: Path) -> None:
+    import db.ai_tables as ai_tables
+
     _seed_grade(journal_db, "thin", 0.65, wins=2, losses=3)
-    mem = _FakeMemory()
-    result = run_journal_review(db_path=journal_db, memory=mem)
+    result = run_journal_review(db_path=journal_db)
     assert result["lessons_seeded"] == 0
-    assert mem.added == []
+    assert ai_tables.list_memories(memory_type="lesson", db_path=journal_db) == []
 
 
 def test_reflection_hook_noop_on_empty_journal(journal_db: Path) -> None:
-    mem = _FakeMemory()
-    result = run_journal_review(db_path=journal_db, memory=mem)
+    import db.ai_tables as ai_tables
+
+    result = run_journal_review(db_path=journal_db)
     assert result["n_resolved"] == 0
     assert result["lessons_seeded"] == 0
-    assert mem.added == []
+    assert ai_tables.list_memories(memory_type="lesson", db_path=journal_db) == []
 
 
 # --- Route (mounted on a fresh app; api.main untouched) ----------------------------------

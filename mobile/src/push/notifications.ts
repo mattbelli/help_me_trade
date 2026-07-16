@@ -18,6 +18,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import { registerDevice } from '@/api/endpoints';
+import { devLog } from '@/lib/dev-log';
 
 export const TRADE_PROPOSAL_CATEGORY = 'TRADE_PROPOSAL';
 export const APPROVE_ACTION = 'APPROVE';
@@ -70,9 +71,9 @@ export async function registerTradeProposalCategory(): Promise<void> {
   ]);
   try {
     const cats = await Notifications.getNotificationCategoriesAsync();
-    console.log('[push] categories:', JSON.stringify(cats.map((c) => ({ id: c.identifier, actions: c.actions.map((a) => a.identifier) }))));
+    devLog('[push] categories:', JSON.stringify(cats.map((c) => ({ id: c.identifier, actions: c.actions.map((a) => a.identifier) }))));
   } catch (e) {
-    console.log('[push] getNotificationCategories error', String(e));
+    devLog('[push] getNotificationCategories error', String(e));
   }
 }
 

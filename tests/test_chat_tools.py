@@ -10,16 +10,28 @@ import pytest
 
 from ai.chat.tools import execute_tool
 from brokers.alpaca import PortfolioHistoryPoint
-from brokers.base import Account, Position
+from brokers.base import Account, Order, Position
 from db import base as db_base
 from db import paper_orders as paper_orders_mod
 from db import sqlite as sqlite_mod
+from db.account_scope import resolve_perf_scope
 from db.accounts import get_default_account, list_accounts
 from db.earnings_calendar import upsert_earnings
 from db.managed_positions import init_managed_position_tables, record_open_position
 from db.multi_account import migrate_multi_account
 from db.paper_orders import create_pending_proposal, list_paper_order_proposals
 from db.strategies import init_strategy_tables, seed_default_strategies, update_strategy
+
+
+@pytest.fixture(autouse=True)
+def _stub_schwab_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default Schwab to NOT authenticated so get_portfolio_snapshot never issues a
+    live Schwab fetch during tests (this box may hold a real token). Tests that want
+    Schwab visible override this with their own get_schwab_accounts_sync stub."""
+    monkeypatch.setattr(
+        "brokers.schwab_accounts.get_schwab_accounts_sync",
+        lambda force=False: {"authenticated": False, "accounts": [], "totals": {}},
+    )
 
 
 def _account(
@@ -176,6 +188,50 @@ async def test_get_portfolio_snapshot_all_accounts(
 
 
 @pytest.mark.asyncio
+async def test_get_portfolio_snapshot_open_orders(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    db = _migrated_db(tmp_path, schwab_count=0)
+    _patch_db(monkeypatch, db)
+
+    alpaca = get_default_account("alpaca", db_path=db)
+    assert alpaca is not None
+
+    sqlite_mod.save_snapshot(
+        _account(cash=5_000.0, account_id=alpaca["id"]),
+        [_position()],
+        [
+            Order(
+                id="ord-1",
+                symbol="MSFT",
+                qty=5.0,
+                side="buy",
+                order_type="limit",
+                status="working",
+                filled_qty=0.0,
+                limit_price=420.0,
+            )
+        ],
+        broker="alpaca",
+        account_id=alpaca["id"],
+        db_path=db,
+    )
+
+    _patch_day_pl_broker(monkeypatch)
+
+    result = await execute_tool("get_portfolio_snapshot", {})
+    by_id = {a["account_id"]: a for a in result["accounts"]}
+    orders = by_id[alpaca["id"]]["open_orders"]
+    assert len(orders) == 1
+    assert orders[0]["symbol"] == "MSFT"
+    assert orders[0]["side"] == "buy"
+    assert orders[0]["qty"] == 5.0
+    assert orders[0]["type"] == "limit"
+    assert orders[0]["limit_price"] == 420.0
+    assert orders[0]["status"] == "working"
+
+
+@pytest.mark.asyncio
 async def test_get_portfolio_snapshot_day_pl_fail_safe(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -206,6 +262,79 @@ async def test_get_portfolio_snapshot_day_pl_fail_safe(
     assert by_id[alpaca["id"]]["day_pl"] is None
     assert by_id[alpaca["id"]]["day_pl_pct"] is None
     assert result["aggregate"]["total_day_pl"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_get_portfolio_snapshot_includes_read_only_schwab(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Real Schwab accounts (synced-cache read, NOT poll_runs) surface in the
+    snapshot as read-only real money, never tradeable, with their positions."""
+    db = _migrated_db(tmp_path, schwab_count=0)
+    _patch_db(monkeypatch, db)
+
+    alpaca = get_default_account("alpaca", db_path=db)
+    assert alpaca is not None
+    sqlite_mod.save_snapshot(
+        _account(cash=5_000.0, account_id=alpaca["id"]),
+        [],  # paper account is flat — the founder's real money is at Schwab
+        [],
+        broker="alpaca",
+        account_id=alpaca["id"],
+        db_path=db,
+    )
+    _patch_day_pl_broker(monkeypatch, day_pl=0.0, day_pl_pct=0.0)
+
+    # Shared cached reader returns the founder's real Schwab holdings (masked).
+    monkeypatch.setattr(
+        "brokers.schwab_accounts.get_schwab_accounts_sync",
+        lambda force=False: {
+            "authenticated": True,
+            "accounts": [
+                {
+                    "id": "schwab_1234",
+                    "label": "Schwab ••1234",
+                    "account_type": "MARGIN",
+                    "liquidation_value": 82_000.0,
+                    "cash": 2_000.0,
+                    "long_market_value": 80_000.0,
+                    "day_pl": 640.0,
+                    "unrealized_pl": 12_000.0,
+                    "positions": [
+                        {
+                            "symbol": "NVDA",
+                            "qty": 100.0,
+                            "avg_price": 500.0,
+                            "market_value": 80_000.0,
+                            "unrealized_pl": 12_000.0,
+                        }
+                    ],
+                    "open_orders": [],
+                }
+            ],
+            "totals": {},
+        },
+    )
+
+    result = await execute_tool("get_portfolio_snapshot", {})
+
+    by_id = {a["account_id"]: a for a in result["accounts"]}
+    schwab = by_id["schwab_1234"]
+    assert schwab["broker"] == "schwab"
+    assert schwab["read_only"] is True
+    assert schwab["real_money"] is True
+    assert schwab["tradeable"] is False
+    assert schwab["equity"] == 82_000.0
+    assert schwab["day_pl"] == 640.0
+    assert schwab["position_count"] == 1
+    assert schwab["positions"][0]["symbol"] == "NVDA"
+    assert schwab["positions"][0]["qty"] == 100.0
+
+    agg = result["aggregate"]
+    # Schwab equity rolls into total_equity but NEVER tradeable_equity.
+    assert agg["total_equity"] == pytest.approx(10_000.0 + 82_000.0)
+    assert agg["tradeable_equity"] == pytest.approx(10_000.0)
+    assert agg["total_day_pl"] == pytest.approx(640.0)
 
 
 @pytest.mark.asyncio
@@ -241,6 +370,9 @@ async def test_get_trade_history_passes_account_id(
     db = _migrated_db(tmp_path, schwab_count=0)
     _patch_db(monkeypatch, db)
 
+    alpaca = get_default_account("alpaca", db_path=db)
+    assert alpaca is not None
+
     captured: dict[str, object] = {}
 
     def fake_list_trade_events(**kwargs: object) -> list[dict[str, object]]:
@@ -253,14 +385,24 @@ async def test_get_trade_history_passes_account_id(
 
     monkeypatch.setattr("ai.chat.tools.list_trade_events", fake_list_trade_events)
     monkeypatch.setattr("ai.chat.tools.trade_summary_stats", fake_trade_summary_stats)
-
-    await execute_tool(
-        "get_trade_history",
-        {"symbol": "AAPL", "account_id": "acct_test_123", "limit": 10},
+    monkeypatch.setattr(
+        "ai.chat.tools.resolve_perf_scope",
+        lambda workspace_account_id: resolve_perf_scope(
+            workspace_account_id,
+            db_path=db,
+        ),
     )
 
-    assert captured["events"]["account_id"] == "acct_test_123"
-    assert captured["stats"]["account_id"] == "acct_test_123"
+    result = await execute_tool(
+        "get_trade_history",
+        {"symbol": "AAPL", "account_id": alpaca["id"], "limit": 10},
+    )
+
+    assert captured["events"]["account_id"] == alpaca["id"]
+    assert captured["stats"]["account_id"] == alpaca["id"]
+    assert captured["events"]["real_only"] is False
+    assert captured["events"]["paper_only"] is False
+    assert "scope_note" not in result
 
 
 @pytest.mark.asyncio

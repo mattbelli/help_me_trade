@@ -11,6 +11,7 @@ from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
+from ai.memories.judge import Candidate, judge_and_store
 from db.ai_tables import save_reflection_run
 from db.sqlite import get_latest_snapshot
 
@@ -49,21 +50,23 @@ def run_reflection() -> dict[str, Any]:
     raw = complete_for_extraction(llm, messages, max_tokens=800)
     summary, lessons = _parse_reflection(raw)
 
-    memory = get_memory_service()
-    for lesson in lessons:
-        title = lesson.get("title", "Lesson")
-        content = lesson.get("content", "")
-        if content:
-            memory.add(
-                f"{title}: {content}",
-                memory_type="lesson",
-                metadata={"source": "reflection"},
-            )
+    candidates = [
+        Candidate(
+            memory_type="lesson",
+            content=f"{lesson.get('title', 'Lesson')}: {lesson.get('content', '')}",
+            source="reflection",
+            authority="agent_inferred",
+            metadata={"source": "reflection"},
+        )
+        for lesson in lessons
+        if lesson.get("content")
+    ]
+    judge_and_store(candidates)
 
     # J3 — journal calibration review (surface-only, fail-soft): compare the agent's
     # PREDICTED win% vs REALIZED outcomes and seed lesson-memories on notable drift.
     # run_journal_review swallows its own errors, so it can never break reflection.
-    review = run_journal_review(memory=memory)
+    review = run_journal_review()
 
     run = save_reflection_run(summary=summary, lessons=lessons)
     logger.info(

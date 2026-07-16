@@ -21,11 +21,12 @@ import { usePush } from '@/push/use-push';
 import { useLiveActivity } from '@/push/use-live-activity';
 import { useAlerts } from '@/state/alerts';
 import { NavProvider } from '@/state/nav';
-import { colors, haptics } from '@/theme';
+import { haptics, useColors } from '@/theme';
 
 import { ChatScreen } from '@/features/chat/chat-screen';
 import { InboxScreen } from '@/features/inbox/inbox-screen';
 import { PortfolioScreen } from '@/features/portfolio/portfolio-screen';
+import { isExtendedSession } from '@/features/watchlist/session';
 import { SettingsScreen } from '@/features/settings/settings-screen';
 import { WatchlistScreen } from '@/features/watchlist/watchlist-screen';
 
@@ -40,6 +41,7 @@ const INBOX_INDEX = 0;
 const HOME_INDEX = 2;
 
 export function CockpitPager() {
+  const colors = useColors();
   const pagerRef = useRef<PagerView>(null);
   const [page, setPage] = useState(HOME_INDEX);
   const [swipeEnabled, setSwipeEnabled] = useState(true);
@@ -47,7 +49,7 @@ export function CockpitPager() {
 
   const { token } = useAuth();
   const qc = useQueryClient();
-  const { pushAlert } = useAlerts();
+  const { pushAlert, pushNotification } = useAlerts();
   const { data: pending } = usePendingProposals();
   const pendingCount = pending?.proposals.length ?? 0;
 
@@ -74,7 +76,7 @@ export function CockpitPager() {
         const prev = old?.quotes[q.symbol];
         if (!prev) return old;
         const session = q.market_session ?? prev.market_session;
-        const extended = session === 'pre' || session === 'post' || session === 'overnight';
+        const extended = isExtendedSession(session);
         const next = { ...prev };
         // In extended hours, keep the REST regular-session close as the price
         // baseline (sessionView derives the headline from it + the live ext %).
@@ -96,6 +98,7 @@ export function CockpitPager() {
   const { connected, subscribe } = useMarketWs({
     token,
     onAlert: pushAlert,
+    onNotification: pushNotification,
     onQuote,
     onProposal: () => {
       haptics.warning();

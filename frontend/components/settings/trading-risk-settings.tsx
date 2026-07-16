@@ -1,7 +1,7 @@
 "use client";
 
 import { ShieldAlertIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Dialog,
@@ -19,49 +19,118 @@ import {
   TerminalSelect,
   TerminalToggle,
 } from "@/components/ui/terminal";
-import type { TradingSettings } from "@/lib/api";
+import { setKillSwitch, type TradingSettings } from "@/lib/api";
+
+const ADMIN_TOKEN_SESSION_KEY = "hmt-admin-token";
 
 const DEFAULT_TRADING: TradingSettings = {
   execution_mode: "dry_run",
   kill_switch_active: false,
+  entries_halted: false,
   max_order_value_usd: 50000,
   max_position_pct: 30,
   max_open_orders: 10,
   max_daily_orders: 20,
+  max_daily_loss_usd: 2500,
+  max_daily_notional_usd: 150000,
+  max_rebalance_run_notional_usd: 120000,
   allow_short_selling: false,
 };
 
 type Props = {
   value: TradingSettings | undefined;
   onChange: (trading: TradingSettings) => void;
+  adminToken: string;
+  onAdminTokenChange: (token: string) => void;
 };
 
-export function TradingRiskSettings({ value, onChange }: Props) {
+export function TradingRiskSettings({
+  value,
+  onChange,
+  adminToken,
+  onAdminTokenChange,
+}: Props) {
   const trading = value ?? DEFAULT_TRADING;
   const [killSwitchConfirmOpen, setKillSwitchConfirmOpen] = useState(false);
   const [pendingKillSwitch, setPendingKillSwitch] = useState<boolean | null>(
     null,
   );
+  const [disarmTokenOpen, setDisarmTokenOpen] = useState(false);
+  const [disarmToken, setDisarmToken] = useState("");
+  const [killSwitchBusy, setKillSwitchBusy] = useState(false);
+  const [killSwitchError, setKillSwitchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = sessionStorage.getItem(ADMIN_TOKEN_SESSION_KEY);
+    if (stored && !adminToken) {
+      onAdminTokenChange(stored);
+    }
+  }, [adminToken, onAdminTokenChange]);
+
+  function persistAdminToken(token: string) {
+    onAdminTokenChange(token);
+    if (typeof window === "undefined") return;
+    if (token) {
+      sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, token);
+    } else {
+      sessionStorage.removeItem(ADMIN_TOKEN_SESSION_KEY);
+    }
+  }
 
   function patch(partial: Partial<TradingSettings>) {
     onChange({ ...trading, ...partial });
   }
 
   function requestKillSwitchToggle(checked: boolean) {
+    setKillSwitchError(null);
     if (checked) {
       setPendingKillSwitch(true);
       setKillSwitchConfirmOpen(true);
       return;
     }
-    patch({ kill_switch_active: false });
+    setDisarmToken(adminToken);
+    setDisarmTokenOpen(true);
   }
 
-  function confirmKillSwitch() {
-    if (pendingKillSwitch) {
-      patch({ kill_switch_active: true });
+  async function confirmKillSwitchArm() {
+    setKillSwitchBusy(true);
+    setKillSwitchError(null);
+    try {
+      const result = await setKillSwitch(true);
+      patch({ kill_switch_active: result.kill_switch_active });
+      setKillSwitchConfirmOpen(false);
+      setPendingKillSwitch(null);
+    } catch (err) {
+      setKillSwitchError(
+        err instanceof Error ? err.message : "Failed to arm kill switch",
+      );
+    } finally {
+      setKillSwitchBusy(false);
     }
-    setKillSwitchConfirmOpen(false);
-    setPendingKillSwitch(null);
+  }
+
+  async function confirmKillSwitchDisarm() {
+    const token = disarmToken.trim();
+    if (!token) {
+      setKillSwitchError("Admin token required to disarm kill switch");
+      return;
+    }
+    setKillSwitchBusy(true);
+    setKillSwitchError(null);
+    try {
+      const result = await setKillSwitch(false, token);
+      patch({ kill_switch_active: result.kill_switch_active });
+      persistAdminToken(token);
+      setDisarmTokenOpen(false);
+      setDisarmToken("");
+    } catch (err) {
+      setKillSwitchError(
+        err instanceof Error ? err.message : "Failed to disarm kill switch",
+      );
+    } finally {
+      setKillSwitchBusy(false);
+    }
   }
 
   return (
@@ -116,6 +185,8 @@ export function TradingRiskSettings({ value, onChange }: Props) {
               <p className="font-mono text-[11px] text-foreground">Kill switch</p>
               <p className="font-mono text-[10px] text-[var(--fg-dim)]">
                 When active, all order submissions are rejected immediately.
+                Arming uses your normal API token; disarming requires the admin
+                token.
               </p>
             </div>
           </div>
@@ -123,9 +194,15 @@ export function TradingRiskSettings({ value, onChange }: Props) {
             tone="danger"
             checked={trading.kill_switch_active}
             onCheckedChange={requestKillSwitchToggle}
+            disabled={killSwitchBusy}
             aria-label="Kill switch"
           />
         </div>
+        {killSwitchError && (
+          <p className="mt-2 font-mono text-[10px] text-[var(--c-red)]">
+            {killSwitchError}
+          </p>
+        )}
       </SettingsSection>
 
       <SettingsSection
@@ -216,7 +293,66 @@ export function TradingRiskSettings({ value, onChange }: Props) {
             }
           />
         </TerminalField>
+        <TerminalField label="Max daily loss (USD)" htmlFor="max-daily-loss">
+          <TerminalInput
+            id="max-daily-loss"
+            type="number"
+            min={0}
+            step={100}
+            value={trading.max_daily_loss_usd}
+            onChange={(e) =>
+              patch({ max_daily_loss_usd: Number(e.target.value) || 0 })
+            }
+          />
+        </TerminalField>
+        <TerminalField
+          label="Max daily notional (USD)"
+          htmlFor="max-daily-notional"
+        >
+          <TerminalInput
+            id="max-daily-notional"
+            type="number"
+            min={0}
+            step={1000}
+            value={trading.max_daily_notional_usd}
+            onChange={(e) =>
+              patch({ max_daily_notional_usd: Number(e.target.value) || 0 })
+            }
+          />
+        </TerminalField>
+        <TerminalField
+          label="Max rebalance run notional (USD)"
+          htmlFor="max-rebalance-run-notional"
+        >
+          <TerminalInput
+            id="max-rebalance-run-notional"
+            type="number"
+            min={0}
+            step={1000}
+            value={trading.max_rebalance_run_notional_usd}
+            onChange={(e) =>
+              patch({
+                max_rebalance_run_notional_usd: Number(e.target.value) || 0,
+              })
+            }
+          />
+        </TerminalField>
       </div>
+
+      <TerminalField
+        label="Admin token (risk-control changes)"
+        htmlFor="admin-token"
+        hint="Required to save execution/risk limits. Stored in sessionStorage only for this browser tab session."
+      >
+        <TerminalInput
+          id="admin-token"
+          type="password"
+          autoComplete="off"
+          value={adminToken}
+          placeholder="API_ADMIN_TOKEN value"
+          onChange={(e) => persistAdminToken(e.target.value)}
+        />
+      </TerminalField>
 
       <Dialog open={killSwitchConfirmOpen} onOpenChange={setKillSwitchConfirmOpen}>
         <DialogContent className="sm:max-w-md">
@@ -234,11 +370,59 @@ export function TradingRiskSettings({ value, onChange }: Props) {
                 setKillSwitchConfirmOpen(false);
                 setPendingKillSwitch(null);
               }}
+              disabled={killSwitchBusy}
             >
               Cancel
             </TerminalButton>
-            <TerminalButton type="button" variant="danger" onClick={confirmKillSwitch}>
-              Enable kill switch
+            <TerminalButton
+              type="button"
+              variant="danger"
+              onClick={confirmKillSwitchArm}
+              disabled={killSwitchBusy}
+            >
+              {killSwitchBusy ? "Arming…" : "Enable kill switch"}
+            </TerminalButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={disarmTokenOpen} onOpenChange={setDisarmTokenOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Disarm kill switch?</DialogTitle>
+            <DialogDescription>
+              Disarming requires the admin token. Order submissions may resume per
+              current risk limits.
+            </DialogDescription>
+          </DialogHeader>
+          <TerminalField label="Admin token" htmlFor="disarm-admin-token">
+            <TerminalInput
+              id="disarm-admin-token"
+              type="password"
+              autoComplete="off"
+              value={disarmToken}
+              placeholder="API_ADMIN_TOKEN value"
+              onChange={(e) => setDisarmToken(e.target.value)}
+            />
+          </TerminalField>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <TerminalButton
+              type="button"
+              onClick={() => {
+                setDisarmTokenOpen(false);
+                setDisarmToken("");
+              }}
+              disabled={killSwitchBusy}
+            >
+              Cancel
+            </TerminalButton>
+            <TerminalButton
+              type="button"
+              variant="danger"
+              onClick={confirmKillSwitchDisarm}
+              disabled={killSwitchBusy}
+            >
+              {killSwitchBusy ? "Disarming…" : "Disarm kill switch"}
             </TerminalButton>
           </DialogFooter>
         </DialogContent>

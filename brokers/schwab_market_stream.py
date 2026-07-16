@@ -18,14 +18,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from schwab.streaming import StreamClient
 
 from brokers.errors import BrokerError
+from brokers.market_clock import market_session
 from brokers.market_stream import (
     RECONNECT_BASE_SEC,
     RECONNECT_MAX_SEC,
+    TICK_ABS_CEILING,
+    TICK_BAND_PCT,
+    TICK_CONFIRM_TOL,
     BaseMarketHub,
     QuoteState,
 )
@@ -36,10 +41,21 @@ logger = logging.getLogger(__name__)
 
 _HANDLE_MESSAGE_TIMEOUT = 30.0  # seconds before assuming the stream dropped
 
-# A single tick >_MAX_TICK_RATIO× or <1/_MAX_TICK_RATIO× the official prior close is a bad
-# print / crossed quote, not a real intraday move — drop it so it can't spike a chart candle
-# or poison the watchlist / alerts / the RiskEngine's live quote.
-_MAX_TICK_RATIO = 3.0
+# Suspect-print guard (band + one-tick confirmation; constants shared with the REST
+# apply_extended guard via brokers.market_stream). A tick outside ±TICK_BAND_PCT of the
+# reference — the LAST ADMITTED price, seeded from the prior close before any tick has
+# been admitted — is "suspect" (a bad print / crossed quote candidate), not a
+# self-evidently real intraday move. Suspect ticks are HELD for one tick and only
+# admitted if the immediately preceding raw tick corroborated the same level within
+# TICK_CONFIRM_TOL — so a lone spike between two normal prints is dropped (never
+# reaching state.price / sparkline / alerts / the RiskEngine live quote / charts),
+# while a legitimate fast move / gap / halt-reopen confirms tick-over-tick, is admitted
+# after ~one held tick, and RE-CENTERS the band on the new level so subsequent normal
+# swings flow freely (referencing prev_close instead would freeze a gapped runner all
+# day). The old single-tick 3× guard never fired in practice: real bad prints (~2× the
+# true price) sailed under it.
+_HELD_LOG_INTERVAL_SEC = 60.0  # rate-limit held-tick WARNINGs per symbol
+_FROZEN_STREAK = 20  # consecutive held ticks that escalate to ERROR ("price frozen")
 
 # Equity fields to request (minimise bandwidth)
 _EQUITY_FIELDS = [
@@ -115,6 +131,101 @@ class SchwabMarketStreamHub(BaseMarketHub):
         # _broadcast_quote / _check_price_alerts mid-run (the cause of
         # "ticks reach the handler but seem to disappear" reports).
         self._inflight_ticks: set[asyncio.Task] = set()
+        # Last raw price seen per symbol (regular + ext share one slot) — the
+        # corroboration reference for the suspect-tick confirmation guard. Updated
+        # on EVERY tick (in- or out-of-band, held or admitted) so consecutive
+        # ticks can confirm each other; see _is_held_suspect_tick.
+        self._pending_tick: dict[str, float] = {}
+        # Last ADMITTED price per symbol (regular + ext share one slot — same
+        # instrument, and the guard runs before the session split) — the band
+        # reference. Seeded from prev_close when unset, re-centered on every admit
+        # so a confirmed gap doesn't freeze subsequent normal swings.
+        self._last_admitted: dict[str, float] = {}
+        # Held-tick log bookkeeping (per symbol): consecutive-held streak (resets on
+        # admit), holds since the last log line, and monotonic time of that log.
+        self._held_streak: dict[str, int] = {}
+        self._held_since_log: dict[str, int] = {}
+        self._held_log_ts: dict[str, float] = {}
+
+    def _is_held_suspect_tick(
+        self, symbol: str, price_f: float, prev_close: float, *, label: str
+    ) -> bool:
+        """Return True if *price_f* is a suspect print that must be HELD this cycle.
+
+        A tick is "suspect" when outside ±TICK_BAND_PCT of the LAST ADMITTED price
+        (seeded from *prev_close* before any admit). A suspect tick is held (dropped,
+        no state/broadcast/alert write) UNLESS the immediately preceding raw tick
+        corroborated the same level (within TICK_CONFIRM_TOL). No reference at all
+        (no admit yet AND prev_close missing/≤0) skips the band check entirely —
+        existing admit-everything behavior. The pending reference is ALWAYS updated
+        (suspect or not) so consecutive out-of-band ticks corroborate each other.
+        Every admit re-centers the band, which makes the guard self-healing: even if
+        two same-level bogus prints phantom-admit, the next two real ticks are
+        out-of-band vs the phantom, corroborate each other, and re-center the
+        reference on reality within ~2 ticks.
+
+        Held-tick logging: WARNING at most once per symbol per _HELD_LOG_INTERVAL_SEC
+        (with the held-count since the last line), escalating to ERROR when a symbol
+        reaches _FROZEN_STREAK consecutive holds — the real "price frozen" alarm.
+        """
+        pending = self._pending_tick.get(symbol)
+        self._pending_tick[symbol] = price_f
+        ref = self._last_admitted.get(symbol)
+        if ref is None:
+            ref = prev_close
+        # Absolute backstop vs prev_close: corroboration can never admit a print
+        # at 10x/0.1x yesterday's close — stops a corrupt feed from WALKING the
+        # rolling reference far from reality in admitted ≤5% steps.
+        absurd = prev_close > 0 and (
+            price_f > prev_close * TICK_ABS_CEILING
+            or price_f * TICK_ABS_CEILING < prev_close
+        )
+        admit = not absurd and (
+            ref <= 0  # no baseline yet → admit everything (existing behavior)
+            or ref * (1 - TICK_BAND_PCT) <= price_f <= ref * (1 + TICK_BAND_PCT)
+            or (
+                # corroborated by the preceding tick → legitimate fast move / gap
+                pending is not None
+                and abs(price_f - pending) <= price_f * TICK_CONFIRM_TOL
+            )
+        )
+        if admit:
+            self._last_admitted[symbol] = price_f
+            self._held_streak[symbol] = 0
+            return False
+
+        streak = self._held_streak.get(symbol, 0) + 1
+        self._held_streak[symbol] = streak
+        self._held_since_log[symbol] = self._held_since_log.get(symbol, 0) + 1
+        now = time.monotonic()
+        last_log = self._held_log_ts.get(symbol)
+        if streak == _FROZEN_STREAK:
+            logger.error(
+                "%s %s price FROZEN: %d consecutive suspect prints held "
+                "(latest %.4f, ref %.2f, pending %s)",
+                symbol,
+                label,
+                streak,
+                price_f,
+                ref,
+                f"{pending:.4f}" if pending is not None else "none",
+            )
+            self._held_log_ts[symbol] = now
+            self._held_since_log[symbol] = 0
+        elif last_log is None or now - last_log >= _HELD_LOG_INTERVAL_SEC:
+            logger.warning(
+                "Holding suspect %s %s %.4f (ref %.2f, pending %s, "
+                "%d held since last log)",
+                symbol,
+                label,
+                price_f,
+                ref,
+                f"{pending:.4f}" if pending is not None else "none",
+                self._held_since_log[symbol],
+            )
+            self._held_log_ts[symbol] = now
+            self._held_since_log[symbol] = 0
+        return True
 
     def _live_flag(self) -> bool:
         return broker_is_configured("schwab")
@@ -288,7 +399,26 @@ class SchwabMarketStreamHub(BaseMarketHub):
     # ------------------------------------------------------------------
 
     def _on_equity(self, msg: dict[str, Any]) -> None:
-        """Level-one equity handler — called synchronously by StreamClient."""
+        """Level-one equity handler — called synchronously by StreamClient.
+
+        Session-gated (computed once per message batch):
+          • regular → the tick drives state.price / change_pct / sparkline and
+            fires RTH price alerts — exactly the prior behavior.
+          • pre / post / overnight / closed → state.price / change_pct / sparkline
+            are FROZEN (the 4pm regular close outside RTH); the equity stream keeps
+            delivering after-hours trades but they must NOT drag the regular price.
+            The tick instead drives the extended fields (ext_price / ext_change_pct
+            vs the frozen close, else prev_close / market_session) — mirroring the
+            REST apply_extended poll. Bid/ask/volume still update (informative).
+
+        Boundaries need no state migration: at 09:30 the gate flips to `regular`
+        and the first regular tick overwrites the frozen price; at 16:00 the last
+        regular tick simply stays as the frozen close while later post ticks route
+        to the ext fields. Futures (_on_futures) are untouched — they trade ~23h on
+        one live last.
+        """
+        session = market_session()
+        is_regular = session == "regular"
         # StreamClient delivers a list of content dicts
         for item in msg.get("content", []):
             symbol = str(item.get("key", "")).upper()
@@ -312,25 +442,41 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 state = QuoteState()
                 self._quotes[symbol] = state
 
-            ref = state.prev_close
-            if ref > 0 and (
-                price_f > ref * _MAX_TICK_RATIO or price_f * _MAX_TICK_RATIO < ref
+            # Suspect-print guard (regular AND ext share _pending_tick per symbol —
+            # a single guard here gates both the state.price write below and the ext
+            # write in the non-regular branch). A held suspect tick writes nothing.
+            if self._is_held_suspect_tick(
+                symbol, price_f, state.prev_close, label="tick"
             ):
-                logger.warning(
-                    "Dropping implausible %s tick %.4f (prior close %.2f)",
-                    symbol,
-                    price_f,
-                    ref,
-                )
                 continue
 
-            state.price = price_f
+            # Bid/ask/volume update in every session (informative, harmless).
             if bid_raw is not None:
                 state.bid = float(bid_raw)
             if ask_raw is not None:
                 state.ask = float(ask_raw)
             if vol_raw is not None:
                 state.volume = float(vol_raw)
+
+            if not is_regular:
+                # Route after-hours trades to the extended fields; leave the
+                # regular price frozen. ext_change_pct is measured vs the frozen
+                # regular close (state.price) when set, else the prior daily close.
+                # Cross-detection mirrors apply_extended (needs a prior ext value);
+                # dedup vs the REST poll is structural — both write state.ext_price
+                # from the SAME Schwab quote, so a repeated price yields no move and
+                # only one path fires per distinct price.
+                prev_ext = state.ext_price
+                state.ext_price = price_f
+                base = state.price if state.price else state.prev_close
+                state.ext_change_pct = (
+                    round((price_f - base) / base * 100, 2) if base else None
+                )
+                state.market_session = session
+                self._schedule_post_tick(symbol, prev_ext, price_f, ext=True)
+                continue
+
+            state.price = price_f
             if close_raw is not None:
                 state.prev_close = float(close_raw)
             if chg_pct_raw is not None:
@@ -376,16 +522,9 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 state = QuoteState()
                 self._quotes[symbol] = state
 
-            ref = state.prev_close
-            if ref > 0 and (
-                price_f > ref * _MAX_TICK_RATIO or price_f * _MAX_TICK_RATIO < ref
+            if self._is_held_suspect_tick(
+                symbol, price_f, state.prev_close, label="futures tick"
             ):
-                logger.warning(
-                    "Dropping implausible %s futures tick %.4f (prior close %.2f)",
-                    symbol,
-                    price_f,
-                    ref,
-                )
                 continue
 
             state.price = price_f
@@ -415,7 +554,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
             self._schedule_post_tick(symbol, prev, price_f)
 
     def _schedule_post_tick(
-        self, symbol: str, prev: float | None, current: float
+        self, symbol: str, prev: float | None, current: float, *, ext: bool = False
     ) -> None:
         """Fan a tick's broadcast+alert work off the sync stream handler.
 
@@ -423,16 +562,38 @@ class SchwabMarketStreamHub(BaseMarketHub):
         running loop is available. Failures are logged (not silently dropped) and
         a hard reference is kept until the task finishes — otherwise the GC can
         cancel the task before _broadcast_quote runs (the docs' "you must keep a
-        strong reference" rule).
+        strong reference" rule). ``ext=True`` routes to the extended-hours follow-up
+        (fires ext alerts, no RTH gate); the default is the regular-session path.
         """
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             logger.warning("Schwab tick %s: no running loop — dropping", symbol)
             return
-        task = loop.create_task(self._post_tick(symbol, prev, current))
+        coro = (
+            self._ext_post_tick(symbol, prev, current)
+            if ext
+            else self._post_tick(symbol, prev, current)
+        )
+        task = loop.create_task(coro)
         self._inflight_ticks.add(task)
         task.add_done_callback(self._inflight_ticks.discard)
+
+    async def _ext_post_tick(
+        self, symbol: str, prev_ext: float | None, current: float
+    ) -> None:
+        """Broadcast the ext quote and fire price alerts on the extended move.
+
+        Reached only outside RTH (the session gate in _on_equity routes here), so
+        there's no is_market_open() guard — off-hours ext alerts are exactly what
+        should fire, matching the REST apply_extended poll. Dedup against that poll
+        is structural: both read/write state.ext_price, so a repeated price gives
+        prev_ext == current and no fire.
+        """
+        await self._broadcast_quote(symbol)
+        if prev_ext is None or prev_ext == current:
+            return
+        await self._check_price_alerts(symbol, prev_ext, current)
 
     async def _post_tick(
         self, symbol: str, prev: float | None, current: float

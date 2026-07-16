@@ -7,7 +7,7 @@ import { type ReactNode } from 'react';
 import { View, type ViewProps, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, elevation, hairline, radius, spacing } from '@/theme';
+import { elevation, hairline, radius, spacing, useColors } from '@/theme';
 
 /** A full-bleed surface that respects the status bar / home indicator. */
 export function Screen({
@@ -21,6 +21,7 @@ export function Screen({
   edges?: { top?: boolean; bottom?: boolean };
   padded?: boolean;
 }) {
+  const colors = useColors();
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -43,6 +44,7 @@ export function Card({
   raised,
   ...rest
 }: ViewProps & { children: ReactNode; raised?: boolean }) {
+  const colors = useColors();
   return (
     <View
       style={[
@@ -100,6 +102,7 @@ export function Stack({
 }
 
 export function Divider({ style }: { style?: ViewStyle }) {
+  const colors = useColors();
   return <View style={[{ height: hairline, backgroundColor: colors.border }, style]} />;
 }
 

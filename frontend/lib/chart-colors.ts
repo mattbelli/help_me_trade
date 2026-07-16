@@ -54,3 +54,20 @@ export function withAlpha(color: string, alpha: number): string {
 
   return color;
 }
+
+/**
+ * Drawing color: semantic names (cross-client contract, RN_SKIA_CHART_RELAY.md
+ * §5.1) resolve to theme vars; legacy raw hex passes through; missing → accent.
+ */
+const SEMANTIC_DRAWING_COLORS: Record<string, [string, string]> = {
+  accent: ["--c-accent", "#5ad1be"],
+  positive: ["--c-green", "#5bc98a"],
+  negative: ["--c-red", "#ef6f6c"],
+  muted: ["--fg-dim", "#9aa1ab"],
+};
+
+export function resolveDrawingColor(color: string | undefined | null): string {
+  const semantic = color ? SEMANTIC_DRAWING_COLORS[color] : SEMANTIC_DRAWING_COLORS.accent;
+  if (semantic) return resolveCssColor(semantic[0], semantic[1]);
+  return color as string;
+}

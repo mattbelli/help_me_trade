@@ -5,7 +5,7 @@
  */
 import { Text as RNText, type TextProps as RNTextProps } from 'react-native';
 
-import { colors, fonts, type, type TypeVariant } from '@/theme';
+import { fonts, type, useColors, type Colors, type TypeVariant } from '@/theme';
 
 type ColorToken = 'text' | 'textMuted' | 'textFaint' | 'accent' | 'positive' | 'negative' | 'warning' | 'onAccent';
 
@@ -19,16 +19,16 @@ export interface TextProps extends RNTextProps {
 
 // Built per-call (not a module-scope const) so it reflects the active theme after
 // a palette swap — see theme/colors.ts.
-function resolveColor(c: ColorToken | string): string {
+function resolveColor(c: ColorToken | string, palette: Colors): string {
   const tokens: Record<ColorToken, string> = {
-    text: colors.text,
-    textMuted: colors.textMuted,
-    textFaint: colors.textFaint,
-    accent: colors.accent,
-    positive: colors.positive,
-    negative: colors.negative,
-    warning: colors.warning,
-    onAccent: colors.onAccent,
+    text: palette.text,
+    textMuted: palette.textMuted,
+    textFaint: palette.textFaint,
+    accent: palette.accent,
+    positive: palette.positive,
+    negative: palette.negative,
+    warning: palette.warning,
+    onAccent: palette.onAccent,
   };
   return (tokens as Record<string, string>)[c] ?? c;
 }
@@ -41,11 +41,12 @@ export function Text({
   style,
   ...rest
 }: TextProps) {
+  const palette = useColors();
   return (
     <RNText
       style={[
         type[variant],
-        { color: resolveColor(color) },
+        { color: resolveColor(color, palette) },
         upper && { textTransform: 'uppercase' },
         center && { textAlign: 'center' },
         style,
@@ -69,11 +70,12 @@ export function ScreenTitle({
   children: RNTextProps['children'];
   style?: RNTextProps['style'];
 }) {
+  const palette = useColors();
   return (
     <RNText
       maxFontSizeMultiplier={1.2}
       style={[
-        { fontFamily: fonts.mono, fontSize: 14, letterSpacing: 1.2, color: resolveColor('accent'), textTransform: 'lowercase' },
+        { fontFamily: fonts.mono, fontSize: 14, letterSpacing: 1.2, color: resolveColor('accent', palette), textTransform: 'lowercase' },
         style,
       ]}
     >
@@ -95,11 +97,12 @@ export function Eyebrow({
   color?: ColorToken | string;
   style?: RNTextProps['style'];
 }) {
+  const palette = useColors();
   return (
     <RNText
       maxFontSizeMultiplier={1.2}
       style={[
-        { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 1.6, color: resolveColor(color), textTransform: 'lowercase' },
+        { fontFamily: fonts.mono, fontSize: 11, letterSpacing: 1.6, color: resolveColor(color, palette), textTransform: 'lowercase' },
         style,
       ]}
     >

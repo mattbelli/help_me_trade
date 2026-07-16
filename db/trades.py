@@ -159,6 +159,13 @@ def _row_to_event(row: sqlite3.Row) -> dict[str, Any]:
         "description": row["description"],
         "external_key": row["external_key"],
         "imported_at": row["imported_at"],
+        # Broker execution timestamp when the raw row carries one (Schwab
+        # $.time) — trade_date is date-only, so intraday ordering needs this.
+        "exec_time": row["exec_time"] if "exec_time" in row.keys() else None,
+        # Display-only fill timestamp: same as exec_time but also covers Alpaca
+        # rows (raw key is $.transaction_time). Kept separate from exec_time so
+        # the money-path avg-cost ordering in db/analytics.py is unchanged.
+        "fill_time": row["fill_time"] if "fill_time" in row.keys() else None,
     }
 
 
@@ -294,7 +301,10 @@ def list_trade_events(
         rows = conn.execute(
             f"""
             SELECT id, account_id, source, event_type, trade_date, symbol, side,
-                   quantity, price, fees, amount, description, external_key, imported_at
+                   quantity, price, fees, amount, description, external_key, imported_at,
+                   json_extract(raw_json, '$.time') AS exec_time,
+                   COALESCE(json_extract(raw_json, '$.time'),
+                            json_extract(raw_json, '$.transaction_time')) AS fill_time
             FROM trade_events
             {where}
             ORDER BY trade_date DESC, imported_at DESC
@@ -550,12 +560,16 @@ def symbol_trade_stats(
     account_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    real_only: bool = False,
+    paper_only: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
     events = list_trade_events(
         account_id=account_id,
         from_date=from_date,
         to_date=to_date,
+        real_only=real_only,
+        paper_only=paper_only,
         limit=100_000,
         offset=0,
         db_path=db_path,

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Board discipline (enforced): a commit that changes product code MUST also
+# update the kanban (References/board.json) or the build log (References/BUILD.md),
+# so the board never drifts from reality. Escape hatch: put [no-board] in the
+# commit message for genuine non-card work (typo, pure refactor, hotfix).
+set -u
+msg_file="$1"
+msg="$(cat "$msg_file" 2>/dev/null || true)"
+
+case "$msg" in *"[no-board]"*) exit 0;; esac
+
+staged="$(git diff --cached --name-only)"
+[ -z "$staged" ] && exit 0
+
+prod_re='^(api|trading|db|signals|ai|imports|config|brokers|frontend|mobile|scripts)/'
+touches_code="$(printf '%s\n' "$staged" | grep -E "$prod_re" || true)"
+[ -z "$touches_code" ] && exit 0   # docs/tests/board-only commit — no card needed
+
+if printf '%s\n' "$staged" | grep -qE '^References/(board\.json|BUILD\.md)$'; then
+  exit 0
+fi
+
+cat >&2 <<MSG
+✗ Board discipline: this commit changes product code but doesn't update the board.
+
+  Update References/board.json (open/flip/close the card this work belongs to),
+  or add a References/BUILD.md history row, and stage it in THIS commit.
+  Genuinely not card-worthy (typo, pure refactor, hotfix)? Add [no-board] to the
+  commit message.
+
+  Staged product files:
+$(printf '%s\n' "$touches_code" | sed 's/^/    /')
+MSG
+exit 1

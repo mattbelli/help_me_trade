@@ -6,6 +6,10 @@ import { Bar, BarChart, Cell, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartContainer } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPerformanceDashboard,
   type PerformancePeriod,
   type RoundTrip,
@@ -91,8 +95,8 @@ function DistTooltip({
 
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 shadow-sm">
-      <p className="font-mono text-[10px] text-[var(--fg-dim)]">{bucket.label}</p>
-      <p className="font-mono text-[11px] font-semibold tabular-nums text-foreground">
+      <p className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">{bucket.label}</p>
+      <p className="font-mono text-[length:var(--fs-body)] font-semibold tabular-nums text-foreground">
         {bucket.count} trade{bucket.count === 1 ? "" : "s"}
       </p>
     </div>
@@ -147,7 +151,7 @@ export function OutcomeDistributionWidget() {
 
   const periodButtonClass = (active: boolean) =>
     cn(
-      "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+      "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
       active
         ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
         : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -155,13 +159,10 @@ export function OutcomeDistributionWidget() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate font-mono text-[10px] uppercase tracking-[0.05em] text-[var(--fg-faint)]">
-            Trade distribution
-          </span>
           {total > 0 ? (
-            <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+            <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
               <span style={{ color: "var(--c-green)" }}>{wins}W</span>
               {" / "}
               <span style={{ color: "var(--c-red)" }}>{losses}L</span>
@@ -185,16 +186,12 @@ export function OutcomeDistributionWidget() {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && total === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : total === 0 ? (
-          <div className="flex h-full min-h-24 items-center justify-center">
-            <p className="font-mono text-xs text-[var(--fg-dim)]">
-              No closed trades in this period
-            </p>
-          </div>
+          <WidgetEmpty message="No closed trades in this period" />
         ) : (
           <ChartContainer config={{}} className="h-full w-full aspect-auto">
             <BarChart data={buckets} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -221,7 +218,7 @@ export function OutcomeDistributionWidget() {
                 {buckets.map((bucket) => (
                   <Cell
                     key={bucket.index}
-                    fill={bucket.index >= 0 ? "var(--c-green)" : "var(--c-red)"}
+                    fill={bucket.index >= 0 ? "var(--c-green-bg)" : "var(--c-red)"}
                   />
                 ))}
               </Bar>

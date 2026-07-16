@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import weakref
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -18,6 +20,27 @@ from trading.models import ExecutionResult, OrderIntent, RiskRejectedError
 from trading.risk_engine import RiskEngine
 
 logger = logging.getLogger(__name__)
+
+# Per-event-loop lock: validate reads in-flight/daily notional sums, then (after
+# passing) submit writes this order's notional_usd. Without serialization, two
+# concurrent submits can both read sums that exclude each other and pass the cap.
+_submit_locks: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, asyncio.Lock
+] = weakref.WeakKeyDictionary()
+
+
+def _submit_lock() -> asyncio.Lock:
+    # SINGLE-PROCESS ASSUMPTION: prod runs one uvicorn worker (SERVER_SETUP.md),
+    # so one loop covers every in-app submit caller. A second process (e.g.
+    # tools/fire_test_entry.py, or a future --workers>1) gets its own lock and
+    # reintroduces the cross-process race — don't add workers without a
+    # DB-level reservation.
+    loop = asyncio.get_running_loop()
+    lock = _submit_locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _submit_locks[loop] = lock
+    return lock
 
 
 class ExecutionService:
@@ -69,23 +92,26 @@ class ExecutionService:
         )
 
         try:
-            risk = await RiskEngine.validate(intent, db_path=db_path)
-            if not risk.passed:
-                reason = risk.blocked_reason or "risk check failed"
+            async with _submit_lock():
+                risk = await RiskEngine.validate(intent, db_path=db_path)
+                if not risk.passed:
+                    reason = risk.blocked_reason or "risk check failed"
+                    update_execution_status(
+                        execution_id,
+                        "rejected",
+                        risk_checks_json=risk.checks,
+                        db_path=db_path,
+                    )
+                    raise RiskRejectedError(reason)
+
                 update_execution_status(
                     execution_id,
-                    "rejected",
+                    "pending",
                     risk_checks_json=risk.checks,
+                    notional_usd=risk.risk_notional,
+                    short_open=1 if risk.is_short_open else 0,
                     db_path=db_path,
                 )
-                raise RiskRejectedError(reason)
-
-            update_execution_status(
-                execution_id,
-                "pending",
-                risk_checks_json=risk.checks,
-                db_path=db_path,
-            )
 
             dry_run_log: str | None = None
             status: str
@@ -111,6 +137,46 @@ class ExecutionService:
                 )
                 raise RiskRejectedError(reason)
             elif mode == "paper":
+                adapter = (
+                    get_broker_for_account(intent.account_id)
+                    if intent.account_id
+                    else get_broker(intent.broker)
+                )
+                paper_ok = getattr(adapter, "is_paper_endpoint", None)
+                if paper_ok is not True:
+                    paper_checks = {
+                        "paper_endpoint": (
+                            "fail: resolved adapter is not a paper endpoint"
+                        )
+                    }
+                    update_execution_status(
+                        execution_id,
+                        "rejected",
+                        risk_checks_json=paper_checks,
+                        clear_notional=True,
+                        db_path=db_path,
+                    )
+                    try:
+                        await notify(
+                            kind="risk_block",
+                            title="Paper mode blocked — live endpoint detected",
+                            body=(
+                                f"Execution {execution_id} rejected: resolved broker "
+                                "adapter is not a paper endpoint (config drift toward live)"
+                            ),
+                            severity="critical",
+                            account_id=intent.account_id,
+                            ref_type="execution",
+                            ref_id=execution_id,
+                            push=True,
+                            db_path=db_path,
+                        )
+                    except Exception:
+                        logger.exception("paper endpoint block notify failed")
+                    raise RiskRejectedError(
+                        "resolved adapter is not a paper endpoint"
+                    )
+
                 if intent.side == "sell":
                     # RiskEngine flagged whether this sell closes a long or opens
                     # a short — tell the broker so a short opens correctly.
@@ -132,11 +198,6 @@ class ExecutionService:
                     ),
                     time_in_force="day",
                     position_intent=position_intent,
-                )
-                adapter = (
-                    get_broker_for_account(intent.account_id)
-                    if intent.account_id
-                    else get_broker(intent.broker)
                 )
                 try:
                     resp = await adapter.aplace_order(req)

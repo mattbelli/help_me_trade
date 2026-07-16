@@ -28,6 +28,105 @@ DEFAULT_STATS_PATH = (
 # path -> (mtime, parsed) so we re-read only when the artifact changes
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
+# --- Regime-local (Tier-B) sleeves ---------------------------------------------------
+# These sleeves are REGIME-LOCAL (References/REGIME_SLEEVES_SPEC.md): qualified on
+# 2021–2026 (mostly last-24m) evidence under a founder-directed fork of the research
+# process — NOT tier-1 validated edges. They must NEVER appear in strategy_stats.json
+# as validated and must never ship a bare win% number: win_prob is None by design and
+# the card shows the committed `regime_stats` block (with caveats) instead. The numbers
+# below are COMMITTED from the offline backtests — the LLM never generates them.
+# strategy_conviction() checks this registry FIRST, so even a (mistaken) future
+# strategy_stats.json entry for these ids can never override the Tier-B labeling.
+_REGIME_LOCAL_NOTE = "regime-local evidence — expected finite lifetime; kill line armed"
+
+REGIME_LOCAL_CONVICTION: dict[str, dict[str, Any]] = {
+    "generals_dip": {
+        "basis": "regime_local_backtest",
+        "strategy_id": "generals_dip",
+        "label": "Generals Dip (regime-local, Tier-B)",
+        "win_prob": None,
+        "validated": "regime-local",
+        "sleeve": "regime_local",
+        "as_of": "2026-07-02",
+        "regime_stats": {
+            "window": "2025-06..2026-06",
+            "excess_ev_pct": 3.63,
+            "ci": [0.11, 4.66],
+            "p_value": 0.021,
+            "win_rate_pct": 60,
+            "n": 399,
+            "horizon": "h=10td fixed hold, excess over SPY, net 10bps",
+            "full_window": "2021–26: +0.14%/trade (not significant)",
+            "note": _REGIME_LOCAL_NOTE,
+            "caveats": (
+                "last-12m leans on the 2026 recovery leg; strategy was negative in "
+                "2021–2022 tape."
+            ),
+        },
+        "plan": {
+            "kind": "generals_dip",
+            "exit_basis": "time",
+            "max_holding_days": 10,
+            "rules": [
+                "Enter next open after a top-30 3d flush (close>SMA50, 3d ≤ −3.5%)",
+                "Exit at T+11 open — 10 trading-day fixed hold (no stop/target)",
+            ],
+        },
+    },
+    "drawdown_stab": {
+        "basis": "regime_local_backtest",
+        "strategy_id": "vol_event",
+        "label": "Vol-Event: drawdown stabilization (regime-local, Tier-B)",
+        "win_prob": None,
+        "validated": "regime-local",
+        "sleeve": "regime_local",
+        "trigger_id": "drawdown_stab",
+        "as_of": "2026-07-02",
+        "regime_stats": {
+            "window": "post-2020",
+            "episodes": "8/10 wins, median +6.2%/episode",
+            "note": _REGIME_LOCAL_NOTE,
+            "caveats": "episodic small-n — descriptive only, never a win% probability.",
+        },
+        "plan": {
+            "kind": "vol_event",
+            "exit_basis": "price_or_time",
+            "max_holding_days": 30,
+            "rules": [
+                "Enter next open after the first stabilization day in a ≥5% SPY "
+                "drawdown with VIX ≥ 25",
+                "Exit next open after SPY close recovers the trailing 20d-high level",
+                "30 trading-day cap",
+            ],
+        },
+    },
+    "term_flip": {
+        "basis": "regime_local_backtest",
+        "strategy_id": "vol_event",
+        "label": "Vol-Event: VIX term-structure flip (regime-local, Tier-B)",
+        "win_prob": None,
+        "validated": "regime-local",
+        "sleeve": "regime_local",
+        "trigger_id": "term_flip",
+        "as_of": "2026-07-02",
+        "regime_stats": {
+            "window": "post-2020 (21d hold)",
+            "episodes": "13/14 wins, mean +5.0% vs +1.4% unconditional baseline",
+            "note": _REGIME_LOCAL_NOTE,
+            "caveats": "episodic small-n — descriptive only, never a win% probability.",
+        },
+        "plan": {
+            "kind": "vol_event",
+            "exit_basis": "time",
+            "max_holding_days": 21,
+            "rules": [
+                "Enter next open after VIX/VIX3M flips back ≤ 1.0 (≥2 days inverted)",
+                "Exit after 21 trading days (fixed hold)",
+            ],
+        },
+    },
+}
+
 
 def load_strategy_stats(path: Path = DEFAULT_STATS_PATH) -> dict[str, Any]:
     """Parse the strategy-stats artifact (mtime-cached). Returns {} if absent/unparseable."""
@@ -66,7 +165,15 @@ def strategy_conviction(
     read `score.win_prob`, plus explicit fields the generic scorer doesn't have. The CI
     here is the EV-per-trade CI (`ev_ci_pct`), NOT a win-probability CI — kept separate so
     nothing mislabels it. Returns None if the strategy has no stats entry.
+
+    Regime-local (Tier-B) sleeves are served from REGIME_LOCAL_CONVICTION first:
+    win_prob=None + the committed regime_stats block — never from strategy_stats.json.
     """
+    regime_local = REGIME_LOCAL_CONVICTION.get(strategy_id)
+    if regime_local is not None:
+        # Deep-enough copy: the caller may attach/overwrite "plan" on the result.
+        return json.loads(json.dumps(regime_local))
+
     s = get_strategy_stats(strategy_id, path=path)
     if not s:
         return None

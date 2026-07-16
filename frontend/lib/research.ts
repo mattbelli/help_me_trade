@@ -1,10 +1,16 @@
-import { API_BASE, apiFetch, apiUrlWithToken } from "./api";
+import { API_BASE, apiFetch, apiUrlWithToken, type ResearchSettings } from "./api";
 
 export type ResearchConfig = {
   mode: "searxng" | "mock";
   searxng_url: string;
   warning: string | null;
   uses_mock_web: boolean;
+  roles?: string[];
+  effort_presets?: string[];
+  current?: ResearchSettings;
+  default_model?: string;
+  provider?: string;
+  known_models?: string[];
 };
 
 export async function getResearchConfig(): Promise<ResearchConfig> {
@@ -17,7 +23,21 @@ export async function getResearchConfig(): Promise<ResearchConfig> {
   return res.json() as Promise<ResearchConfig>;
 }
 
-export type ResearchDepth = "quick" | "standard" | "deep";
+export type ResearchDepth = "quick" | "standard" | "deep" | "exhaustive";
+
+export type ResearchRecipe = "single_stock" | "setup_scan";
+
+export const RECIPE_LABELS: Record<ResearchRecipe, string> = {
+  single_stock: "Deep dive",
+  setup_scan: "Setup scan",
+};
+
+export const EFFORT_LABELS: Record<ResearchDepth, string> = {
+  quick: "Quick",
+  standard: "Standard",
+  deep: "Deep",
+  exhaustive: "Exhaustive",
+};
 
 export type ResearchArtifact = {
   id: number;
@@ -31,6 +51,69 @@ export type ResearchArtifact = {
   sources: Array<Record<string, unknown>>;
   created_at: string;
   updated_at: string;
+};
+
+export type ResearchRunQueued = {
+  job_id: string;
+  status: string;
+  topic: string;
+  symbol: string | null;
+  depth: ResearchDepth;
+};
+
+export type ResearchActivityEvent = {
+  ts?: string;
+  phase: string;
+  key?: string;
+  title?: string;
+  symbol?: string;
+  has_setup?: boolean;
+  count?: number;
+  ideas?: number;
+  candidates_with_setups?: number;
+  round?: number;
+  queries?: string[];
+  follow_up?: boolean;
+  rounds?: number;
+  sources?: number;
+  status?: string;
+  specialists_ok?: number;
+  warning?: string;
+  target_words?: number;
+  words?: number;
+  target?: number;
+  query?: string;
+  total?: number;
+  findings?: number;
+};
+
+export type ResearchJob = {
+  job_id: string;
+  status: string;
+  topic: string;
+  symbol: string | null;
+  depth: ResearchDepth;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  artifact_id: number | null;
+  error: string | null;
+  result: { artifact_id?: number } | null;
+  events?: ResearchActivityEvent[];
+  phase?: string;
+};
+
+export type ResearchJobSummary = {
+  job_id: string;
+  topic: string;
+  symbol: string | null;
+  depth: ResearchDepth;
+  recipe: ResearchRecipe;
+  status: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  artifact_id: number | null;
 };
 
 export type ResearchRunResult = {
@@ -98,7 +181,9 @@ export async function runResearch(body: {
   topic: string;
   symbol?: string;
   depth?: ResearchDepth;
-}): Promise<ResearchRunResult> {
+  recipe?: ResearchRecipe;
+  symbols?: string[];
+}): Promise<ResearchRunQueued> {
   const res = await apiFetch(`${API_BASE}/api/research/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -111,7 +196,45 @@ export async function runResearch(body: {
     };
     throw new Error(parseApiError(err, `Research failed (${res.status})`));
   }
-  return res.json() as Promise<ResearchRunResult>;
+  return res.json() as Promise<ResearchRunQueued>;
+}
+
+export async function getResearchJob(
+  jobId: string,
+  events?: number | "all",
+): Promise<ResearchJob> {
+  const query =
+    events != null
+      ? `?events=${events === "all" ? "all" : String(events)}`
+      : "";
+  const res = await apiFetch(`${API_BASE}/api/research/jobs/${jobId}${query}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(parseApiError(err, `Research job not found (${res.status})`));
+  }
+  return res.json() as Promise<ResearchJob>;
+}
+
+export async function listResearchJobs(
+  limit = 10,
+): Promise<ResearchJobSummary[]> {
+  const res = await apiFetch(`${API_BASE}/api/research/jobs?limit=${limit}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    throw new Error(parseApiError(err, `Failed to list research jobs (${res.status})`));
+  }
+  const data = (await res.json()) as { jobs: ResearchJobSummary[] };
+  return data.jobs;
 }
 
 export type ResearchStreamEvent = {
@@ -124,6 +247,8 @@ export async function streamResearch(
     topic: string;
     symbol?: string;
     depth?: ResearchDepth;
+    recipe?: ResearchRecipe;
+    symbols?: string[];
   },
   onEvent: (event: ResearchStreamEvent) => void,
 ): Promise<ResearchRunResult | null> {

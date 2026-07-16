@@ -10,6 +10,7 @@ from db.ai_tables import (
     delete_memory,
     get_memory,
     list_memories,
+    resolve_memory_proposal,
     update_memory,
 )
 
@@ -41,6 +42,10 @@ class MemoryService:
         *,
         memory_type: str,
         metadata: dict[str, Any] | None = None,
+        source: str = "legacy",
+        authority: str = "agent_inferred",
+        quote: str | None = None,
+        symbols: list[str] | None = None,
     ) -> dict[str, Any]:
         meta = dict(metadata or {})
         meta["type"] = memory_type
@@ -48,6 +53,10 @@ class MemoryService:
             memory_type=memory_type,
             content=content,
             metadata=meta,
+            source=source,
+            authority=authority,
+            quote=quote,
+            symbols=symbols,
         )
         if self._mem0 is not None:
             try:
@@ -61,9 +70,15 @@ class MemoryService:
         return record
 
     def list(
-        self, *, memory_type: str | None = None, limit: int = 50
+        self,
+        *,
+        memory_type: str | None = None,
+        limit: int = 50,
+        include_inactive: bool = False,
     ) -> list[dict[str, Any]]:
-        return list_memories(memory_type=memory_type, limit=limit)
+        return list_memories(
+            memory_type=memory_type, limit=limit, include_inactive=include_inactive
+        )
 
     def search(
         self, query: str, *, memory_type: str | None = None, limit: int = 10
@@ -112,12 +127,20 @@ class MemoryService:
         content: str | None = None,
         memory_type: str | None = None,
         metadata: dict[str, Any] | None = None,
+        status: str | None = None,
+        pinned: bool | None = None,
+        authority: str | None = None,
+        valid_until: str | None = None,
     ) -> dict[str, Any] | None:
         record = update_memory(
             memory_id,
             content=content,
             memory_type=memory_type,
             metadata=metadata,
+            status=status,
+            pinned=pinned,
+            authority=authority,
+            valid_until=valid_until,
         )
         if record is None:
             return None
@@ -135,6 +158,14 @@ class MemoryService:
             except Exception as exc:
                 logger.warning("Mem0 update mirror failed (local saved): %s", exc)
         return record
+
+    def resolve_proposal(
+        self, memory_id: int, *, action: str
+    ) -> dict[str, Any] | None:
+        """Founder Accept/Keep-old on a pending supersede proposal (M-1). The
+        accept path IS the founder Confirm gesture, so it legally mints
+        user_confirmed inside the atomic DB transition."""
+        return resolve_memory_proposal(memory_id, action=action)
 
     def delete(self, memory_id: int) -> bool:
         deleted = delete_memory(memory_id)

@@ -136,7 +136,7 @@ export function SymbolSearchInput({
         className={cn(inputClassName)}
       />
       {loading ? (
-        <span className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 font-mono text-[9px] text-[var(--fg-faint)]">
+        <span className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
           …
         </span>
       ) : null}
@@ -149,7 +149,7 @@ export function SymbolSearchInput({
               <button
                 type="button"
                 className={cn(
-                  "w-full px-2 py-1 text-left font-mono text-[11px] text-foreground hover:bg-[var(--bg-hover)]",
+                  "w-full px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--bg-hover)]",
                   idx === highlightIndex && "bg-[var(--bg-hover)]",
                 )}
                 onMouseDown={(e) => {

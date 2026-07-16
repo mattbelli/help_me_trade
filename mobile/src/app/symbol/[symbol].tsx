@@ -15,6 +15,7 @@ import { sessionView } from '@/features/watchlist/session';
 import { Icon } from '@/components/ui/icon';
 import {
   Button,
+  BackRow,
   Card,
   Divider,
   ErrorState,
@@ -37,11 +38,12 @@ import {
   rangeFor,
   type RangeKey,
 } from '@/features/chart/ranges';
-import { colors, hairline, radius, spacing } from '@/theme';
+import { hairline, radius, spacing, useColors } from '@/theme';
 
 const INLINE_RANGES = CHART_RANGES.filter((r) => INLINE_RANGE_KEYS.includes(r.key));
 
 export default function SymbolDetailScreen() {
+  const colors = useColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ symbol: string }>();
   const symbol = typeof params.symbol === 'string' ? params.symbol : (params.symbol?.[0] ?? '');
@@ -260,19 +262,6 @@ export default function SymbolDetailScreen() {
   );
 }
 
-function BackRow({ onBack }: { onBack: () => void }) {
-  return (
-    <PressableScale onPress={onBack} haptic>
-      <Row gap={spacing.xs} align="center">
-        <Icon name="chevron-left" size={20} color={colors.textMuted} />
-        <Text variant="body" color="textMuted">
-          Back
-        </Text>
-      </Row>
-    </PressableScale>
-  );
-}
-
 function KeyInfoGrid({ quote }: { quote: WatchlistQuote }) {
   return (
     <Row gap={spacing.md} style={{ flexWrap: 'wrap' }}>
@@ -378,6 +367,7 @@ function StatCell({ label, value }: { label: string; value: string }) {
 }
 
 function EpsBeatRow({ event }: { event: EarningsEvent }) {
+  const colors = useColors();
   const surprise = event.surprise_pct;
   const beat = (surprise ?? 0) >= 0;
   // Cap the bar at ±10% surprise so a single blowout doesn't dwarf the rest.
@@ -469,6 +459,7 @@ function DirectionToggle({
   value: 'above' | 'below';
   onChange: (v: 'above' | 'below') => void;
 }) {
+  const colors = useColors();
   return (
     <Row gap={spacing.xs}>
       {(['above', 'below'] as const).map((opt) => {
@@ -505,6 +496,7 @@ function AlertRow({
   onDelete: () => void;
   deleting?: boolean;
 }) {
+  const colors = useColors();
   return (
     <Row justify="space-between" align="center">
       <Row gap={spacing.xs} align="center">

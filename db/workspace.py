@@ -154,6 +154,176 @@ def save_workspace_pages(pages_state: dict, db_path: Path = DEFAULT_DB_PATH) -> 
         conn.commit()
 
 
+MAX_WORKSPACES = 8
+MAX_PAGES_PER_WORKSPACE = 5
+MAX_LIBRARY_PAGES = 24
+DEFAULT_WORKSPACE_ID = "ws-default"
+
+
+def _is_valid_page(page: object) -> bool:
+    if not isinstance(page, dict):
+        return False
+    if not isinstance(page.get("id"), str) or not isinstance(page.get("name"), str):
+        return False
+    layout = page.get("layout")
+    if not isinstance(layout, list):
+        return False
+    return all(_is_valid_layout_item(item) for item in layout)
+
+
+def _is_valid_workspaces_state(state: object) -> bool:
+    """v2: a shared page LIBRARY + workspaces referencing pages by id (linked)."""
+    if not isinstance(state, dict) or state.get("version") != 2:
+        return False
+    pages = state.get("pages")
+    workspaces = state.get("workspaces")
+    default_id = state.get("defaultWorkspaceId")
+    if (
+        not isinstance(pages, dict)
+        or not isinstance(workspaces, dict)
+        or not isinstance(default_id, str)
+    ):
+        return False
+    if not pages or len(pages) > MAX_LIBRARY_PAGES:
+        return False
+    if not all(_is_valid_page(page) for page in pages.values()):
+        return False
+    if not workspaces or len(workspaces) > MAX_WORKSPACES:
+        return False
+    for ws in workspaces.values():
+        if not isinstance(ws, dict):
+            return False
+        if not isinstance(ws.get("id"), str) or not isinstance(ws.get("name"), str):
+            return False
+        page_ids = ws.get("pageIds")
+        if not isinstance(page_ids, list) or not page_ids:
+            return False
+        if len(page_ids) > MAX_PAGES_PER_WORKSPACE:
+            return False
+        if len(set(page_ids)) != len(page_ids):
+            return False
+        if not all(isinstance(pid, str) and pid in pages for pid in page_ids):
+            return False
+        if ws.get("activePageId") not in page_ids:
+            return False
+    return default_id in workspaces
+
+
+def _is_valid_workspaces_state_v1(state: object) -> bool:
+    """v1 (lived one night): each workspace embedded its own pages_state."""
+    if not isinstance(state, dict) or "version" in state:
+        return False
+    workspaces = state.get("workspaces")
+    default_id = state.get("defaultWorkspaceId")
+    if not isinstance(workspaces, dict) or not isinstance(default_id, str):
+        return False
+    if not workspaces or len(workspaces) > MAX_WORKSPACES:
+        return False
+    for ws in workspaces.values():
+        if not isinstance(ws, dict):
+            return False
+        if not isinstance(ws.get("id"), str) or not isinstance(ws.get("name"), str):
+            return False
+        if not _is_valid_pages_state(ws.get("pages_state")):
+            return False
+    return default_id in workspaces
+
+
+def _migrate_workspaces_v1(v1: dict) -> dict:
+    """Hoist v1 embedded pages into the shared library; ids kept where unique."""
+    library: dict = {}
+    workspaces: dict = {}
+    counter = 1
+    for ws in v1["workspaces"].values():
+        id_map: dict = {}
+        for old_id, page in ws["pages_state"]["pages"].items():
+            new_id = old_id
+            while new_id in library:
+                new_id = f"pg-{counter}"
+                counter += 1
+            id_map[old_id] = new_id
+            library[new_id] = {**page, "id": new_id}
+        page_ids = [id_map[pid] for pid in ws["pages_state"]["pages"]]
+        active = id_map.get(ws["pages_state"]["activePageId"], page_ids[0])
+        workspaces[ws["id"]] = {
+            "id": ws["id"],
+            "name": ws["name"],
+            "pageIds": page_ids,
+            "activePageId": active,
+        }
+    return {
+        "version": 2,
+        "pages": library,
+        "workspaces": workspaces,
+        "defaultWorkspaceId": v1["defaultWorkspaceId"],
+    }
+
+
+def _wrap_pages_as_workspaces(pages_state: dict) -> dict:
+    return _migrate_workspaces_v1(
+        {
+            "workspaces": {
+                DEFAULT_WORKSPACE_ID: {
+                    "id": DEFAULT_WORKSPACE_ID,
+                    "name": "Main",
+                    "pages_state": pages_state,
+                }
+            },
+            "defaultWorkspaceId": DEFAULT_WORKSPACE_ID,
+        }
+    )
+
+
+def load_workspaces(db_path: Path = DEFAULT_DB_PATH) -> dict | None:
+    """Return stored workspaces state (v2), auto-migrating older blobs.
+
+    Migration chain: v2 blob → v1 blob (hoist embedded pages into the library)
+    → legacy pages blob (wrap as a single "Main" workspace). The migrated
+    result is persisted so the chain runs once.
+    """
+    try:
+        init_workspace_tables(db_path)
+        with _connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT value FROM workspace_state WHERE key = 'workspaces'",
+            ).fetchone()
+        if row is not None:
+            parsed = json.loads(row[0])
+            if _is_valid_workspaces_state(parsed):
+                return parsed
+            if _is_valid_workspaces_state_v1(parsed):
+                state = _migrate_workspaces_v1(parsed)
+                save_workspaces(state, db_path)
+                return state
+
+        pages_state = load_workspace_pages(db_path)
+        if pages_state is None:
+            return None
+        state = _wrap_pages_as_workspaces(pages_state)
+        save_workspaces(state, db_path)
+        return state
+    except Exception:
+        return None
+
+
+def save_workspaces(state: dict, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Upsert the workspaces state. Last-write-wins."""
+    init_workspace_tables(db_path)
+    now = datetime.now(UTC).isoformat()
+    value = json.dumps(state)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO workspace_state (key, value, updated_at)
+            VALUES ('workspaces', ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                           updated_at = excluded.updated_at
+            """,
+            (value, now),
+        )
+        conn.commit()
+
+
 MAX_CUSTOM_THEMES = 24
 
 

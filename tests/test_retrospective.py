@@ -202,12 +202,13 @@ def retro_db(monkeypatch, tmp_path):
     db = tmp_path / "retro.db"
     monkeypatch.setattr(ai_tables, "DEFAULT_DB_PATH", db)
 
-    def _add_memory(self, content, *, memory_type, metadata=None):
+    def _add_memory(self, content, *, memory_type, metadata=None, **kwargs):
         return ai_tables.create_memory(
             memory_type=memory_type,
             content=content,
             metadata=metadata,
             db_path=db,
+            **kwargs,
         )
 
     from ai.memories import MemoryService

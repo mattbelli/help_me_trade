@@ -56,7 +56,7 @@ export function NotificationBell() {
         <Bell className="size-3.5" />
         {unread > 0 ? (
           <span
-            className="absolute -top-0.5 -right-0.5 grid min-w-[14px] place-items-center rounded-full bg-[var(--c-red)] px-0.5 text-[9px] font-bold leading-none text-[var(--c-on-accent)]"
+            className="absolute -top-0.5 -right-0.5 grid min-w-[14px] place-items-center rounded-full bg-[var(--c-red)] px-0.5 text-[length:var(--fs-micro)] font-bold leading-none text-[var(--c-on-accent)]"
           >
             {unread > 9 ? "9+" : unread}
           </span>
@@ -64,10 +64,10 @@ export function NotificationBell() {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-80 border-[var(--border)] bg-[var(--panel)] p-0 font-mono text-[11px] text-foreground shadow-[var(--panel-shadow)]"
+        className="w-80 border-[var(--border)] bg-[var(--panel)] p-0 font-mono text-[length:var(--fs-body)] text-foreground shadow-[var(--panel-shadow)]"
       >
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
-          <span className="font-sans text-[12px] font-semibold tracking-tight">
+        <div className="flex items-center justify-between border-b border-[var(--line-divider)] px-3 py-2">
+          <span className="font-sans text-[length:var(--fs-title)] font-semibold tracking-tight">
             Notifications
           </span>
           <button
@@ -75,7 +75,7 @@ export function NotificationBell() {
             disabled={unread === 0}
             onClick={() => markAllRead()}
             className={cn(
-              "rounded px-1.5 py-0.5 text-[10px] transition-colors",
+              "rounded px-1.5 py-0.5 text-[length:var(--fs-table)] transition-colors",
               unread === 0
                 ? "cursor-not-allowed text-[var(--fg-faint)]"
                 : "text-[var(--c-accent)] hover:bg-[var(--c-accent-soft)]",
@@ -102,7 +102,7 @@ export function NotificationBell() {
                       activate(n);
                       setOpen(false);
                     }}
-                    className="flex w-full gap-2 border-b border-[var(--border)] px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[var(--bg-hover)]"
+                    className="flex w-full gap-2 border-b border-[var(--line-divider)] px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-[var(--bg-hover)]"
                   >
                     <span
                       className={cn(
@@ -119,7 +119,7 @@ export function NotificationBell() {
                       <span className="mt-0.5 block truncate text-[var(--fg-dim)]">
                         {notificationLabel(n)}
                       </span>
-                      <span className="mt-1 block text-[9.5px] text-[var(--fg-faint)]">
+                      <span className="mt-1 block text-[length:var(--fs-table)] text-[var(--fg-faint)]">
                         {formatRelativeTime(n.created_at)}
                       </span>
                     </span>

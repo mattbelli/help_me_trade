@@ -27,10 +27,12 @@ from db.sqlite import get_latest_snapshot
 from db.strategies import list_strategies
 from signals.scan import _fetch_stock_bars
 from signals.strategy_kinds import (
+    REGIME_SLEEVE_KINDS,
     EntryContext,
     filter_entry_params,
     is_portfolio_kind,
     kind_spec,
+    strategy_kind,
 )
 from signals.strategy_universe import resolve_universe_spec
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
@@ -284,6 +286,11 @@ async def _run_strategy(
 ) -> list[dict[str, Any]]:
     if is_portfolio_kind(strategy["id"]):
         return await _run_portfolio_strategy(strategy, db_path=db_path)
+
+    # Regime-local sleeves are scanned by their own post-close loop
+    # (signals.regime_sleeves) — silently skip them here.
+    if strategy_kind(strategy["id"]) in REGIME_SLEEVE_KINDS:
+        return []
 
     spec = kind_spec(strategy["id"])
     if spec is None:

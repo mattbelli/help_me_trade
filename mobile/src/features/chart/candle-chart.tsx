@@ -15,7 +15,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
 import type { Bar } from '@/api/types';
 import { Skeleton, Text } from '@/components/ui';
-import { colors } from '@/theme';
+import { type Colors, useColors } from '@/theme';
 
 import { LIGHTWEIGHT_CHARTS_JS } from './lightweight-charts-src';
 
@@ -39,7 +39,7 @@ function toSeconds(iso: string): number {
   return Math.floor(new Date(iso).getTime() / 1000);
 }
 
-function buildHtml(fullControl: boolean, showLegend: boolean): string {
+function buildHtml(fullControl: boolean, showLegend: boolean, palette: Colors): string {
   const vertDrag = fullControl ? 'true' : 'false';
   const axisDrag = fullControl ? 'true' : 'false';
   return `<!DOCTYPE html>
@@ -47,9 +47,9 @@ function buildHtml(fullControl: boolean, showLegend: boolean): string {
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <style>
-  html, body { margin:0; padding:0; background:${colors.bg}; overflow:hidden; }
+  html, body { margin:0; padding:0; background:${palette.bg}; overflow:hidden; }
   #c { width:100vw; height:100vh; }
-  #legend { position:absolute; top:8px; left:10px; font:12px ui-monospace,Menlo,monospace; color:${colors.textMuted}; opacity:0; pointer-events:none; transition:opacity .1s; }
+  #legend { position:absolute; top:8px; left:10px; font:12px ui-monospace,Menlo,monospace; color:${palette.textMuted}; opacity:0; pointer-events:none; transition:opacity .1s; }
 </style>
 </head>
 <body>
@@ -59,11 +59,11 @@ ${showLegend ? '<div id="legend"></div>' : ''}
 <script>
   var chart = LightweightCharts.createChart(document.getElementById('c'), {
     autoSize: true,
-    layout: { background: { type: 'solid', color: '${colors.bg}' }, textColor: '${colors.textMuted}', fontFamily: 'ui-monospace, Menlo, monospace' },
+    layout: { background: { type: 'solid', color: '${palette.bg}' }, textColor: '${palette.textMuted}', fontFamily: 'ui-monospace, Menlo, monospace' },
     grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
     rightPriceScale: { borderVisible: false },
     timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
-    crosshair: { mode: ${showLegend ? 1 : 0}, vertLine: { color: '${colors.textFaint}', labelBackgroundColor: '${colors.surfaceRaised}' }, horzLine: { color: '${colors.textFaint}', labelBackgroundColor: '${colors.surfaceRaised}' } },
+    crosshair: { mode: ${showLegend ? 1 : 0}, vertLine: { color: '${palette.textFaint}', labelBackgroundColor: '${palette.surfaceRaised}' }, horzLine: { color: '${palette.textFaint}', labelBackgroundColor: '${palette.surfaceRaised}' } },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: ${vertDrag} },
     handleScale: { axisPressedMouseMove: ${axisDrag}, mouseWheel: true, pinch: true },
   });
@@ -96,13 +96,13 @@ ${showLegend ? '<div id="legend"></div>' : ''}
       if (series) chart.removeSeries(series);
       if (mode === 'candle') {
         series = chart.addCandlestickSeries({
-          upColor: '${colors.positive}', downColor: '${colors.negative}',
+          upColor: '${palette.positive}', downColor: '${palette.negative}',
           borderVisible: false,
-          wickUpColor: '${colors.positive}', wickDownColor: '${colors.negative}',
+          wickUpColor: '${palette.positive}', wickDownColor: '${palette.negative}',
         });
       } else {
         series = chart.addAreaSeries({
-          lineColor: '${colors.accent}', lineWidth: 2,
+          lineColor: '${palette.accent}', lineWidth: 2,
           topColor: 'rgba(90,209,190,0.25)', bottomColor: 'rgba(90,209,190,0.0)',
           priceLineVisible: false, lastValueVisible: false,
         });
@@ -143,9 +143,10 @@ export function CandleChart({
   height,
   loading,
 }: CandleChartProps) {
+  const colors = useColors();
   const webRef = useRef<WebView>(null);
   const [ready, setReady] = useState(false);
-  const html = useMemo(() => buildHtml(fullControl, showLegend), [fullControl, showLegend]);
+  const html = useMemo(() => buildHtml(fullControl, showLegend, colors), [fullControl, showLegend, colors]);
 
   const push = useCallback(() => {
     if (!webRef.current || bars.length === 0) return;

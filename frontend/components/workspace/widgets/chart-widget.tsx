@@ -1,10 +1,14 @@
 "use client";
 
-import { TvLightChart } from "@/components/trading/tv-light-chart";
+import { useEffect, useState } from "react";
+
+import { NativeChart } from "@/components/trading/native-chart";
+import { WidgetEmpty } from "@/components/workspace/widget-states";
 import {
   CHART_TIMEFRAMES,
   type ChartTimeframe,
 } from "@/lib/chart-time";
+import { scheduleFrameWork } from "@/lib/frame-scheduler";
 import { useSymbolQuote } from "@/lib/use-symbol-quote";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
@@ -27,28 +31,48 @@ export function ChartWidget({ config }: WidgetProps) {
       ? (channelSymbol ?? config.symbol ?? "SPY")
       : (config.symbol ?? "SPY");
 
-  const { price: livePrice } = useSymbolQuote({
+  const { price: livePrice, extPrice, marketSession } = useSymbolQuote({
     symbol,
     enabled: Boolean(symbol),
   });
+
+  // Defer the (heavy) chart construction until a scheduled frame so a page
+  // switch with several charts paints its panels immediately and the charts
+  // build progressively, one per frame, instead of blocking the switch.
+  const [mountChart, setMountChart] = useState(false);
+  useEffect(() => {
+    const cancel = scheduleFrameWork(() => setMountChart(true));
+    return cancel;
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="relative min-h-0 flex-1">
         {symbol ? (
-          <TvLightChart
-            symbol={symbol}
-            compact
-            showLevels={Boolean(config.showSessionNodes)}
-            studies={config.studies}
-            timeframe={timeframe}
-            style={style}
-            livePrice={livePrice}
-          />
+          mountChart ? (
+            // The in-house engine — full parity: candles/volume/pan/zoom/
+            // crosshair/live ticks, alerts, drawings, levels, and studies
+            // (MA overlays + RSI/MACD panes, CHART_ENGINE.md Phase 3).
+            <NativeChart
+              symbol={symbol}
+              compact
+              showLevels={Boolean(config.showSessionNodes)}
+              showAlerts={config.showAlerts ?? true}
+              showDrawings={config.showDrawings ?? true}
+              showTagColumn={config.showTagColumn ?? true}
+              studies={config.studies}
+              extended={config.extendedHours ?? true}
+              timeframe={timeframe}
+              style={style}
+              livePrice={livePrice}
+              extPrice={extPrice}
+              marketSession={marketSession}
+            />
+          ) : (
+            <div className="h-full w-full" aria-hidden />
+          )
         ) : (
-          <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-            Enter a symbol
-          </p>
+          <WidgetEmpty message="Enter a symbol" />
         )}
       </div>
     </div>

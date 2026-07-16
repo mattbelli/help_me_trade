@@ -6,8 +6,15 @@ import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes"
 import { WORKSPACE_THEMES } from "@/lib/workspace/themes"
 import {
   injectCustomThemeStyles,
+  resolveThemeIsDark,
+  syncHtmlDarkClass,
 } from "@/lib/workspace/custom-themes"
 import { useCustomThemeStore } from "@/lib/workspace/use-custom-theme-store"
+import {
+  DEFAULT_DARK_THEME,
+  DEFAULT_LIGHT_THEME,
+  useThemeModeStore,
+} from "@/lib/workspace/use-theme-mode-store"
 
 const THEME_STORAGE_KEY = "hmt-theme-carbon"
 
@@ -70,6 +77,8 @@ function ThemeProvider({
       {...props}
     >
       <ThemeMigration />
+      <ThemeDarkClass />
+      <ThemeSystemSync />
       <ThemeHotkey />
       {children}
     </NextThemesProvider>
@@ -84,6 +93,58 @@ function ThemeMigration() {
       setTheme(LEGACY_THEME_ALIASES[theme])
     }
   }, [theme, setTheme])
+
+  return null
+}
+
+function ThemeDarkClass() {
+  const { theme } = useTheme()
+  const customThemes = useCustomThemeStore((s) => s.themes)
+
+  React.useEffect(() => {
+    syncHtmlDarkClass(resolveThemeIsDark(theme, customThemes))
+  }, [theme, customThemes])
+
+  return null
+}
+
+/** Resolve a stored default id, falling back to the built-in when it no longer
+ *  exists (e.g. the custom theme it pointed at was deleted). */
+function resolveDefault(
+  id: string,
+  fallback: string,
+  customThemes: { id: string }[],
+): string {
+  const known =
+    (WORKSPACE_THEMES as readonly string[]).includes(id) ||
+    customThemes.some((t) => t.id === id)
+  return known ? id : fallback
+}
+
+/** When "System" mode is active, follow the OS `prefers-color-scheme` and apply
+ *  the user's default-dark or default-light theme accordingly. Lives here (in
+ *  the always-mounted provider) so it keeps tracking the OS with the menu shut. */
+function ThemeSystemSync() {
+  const { setTheme } = useTheme()
+  const customThemes = useCustomThemeStore((s) => s.themes)
+  const system = useThemeModeStore((s) => s.system)
+  const defaultDark = useThemeModeStore((s) => s.defaultDark)
+  const defaultLight = useThemeModeStore((s) => s.defaultLight)
+
+  React.useEffect(() => {
+    if (!system || typeof window === "undefined" || !window.matchMedia) return
+    const mq = window.matchMedia("(prefers-color-scheme: dark)")
+    const apply = () => {
+      setTheme(
+        mq.matches
+          ? resolveDefault(defaultDark, DEFAULT_DARK_THEME, customThemes)
+          : resolveDefault(defaultLight, DEFAULT_LIGHT_THEME, customThemes),
+      )
+    }
+    apply()
+    mq.addEventListener("change", apply)
+    return () => mq.removeEventListener("change", apply)
+  }, [system, defaultDark, defaultLight, customThemes, setTheme])
 
   return null
 }

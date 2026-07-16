@@ -6,6 +6,7 @@ import { useDeletePriceAlert, usePriceAlerts } from '@/api/queries';
 import type { PriceAlert } from '@/api/types';
 import { Icon } from '@/components/ui/icon';
 import {
+  BackRow,
   EmptyState,
   ErrorState,
   Eyebrow,
@@ -18,9 +19,10 @@ import {
   Text,
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
-import { colors, spacing } from '@/theme';
+import { spacing, useColors } from '@/theme';
 
 export default function AlertsScreen() {
+  const colors = useColors();
   const router = useRouter();
   const alerts = usePriceAlerts();
   const deleteAlert = useDeletePriceAlert();
@@ -85,19 +87,6 @@ export default function AlertsScreen() {
   );
 }
 
-function BackRow({ onBack }: { onBack: () => void }) {
-  return (
-    <PressableScale onPress={onBack} haptic>
-      <Row gap={spacing.xs} align="center">
-        <Icon name="chevron-left" size={20} color={colors.textMuted} />
-        <Text variant="body" color="textMuted">
-          Back
-        </Text>
-      </Row>
-    </PressableScale>
-  );
-}
-
 function AlertListRow({
   alert,
   onOpenSymbol,
@@ -109,6 +98,7 @@ function AlertListRow({
   onDelete: () => void;
   deleting?: boolean;
 }) {
+  const colors = useColors();
   return (
     <Row justify="space-between" align="center" style={{ paddingVertical: spacing.md }}>
       <PressableScale onPress={onOpenSymbol} style={{ flex: 1 }}>

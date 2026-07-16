@@ -71,18 +71,21 @@ async def test_t14_fires_once_and_dedups_same_day(
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
-    push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.push.send_alert_push", push_mock)
+    # "earnings" is inbox-only in the routing matrix — assert at notify(),
+    # not send_alert_push (which is intentionally skipped for this kind).
+    push_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.notify.notify", push_mock)
 
     from api.main import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
     call = push_mock.await_args
+    assert call.kwargs["kind"] == "earnings"
     assert call.kwargs["data"]["milestone"] == "t14"
     assert call.kwargs["data"]["symbol"] == "MU"
     assert call.kwargs["data"]["earnings_date"] == "2026-07-08"
-    assert "2 weeks" in call.args[1]
+    assert "2 weeks" in call.kwargs["body"]
 
     push_mock.reset_mock()
     await _earnings_alert_once()
@@ -101,15 +104,17 @@ async def test_t1_fires_one_day_before(
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("api.main.earnings_hour", lambda sym, d, **kw: "amc")
 
-    push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.push.send_alert_push", push_mock)
+    # "earnings" is inbox-only in the routing matrix — assert at notify(),
+    # not send_alert_push (which is intentionally skipped for this kind).
+    push_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.notify.notify", push_mock)
 
     from api.main import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
     assert push_mock.await_args.kwargs["data"]["milestone"] == "t1"
-    assert ", AMC" in push_mock.await_args.args[1]
+    assert ", AMC" in push_mock.await_args.kwargs["body"]
 
 
 @pytest.mark.asyncio
@@ -128,16 +133,18 @@ async def test_t0_fires_day_of_with_hour(
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("api.main.earnings_hour", lambda sym, d, **kw: "bmo")
 
-    push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.push.send_alert_push", push_mock)
+    # "earnings" is inbox-only in the routing matrix — assert at notify(),
+    # not send_alert_push (which is intentionally skipped for this kind).
+    push_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.notify.notify", push_mock)
 
     from api.main import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
     assert push_mock.await_args.kwargs["data"]["milestone"] == "t0"
-    assert "TODAY" in push_mock.await_args.args[1]
-    assert "before open" in push_mock.await_args.args[1]
+    assert "TODAY" in push_mock.await_args.kwargs["body"]
+    assert "before open" in push_mock.await_args.kwargs["body"]
 
 
 @pytest.mark.asyncio
@@ -150,8 +157,10 @@ async def test_no_alert_when_more_than_14_days_or_past(
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
-    push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.push.send_alert_push", push_mock)
+    # "earnings" is inbox-only in the routing matrix — assert at notify(),
+    # not send_alert_push (which is intentionally skipped for this kind).
+    push_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.notify.notify", push_mock)
 
     from api.main import _earnings_alert_once
 
@@ -175,8 +184,10 @@ async def test_new_earnings_date_rearms_milestones(
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
-    push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.push.send_alert_push", push_mock)
+    # "earnings" is inbox-only in the routing matrix — assert at notify(),
+    # not send_alert_push (which is intentionally skipped for this kind).
+    push_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.notify.notify", push_mock)
 
     from api.main import _earnings_alert_once
 
@@ -216,8 +227,10 @@ async def test_t14_catches_up_when_loop_lands_on_day_13(
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
-    push_mock = AsyncMock(return_value=1)
-    monkeypatch.setattr("signals.push.send_alert_push", push_mock)
+    # "earnings" is inbox-only in the routing matrix — assert at notify(),
+    # not send_alert_push (which is intentionally skipped for this kind).
+    push_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.notify.notify", push_mock)
 
     from api.main import _earnings_alert_once
 

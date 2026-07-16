@@ -1,5 +1,5 @@
 import { apiFetch, API_BASE } from "@/lib/api";
-import type { DailyTradeStat, SymbolTradeStat, TradeSummary } from "@/lib/trades-api";
+import { parseMoney, type DailyTradeStat, type SymbolTradeStat, type TradeSummary } from "@/lib/trades-api";
 
 export type PerformancePeriod =
   | "day"
@@ -36,8 +36,25 @@ export type DayOfWeekStat = {
 export type DailyPnlStat = {
   date: string;
   net_amount: string;
+  /** Boundary-delta net-cash realized; prefer over net_amount for P&L views. */
+  realized?: string;
+  /** Average-cost attribution — books partial closes on the day they trade
+      (boundary realized stays $0 until a symbol goes flat). */
+  realized_avg?: string | null;
+  /** Day includes activity with unknowable basis (pre-history shares). */
+  avg_approx?: boolean;
   event_count: number;
 };
+
+/** Amount to show as daily realized P&L: avg-cost attribution when present,
+    else boundary realized, else net cash. */
+export function dailyRealizedAmount(day: DailyPnlStat): number {
+  return parseMoney(day.realized_avg ?? day.realized ?? day.net_amount);
+}
+
+export function dailyRealizedIsCashFlowFallback(day: DailyPnlStat): boolean {
+  return day.realized == null;
+}
 
 export type PnlMode = "realized" | "cashflow";
 
@@ -57,6 +74,7 @@ export type PerformanceDashboard = {
   day_of_week_realized: DayOfWeekStat[];
   top_winners: RoundTrip[];
   top_losers: RoundTrip[];
+  scope_fallback?: boolean;
 };
 
 export type SyncResult = {
@@ -83,6 +101,16 @@ export async function fetchPerformanceDashboard(params: {
   const res = await apiFetch(
     `${API_BASE}/api/performance/dashboard?${qs}`,
   );
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+export async function fetchDayPnl(params: {
+  account_id?: string;
+}): Promise<{ day_pnl: number; has_activity: boolean }> {
+  const qs = new URLSearchParams();
+  if (params.account_id) qs.set("account_id", params.account_id);
+  const res = await apiFetch(`${API_BASE}/api/performance/day-pnl?${qs}`);
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }

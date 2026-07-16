@@ -12,6 +12,21 @@ from db.notifications import create_notification
 
 logger = logging.getLogger(__name__)
 
+# Routing matrix (surface 4): ambient kinds are inbox-only — they persist to
+# the store and reach the web card feed over WS, but never buzz the phone,
+# regardless of what the caller passed for push. A warning/critical severity
+# escapes the demotion (an ambient source reporting a real problem must push).
+# Phone tier stays: proposals, executions/fills, risk/kill-switch, price
+# alerts, idea triggers, and budget-gated flow convergence.
+INBOX_ONLY_KINDS = {
+    "rvol",
+    "earnings",
+    "report_ready",
+    "research_ready",
+    "scan_ready",
+    "idea_resolved",
+}
+
 _inflight_notify_tasks: set[asyncio.Task] = set()
 
 
@@ -56,6 +71,8 @@ async def notify(
     push: bool = True,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
+    if push and kind in INBOX_ONLY_KINDS and severity not in ("warning", "critical"):
+        push = False
     try:
         row = create_notification(
             kind=kind,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ from ai.memories import get_memory_service
 from ai.perf_context import format_perf_insights_for_llm, sanitize_trade_history_stats
 from ai.research.jobs import submit_research_job
 from ai.utils.symbols import extract_symbol
+from db.account_scope import resolve_perf_scope
 from db.accounts import (
     account_is_execution_capable,
     default_execution_account,
@@ -33,13 +36,52 @@ from signals.rule_schema import Group, Leaf, RuleSpec
 
 logger = logging.getLogger(__name__)
 
+# Ambient chat-session id for the current request task. Set by the chat
+# orchestrators (mobile stream today) so per-session fences like the quote-save
+# cap can bucket by session without threading a session_id through every tool
+# call site. Unset (None) callers share the anonymous bucket below.
+CHAT_SESSION_ID: ContextVar[str | None] = ContextVar(
+    "hmt_chat_session_id", default=None
+)
+
+# Per-session cap on quote-backed save_memory calls. A quote grants the
+# never-NOOP privilege lane (the judge can't drop it), and exact-match dedup is
+# trivially bypassed by varied content — so an attacker-steered session could
+# otherwise flood the store with durable "his exact words" rows. Judge-mediated
+# non-quote candidates are NOT capped. Callers without a session id share a
+# day-scoped anonymous bucket: still capped (deny-by-default), but a long-lived
+# process is never permanently locked out.
+_QUOTE_SAVE_CAP = 5
+_QUOTE_SAVE_BUCKETS_MAX = 4096  # bound the in-memory dict on long uptimes
+_quote_save_counts: dict[str, int] = {}
+
+
+def _quote_save_over_cap(session_id: str | None) -> bool:
+    """Count this quote-save attempt against its session bucket; True once the
+    session has exhausted its allowance (the attempt itself is counted, so
+    rejected retries can't probe forever)."""
+    from datetime import UTC, datetime
+
+    key = session_id or f"anon:{datetime.now(UTC).date().isoformat()}"
+    used = _quote_save_counts.get(key, 0)
+    if used >= _QUOTE_SAVE_CAP:
+        return True
+    if key not in _quote_save_counts and len(_quote_save_counts) >= _QUOTE_SAVE_BUCKETS_MAX:
+        _quote_save_counts.clear()  # stale session buckets; each key re-caps at 5
+    _quote_save_counts[key] = used + 1
+    return False
+
+
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_portfolio_snapshot": {
         "title": "Portfolio snapshot",
         "description": (
-            "All accounts (Alpaca paper + read-only Schwab): equity, cash, positions, "
-            "open orders — per account plus an aggregate. Includes today's day P&L per "
-            "account + aggregate, plus cumulative unrealized P&L on positions."
+            "All accounts — Alpaca PAPER (tradeable) plus the founder's REAL Schwab "
+            "accounts (broker=schwab, real_money=true, read_only=true, "
+            "tradeable=false): equity, cash, positions, open orders — per account "
+            "plus an aggregate, with today's day P&L and cumulative unrealized P&L. "
+            "Discuss the Schwab holdings freely, but they are READ-ONLY real money — "
+            "propose_order can NEVER target them (proposals stay paper/Alpaca only)."
         ),
     },
     "get_agent_status": {
@@ -62,7 +104,8 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "description": (
             "Read everything the app knows about a symbol — quote, RVOL, session-node "
             "levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), "
-            "fundamentals, earnings, the calibrated decision score, and active alerts. "
+            "fundamentals, earnings, recent news headlines, strategy playbook signals, "
+            "the calibrated decision score, and active alerts. "
             "Use this FIRST for any question about a symbol's data/levels/signals — "
             "do NOT web_search for our own data."
         ),
@@ -77,14 +120,34 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "query": {
         "title": "App data query",
         "description": (
-            "List app data across resources: watchlists, strategies, price_alerts, "
-            "proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's "
-            "quote/levels/score use get_context instead."
+            "List app data across resources: watchlists, strategies, screener, "
+            "market regime, news, calibration, price_alerts, proposals, reports. "
+            "Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score "
+            "use get_context instead."
         ),
     },
     "search_memories": {
         "title": "Search memories",
         "description": "Search stored preferences, lessons, and research notes.",
+    },
+    "save_memory": {
+        "title": "Save memory",
+        "description": (
+            "Save a durable memory to the long-term store: a directive (standing "
+            "rule), preference, fact, lesson, or thesis. When the user says "
+            "'remember this/that ...', pass quote = their exact words (that marks "
+            "it as the user's own, authored rule). Routed through the memory judge "
+            "(dedup/supersede). Confirm the saved id back to the user."
+        ),
+    },
+    "forget_memory": {
+        "title": "Forget memory",
+        "description": (
+            "Archive a memory by id (never a hard delete — the user can restore it "
+            "from History). Use on 'forget that / that's no longer true'. Only pass "
+            "an id you retrieved this session via search_memories. Tell the user it "
+            "was archived and can be undone."
+        ),
     },
     "start_research": {
         "title": "Start research",
@@ -131,6 +194,8 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Propose a paper trade for user approval (symbol, side buy|sell, qty, "
             "order_type market|limit). Optionally set account_id to target a specific "
             "paper account (STRAT1/STRAT2); defaults to the primary paper account. "
+            "PAPER/Alpaca accounts ONLY — a real read-only Schwab account is never a "
+            "valid target and is rejected. "
             "Options: long-only buy-to-open calls/puts, limit-only — limit_price is "
             "per-share premium (max loss = premium × 100 × contracts). Use "
             "option_underlying, option_expiration (YYYY-MM-DD), option_strike, "
@@ -139,12 +204,13 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "narrate a fake tool call."
         ),
     },
-    "propose_rule": {
-        "title": "Propose alert rule",
+    "create_rule": {
+        "title": "Create alert rule",
         "description": (
-            "Propose a signal/alert rule (name, condition over a metric, action). "
-            "Shows an Approve/Reject card; on approval the rule is armed. "
-            "Call on alert/signal/watch/notify requests; never narrate a fake call."
+            "Creates AND ENABLES a trade rule immediately — confirm parameters "
+            "with the user before calling. Args: name, condition over a metric, "
+            "optional action. Call on alert/signal/watch/notify requests; never "
+            "narrate a fake call."
         ),
     },
     "create_price_alert": {
@@ -184,12 +250,14 @@ Available tools:
 - query — arguments: {"resource": string, "filters": object|null}
 - list_capabilities — arguments: {}
 - search_memories — arguments: {"query": string, "limit": number}
-- start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"}
+- save_memory — arguments: {"content": string, "type": "directive"|"preference"|"fact"|"lesson"|"thesis", "quote": string|null, "symbols": string[]|null, "valid_until": string|null}
+- forget_memory — arguments: {"id": number, "reason": string}
+- start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"|"exhaustive" (optional)}
 - get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number, "account_id": string|null}
 - get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
 - web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
 - get_option_quote — arguments: {"occ_symbol": string|null, "underlying": string|null, "expiration": string|null, "strike": number|null, "right": "C"|"P"|null}
-- propose_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
+- create_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
 - create_price_alert — arguments: {"symbol": string, "price": number, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
 - update_price_alert — arguments: {"id": number, "price": number|null, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
 - delete_price_alert — arguments: {"id": number}
@@ -199,14 +267,16 @@ Rules:
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
 - Only call start_research when the user explicitly asks for a deep research report or written report.
 - Use get_context FIRST for symbol prices, RVOL, session-node levels, technicals, fundamentals, earnings, decision scores, or active alerts — never web_search for our own app data.
-- Use query for watchlists, strategies, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
+- Use query for watchlists, strategies, screener, market regime, news, calibration, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
 - Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
-- When the user describes an alert/signal/rule, call propose_rule with a validated spec.
+- When the user describes an alert/signal/rule, call create_rule with a validated spec (confirm parameters first — it arms immediately).
 - When the user asks to set/create an alert, call create_price_alert directly (it's safe — a notification). If they reference a level (VAL/POC/VAH/PDH/PDL/200-DMA), call get_context first to get the price.
 - Use delete_price_alert / update_price_alert to remove or change an existing alert (get its id via query('price_alerts') or get_context).
+- When the user says "remember this/that ..." call save_memory with quote = their exact words. Do NOT save risk/config limits (those live in Settings) or one-off requests.
+- When the user says "forget that" / "that's no longer true", call forget_memory with the id (find it first via search_memories).
 """
 
 
@@ -239,8 +309,11 @@ _ALLOWED_TOOLS = frozenset(TOOL_DEFINITIONS.keys())
 _MULTI_ACCOUNT_NOTE = (
     "Per-position `unrealized_pl` is CUMULATIVE since entry — NOT today. "
     "`day_pl` / `day_pl_pct` (per account) and `total_day_pl` (aggregate) are "
-    "TODAY's change. Alpaca = paper (tradeable); Schwab = real money, read-only "
-    "(no day P&L shown)."
+    "TODAY's change. Alpaca accounts are PAPER money (tradeable). Schwab accounts "
+    "are the founder's REAL funded money — read_only/real_money, tradeable=false: "
+    "discuss them, but propose_order can NEVER target a Schwab account (proposals "
+    "are paper/Alpaca only). `tradeable_equity` counts paper accounts only; "
+    "`total_equity` includes the real Schwab balances."
 )
 
 
@@ -278,6 +351,19 @@ def _multi_account_context(
         if day_pl is not None:
             total_day_pl += float(day_pl)
 
+        open_orders = snap.get("open_orders") or []
+        compact_orders = [
+            {
+                "symbol": o.get("symbol"),
+                "side": o.get("side"),
+                "qty": o.get("qty"),
+                "type": o.get("order_type"),
+                "limit_price": o.get("limit_price"),
+                "status": o.get("status"),
+            }
+            for o in open_orders[:20]
+        ]
+
         accounts_out.append(
             {
                 "account_id": account_id,
@@ -292,6 +378,7 @@ def _multi_account_context(
                 "day_pl_pct": day_pl_pct,
                 "position_count": len(positions),
                 "positions": positions[:20],
+                "open_orders": compact_orders,
                 "captured_at": snap.get("captured_at"),
             }
         )
@@ -307,6 +394,64 @@ def _multi_account_context(
         },
         "note": _MULTI_ACCOUNT_NOTE,
     }
+
+
+def _schwab_snapshot_accounts() -> list[dict[str, Any]]:
+    """Read-only snapshot rows for the founder's REAL Schwab accounts.
+
+    Reuses ``brokers.schwab_accounts.get_schwab_accounts_sync`` — the SAME
+    TTL-cached reader the cockpit's 30s poll and the perception ``query`` layer
+    already share, so this adds no new Schwab REST call path (it serves whatever
+    the running app last fetched). Schwab is real funded money, READ-ONLY: every
+    row is flagged ``tradeable=False`` and ``propose_order`` can never target it.
+    Returns [] when Schwab is not authenticated (fail-soft — never raises)."""
+    from brokers.schwab_accounts import get_schwab_accounts_sync
+
+    data = get_schwab_accounts_sync()
+    if not data.get("authenticated"):
+        return []
+    accounts_out: list[dict[str, Any]] = []
+    for a in data.get("accounts", []):
+        positions = [
+            {
+                "symbol": p.get("symbol"),
+                "qty": p.get("qty"),
+                "avg_price": p.get("avg_price"),
+                "market_value": p.get("market_value"),
+                "unrealized_pl": p.get("unrealized_pl"),
+            }
+            for p in (a.get("positions") or [])
+        ]
+        open_orders = [
+            {
+                "symbol": o.get("symbol"),
+                "side": o.get("side"),
+                "qty": o.get("qty"),
+                "type": o.get("order_type"),
+                "limit_price": o.get("limit_price"),
+                "status": o.get("status"),
+            }
+            for o in (a.get("open_orders") or [])[:20]
+        ]
+        accounts_out.append(
+            {
+                "account_id": a.get("id"),
+                "label": a.get("label"),
+                "broker": "schwab",
+                "tradeable": False,
+                "read_only": True,
+                "real_money": True,
+                "equity": a.get("liquidation_value"),
+                "cash": a.get("cash"),
+                "long_market_value": a.get("long_market_value"),
+                "day_pl": a.get("day_pl"),
+                "unrealized_pl": a.get("unrealized_pl"),
+                "position_count": len(positions),
+                "positions": positions[:20],
+                "open_orders": open_orders,
+            }
+        )
+    return accounts_out
 
 
 def _account_label_map(*, db_path: Path | None = None) -> dict[str, str]:
@@ -378,8 +523,6 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         from brokers.factory import get_broker_for_account
 
         snaps = get_all_latest_snapshots(db_path=DEFAULT_DB_PATH)
-        if not snaps:
-            return {"error": "No snapshot yet — broker poll has not run."}
         meta = {a["id"]: a for a in list_accounts(db_path=DEFAULT_DB_PATH)}
 
         day_pl_by_account: dict[str, dict[str, Any]] = {}
@@ -400,7 +543,27 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             except Exception:
                 logger.exception("day P&L fetch failed for account %s", a.get("id"))
 
-        return _multi_account_context(snaps, meta, day_pl_by_account)
+        context = _multi_account_context(snaps, meta, day_pl_by_account)
+
+        # Real Schwab accounts don't poll into poll_runs (read-only iron rule), so
+        # fold them in from the shared cached reader. Mirrors _multi_account_context:
+        # equity/cash/day_pl roll into the aggregate, but NEVER tradeable_equity
+        # (Schwab is not tradeable). to_thread: on a cold TTL cache the sync reader
+        # does real Schwab GETs — never block the event loop (adversarial finding).
+        schwab_accounts = await asyncio.to_thread(_schwab_snapshot_accounts)
+        if schwab_accounts:
+            agg = context["aggregate"]
+            for acct in schwab_accounts:
+                agg["total_equity"] += float(acct.get("equity") or 0)
+                agg["total_cash"] += float(acct.get("cash") or 0)
+                if acct.get("day_pl") is not None:
+                    agg["total_day_pl"] += float(acct["day_pl"])
+            context["accounts"].extend(schwab_accounts)
+            agg["account_count"] = len(context["accounts"])
+
+        if not context["accounts"]:
+            return {"error": "No snapshot yet — broker poll has not run."}
+        return context
 
     if name == "get_agent_status":
         from signals.strategy_stats import get_strategy_stats
@@ -511,13 +674,125 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         results = get_memory_service().search(query, limit=limit)
         return {"results": results}
 
+    if name == "save_memory":
+        from ai.memories.judge import Candidate, judge_and_store
+        from db.ai_tables import MEMORY_TYPES
+
+        content = str(args.get("content", "")).strip()
+        if not content:
+            return {"error": "content is required"}
+        memory_type = str(args.get("type", "")).strip()
+        if memory_type not in MEMORY_TYPES:
+            return {
+                "error": f"type must be one of: {', '.join(sorted(MEMORY_TYPES))}"
+            }
+        quote_raw = args.get("quote")
+        quote = str(quote_raw).strip() if quote_raw else None
+        symbols_raw = args.get("symbols")
+        symbols = (
+            [str(s).strip().upper() for s in symbols_raw if str(s).strip()]
+            if isinstance(symbols_raw, list)
+            else []
+        )
+        valid_until_raw = args.get("valid_until")
+        valid_until = str(valid_until_raw).strip() if valid_until_raw else None
+        # A quote keeps user_explicit semantics (judge never NOOPs it), but
+        # authority is NEVER minted from a model-controlled tool argument — a
+        # hallucinated quote must not create a proposal-shaping directive.
+        # The founder promotes via the widget's Confirm tap (→ user_confirmed).
+        if quote:
+            chat_session = CHAT_SESSION_ID.get()
+            if _quote_save_over_cap(chat_session):
+                logger.warning(
+                    "save_memory quote cap hit (session=%s) — save rejected",
+                    chat_session or "anon",
+                )
+                return {
+                    "error": (
+                        "memory save limit reached this session — ask the "
+                        "founder to save it from the memory widget"
+                    )
+                }
+            source, authority = "user_explicit", "agent_inferred"
+        else:
+            source, authority = "agent_save", "agent_inferred"
+        candidate = Candidate(
+            memory_type=memory_type,
+            content=content,
+            quote=quote,
+            symbols=symbols,
+            source=source,
+            authority=authority,
+            valid_until=valid_until,
+            metadata={"source": source},
+        )
+        stored = judge_and_store([candidate])
+        if not stored:
+            return {"status": "noop", "message": "Already known — nothing saved."}
+        record = stored[0]
+        return {
+            "status": "saved",
+            "id": record["id"],
+            "action": record.get("action", "ADD"),
+            "type": record["type"],
+            "content": record["content"],
+            "message": f"Saved [mem:{record['id']}].",
+        }
+
+    if name == "forget_memory":
+        from db.ai_tables import get_memory, update_memory
+
+        mem_id_raw = args.get("id")
+        if mem_id_raw is None:
+            return {"error": "id is required"}
+        try:
+            mem_id = int(mem_id_raw)
+        except (TypeError, ValueError):
+            return {"error": "id must be an integer"}
+        existing = get_memory(mem_id, db_path=DEFAULT_DB_PATH)
+        if existing is None:
+            return {"error": "not found"}
+        if existing.get("pinned") or existing.get("authority") in (
+            "user_authored",
+            "user_confirmed",
+        ):
+            return {
+                "error": (
+                    f"[mem:{mem_id}] is a pinned/founder-authored/founder-confirmed "
+                    "rule — the copilot can't archive it. The founder can from the "
+                    "memory widget."
+                )
+            }
+        reason = str(args.get("reason", "")).strip() or "forgotten via chat"
+        meta = dict(existing.get("metadata") or {})
+        meta["forget_reason"] = reason
+        update_memory(
+            mem_id,
+            metadata=meta,
+            status="archived",
+            db_path=DEFAULT_DB_PATH,
+        )
+        return {
+            "status": "archived",
+            "id": mem_id,
+            "undo": (
+                f"Archived [mem:{mem_id}] — say 'undo that' or restore it from the "
+                "memory widget's History view."
+            ),
+            "message": f"Archived [mem:{mem_id}]. This can be undone.",
+        }
+
     if name == "start_research":
         topic = str(args.get("topic", "Market research")).strip()
         symbol = args.get("symbol")
         sym = str(symbol).strip().upper() if symbol else None
-        depth = str(args.get("depth", "standard")).strip().lower()
-        if depth not in ("quick", "standard", "deep"):
-            depth = "standard"
+        from config.research_engine import resolve_effort
+
+        depth_raw = args.get("depth")
+        if depth_raw is None or not str(depth_raw).strip():
+            depth = resolve_effort(None).name
+        else:
+            depth = resolve_effort(str(depth_raw).strip().lower()).name
 
         job_id = submit_research_job(topic=topic, symbol=sym, depth=depth)
 
@@ -540,39 +815,58 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         to_date = args.get("to_date")
         limit = min(int(args.get("limit", 50)), 200)
         account_id = args.get("account_id")
-        resolved_account_id = str(account_id) if account_id else None
+        scope = resolve_perf_scope(str(account_id) if account_id else None)
         events = list_trade_events(
             symbol=sym,
             from_date=str(from_date) if from_date else None,
             to_date=str(to_date) if to_date else None,
             limit=limit,
-            account_id=resolved_account_id,
+            account_id=scope.ledger_account_id,
+            real_only=scope.real_only,
+            paper_only=scope.paper_only,
         )
         stats = sanitize_trade_history_stats(
             trade_summary_stats(
                 from_date=str(from_date) if from_date else None,
                 to_date=str(to_date) if to_date else None,
-                account_id=resolved_account_id,
+                account_id=scope.ledger_account_id,
+                real_only=scope.real_only,
+                paper_only=scope.paper_only,
             )
         )
-        return {
+        result: dict[str, Any] = {
             "stats": stats,
             "events": events,
             "count": len(events),
             "symbol_filter": sym,
         }
+        if scope.fallback:
+            result["scope_note"] = (
+                "requested account could not be resolved; "
+                "showing aggregate real accounts"
+            )
+        return result
 
     if name == "get_performance_insights":
         period = str(args.get("period", "year")).strip().lower()
         if period not in ("day", "week", "month", "quarter", "year", "all"):
             period = "year"
         account_id = args.get("account_id")
+        scope = resolve_perf_scope(str(account_id) if account_id else None)
         ctx = ai_performance_context(
-            account_id=str(account_id) if account_id else None,
+            account_id=scope.ledger_account_id,
+            real_only=scope.real_only,
+            paper_only=scope.paper_only,
             period=period,
             include_trade_context=True,
         )
-        return format_perf_insights_for_llm(ctx)
+        formatted = format_perf_insights_for_llm(ctx)
+        if scope.fallback:
+            formatted["scope_note"] = (
+                "requested account could not be resolved; "
+                "showing aggregate real accounts"
+            )
+        return formatted
 
     if name == "web_search":
         from ai.research.sources import (
@@ -790,7 +1084,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             "account_label": account_label,
         }
 
-    if name == "propose_rule":
+    if name == "create_rule":
         import uuid
 
         import db.ai_tables as ai_tables

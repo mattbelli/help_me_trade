@@ -7,11 +7,11 @@
  * refetch and flicking the scroll. Values use tabular-nums so refreshes don't
  * shift layout. FlashList header holds the glance; positions are the list.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
-import { usePendingProposals, usePortfolioHistory, useSnapshot } from '@/api/queries';
+import { useDayPnl, usePendingProposals, usePortfolioHistory, useSnapshot } from '@/api/queries';
 import type { BrokerSnapshot, PortfolioRange, Position, Snapshot } from '@/api/types';
 import {
   Card,
@@ -20,7 +20,7 @@ import {
   ErrorState,
   Eyebrow,
   Money,
-  Pct,
+  PageHeading,
   PressableScale,
   Row,
   Screen,
@@ -31,7 +31,7 @@ import {
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useNav } from '@/state/nav';
-import { colors, pnlColor, radius, spacing } from '@/theme';
+import { hairline, radius, spacing, useColors } from '@/theme';
 
 const RANGES: PortfolioRange[] = ['1D', '1W', '1M', '1Y', 'ALL'];
 type AccountFilter = 'all' | string;
@@ -41,29 +41,32 @@ interface PositionRow {
 }
 
 export function PortfolioScreen() {
+  const colors = useColors();
   const { openInbox } = useNav();
   const [range, setRange] = useState<PortfolioRange>('1W');
   const [accountFilter, setAccountFilter] = useState<AccountFilter>('all');
   const [chartWidth, setChartWidth] = useState(0);
 
   const snapshot = useSnapshot();
-  const today = usePortfolioHistory('1D');
+  // Realized (net-cash, ET-day) day P&L — matches the web DAY tile and fixes the
+  // after-hours leak the equity-curve MTM carried. `all_paper` = this screen's scope.
+  const dayPnlQ = useDayPnl('all_paper');
   const curve = usePortfolioHistory(range);
   const pending = usePendingProposals();
   const pendingCount = pending.data?.proposals.length ?? 0;
 
   const { refreshing, onRefresh } = usePullRefresh(() =>
-    Promise.all([snapshot.refetch(), today.refetch(), curve.refetch()]),
+    Promise.all([snapshot.refetch(), dayPnlQ.refetch(), curve.refetch()]),
   );
 
   const summary = snapshot.data?.all_accounts_summary;
   const account = snapshot.data?.account;
   const value = summary?.portfolio_value ?? account?.portfolio_value ?? 0;
 
-  const todayPts = today.data?.points ?? [];
-  const todayLast = todayPts.length ? todayPts[todayPts.length - 1] : undefined;
-  const todayPl = todayLast?.profit_loss ?? 0;
-  const todayPct = todayLast?.profit_loss_pct ?? 0;
+  const dayPnl = dayPnlQ.data?.day_pnl ?? 0;
+  const unrealizedPl = summary?.unrealized_pl ?? 0;
+  const buyingPower = summary?.buying_power ?? account?.buying_power ?? 0;
+  const cash = summary?.cash ?? account?.cash ?? 0;
 
   const curvePts = (curve.data?.points ?? []).map((p) => p.equity);
   const positions = useMemo(
@@ -93,9 +96,9 @@ export function PortfolioScreen() {
         }
         ListHeaderComponent={
           <Stack gap={spacing.xl} style={{ paddingTop: spacing.sm, paddingBottom: spacing.lg }}>
-            {/* Terminal status line */}
+            {/* Page header — logo + title, broker status on the right */}
             <Row justify="space-between" align="center">
-              <Eyebrow style={{ letterSpacing: 0.5 }}>help_me_trade</Eyebrow>
+              <PageHeading title="portfolio" />
               <Row gap={spacing.xs} align="center">
                 <Text variant="caption" style={{ color: colors.positive }}>
                   ●
@@ -104,23 +107,34 @@ export function PortfolioScreen() {
               </Row>
             </Row>
 
-            {/* Value + today */}
+            {/* Value */}
             <Stack gap={spacing.xs}>
               <Eyebrow>portfolio value</Eyebrow>
               {snapshot.isLoading ? (
                 <Skeleton height={44} width="65%" />
               ) : (
-                <>
-                  <Text variant="display">{usd0(value)}</Text>
-                  <Row gap={spacing.sm}>
-                    <Delta value={todayPl} size="md" />
-                    <Pct value={todayPct} size="md" signed pnl />
-                    <Text variant="callout" color="textFaint">
-                      today
-                    </Text>
-                  </Row>
-                </>
+                <Text variant="display">{usd0(value)}</Text>
               )}
+            </Stack>
+
+            {/* Stat pills — 2×2 grid above the chart */}
+            <Stack gap={spacing.sm}>
+              <Row gap={spacing.sm}>
+                <StatPill label="realized" loading={dayPnlQ.isLoading}>
+                  <Delta value={dayPnl} size="sm" />
+                </StatPill>
+                <StatPill label="unrealized" loading={snapshot.isLoading}>
+                  <Delta value={unrealizedPl} size="sm" />
+                </StatPill>
+              </Row>
+              <Row gap={spacing.sm}>
+                <StatPill label="buying power" loading={snapshot.isLoading}>
+                  <Money value={buyingPower} size="sm" />
+                </StatPill>
+                <StatPill label="cash" loading={snapshot.isLoading}>
+                  <Money value={cash} size="sm" />
+                </StatPill>
+              </Row>
             </Stack>
 
             {/* Equity curve + range */}
@@ -128,7 +142,7 @@ export function PortfolioScreen() {
               {curve.isLoading || chartWidth === 0 ? (
                 <Skeleton height={110} />
               ) : curvePts.length > 1 ? (
-                <Sparkline data={curvePts} width={chartWidth} height={110} color={pnlColor(curvePts[curvePts.length - 1] - curvePts[0])} fill strokeWidth={2} />
+                <Sparkline data={curvePts} width={chartWidth} height={110} color={colors.accent} fill strokeWidth={2} />
               ) : (
                 <View style={{ height: 110, alignItems: 'center', justifyContent: 'center' }}>
                   <Text variant="caption" color="textFaint">No history for {range}</Text>
@@ -146,12 +160,6 @@ export function PortfolioScreen() {
                   </PressableScale>
                 );
               })}
-            </Row>
-
-            {/* Tiles */}
-            <Row gap={spacing.md}>
-              <Tile label="Buying power" value={summary?.buying_power ?? account?.buying_power} loading={snapshot.isLoading} />
-              <Tile label="Cash" value={summary?.cash ?? account?.cash} loading={snapshot.isLoading} />
             </Row>
 
             {/* Pending approvals → Inbox */}
@@ -194,18 +202,38 @@ export function PortfolioScreen() {
   );
 }
 
-function Tile({ label, value, loading }: { label: string; value?: number; loading?: boolean }) {
+/** Compact stat pill — a quarter-width surface chip: tiny label over a small figure. */
+function StatPill({
+  label,
+  loading,
+  children,
+}: {
+  label: string;
+  loading?: boolean;
+  children: ReactNode;
+}) {
+  const colors = useColors();
   return (
-    <Card style={{ flex: 1 }}>
-      <Stack gap={spacing.xs}>
-        <Eyebrow>{label}</Eyebrow>
-        {loading ? <Skeleton height={20} width="80%" /> : <Money value={value ?? 0} size="md" compact />}
-      </Stack>
-    </Card>
+    <View
+      style={{
+        flex: 1,
+        gap: 3,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        borderRadius: radius.lg,
+        backgroundColor: colors.surface,
+        borderWidth: hairline,
+        borderColor: colors.border,
+      }}
+    >
+      <Eyebrow>{label}</Eyebrow>
+      {loading ? <Skeleton height={16} width="80%" /> : children}
+    </View>
   );
 }
 
 function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const colors = useColors();
   return (
     <PressableScale onPress={onPress}>
       <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, backgroundColor: active ? colors.accentWash : colors.surface, borderWidth: 1, borderColor: active ? colors.accent : colors.border }}>

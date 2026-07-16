@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from brokers.alpaca import AlpacaAdapter
+from brokers.alpaca_tier import clear_alpaca_tier_cache
 from brokers.market_stream import alpaca_market_ws_url
 from config.settings import alpaca_config, clear_settings_cache, normalize_alpaca_data_feed
 
@@ -21,8 +22,10 @@ def _reset_settings_cache(
     monkeypatch.delenv("APCA_DATA_FEED", raising=False)
     monkeypatch.setattr("config.settings.SETTINGS_PATH", tmp_path / "settings.json")
     clear_settings_cache()
+    clear_alpaca_tier_cache()
     yield
     clear_settings_cache()
+    clear_alpaca_tier_cache()
 
 
 def _adapter(*, data_feed: str = "iex") -> AlpacaAdapter:
@@ -34,15 +37,16 @@ def _adapter(*, data_feed: str = "iex") -> AlpacaAdapter:
     )
 
 
-def test_normalize_alpaca_data_feed_defaults_to_iex() -> None:
-    assert normalize_alpaca_data_feed(None) == "iex"
-    assert normalize_alpaca_data_feed("") == "iex"
-    assert normalize_alpaca_data_feed("invalid") == "iex"
+def test_normalize_alpaca_data_feed_defaults_to_auto() -> None:
+    assert normalize_alpaca_data_feed(None) == "auto"
+    assert normalize_alpaca_data_feed("") == "auto"
+    assert normalize_alpaca_data_feed("invalid") == "auto"
     assert normalize_alpaca_data_feed("sip") == "sip"
+    assert normalize_alpaca_data_feed("auto") == "auto"
 
 
-def test_alpaca_config_defaults_to_iex() -> None:
-    assert alpaca_config()["data_feed"] == "iex"
+def test_alpaca_config_defaults_to_auto() -> None:
+    assert alpaca_config()["data_feed"] == "auto"
 
 
 def test_alpaca_config_reads_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,6 +78,10 @@ def test_bar_params_use_resolved_feed() -> None:
 def test_market_stream_url_uses_resolved_feed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "brokers.market_stream.effective_alpaca_feed",
+        lambda **kwargs: "iex",
+    )
     assert alpaca_market_ws_url() == "wss://stream.data.alpaca.markets/v2/iex"
 
     monkeypatch.setenv("APCA_DATA_FEED", "sip")
@@ -251,3 +259,37 @@ async def test_aget_stock_bars_batch_merges_pages_per_symbol(
     assert len(calls) == 2
     assert "page_token" not in calls[0]
     assert calls[1].get("page_token") == "tok"
+
+
+@pytest.mark.asyncio
+async def test_stock_bar_requests_ask_for_split_adjustment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """History spanning a split must not show the raw pre-split price scale
+    (CRWD 4:1 2026-07-02 drew an $772->$191 cliff on every chart)."""
+    adapter = _adapter()
+    calls: list[dict[str, object]] = []
+
+    def fake_get_data(_path: str, *, params: dict[str, object] | None = None) -> dict:
+        calls.append(dict(params or {}))
+        return {"bars": [], "next_page_token": None}
+
+    async def fake_aget_data(
+        _path: str, *, params: dict[str, object] | None = None
+    ) -> dict:
+        calls.append(dict(params or {}))
+        return {"bars": [], "next_page_token": None}
+
+    monkeypatch.setattr(adapter, "_get_data", fake_get_data)
+    monkeypatch.setattr(adapter, "_aget_data", fake_aget_data)
+
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    end = datetime(2025, 1, 2, tzinfo=UTC)
+    adapter.get_stock_bars_range("CRWD", timeframe="1Day", start=start, end=end)
+    await adapter.aget_stock_bars_range(
+        "CRWD", timeframe="1Day", start=start, end=end
+    )
+    await adapter.aget_stock_bars_batch(["CRWD"], timeframe="1Day", days=5)
+
+    assert len(calls) == 3
+    assert all(c.get("adjustment") == "split" for c in calls)

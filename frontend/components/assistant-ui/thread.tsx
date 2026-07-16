@@ -71,6 +71,7 @@ export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
  */
 export type ThreadComponents = {
   AssistantMessage?: ComponentType | undefined;
+  UserMessage?: ComponentType | undefined;
   Welcome?: ComponentType | undefined;
   ToolFallback?: ToolCallMessagePartComponent | undefined;
   ToolGroup?:
@@ -89,12 +90,22 @@ export type ThreadProps = {
   messagesOnly?: boolean;
   /** Terminal font (JetBrains Mono) for copilot chat prose. */
   mono?: boolean;
+  /** Drop the 44rem centered column — messages fill the viewport width (terminal transcript). */
+  fullWidth?: boolean;
+  /**
+   * Viewport scroll anchoring. "top" (default) = new user turns jump to the top
+   * for focused reading (docked copilot + mobile). "bottom" = classic chat: send
+   * and streaming pin to the bottom, respecting a manual scroll-up (terminal).
+   */
+  turnAnchor?: "top" | "bottom";
 };
 
 const EMPTY_COMPONENTS: ThreadComponents = {};
 
 const ThreadComponentsContext =
   createContext<ThreadComponents>(EMPTY_COMPONENTS);
+
+const ThreadMonoContext = createContext(false);
 
 // Startup exposes a loading placeholder thread; treat it as a new chat so
 // the composer mounts centered. Loads after startup keep the docked layout.
@@ -106,12 +117,22 @@ export const Thread: FC<ThreadProps> = ({
   components = EMPTY_COMPONENTS,
   messagesOnly = false,
   mono = false,
+  fullWidth = false,
+  turnAnchor = "top",
 }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <ThreadRoot isEmpty={isEmpty} messagesOnly={messagesOnly} mono={mono} />
+      <ThreadMonoContext.Provider value={mono}>
+        <ThreadRoot
+          isEmpty={isEmpty}
+          messagesOnly={messagesOnly}
+          mono={mono}
+          fullWidth={fullWidth}
+          turnAnchor={turnAnchor}
+        />
+      </ThreadMonoContext.Provider>
     </ThreadComponentsContext.Provider>
   );
 };
@@ -120,10 +141,14 @@ const ThreadRoot: FC<{
   isEmpty: boolean;
   messagesOnly?: boolean;
   mono?: boolean;
+  fullWidth?: boolean;
+  turnAnchor?: "top" | "bottom";
 }> = ({
   isEmpty,
   messagesOnly = false,
   mono = false,
+  fullWidth = false,
+  turnAnchor = "top",
 }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 
@@ -131,15 +156,15 @@ const ThreadRoot: FC<{
     <ThreadPrimitive.Root
       className={cn(
         "aui-root aui-thread-root bg-background @container flex h-full flex-col",
-        mono && "font-mono",
+        mono && "font-mono text-[13px] [&_pre]:text-[11px] [&_.aui-md-pre]:text-[11px]",
       )}
       style={{
-        ["--thread-max-width" as string]: "44rem",
+        ["--thread-max-width" as string]: fullWidth ? "none" : "44rem",
         ["--composer-padding" as string]: "8px",
       }}
     >
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
+        turnAnchor={turnAnchor}
         data-slot="aui_thread-viewport"
         className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
       >
@@ -188,13 +213,15 @@ const ThreadRoot: FC<{
 };
 
 const ThreadMessage: FC = () => {
-  const { AssistantMessage: AssistantMessageComponent = AssistantMessage } =
-    useContext(ThreadComponentsContext);
+  const {
+    AssistantMessage: AssistantMessageComponent = AssistantMessage,
+    UserMessage: UserMessageComponent = UserMessage,
+  } = useContext(ThreadComponentsContext);
   const role = useAuiState((s) => s.message.role);
   const isEditing = useAuiState((s) => s.message.composer.isEditing);
 
   if (isEditing) return <EditComposer />;
-  if (role === "user") return <UserMessage />;
+  if (role === "user") return <UserMessageComponent />;
   return <AssistantMessageComponent />;
 };
 
@@ -258,6 +285,7 @@ const ThreadSuggestionItem: FC = () => {
 };
 
 const Composer: FC = () => {
+  const mono = useContext(ThreadMonoContext);
   const { ComposerSlashCommands } = useContext(ThreadComponentsContext);
   // Don't steal focus on phones — autofocus pops the on-screen keyboard the
   // moment the Agent tab opens. Desktop still autofocuses for quick typing.
@@ -271,7 +299,10 @@ const Composer: FC = () => {
       <ComposerAttachments />
       <ComposerPrimitive.Input
         placeholder="Send a message… (type / for commands)"
-        className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none"
+        className={cn(
+          "aui-composer-input placeholder:text-muted-foreground/80 max-h-32 w-full resize-none bg-transparent px-2.5 py-1 outline-none",
+          mono ? "min-h-8 text-[13px]" : "min-h-10 text-base",
+        )}
         rows={1}
         autoFocus={!isMobile}
         aria-label="Message input"
@@ -384,6 +415,9 @@ const AssistantMessage: FC = () => {
     ToolGroup,
     ReasoningGroup,
   } = useContext(ThreadComponentsContext);
+  const hasToolCallParts = useAuiState((s) =>
+    s.message.parts.some((part) => part.type === "tool-call"),
+  );
 
   // reserves space for action bar and compensates with `-mb` for consistent msg spacing
   // keeps hovered action bar from shifting layout (autohide doesn't support absolute positioning well)
@@ -400,7 +434,10 @@ const AssistantMessage: FC = () => {
       <div
         data-slot="aui_assistant-message-content"
         // [contain-intrinsic-size:auto_24px] fixes issue #4104, don't change without checking for regressions
-        className="text-foreground max-w-[88%] rounded-[22px] rounded-bl-[8px] border border-[var(--border)] bg-[var(--bg-raised)] px-4 py-3 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
+        className={cn(
+          "text-foreground max-w-[88%] rounded-[22px] rounded-bl-[8px] border border-[var(--border)] bg-[var(--bg-raised)] px-4 py-3 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px]",
+          !hasToolCallParts && "[content-visibility:auto]",
+        )}
       >
         <MessagePrimitive.GroupedParts
           groupBy={groupPartByType({
@@ -575,6 +612,7 @@ const UserActionBar: FC = () => {
 };
 
 const EditComposer: FC = () => {
+  const mono = useContext(ThreadMonoContext);
   return (
     <MessagePrimitive.Root
       data-slot="aui_edit-composer-wrapper"
@@ -582,7 +620,10 @@ const EditComposer: FC = () => {
     >
       <ComposerPrimitive.Root className="aui-edit-composer-root bg-background border-border/60 dark:border-muted-foreground/15 dark:bg-muted/30 ms-auto flex w-full max-w-[85%] flex-col rounded-3xl border shadow-[var(--panel-shadow)]">
         <ComposerPrimitive.Input
-          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
+          className={cn(
+            "aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 outline-none",
+            mono ? "text-[13px]" : "text-base",
+          )}
           autoFocus
         />
         <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">

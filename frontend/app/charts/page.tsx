@@ -1,5 +1,7 @@
-import { ChartsGridPage } from "@/components/charts/charts-grid-page";
+import { redirect } from "next/navigation";
 
+// The legacy /charts multi-chart grid is retired — the workspace's chart
+// widgets supersede it. Kept as a redirect so old bookmarks / links land.
 export default function ChartsRoute() {
-  return <ChartsGridPage />;
+  redirect("/workspace");
 }

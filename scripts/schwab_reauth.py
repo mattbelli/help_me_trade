@@ -4,17 +4,18 @@ scripts/schwab_reauth.py — headless Schwab OAuth re-authentication.
 PURPOSE
 -------
 Re-mint a fresh Schwab OAuth token without any human interaction, to stay
-ahead of Schwab's 7-day refresh-token expiry cliff. Designed to be run weekly
-(every 6 days) via cron.
+ahead of Schwab's 7-day refresh-token expiry cliff. Designed to be run daily
+via cron (skips when the on-disk token is still fresh).
 
 USAGE
 -----
-    python -m scripts.schwab_reauth          # recommended
+    python -m scripts.schwab_reauth          # recommended (--skip-if-fresh on)
+    python -m scripts.schwab_reauth --no-skip-if-fresh
     python scripts/schwab_reauth.py          # also works
 
-CRON EXAMPLE (every 6 days at 06:00)
--------------------------------------
-    0 6 */6 * * cd /home/mbelli/dev/help_me_trade && /home/mbelli/dev/help_me_trade/.venv/bin/python -m scripts.schwab_reauth >> /home/mbelli/dev/help_me_trade/data/reauth.log 2>&1
+CRON EXAMPLE (daily at 06:00 — apply on serv; do not rely on day-of-month stride)
+-----------------------------------------------------------------------------------
+    0 6 * * * cd /home/mbelli/dev/help_me_trade && /home/mbelli/dev/help_me_trade/.venv/bin/python -m scripts.schwab_reauth >> /home/mbelli/dev/help_me_trade/data/reauth.log 2>&1
 
 ENVIRONMENT (from .env)
 -----------------------
@@ -42,8 +43,12 @@ SAFETY
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 import json
 import os
+import signal
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime
@@ -119,6 +124,39 @@ SCHWAB_TOKEN_ENDPOINT = "https://api.schwabapi.com/v1/oauth/token"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _token_age_days(path: Path) -> float | None:
+    """Return refresh-token age in days, or None if unreadable."""
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        created_at = raw.get("creation_timestamp")
+        if created_at is None:
+            return None
+        return (time.time() - float(created_at)) / 86400
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def _notify_reauth_failure(reason: str) -> None:
+    """Best-effort critical push; must not prevent a non-zero exit."""
+    try:
+        from signals.notify import notify
+
+        asyncio.run(
+            notify(
+                kind="schwab_health",
+                title="Schwab re-auth failed",
+                body=reason,
+                severity="critical",
+                group_key="schwab_reauth_failed",
+                data={"auth_status": "reauth_failed"},
+            )
+        )
+    except Exception as exc:
+        print(f"[reauth] Could not send failure alert: {exc}", file=sys.stderr)
+
 
 def _screenshot_path() -> Path:
     """Return a path for a failure screenshot (no secrets in filename)."""
@@ -544,20 +582,75 @@ def run_headless_reauth() -> None:  # noqa: C901 (complexity acceptable for a fl
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+def _restart_backend() -> None:
+    """Kill hmt-backend's MainPID so systemd (Restart=always) respawns it with the freshly
+    minted token. No sudo: `systemctl show` is read-only and the process runs as us."""
+    try:
+        res = subprocess.run(
+            ["systemctl", "show", "hmt-backend", "--property", "MainPID", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        pid = int((res.stdout or "0").strip() or "0")
+        if pid <= 1:
+            print(f"[reauth] backend restart skipped: MainPID={pid} (not running?)")
+            return
+        os.kill(pid, signal.SIGTERM)
+        print(f"[reauth] restarted hmt-backend (SIGTERM → pid {pid}); systemd respawns with the fresh token")
+    except Exception as exc:  # a restart failure must never fail the reauth
+        print(
+            f"[reauth] backend restart FAILED ({exc}); token IS saved — restart manually: "
+            f"kill $(systemctl show hmt-backend -p MainPID --value)"
+        )
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Headless Schwab OAuth re-authentication")
+    parser.add_argument(
+        "--skip-if-fresh",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Skip reauth when the on-disk token is <5 days old (default: on)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     print(
         f"[reauth] Schwab headless re-authentication starting "
         f"({datetime.now(UTC).isoformat(timespec='seconds')})"
     )
+
+    from brokers.schwab_auth import token_path as get_token_path
+
+    if args.skip_if_fresh:
+        age_days = _token_age_days(get_token_path())
+        if age_days is not None and age_days < 5.0:
+            print(f"[reauth] token fresh ({age_days:.1f} days) — skipping reauth")
+            return 0
+
     try:
         run_headless_reauth()
-    except SystemExit:
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            reason = str(exc.code) if isinstance(exc.code, str) else "Schwab re-auth failed"
+            _notify_reauth_failure(reason)
         raise
     except KeyboardInterrupt:
         print("\n[reauth] Interrupted.", file=sys.stderr)
+        _notify_reauth_failure("Schwab re-auth interrupted")
         return 1
+    except Exception as exc:
+        _notify_reauth_failure(f"Schwab re-auth failed: {exc}")
+        raise
+    _restart_backend()
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit as exc:
+        raise SystemExit(exc.code if exc.code is not None else 1) from None

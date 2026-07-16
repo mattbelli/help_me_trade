@@ -216,7 +216,7 @@ def test_triple_barrier_timeout_clips_near_zero_lower_return() -> None:
     upper = entry_price + 2.0 * atr_val
     lower = entry_price - 2.0 * atr_val
 
-    bars.append(_bar(0.01, h=upper - 0.5, low=lower + 0.5))
+    bars.append(_bar(0.01, o=entry_price, h=upper - 0.5, low=lower + 0.5))
 
     result = triple_barrier_label(bars, entry_idx, max_holding=1)
     assert result is not None
@@ -235,7 +235,9 @@ def test_triple_barrier_normal_timeout_return_unchanged() -> None:
     atr_val = atr(highs(prefix), lows(prefix), closes(prefix), 14)
     assert atr_val is not None
     upper = entry_price + 4.0 * atr_val
-    bars.append(_bar(exit_price, h=min(exit_price + 0.2, upper - 0.5), low=exit_price - 0.2))
+    bars.append(
+        _bar(exit_price, o=entry_price, h=min(exit_price + 0.2, upper - 0.5), low=exit_price - 0.2)
+    )
 
     result = triple_barrier_label(
         bars, entry_idx, max_holding=1, upper_atr_mult=4.0, lower_atr_mult=4.0
@@ -244,6 +246,31 @@ def test_triple_barrier_normal_timeout_return_unchanged() -> None:
     assert result["outcome"] == "timeout"
     assert result["return_pct"] == pytest.approx(5.0)
     assert result["label"] == 1
+
+
+def test_triple_barrier_enters_at_next_bar_open() -> None:
+    bars = _warmup_bars(20, base=100.0)
+    entry_idx = len(bars) - 1
+    prefix = bars[: entry_idx + 1]
+    atr_val = atr(highs(prefix), lows(prefix), closes(prefix), 14)
+    assert atr_val is not None
+    # Entry bar opens well above the signal close — barriers must anchor there.
+    bars.append(_bar(107.0, o=105.0, h=107.5, low=104.5))
+
+    result = triple_barrier_label(bars, entry_idx)
+    assert result is not None
+    assert result["entry_price"] == pytest.approx(105.0)
+    assert result["upper"] == pytest.approx(105.0 + 2.0 * atr_val)
+    assert result["lower"] == pytest.approx(105.0 - 2.0 * atr_val)
+    assert result["outcome"] == "timeout"
+    assert result["return_pct"] == pytest.approx((107.0 / 105.0 - 1) * 100)
+    assert result["holding_days"] == 1
+
+
+def test_triple_barrier_signal_without_next_bar_returns_none() -> None:
+    bars = _warmup_bars(20, base=100.0)
+    # No bar after the signal — nothing to fill at, so no label.
+    assert triple_barrier_label(bars, len(bars) - 1) is None
 
 
 # --- compute_features point-in-time ---

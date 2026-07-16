@@ -25,5 +25,6 @@ def source_for_analysis(source: dict[str, Any], *, max_chars: int = _CONTENT_LIM
         "url": source.get("url"),
         "snippet": source.get("snippet"),
         "is_mock": bool(source.get("is_mock")),
+        "untrusted": source.get("type") == "web",
         "content_excerpt": source_content_excerpt(source, max_chars=max_chars),
     }

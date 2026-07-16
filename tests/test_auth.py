@@ -25,6 +25,7 @@ def authed_client(auth_token: str) -> TestClient:
 def _disable_auth_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep existing tests open unless a test opts into auth fixtures."""
     monkeypatch.setattr("api.auth.API_TOKEN", "")
+    monkeypatch.setattr("api.auth.ADMIN_TOKEN", "")
 
 
 def test_health_exempt_without_token(authed_client: TestClient) -> None:

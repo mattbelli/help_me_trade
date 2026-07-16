@@ -4,30 +4,25 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TerminalButton, TerminalSelect } from "@/components/ui/terminal";
 import {
+  WidgetEmpty,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
+import {
   fetchReports,
   generateReport,
   REPORT_KINDS,
   type GenerateKind,
   type ReportRow,
 } from "@/lib/reports-api";
+import {
+  buildReportThemeOverride,
+  injectReportTheme,
+} from "@/lib/report-theme";
+import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
+import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
-
-function formatRelativeTime(iso: string): string {
-  const ts = Date.parse(iso);
-  if (Number.isNaN(ts)) return iso;
-  const deltaSec = Math.round((Date.now() - ts) / 1000);
-  if (deltaSec < 60) return "just now";
-  if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)}m ago`;
-  if (deltaSec < 86400) return `${Math.floor(deltaSec / 3600)}h ago`;
-  return new Date(ts).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function kindLabel(kind: string): string {
   return kind.replace(/_/g, " ");
@@ -53,37 +48,61 @@ function ReportListItem({
           : "border-l-transparent hover:bg-[var(--bg-hover)]",
       )}
     >
-      <p className="truncate font-mono text-[11px] text-foreground">
+      <p className="truncate font-mono text-[length:var(--fs-body)] text-foreground">
         {report.title}
       </p>
-      <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] text-[var(--fg-faint)]">
+      <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
         <span className="rounded-sm border border-[var(--border)] px-1 text-[var(--fg-dim)] uppercase">
           {kindLabel(report.kind)}
         </span>
-        <span>{formatRelativeTime(report.generated_at)}</span>
+        <span>{relativeTime(report.generated_at)}</span>
       </p>
     </button>
   );
 }
 
 function ReportViewer({ report }: { report: ReportRow }) {
+  const [themeNonce, setThemeNonce] = useState(0);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setThemeNonce((n) => n + 1));
+    obs.observe(el, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class"],
+    });
+    const onVars = () => setThemeNonce((n) => n + 1);
+    window.addEventListener(THEME_VARS_EVENT, onVars);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener(THEME_VARS_EVENT, onVars);
+    };
+  }, []);
+
+  const themedSrcDoc = useMemo(() => {
+    if (report.format !== "html") return report.body;
+    if (typeof document === "undefined") return report.body;
+    return injectReportTheme(report.body, buildReportThemeOverride());
+  }, [report.body, report.format, themeNonce]);
+
   if (report.format === "html") {
     return (
       <iframe
         title={report.title}
-        srcDoc={report.body}
+        srcDoc={themedSrcDoc}
         sandbox="allow-popups allow-popups-to-escape-sandbox"
-        className="h-full w-full border-0 bg-white"
+        className="h-full w-full border-0"
       />
     );
   }
   return (
-    <div className="h-full overflow-auto p-3">
-      <p className="font-mono text-[11px] text-foreground">{report.title}</p>
-      <p className="mt-1 font-mono text-[10px] text-[var(--fg-faint)]">
-        {formatRelativeTime(report.generated_at)}
+    <div className="h-full overflow-auto p-3 scroll-shadow-y">
+      <p className="font-mono text-[length:var(--fs-body)] text-foreground">{report.title}</p>
+      <p className="mt-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
+        {relativeTime(report.generated_at)}
       </p>
-      <pre className="mt-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--fg-dim)]">
+      <pre className="mt-3 font-mono text-[length:var(--fs-title)] leading-relaxed whitespace-pre-wrap text-[var(--fg-dim)]">
         {report.body}
       </pre>
     </div>
@@ -143,8 +162,8 @@ export function ReportsWidget() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
-        <p className="font-mono text-[11px] tracking-[0.04em] text-[var(--fg-faint)] uppercase">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--line-divider)] px-3 py-2">
+        <p className="font-mono text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Reports
         </p>
         <div className="flex items-center gap-1.5">
@@ -172,20 +191,18 @@ export function ReportsWidget() {
       </div>
 
       {error && (
-        <p className="border-b border-[var(--border)] px-3 py-2 font-mono text-[11px] text-[var(--c-red)]">
+        <p className="border-b border-[var(--line-divider)] px-3 py-2 font-mono text-[length:var(--fs-body)] text-[var(--c-red)]">
           {error}
         </p>
       )}
 
       {loading && reports.length === 0 ? (
-        <p className="p-3 font-mono text-[11px] text-[var(--fg-dim)]">Loading…</p>
+        <WidgetLoading rows={4} cols={[1]} />
       ) : reports.length === 0 ? (
-        <p className="p-3 font-mono text-[11px] text-[var(--fg-dim)]">
-          No reports yet. Use Generate or wait for a scheduled brief.
-        </p>
+        <WidgetEmpty message="No reports yet. Use Generate or wait for a scheduled brief." />
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(9rem,14rem)_1fr] overflow-hidden">
-          <ul className="min-h-0 divide-y divide-[var(--border)] overflow-auto border-r border-[var(--border)]">
+          <ul className="min-h-0 divide-y divide-[var(--line-divider)] overflow-auto border-r border-[var(--line-divider)] scroll-shadow-y">
             {reports.map((report) => (
               <li key={report.id}>
                 <ReportListItem
@@ -200,9 +217,7 @@ export function ReportsWidget() {
             {selected ? (
               <ReportViewer report={selected} />
             ) : (
-              <p className="p-3 font-mono text-[11px] text-[var(--fg-dim)]">
-                Select a report
-              </p>
+              <WidgetEmpty message="Select a report" />
             )}
           </div>
         </div>

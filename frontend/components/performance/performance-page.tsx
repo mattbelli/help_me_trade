@@ -47,6 +47,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
+  dailyRealizedAmount,
   fetchPerformanceDashboard,
   syncTrades,
   type PerformanceDashboard,
@@ -63,8 +64,16 @@ import {
 type CalendarDay = {
   date: string;
   net_amount: string;
+  realized?: string;
   event_count: number;
 };
+
+function calendarDayPnl(day: CalendarDay, mode: PnlMode): number {
+  if (mode === "realized") {
+    return dailyRealizedAmount(day);
+  }
+  return parseMoney(day.net_amount);
+}
 
 function formatCompactMoney(value: string | number): string {
   const n = typeof value === "string" ? parseMoney(value) : value;
@@ -88,15 +97,15 @@ const PERIODS: { key: PerformancePeriod; label: string }[] = [
 ];
 
 const pnlChartConfig = {
-  cumulative: { label: "Cumulative P&L", color: "var(--chart-accent)" },
+  cumulative: { label: "Cumulative P&L", color: "var(--chart-line)" },
 } satisfies ChartConfig;
 
 const symbolChartConfig = {
-  pnl: { label: "Net P&L", color: "var(--chart-accent)" },
+  pnl: { label: "Net P&L", color: "var(--chart-line)" },
 } satisfies ChartConfig;
 
 const dowChartConfig = {
-  pnl: { label: "Net P&L", color: "var(--chart-accent)" },
+  pnl: { label: "Net P&L", color: "var(--chart-line)" },
 } satisfies ChartConfig;
 
 function StatCard({
@@ -154,25 +163,29 @@ function CalendarHeatmap({
     );
   }
 
-  const amounts = days.map((d) => parseMoney(d.net_amount));
+  const amounts = days.map((d) => calendarDayPnl(d, mode));
   const maxAbs = Math.max(...amounts.map(Math.abs), 1);
 
   return (
     <div className="flex flex-wrap gap-2">
       {days.map((day) => {
-        const amount = parseMoney(day.net_amount);
+        const amount = calendarDayPnl(day, mode);
         const intensity = Math.min(Math.abs(amount) / maxAbs, 1);
         const positive = amount >= 0;
         const active = selectedDate === day.date;
         const countLabel =
           mode === "realized"
-            ? `${day.event_count} close${day.event_count === 1 ? "" : "s"}`
+            ? `${day.event_count} event${day.event_count === 1 ? "" : "s"}`
             : `${day.event_count} event${day.event_count === 1 ? "" : "s"}`;
+        const displayAmount =
+          mode === "realized" && day.realized != null
+            ? day.realized
+            : day.net_amount;
         return (
           <button
             key={day.date}
             type="button"
-            title={`${day.date}: ${formatTradeMoney(day.net_amount)} (${countLabel})`}
+            title={`${day.date}: ${formatTradeMoney(displayAmount)}${mode === "realized" && day.realized == null ? " (cash flow)" : ""} (${countLabel})`}
             onClick={() => onSelect(active ? null : day.date)}
             className={cn(
               "flex min-w-[4.75rem] flex-col items-center justify-center rounded-md px-2 py-2 text-center transition-colors",
@@ -274,15 +287,16 @@ export function PerformancePage() {
   const cumulativeSeries = useMemo(() => {
     let running = 0;
     return calendarDays.map((d) => {
-      running += parseMoney(d.net_amount);
+      const daily = calendarDayPnl(d, pnlMode);
+      running += daily;
       return {
         date: d.date.slice(5),
         fullDate: d.date,
         cumulative: running,
-        daily: parseMoney(d.net_amount),
+        daily,
       };
     });
-  }, [calendarDays]);
+  }, [calendarDays, pnlMode]);
 
   const symbolBars = useMemo(() => {
     if (!dashboard) return [];
@@ -302,7 +316,7 @@ export function PerformancePage() {
     if (!dashboard) return [];
     const ac = dashboard.asset_classes;
     return [
-      { name: "Stocks", value: ac.stock_trades, fill: "var(--chart-accent)" },
+      { name: "Stocks", value: ac.stock_trades, fill: "var(--chart-line)" },
       {
         name: "Options",
         value: ac.option_trades,
@@ -375,6 +389,15 @@ export function PerformancePage() {
       {error && (
         <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
+        </p>
+      )}
+
+      {!loading && dashboard?.scope_fallback && accountId !== "all" && (
+        <p
+          role="alert"
+          className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+        >
+          Couldn&apos;t resolve this account — showing ALL real accounts instead.
         </p>
       )}
 
@@ -573,7 +596,7 @@ export function PerformancePage() {
                       <Line
                         type="monotone"
                         dataKey="cumulative"
-                        stroke="var(--chart-accent)"
+                        stroke="var(--chart-line)"
                         strokeWidth={2}
                         dot={false}
                       />
@@ -667,7 +690,7 @@ export function PerformancePage() {
                 ) : (
                   <ChartContainer
                     config={{
-                      stocks: { label: "Stocks", color: "var(--chart-accent)" },
+                      stocks: { label: "Stocks", color: "var(--chart-line)" },
                       options: { label: "Options", color: "var(--chart-muted)" },
                     }}
                     className="h-[220px] w-full"
@@ -709,7 +732,7 @@ export function PerformancePage() {
                     <XAxis dataKey="day" tickLine={false} axisLine={false} />
                     <YAxis tickLine={false} axisLine={false} width={56} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="pnl" fill="var(--chart-accent)" radius={4} />
+                    <Bar dataKey="pnl" fill="var(--chart-line)" radius={4} />
                   </BarChart>
                 </ChartContainer>
               )}

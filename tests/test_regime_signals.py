@@ -82,9 +82,25 @@ def test_fetch_fred_skips_dot_values(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_regime_macro_noop_without_key(
+async def test_refresh_regime_macro_without_key_skips_keyed_series(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """No FRED key ⇒ the keyed series are skipped, but vix3m (keyless CSV) still
+    refreshes — the term_flip trigger's data dependency must not need an API key."""
+    keyed_calls: list[str] = []
     monkeypatch.setattr(regime_mod, "fred_is_configured", lambda: False)
-    n = await regime_mod.refresh_regime_macro(db_path=tmp_path / "regime.db")
-    assert n == 0
+    monkeypatch.setattr(
+        regime_mod,
+        "fetch_fred",
+        lambda series_id, **kw: keyed_calls.append(series_id) or [],
+    )
+    monkeypatch.setattr(
+        regime_mod, "fetch_fred_csv", lambda series_id, **kw: [("2026-06-25", 24.5)]
+    )
+    db = tmp_path / "regime.db"
+    n = await regime_mod.refresh_regime_macro(db_path=db)
+    assert n == 1
+    assert keyed_calls == []
+    from db.regime import latest_observation
+
+    assert latest_observation("vix3m", db_path=db) == ("2026-06-25", 24.5)

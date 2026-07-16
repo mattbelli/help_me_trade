@@ -4,6 +4,10 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
 import { formatMoney, type SchwabAccount } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -24,19 +28,19 @@ type TileProps = {
 function Tile({ label, value, sub, valueClassName }: TileProps) {
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--bg-inset)] px-3 py-2.5">
-      <p className="font-mono text-[9px] tracking-[0.1em] text-[var(--fg-faint)] uppercase">
+      <p className="font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
         {label}
       </p>
       <p
         className={cn(
-          "mt-1.5 font-mono text-[19px] font-semibold tracking-tight tabular-nums",
+          "mt-1.5 font-mono text-[length:var(--fs-hero)] font-semibold tracking-tight tabular-nums",
           valueClassName,
         )}
       >
         {value}
       </p>
       {sub ? (
-        <p className="mt-0.5 font-mono text-[10.5px] text-[var(--fg-dim)]">
+        <p className="mt-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
           {sub}
         </p>
       ) : null}
@@ -47,20 +51,20 @@ function Tile({ label, value, sub, valueClassName }: TileProps) {
 function MoneyTypeBadge({ kind }: { kind: "real" | "paper" | "both" }) {
   if (kind === "both") {
     return (
-      <span className="inline-flex rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[9px] tracking-wide text-[var(--fg-dim)] uppercase">
+      <span className="inline-flex rounded-full border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-dim)] uppercase">
         Real + Paper
       </span>
     );
   }
   if (kind === "real") {
     return (
-      <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[9px] tracking-wide text-[var(--c-amber)] uppercase">
+      <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase">
         Real
       </span>
     );
   }
   return (
-    <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[9px] tracking-wide text-[var(--c-blue)] uppercase">
+    <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-blue)] uppercase">
       Paper
     </span>
   );
@@ -93,12 +97,12 @@ function RealSummaryCard({
     return (
       <div className="flex min-w-0 flex-1 flex-col rounded-md border border-[var(--border)] bg-[var(--bg-inset)] p-3">
         <div className="mb-2 flex items-center gap-2">
-          <span className="font-mono text-[10px] font-medium tracking-wide text-foreground uppercase">
+          <span className="font-mono text-[length:var(--fs-table)] font-medium tracking-[0.08em] text-foreground uppercase">
             {title}
           </span>
           <MoneyTypeBadge kind="real" />
         </div>
-        <p className="font-mono text-xs text-[var(--fg-dim)]">{muted}</p>
+        <p className="font-mono text-[length:var(--fs-body)] text-[var(--fg-dim)]">{muted}</p>
       </div>
     );
   }
@@ -106,12 +110,12 @@ function RealSummaryCard({
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="font-mono text-[10px] font-medium tracking-wide text-foreground uppercase">
+        <span className="font-mono text-[length:var(--fs-table)] font-medium tracking-[0.08em] text-foreground uppercase">
           {title}
         </span>
         <MoneyTypeBadge kind="real" />
         {accountCount != null && accountCount > 1 ? (
-          <span className="font-mono text-[9px] text-[var(--fg-faint)]">
+          <span className="font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
             {accountCount} accounts
           </span>
         ) : null}
@@ -174,12 +178,12 @@ function PaperSummaryCard({
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="font-mono text-[10px] font-medium tracking-wide text-foreground uppercase">
+        <span className="font-mono text-[length:var(--fs-table)] font-medium tracking-[0.08em] text-foreground uppercase">
           {title}
         </span>
         <MoneyTypeBadge kind="paper" />
         {accountCount != null && accountCount > 1 ? (
-          <span className="font-mono text-[9px] text-[var(--fg-faint)]">
+          <span className="font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
             {accountCount} accounts
           </span>
         ) : null}
@@ -222,7 +226,7 @@ function findRealAccount(
 }
 
 export function AccountSummaryWidget() {
-  const { snapshot, loading } = useSnapshot();
+  const { snapshot, loading, error, refresh } = useSnapshot();
   const { selectedAccountId, privacyMode, togglePrivacy } = useDashboardPrefs();
   const {
     realAccounts,
@@ -241,12 +245,15 @@ export function AccountSummaryWidget() {
     );
   }
 
-  if (!snapshot && !selectedAccountId.startsWith("schwab_") && selectedAccountId !== "all_real") {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        Waiting for account snapshot…
-      </p>
-    );
+  const scopeNeedsSnapshot =
+    !selectedAccountId.startsWith("schwab_") && selectedAccountId !== "all_real";
+
+  if (error && !snapshot && scopeNeedsSnapshot) {
+    return <WidgetError message={error} onRetry={refresh} />;
+  }
+
+  if (!snapshot && scopeNeedsSnapshot) {
+    return <WidgetEmpty message="Waiting for account snapshot…" />;
   }
 
   const renderBody = () => {
@@ -275,9 +282,10 @@ export function AccountSummaryWidget() {
               privacyMode={privacyMode}
             />
           ) : (
-            <p className="flex min-w-0 flex-1 items-center p-3 font-mono text-xs text-[var(--fg-dim)]">
-              Waiting for paper snapshot…
-            </p>
+            <WidgetEmpty
+              message="Waiting for paper snapshot…"
+              className="min-w-0 flex-1"
+            />
           )}
         </div>
       );
@@ -302,11 +310,13 @@ export function AccountSummaryWidget() {
       const acct = findRealAccount(realAccounts, selectedAccountId);
       if (!acct) {
         return (
-          <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-            {realAuthenticated
-              ? "Schwab account not found…"
-              : "Schwab not connected"}
-          </p>
+          <WidgetEmpty
+            message={
+              realAuthenticated
+                ? "Schwab account not found…"
+                : "Schwab not connected"
+            }
+          />
         );
       }
       return (
@@ -322,20 +332,12 @@ export function AccountSummaryWidget() {
     }
 
     if (!snapshot) {
-      return (
-        <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-          Waiting for account snapshot…
-        </p>
-      );
+      return <WidgetEmpty message="Waiting for account snapshot…" />;
     }
 
     const view = resolveAccountView(snapshot, selectedAccountId);
     if (!view) {
-      return (
-        <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-          Waiting for account snapshot…
-        </p>
-      );
+      return <WidgetEmpty message="Waiting for account snapshot…" />;
     }
 
     const title = isPaperAggregateScope(selectedAccountId)
@@ -361,7 +363,7 @@ export function AccountSummaryWidget() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center border-b border-[var(--border)] px-3 py-2">
+      <div className="flex items-center border-b border-[var(--line-divider)] px-3 py-2">
         <button
           type="button"
           onClick={togglePrivacy}

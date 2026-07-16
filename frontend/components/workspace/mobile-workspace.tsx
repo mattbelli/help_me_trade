@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { PagesMenu } from "@/components/layout/pages-menu";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { ThemeSwitcher } from "@/components/workspace/theme-switcher";
 import { WorkspaceThread } from "@/components/workspace/workspace-chat";
@@ -68,7 +69,7 @@ function MobileWidgetPanel({
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel)]">
-      <div className="border-b border-[var(--border)] px-3 py-2 font-mono text-[12px] font-semibold">
+      <div className="border-b border-[var(--line-divider)] px-3 py-2 font-mono text-[length:var(--fs-title)] font-semibold">
         {def.title}
       </div>
       <div className={cn(scrollable && "max-h-[40vh] overflow-auto")}>
@@ -151,7 +152,7 @@ function ActivityTab({ proposals, refetchProposals }: ActivityTabProps) {
     <div className="flex flex-col gap-4">
       {proposals.length > 0 ? (
         <section className="flex flex-col gap-2">
-          <h2 className="font-mono text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-dim)]">
+          <h2 className="font-mono text-[length:var(--fs-body)] font-semibold uppercase tracking-wide text-[var(--fg-dim)]">
             Pending approvals
           </h2>
           {proposals.map((p) => (
@@ -186,7 +187,7 @@ function ActivityCard({ notification: n }: { notification: WorkspaceNotification
       {n.body ? (
         <p className="mt-0.5 text-sm text-[var(--fg-dim)]">{n.body}</p>
       ) : null}
-      <p className="mt-1 text-[11px] text-[var(--fg-faint)]">
+      <p className="mt-1 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
         {formatRelativeTime(n.created_at)}
       </p>
     </li>
@@ -201,11 +202,14 @@ export function MobileWorkspace() {
 
   return (
     <div className="flex h-svh flex-col bg-background">
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
-        <h1 className="font-mono text-[13px] font-semibold tracking-tight text-foreground">
-          {activeLabel}
-        </h1>
-        <div className="flex items-center gap-1">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <PagesMenu hideLabel />
+          <h1 className="truncate font-mono text-[length:var(--fs-title)] font-semibold tracking-tight text-foreground">
+            {activeLabel}
+          </h1>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           <SettingsDialog collapsed />
           <ThemeSwitcher />
         </div>
@@ -237,7 +241,7 @@ export function MobileWorkspace() {
                 type="button"
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  "relative flex flex-col items-center gap-0.5 rounded-full px-4 py-1.5 text-[10px] font-medium transition-colors",
+                  "relative flex flex-col items-center gap-0.5 rounded-full px-4 py-1.5 text-[length:var(--fs-table)] font-medium transition-colors",
                   isActive
                     ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
                     : "text-[var(--fg-faint)] hover:text-foreground",
@@ -247,7 +251,7 @@ export function MobileWorkspace() {
                 <Icon className="size-4" />
                 <span>{t.label}</span>
                 {t.id === "activity" && proposals.length > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[var(--c-accent)] px-1 text-[9px] font-semibold leading-none text-[var(--c-on-accent)]">
+                  <span className="absolute -right-0.5 -top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[var(--c-accent)] px-1 text-[length:var(--fs-micro)] font-semibold leading-none text-[var(--c-on-accent)]">
                     {proposals.length}
                   </span>
                 ) : null}

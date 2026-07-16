@@ -44,6 +44,8 @@ class RiskCheckResult:
     # short (only reachable when short selling is enabled + paper/dry_run). The
     # chokepoint uses this to send position_intent="sell_to_open" to the broker.
     is_short_open: bool = False
+    # Pre-trade notional used for exposure caps (qty × risk_price × multiplier).
+    risk_notional: Decimal | None = None
 
 
 @dataclass(frozen=True)

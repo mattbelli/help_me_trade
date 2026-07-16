@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -56,10 +57,18 @@ const EMPTY_FORM: MemoryFormState = {
 function typeBadgeClass(type: MemoryType): string {
   if (type === "preference") return "border-[var(--c-blue)]/30 bg-[var(--c-blue)]/10 text-[var(--c-blue)]";
   if (type === "lesson") return "border-[var(--c-amber)]/30 bg-[var(--c-amber)]/10 text-[var(--c-amber)]";
-  return "border-[var(--c-green)]/30 bg-[var(--c-green)]/10 text-[var(--c-green)]";
+  return "border-[var(--c-green)]/30 bg-[var(--c-green-bg)]/10 text-[var(--c-green)]";
+}
+
+function researchArtifactId(memory: MemoryRecord): number | null {
+  if (memory.type !== "research") return null;
+  const raw = memory.metadata?.artifact_id;
+  const id = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
 }
 
 export function MemoriesPage() {
+  const router = useRouter();
   const [filter, setFilter] = useState<MemoryType | "all">("all");
   const [query, setQuery] = useState("");
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
@@ -196,12 +205,45 @@ export function MemoriesPage() {
               </p>
             ) : (
               <div className="space-y-3">
-                {memories.map((memory) => (
+                {memories.map((memory) => {
+                  const artifactId = researchArtifactId(memory);
+                  const openResearch = artifactId
+                    ? () => router.push(`/research?id=${artifactId}`)
+                    : undefined;
+
+                  return (
                   <div
                     key={memory.id}
                     className="rounded-lg border border-border/80 bg-card/40 p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
+                      {openResearch ? (
+                        <button
+                          type="button"
+                          onClick={openResearch}
+                          className="min-w-0 flex-1 cursor-pointer space-y-2 text-left"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={cn("text-[10px] uppercase", typeBadgeClass(memory.type))}
+                            >
+                              {MEMORY_TYPE_LABELS[memory.type]}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(memory.updated_at).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                            {memory.content}
+                          </p>
+                          {memory.metadata?.symbol ? (
+                            <p className="text-xs text-muted-foreground">
+                              Symbol: {String(memory.metadata.symbol)}
+                            </p>
+                          ) : null}
+                        </button>
+                      ) : (
                       <div className="min-w-0 flex-1 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge
@@ -223,6 +265,7 @@ export function MemoriesPage() {
                           </p>
                         ) : null}
                       </div>
+                      )}
                       <div className="flex shrink-0 gap-1">
                         <Button
                           type="button"
@@ -245,7 +288,8 @@ export function MemoriesPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                );
+                })}
               </div>
             )}
           </ScrollArea>

@@ -2,7 +2,11 @@
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { formatMoney, type Order } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -40,33 +44,29 @@ function formatQty(order: Order): string {
 export function OpenOrdersWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
-  const { snapshot, loading } = useSnapshot();
+  const { snapshot, loading, error, refresh } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
   const orders = resolveOpenOrders(snapshot, selectedAccountId);
 
   if (loading && !snapshot) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2, 2]} />;
+  }
+
+  if (error && !snapshot) {
+    return <WidgetError message={error} onRetry={refresh} />;
   }
 
   if (!snapshot) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        Waiting for orders…
-      </p>
-    );
+    return <WidgetEmpty message="Waiting for orders…" />;
   }
 
   if (orders.length === 0) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        No open orders
-      </p>
-    );
+    return <WidgetEmpty message="No open orders" />;
   }
 
   return (
-    <div className="h-full overflow-auto px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+    <div className="h-full overflow-auto px-1.5 py-1 scroll-shadow-y">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             {(["ID", "Sym", "Side", "Qty", "Type", "Px", "Status"] as const).map(
@@ -74,7 +74,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
                 <th
                   key={h}
                   className={cn(
-                    "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase",
+                    "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase",
                     idx === 0 || h === "Sym" || h === "Side" || h === "Type"
                       ? "text-left"
                       : "text-right",
@@ -93,10 +93,10 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               key={order.id}
               className="group/row transition-colors hover:bg-[var(--bg-hover)]"
             >
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
                 #{order.id.slice(-5)}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
                 <span className="inline-flex items-center gap-1.5">
                   <ClickableSymbol
                     symbol={order.symbol}
@@ -104,7 +104,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
                     onActivate={() => publish(order.symbol)}
                   />
                   {order.accountLabel ? (
-                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+                    <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
                       {order.accountLabel}
                     </span>
                   ) : null}
@@ -112,26 +112,26 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
               </td>
               <td
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[11px] tracking-wide uppercase",
+                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
                   sideClass(order.side),
                 )}
               >
                 {order.side}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
                 {formatQty(order)}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--fg-faint)] uppercase">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase">
                 {order.order_type}
               </td>
-              <td className="border-b border-[var(--border)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+              <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
                 {order.limit_price != null
                   ? formatMoney(order.limit_price)
                   : "—"}
               </td>
               <td
                 className={cn(
-                  "border-b border-[var(--border)] px-2 py-1.5 text-[11px] uppercase",
+                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase",
                   statusClass(order.status),
                 )}
               >

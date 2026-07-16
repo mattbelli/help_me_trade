@@ -4,18 +4,14 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from ai.chat.memory_extract import extract_memories_from_turn
-from ai.chat.messages import last_user_text, ui_messages_to_llm
-from ai.chat.stream import UIMessageStream
 from ai.chat.tools import TOOL_DEFINITIONS
 from ai.llm.base import LLMMessage
-from ai.llm.factory import get_llm, get_llm_provider_name
 from db.accounts import list_accounts
 from db.chat_sessions import (
     PERSISTED_MODES,
@@ -30,6 +26,9 @@ from db.chat_sessions import (
 class ChatRunResult:
     assistant_text: str = ""
     memories_saved: list[dict[str, Any]] = field(default_factory=list)
+    # Full assistant UIMessage ({id, role, parts}) for persistence — set by the
+    # web loop so tool/approval parts survive a thread reload, not just the text.
+    assistant_message: dict[str, Any] | None = None
 
 
 try:
@@ -93,12 +92,18 @@ def _system_prompt() -> str:
         "Help Me Trade runs autonomous strategies (e.g. dip, earnings) that scan, "
         "propose trades to the user's phone, and execute through a guarded chokepoint "
         "on approval. You are the cockpit: use get_agent_status to report what's running.\n\n"
-        "Answer clearly and concisely in markdown when helpful.\n\n"
+        "Answer clearly and concisely in markdown when helpful. Terminal aesthetic: "
+        "plain professional text — NEVER use emojis or decorative unicode symbols "
+        "(no ✅🚀📈⚠️ etc.); status reads as words, not icons.\n\n"
         "Behavior rules:\n"
         "- Greetings (hi, hello, hey): reply in 1–2 short friendly sentences. "
         "Do not call tools and do not mention portfolio, positions, or P&L.\n"
-        "- NEVER call propose_order for a read-only/Schwab account. They are real money. "
-        "If asked, explain they're read-only and offer a paper account.\n"
+        "- get_portfolio_snapshot shows the founder's REAL Schwab accounts "
+        "(real_money=true, read_only=true, tradeable=false) alongside the paper "
+        "Alpaca accounts — discuss those holdings freely, but NEVER call "
+        "propose_order for a read-only/Schwab account. They are real money; "
+        "propose_order targets a paper account (STRAT1/STRAT2) only. If asked to "
+        "trade one, explain it's read-only and offer a paper account.\n"
         "- News and public web pages: call web_search (SearXNG). Only cite returned "
         "snippets/URLs. web_search is NOT live X or Reddit — no tweet streams, no "
         "subreddit feeds, no clock-time filters (6–8am). time_range is day/week/month "
@@ -114,7 +119,8 @@ def _system_prompt() -> str:
         "for quotes. Options require a limit order; if no live options quote is available, tell "
         "the user to set the limit from their broker's option chain. Options are buy-to-open "
         "long-only for now.\n"
-        "- Alert/signal/watch requests: call propose_rule with a validated spec "
+        "- Alert/signal/watch requests: call create_rule with a validated spec "
+        "(confirm parameters first — it arms immediately). "
         "(do not narrate; the approval card is the UI).\n"
         "- Portfolio, performance, trades: only discuss after calling the matching tool "
         "in that turn. Never invent positions, prices, or closed trades.\n"
@@ -136,11 +142,48 @@ def _system_prompt() -> str:
     )
 
 
+def _synthesis_system_prompt() -> str:
+    """System prompt for the mobile FINAL-answer turn, which has NO tool-parsing.
+
+    The mobile flow plans + runs tools first, then calls a plain `complete()` to write the
+    answer. Reusing the agentic `_system_prompt()` there advertised the tool catalog and told
+    the model to CALL tools — but this turn can't parse tool calls, so the model emitted
+    `<function_calls>` XML straight into the answer text (founder saw raw markup instead of an
+    answer). This variant keeps the grounding + data-honesty rules but tells the model the
+    tools already ran and to just write the answer — no tool catalog, no "call the tool".
+    """
+    return (
+        f"{current_date_context()}\n\n"
+        f"{_accounts_context_block()}\n\n"
+        "You are the Help Me Trade cockpit assistant. The tools needed for this turn have "
+        "ALREADY been run; their results are provided below the user's message. Write the "
+        "final answer to the user from those results. Do NOT call tools, do NOT emit "
+        "function-call / <function_calls> / <invoke> syntax, and do NOT narrate calling a "
+        "tool — just write the answer.\n\n"
+        "Answer clearly and concisely in markdown when helpful. Terminal aesthetic: plain "
+        "professional text — NEVER use emojis or decorative unicode symbols.\n\n"
+        "Grounding (never violate):\n"
+        "- get_portfolio_snapshot results show the founder's REAL Schwab accounts "
+        "(real_money, read_only) alongside paper Alpaca accounts — discuss those holdings "
+        "freely.\n"
+        "- Realized P&L is realized.realized_closed (net cash on closed positions). NEVER "
+        "present approximate_fifo or incomplete_positions figures as realized P&L.\n"
+        "- A position's unrealized_pl is CUMULATIVE since entry, not today's move. For "
+        "'today' questions use day_pl / day_pl_pct / total_day_pl, and always say whether a "
+        "number is today's or since-entry.\n"
+        "- Only discuss positions, prices, and trades present in the tool results; never "
+        "invent positions, prices, closed trades, goals, targets, rules, or preferences the "
+        "user never stated. If a fact isn't in the results, say so.\n"
+        "- Only cite web_search snippets/URLs actually returned.\n"
+    )
+
+
 def _build_final_messages(
     history: list[LLMMessage],
     *,
     user_text: str,
     tool_results: list[dict[str, Any]],
+    extra_system_blocks: list[str] | None = None,
 ) -> list[LLMMessage]:
     context = ""
     if tool_results:
@@ -148,10 +191,13 @@ def _build_final_messages(
             "\n\nTool results for this turn:\n"
             + json.dumps(tool_results, indent=2, default=str)
         )
+    system_content = _synthesis_system_prompt()
+    if extra_system_blocks:
+        system_content += "".join(block for block in extra_system_blocks if block)
     return [
         LLMMessage(
             role="system",
-            content=_system_prompt(),
+            content=system_content,
         ),
         *history,
         LLMMessage(
@@ -159,51 +205,6 @@ def _build_final_messages(
             content=f"{user_text}{context}",
         ),
     ]
-
-
-def run_chat_stream(
-    messages: list[dict[str, Any]],
-    *,
-    session_id: str | None = None,
-    mode: str = "quick",
-    model: str | None = None,
-    result: ChatRunResult | None = None,
-) -> Iterator[str]:
-    stream = UIMessageStream()
-    run = result or ChatRunResult()
-    yield stream.start()
-    yield stream.start_step()
-
-    user_text = last_user_text(messages)
-    if not user_text:
-        text = "Send a message to start chatting with your trading copilot."
-        yield from stream.text_chunks(text)
-        run.assistant_text = text
-        yield stream.finish_step()
-        yield stream.finish()
-        yield stream.done()
-        return
-
-    history = ui_messages_to_llm(messages[:-1] if messages else [])
-    tool_results: list[dict[str, Any]] = []
-
-    try:
-        llm = get_llm(model=model)
-        final_messages = _build_final_messages(
-            history, user_text=user_text, tool_results=tool_results
-        )
-        response = llm.complete(final_messages, max_tokens=1200)
-    except Exception as exc:
-        yield stream.error(str(exc))
-        response = (
-            f"Unable to reach the configured LLM ({get_llm_provider_name()}): {exc}"
-        )
-
-    run.assistant_text = response
-    yield from stream.text_chunks(response)
-    yield stream.finish_step()
-    yield stream.finish()
-    yield stream.done()
 
 
 def finalize_chat_turn(
@@ -311,7 +312,7 @@ def _persist_turn(
     if session.get("title") == "New chat" and user_text:
         update_chat_session_title(session_id, title_from_first_message(user_text))
 
-    if extract and mode == "standard":
+    if extract:
         run.memories_saved = extract_memories_from_turn(
             user_text=user_text,
             assistant_text=assistant_text,

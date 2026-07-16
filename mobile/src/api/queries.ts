@@ -5,14 +5,20 @@ import {
   addWatchlistSymbol,
   approveProposal,
   createPriceAlert,
+  deleteChatSession,
   deletePriceAlert,
+  listChatSessions,
+  pinChatSession,
   getBars,
+  getDayPnl,
   getEarningsHistory,
   getHealth,
   getPendingProposals,
   getPortfolioHistory,
   getPriceAlerts,
   getRecentAlerts,
+  getReport,
+  getResearch,
   getSnapshot,
   getWatchlist,
   getWatchlistMarket,
@@ -20,6 +26,10 @@ import {
   rejectProposal,
   removeWatchlistSymbol,
   searchSymbols,
+  getSettings,
+  getStrategies,
+  updateSettings,
+  updateStrategy,
   updateWatchlistSymbols,
 } from './endpoints';
 import type { PortfolioRange, WatchlistMarket, WatchlistQuote, WatchlistsState } from './types';
@@ -49,6 +59,18 @@ export function usePortfolioHistory(range: PortfolioRange) {
     queryFn: () => getPortfolioHistory(range),
     enabled,
     staleTime: 30_000,
+  });
+}
+
+export function useDayPnl(accountId: string) {
+  const { enabled } = useAuthenticated();
+
+  return useQuery({
+    queryKey: ['day-pnl', accountId],
+    queryFn: () => getDayPnl(accountId),
+    enabled,
+    refetchInterval: 6_000,
+    staleTime: 4_000,
   });
 }
 
@@ -125,7 +147,11 @@ export function useWatchlistMarket(symbols: string[] | undefined) {
 
   return useQuery({
     queryKey: ['watchlist-market', symbolsKey],
-    queryFn: () => getWatchlistMarket(symbols),
+    queryFn: async () => {
+      const data = await getWatchlistMarket(symbols);
+      const prev = qc.getQueryData<WatchlistMarket>(['watchlist-market', symbolsKey]);
+      return { ...data, quotes: { ...prev?.quotes, ...data.quotes } };
+    },
     enabled: enabled && Boolean(symbolsKey),
     refetchInterval: 6_000,
     staleTime: 4_000,
@@ -192,6 +218,47 @@ export function useHealth() {
   });
 }
 
+export function useSettings() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['settings'] });
+    },
+  });
+}
+
+export function useStrategies() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['strategies'],
+    queryFn: getStrategies,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateStrategy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
+      updateStrategy(id, patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['strategies'] });
+    },
+  });
+}
+
 export function useRecentAlerts() {
   const { enabled } = useAuthenticated();
   return useQuery({
@@ -200,6 +267,26 @@ export function useRecentAlerts() {
     enabled,
     refetchInterval: 15_000,
     staleTime: 12_000,
+  });
+}
+
+export function useReport(id: string) {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['report', id],
+    queryFn: () => getReport(id),
+    enabled: enabled && !!id,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useResearch(id: string) {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['research', id],
+    queryFn: () => getResearch(id),
+    enabled: enabled && !!id,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -226,6 +313,36 @@ export function useDeletePriceAlert() {
   return useMutation({
     mutationFn: deletePriceAlert,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['price-alerts'] }),
+  });
+}
+
+export function useChatSessions() {
+  const { enabled } = useAuthenticated();
+  return useQuery({
+    queryKey: ['chat-sessions'],
+    queryFn: () => listChatSessions(),
+    enabled,
+    staleTime: 10_000,
+  });
+}
+
+export function usePinChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => pinChatSession(id, pinned),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['chat-sessions'] });
+    },
+  });
+}
+
+export function useDeleteChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteChatSession(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['chat-sessions'] });
+    },
   });
 }
 

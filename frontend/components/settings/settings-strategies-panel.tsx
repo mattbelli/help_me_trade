@@ -86,12 +86,75 @@ const STRATEGY_DOCS: Record<string, StrategyDoc> = {
       note: "No validated edge yet — runs propose-only so you approve every action. Don't treat its signals as proven.",
     },
   },
+  momentum_sp500: {
+    trigger:
+      "Monthly, on the last trading day: ranks the S&P 500 by 12-month momentum (skipping the most recent month), adjusted for each stock's sector, and targets the top 20% equal-weighted. A data-quality gate requires a full year of real bars per name and screens out extreme outliers; if fewer than 50 names survive, the whole rebalance aborts rather than trade bad data.",
+    action:
+      "AUTO-executes the monthly rebalance (this is the one auto strategy) — buys the new names, sells the dropped ones, dollar-weighted across the notional — then sends ONE summary push, not per-trade alerts.",
+    exit:
+      "Rebalance-managed only: a name is sold in full when it falls out of the top quintile. No stops, targets, or time caps — the portfolio IS the exit rule.",
+    status: {
+      label: "Forward-test",
+      tone: "warn",
+      note: "Backtest: +6.4%/yr Jensen alpha at 0.76 beta — but the stock-picking part of that alpha is fragile (loses significance without 2020/2026). Needs 2-3 clean monthly paper cycles before trusting.",
+    },
+  },
+  steepyc_dip: {
+    trigger:
+      "Exactly the Dip-Buy signal (healthy stock above its 200-day average, down ~5%+ over 3 days while SPY is down ~1.5%+), but ONLY while the yield curve is meaningfully steep (10yr minus 2yr above +0.5%). Stale regime data = no trades (fail-closed).",
+    action: "Auto-enters the dip within the notional, with a per-trade alert.",
+    exit:
+      "Pure 10-trading-day hold — no stop, no target, no trail. Time is the only exit.",
+    status: {
+      label: "Forward-test",
+      tone: "warn",
+      note: "Strong-but-unverified: ~+0.9%/trade raw excess, but about half of that is just recovering market beta; the standalone selection edge isn't statistically significant. Treat as tactical exposure, not stock-picking.",
+    },
+  },
+  vix_spike: {
+    trigger:
+      "Buys SPY on a genuine volatility shock: VIX closes above 28 after having been calm (below 22 on at least 8 of the prior 12 days). The calm requirement filters out chronically-elevated-VIX regimes — this only fires on a spike out of quiet.",
+    action: "Auto-buys SPY within the notional, with a per-trade alert.",
+    exit:
+      "Sells when VIX reverts below 20; hard time cap at 60 trading days regardless. Missing VIX data = hold (below the cap).",
+    status: {
+      label: "Pilot",
+      tone: "warn",
+      note: "Thin sample by nature: ~10 qualifying episodes in 16 years, ~+3.3%/episode. Real but rare — never a primary sleeve, and one bad episode moves the stats a lot.",
+    },
+  },
+  generals_dip: {
+    trigger:
+      "Dip-buying restricted to 'the generals' — the top 30 most-traded names by dollar volume (refreshed monthly, point-in-time). Fires post-close when one of them is above its 50-day average but down 3.5%+ over 3 days. Max 5 positions at once.",
+    action:
+      "Proposes next-open entries — you approve each on your phone. Ships propose-only.",
+    exit:
+      "Pure 10-trading-day hold via the shared exit engine (no stop/target/trail). A monthly kill line auto-disables the sleeve if 6-month excess-vs-SPY goes negative or the trailing-60-trade win rate drops under 45%.",
+    status: {
+      label: "Regime-local",
+      tone: "warn",
+      note: "Tier-B: worked over the LAST 12 months (+3.6%/trade excess vs SPY, 60% wins, n=399) but flat over the full 5-year window — this edge is assumed to be regime-dependent and may stop. The kill line exists to catch that; no win% is ever shown on its cards by design.",
+    },
+  },
+  vol_event: {
+    trigger:
+      "Two rare SPY panic-reversion setups: (1) Drawdown stabilization — SPY 5%+ below its 20-day high with VIX ≥ 25, entered on the FIRST day the selling stabilizes (higher close and higher low); (2) Term-structure flip — the first day the VIX/VIX3M ratio un-inverts after 2+ days inverted (near-term fear draining). One vol position at a time, shared with VIX-Spike (cluster cap).",
+    action:
+      "Proposes SPY entries — you approve each on your phone. Ships propose-only.",
+    exit:
+      "Drawdown entries exit when SPY recovers its prior 20-day high (30-trading-day cap); term-flip entries are a fixed 21-trading-day hold. Per-episode kill lines auto-disable a trigger after a −15% episode, 3 straight losers, or fading term-flip returns. Exits keep running even if you disable the sleeve.",
+    status: {
+      label: "Regime-local",
+      tone: "warn",
+      note: "Tier-B, episodic and small-n: post-2020, drawdown-stab won 8 of 10 (median +6.2%) and term-flip 13 of 14 (mean +5.0%) — genuinely encouraging, but a dozen episodes is description, not a win probability. Cards will never show a win% for it by design.",
+    },
+  },
 };
 
 function statusToneClasses(tone: StrategyDoc["status"]["tone"]): string {
   switch (tone) {
     case "good":
-      return "border-[var(--c-green)]/30 bg-[var(--c-green)]/10 text-[var(--c-green)]";
+      return "border-[var(--c-green)]/30 bg-[var(--c-green-bg)]/10 text-[var(--c-green)]";
     case "warn":
       return "border-[var(--c-amber)]/30 bg-[var(--c-amber)]/10 text-[var(--c-amber)]";
     case "danger":

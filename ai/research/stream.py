@@ -6,7 +6,7 @@ import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
-from ai.research.deep_graph import run_deep_research
+from ai.research.graph import run_research
 
 
 def format_sse_event(phase: str, payload: dict[str, Any]) -> str:
@@ -18,6 +18,8 @@ def stream_deep_research(
     topic: str,
     symbol: str | None = None,
     depth: str = "standard",
+    recipe: str = "single_stock",
+    symbols: list[str] | None = None,
 ) -> Iterator[str]:
     events: list[str] = []
 
@@ -25,10 +27,12 @@ def stream_deep_research(
         events.append(format_sse_event(phase, payload))
 
     try:
-        result = run_deep_research(
+        result = run_research(
             topic=topic,
             symbol=symbol,
             depth=depth,
+            recipe=recipe,
+            symbols=symbols,
             on_progress=on_progress,
         )
         for event in events:
@@ -54,6 +58,8 @@ async def astream_deep_research(
     topic: str,
     symbol: str | None = None,
     depth: str = "standard",
+    recipe: str = "single_stock",
+    symbols: list[str] | None = None,
 ) -> AsyncIterator[str]:
     import asyncio
     from queue import Queue
@@ -68,10 +74,12 @@ async def astream_deep_research(
 
     def worker() -> None:
         try:
-            result_holder["result"] = run_deep_research(
+            result_holder["result"] = run_research(
                 topic=topic,
                 symbol=symbol,
                 depth=depth,
+                recipe=recipe,
+                symbols=symbols,
                 on_progress=on_progress,
             )
         except Exception as exc:

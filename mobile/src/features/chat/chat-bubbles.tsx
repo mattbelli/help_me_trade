@@ -10,6 +10,7 @@
  */
 import { useEffect } from 'react';
 import { View } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import Animated, {
   FadeIn,
   useAnimatedStyle,
@@ -22,13 +23,19 @@ import Animated, {
 import { Icon } from '@/components/ui/icon';
 import { Eyebrow, PressableScale, Row, Stack, Text } from '@/components/ui';
 import { useNav } from '@/state/nav';
-import { colors, hairline, haptics, radius, spacing } from '@/theme';
+import { hairline, haptics, radius, spacing, useColors, useThemeMode } from '@/theme';
 
+import { useChatMarkdownStyles } from './chat-markdown-styles';
+import { stripToolMarkup } from './strip-tool-markup';
+import { ToolTimeline } from './tool-timeline';
 import type { ChatTurn, ProposalRef } from './use-chat';
 
 export function MessageBubble({ turn }: { turn: ChatTurn }) {
+  const colors = useColors();
   const isUser = turn.role === 'user';
-  const showTyping = !isUser && turn.streaming && turn.content.length === 0;
+  // Scrub any leaked tool-call XML from assistant text before it renders.
+  const body = isUser ? turn.content : stripToolMarkup(turn.content);
+  const showTyping = !isUser && turn.streaming && body.length === 0;
 
   return (
     <Animated.View
@@ -47,15 +54,25 @@ export function MessageBubble({ turn }: { turn: ChatTurn }) {
           borderBottomLeftRadius: isUser ? radius.xl : radius.sm,
           paddingHorizontal: spacing.lg,
           paddingVertical: spacing.md,
+          overflow: 'hidden',
         }}
       >
-        {turn.toolHint ? <ToolHint label={turn.toolHint} /> : null}
+        {!isUser ? (
+          // The tool-call trail sits above the answer; it de-emphasises once the
+          // answer text starts landing so the answer stays the focus.
+          <ToolTimeline steps={turn.toolSteps} dimmed={body.length > 0} />
+        ) : null}
         {showTyping ? (
           <TypingDots />
-        ) : turn.content.length > 0 ? (
-          <Text variant="body" color={turn.failed ? 'negative' : 'text'}>
-            {turn.content}
-          </Text>
+        ) : body.length > 0 ? (
+          isUser ? (
+            // User input is plain text — never markdown.
+            <Text variant="body" color="text">
+              {body}
+            </Text>
+          ) : (
+            <AssistantMarkdown body={body} failed={!!turn.failed} />
+          )
         ) : null}
       </View>
 
@@ -71,8 +88,26 @@ export function MessageBubble({ turn }: { turn: ChatTurn }) {
   );
 }
 
+/**
+ * Themed markdown for assistant turns (tables, headings, lists, code). Keyed on
+ * the resolved theme so react-native-markdown-display — which memoises on
+ * content — re-renders with the right palette after a theme switch, and on the
+ * growing `body` so partial/streaming markdown re-renders each token. Incomplete
+ * syntax mid-stream renders as plain text rather than crashing.
+ */
+function AssistantMarkdown({ body, failed }: { body: string; failed: boolean }) {
+  const { resolved } = useThemeMode();
+  const styles = useChatMarkdownStyles(failed);
+  return (
+    <Markdown key={`${resolved}:${body.length}`} style={styles}>
+      {body}
+    </Markdown>
+  );
+}
+
 /** Compact, tappable hand-off → jumps to Approvals (Inbox tab). NOT an approve. */
 export function ProposalHandoff({ proposal }: { proposal: ProposalRef }) {
+  const colors = useColors();
   const { openInbox } = useNav();
   return (
     <PressableScale
@@ -117,24 +152,6 @@ export function ProposalHandoff({ proposal }: { proposal: ProposalRef }) {
   );
 }
 
-/** A faint, pulsing "using a tool…" line shown while the agent works. */
-function ToolHint({ label }: { label: string }) {
-  const o = useSharedValue(0.5);
-  useEffect(() => {
-    o.value = withRepeat(
-      withSequence(withTiming(1, { duration: 600 }), withTiming(0.5, { duration: 600 })),
-      -1,
-      true,
-    );
-  }, [o]);
-  const style = useAnimatedStyle(() => ({ opacity: o.value }));
-  return (
-    <Animated.View style={[style, { marginBottom: spacing.xs }]}>
-      <Eyebrow color="accent">{label}…</Eyebrow>
-    </Animated.View>
-  );
-}
-
 /** Three dots that breathe — the assistant is thinking before the first token. */
 function TypingDots() {
   return (
@@ -147,6 +164,7 @@ function TypingDots() {
 }
 
 function Dot({ delay }: { delay: number }) {
+  const colors = useColors();
   const o = useSharedValue(0.3);
   useEffect(() => {
     o.value = withRepeat(

@@ -86,7 +86,7 @@ def test_parse_non_trade_is_none():
 
 
 def test_parse_picks_primary_security_leg():
-    # multi-leg (spread): primary = the larger-quantity security leg
+    # cross-symbol spread: primary = the symbol group with larger total abs(amount)
     tx = {
         "type": "TRADE",
         "activityId": "4",
@@ -100,6 +100,69 @@ def test_parse_picks_primary_security_leg():
     ev = _schwab_transaction_to_event(tx, account_id="a")
     assert ev.symbol == "B"
     assert ev.side == "sell"
+    assert ev.quantity == Decimal("3.0")
+    assert ev.price == Decimal("2.0")
+
+
+def test_parse_same_symbol_multileg_sums_legs():
+    """Schwab splits one sell-through-flat fill into CLOSING + OPENING legs."""
+    tx = {
+        "type": "TRADE",
+        "activityId": "106464088442",
+        "tradeDate": "2026-07-02T15:30:00+0000",
+        "netAmount": 79798.33,
+        "transferItems": [
+            {
+                "instrument": {"assetType": "CURRENCY", "symbol": "CURRENCY_USD"},
+                "amount": 1.64,
+                "feeType": "SEC_FEE",
+            },
+            {
+                "instrument": {"assetType": "CURRENCY", "symbol": "CURRENCY_USD"},
+                "amount": 0.03,
+                "feeType": "TAF_FEE",
+            },
+            {
+                "instrument": {
+                    "assetType": "EQUITY",
+                    "symbol": "TSLA",
+                    "uniformSymbol": "TSLA",
+                },
+                "amount": -126.0,
+                "price": 399.0,
+                "positionEffect": "OPENING",
+            },
+            {
+                "instrument": {
+                    "assetType": "EQUITY",
+                    "symbol": "TSLA",
+                    "uniformSymbol": "TSLA",
+                },
+                "amount": -74.0,
+                "price": 399.0,
+                "positionEffect": "CLOSING",
+            },
+        ],
+    }
+    ev = _schwab_transaction_to_event(tx, account_id="acct_x")
+    assert ev is not None
+    assert ev.symbol == "TSLA"
+    assert ev.side == "sell"
+    assert ev.quantity == Decimal("200.0")
+    assert ev.price == Decimal("399.0")
+    assert ev.amount == Decimal("79798.33")
+    assert ev.fees == Decimal("1.67")
+    assert ev.trade_date == date(2026, 7, 2)
+
+
+def test_parse_single_leg_buy_unchanged():
+    ev = _schwab_transaction_to_event(
+        _equity_trade(symbol="AAPL", shares=10.0, price=150.0, net=-1500.0),
+        account_id="acct_x",
+    )
+    assert ev.side == "buy"
+    assert ev.quantity == Decimal("10.0")
+    assert ev.price == Decimal("150.0")
 
 
 # --- cursor (#1 regression: no same-day fill loss) ------------------------

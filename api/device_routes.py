@@ -11,7 +11,7 @@ from db.device_tokens import (
     list_active_device_tokens,
     register_device_token,
 )
-from db.live_activities import record_update_token
+from db.live_activities import bind_update_token_latest, record_update_token
 
 router = APIRouter(prefix="/api", tags=["devices"])
 
@@ -67,15 +67,25 @@ def api_register_live_activity(body: dict = Body(...)):
     proposal_id = str(body.get("proposal_id", "")).strip()
     activity_update_token = str(body.get("activity_update_token", "")).strip()
     device_token = str(body.get("device_token", "")).strip()
-    if not proposal_id or not activity_update_token or not device_token:
+    if not activity_update_token or not device_token:
         return JSONResponse(
-            {"error": "proposal_id, activity_update_token, and device_token are required"},
+            {"error": "activity_update_token and device_token are required"},
             status_code=400,
         )
-    record_update_token(
-        proposal_id,
+    db_path = db_base.DEFAULT_DB_PATH
+    if proposal_id:
+        record_update_token(
+            proposal_id,
+            device_token,
+            activity_update_token,
+            db_path=db_path,
+        )
+        return {"ok": True, "bound": "exact"}
+    bound_proposal_id = bind_update_token_latest(
         device_token,
         activity_update_token,
-        db_path=db_base.DEFAULT_DB_PATH,
+        db_path=db_path,
     )
-    return {"ok": True}
+    if bound_proposal_id is None:
+        return {"ok": False, "reason": "no pending start for device"}
+    return {"ok": True, "bound": "latest", "proposal_id": bound_proposal_id}

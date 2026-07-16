@@ -1,0 +1,487 @@
+<title>Options Flow + Notifications — Redesign Mockup</title>
+<style>
+:root{
+  --bg:#f4efe6; --panel:#fbf8f2; --pane:#eee6d7; --row:#fbf8f2;
+  --ink:#34281b; --dim:#7c6d57; --faint:#a2947d;
+  --rule:#e4dac7; --rule-2:#d3c5ac;
+  --accent:#bd5a1c; --accent-2:#d9772f;
+  --buy:#2f9e6b; --sell:#cf463e; --warn:#b6892a;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14100b; --panel:#1c150e; --pane:#0e0b07; --row:#191309;
+  --ink:#eaddc8; --dim:#9d8e77; --faint:#6f6350;
+  --rule:#2c2318; --rule-2:#453626;
+  --accent:#e88a45; --accent-2:#e0752d;
+  --buy:#5bc98a; --sell:#ef6f6c; --warn:#d8a53f;
+}}
+:root[data-theme="light"]{
+  --bg:#f4efe6; --panel:#fbf8f2; --pane:#eee6d7; --row:#fbf8f2;
+  --ink:#34281b; --dim:#7c6d57; --faint:#a2947d;
+  --rule:#e4dac7; --rule-2:#d3c5ac; --accent:#bd5a1c; --accent-2:#d9772f;
+  --buy:#2f9e6b; --sell:#cf463e; --warn:#b6892a;
+}
+:root[data-theme="dark"]{
+  --bg:#14100b; --panel:#1c150e; --pane:#0e0b07; --row:#191309;
+  --ink:#eaddc8; --dim:#9d8e77; --faint:#6f6350;
+  --rule:#2c2318; --rule-2:#453626; --accent:#e88a45; --accent-2:#e0752d;
+  --buy:#5bc98a; --sell:#ef6f6c; --warn:#d8a53f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:
+  radial-gradient(120% 55% at 100% 0%, color-mix(in srgb,var(--accent) 7%, transparent), transparent 60%),
+  var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:0 20px 96px}
+.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--rule);font-family:var(--mono);
+  font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+  display:flex;justify-content:space-between;align-items:center;padding:10px 20px;margin-bottom:34px}
+.top .b{color:var(--accent)}
+
+header{padding:6px 0 26px;border-bottom:1px solid var(--rule-2);margin-bottom:8px}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 14px}
+h1{font-family:var(--mono);font-weight:700;font-size:clamp(1.6rem,4.6vw,2.3rem);line-height:1.14;
+  letter-spacing:-.01em;margin:0 0 14px;text-wrap:balance}
+.lede{font-size:1rem;color:var(--dim);max-width:66ch;margin:0 0 22px}
+
+/* before/after toggle */
+.toggle{display:inline-flex;gap:2px;background:var(--pane);border:1px solid var(--rule-2);
+  border-radius:7px;padding:3px;font-family:var(--mono);font-size:.76rem}
+.toggle button{appearance:none;border:0;background:none;color:var(--dim);cursor:pointer;
+  padding:6px 16px;border-radius:5px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+.toggle button.on{background:var(--accent);color:#fff}
+:root[data-theme="dark"] .toggle button.on,@media(prefers-color-scheme:dark){.toggle button.on{color:#140f09}}
+.toggle:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+
+h2{font-family:var(--mono);font-size:1.22rem;font-weight:700;margin:56px 0 4px;padding-top:22px;
+  border-top:1px solid var(--rule)}
+h2::before{content:"▸ ";color:var(--accent)}
+.sub{color:var(--dim);margin:0 0 20px;max-width:70ch;font-size:.95rem}
+.note{font-size:.82rem;color:var(--faint);margin:14px 0 0}
+.note b{color:var(--accent-2);font-weight:600}
+
+/* mode visibility */
+.only-before{display:none}
+body[data-mode="before"] .only-after{display:none}
+body[data-mode="before"] .only-before{display:block}
+.tag{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--faint);margin:0 0 8px}
+body[data-mode="before"] .tag{color:var(--sell)}
+body[data-mode="after"] .tag{color:var(--buy)}
+
+/* ---------- WIDGET MOCK ---------- */
+.widget{background:var(--panel);border:1px solid var(--rule-2);border-radius:9px;overflow:hidden;
+  box-shadow:0 1px 0 color-mix(in srgb,var(--accent) 8%,transparent)}
+.wtoolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;
+  border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:.74rem;color:var(--dim);background:var(--pane)}
+.wtoolbar .grp{display:flex;align-items:center;gap:8px}
+.wtoolbar .k{color:var(--faint);text-transform:uppercase;letter-spacing:.1em;font-size:.66rem}
+.seg{display:inline-flex;border:1px solid var(--rule-2);border-radius:5px;overflow:hidden}
+.seg span{padding:3px 9px;color:var(--dim);cursor:default}
+.seg span.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--ink)}
+.words{display:flex;gap:12px}
+.words span{cursor:default}
+.words .off{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--rule-2)}
+.floor{display:flex;align-items:center;gap:7px;margin-left:auto}
+.floor input{accent-color:var(--accent);width:96px}
+.floor .v{color:var(--accent-2);font-weight:600}
+
+/* grid WidgetHeader — chrome lives here, not inside the widget body (house rule) */
+.wchrome{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;
+  border-bottom:1px solid var(--rule);background:var(--pane)}
+.wtitle{font-family:var(--mono);font-size:.78rem;color:var(--ink);display:flex;align-items:center;gap:8px;letter-spacing:.02em}
+.wtitle .scope{color:var(--dim)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+.dot[data-ch="blue"]{background:#5b8dd9;box-shadow:0 0 0 2px color-mix(in srgb,#5b8dd9 32%,transparent)}
+.gear{position:relative;font-size:.95rem;color:var(--dim);cursor:pointer;line-height:1;padding:2px 5px;border-radius:5px}
+.gear:hover,.gear:focus-visible{color:var(--accent);outline:none}
+.gmenu{position:absolute;right:0;top:135%;z-index:40;min-width:236px;background:var(--panel);
+  border:1px solid var(--rule-2);border-radius:9px;padding:8px;box-shadow:0 14px 34px rgba(0,0,0,.32);
+  opacity:0;visibility:hidden;transition:opacity .12s;font-family:var(--sans)}
+.gear:hover .gmenu,.gear:focus-within .gmenu{opacity:1;visibility:visible}
+.gh{font-family:var(--mono);font-size:.59rem;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);padding:9px 8px 4px}
+.grow{display:flex;justify-content:space-between;gap:12px;padding:6px 8px;border-radius:6px;font-size:.83rem;color:var(--ink);cursor:pointer}
+.grow:hover{background:var(--pane)}
+.grow.on{color:var(--accent-2);font-weight:600}
+.grow .mut{color:var(--faint);font-size:.73rem;font-family:var(--mono)}
+.gslide{display:flex;align-items:center;gap:9px;padding:5px 8px}
+.gslide input{accent-color:var(--accent);flex:1}
+.gslide .v{font-family:var(--mono);color:var(--accent-2);font-weight:600;font-size:.78rem}
+.gwords{display:flex;flex-wrap:wrap;gap:11px;padding:5px 8px 2px;font-family:var(--mono);font-size:.79rem;color:var(--dim)}
+.gwords .off{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--rule-2)}
+.fhead .sortable{cursor:pointer}
+.fhead .sortable:hover{color:var(--accent-2)}
+.fhead .act{color:var(--accent)}
+.scrollx{overflow-x:auto}
+.ftable{min-width:720px;font-family:var(--mono);font-size:.8rem}
+--cols:0;
+.fhead,.frow{display:grid;
+  grid-template-columns:54px 60px 66px 74px 90px 118px 34px 70px 80px 84px;
+  align-items:center;gap:0}
+.fhead{padding:8px 14px;color:var(--accent);font-size:.64rem;letter-spacing:.09em;text-transform:uppercase;
+  border-bottom:1px solid var(--rule-2);background:var(--pane);position:sticky;top:0}
+.fhead .r,.frow .r{text-align:right}
+.fitem{--side:var(--accent);border-bottom:1px solid var(--rule)}
+.fitem.buy{--side:var(--buy)} .fitem.sell{--side:var(--sell)}
+.fitem:last-child{border-bottom:0}
+.frow{position:relative;padding:9px 14px;color:var(--ink);cursor:pointer}
+.frow::before{content:"";position:absolute;left:0;top:0;bottom:0;width:calc(var(--w,0)*100%);
+  background:linear-gradient(90deg,color-mix(in srgb,var(--side) 26%,transparent),transparent);
+  pointer-events:none}
+.frow>*{position:relative}
+.frow .car{color:var(--faint);font-size:.66rem}
+/* expanded depth panel — the widget is the deepest surface */
+.fdetail{display:none;padding:0 14px 13px 28px}
+.fitem.open .fdetail{display:block}
+.fitem.open .car{transform:none}
+.car{display:inline-block;transform:rotate(-90deg);transition:transform .12s}
+.fdgrid{padding:10px 2px 4px;display:grid;grid-template-columns:repeat(2,1fr);gap:11px 20px}
+@media(min-width:640px){.fdgrid{grid-template-columns:repeat(4,1fr)}}
+.kv{display:flex;flex-direction:column;gap:1px}
+.kv .k{font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.kv .v{font-variant-numeric:tabular-nums;color:var(--ink);font-size:.82rem}
+.kv .v .hi{color:var(--side);font-weight:700}
+.fdgrid .full{grid-column:1/-1;border-top:1px solid var(--rule);padding-top:9px;margin-top:1px;
+  display:flex;gap:9px;color:var(--dim);font-size:.77rem;line-height:1.5}
+.fdgrid .full .lb{font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);width:58px;flex:none;padding-top:2px}
+.spark{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
+.spark i{width:3px;background:var(--side);opacity:.55;border-radius:1px}
+.num{font-variant-numeric:tabular-nums}
+.score{font-weight:700;color:var(--accent-2)}
+.score .hint{cursor:help;border-bottom:1px dotted var(--rule-2)}
+.side-buy{color:var(--buy);font-weight:700}
+.side-sell{color:var(--sell);font-weight:700}
+.type{color:var(--dim)}
+.flag{color:var(--warn);font-size:.74rem}
+.flag.ok{color:var(--faint)}
+.flag.polled{color:var(--dim)}
+.flag.noside{color:var(--faint)}
+.side-mid{color:var(--faint);font-weight:600}
+.tk{color:var(--ink);font-weight:600}
+
+/* hover drivers popover */
+.pop{position:relative}
+.pop .card{position:absolute;z-index:30;left:0;top:130%;min-width:230px;background:var(--panel);
+  border:1px solid var(--rule-2);border-radius:7px;padding:10px 12px;font-size:.72rem;color:var(--dim);
+  box-shadow:0 8px 26px rgba(0,0,0,.28);opacity:0;visibility:hidden;transition:opacity .12s;line-height:1.7}
+.pop:hover .card,.pop:focus-within .card{opacity:1;visibility:visible}
+.pop .card b{color:var(--ink)}
+.pop .card .ln{display:flex;justify-content:space-between;gap:14px}
+.pop .card .ln .val{color:var(--accent-2);font-variant-numeric:tabular-nums}
+
+/* before widget (cluttered) */
+.beforew{font-family:var(--mono);font-size:.78rem;background:var(--panel);border:1px solid var(--rule-2);
+  border-radius:9px;padding:6px 0;overflow:hidden}
+.br{padding:9px 14px;border-bottom:1px solid var(--rule);line-height:1.75}
+.br:last-child{border-bottom:0}
+.br .l1{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.br .l2{color:var(--dim);font-size:.74rem;margin-top:2px}
+.c1{color:var(--faint)} .c2{color:var(--ink);font-weight:600} .c3{color:var(--buy);font-weight:700}
+.c3s{color:var(--sell);font-weight:700} .c4{color:var(--accent-2)} .c5{color:var(--warn)}
+.chip{border:1px solid var(--rule-2);border-radius:999px;padding:1px 8px;font-size:.68rem;color:var(--dim)}
+
+/* ---------- NOTIFICATIONS ---------- */
+.cols2{display:grid;grid-template-columns:1fr;gap:26px}
+@media(min-width:760px){.cols2{grid-template-columns:340px 1fr}}
+.phone{background:var(--pane);border:1px solid var(--rule-2);border-radius:26px;padding:16px 12px 22px;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ink) 6%,transparent)}
+.phone .time{text-align:center;font-family:var(--mono);font-size:1.7rem;color:var(--ink);margin:6px 0 2px;font-weight:600}
+.phone .date{text-align:center;font-size:.74rem;color:var(--dim);margin-bottom:16px}
+.push{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--rule);
+  border-radius:15px;padding:10px 12px;margin:8px 4px;backdrop-filter:blur(4px)}
+.push .app{font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--faint);display:flex;justify-content:space-between;margin-bottom:5px}
+.push .hl{font-size:.86rem;color:var(--ink);line-height:1.4}
+.push .hl .sym{font-family:var(--mono);font-weight:700}
+.push .wall{font-size:.8rem;color:var(--dim);line-height:1.5}
+.g-buy{color:var(--buy);font-weight:700}.g-sell{color:var(--sell);font-weight:700}
+.mag{color:var(--accent-2);font-weight:600}
+.uncf{color:var(--warn)}
+.batch{font-family:var(--mono);font-size:.66rem;color:var(--accent-2);margin-top:4px}
+
+.cardtiers{display:flex;flex-direction:column;gap:14px}
+.dcard{background:var(--panel);border:1px solid var(--rule-2);border-radius:9px;overflow:hidden}
+.dcard .cap{font-family:var(--mono);font-size:.64rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--faint);padding:8px 14px;border-bottom:1px solid var(--rule);background:var(--pane)}
+.dcard .bd{padding:12px 14px;font-size:.86rem}
+.dcard .hd{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.dcard .hd .sym{font-family:var(--mono);font-weight:700;font-size:1rem}
+.dcard .hd .px{color:var(--dim);font-family:var(--mono);font-size:.82rem}
+.dcard .hd .chg{color:var(--buy);font-family:var(--mono);font-size:.82rem}
+.fline{display:flex;gap:8px;padding:3px 0;font-size:.84rem;color:var(--ink);border-top:1px dashed var(--rule)}
+.fline:first-of-type{border-top:0}
+.fline .lb{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--faint);width:82px;flex:none;padding-top:2px}
+.fline .vv{font-variant-numeric:tabular-nums}
+.why{color:var(--dim);font-size:.82rem}
+.honest{margin-top:10px;font-family:var(--mono);font-size:.72rem;color:var(--warn);
+  border-top:1px solid var(--rule);padding-top:8px}
+.honest.val{color:var(--buy)}
+
+footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--rule);font-family:var(--mono);
+  font-size:.72rem;color:var(--faint);line-height:1.8}
+footer a{color:var(--accent)}
+@media(max-width:560px){.wrap{padding:0 14px 72px}.top{padding:9px 14px}}
+</style>
+
+<div class="top"><span class="b">help_me_trade</span><span>redesign mockup · surfaces 3 + 4</span></div>
+<div class="wrap">
+<header>
+  <p class="eyebrow">information design · flow + alerts</p>
+  <h1>Options flow &amp; notifications, redrawn</h1>
+  <p class="lede">One shared visual grammar for both surfaces: <b>side is the only saturated color</b>, event-type drops to a muted word, a composite <b>unusualness score</b> drives the sort, magnitude reads as row weight, and the honesty flag is <b>visible</b> — not buried in a tooltip. Flip below to compare against what ships today.</p>
+  <div class="toggle" role="group" aria-label="before or after">
+    <button id="b-after" class="on" onclick="setMode('after')">After</button>
+    <button id="b-before" onclick="setMode('before')">Before</button>
+  </div>
+</header>
+
+<!-- ============ SURFACE 3: OPTIONS-FLOW WIDGET ============ -->
+<h2>Options-flow widget</h2>
+<p class="sub">Your #1 pain. Every event type renders through the <em>same</em> fixed columns, so the eye pattern-matches position instead of re-reading each row. Built entirely on fields we already store (<span style="font-family:var(--mono);font-size:.86em">direction · vol_zscore · vol_oi_ratio · premium_usd · direction_basis</span>).</p>
+
+<div class="only-after">
+<p class="tag">after — sortable columns · channel-connected · scope + floor in the ⚙ · click a row for depth</p>
+<div class="widget">
+  <div class="wchrome">
+    <div class="wtitle"><span class="dot" data-ch="blue"></span> Options flow <span class="scope">· NVDA</span></div>
+    <div class="gear" tabindex="0" role="button" aria-label="widget settings">⚙
+      <div class="gmenu">
+        <div class="gh">scope</div>
+        <div class="grow on"><span>◉ channel — follow focus</span><span class="mut">blue</span></div>
+        <div class="grow"><span>watchlist</span><span class="mut">12 names</span></div>
+        <div class="grow"><span>all — firehose</span><span class="mut">score-sorted</span></div>
+        <div class="grow"><span>tickers…</span><span class="mut">add symbols</span></div>
+        <div class="gh">premium floor</div>
+        <div class="gslide"><input type="range" min="0" max="5" value="1" step="0.25" aria-label="premium floor" oninput="document.getElementById('fv').textContent='$'+(this.value==0?'0':this.value+'M')"><span class="v" id="fv">$1M</span></div>
+        <div class="gh">types</div>
+        <div class="gwords"><span>sweep</span><span>block</span><span>unusual vol</span><span class="off">pressure</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="scrollx"><div class="ftable">
+    <div class="fhead">
+      <span class="sortable act">score ▼</span><span class="sortable">time</span><span>ticker</span><span>side</span><span>type</span>
+      <span>strike / exp</span><span class="r sortable">dte</span><span class="r sortable">size</span><span class="r sortable">premium</span><span>flag</span>
+    </div>
+
+    <div class="fitem buy open" style="--w:.92">
+      <div class="frow">
+        <span class="score pop"><span class="hint">9.1</span>
+          <span class="card"><b>why 9.1</b>
+            <span class="ln"><span>size vs floor</span><span class="val">+3.8</span></span>
+            <span class="ln"><span>vol z-score 5.9σ</span><span class="val">+2.6</span></span>
+            <span class="ln"><span>at ask · live quote</span><span class="val">+1.5</span></span>
+            <span class="ln"><span>pre-earnings</span><span class="val">+1.2</span></span></span></span>
+        <span class="num" style="color:var(--dim)">14:32</span>
+        <span class="tk"><span class="car">▾</span> NVDA</span>
+        <span class="side-buy">▲ call</span>
+        <span class="type">sweep</span>
+        <span>$130 · Aug16</span>
+        <span class="r num">4d</span>
+        <span class="r num">420</span>
+        <span class="r num">$1.24M</span>
+        <span class="flag ok">—</span>
+      </div>
+      <div class="fdetail"><div class="fdgrid">
+        <div class="kv"><span class="k">quote @ print</span><span class="v">1.98 × <span class="hi">2.02</span> · hit ask</span></div>
+        <div class="kv"><span class="k">spot · otm</span><span class="v">211.34 · 1.5%</span></div>
+        <div class="kv"><span class="k">prints · exch</span><span class="v">3 · NYSE·ARCA·MEMX</span></div>
+        <div class="kv"><span class="k">premium</span><span class="v"><span class="hi">$1.24M</span> · 6.1× 20d</span></div>
+        <div class="kv"><span class="k">iv</span><span class="v">62%</span></div>
+        <div class="kv"><span class="k">delta · gamma</span><span class="v">.48 · .021</span></div>
+        <div class="kv"><span class="k">theta · vega</span><span class="v">-.11 · .09</span></div>
+        <div class="kv"><span class="k">open interest</span><span class="v">1,240 · vol/OI .34×</span></div>
+        <div class="kv"><span class="k">z-score</span><span class="v">5.9σ</span></div>
+        <div class="kv"><span class="k">side basis</span><span class="v">live stream quote</span></div>
+        <div class="kv"><span class="k">contracts</span><span class="v">420</span></div>
+        <div class="kv"><span class="k">today on strike</span><span class="v spark"><i style="height:22%"></i><i style="height:38%"></i><i style="height:30%"></i><i style="height:56%"></i><i style="height:47%"></i><i style="height:82%"></i><i style="height:100%"></i><i style="height:70%"></i></span></div>
+        <div class="full"><span class="lb">why</span><span>Aggressive buy-side — printed <b>at the ask</b> on a live quote (side confirmed, not inferred), near-the-money, 4 DTE, into next week's earnings.</span></div>
+      </div></div>
+    </div>
+
+    <div class="fitem sell" style="--w:.84"><div class="frow">
+      <span class="score pop"><span class="hint">8.4</span>
+        <span class="card"><b>why 8.4</b>
+          <span class="ln"><span>size vs floor</span><span class="val">+4.0</span></span>
+          <span class="ln"><span>at bid · live quote</span><span class="val">+2.4</span></span>
+          <span class="ln"><span>vol/OI 3.1×</span><span class="val">+2.0</span></span></span></span>
+      <span class="num" style="color:var(--dim)">14:31</span>
+      <span class="tk"><span class="car">▾</span> TSLA</span>
+      <span class="side-sell">▼ put</span>
+      <span class="type">block</span>
+      <span>$240 · Sep19</span>
+      <span class="r num">38d</span>
+      <span class="r num">900</span>
+      <span class="r num">$3.40M</span>
+      <span class="flag ok">—</span>
+    </div></div>
+
+    <div class="fitem buy" style="--w:.61"><div class="frow">
+      <span class="score pop"><span class="hint">6.2</span>
+        <span class="card"><b>why 6.2</b>
+          <span class="ln"><span>vol/OI 6.3×</span><span class="val">+3.4</span></span>
+          <span class="ln"><span>size vs floor</span><span class="val">+2.1</span></span>
+          <span class="ln"><span>side off polled quote</span><span class="val">+0.7</span></span></span></span>
+      <span class="num" style="color:var(--dim)">14:29</span>
+      <span class="tk"><span class="car">▾</span> AAPL</span>
+      <span class="side-buy">▲ call</span>
+      <span class="type">unusual vol</span>
+      <span>$215 · Sep19</span>
+      <span class="r num">45d</span>
+      <span class="r num">300</span>
+      <span class="r num">$610K</span>
+      <span class="flag polled">polled 30s</span>
+    </div></div>
+
+    <div class="fitem sell" style="--w:.55"><div class="frow">
+      <span class="score pop"><span class="hint">5.6</span>
+        <span class="card"><b>why 5.6</b>
+          <span class="ln"><span>size vs floor</span><span class="val">+2.9</span></span>
+          <span class="ln"><span>at bid · live quote</span><span class="val">+1.6</span></span>
+          <span class="ln"><span>2-day expiry</span><span class="val">+1.1</span></span></span></span>
+      <span class="num" style="color:var(--dim)">14:27</span>
+      <span class="tk"><span class="car">▾</span> SPY</span>
+      <span class="side-sell">▼ put</span>
+      <span class="type">sweep</span>
+      <span>$560 · Jul11</span>
+      <span class="r num">2d</span>
+      <span class="r num">1,500</span>
+      <span class="r num">$2.10M</span>
+      <span class="flag ok">—</span>
+    </div></div>
+
+    <div class="fitem" style="--w:.34"><div class="frow">
+      <span class="score pop"><span class="hint">3.4</span>
+        <span class="card"><b>why 3.4</b>
+          <span class="ln"><span>directional pressure</span><span class="val">+2.0</span></span>
+          <span class="ln"><span>vol/OI 2.2×</span><span class="val">+1.4</span></span>
+          <span class="ln"><span>mid-spread — no side</span><span class="val">+0.0</span></span></span></span>
+      <span class="num" style="color:var(--dim)">14:24</span>
+      <span class="tk"><span class="car">▾</span> AMD</span>
+      <span class="side-mid">◇ mixed</span>
+      <span class="type">pressure</span>
+      <span>$180 · Aug16</span>
+      <span class="r num">30d</span>
+      <span class="r num">480</span>
+      <span class="r num">$480K</span>
+      <span class="flag noside">no side</span>
+    </div></div>
+
+  </div></div>
+</div>
+<p class="note"><b>Organization</b> (reusing what watchlist + chart already do): the top bar is the <b>grid's WidgetHeader</b> — title, a <b>channel dot</b> (hover the ⚙), and settings — so the widget body stays pure data (no second header). <b>Scope lives in the ⚙:</b> <em>channel</em> → follow the focused symbol like the chart (multiple flow widgets can lock to one channel), or <em>watchlist</em> / <em>all (firehose)</em> / a <em>ticker list</em> when disconnected. Columns are <b>sortable</b> (score default, click a header — the watchlist pattern); premium floor + type filter also live in the ⚙, out of your face. <br><br><b>The rows:</b> left fill = magnitude, <b>side-tinted</b> (green buy / red sell) · <b>score</b> hover-inspectable · <b>click a row → a plain dropdown of full depth</b> (quote, Greeks, prints, OI, spark) — no inner card, the whole area is the drawer · flag = how we know the side: <span class="flag ok">—</span> live quote at ask/bid · <span class="flag polled">polled 30s</span> ≤30s quote, may shift · <span class="flag noside">no side</span> mid-spread, never guessed.</p>
+</div>
+
+<div class="only-before">
+<p class="tag">before — five competing hues · columns shift per event type · detail = a longer string · caveat hidden in a title tooltip</p>
+<div class="beforew">
+  <div class="br"><div class="l1"><span class="c1">14:32:07</span> <span class="c2">NVDA</span> <span class="c3">▲ call</span> <span class="chip">sweep</span> <span class="c4">$1.24M</span></div>
+    <div class="l2">Aug 130C · 4d · 420 ctr · 3 prints · NYSE/ARCA</div></div>
+  <div class="br"><div class="l1"><span class="c1">14:31:22</span> <span class="c2">TSLA</span> <span class="c3s">▼ put</span> <span class="chip">block</span> <span class="c4">$3.40M</span></div>
+    <div class="l2">Sep 240P · 38d · 900 ctr · 1 print · CBOE</div></div>
+  <div class="br"><div class="l1"><span class="c1">14:29:03</span> <span class="c2">AAPL</span> <span class="c3">▲ call</span> <span class="chip">unusual&nbsp;volume</span> <span class="c5">6.3× OI</span> <span class="c4">$610K</span></div>
+    <div class="l2" title="side called off a polled (≤30s) quote — may be stale">Sep 215C · 45d · 300 ctr · <span style="border-bottom:1px dotted var(--faint)">ⓘ hover for caveat</span></div></div>
+  <div class="br"><div class="l1"><span class="c1">14:24:40</span> <span class="c2">AMD</span> <span class="c3">▲ call</span> <span class="chip">directional&nbsp;pressure</span> <span class="c4">$480K</span></div>
+    <div class="l2">$180 bucket · z 2.2σ · 480 ctr</div></div>
+</div>
+<p class="note">Time, ticker, side, type and premium each carry a <b>different hue</b> with no legend; line 2's field order changes per event type so nothing aligns; the honesty caveat only appears on <b>hover</b> (<span style="font-family:var(--mono)">title=</span>) — invisible at rest, the exact red-team failure.</p>
+</div>
+
+<!-- ============ SURFACE 4: NOTIFICATIONS ============ -->
+<h2>Notifications &amp; alerts</h2>
+<p class="sub">Three tiers, never blended: a <b>headline</b> that's decision-useful alone on the lock screen, a <b>detail card</b> of separate one-fact lines in-app, and full prose reserved for chat. One shared <span style="font-family:var(--mono);font-size:.86em">format_alert()</span> template at the push chokepoint, plus de-dupe/batching so correlated fires collapse into one.</p>
+
+<div class="cols2">
+  <div>
+    <div class="only-after"><p class="tag">after — headline tier (lock screen)</p></div>
+    <div class="only-before"><p class="tag">before — wall of text</p></div>
+    <div class="phone">
+      <div class="time">9:41</div><div class="date">Thursday, July 11</div>
+
+      <div class="only-after">
+        <div class="push"><div class="app"><span>help_me_trade</span><span>now</span></div>
+          <div class="hl"><span class="sym">AAPL</span> <span class="g-buy">▲ confluence</span> — <span class="mag">$4.6M</span> flow + dark pool · <span class="mag">2.1× vol</span></div></div>
+        <div class="push"><div class="app"><span>help_me_trade</span><span>2m</span></div>
+          <div class="hl"><span class="sym">AAPL</span> <span class="g-buy">▲ call</span> — <span class="mag">$610K</span> (6.3× OI) · Sep 215C <span class="uncf">· side polled</span></div></div>
+        <div class="push"><div class="app"><span>help_me_trade</span><span>3m</span></div>
+          <div class="hl"><span class="sym">AAPL</span> <span class="g-buy">▲ call sweeps</span> — <span class="mag">$4.1M</span> total</div>
+          <div class="batch">◱ 5 sweeps batched · 14:30–14:33</div></div>
+      </div>
+
+      <div class="only-before">
+        <div class="push"><div class="app"><span>help_me_trade</span><span>now</span></div>
+          <div class="wall">AAPL: signal confluence — $1.2M ask-side call flow + $3.4M dark-pool print + RVOL 2.1x · score 2.7</div></div>
+        <div class="push"><div class="app"><span>help_me_trade</span><span>2m</span></div>
+          <div class="wall">NVDA Aug $130C: 4,200 contracts, 6.3x OI, $2.1M premium (EOD)</div></div>
+        <div class="push"><div class="app"><span>help_me_trade</span><span>3m</span></div>
+          <div class="wall">AAPL Jul $215C: sweep, 300 contracts, $610K, ask-side (weak)</div></div>
+        <div class="push"><div class="app"><span>help_me_trade</span><span>3m</span></div>
+          <div class="wall">AAPL Jul $217C: sweep, 240 contracts, $510K, ask-side · AAPL Jul $215C: sweep, 380 contracts…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="only-after"><p class="tag">after — detail card (in-app / approval)</p></div>
+    <div class="only-before"><p class="tag">before — same string, just line-clamped</p></div>
+
+    <div class="only-after cardtiers">
+      <div class="dcard">
+        <div class="cap">detail card · options-flow print</div>
+        <div class="bd">
+          <div class="hd"><span class="sym">NVDA</span><span class="px">211.34</span><span class="chg">+1.8%</span>
+            <span class="side-buy" style="margin-left:auto">▲ call sweep</span></div>
+          <div class="fline"><span class="lb">contract</span><span class="vv">$130 call · Aug 16 · 4 DTE</span></div>
+          <div class="fline"><span class="lb">size</span><span class="vv">420 contracts · $1.24M premium</span></div>
+          <div class="fline"><span class="lb">unusual</span><span class="vv">6.1× 20-day avg · 5.9σ · at ask</span></div>
+          <div class="fline"><span class="lb">why</span><span class="why">aggressive buy-side, near-the-money, into earnings</span></div>
+          <div class="honest val">✓ live quote — printed at the ask, aggressor side confirmed</div>
+        </div>
+      </div>
+      <div class="dcard">
+        <div class="cap">detail card · unconfirmed direction</div>
+        <div class="bd">
+          <div class="hd"><span class="sym">AAPL</span><span class="px">214.90</span><span class="chg">+0.4%</span>
+            <span class="side-buy" style="margin-left:auto">▲ call</span></div>
+          <div class="fline"><span class="lb">contract</span><span class="vv">$215 call · Sep 19 · 45 DTE</span></div>
+          <div class="fline"><span class="lb">size</span><span class="vv">300 contracts · $610K · 6.3× OI</span></div>
+          <div class="fline"><span class="lb">why</span><span class="why">unusual volume vs open interest</span></div>
+          <div class="honest">⚠ side polled — called off a ≤30s quote, may shift (not a live print at ask/bid)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="only-before cardtiers">
+      <div class="dcard">
+        <div class="cap">current expanded notification</div>
+        <div class="bd">
+          <div class="wall" style="font-family:var(--mono);font-size:.8rem;line-height:1.7">NVDA Aug $130C sweep · 420 ctr · $1.24M · 3 prints NYSE/ARCA · und $131.02 · iv 62% · δ .48 · γ .02 · θ -.11 · ν .09 · oi 1,200 · 129.80×130.10 · ask-side · z 5.9σ</div>
+          <p class="note" style="margin-top:12px">One <span style="font-family:var(--mono)">·</span>-joined string — the headline, the Greeks, and the honesty state all crammed into a paragraph the eye has to decode. Expanding just shows a <em>longer</em> version of the same string.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note"><b>The batching win:</b> five AAPL sweeps in three minutes become one push with a count instead of five buzzes — the alert-fatigue fix, applied to every source, not just fills.</p>
+
+<footer>
+Mockup for founder review · surfaces 3 (options-flow widget) + 4 (notifications), which share one grammar · chart flow-overlay (surface 2) parked until these ship.<br>
+Grounded in real fields (<span style="color:var(--accent-2)">OptionsFlowEvent</span>) and today's notification bodies. Open: premium-floor default (shown as a control), and whether to keep all 5 event-type words or collapse. Next: your reactions → optional Opus critic pass → build.
+</footer>
+</div>
+
+<script>
+function setMode(m){
+  document.body.dataset.mode=m;
+  document.getElementById('b-after').classList.toggle('on',m==='after');
+  document.getElementById('b-before').classList.toggle('on',m==='before');
+}
+document.body.dataset.mode='after';
+document.querySelectorAll('.frow').forEach(function(r){
+  r.addEventListener('click',function(){ r.closest('.fitem').classList.toggle('open'); });
+});
+</script>

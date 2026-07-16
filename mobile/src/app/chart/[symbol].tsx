@@ -9,9 +9,10 @@ import { INTERVALS, intervalFor, type IntervalKey } from '@/features/chart/range
 import { sessionView } from '@/features/watchlist/session';
 import { Icon } from '@/components/ui/icon';
 import { Money, Pct, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
-import { colors, spacing } from '@/theme';
+import { spacing, useColors } from '@/theme';
 
 export default function FullChartScreen() {
+  const colors = useColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ symbol: string; interval?: string; mode?: string }>();
   const symbol = typeof params.symbol === 'string' ? params.symbol : (params.symbol?.[0] ?? '');

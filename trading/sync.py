@@ -7,6 +7,7 @@ import hashlib
 import logging
 import threading
 import time
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -63,13 +64,13 @@ def _schwab_transaction_to_event(
     """Map a Schwab Transactions-API TRADE to a ledger row.
 
     A Schwab TRADE has multiple ``transferItems``: CURRENCY legs (cash + each
-    fee) and one or more security legs (EQUITY/OPTION/FUTURE). We key off the
-    security leg — its ``amount`` is the signed share/contract count (>0 buy,
-    <0 sell) and ``price`` the fill price — and use the transaction-level
-    ``netAmount`` as the net cash (fee-inclusive, matching the JSON export's
-    Amount column, so net-cash P&L stays consistent across both import paths).
-    Fees are summed from the fee-typed CURRENCY legs. Multi-leg spreads collapse
-    to their primary (largest-quantity) leg; net cash stays correct.
+    fee) and one or more security legs (EQUITY/OPTION/FUTURE). Same-symbol
+    security legs are summed (Schwab splits one fill across CLOSING/OPENING
+    legs when a sell crosses flat). Cross-symbol spreads still collapse to the
+    primary symbol — the group with the largest total ``abs(amount)`` — and
+    only that group's legs contribute quantity/price; net cash stays at the
+    transaction-level ``netAmount`` (fee-inclusive, matching the JSON export).
+    Fees are summed from the fee-typed CURRENCY legs.
     """
     if str(item.get("type", "")).upper() != "TRADE":
         return None
@@ -84,14 +85,34 @@ def _schwab_transaction_to_event(
     if not sec_legs:
         return None
 
-    leg = max(sec_legs, key=lambda x: abs(parse_dollar(str(x.get("amount", 0)))))
-    instr = leg.get("instrument") or {}
-    symbol = str(instr.get("uniformSymbol") or instr.get("symbol") or "").upper()
-    if not symbol:
+    def _leg_symbol(leg: dict[str, Any]) -> str:
+        instr = leg.get("instrument") or {}
+        return str(instr.get("uniformSymbol") or instr.get("symbol") or "").upper()
+
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for leg in sec_legs:
+        sym = _leg_symbol(leg)
+        if sym:
+            groups[sym].append(leg)
+    if not groups:
         return None
 
-    shares = parse_dollar(str(leg.get("amount", 0)))
+    def _group_abs_total(legs: list[dict[str, Any]]) -> Decimal:
+        return sum(
+            abs(parse_dollar(str(leg.get("amount", 0)))) for leg in legs
+        )
+
+    symbol = max(groups, key=lambda s: _group_abs_total(groups[s]))
+    primary_legs = groups[symbol]
+
+    shares = sum(parse_dollar(str(leg.get("amount", 0))) for leg in primary_legs)
     if shares == 0:
+        logger.warning(
+            "Dropping zero-net TRADE activity %s (%s legs sum to 0 shares); "
+            "cash/fees from this transaction will not enter the ledger",
+            item.get("activityId"),
+            symbol,
+        )
         return None
     action = "Buy" if shares > 0 else "Sell"
     event_type, side = _classify_action(action)
@@ -99,8 +120,18 @@ def _schwab_transaction_to_event(
         return None
     qty = abs(shares)
 
-    price_raw = leg.get("price")
-    price = abs(parse_dollar(str(price_raw))) if price_raw is not None else None
+    weighted_sum = Decimal("0")
+    weight_total = Decimal("0")
+    for leg in primary_legs:
+        price_raw = leg.get("price")
+        if price_raw is None:
+            continue
+        leg_amount = parse_dollar(str(leg.get("amount", 0)))
+        leg_price = abs(parse_dollar(str(price_raw)))
+        weight = abs(leg_amount)
+        weighted_sum += leg_price * weight
+        weight_total += weight
+    price = weighted_sum / weight_total if weight_total > 0 else None
 
     fees = Decimal("0")
     for fleg in legs:

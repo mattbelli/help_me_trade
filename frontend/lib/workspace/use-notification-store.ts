@@ -11,7 +11,7 @@ import {
   type ServerNotification,
 } from "@/lib/api";
 
-const MAX_NOTIFICATIONS = 50;
+const MAX_NOTIFICATIONS = 100;
 
 export type WorkspaceNotification = {
   id: string;
@@ -22,6 +22,7 @@ export type WorkspaceNotification = {
   action_url?: string | null;
   ref_type?: string | null;
   ref_id?: string | null;
+  group_key?: string | null;
   data?: Record<string, unknown> | null;
   created_at: string;
   read: boolean;
@@ -31,6 +32,7 @@ export type WorkspaceNotification = {
 type NotificationState = {
   notifications: WorkspaceNotification[];
   hydrated: boolean;
+  error: string | null;
   addNotification: (n: WorkspaceNotification) => void;
   applyUpdate: (
     id: string,
@@ -41,6 +43,7 @@ type NotificationState = {
   dismiss: (id: string) => void;
   clearAll: () => void;
   hydrate: () => Promise<void>;
+  retryHydrate: () => Promise<void>;
 };
 
 export function mapServerNotification(
@@ -55,6 +58,7 @@ export function mapServerNotification(
     action_url: row.action_url,
     ref_type: row.ref_type,
     ref_id: row.ref_id,
+    group_key: row.group_key,
     data: row.data,
     created_at: row.created_at,
     read: row.read,
@@ -78,6 +82,7 @@ function maybeOsNotify(n: WorkspaceNotification): void {
 export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
   hydrated: false,
+  error: null,
 
   addNotification: (n) => {
     if (n.dismissed) return;
@@ -152,10 +157,18 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
           (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
         )
         .slice(0, MAX_NOTIFICATIONS);
-      set({ notifications, hydrated: true });
-    } catch {
-      set({ hydrated: true });
+      set({ notifications, hydrated: true, error: null });
+    } catch (err) {
+      set({
+        hydrated: true,
+        error: err instanceof Error ? err.message : "failed to load",
+      });
     }
+  },
+
+  retryHydrate: async () => {
+    set({ hydrated: false, error: null });
+    await get().hydrate();
   },
 }));
 

@@ -1,22 +1,44 @@
 #!/usr/bin/env bash
-# Nightly SQLite backup of the trading ledger (the source of truth).
-# Uses sqlite3 .backup (safe online copy, WAL-aware). Installed via crontab.
+# Nightly backup of the trading ledger (the source of truth) + the config files
+# a restore actually needs. Uses sqlite3 .backup (safe online copy, WAL-aware),
+# verifies every copy with PRAGMA integrity_check, and fails LOUDLY (non-zero
+# exit + [BACKUP FAILED] in the log) so a watchdog can page on it.
 set -euo pipefail
 
 DB=/home/mbelli/dev/help_me_trade/data/trading.db
+DATA=/home/mbelli/dev/help_me_trade/data
 DEST=/home/mbelli/backups
 STAMP=$(date +%F)
 
+fail() {
+  echo "$(date -Is) [BACKUP FAILED] $*" >&2
+  exit 1
+}
+
 mkdir -p "$DEST"
-/usr/bin/sqlite3 "$DB" ".backup '$DEST/trading-$STAMP.db'"
+/usr/bin/sqlite3 "$DB" ".backup '$DEST/trading-$STAMP.db'" \
+  || fail "sqlite3 .backup errored"
 
-# Retain the last 14 daily snapshots.
+# A backup that doesn't restore is hope, not a backup — verify the copy.
+CHECK=$(/usr/bin/sqlite3 "$DEST/trading-$STAMP.db" "PRAGMA integrity_check;" 2>&1) \
+  || fail "integrity_check errored on trading-$STAMP.db: $CHECK"
+[[ "$CHECK" == "ok" ]] || fail "integrity_check NOT ok on trading-$STAMP.db: $CHECK"
+
+# Config a restore needs beside the ledger: app settings (strategy arming!),
+# Schwab account labels, and the original broker export JSONs.
+tar -czf "$DEST/hmt-config-$STAMP.tar.gz" \
+  -C "$DATA" settings.json schwab_account_labels.json imports \
+  || fail "config tarball errored"
+
+# Retain the last 14 daily snapshots (DB + config).
 find "$DEST" -maxdepth 1 -name 'trading-*.db' -mtime +14 -delete
+find "$DEST" -maxdepth 1 -name 'hmt-config-*.tar.gz' -mtime +14 -delete
 
-# --- OFF-BOX COPY (fill in a Tailscale destination for real DR) ---------------
-# A backup on the same disk is not disaster recovery. Uncomment and set a target
-# reachable over the tailnet (e.g. the old Windows box or a NAS):
-# rsync -a "$DEST/trading-$STAMP.db" mbelli@<tailnet-host>:/path/to/hmt-backups/
-# ------------------------------------------------------------------------------
+# --- OFF-BOX COPY ---------------------------------------------------------------
+# mattpc pulls this directory nightly at 03:30 over Tailscale (Windows scp +
+# Task Scheduler "HMT backup pull") — that pull is the off-box copy. If it ever
+# stops, uncomment a push instead:
+# rsync -a "$DEST/trading-$STAMP.db" "$DEST/hmt-config-$STAMP.tar.gz" mbelli@<tailnet-host>:/path/to/hmt-backups/
+# ----------------------------------------------------------------------------------
 
-echo "$(date -Is) backup OK -> $DEST/trading-$STAMP.db"
+echo "$(date -Is) backup OK -> $DEST/trading-$STAMP.db (integrity ok) + hmt-config-$STAMP.tar.gz"

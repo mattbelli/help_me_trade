@@ -32,10 +32,31 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
 3. **Commit cadence: iterate → confirm → BUILD.md → commit.** Don't commit per micro-edit. Build it, leave it
    in the working tree, let the user use + adjust it; once it's good, update `References/BUILD.md` (flip
    status, add a history row), THEN commit + push the consolidated round. For UI-only work, note "pending
-   in-browser check" rather than blocking.
+   in-browser check" rather than blocking. **Update `References/board.json` in the SAME commit that does the
+   work** — a git hook *blocks* any product-code commit that doesn't also touch `board.json`/`BUILD.md` (see
+   **Board discipline** below). Same discipline as BUILD/HANDOFF; a stale board defeats its purpose.
 4. **Minimize the Opus main-loop token cost** ("you are the expensive one"). Delegate: code → Composer;
    recon/review/research → **Sonnet subagents**; keep the main loop short — don't do heavy generation or broad
    file-reading inline when a subagent can. `/model sonnet` for routine turns is the user's biggest lever.
+
+## Board discipline — what earns a card, and keeping it honest
+The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work; a
+git hook **blocks** any commit that changes product code without also updating `board.json` or `BUILD.md`
+(escape hatch: `[no-board]` in the message for a genuine typo/refactor/hotfix).
+- **A card must clear all three:** (1) it has a *deliverable* — a code/doc/config diff (if "done" isn't a
+  diff, it's not a card); (2) it's *not already on the board* — search first, and if it overlaps an existing
+  card, extend that card's notes instead of opening a new one; (3) it's worth briefing someone on (a discrete,
+  nameable piece of work, not a micro-edit).
+- **Never a card** (this is what bloats it): "watch/monitor X", "keep an eye on Y", "remember to check Z",
+  FYIs, observations, status. Those go in the relevant card's notes as a follow-up line, or a memory — never
+  their own card.
+- **Lifecycle, tied to the commit:** open a card (`in_progress`) when work *starts*, not speculatively; the
+  commit (or the consolidated round's commit) that changes the work updates the card in that same commit —
+  flip status, move lane, record the outcome. Done + verified → move to `done` (the newest stay visible; the
+  frontend collapses the older ones into **Archive**). **Don't delete cards — archive them** (git + BUILD.md
+  are the narrative; the board keeps the record). Delete only true junk that never should have been a card.
+- **One card per thread** — if two cards are the same thread, combine on sight.
+- Decisions only the founder can make go in the `founder` lane ("Waiting on you").
 
 ## Engineering discipline (default coding posture — applies to your edits AND the briefs you write Composer)
 Bias toward caution over speed on non-trivial work; use judgment on trivial edits.
@@ -73,6 +94,16 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
   targets). Delivery + execution are the strong foundation; **decision quality is what makes the app worth
   using.** See `References/BUILD.md` → "★ The Decision Engine" section. Win%/ranks must be **calibrated, never
   fabricated.** Active founder+orchestrator deep-research effort — do not treat as a someday-footnote.
+- **★ The product is CONNECTING THE DOTS, not proving edge per mechanism.** The value is *multiple angles on one
+  trade* — flow prints here → what's the underlying's volume? is this a support/resistance level? what do the
+  fundamentals say? what are social threads saying? — fused into a picture the user reasons over and **decides**
+  on. The user makes the call; we supply the angles, not a verdict. **So: "this signal has no proven edge" is
+  NEVER an argument against building a perception source.** Nobody has clean standalone edge in any one
+  mechanism; demanding it per-component is a thought-terminating move that kills the fusion layer that *is* the
+  product. Edge-hunting (backtests, validation) is **one workstream, not the gate on all others.** What the
+  honesty rules actually constrain is **presentation, not construction**: never dress an unvalidated angle as a
+  scored/validated signal, never fabricate a win% — label it as perception and let the user weigh it. Build the
+  angle; be honest about what it is.
 - `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
   `References/SERVER_SETUP.md` (the home Linux server this now runs on).
 - **Research rigor:** backtesting a strategy idea → use the `/edge-hunt` skill (the validation gauntlet:
@@ -82,4 +113,7 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
 - **Git ⇄ serv ⇄ main:** `References/GIT_WORKFLOW.md` — **never self-merge to `main`** (user authorizes only;
   a serv request isn't authorization), merge `main` into research branches ~weekly (don't drift 100+ behind),
   deliver to serv via small PRs / force-added artifacts.
+- **Kill any dev/smoke server you spawn when you're done.** Headless-UI/screenshot checks spin up a Next
+  dev server (port 3005+) on the shared box; left running it leaks to multiple GB of RAM over days. Tear
+  down the one you started — don't leave zombies eating the host's memory.
 - **Before pushing:** `ruff check .` (whole repo) + `python -m pytest -q` + `cd frontend && npm run typecheck`.

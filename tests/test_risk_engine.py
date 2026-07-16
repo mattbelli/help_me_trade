@@ -90,12 +90,8 @@ def _patch_passing_env(monkeypatch, db_path: Path) -> None:
     monkeypatch.setattr(
         "trading.risk_engine.trading_config",
         lambda: {
+            **settings_mod.DEFAULT_SETTINGS["trading"],
             "execution_mode": "dry_run",
-            "kill_switch_active": False,
-            "max_order_value_usd": 50_000,
-            "max_position_pct": 30,
-            "max_open_orders": 10,
-            "max_daily_orders": 20,
         },
     )
 

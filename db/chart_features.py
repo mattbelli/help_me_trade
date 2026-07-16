@@ -32,6 +32,7 @@ def init_chart_features(db_path: Path = DEFAULT_DB_PATH) -> None:
                 triggered INTEGER NOT NULL DEFAULT 0,
                 repeat INTEGER NOT NULL DEFAULT 0,
                 last_triggered_at TEXT,
+                last_fire_price REAL,
                 created_at TEXT NOT NULL
             );
 
@@ -61,6 +62,10 @@ def init_chart_features(db_path: Path = DEFAULT_DB_PATH) -> None:
         if "last_triggered_at" not in cols:
             conn.execute(
                 "ALTER TABLE price_alerts ADD COLUMN last_triggered_at TEXT"
+            )
+        if "last_fire_price" not in cols:
+            conn.execute(
+                "ALTER TABLE price_alerts ADD COLUMN last_fire_price REAL"
             )
 
 
@@ -235,26 +240,54 @@ def update_price_alert(
     return dict(row) if row else None
 
 
-def mark_alert_triggered(alert_id: int, *, repeat: bool = False) -> None:
-    """Record that an alert fired.
+def mark_alert_triggered(
+    alert_id: int, *, repeat: bool = False, fire_price: float | None = None
+) -> bool:
+    """Record that an alert fired; return True if this call claimed the fire.
 
-    One-shot (repeat=False): set triggered=1 so it leaves the active list.
-    Persistent (repeat=True): stamp last_triggered_at but keep it active so it
-    re-arms for the next crossing.
+    One-shot (repeat=False): set triggered=1 so it leaves the active list. The
+    UPDATE is conditional on ``triggered = 0`` so two concurrent evaluations
+    (e.g. overlapping ext-price polls) can't both fire — only the writer that
+    flips the row (rowcount == 1) returns True; the loser returns False and must
+    not emit a notification.
+    Persistent (repeat=True): stamp last_triggered_at and record last_fire_price
+    (the re-arm anchor) but keep it active so it re-arms for the next crossing.
+    Always returns True for repeat alerts (they are debounced by the cooldown +
+    the price-band hysteresis instead of the triggered flag).
     """
     init_chart_features()
     now = datetime.now(UTC).isoformat()
     with _connect() as conn:
         if repeat:
             conn.execute(
-                "UPDATE price_alerts SET last_triggered_at = ? WHERE id = ?",
-                (now, alert_id),
+                "UPDATE price_alerts SET last_triggered_at = ?, last_fire_price = ? "
+                "WHERE id = ?",
+                (now, fire_price, alert_id),
             )
-        else:
-            conn.execute(
-                "UPDATE price_alerts SET triggered = 1, last_triggered_at = ? WHERE id = ?",
-                (now, alert_id),
-            )
+            conn.commit()
+            return True
+        cursor = conn.execute(
+            "UPDATE price_alerts SET triggered = 1, last_triggered_at = ? "
+            "WHERE id = ? AND triggered = 0",
+            (now, alert_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def rearm_repeat_alert(alert_id: int) -> None:
+    """Clear a repeat alert's last_fire_price so it can fire on the next crossing.
+
+    Called once price has retreated at least the hysteresis band away from where
+    the alert last fired — the "move away, then cross back" gate that stops a
+    price dithering at the level from re-firing on the 60s cooldown alone.
+    """
+    init_chart_features()
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE price_alerts SET last_fire_price = NULL WHERE id = ?",
+            (alert_id,),
+        )
         conn.commit()
 
 

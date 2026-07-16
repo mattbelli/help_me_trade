@@ -3,16 +3,24 @@ import { APP_VERSION } from '@/config';
 import { apiFetch } from './client';
 import type {
   Bar,
+  ChatSession,
+  ChatSessionDetail,
+  DayPnl,
   EarningsHistory,
+  FeedNotification,
   HealthStatus,
   MarketAlert,
   PendingProposal,
   PortfolioHistory,
   PortfolioRange,
   PriceAlert,
+  Report,
+  ResearchArtifact,
   Snapshot,
+  Strategy,
   WatchlistMarket,
   WatchlistsState,
+  WebCustomTheme,
 } from './types';
 
 export function getHealth(): Promise<HealthStatus> {
@@ -28,6 +36,15 @@ export function getPortfolioHistory(
 ): Promise<PortfolioHistory> {
   return apiFetch<PortfolioHistory>(
     `/api/portfolio/history?range=${encodeURIComponent(range)}`,
+  );
+}
+
+// Realized (net-cash, ET-day) day P&L for a scope id (e.g. `all_paper`, `all_real`,
+// `schwab_<last4>`). Matches the web toolbar DAY tile; fixes the after-hours-leak the
+// portfolio-history equity curve carries.
+export function getDayPnl(accountId: string): Promise<DayPnl> {
+  return apiFetch<DayPnl>(
+    `/api/performance/day-pnl?account_id=${encodeURIComponent(accountId)}`,
   );
 }
 
@@ -137,6 +154,18 @@ export function getRecentAlerts(): Promise<{ alerts: MarketAlert[] }> {
   return apiFetch<{ alerts: MarketAlert[] }>('/api/alerts/recent');
 }
 
+export function getRecentNotifications(): Promise<{ notifications: FeedNotification[]; unread: number }> {
+  return apiFetch<{ notifications: FeedNotification[]; unread: number }>('/api/notifications?limit=150');
+}
+
+export function getReport(id: string): Promise<Report> {
+  return apiFetch<Report>(`/api/reports/${encodeURIComponent(id)}`);
+}
+
+export function getResearch(id: string): Promise<ResearchArtifact> {
+  return apiFetch<ResearchArtifact>(`/api/research/${encodeURIComponent(id)}`);
+}
+
 // --- Price alerts (user-set on stock prices) ---
 export function getPriceAlerts(symbol?: string): Promise<{ alerts: PriceAlert[] }> {
   const q = symbol ? `?symbol=${encodeURIComponent(symbol)}` : '';
@@ -196,4 +225,60 @@ export function registerLiveActivityToken(args: {
       ...(args.proposalId ? { proposal_id: args.proposalId } : {}),
     },
   });
+}
+
+// --- Chat sessions (persisted history) ---
+export function listChatSessions(limit = 50): Promise<{ sessions: ChatSession[] }> {
+  return apiFetch<{ sessions: ChatSession[] }>(`/api/chat/sessions?limit=${limit}`);
+}
+
+export function getChatSession(id: string): Promise<ChatSessionDetail> {
+  return apiFetch<ChatSessionDetail>(`/api/chat/sessions/${encodeURIComponent(id)}`);
+}
+
+export function createChatSession(title: string): Promise<ChatSession> {
+  return apiFetch<ChatSession>('/api/chat/sessions', {
+    method: 'POST',
+    body: { mode: 'standard', title },
+  });
+}
+
+export function renameChatSession(id: string, title: string): Promise<ChatSession> {
+  return apiFetch<ChatSession>(`/api/chat/sessions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: { title },
+  });
+}
+
+export function pinChatSession(id: string, pinned: boolean): Promise<ChatSession> {
+  return apiFetch<ChatSession>(`/api/chat/sessions/${encodeURIComponent(id)}/pin`, {
+    method: 'POST',
+    body: { pinned },
+  });
+}
+
+export function deleteChatSession(id: string): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>(`/api/chat/sessions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function getCustomThemes(): Promise<{ custom_themes: WebCustomTheme[] }> {
+  return apiFetch<{ custom_themes: WebCustomTheme[] }>('/api/workspace/custom-themes');
+}
+
+export function getSettings(): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>('/api/settings');
+}
+
+export function updateSettings(patch: Record<string, unknown>): Promise<unknown> {
+  return apiFetch('/api/settings', { method: 'PUT', body: patch });
+}
+
+export function getStrategies(): Promise<{ strategies: Strategy[] }> {
+  return apiFetch<{ strategies: Strategy[] }>('/api/strategies');
+}
+
+export function updateStrategy(id: string, patch: Record<string, unknown>): Promise<unknown> {
+  return apiFetch(`/api/strategies/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
 }

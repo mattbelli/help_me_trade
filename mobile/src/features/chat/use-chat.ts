@@ -10,6 +10,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { streamChat, type ChatMessage } from '@/api/chat-stream';
+import { createChatSession, getChatSession } from '@/api/endpoints';
+import type { ChatSessionMessage } from '@/api/types';
+
+/** Join the `{type:'text', text}` entries of a stored message's parts array. */
+function partsToText(parts: ChatSessionMessage['parts']): string {
+  return parts
+    .filter((p) => p?.type === 'text' && typeof p.text === 'string')
+    .map((p) => p.text as string)
+    .join('');
+}
+
+/** Title for a new session: the first user message, truncated. */
+function titleFrom(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  return t.length > 60 ? `${t.slice(0, 57)}…` : t;
+}
 
 export interface ProposalRef {
   proposalId: string;
@@ -19,30 +35,66 @@ export interface ProposalRef {
   qty?: number;
 }
 
+/** One tool call in the assistant's timeline — a "here's what it did" trail. */
+export interface ToolStep {
+  /** = the SSE toolCallId; used to match a tool-result back to its call. */
+  id: string;
+  name: string;
+  /** Friendly label from toolLabel(name). */
+  label: string;
+  /** Optional muted hint derived from the args (e.g. a search query, a symbol). */
+  detail?: string;
+  status: 'running' | 'done' | 'failed';
+}
+
 export interface ChatTurn {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   proposals: ProposalRef[];
+  /** The tool-call timeline for this assistant turn (running → done/failed). */
+  toolSteps: ToolStep[];
   /** True while this assistant turn is still streaming. */
   streaming?: boolean;
-  /** A friendly "using a tool…" label shown while the agent works. */
-  toolHint?: string | null;
   /** True if the turn ended on an error event / thrown stream. */
   failed?: boolean;
 }
 
-/** Human-friendly label for the optional thinking chip. */
+/** Human-friendly label for a tool step. */
 function toolLabel(name: string): string {
   const map: Record<string, string> = {
     get_context: 'Reading context',
+    get_agent_status: 'Checking agent status',
     get_quote: 'Checking the price',
     get_portfolio: 'Reviewing the portfolio',
     get_positions: 'Reviewing positions',
     search_symbols: 'Searching symbols',
     get_news: 'Scanning the news',
+    web_search: 'Searching the web',
   };
   return map[name] ?? `Using ${name.replace(/_/g, ' ')}`;
+}
+
+/** A short muted hint derived from a tool call's args (query, symbol, …). */
+function toolDetail(name: string, args?: Record<string, unknown>): string | undefined {
+  if (!args) return undefined;
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' && v.trim() ? v.trim() : undefined;
+
+  switch (name) {
+    case 'web_search':
+      return str(args.query);
+    case 'get_quote':
+    case 'search_symbols':
+    case 'get_news':
+      return str(args.symbol) ?? str(args.query);
+    default: {
+      // A short generic hint: the first string-ish arg value, if any.
+      const first = Object.values(args).find((v) => str(v) !== undefined);
+      const hint = str(first);
+      return hint && hint.length <= 40 ? hint : undefined;
+    }
+  }
 }
 
 export interface UseChat {
@@ -52,6 +104,8 @@ export interface UseChat {
   send: (text: string) => void;
   stop: () => void;
   reset: () => void;
+  /** Load a persisted session's transcript into the chat and adopt its id. */
+  loadSession: (id: string) => Promise<void>;
 }
 
 export function useChat(): UseChat {
@@ -76,15 +130,21 @@ export function useChat(): UseChat {
       if (!text || status === 'streaming') return;
       setError(null);
 
-      const userTurn: ChatTurn = { id: nextId(), role: 'user', content: text, proposals: [] };
+      const userTurn: ChatTurn = {
+        id: nextId(),
+        role: 'user',
+        content: text,
+        proposals: [],
+        toolSteps: [],
+      };
       const botId = nextId();
       const botTurn: ChatTurn = {
         id: botId,
         role: 'assistant',
         content: '',
         proposals: [],
+        toolSteps: [],
         streaming: true,
-        toolHint: null,
       };
 
       // Build the request from the prior committed turns + this new user message.
@@ -102,12 +162,25 @@ export function useChat(): UseChat {
       void (async () => {
         let acc = '';
         const proposals: ProposalRef[] = [];
+        const toolSteps: ToolStep[] = [];
+
+        // Persist every chat: on the first turn of a fresh session, create a
+        // saved session and stream with `mode:'saved'` + its id (serv persists
+        // each turn server-side). If session creation fails, fall back to the
+        // ephemeral temporary stream so the chat never blocks.
+        let mode: 'saved' | 'temporary' = 'saved';
+        if (!sessionId.current) {
+          try {
+            const session = await createChatSession(titleFrom(text));
+            sessionId.current = session.id;
+          } catch {
+            mode = 'temporary';
+          }
+        }
+
         try {
           for await (const ev of streamChat(
-            // v1 = temporary (ephemeral). `saved` requires a sessionId (serv 400s
-            // otherwise) and a history screen to surface persisted chats — both are
-            // the follow-up. See References/SERV_chat_stream_DONE.md.
-            { messages: history, sessionId: sessionId.current, mode: 'temporary' },
+            { messages: history, sessionId: sessionId.current, mode },
             controller.signal,
           )) {
             switch (ev.type) {
@@ -115,14 +188,24 @@ export function useChat(): UseChat {
                 break;
               case 'text-delta':
                 acc += ev.delta;
-                patch(botId, { content: acc, toolHint: null });
+                patch(botId, { content: acc });
                 break;
               case 'tool-call':
-                patch(botId, { toolHint: toolLabel(ev.name) });
+                toolSteps.push({
+                  id: ev.toolCallId,
+                  name: ev.name,
+                  label: toolLabel(ev.name),
+                  detail: toolDetail(ev.name, ev.args),
+                  status: 'running',
+                });
+                patch(botId, { toolSteps: [...toolSteps] });
                 break;
-              case 'tool-result':
-                patch(botId, { toolHint: null });
+              case 'tool-result': {
+                const step = toolSteps.find((s) => s.id === ev.toolCallId);
+                if (step) step.status = ev.ok ? 'done' : 'failed';
+                patch(botId, { toolSteps: [...toolSteps] });
                 break;
+              }
               case 'proposal':
                 proposals.push({
                   proposalId: ev.proposalId,
@@ -149,7 +232,7 @@ export function useChat(): UseChat {
             patch(botId, { failed: true });
           }
         } finally {
-          patch(botId, { streaming: false, toolHint: null });
+          patch(botId, { streaming: false });
           setStatus('idle');
           abortRef.current = null;
         }
@@ -170,8 +253,29 @@ export function useChat(): UseChat {
     setStatus('idle');
   }, []);
 
+  const loadSession = useCallback(async (id: string) => {
+    abortRef.current?.abort();
+    setError(null);
+    try {
+      const detail = await getChatSession(id);
+      // Historical proposal cards aren't reconstructed (v1) — only the text.
+      const loaded: ChatTurn[] = detail.messages.map((m) => ({
+        id: `s${(seq.current += 1)}`,
+        role: m.role,
+        content: partsToText(m.parts),
+        proposals: [],
+        toolSteps: [],
+      }));
+      sessionId.current = id;
+      setTurns(loaded);
+      setStatus('idle');
+    } catch {
+      setError("Couldn't open that chat. Tap to retry.");
+    }
+  }, []);
+
   // Abort any in-flight stream when the screen unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  return { turns, status, error, send, stop, reset };
+  return { turns, status, error, send, stop, reset, loadSession };
 }

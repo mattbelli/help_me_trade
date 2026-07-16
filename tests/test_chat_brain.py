@@ -52,6 +52,98 @@ def test_build_turn_context_injects_memories_when_enabled(monkeypatch):
     assert len(ctx["memories"]) == 1
 
 
+def test_injection_fence_wired_end_to_end(monkeypatch, tmp_path):
+    """HIGH-3 integration: the injection fence + provenance chips are WIRED, not
+    just defined. A real store (no stubs) holds an active user_confirmed row, an
+    active agent_inferred row, an archived row, and an active unknown-authority
+    row — build_turn_context(inject_memories=True) must emit the first two with
+    their chips and never the last two."""
+    import json
+    import sqlite3
+
+    import db.ai_tables as ai_tables
+    import db.base as db_base
+
+    db = tmp_path / "fence.db"
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
+    ai_tables.init_ai_tables(db)
+
+    confirmed = ai_tables.create_memory(
+        memory_type="directive",
+        content="Never trade earnings weeks",
+        authority="user_confirmed",
+        source="widget_confirm",
+        db_path=db,
+    )
+    inferred = ai_tables.create_memory(
+        memory_type="lesson",
+        content="Tends to oversize earnings trades",
+        authority="agent_inferred",
+        source="reflection",
+        db_path=db,
+    )
+    archived = ai_tables.create_memory(
+        memory_type="directive",
+        content="Earnings plays require defined risk",
+        authority="user_authored",
+        source="widget_manual",
+        db_path=db,
+    )
+    ai_tables.update_memory(archived["id"], status="archived", db_path=db)
+    spoofed = ai_tables.create_memory(
+        memory_type="fact",
+        content="Earnings volatility spoofed row",
+        db_path=db,
+    )
+    # update_memory validates authority, so plant the unknown tier directly.
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE memories SET authority = 'totally_trusted' WHERE id = ?",
+            (spoofed["id"],),
+        )
+
+    ctx = build_turn_context(
+        "how should I handle earnings trades this week?", inject_memories=True
+    )
+    system = ctx["system"]
+
+    # The two fenced-in rows are present...
+    assert confirmed["content"] in system
+    assert inferred["content"] in system
+    # ...the archived and unknown-authority rows never reach the prompt.
+    assert archived["content"] not in system
+    assert spoofed["content"] not in system
+
+    # Provenance chips are bound to the right rows (parse the emitted JSON).
+    tail = system.split("Relevant memories for this turn", 1)[1]
+    emitted = json.loads(tail[tail.index("[") :])
+    provenance = {item["content"]: item["provenance"] for item in emitted}
+    assert provenance[confirmed["content"]] == "founder-confirmed"
+    assert provenance[inferred["content"]] == "agent-inferred (unverified)"
+    assert set(provenance) == {confirmed["content"], inferred["content"]}
+
+
+def test_build_turn_context_injects_journal_when_enabled(monkeypatch):
+    monkeypatch.setattr(
+        "ai.chat.brain.turn_journal_context",
+        lambda _text, **_: {
+            "decisions": [
+                {
+                    "symbol": "NVDA",
+                    "decision": "buy",
+                    "outcome": "win",
+                    "r_multiple": 1.2,
+                }
+            ],
+            "ai_stats": {"n": 1, "wins": 1, "losses": 0, "avg_r": 1.2},
+            "user_profile": "5 trades",
+        },
+    )
+    ctx = build_turn_context("how did my NVDA trades go?", inject_journal=True)
+    assert "Your track record for this turn" in ctx["system"]
+    assert ctx["journal"]["decisions"]
+
+
 def test_tool_catalog_includes_propose_order():
     names = {item["name"] for item in tool_catalog()}
     assert "propose_order" in names
@@ -241,7 +333,45 @@ def test_finalize_turn_persists_assistant_tool_parts(tmp_path, monkeypatch):
     assert paper_orders_mod.list_paper_order_proposals(db_path=db) == []
 
 
-def test_finalize_turn_skips_memory_extract(monkeypatch):
+def test_persist_turn_saved_mode_actually_calls_extraction(tmp_path, monkeypatch):
+    """Regression: live routes call ai.chat.agent.finalize_chat_turn directly with
+    the POST-normalization mode ("saved"), never the literal "standard" — a stale
+    `mode == "standard"` gate inside _persist_turn silently no-op'd extraction for
+    every real chat turn (mocked-finalize tests above never caught it)."""
+    from ai.chat.agent import finalize_chat_turn
+    from db.chat_sessions import create_chat_session, get_chat_session, upsert_chat_message
+
+    db = tmp_path / "chat.db"
+    monkeypatch.setattr(
+        "ai.chat.agent.get_chat_session",
+        lambda sid: get_chat_session(sid, db_path=db),
+    )
+    monkeypatch.setattr(
+        "ai.chat.agent.upsert_chat_message",
+        lambda **kw: upsert_chat_message(**kw, db_path=db),
+    )
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        "ai.chat.agent.extract_memories_from_turn",
+        lambda **kw: (calls.append(kw), [])[1],
+    )
+
+    session = create_chat_session(mode="saved", db_path=db)
+    from ai.chat.agent import ChatRunResult
+
+    finalize_chat_turn(
+        messages=[{"id": "user_1", "role": "user", "parts": [{"type": "text", "text": "I never hold more than 20% in one name"}]}],
+        user_text="I never hold more than 20% in one name",
+        assistant_text="Noted.",
+        session_id=session["id"],
+        mode="saved",
+        run=ChatRunResult(),
+        extract=True,
+    )
+    assert len(calls) == 1
+
+
+def test_finalize_turn_saved_extracts_memories(monkeypatch):
     captured: dict = {}
 
     def fake_finalize(**kwargs):
@@ -260,7 +390,46 @@ def test_finalize_turn_skips_memory_extract(monkeypatch):
         session_id="chat_test123",
         mode="saved",
     )
+    assert captured.get("extract") is True
+
+
+def test_finalize_turn_private_skips_extract(monkeypatch):
+    captured: dict = {}
+
+    def fake_finalize(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("ai.chat.brain.finalize_chat_turn", fake_finalize)
+    finalize_turn(
+        messages=[
+            {
+                "id": "user_1",
+                "role": "user",
+                "parts": [{"type": "text", "text": "secret preference"}],
+            },
+        ],
+        assistant_text="Understood.",
+        session_id="chat_private123",
+        mode="private",
+    )
     assert captured.get("extract") is False
+
+
+def test_finalize_turn_temporary_skips_extract(monkeypatch):
+    captured: dict = {}
+
+    def fake_finalize(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("ai.chat.brain.finalize_chat_turn", fake_finalize)
+    out = finalize_turn(
+        messages=[{"role": "user", "parts": [{"type": "text", "text": "hi"}]}],
+        assistant_text="hello",
+        session_id=None,
+        mode="temporary",
+    )
+    assert out["ok"] is True
+    assert captured == {}
 
 
 def test_finalize_turn_ephemeral_skips_persist(monkeypatch):

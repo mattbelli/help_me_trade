@@ -35,50 +35,23 @@ async def api_watchlist_news(limit: int = 50) -> dict[str, Any]:
     whole feed, it's just dropped. Items are deduped by url and returned
     newest-first, capped at ``limit``.
     """
+    from signals.finnhub import fetch_watchlist_news
+
+    news = await fetch_watchlist_news(limit=limit)
+    symbols_with_news = len({item.get("symbol") for item in news if item.get("symbol")})
     from config.settings import get_watchlists_state
-    from signals.finnhub import afetch_company_news
 
     state = get_watchlists_state()
-    symbols: set[str] = set()
+    eligible: set[str] = set()
     for lst in state.get("lists", []):
         for s in lst.get("symbols", []):
             if isinstance(s, str) and s.strip():
-                symbols.add(s.strip().upper())
-
-    # Finnhub only understands plain equity tickers — skip options/futures-style
-    # symbols (contain a space, or start with "/" e.g. "/ES").
-    eligible = sorted(s for s in symbols if " " not in s and not s.startswith("/"))
-
-    sem = asyncio.Semaphore(8)
-
-    async def _fetch(sym: str) -> list[dict[str, Any]]:
-        async with sem:
-            try:
-                items = await afetch_company_news(sym, days=7, limit=8)
-            except Exception:  # noqa: BLE001 — fail-soft per symbol
-                logger.warning("Watchlist news fetch failed for %s", sym, exc_info=True)
-                return []
-            return [{**item, "symbol": sym} for item in items]
-
-    results = await asyncio.gather(*(_fetch(sym) for sym in eligible))
-
-    seen_urls: set[str] = set()
-    all_items: list[dict[str, Any]] = []
-    symbols_with_news = 0
-    for items in results:
-        if items:
-            symbols_with_news += 1
-        for item in items:
-            url = item.get("url")
-            if not url or url in seen_urls:
-                continue
-            seen_urls.add(url)
-            all_items.append(item)
-
-    all_items.sort(key=lambda item: item.get("datetime") or "", reverse=True)
+                sym = s.strip().upper()
+                if " " not in sym and not sym.startswith("/"):
+                    eligible.add(sym)
 
     return {
-        "news": all_items[:limit],
+        "news": news,
         "symbol_count": len(eligible),
         "symbols_with_news": symbols_with_news,
     }
@@ -96,6 +69,7 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
         afetch_company_news,
         afetch_company_profile,
     )
+    from signals.finra import afetch_short_interest
 
     sym = symbol.strip().upper()
 
@@ -107,11 +81,12 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
         except Exception:  # noqa: BLE001 — fail-soft; return empty facts
             return {}
 
-    profile, metrics, news, facts = await asyncio.gather(
+    profile, metrics, news, facts, short_interest = await asyncio.gather(
         afetch_company_profile(sym),
         afetch_company_metrics(sym),
         afetch_company_news(sym),
         _facts(),
+        afetch_short_interest(sym),
     )
 
     return {
@@ -120,4 +95,5 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
         "metrics": metrics,
         "news": news,
         "facts": facts,
+        "short_interest": short_interest,
     }

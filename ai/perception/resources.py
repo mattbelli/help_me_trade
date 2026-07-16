@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
@@ -293,6 +294,10 @@ def _my_trade_events(filters: dict[str, Any], *, db_path: Path) -> list[dict[str
     sym = str(symbol).strip().upper() if symbol else None
     account_id = filters.get("account_id")
     if account_id:
+        # my_trades promises REAL history — refuse a paper (alpaca) account id.
+        paper_ids = {a["id"] for a in list_accounts(broker="alpaca", db_path=db_path)}
+        if str(account_id) in paper_ids:
+            return []
         return list_trade_events(
             symbol=sym, account_id=str(account_id), limit=100_000, db_path=db_path
         )
@@ -404,6 +409,261 @@ def _summarize_schwab_accounts(
     }
 
 
+# --- Screener (candidate generator — cached bars / RVOL scanner paths) ---------------------
+
+_SCREENER_MAX = 30
+_PRESET_IDS = (
+    "oversold",
+    "overbought",
+    "unusual_volume",
+    "below_200dma",
+    "above_200dma",
+    "near_52w_high",
+    "near_52w_low",
+    "big_movers",
+)
+
+
+def _compact_screener_row(row: dict[str, Any], *, reason: str) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "symbol": row.get("symbol"),
+        "price": row.get("price"),
+        "reason": reason,
+    }
+    if row.get("change_pct") is not None:
+        out["change_pct"] = row.get("change_pct")
+    if row.get("rvol") is not None:
+        out["rvol"] = row.get("rvol")
+    return out
+
+
+async def _read_screener(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    del db_path
+    limit = min(max(int(filters.get("limit") or 15), 1), _SCREENER_MAX)
+    use_rvol = bool(filters.get("rvol"))
+
+    if use_rvol:
+        from fastapi.responses import JSONResponse
+
+        from api.main import api_scanner_rvol
+
+        min_rvol = float(filters.get("min_rvol", 1.5))
+        payload = await api_scanner_rvol(min_rvol=min_rvol, limit=limit)
+        if isinstance(payload, JSONResponse):
+            return []
+        rows: list[dict[str, Any]] = []
+        for row in payload.get("results") or []:
+            rvol = row.get("rvol")
+            reason = f"RVOL {rvol}×" if rvol is not None else "unusual volume"
+            rows.append(_compact_screener_row(row, reason=reason))
+        return rows
+
+    from api.scan_routes import _make_bars_getter, _screen_universe
+    from signals.screener import get_preset, run_scan
+
+    preset_id = str(filters.get("preset") or "oversold").strip().lower()
+    preset = get_preset(preset_id)
+    if preset is None:
+        return []
+
+    symbols = _screen_universe()
+    get_bars = _make_bars_getter()
+    scan = await run_scan(preset_id, symbols, get_bars, limit=limit)
+    rows = []
+    for row in scan.get("results") or []:
+        metric_val = row.get("value")
+        reason = (
+            f"{preset.metric_label} {metric_val}"
+            if metric_val is not None
+            else preset.label
+        )
+        rows.append(_compact_screener_row(row, reason=reason))
+    return rows
+
+
+def _regime_label(term_spread: float, vix: float) -> str:
+    if term_spread > 0.5:
+        yc = "steep_yc"
+    elif term_spread > 0:
+        yc = "normal_yc"
+    elif term_spread > -0.25:
+        yc = "flat_yc"
+    else:
+        yc = "inverted_yc"
+    if vix >= 28:
+        vol = "elevated_vix"
+    elif vix >= 20:
+        vol = "moderate_vix"
+    else:
+        vol = "calm_vix"
+    return f"{yc}_{vol}"
+
+
+def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del filters
+    from db.regime import recent_observations
+    from signals.regime import market_regime, regime_is_fresh
+
+    regime = market_regime(db_path=db_path)
+    if regime is None:
+        return [{"unavailable": True, "fresh": False}]
+
+    fresh = regime_is_fresh(db_path=db_path)
+    term_spread = float(regime["term_spread"])
+    vix = float(regime["vix"])
+    row: dict[str, Any] = {
+        "as_of": regime.get("as_of"),
+        "term_spread": round(term_spread, 4),
+        "vix": round(vix, 2),
+        "regime_label": _regime_label(term_spread, vix),
+        "fresh": fresh,
+    }
+    vix_hist = recent_observations("VIXCLS", limit=252, db_path=db_path)
+    if vix_hist:
+        values = [val for _, val in vix_hist]
+        at_or_below = sum(1 for val in values if val <= vix)
+        row["vix_percentile"] = round(100 * at_or_below / len(values), 1)
+    return [row]
+
+
+async def _read_news(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path
+    from signals.finnhub import fetch_watchlist_news
+
+    limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
+    symbol = filters.get("symbol")
+    sym = str(symbol).strip().upper() if symbol else None
+    return await fetch_watchlist_news(limit=limit, symbol=sym)
+
+
+def _read_calibration(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    del filters
+    from ai.journal_review import compute_calibration
+
+    return [compute_calibration(db_path=db_path)]
+
+
+def _read_options_flow(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    from db.options_flow import recent_events
+
+    limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
+    symbol = filters.get("symbol")
+    event_type = filters.get("event_type")
+    min_premium = filters.get("min_premium")
+    since = filters.get("since")
+    return recent_events(
+        symbol=str(symbol).strip().upper() if symbol else None,
+        event_type=str(event_type) if event_type else None,
+        min_premium=float(min_premium) if min_premium is not None else None,
+        since=str(since) if since else None,
+        limit=limit,
+        db_path=db_path,
+    )
+
+
+def _summarize_options_flow(
+    filters: dict[str, Any], *, db_path: Path
+) -> dict[str, Any]:
+    """Today's flow events grouped by underlying (facts only — no win%/EV)."""
+    from datetime import UTC, datetime
+
+    from db.options_flow import recent_events
+
+    today = datetime.now(UTC).date().isoformat()
+    since = filters.get("since") or f"{today}T00:00:00Z"
+    symbol = filters.get("symbol")
+    event_type = filters.get("event_type")
+    min_premium = filters.get("min_premium")
+    rows = recent_events(
+        symbol=str(symbol).strip().upper() if symbol else None,
+        event_type=str(event_type) if event_type else None,
+        min_premium=float(min_premium) if min_premium is not None else None,
+        since=str(since),
+        limit=_MAX_ROWS,
+        db_path=db_path,
+    )
+    by_underlying: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        u = str(row.get("underlying") or "").strip().upper() or "?"
+        bucket = by_underlying.get(u)
+        if bucket is None:
+            bucket = {
+                "count": 0,
+                "total_premium_usd": 0.0,
+                "event_types": [],
+                "has_spread_dominated": False,
+            }
+            by_underlying[u] = bucket
+        bucket["count"] += 1
+        prem = row.get("premium_usd")
+        if prem is not None:
+            bucket["total_premium_usd"] += float(prem)
+        et = row.get("event_type")
+        if et and et not in bucket["event_types"]:
+            bucket["event_types"].append(et)
+        # F-2 demotion lands as spread_flag=True (or event_type marker).
+        if row.get("spread_flag") or et == "spread_dominated":
+            bucket["has_spread_dominated"] = True
+    return {"by_underlying": by_underlying, "n_underlyings": len(by_underlying)}
+
+
+def _read_equity_tape(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    from db.equity_tape import recent_events
+
+    limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
+    symbol = filters.get("symbol")
+    event_type = filters.get("event_type")
+    min_notional = filters.get("min_notional")
+    since = filters.get("since")
+    return recent_events(
+        symbol=str(symbol).strip().upper() if symbol else None,
+        event_type=str(event_type) if event_type else None,
+        min_notional=float(min_notional) if min_notional is not None else None,
+        since=str(since) if since else None,
+        limit=limit,
+        db_path=db_path,
+    )
+
+
+async def _read_options_chain(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    """Live OPRA chain for one underlying + expiry — same builder as the widget."""
+    del db_path
+    import asyncio as _asyncio
+
+    from brokers.factory import get_broker
+    from brokers.options_chain import build_options_chain_sync
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    if not symbol:
+        return [{"error": "symbol filter required (e.g. {\"symbol\": \"SPY\"})"}]
+
+    broker = get_broker("alpaca")
+    if broker is None:
+        return [{"unavailable": True, "reason": "alpaca not configured"}]
+
+    expiration = filters.get("expiration") or filters.get("expiry")
+    expiry = str(expiration).strip()[:10] if expiration else None
+    try:
+        strikes = min(max(int(filters.get("strikes") or 10), 2), 30)
+    except (TypeError, ValueError):
+        strikes = 10
+
+    chain = await _asyncio.to_thread(
+        build_options_chain_sync, broker, symbol, expiry, strikes
+    )
+    return [chain]
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -478,6 +738,94 @@ RESOURCES: dict[str, dict[str, Any]] = {
         "read": _read_schwab_accounts,
         "summarize": _summarize_schwab_accounts,
     },
+    "screener": {
+        "description": (
+            "Preset technical scans over the cached S&P/watchlist universe — "
+            "the agent's candidate generator."
+        ),
+        "filters": {
+            "preset": (
+                "optional — one of: "
+                + ", ".join(_PRESET_IDS)
+                + " (default oversold; ignored when rvol=true)"
+            ),
+            "limit": "optional int — default 15, max 30",
+            "rvol": "optional bool — run the RVOL scan instead of a preset",
+            "min_rvol": "optional float — RVOL threshold when rvol=true (default 1.5)",
+        },
+        "read": _read_screener,
+    },
+    "market": {
+        "description": (
+            "Current market regime (yield-curve term spread + VIX) — condition "
+            "every trade idea on it."
+        ),
+        "filters": {},
+        "read": _read_market,
+    },
+    "news": {
+        "description": (
+            "Recent watchlist headlines (Finnhub company news, deduped by url). "
+            "Headlines only — no sentiment scores."
+        ),
+        "filters": {
+            "symbol": "optional — filter to one ticker",
+            "limit": "optional int — default 20, max 50",
+        },
+        "read": _read_news,
+    },
+    "calibration": {
+        "description": (
+            "How honest the agent's own predicted win% has been — per-bucket "
+            "predicted vs realized (Wilson CIs, verdicts, n). Quote this when "
+            "stating confidence."
+        ),
+        "filters": {},
+        "read": _read_calibration,
+    },
+    "options_flow": {
+        "description": (
+            "Unusual options activity on the watchlist — facts about the tape, "
+            "NOT a buy/sell signal; carries a caveat, never a win% or confidence"
+        ),
+        "filters": {
+            "symbol": "optional — filter by underlying ticker",
+            "event_type": "optional — unusual_volume|block|sweep|directional_pressure",
+            "min_premium": "optional float — minimum premium_usd",
+            "since": "optional ISO timestamp — events at or after",
+            "limit": "optional int — default 20, max 50",
+        },
+        "read": _read_options_flow,
+        "summarize": _summarize_options_flow,
+    },
+    "equity_tape": {
+        "description": (
+            "Large prints on the STOCK tape for watched symbols — lit-exchange "
+            "blocks and off-exchange dark-pool prints (FINRA TRF). Facts about "
+            "the tape with a caveat, never a buy/sell signal."
+        ),
+        "filters": {
+            "symbol": "optional — filter by ticker",
+            "event_type": "optional — equity_block|dark_pool",
+            "min_notional": "optional float — minimum notional_usd",
+            "since": "optional ISO timestamp — events at or after",
+            "limit": "optional int — default 20, max 50",
+        },
+        "read": _read_equity_tape,
+    },
+    "options_chain": {
+        "description": (
+            "Live option chain for ONE underlying — expirations list plus "
+            "bid/ask/IV/greeks/volume/OI per strike for the chosen expiry. "
+            "Quotes only, facts not signals."
+        ),
+        "filters": {
+            "symbol": "required — underlying ticker",
+            "expiration": "optional YYYY-MM-DD — default nearest tradeable expiry",
+            "strikes": "optional int — strikes around the money (default 10, max 30)",
+        },
+        "read": _read_options_chain,
+    },
 }
 
 
@@ -492,6 +840,29 @@ def list_resources() -> dict[str, dict[str, Any]]:
     }
 
 
+# Natural-language synonyms the LLM guesses for resource keys (weaker models like
+# DeepSeek especially): the tool guidance says "market regime", "trades", "alerts", but
+# the registered keys are "market", "my_trades", "price_alerts". Without these, a
+# reasonable guess returns {"error": "unknown resource"} and the tool shows FAILED — the
+# "market_regime fails on mobile (works on web)" bug: the stronger web model recovers off
+# the returned `available` list, the weaker mobile model doesn't. Map guesses -> real key.
+_RESOURCE_ALIASES = {
+    "market_regime": "market",
+    "regime": "market",
+    "trades": "my_trades",
+    "alerts": "price_alerts",
+    "journal": "decision_journal",
+    "accounts": "schwab_accounts",
+    "flow": "options_flow",
+    "chain": "options_chain",
+    "option_chain": "options_chain",
+    "greeks": "options_chain",
+    "tape": "equity_tape",
+    "dark_pool": "equity_tape",
+    "blocks": "equity_tape",
+}
+
+
 async def query(
     resource: str,
     filters: dict | None = None,
@@ -500,6 +871,7 @@ async def query(
 ) -> dict[str, Any]:
     """Dispatch a read-only query to a registered resource (fail-soft)."""
     key = resource.strip().lower()
+    key = _RESOURCE_ALIASES.get(key, key)
     if key not in RESOURCES:
         return {
             "error": "unknown resource",
@@ -507,9 +879,13 @@ async def query(
         }
 
     entry = RESOURCES[key]
-    reader: ReaderFn = entry["read"]
+    reader = entry["read"]
     try:
-        rows = reader(filters or {}, db_path=db_path)
+        result = reader(filters or {}, db_path=db_path)
+        if asyncio.iscoroutine(result):
+            rows = await result
+        else:
+            rows = result
     except Exception as exc:
         logger.debug("Resource read failed for %s", key, exc_info=True)
         return {"resource": key, "error": str(exc), "rows": []}

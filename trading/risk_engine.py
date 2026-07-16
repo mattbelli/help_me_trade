@@ -12,12 +12,24 @@ from pathlib import Path
 from brokers.alpaca import AlpacaAdapter
 from brokers.factory import get_broker
 from brokers.market_stream import market_hub
-from config.settings import is_kill_switch_active, trading_config
+from config.settings import (
+    DEFAULT_SETTINGS,
+    apply_settings_patch,
+    is_entries_halted,
+    is_kill_switch_active,
+    trading_config,
+)
 from db.accounts import account_is_execution_capable
 from db.base import DEFAULT_DB_PATH
-from db.order_executions import count_executions_today
+from db.order_executions import (
+    count_executions_today,
+    sum_inflight_notional,
+    sum_today_notional,
+)
+from db.risk_breaker import current_stage, get_or_create_baseline, trip
 from db.sqlite import get_latest_snapshot
 from imports.option_symbol import parse_occ_symbol
+from signals.notify import notify
 from trading.models import OrderIntent, RiskCheckResult
 
 logger = logging.getLogger(__name__)
@@ -25,6 +37,10 @@ logger = logging.getLogger(__name__)
 _SNAPSHOT_MAX_AGE = timedelta(minutes=5)
 _SYMBOL_RE = re.compile(r"^[A-Z]+$")
 _OCC_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
+
+
+def _account_key(intent: OrderIntent) -> str:
+    return intent.account_id or f"{intent.broker}:primary"
 
 
 class RiskEngine:
@@ -35,7 +51,7 @@ class RiskEngine:
         db_path: Path = DEFAULT_DB_PATH,
     ) -> RiskCheckResult:
         checks: dict[str, str] = {}
-        cfg = trading_config()
+        cfg = {**DEFAULT_SETTINGS["trading"], **trading_config()}
         is_option = intent.asset_class == "us_option"
         # Short selling is honored ONLY when explicitly enabled AND not live
         # (live shorting stays hard-blocked regardless of the toggle). A short
@@ -45,6 +61,7 @@ class RiskEngine:
             "execution_mode"
         ) in ("dry_run", "paper")
         is_short_open = False
+        is_buy_to_cover = False
 
         # 1. Kill switch
         if is_kill_switch_active():
@@ -318,7 +335,24 @@ class RiskEngine:
                     ),
                 )
         else:
-            checks["sell_position"] = "pass: buy"
+            pos = None
+            for p in positions:
+                if str(p.get("symbol", "")).upper() == concentration_symbol:
+                    pos = p
+                    break
+            if pos is not None:
+                pos_side = str(pos.get("side", "long")).lower()
+                pos_qty = Decimal(str(pos.get("qty", 0)))
+                is_short = pos_side == "short" or pos_qty < Decimal("0")
+                if is_short:
+                    short_qty = abs(pos_qty)
+                    if qty <= short_qty:
+                        is_buy_to_cover = True
+                        checks["sell_position"] = (
+                            f"pass: buy-to-cover {qty} of {short_qty} short"
+                        )
+            if not is_buy_to_cover:
+                checks["sell_position"] = "pass: buy"
 
         if is_option:
             checks["live_quote"] = "pass: skipped for options"
@@ -357,22 +391,216 @@ class RiskEngine:
             spend_notional = qty * spend_price
             risk_notional = qty * risk_price
 
+        exposure_increasing = (intent.side == "buy" and not is_buy_to_cover) or is_short_open
+
+        # HALT (entries_halted) — blocks every exposure-INCREASING order (strategy
+        # entries, adds, short-opens) while app-managed reduce-only EXITS keep
+        # flowing. A plain sell closing a long (and a buy-to-cover) is
+        # exposure-DECREASING, so it skips this gate entirely — that is the point
+        # of HALT vs. the kill switch (gate #1 above, a total freeze that also
+        # stops exits). Deny-by-default: is_entries_halted() returns True if the
+        # flag is unreadable, so ambiguous state halts entries. This is the first
+        # exposure-gated check — ordered before the breaker and buying-power.
+        if exposure_increasing and is_entries_halted():
+            checks["entries_halted"] = "fail: entries halted"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="entries halted",
+                is_short_open=is_short_open,
+                risk_notional=risk_notional,
+            )
+        checks["entries_halted"] = (
+            "pass" if exposure_increasing else "pass: reduce-only exempt"
+        )
+
+        # Daily-loss breaker — exposure-increasing orders only; closes/exits never
+        # blocked (two-stage: soft halts entries, hard arms HALT — not the kill
+        # switch — so protective exits keep flowing on a bleeding day).
+        # A bad snapshot (portfolio_value <= 0) must never write a 0/negative
+        # baseline — that would make `loss` negative all day and the breaker
+        # inert. Skip it; the concentration gate below rejects on the same
+        # condition anyway.
+        if exposure_increasing and portfolio_value <= Decimal("0"):
+            checks["daily_loss_breaker"] = "skipped: portfolio value unknown"
+        elif exposure_increasing:
+            try:
+                account_key = _account_key(intent)
+                stage = current_stage(account_key, db_path=db_path)
+                if stage in ("soft", "hard"):
+                    checks["daily_loss_breaker"] = (
+                        "fail: daily loss breaker tripped — new entries halted"
+                    )
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason="daily loss breaker tripped — new entries halted",
+                        is_short_open=is_short_open,
+                        risk_notional=risk_notional,
+                    )
+                breaker_row = get_or_create_baseline(
+                    account_key, portfolio_value, db_path=db_path
+                )
+                baseline_equity = breaker_row["baseline_equity"]
+                loss = baseline_equity - portfolio_value
+                max_daily_loss = Decimal(str(cfg["max_daily_loss_usd"]))
+                if loss >= max_daily_loss * Decimal("1.5"):
+                    trip(account_key, "hard", db_path=db_path)
+                    apply_settings_patch({"trading": {"entries_halted": True}})
+                    # Hard breaker arms HALT (entries only) — NEVER the kill switch.
+                    # Protective exits must keep flowing on a bleeding day; the kill
+                    # switch (total freeze incl. exits) stays reachable by human
+                    # action only. The per-account breaker stage (trip 'hard' above)
+                    # also independently blocks exposure-increasing orders.
+                    try:
+                        await notify(
+                            kind="risk_breaker",
+                            title="Daily loss breaker — HARD trip",
+                            body=(
+                                f"Account {account_key}: loss {loss} >= "
+                                f"{max_daily_loss * Decimal('1.5')} — entries halted"
+                            ),
+                            severity="critical",
+                            account_id=intent.account_id,
+                            push=True,
+                            db_path=db_path,
+                        )
+                    except Exception:
+                        logger.exception("daily loss breaker hard-trip notify failed")
+                    checks["daily_loss_breaker"] = "fail: hard daily loss limit breached"
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason="hard daily loss limit breached",
+                        is_short_open=is_short_open,
+                        risk_notional=risk_notional,
+                    )
+                if loss >= max_daily_loss:
+                    trip(account_key, "soft", db_path=db_path)
+                    try:
+                        await notify(
+                            kind="risk_breaker",
+                            title="Daily loss breaker — soft trip",
+                            body=(
+                                f"Account {account_key}: loss {loss} >= "
+                                f"{max_daily_loss} — new entries halted"
+                            ),
+                            severity="critical",
+                            account_id=intent.account_id,
+                            push=True,
+                            db_path=db_path,
+                        )
+                    except Exception:
+                        logger.exception("daily loss breaker soft-trip notify failed")
+                    checks["daily_loss_breaker"] = (
+                        "fail: daily loss breaker tripped — new entries halted"
+                    )
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason="daily loss breaker tripped — new entries halted",
+                        is_short_open=is_short_open,
+                        risk_notional=risk_notional,
+                    )
+                checks["daily_loss_breaker"] = "pass"
+            except Exception as exc:
+                # Fail-open on breaker DB errors — other caps still bound the order.
+                # Fail-closed here would halt ALL trading on a transient DB glitch.
+                logger.exception("daily loss breaker gate error")
+                checks["daily_loss_breaker"] = f"error: {exc} (not enforced)"
+                try:
+                    await notify(
+                        kind="risk_breaker",
+                        title="Daily loss breaker error",
+                        body=f"Breaker not enforced: {exc}",
+                        severity="warning",
+                        account_id=intent.account_id,
+                        push=True,
+                        db_path=db_path,
+                    )
+                except Exception:
+                    logger.exception("daily loss breaker error-path notify failed")
+        else:
+            checks["daily_loss_breaker"] = "pass: sell" if intent.side == "sell" else "pass: buy-to-cover"
+
+        # ── C2 CONCURRENCY INVARIANT ──────────────────────────────────────────
+        # From the first in-flight/daily-notional sum read below through the
+        # post-validate notional_usd write in ExecutionService.submit, there must
+        # be NO `await` (this tail is synchronous → loop-atomic), and submit holds
+        # its per-loop lock across validate + that write. BOTH properties together
+        # close the read-sums/write-notional TOCTOU. Adding any await between here
+        # and validate's return silently reopens it — don't.
+        # Daily notional cap — applies to rebalance orders too (risk gate, not count throttle).
+        if exposure_increasing:
+            max_daily_notional = Decimal(str(cfg["max_daily_notional_usd"]))
+            # In-flight sums exclude THIS order: pending row exists but notional_usd is
+            # written only after validate — no self-count double-jeopardy.
+            account_today = sum_today_notional(
+                account_id=intent.account_id, db_path=db_path
+            )
+            if account_today + risk_notional > max_daily_notional:
+                checks["daily_notional_cap"] = "fail: daily notional cap exceeded"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="daily notional cap exceeded",
+                    is_short_open=is_short_open,
+                    risk_notional=risk_notional,
+                )
+            global_today = sum_today_notional(db_path=db_path)
+            if global_today + risk_notional > max_daily_notional:
+                checks["daily_notional_cap"] = "fail: global daily notional cap exceeded"
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="global daily notional cap exceeded",
+                    is_short_open=is_short_open,
+                    risk_notional=risk_notional,
+                )
+            checks["daily_notional_cap"] = "pass"
+        else:
+            checks["daily_notional_cap"] = (
+                "pass: sell" if intent.side == "sell" else "pass: buy-to-cover"
+            )
+
         # 6. Buying power (buys + short-opens — both consume buying power)
-        if intent.side == "buy" or is_short_open:
-            max_spend = buying_power * Decimal("0.95")
-            if spend_notional > max_spend:
+        if exposure_increasing:
+            inflight_account = sum_inflight_notional(
+                account_id=intent.account_id, db_path=db_path
+            )
+            available = buying_power * Decimal("0.95") - inflight_account
+            if spend_notional > available:
+                if inflight_account > Decimal("0") and spend_notional <= buying_power * Decimal(
+                    "0.95"
+                ):
+                    checks["buying_power"] = (
+                        "fail: insufficient buying power (in-flight orders reserve capital)"
+                    )
+                    return RiskCheckResult(
+                        passed=False,
+                        checks=checks,
+                        blocked_reason=(
+                            "insufficient buying power (in-flight orders reserve capital)"
+                        ),
+                        is_short_open=is_short_open,
+                        risk_notional=risk_notional,
+                    )
                 checks["buying_power"] = "fail: insufficient buying power"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
                     blocked_reason="insufficient buying power",
+                    is_short_open=is_short_open,
+                    risk_notional=risk_notional,
                 )
             checks["buying_power"] = "pass"
         else:
-            checks["buying_power"] = "pass: sell"
+            checks["buying_power"] = (
+                "pass: sell" if intent.side == "sell" else "pass: buy-to-cover"
+            )
 
         # 7. Per-order value cap (buys + short-opens — closes must not be blocked)
-        if intent.side == "buy" or is_short_open:
+        if exposure_increasing:
             max_order_value = Decimal(str(cfg["max_order_value_usd"]))
             if risk_notional > max_order_value:
                 checks["order_value_cap"] = "fail: order exceeds max value"
@@ -380,19 +608,25 @@ class RiskEngine:
                     passed=False,
                     checks=checks,
                     blocked_reason="order exceeds max value",
+                    is_short_open=is_short_open,
+                    risk_notional=risk_notional,
                 )
             checks["order_value_cap"] = "pass"
         else:
-            checks["order_value_cap"] = "pass: sell"
+            checks["order_value_cap"] = (
+                "pass: sell" if intent.side == "sell" else "pass: buy-to-cover"
+            )
 
         # 8. Concentration (buys + short-opens — bound the position size either way)
-        if intent.side == "buy" or is_short_open:
+        if exposure_increasing:
             if portfolio_value <= Decimal("0"):
                 checks["concentration"] = "fail: portfolio value unknown"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
                     blocked_reason="portfolio value unknown",
+                    is_short_open=is_short_open,
+                    risk_notional=risk_notional,
                 )
             existing_mv = Decimal("0")
             for pos in positions:
@@ -401,18 +635,29 @@ class RiskEngine:
                     # value) still counts toward the concentration ceiling.
                     existing_mv = abs(Decimal(str(pos.get("market_value", 0))))
                     break
+            inflight_symbol = sum_inflight_notional(
+                symbol=concentration_symbol,
+                account_id=intent.account_id,
+                db_path=db_path,
+            )
             max_position_pct = Decimal(str(cfg["max_position_pct"]))
-            concentration_pct = (existing_mv + risk_notional) / portfolio_value * Decimal("100")
+            concentration_pct = (
+                (existing_mv + inflight_symbol + risk_notional) / portfolio_value * Decimal("100")
+            )
             if concentration_pct > max_position_pct:
                 checks["concentration"] = "fail: concentration limit exceeded"
                 return RiskCheckResult(
                     passed=False,
                     checks=checks,
                     blocked_reason="concentration limit exceeded",
+                    is_short_open=is_short_open,
+                    risk_notional=risk_notional,
                 )
             checks["concentration"] = "pass"
         else:
-            checks["concentration"] = "pass: sell"
+            checks["concentration"] = (
+                "pass: sell" if intent.side == "sell" else "pass: buy-to-cover"
+            )
 
         # 9 & 10. Order-COUNT throttles (open-orders cap + daily-order counter).
         # Portfolio rebalances are EXEMPT from these two — and ONLY these two — because a
@@ -467,6 +712,7 @@ class RiskEngine:
             checks=checks,
             blocked_reason=None,
             is_short_open=is_short_open,
+            risk_notional=risk_notional,
         )
 
 

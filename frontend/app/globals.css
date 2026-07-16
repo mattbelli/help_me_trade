@@ -15,19 +15,7 @@
     --color-pnl-positive: var(--pnl-positive);
     --color-pnl-negative: var(--pnl-negative);
     --color-chart-accent: var(--chart-accent);
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
@@ -57,322 +45,382 @@
 
 :root {
     color-scheme: dark;
-    --background: #131519;
-    --chart-background: var(--background);
-    --foreground: #e9e7e3;
-    --card: #181b21;
-    --card-foreground: #e9e7e3;
-    --popover: #181b21;
-    --popover-foreground: #e9e7e3;
-    --primary: #e9e7e3;
-    --primary-foreground: #131519;
-    --secondary: #1e2228;
-    --secondary-foreground: #e9e7e3;
-    --muted: #1e2228;
-    --muted-foreground: #9aa1ab;
-    --accent: #1e2228;
-    --accent-foreground: #e9e7e3;
-    --destructive: #ef6f6c;
-    --border: #262b33;
-    --input: #262b33;
-    --ring: #5ad1be;
-    --chart-1: #5ad1be;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5ad1be;
-    --pnl-positive: #5bc98a;
-    --pnl-negative: #ef6f6c;
-    --radius: 0.625rem;
-    --sidebar: #0e1013;
-    --sidebar-foreground: #e9e7e3;
-    --sidebar-primary: #5ad1be;
-    --sidebar-primary-foreground: #0e1013;
-    --sidebar-accent: #1e2228;
-    --sidebar-accent-foreground: #e9e7e3;
-    --sidebar-border: #262b33;
-    --sidebar-ring: #5ad1be;
-    --panel: #181b21;
-    --bg-raised: #181b21;
-    --bg-inset: #0e1013;
-    --bg-hover: #1e2228;
-    --border-strong: #333a44;
-    --fg-dim: #9aa1ab;
-    --fg-faint: #616873;
-    --c-accent: #5ad1be;
-    --c-accent-soft: rgba(90, 209, 190, 0.12);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-green: #5bc98a;
-    --c-red: #ef6f6c;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef6f6c;
-    --c-on-accent: #0b0d10;
+    /* Type scale (T1): a fixed 6-step ladder, theme-independent.
+       10=micro-labels/badges, 11=table body & secondary, 12=primary body/rows,
+       13=widget & section titles, 15=toolbar tiles / chart price, 20=hero.
+       (settled 2026-07-07: went +1, then +2, then founder discovered he'd been
+       judging at 90% browser zoom — final call "drop the font back 1" = net +1
+       from the original ladder. Don't retune without a zoom check first.) */
+    --fs-micro: 10px;
+    --fs-table: 11px;
+    --fs-body: 12px;
+    --fs-title: 13px;
+    --fs-emph: 15px;
+    --fs-hero: 20px;
+    /* widget header title: one step above title(13) — kept as its own token so
+       widget headers can diverge again without a component sweep */
+    --fs-widget-title: 14px;
+    /* terminal transcript body (T2): founder-tuned at 90% zoom where 15px read
+       as ~13.5 effective; 14px at 100% is the closest match to what he approved */
+    --fs-terminal: 14px;
+    /* header/display face: one-line hook for font trials (Iosevka trial
+       reverted 2026-07-05 — founder preferred the house mono) */
+    --font-display: var(--font-mono);
+    /* terminal surface face: the house mono. The Iosevka trial (resolving the
+       founder's local wezterm face) was reverted 2026-07-07 — it rendered
+       blurry with faux-bold; the house mono is crisp with real bold weights. */
+    --font-terminal: var(--font-mono);
+    /* ── Theme knobs (canonical; the editor writes ONLY these) ─────────────
+       Each [data-theme] block overrides this set; the aliases further down
+       derive every legacy/shadcn var from a knob so existing consumers keep
+       working untouched. Defaults here = the carbon palette. */
+    /* SURFACE (back → front) */
+    --surface-canvas: #131519;
+    --surface-grid-dot: #2a2e34;   /* the literal dot color (workspace + canvas grid) — WYSIWYG */
+    --surface-toolbar: #181b21;
+    --surface-header: #181b21;
+    --surface-widget: #181b21;
+    --surface-hover: #1e2228;
+    /* Selected row / active item fill — solid hex (≈12% accent over widget)
+       so sticky cells can repaint it opaquely. */
+    --surface-selected: #203134;
+    --surface-inset: #0e1013;
+    /* LINES */
+    --line-border: #262b33;
+    --line-divider: #262b33;
+    --border-strong: #333a44;      /* per-theme, not an editor knob */
+    /* CHART */
+    --chart-bg: #131519;
+    --chart-grid: #262b33;
+    --chart-up: #5ad1be;
     --chart-down: #ef6f6c;
+    --chart-line: #5ad1be;
+    /* TEXT */
+    --text-primary: #e9e7e3;
+    --text-title: #e9e7e3;
+    --text-header: #616873;
+    --text-secondary: #9aa1ab;
+    --text-faint: #616873;
+    --text-accent: #5ad1be;
+    --text-on-accent: #0b0d10;
+    --pos: #5bc98a;
+    --neg: #ef6f6c;
+    --warn: #e0975b;
+    --info: #6cb0ff;
+
+    /* ── Derived from knobs ──────────────────────────────────────────────── */
+    --surface-drop: color-mix(in srgb, var(--text-accent) 18%, transparent);
+    --c-accent-soft: color-mix(in srgb, var(--text-accent) 12%, transparent);
+    --radius: 0.625rem;
+
+    /* ── Legacy / shadcn aliases → knobs (consumers unchanged) ───────────── */
+    --background: var(--surface-canvas);
+    --chart-background: var(--chart-bg);
+    --foreground: var(--text-primary);
+    --card: var(--surface-widget);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface-widget);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--text-primary);
+    --primary-foreground: var(--text-on-accent);
+    --secondary: var(--surface-hover);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--surface-hover);
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--surface-hover);
+    --accent-foreground: var(--text-primary);
+    --destructive: var(--neg);
+    --border: var(--line-border);
+    --input: var(--line-border);
+    --ring: var(--text-accent);
+    --chart-accent: var(--chart-up);
+    --pnl-positive: var(--pos);
+    --pnl-negative: var(--neg);
+    --sidebar: var(--surface-inset);
+    --panel: var(--surface-widget);
+    --bg-raised: var(--surface-toolbar);
+    --bg-elevated: var(--surface-toolbar);
+    --bg-inset: var(--surface-inset);
+    --bg-hover: var(--surface-hover);
+    --fg: var(--foreground);
+    --fg-dim: var(--text-secondary);
+    --fg-faint: var(--text-faint);
+    --fg-widget-title: var(--text-title);
+    --fg-table-header: var(--text-header);
+    --c-accent: var(--text-accent);
+    /* distinct accent for the notifications flow/convergence taxonomy — kept a
+       real hue (not folded into --info) so flow cards don't match research */
+    --c-violet: #b08cff;
+    --c-purple: var(--c-violet);
+    --c-blue: var(--info);
+    --c-cyan: var(--info);
+    --c-green: var(--pos);
+    --c-green-bg: var(--pos);
+    --c-red: var(--neg);
+    --c-yellow: var(--warn);
+    --c-amber: var(--warn);
+    --c-command: var(--warn);
+    --c-danger: var(--neg);
+    --c-on-accent: var(--text-on-accent);
+    --grid-placeholder: var(--surface-drop);
+
+    /* Research markdown "paper": one subtle step off the widget surface toward
+       the primary text so it tracks ANY active theme (light overrides below). */
+    --md-paper-bg: color-mix(in srgb, var(--surface-widget) 98%, var(--text-primary) 2%);
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
-    --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+    /* Scroll-hint shadow color (see .scroll-shadow-y) — light theme overrides. */
+    --scroll-shadow: rgba(0, 0, 0, 0.45);
+    /* Film-grain texture: off by default; the ember theme opts in. */
+    --grain: none;
+    --grain-opacity: 0;
+
+    /* ── Notification card palette (FIXED — theme-independent) ─────────────
+       Notif cards lock to these hues regardless of the active theme; only
+       brightness shifts dark↔light (light values in :root:not(.dark) below).
+       Dark values here. */
+    --notif-trading: #5ad1be;
+    --notif-flow: #b08cff;
+    --notif-alerts: #e8a15a;
+    --notif-research: #6cb0ff;
+    --notif-system: #9aa1ab;
+    --notif-risk: #ef6f6c;
+}
+
+/* Light-mode brightness variant — light themes carry no .dark class. */
+:root:not(.dark) {
+    --notif-trading: #0d9488;
+    --notif-flow: #7c3aed;
+    --notif-alerts: #b45309;
+    --notif-research: #2563eb;
+    --notif-system: #64748b;
+    --notif-risk: #dc2626;
 }
 
 [data-theme="carbon"] {
     color-scheme: dark;
-    --background: #131519;
-    --chart-background: #131519;
-    --foreground: #e9e7e3;
-    --card: #181b21;
-    --card-foreground: #e9e7e3;
-    --popover: #181b21;
-    --popover-foreground: #e9e7e3;
-    --primary: #e9e7e3;
-    --primary-foreground: #131519;
-    --secondary: #1e2228;
-    --secondary-foreground: #e9e7e3;
-    --muted: #1e2228;
-    --muted-foreground: #9aa1ab;
-    --accent: #1e2228;
-    --accent-foreground: #e9e7e3;
-    --destructive: #ef6f6c;
-    --border: #262b33;
-    --input: #262b33;
-    --ring: #5ad1be;
-    --chart-1: #5ad1be;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5ad1be;
-    --pnl-positive: #5bc98a;
-    --pnl-negative: #ef6f6c;
-    --radius: 0.625rem;
-    --sidebar: #0e1013;
-    --sidebar-foreground: #e9e7e3;
-    --sidebar-primary: #5ad1be;
-    --sidebar-primary-foreground: #0e1013;
-    --sidebar-accent: #1e2228;
-    --sidebar-accent-foreground: #e9e7e3;
-    --sidebar-border: #262b33;
-    --sidebar-ring: #5ad1be;
-    --panel: #181b21;
-    --bg-raised: #181b21;
-    --bg-inset: #0e1013;
-    --bg-hover: #1e2228;
+    --surface-canvas: #131519;
+    --surface-grid-dot: #2a2e34;
+    --surface-toolbar: #181b21;
+    --surface-header: #181b21;
+    --surface-widget: #181b21;
+    --surface-hover: #1e2228;
+    --surface-selected: #203134;
+    --surface-inset: #0e1013;
+    --line-border: #262b33;
+    --line-divider: #262b33;
     --border-strong: #333a44;
-    --fg-dim: #9aa1ab;
-    --fg-faint: #616873;
-    --c-accent: #5ad1be;
-    --c-accent-soft: rgba(90, 209, 190, 0.12);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-green: #5bc98a;
-    --c-red: #ef6f6c;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef6f6c;
-    --c-on-accent: #0b0d10;
+    --chart-bg: #131519;
+    --chart-grid: #262b33;
+    --chart-up: #5ad1be;
     --chart-down: #ef6f6c;
+    --chart-line: #5ad1be;
+    --text-primary: #e9e7e3;
+    --text-title: #e9e7e3;
+    --text-header: #616873;
+    --text-secondary: #9aa1ab;
+    --text-faint: #616873;
+    --text-accent: #5ad1be;
+    --text-on-accent: #0b0d10;
+    --pos: #5bc98a;
+    --neg: #ef6f6c;
+    --warn: #e0975b;
+    --info: #6cb0ff;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
-    --c-glow: 0 0 0 1px rgba(90, 209, 190, 0.12);
+    --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
+/* "Ember" — founder's wezterm palette: warm charcoal + amber, film grain. */
 [data-theme="warm"] {
     color-scheme: dark;
-    --background: #1a1816;
-    --chart-background: #1a1816;
-    --foreground: #ece9e3;
-    --card: #221f1d;
-    --card-foreground: #ece9e3;
-    --popover: #221f1d;
-    --popover-foreground: #ece9e3;
-    --primary: #ece9e3;
-    --primary-foreground: #1a1816;
-    --secondary: #2b2825;
-    --secondary-foreground: #ece9e3;
-    --muted: #2b2825;
-    --muted-foreground: #a39c92;
-    --accent: #2b2825;
-    --accent-foreground: #ece9e3;
-    --destructive: #ef706a;
-    --border: #393531;
-    --input: #393531;
-    --ring: #efe7d6;
-    --chart-1: #e0975b;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5ec79a;
-    --chart-down: #ef706a;
-    --pnl-positive: #5ec79a;
-    --pnl-negative: #ef706a;
-    --radius: 0.625rem;
-    --sidebar: #141312;
-    --sidebar-foreground: #ece9e3;
-    --sidebar-primary: #efe7d6;
-    --sidebar-primary-foreground: #1a1816;
-    --sidebar-accent: #2b2825;
-    --sidebar-accent-foreground: #ece9e3;
-    --sidebar-border: #393531;
-    --sidebar-ring: #efe7d6;
-    --panel: #221f1d;
-    --bg-raised: #221f1d;
-    --bg-inset: #141312;
-    --bg-hover: #2b2825;
-    --border-strong: #4c4742;
-    --fg-dim: #a39c92;
-    --fg-faint: #6e675d;
-    --c-accent: #efe7d6;
-    --c-accent-soft: rgba(239, 231, 214, 0.10);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-green: #5ec79a;
-    --c-red: #ef706a;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef706a;
-    --c-on-accent: #1a1410;
+    --surface-canvas: #202020;
+    --surface-grid-dot: #3c3a36;
+    --surface-toolbar: #262626;
+    --surface-header: #262626;
+    --surface-widget: #262626;
+    --surface-hover: #2d2d2c;
+    --surface-selected: #3c342b;
+    --surface-inset: #161617;
+    --line-border: #353533;
+    --line-divider: #353533;
+    --border-strong: #454440;
+    --chart-bg: #202020;
+    --chart-grid: #353533;
+    /* guardrail: candle-up stays green in every theme (ember green, not amber) */
+    --chart-up: #97a06e;
+    --chart-down: #c47767;
+    --chart-line: #97a06e;
+    --text-primary: #d3ccbe;
+    --text-title: #d3ccbe;
+    --text-header: #7f766a;
+    --text-secondary: #b5ac9e;
+    --text-faint: #7f766a;
+    --text-accent: #d99a52;
+    --text-on-accent: #161617;
+    --pos: #a3b565;
+    --neg: #d9705c;
+    --warn: #e8a24a;
+    --info: #6f97a8;
+    --c-violet: #c07a8f;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 8px 30px rgba(0, 0, 0, 0.4);
-    --c-glow: 0 0 0 1px rgba(239, 231, 214, 0.10);
+    --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+    /* Film grain: monochrome fractal-noise tile, tuned by eye on a screenshot. */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.33 0.33 0.33 0 0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23g)'/%3E%3C/svg%3E");
+    --grain-opacity: 0.08;
 }
 
 [data-theme="oled"] {
     color-scheme: dark;
-    --background: #000000;
-    --chart-background: #000000;
-    --foreground: #e9e7e3;
-    --card: #0d0d0f;
-    --card-foreground: #e9e7e3;
-    --popover: #0d0d0f;
-    --popover-foreground: #e9e7e3;
-    --primary: #e9e7e3;
-    --primary-foreground: #000000;
-    --secondary: #17171a;
-    --secondary-foreground: #e9e7e3;
-    --muted: #17171a;
-    --muted-foreground: #9b9ba3;
-    --accent: #17171a;
-    --accent-foreground: #e9e7e3;
-    --destructive: #ef6f6c;
-    --border: #26262a;
-    --input: #26262a;
-    --ring: #9b6bff;
-    --chart-1: #9b6bff;
-    --chart-2: #6cb0ff;
-    --chart-3: #b08cff;
-    --chart-4: #e3b341;
-    --chart-5: #e0975b;
-    --chart-accent: #5bc98a;
-    --chart-down: #ef6f6c;
-    --pnl-positive: #5bc98a;
-    --pnl-negative: #ef6f6c;
-    --radius: 0.625rem;
-    --sidebar: #000000;
-    --sidebar-foreground: #e9e7e3;
-    --sidebar-primary: #9b6bff;
-    --sidebar-primary-foreground: #000000;
-    --sidebar-accent: #17171a;
-    --sidebar-accent-foreground: #e9e7e3;
-    --sidebar-border: #26262a;
-    --sidebar-ring: #9b6bff;
-    --panel: #0d0d0f;
-    --bg-raised: #0d0d0f;
-    --bg-inset: #000000;
-    --bg-hover: #17171a;
+    --surface-canvas: #000000;
+    --surface-grid-dot: #1c1c1e;
+    --surface-toolbar: #0d0d0f;
+    --surface-header: #0d0d0f;
+    --surface-widget: #0d0d0f;
+    --surface-hover: #17171a;
+    --surface-selected: #241c35;
+    --surface-inset: #000000;
+    --line-border: #26262a;
+    --line-divider: #26262a;
     --border-strong: #34343a;
-    --fg-dim: #9b9ba3;
-    --fg-faint: #5c5c63;
-    --c-accent: #9b6bff;
-    --c-accent-soft: rgba(155, 107, 255, 0.16);
-    --c-violet: #b08cff;
-    --c-blue: #6cb0ff;
-    --c-green: #5bc98a;
-    --c-red: #ef6f6c;
-    --c-yellow: #e3b341;
-    --c-amber: #e0975b;
-    --c-command: #ff8c42;
-    --c-danger: #ef6f6c;
-    --c-on-accent: #000000;
+    --chart-bg: #000000;
+    --chart-grid: #26262a;
+    --chart-up: #5bc98a;
+    --chart-down: #ef6f6c;
+    --chart-line: #5bc98a;
+    --text-primary: #e9e7e3;
+    --text-title: #e9e7e3;
+    --text-header: #5c5c63;
+    --text-secondary: #9b9ba3;
+    --text-faint: #5c5c63;
+    --text-accent: #9b6bff;
+    --text-on-accent: #000000;
+    --pos: #5bc98a;
+    --neg: #ef6f6c;
+    --warn: #e0975b;
+    --info: #6cb0ff;
+    /* oled uses a slightly stronger accent wash than the 12% default */
+    --c-accent-soft: color-mix(in srgb, var(--text-accent) 16%, transparent);
     --panel-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
-    --c-glow: 0 0 0 1px rgba(155, 107, 255, 0.16);
+    --widget-hover-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
     --scrim: rgba(0, 0, 0, 0.5);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 
 [data-theme="light"] {
     color-scheme: light;
-    --background: #f5f6f8;
-    --chart-background: #f5f6f8;
-    --foreground: #1b1f24;
-    --card: #ffffff;
-    --card-foreground: #1b1f24;
-    --popover: #ffffff;
-    --popover-foreground: #1b1f24;
-    --primary: #1b1f24;
-    --primary-foreground: #ffffff;
-    --secondary: #eef0f3;
-    --secondary-foreground: #1b1f24;
-    --muted: #eef0f3;
-    --muted-foreground: #59616c;
-    --accent: #eef0f3;
-    --accent-foreground: #1b1f24;
-    --destructive: #d23b34;
-    --border: #e2e5ea;
-    --input: #e2e5ea;
-    --ring: #2563eb;
-    --chart-1: #2563eb;
-    --chart-2: #3b82c4;
-    --chart-3: #7c5cd0;
-    --chart-4: #b8901c;
-    --chart-5: #c77b3a;
-    --chart-accent: #1f9d57;
-    --chart-down: #d23b34;
-    --pnl-positive: #1f9d57;
-    --pnl-negative: #d23b34;
-    --radius: 0.625rem;
-    --sidebar: #eceef1;
-    --sidebar-foreground: #1b1f24;
-    --sidebar-primary: #2563eb;
-    --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #eef0f3;
-    --sidebar-accent-foreground: #1b1f24;
-    --sidebar-border: #e2e5ea;
-    --sidebar-ring: #2563eb;
-    --panel: #ffffff;
-    --bg-raised: #ffffff;
-    --bg-inset: #eceef1;
-    --bg-hover: #eef0f3;
+    /* Light theme: the wash sits on a bright row — 16% is already legible. */
+    --tick-flash-mix: 16%;
+    --surface-canvas: #f5f6f8;
+    --surface-grid-dot: #d4d7db;
+    --surface-toolbar: #ffffff;
+    --surface-header: #ffffff;
+    --surface-widget: #ffffff;
+    --surface-hover: #eef0f3;
+    --surface-selected: #e5ecfd;
+    --surface-inset: #eceef1;
+    --line-border: #e2e5ea;
+    --line-divider: #e2e5ea;
     --border-strong: #cdd2da;
-    --fg-dim: #59616c;
-    --fg-faint: #878e98;
-    --c-accent: #2563eb;
-    --c-accent-soft: rgba(37, 99, 235, 0.12);
+    --chart-bg: #f5f6f8;
+    --chart-grid: #e2e5ea;
+    --chart-up: #1f9d57;
+    --chart-down: #d23b34;
+    --chart-line: #1f9d57;
+    --text-primary: #1b1f24;
+    --text-title: #1b1f24;
+    --text-header: #878e98;
+    --text-secondary: #59616c;
+    --text-faint: #878e98;
+    --text-accent: #2563eb;
+    --text-on-accent: #ffffff;
+    --pos: #1f9d57;
+    --neg: #d23b34;
+    --warn: #c77b3a;
+    --info: #3b82c4;
     --c-violet: #7c5cd0;
-    --c-blue: #3b82c4;
-    --c-green: #1f9d57;
-    --c-red: #d23b34;
-    --c-yellow: #b8901c;
-    --c-amber: #c77b3a;
-    --c-command: #c2410c;
-    --c-danger: #d23b34;
-    --c-on-accent: #ffffff;
+    --md-paper-bg: #f6f3ec;
     --panel-shadow: 0 1px 2px rgba(20, 24, 31, 0.06), 0 8px 24px rgba(20, 24, 31, 0.08);
-    --c-glow: 0 0 0 1px rgba(37, 99, 235, 0.16);
+    --widget-hover-shadow: 0 2px 10px rgba(20, 24, 31, 0.10);
     --scrim: rgba(40, 35, 25, 0.35);
-    --grid-placeholder: color-mix(in srgb, var(--c-accent) 18%, transparent);
+    --scroll-shadow: rgba(20, 24, 31, 0.16);
 }
 
 @keyframes breathe {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 1; }
+}
+
+@keyframes research-cursor-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+/* Price tick-flash (M1): a fading background wash on the changed price cell —
+   never a row highlight. Re-triggered by toggling the class via usePriceFlash.
+   Peak intensity is theme-tuned (--tick-flash-mix): dark themes need a much
+   stronger wash — a 16% saturated fill against near-black has almost no
+   luminance delta and reads as invisible (founder, 2026-07-09). */
+@keyframes tick-flash-up {
+  from { background-color: color-mix(in srgb, var(--c-green-bg) var(--tick-flash-mix, 32%), transparent); }
+  to { background-color: transparent; }
+}
+
+@keyframes tick-flash-down {
+  from { background-color: color-mix(in srgb, var(--c-red) var(--tick-flash-mix, 32%), transparent); }
+  to { background-color: transparent; }
+}
+
+/* One uppercase micro-label spec (T2): single tracking value for the
+   SYM/LAST/REAL/PAPER/section-header motif. Values are the goal; use directly
+   or via tailwind classes at the site — consistency, not forced adoption. */
+.micro-label {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tick-flash-up {
+  animation: tick-flash-up 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tick-flash-down {
+  animation: tick-flash-down 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Toast countdown rule (N3): a 1px bar that shrinks over the 2.8s auto-dismiss
+   so the toast leaving isn't a surprise. */
+@keyframes toast-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.toast-countdown {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 1px;
+  width: 100%;
+  transform-origin: left;
+  opacity: 0.7;
+  animation: toast-countdown 2800ms linear forwards;
+}
+
+/* Reduced-motion guard scoped to the keyframe animations added above (the
+   motion/react transitions collapse to instant via useMotionSafe separately). */
+@media (prefers-reduced-motion: reduce) {
+  .tick-flash-up,
+  .tick-flash-down {
+    animation: none;
+  }
+  .toast-countdown {
+    display: none;
+  }
+  /* Widget skeleton (N2): drop the tw-shimmer sweep → static cells. */
+  .widget-skeleton-sweep {
+    display: none;
+  }
 }
 
 @layer base {
@@ -390,13 +438,110 @@
 
 @layer utilities {
   .canvas-surface {
-    background-color: var(--background);
+    background-color: var(--surface-canvas);
     background-image: radial-gradient(
       circle at 1px 1px,
-      color-mix(in oklch, var(--foreground) 5%, transparent) 1px,
+      var(--surface-grid-dot) 1px,
       transparent 0
     );
     background-size: 22px 22px;
+  }
+
+  /* Film-grain overlay: consumes --grain / --grain-opacity (no-op unless the
+     active theme sets them). Layers a tiled noise texture over the surface via
+     a pointer-transparent ::before, without touching the element's own
+     background (so dot-grids stay intact). Add this class to opt a surface in. */
+  .grain-surface {
+    position: relative;
+  }
+  .grain-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: var(--grain, none);
+    background-size: 128px 128px;
+    background-repeat: repeat;
+    opacity: var(--grain-opacity, 0);
+  }
+
+  /* Widget-body grain rides ABOVE the content (z-3): rows, hover/selected
+     fills and sticky cells are positioned and would otherwise paint over a
+     z-0 grain, leaving flat patches next to textured ones (the midnight-oil
+     watchlist notch/lines, 2026-07-13). z-3 stays under every in-widget
+     overlay (settings z-10, popovers z-50); the CANVAS's grain-surface keeps
+     z-0 so it never double-grains the widgets sitting on it. */
+  .grain-above::before {
+    z-index: 3;
+  }
+
+  /* AI chat prose (.aui-md wraps every assistant markdown block — terminal
+     transcript + mobile chat). The transcript chrome (user echo, tool rows,
+     commands) stays in the terminal mono font; the assistant's PROSE reads in
+     the sans face with a book-like measure so long replies stop being a wall
+     of same-weight mono. Headings pick up the accent color — structure gets a
+     brightness level of its own instead of weight-only differences. Code
+     (inline + blocks) stays mono. */
+  .aui-md {
+    font-family: var(--font-sans);
+    font-size: calc(var(--fs-terminal, 14px) + 1px);
+    max-width: 46rem;
+  }
+  .aui-md :is(h1, h2, h3) {
+    color: var(--c-accent);
+  }
+  .aui-md :is(h4, h5, h6) {
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.85em;
+  }
+  .aui-md pre,
+  .aui-md code {
+    font-family: var(--font-mono);
+  }
+
+  /* Research markdown "paper": scope film-grain locally (paired with
+     .grain-surface on the same element) so the viewer reads as a textured sheet
+     on every theme, without switching the whole theme's grain on. A soft inset
+     ring lifts the sheet off the surrounding panel. */
+  .md-paper {
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.33 0.33 0.33 0 0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23g)'/%3E%3C/svg%3E");
+    --grain-opacity: 0.06;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
+  }
+
+  /* Notification card: dresses each card in a faint gradient + drop shadow
+     tinted to its type hue (--hue, set per card). No left accent border —
+     founder dislikes the left-stripe style; the gradient + unread dot carry
+     the hue instead. */
+  .notif-card {
+    --hue: var(--fg-faint);
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--hue) 9%, var(--bg-raised)) 0%,
+      var(--bg-raised) 58%
+    );
+    /* real drop shadow: hue mixed INTO dark (not transparent) reads as a tinted
+       shadow, not a colored halo; negative spread keeps it from bleeding wide */
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.3),
+      0 4px 12px -8px color-mix(in srgb, var(--hue) 20%, rgba(0, 0, 0, 0.5));
+    transition:
+      box-shadow 150ms ease,
+      border-color 150ms ease;
+  }
+  .notif-card:hover,
+  .notif-card[data-expanded="true"] {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--hue) 14%, var(--bg-raised)) 0%,
+      var(--bg-raised) 62%
+    );
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.32),
+      0 8px 20px -10px color-mix(in srgb, var(--hue) 28%, rgba(0, 0, 0, 0.55));
   }
 }
 
@@ -509,6 +654,32 @@
 
 /* Scroll surfaces with no visible scrollbar (founder preference — a bottom
    gradient fade signifies more content instead). Scrolling still works. */
+/* No visible scrollbars ANYWHERE (founder rule) — scroll affordance comes from
+   the .scroll-shadow-y hint / edge fades instead. Firefox + Chromium. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Scroll hint: a soft shadow at top/bottom that appears ONLY when more content
+   lies beyond that edge (cover layers scroll with content and mask the fixed
+   shadows when you reach the end — pure CSS, no JS). */
+.scroll-shadow-y {
+  background:
+    linear-gradient(var(--panel) 30%, transparent) center top,
+    linear-gradient(transparent, var(--panel) 70%) center bottom,
+    radial-gradient(farthest-side at 50% 0, var(--scroll-shadow), transparent) center top,
+    radial-gradient(farthest-side at 50% 100%, var(--scroll-shadow), transparent) center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 24px, 100% 24px, 100% 10px, 100% 10px;
+  background-attachment: local, local, scroll, scroll;
+}
+
 .workspace-scroll {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* legacy Edge */
@@ -518,4 +689,10 @@
   width: 0;
   height: 0;
   display: none; /* Chrome / Safari */
+}
+/* Terminal prompt caret: native block caret in the command color —
+   caret-shape is Chromium-first; others fall back to a colored bar. */
+.terminal-caret {
+  caret-color: var(--c-command);
+  caret-shape: block;
 }

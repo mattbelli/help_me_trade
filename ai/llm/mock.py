@@ -4,9 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Iterator
 
-from ai.llm.base import LLMMessage
+from ai.llm.base import (
+    LLMMessage,
+    StreamEvent,
+    StreamFinish,
+    StreamTextDelta,
+    ToolCallResult,
+    ToolSpec,
+)
+
+_CANDIDATE_RE = re.compile(r"Candidate (\d+):")
 
 
 class MockLLM:
@@ -14,6 +24,40 @@ class MockLLM:
 
     def complete(self, messages: list[LLMMessage], *, max_tokens: int = 1024) -> str:
         return self._synthesize(messages)
+
+    def complete_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolSpec],
+        *,
+        tool_choice: str = "auto",
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+    ) -> ToolCallResult:
+        # Deterministic + offline: the mock has no tools to run, so it always
+        # answers directly (final text, zero tool calls). Tests exercising the
+        # multi-round loop use a purpose-built scripted stub instead.
+        return ToolCallResult(
+            text=self._synthesize(messages), tool_calls=(), finish_reason="stop"
+        )
+
+    async def stream_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolSpec],
+        *,
+        tool_choice: str = "auto",
+        max_tokens: int = 1024,
+        temperature: float | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        # Streaming twin of complete_tools: no tools to run, so it streams the
+        # synthesized answer as word-level text deltas, then finishes.
+        text = self._synthesize(messages)
+        words = text.split()
+        for i, word in enumerate(words):
+            await asyncio.sleep(0)
+            yield StreamTextDelta(word if i == 0 else " " + word)
+        yield StreamFinish(finish_reason="stop")
 
     def stream(
         self, messages: list[LLMMessage], *, max_tokens: int = 1024
@@ -38,6 +82,18 @@ class MockLLM:
     def _synthesize(self, messages: list[LLMMessage]) -> str:
         combined = " ".join(m.content for m in messages).lower()
         user_text = " ".join(m.content for m in messages if m.role == "user")
+        if "memory-write judge" in combined:
+            # Deterministic judge stub: ADD every candidate (empty store → no dedup).
+            indices = sorted({int(i) for i in _CANDIDATE_RE.findall(user_text)})
+            return json.dumps(
+                {
+                    "decisions": [
+                        {"index": i, "action": "ADD", "target_id": None,
+                         "content": None, "reason": "mock"}
+                        for i in indices
+                    ]
+                }
+            )
         if "tool planner" in combined:
             user_lower = user_text.lower()
             if any(

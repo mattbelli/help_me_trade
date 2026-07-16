@@ -400,3 +400,44 @@ def test_api_unread_count(notification_client: TestClient, notifications_db: Pat
     response = notification_client.get("/api/notifications/unread-count")
     assert response.status_code == 200
     assert response.json()["unread"] == 1
+
+
+@pytest.mark.asyncio
+async def test_notify_inbox_only_kinds_never_push(
+    notifications_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ambient kinds are demoted to inbox-only at the chokepoint even when the
+    caller asks to push; warning/critical severity escapes the demotion."""
+    push_calls: list[str] = []
+
+    async def _broadcast(payload: dict) -> None:
+        pass
+
+    async def _push(title: str, body: str, *, data=None, db_path=None) -> int:
+        push_calls.append(title)
+        return 1
+
+    monkeypatch.setattr("brokers.market_stream.market_hub.broadcast_alert", _broadcast)
+    monkeypatch.setattr("signals.push.send_alert_push", _push)
+
+    from signals.notify import notify
+
+    row = await notify(
+        kind="rvol", title="RVOL spike", push=True, db_path=notifications_db
+    )
+    assert row["kind"] == "rvol"
+    assert push_calls == []  # demoted: stored + broadcast, no phone buzz
+
+    await notify(
+        kind="rvol",
+        title="RVOL source down",
+        severity="warning",
+        push=True,
+        db_path=notifications_db,
+    )
+    assert push_calls == ["RVOL source down"]  # a real problem still pushes
+
+    await notify(
+        kind="price_alert", title="SPY crossed 740", db_path=notifications_db
+    )
+    assert push_calls[-1] == "SPY crossed 740"  # phone tier untouched

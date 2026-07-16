@@ -73,6 +73,13 @@ export interface PortfolioHistory {
   points: PortfolioHistoryPoint[];
 }
 
+/** Realized (ET-day, net-cash) day P&L for a scope — matches the web toolbar DAY tile. */
+export interface DayPnl {
+  day_pnl: number;
+  has_activity: boolean;
+  scope_fallback: boolean;
+}
+
 export type PortfolioRange = '1D' | '3D' | '1W' | '1M' | '1Y' | 'ALL';
 
 export interface Bar {
@@ -188,6 +195,24 @@ export interface AlertAction {
   message?: string | null;
 }
 
+export interface FeedNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  severity: string;
+  account_id: string | null;
+  strategy_id: string | null;
+  ref_type: string | null;
+  ref_id: string | null;
+  action_url: string | null;
+  group_key: string | null;
+  data?: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+  dismissed_at: string | null;
+}
+
 export interface MarketAlert {
   id: string;
   ts: string;
@@ -220,4 +245,105 @@ export interface HealthStatus {
   poll_interval_seconds?: number;
   last_poll_age_seconds?: number;
   poll_healthy?: boolean;
+}
+
+export interface Report {
+  id: string;
+  kind: string;
+  symbol: string;
+  title: string;
+  body: string;
+  format: 'text' | 'html';
+  payload: Record<string, unknown>;
+  generated_at: string;
+}
+
+export interface ResearchArtifact {
+  id: number;
+  topic: string;
+  symbol: string | null;
+  markdown: string;
+  status: string;
+  depth: string;
+  html: string | null;
+  sources: Record<string, unknown>[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportsSettings {
+  morning_levels_enabled: boolean;
+  hour_et: number;
+}
+
+export interface ResearchSettings {
+  searxng_url: string;
+  effort: string;
+}
+
+export interface AppSettings {
+  reports?: ReportsSettings;
+  research?: ResearchSettings;
+}
+
+export type StrategyEntryMode = 'auto' | 'propose';
+export type StrategyExitMode = 'auto' | 'propose';
+
+export interface Strategy {
+  id: string;
+  name: string;
+  enabled: boolean;
+  account_id: string;
+  account_label: string;
+  notional_usd: number;
+  entry_mode: StrategyEntryMode;
+  exit_mode: StrategyExitMode;
+  universe: string;
+  max_concurrent_positions: number | null;
+  max_deployed_usd: number | null;
+  alert_style: string;
+  params?: Record<string, unknown>;
+}
+
+/** A persisted chat session (list row). */
+export interface ChatSession {
+  id: string;
+  title: string;
+  mode: string;
+  created_at: string;
+  updated_at: string;
+  pinned: boolean;
+}
+
+/** One stored message in a session. `parts` is an AI-SDK-style array; text
+ *  lives in `{type:'text', text}` entries — join those for the content. */
+export interface ChatSessionMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  parts: Array<Record<string, unknown>>;
+  created_at: string;
+}
+
+/** A session plus its full transcript (GET /api/chat/sessions/{id}). */
+export interface ChatSessionDetail extends ChatSession {
+  messages: ChatSessionMessage[];
+}
+
+export interface WebCustomTheme {
+  id: string;
+  name: string;
+  base: string;
+  colorScheme: string;
+  tokens: {
+    bg?: string;
+    surface?: string;
+    border?: string;
+    fg?: string;
+    fgDim?: string;
+    accent?: string;
+    green?: string;
+    red?: string;
+    chartAccent?: string;
+    chartBg?: string;
+  };
 }

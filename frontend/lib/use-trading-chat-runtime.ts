@@ -10,7 +10,6 @@ import {
 import { useAui, useAuiState } from "@assistant-ui/store";
 import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
-  lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from "ai";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -131,9 +130,14 @@ function useChatThreadRuntime(): AssistantRuntime {
     id,
     transport,
     onFinish,
+    // Auto-continue ONLY to resume a paused approval the user just answered.
+    // NOT on a merely tool-complete message: the Python brain runs the entire
+    // tool loop server-side and returns tools + final text in one message, which
+    // `lastAssistantMessageIsCompleteWithToolCalls` matches — auto-sending there
+    // re-runs the whole turn and answers the same question again (the duplicate-
+    // responses bug: it storms until a turn happens to use no tools).
     sendAutomaticallyWhen: (options) =>
-      lastAssistantMessageIsCompleteWithApprovalResponses(options) ||
-      lastAssistantMessageIsCompleteWithToolCalls(options),
+      lastAssistantMessageIsCompleteWithApprovalResponses(options),
   });
 
   const runtime = useAISDKRuntime(chat, {

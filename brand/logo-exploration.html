@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hmt — logo passes</title>
+</head>
+<body>
+<style>
+  :root {
+    --bg: #131519;
+    --inset: #0e1013;
+    --surface: #181b21;
+    --border: #262b33;
+    --ink: #e6e8eb;
+    --dim: #8b93a1;
+    --faint: #565e6b;
+    --light-bg: #f4f2ec;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html { background: var(--bg); }
+  body {
+    font-family: var(--mono);
+    color: var(--ink);
+    background: var(--bg);
+    margin: 0;
+    padding: 48px 24px 96px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+
+  header { margin-bottom: 44px; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); margin: 0 0 14px; }
+  h1 { font-size: clamp(22px, 4vw, 30px); font-weight: 600; margin: 0 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
+  .lede { color: var(--dim); font-size: 14px; max-width: 64ch; margin: 0; }
+  .lede em { color: var(--ink); font-style: normal; }
+
+  .section-label { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); margin: 56px 0 16px; }
+
+  .c-board {
+    display: grid; gap: 12px;
+    grid-template-columns: minmax(200px, 260px) 1fr minmax(150px, 190px);
+    align-items: stretch;
+  }
+  @media (max-width: 720px) { .c-board { grid-template-columns: 1fr 1fr; } .board-sizes { grid-column: 1 / -1; } }
+
+  .tile { display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); }
+  .tile-dark  { background: var(--surface); --g1: #e9ebee; --g2: #9aa3af; --g3: #525a66; aspect-ratio: 1; }
+  .tile-light { background: var(--light-bg); --g1: #1f2226; --g2: #5f6773; --g3: #b3aea2; border-color: #d8d2c4; }
+
+  .board-sizes { display: flex; flex-direction: column; gap: 12px; }
+  .size-row {
+    flex: 1; display: flex; align-items: center; justify-content: space-evenly; gap: 8px;
+    border: 1px solid var(--border); background: var(--inset);
+    --g1: #e9ebee; --g2: #9aa3af; --g3: #525a66;
+    padding: 10px;
+  }
+  .size-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .size-cell span { font-size: 10px; color: var(--faint); letter-spacing: 0.08em; }
+
+  .mock {
+    border: 1px solid var(--border); background: var(--inset); padding: 14px;
+    --g1: #e9ebee; --g2: #9aa3af; --g3: #525a66;
+    display: flex; flex-direction: column; gap: 10px; justify-content: center; flex: 1;
+  }
+  .mock-bar {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 12px 14px;
+  }
+  .mock-bar .t { font-size: 15px; color: var(--ink); font-weight: 600; }
+  .mock-bar .crumbs { margin-left: auto; display: flex; gap: 6px; }
+  .mock-bar .crumbs i { width: 4px; height: 4px; border-radius: 50%; background: var(--faint); }
+  .mock-note { font-size: 10px; color: var(--faint); letter-spacing: 0.1em; text-transform: uppercase; text-align: center; }
+
+  .caption { font-size: 10px; color: var(--faint); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 8px; max-width: 76ch; }
+  svg { display: block; }
+
+  .variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .variant { display: flex; flex-direction: column; }
+  .variant .tile-dark { aspect-ratio: 1; }
+  .v-label { font-size: 11px; color: var(--ink); font-weight: 600; margin-top: 10px; }
+  .v-note { font-size: 11px; color: var(--faint); line-height: 1.45; }
+
+  .verdict {
+    border: 1px solid var(--border); background: var(--surface);
+    padding: 24px; margin-top: 64px;
+  }
+  .verdict h2 { font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); margin: 0 0 14px; font-weight: 600; }
+  .verdict p { font-size: 13px; color: var(--dim); max-width: 70ch; margin: 0 0 12px; }
+  .verdict p:last-child { margin-bottom: 0; }
+  .verdict b { color: var(--ink); font-weight: 600; }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">logo exploration &middot; pass 5 &middot; stand_in, equal footprint</p>
+  <h1>stand_in &mdash; twin bodies, one hollowed</h1>
+  <p class="lede">Fixed: both bars are now the exact same outer size &mdash; 20&times;54 on the grid, offset 12, gap 12 &mdash; and the hollow is carved <em>inward</em>, so the outline's wall thickness never fattens the silhouette. The two bars are true twins now, which sharpens the meaning: <em>same shape, same weight in the world &mdash; one of them just isn't there right now.</em> The only tuning knob left is how thick the wall is.</p>
+</header>
+
+<p class="section-label">the mark &mdash; wall 5.5</p>
+<div class="c-board">
+  <div class="tile tile-dark">
+    <svg width="72%" height="72%" viewBox="0 0 120 120">
+      <path d="M34 38 h20 v54 h-20 Z M39.5 43.5 h9 v43 h-9 Z" fill="var(--g2)" fill-rule="evenodd"/>
+      <rect x="66" y="26" width="20" height="54" fill="var(--g1)"/>
+    </svg>
+  </div>
+  <div class="board-sizes">
+    <div class="size-row">
+      <div class="size-cell"><svg width="48" height="48" viewBox="0 0 120 120"><path d="M34 38 h20 v54 h-20 Z M39.5 43.5 h9 v43 h-9 Z" fill="var(--g2)" fill-rule="evenodd"/><rect x="66" y="26" width="20" height="54" fill="var(--g1)"/></svg><span>48</span></div>
+      <div class="size-cell"><svg width="22" height="22" viewBox="0 0 120 120"><path d="M34 38 h20 v54 h-20 Z M39 43 h10 v44 h-10 Z" fill="var(--g2)" fill-rule="evenodd"/><rect x="66" y="26" width="20" height="54" fill="var(--g1)"/></svg><span>22 (header)</span></div>
+      <div class="size-cell"><svg width="16" height="16" viewBox="0 0 120 120"><rect x="34" y="38" width="20" height="54" fill="var(--g3)"/><rect x="66" y="26" width="20" height="54" fill="var(--g1)"/></svg><span>16 &middot; fallback</span></div>
+    </div>
+    <div class="mock">
+      <div class="mock-bar">
+        <svg width="22" height="22" viewBox="0 0 120 120"><path d="M34 38 h20 v54 h-20 Z M39 43 h10 v44 h-10 Z" fill="var(--g2)" fill-rule="evenodd"/><rect x="66" y="26" width="20" height="54" fill="var(--g1)"/></svg>
+        <span class="t">portfolio</span>
+        <span class="crumbs"><i></i><i></i><i></i></span>
+      </div>
+      <div class="mock-bar">
+        <svg width="22" height="22" viewBox="0 0 120 120"><path d="M34 38 h20 v54 h-20 Z M39 43 h10 v44 h-10 Z" fill="var(--g2)" fill-rule="evenodd"/><rect x="66" y="26" width="20" height="54" fill="var(--g1)"/></svg>
+        <span class="t">chat</span>
+        <span class="crumbs"><i></i><i></i><i></i></span>
+      </div>
+      <p class="mock-note">in situ &mdash; the PageHeading strip, 22px</p>
+    </div>
+  </div>
+  <div class="tile tile-light">
+    <svg width="58%" height="58%" viewBox="0 0 120 120">
+      <path d="M34 38 h20 v54 h-20 Z M39.5 43.5 h9 v43 h-9 Z" fill="var(--g2)" fill-rule="evenodd"/>
+      <rect x="66" y="26" width="20" height="54" fill="var(--g1)"/>
+    </svg>
+  </div>
+</div>
+<p class="caption">on device the 22px cut is 66 physical pixels at 3&times;, so the hollow holds; the flat two-grey fallback is only for true 16px favicons, where any hole would close</p>
+
+<p class="section-label">the one knob &mdash; wall thickness</p>
+<div class="variants">
+  <div class="variant">
+    <div class="tile tile-dark">
+      <svg width="66%" height="66%" viewBox="0 0 120 120">
+        <path d="M34 38 h20 v54 h-20 Z M38 42 h12 v46 h-12 Z" fill="var(--g2)" fill-rule="evenodd"/>
+        <rect x="66" y="26" width="20" height="54" fill="var(--g1)"/>
+      </svg>
+    </div>
+    <p class="v-label">wall 4 &middot; airy</p>
+    <p class="v-note">most "absent" &mdash; you're barely there. Elegant large, fragile small.</p>
+  </div>
+  <div class="variant">
+    <div class="tile tile-dark">
+      <svg width="66%" height="66%" viewBox="0 0 120 120">
+        <path d="M34 38 h20 v54 h-20 Z M39.5 43.5 h9 v43 h-9 Z" fill="var(--g2)" fill-rule="evenodd"/>
+        <rect x="66" y="26" width="20" height="54" fill="var(--g1)"/>
+      </svg>
+    </div>
+    <p class="v-label">wall 5.5 &middot; the pick</p>
+    <p class="v-note">enough wall to feel like the same species as the solid; enough hole to read hollow at header size.</p>
+  </div>
+  <div class="variant">
+    <div class="tile tile-dark">
+      <svg width="66%" height="66%" viewBox="0 0 120 120">
+        <path d="M34 38 h20 v54 h-20 Z M41 45 h6 v40 h-6 Z" fill="var(--g2)" fill-rule="evenodd"/>
+        <rect x="66" y="26" width="20" height="54" fill="var(--g1)"/>
+      </svg>
+    </div>
+    <p class="v-label">wall 7 &middot; dense</p>
+    <p class="v-note">nearly solid with a seam of light. Sturdiest everywhere, but the "away" reading fades.</p>
+  </div>
+  <div class="variant">
+    <div class="tile tile-dark">
+      <svg width="66%" height="66%" viewBox="0 0 120 120">
+        <rect x="34" y="38" width="20" height="54" fill="var(--g3)"/>
+        <rect x="66" y="26" width="20" height="54" fill="var(--g1)"/>
+      </svg>
+    </div>
+    <p class="v-label">flat fallback</p>
+    <p class="v-note">the 16px cut: hollow becomes quiet grey. Shown large to confirm it's the same mark, just lower resolution.</p>
+  </div>
+</div>
+
+<div class="verdict">
+  <h2>read</h2>
+  <p><b>Wall 5.5 is the balance point.</b> Below it the outline reads as a different, flimsier object than its twin; above it the hole shrinks to a seam and the mark drifts back toward two solid bars &mdash; losing the entire reason the merge works. 5.5 on a 20-wide body is a 27% wall: worth writing down, because it's the ratio every future cut (app icon, watch, favicon) should preserve or consciously break.</p>
+  <p>Equalizing the footprints also quietly fixed the balance: the mark's optical center now sits between the bars instead of leaning left, so it will sit better next to the wordmark and centered in an app-icon tile.</p>
+  <p>Next step when you're ready: I wire wall-5.5 into <b>logo.tsx</b> (two paths, one evenodd &mdash; trivial in react-native-svg), you live with it in the header for a day on your phone, and we make the keep/kill call before touching color again.</p>
+</div>
+</div>
+
+</body>
+</html>

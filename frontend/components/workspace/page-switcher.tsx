@@ -12,8 +12,7 @@ import { Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
-
-const MAX_PAGES = 5;
+import { MAX_PAGES_PER_WORKSPACE } from "@/lib/workspace/layout-persistence";
 
 type ContextMenuState = {
   pageId: string;
@@ -23,30 +22,33 @@ type ContextMenuState = {
 
 function PageDeleteConfirm({
   pageName,
+  usedBy,
   onCancel,
   onConfirm,
 }: {
   pageName: string;
+  usedBy: number;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   return (
-    <div className="w-44 border-[var(--border)] bg-[var(--panel)] p-2 font-mono shadow-[var(--panel-shadow)]">
-      <p className="px-1 py-1 text-[11px] text-[var(--fg-dim)]">
-        Delete &ldquo;{pageName}&rdquo; and its widgets?
+    <div className="w-48 border-[var(--border)] bg-[var(--panel)] p-2 font-mono shadow-[var(--panel-shadow)]">
+      <p className="px-1 py-1 text-[length:var(--fs-body)] text-[var(--fg-dim)]">
+        Delete &ldquo;{pageName}&rdquo; from the library
+        {usedBy > 1 ? ` and all ${usedBy} workspaces` : ""}?
       </p>
       <div className="mt-1.5 flex justify-end gap-1.5">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+          className="rounded border border-[var(--border)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded border border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] px-2 py-0.5 text-[10px] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
+          className="rounded border border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] px-2 py-0.5 text-[length:var(--fs-table)] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
         >
           Delete
         </button>
@@ -113,7 +115,7 @@ function PagePill({
         onKeyDown={onKeyDown}
         onBlur={commit}
         onClick={(e) => e.stopPropagation()}
-        className="max-w-[7rem] rounded-full border border-[var(--c-accent)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[10px] text-foreground outline-none"
+        className="max-w-[7rem] rounded-full border border-[var(--c-accent)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[length:var(--fs-table)] text-foreground outline-none"
         aria-label="Rename page"
       />
     );
@@ -129,7 +131,7 @@ function PagePill({
         onStartRename();
       }}
       className={cn(
-        "max-w-[7rem] truncate rounded-full border px-2 py-0.5 font-mono text-[10px] transition-colors",
+        "max-w-[7rem] truncate rounded-full border px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
         active
           ? "border-[var(--c-accent)] bg-[var(--c-accent-soft)] text-foreground"
           : "border-[var(--border)] text-[var(--fg-dim)] hover:border-[var(--border-strong)] hover:text-foreground",
@@ -145,19 +147,37 @@ function PagePill({
 export function PageSwitcher() {
   const pages = useWorkspaceStore((s) => s.pages);
   const activePageId = useWorkspaceStore((s) => s.activePageId);
+  const pageLibrary = useWorkspaceStore((s) => s.pageLibrary);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const setActivePage = useWorkspaceStore((s) => s.setActivePage);
   const addPage = useWorkspaceStore((s) => s.addPage);
+  const addPageFromLibrary = useWorkspaceStore((s) => s.addPageFromLibrary);
   const renamePage = useWorkspaceStore((s) => s.renamePage);
-  const deletePage = useWorkspaceStore((s) => s.deletePage);
+  const removePageFromWorkspace = useWorkspaceStore(
+    (s) => s.removePageFromWorkspace,
+  );
+  const deletePageEverywhere = useWorkspaceStore((s) => s.deletePageEverywhere);
+  const duplicatePage = useWorkspaceStore((s) => s.duplicatePage);
+  const forkPage = useWorkspaceStore((s) => s.forkPage);
 
   const pageIds = Object.keys(pages);
-  const atCap = pageIds.length >= MAX_PAGES;
+  const atCap = pageIds.length >= MAX_PAGES_PER_WORKSPACE;
   const canDelete = pageIds.length > 1;
+  const libraryOnlyIds = Object.keys(pageLibrary).filter((id) => !pages[id]);
+
+  const usageCount = useCallback(
+    (pageId: string) =>
+      Object.values(workspaces).filter((ws) => ws.pageIds.includes(pageId))
+        .length,
+    [workspaces],
+  );
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingPageId, setRenamingPageId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
 
   const contextPage = contextMenu ? pages[contextMenu.pageId] : undefined;
 
@@ -196,20 +216,32 @@ export function PageSwitcher() {
     [],
   );
 
-  const handleDelete = useCallback(
-    (pageId: string) => {
-      const page = pages[pageId];
-      if (!page || !canDelete) return;
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (addMenuRef.current?.contains(target)) return;
+      setAddMenuOpen(false);
+    }
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") setAddMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [addMenuOpen]);
 
-      if (page.layout.length > 0) {
-        setConfirmDeleteId(pageId);
-        return;
-      }
-
-      deletePage(pageId);
-      setContextMenu(null);
-    },
-    [canDelete, deletePage, pages],
+  // deletePageEverywhere refuses when the page is some workspace's only page.
+  const isLastPageSomewhere = useCallback(
+    (pageId: string) =>
+      Object.values(workspaces).some(
+        (ws) => ws.pageIds.length === 1 && ws.pageIds[0] === pageId,
+      ),
+    [workspaces],
   );
 
   return (
@@ -240,16 +272,55 @@ export function PageSwitcher() {
         })}
 
         {!atCap ? (
-          <button
-            type="button"
-            onClick={() => addPage()}
-            className="flex items-center gap-0.5 rounded-full border border-[var(--border)] px-1.5 py-0.5 font-mono text-[var(--fg-faint)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-foreground"
-            aria-label="Add page"
-            title="Add page"
-          >
-            <Plus className="size-2.5" />
-            <span className="text-[8px] uppercase tracking-wide">pg</span>
-          </button>
+          <div ref={addMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                if (libraryOnlyIds.length === 0) {
+                  addPage();
+                } else {
+                  setAddMenuOpen((v) => !v);
+                }
+              }}
+              className="flex items-center gap-0.5 rounded-full border border-[var(--border)] px-1.5 py-0.5 font-mono text-[var(--fg-faint)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-foreground"
+              aria-label="Add page"
+              title="Add page"
+            >
+              <Plus className="size-2.5" />
+              <span className="text-[length:var(--fs-micro)] uppercase tracking-[0.08em]">pg</span>
+            </button>
+            {addMenuOpen ? (
+              <div className="absolute bottom-[calc(100%+8px)] left-0 z-[60] min-w-36 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 font-mono shadow-lg">
+                <button
+                  type="button"
+                  className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                  onClick={() => {
+                    addPage();
+                    setAddMenuOpen(false);
+                  }}
+                >
+                  Blank page
+                </button>
+                <div className="px-2 pt-1 pb-0.5 text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
+                  From library
+                </div>
+                {libraryOnlyIds.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    title="Linked — edits apply everywhere this page is used"
+                    className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                    onClick={() => {
+                      addPageFromLibrary(id);
+                      setAddMenuOpen(false);
+                    }}
+                  >
+                    <span className="truncate">{pageLibrary[id].name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -262,18 +333,19 @@ export function PageSwitcher() {
           {confirmDeleteId === contextMenu.pageId ? (
             <PageDeleteConfirm
               pageName={contextPage.name}
+              usedBy={usageCount(contextMenu.pageId)}
               onCancel={() => setConfirmDeleteId(null)}
               onConfirm={() => {
-                deletePage(contextMenu.pageId);
+                deletePageEverywhere(contextMenu.pageId);
                 setContextMenu(null);
                 setConfirmDeleteId(null);
               }}
             />
           ) : (
-            <div className="min-w-28 p-1 font-mono">
+            <div className="min-w-36 p-1 font-mono">
               <button
                 type="button"
-                className="flex w-full rounded-md px-2 py-1 text-left text-[11px] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
                 onClick={() => {
                   setRenamingPageId(contextMenu.pageId);
                   setContextMenu(null);
@@ -281,13 +353,52 @@ export function PageSwitcher() {
               >
                 Rename
               </button>
+              {!atCap ? (
+                <button
+                  type="button"
+                  className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                  onClick={() => {
+                    duplicatePage(contextMenu.pageId);
+                    setContextMenu(null);
+                  }}
+                >
+                  Duplicate
+                </button>
+              ) : null}
+              {usageCount(contextMenu.pageId) > 1 ? (
+                <button
+                  type="button"
+                  title="This page is shared — clone it and use the clone only here"
+                  className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                  onClick={() => {
+                    forkPage(contextMenu.pageId);
+                    setContextMenu(null);
+                  }}
+                >
+                  Detach a copy here
+                </button>
+              ) : null}
               {canDelete ? (
                 <button
                   type="button"
-                  className="flex w-full rounded-md px-2 py-1 text-left text-[11px] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
-                  onClick={() => handleDelete(contextMenu.pageId)}
+                  title="Removes it from this workspace — the page stays in the library"
+                  className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--fg-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+                  onClick={() => {
+                    removePageFromWorkspace(contextMenu.pageId);
+                    setContextMenu(null);
+                  }}
                 >
-                  Delete
+                  Remove from workspace
+                </button>
+              ) : null}
+              {!isLastPageSomewhere(contextMenu.pageId) &&
+              (canDelete || usageCount(contextMenu.pageId) > 1) ? (
+                <button
+                  type="button"
+                  className="flex w-full rounded-md px-2 py-1 text-left text-[length:var(--fs-body)] text-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]"
+                  onClick={() => setConfirmDeleteId(contextMenu.pageId)}
+                >
+                  Delete everywhere
                 </button>
               ) : null}
             </div>

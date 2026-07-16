@@ -25,10 +25,15 @@ from brokers.schwab_auth import OPEN_ORDER_STATUSES, create_client, token_exists
 
 ROOT = Path(__file__).resolve().parent.parent
 _LABELS_PATH = ROOT / "data" / "schwab_account_labels.json"
-_CACHE_TTL = 30.0  # seconds
+# A full sweep is 1+2N sequential GETs and has been observed taking ~35s under
+# Akamai soft-throttle; the TTL must comfortably exceed the sweep or every poll
+# misses cache and the sweeps run back-to-back (which is itself what provokes
+# the throttle).
+_CACHE_TTL = 120.0  # seconds
 
 _cache: dict = {"ts": 0.0, "data": None}
-_lock = threading.Lock()  # threading (not asyncio) so sync callers can share the cache
+_cache_lock = threading.Lock()  # guards _cache only — never held during a fetch
+_fetch_lock = threading.Lock()  # single-flight: at most one Schwab sweep at a time
 
 
 def _labels() -> dict:
@@ -198,28 +203,49 @@ def get_schwab_accounts_sync(force: bool = False) -> dict:
         }
 
     now = time.time()
-    with _lock:
+    with _cache_lock:
         cached = _cache["data"]
         if not force and cached is not None and (now - _cache["ts"]) < _CACHE_TTL:
             return cached
+
+    # Cache miss: refresh, but never queue callers behind a ~35s sweep — that
+    # queue is what blanked the accounts view. One caller sweeps (single-flight);
+    # everyone else gets the last snapshot immediately, flagged stale. Only a
+    # cold start (no snapshot to serve) or an explicit force waits for the lock.
+    must_wait = cached is None or force
+    if not _fetch_lock.acquire(blocking=must_wait):
+        return {**cached, "stale": True}
+    try:
+        # A concurrent sweep may have refreshed the cache while we waited.
+        with _cache_lock:
+            refreshed = _cache["data"]
+            if (
+                not force
+                and refreshed is not None
+                and (time.time() - _cache["ts"]) < _CACHE_TTL
+            ):
+                return refreshed
         try:
             data = _fetch_all()
         except Exception as exc:  # noqa: BLE001 — read path must never raise into callers
             if cached is not None:
                 return {**cached, "stale": True, "error": str(exc)}
             return {"authenticated": True, "accounts": [], "totals": {}, "error": str(exc)}
-        data["authenticated"] = True
-        data["fetched_at"] = now
-        _cache.update(ts=now, data=data)
-        # Persist a daily equity/P&L snapshot (upsert today's ET row) so the
-        # accurate numbers accrue over time instead of vanishing at the next open.
-        try:
-            from db.schwab_history import record_schwab_daily
+    finally:
+        _fetch_lock.release()
+    data["authenticated"] = True
+    data["fetched_at"] = time.time()
+    with _cache_lock:
+        _cache.update(ts=time.time(), data=data)
+    # Persist a daily equity/P&L snapshot (upsert today's ET row) so the
+    # accurate numbers accrue over time instead of vanishing at the next open.
+    try:
+        from db.schwab_history import record_schwab_daily
 
-            record_schwab_daily(data.get("accounts") or [])
-        except Exception:  # noqa: BLE001 — persistence must never break the read
-            pass
-        return data
+        record_schwab_daily(data.get("accounts") or [])
+    except Exception:  # noqa: BLE001 — persistence must never break the read
+        pass
+    return data
 
 
 async def get_schwab_accounts(force: bool = False) -> dict:

@@ -8,7 +8,13 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.auth import path_requires_auth, verify_request_host, verify_request_token
+from api.auth import (
+    MUTATING_METHODS,
+    path_requires_auth,
+    verify_mutation_token,
+    verify_request_host,
+    verify_request_token,
+)
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
@@ -21,7 +27,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if path_requires_auth(request.url.path):
             try:
                 verify_request_host(request)
-                verify_request_token(request)
+                if request.method in MUTATING_METHODS:
+                    verify_mutation_token(request)
+                else:
+                    verify_request_token(request)
             except HTTPException as exc:
                 return JSONResponse(
                     status_code=exc.status_code,

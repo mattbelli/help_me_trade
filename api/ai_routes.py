@@ -6,11 +6,12 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ai.chat.agent import ChatRunResult, finalize_chat_turn, run_chat_stream
+from ai.chat.agent import ChatRunResult, finalize_chat_turn
 from ai.chat.brain import (
     build_turn_context,
     finalize_turn,
@@ -18,23 +19,27 @@ from ai.chat.brain import (
     llm_runtime_config,
     normalize_chat_mode,
     run_tool,
+    should_learn_from_turn,
     tool_catalog,
 )
 from ai.chat.memory_extract import extract_memories_from_turn
 from ai.chat.messages import last_user_text
 from ai.chat.mobile_agent import run_mobile_chat_stream
 from ai.chat.mobile_stream import sse
+from ai.chat.web_agent import run_web_chat_stream
 from ai.llm.config import get_default_llm
 from ai.llm.factory import get_llm, get_llm_provider_name
 from ai.llm.models import list_chat_models, list_default_model_options
 from ai.memories import get_memory_service
 from ai.reflection.service import run_reflection
 from ai.research.depth import RESEARCH_DEPTHS
-from ai.research.jobs import get_job, submit_research_job
+from ai.research.graph import VALID_RECIPES
+from ai.research.jobs import DEFAULT_JOB_EVENTS_RETURN, enqueue_research, get_job, list_jobs
 from ai.research.report import research_html_for_artifact
 from ai.research.stream import astream_deep_research
 from ai.rules.engine import evaluate_on_event
 from config.ai_providers import AI_PROVIDERS, DEFAULT_AI_SETTINGS
+from config.research_engine import resolve_effort
 from db.ai_tables import (
     MEMORY_TYPES,
     create_rule,
@@ -106,8 +111,35 @@ def api_ai_model_options():
 @router.get("/ai/research-config")
 def api_research_config():
     from ai.research.sources import web_search_status
+    from config.research_engine import (
+        EFFORT_PRESET_NAMES,
+        ROLES,
+        current_research_settings,
+        get_default_model_name,
+    )
 
-    return web_search_status()
+    provider, default_model = get_default_llm()
+    if not default_model:
+        default_model = get_default_model_name()
+
+    catalog = list_chat_models(provider, catalog=True)
+    known_models: list[str] = []
+    for row in catalog.get("catalog_models") or catalog.get("models") or []:
+        model_id = str(row.get("id", "")).strip()
+        if model_id and model_id not in known_models:
+            known_models.append(model_id)
+    if default_model and default_model not in known_models:
+        known_models.insert(0, default_model)
+
+    return {
+        **web_search_status(),
+        "roles": list(ROLES),
+        "effort_presets": list(EFFORT_PRESET_NAMES),
+        "current": current_research_settings(),
+        "default_model": default_model,
+        "provider": provider,
+        "known_models": known_models,
+    }
 
 
 @router.get("/chat/sessions")
@@ -182,6 +214,22 @@ def api_list_pending_proposals():
     from db.paper_orders import list_pending_proposals
 
     return {"proposals": list_pending_proposals()}
+
+
+@router.get("/proposals/missed")
+def api_list_missed_proposals(
+    since: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    from db.paper_orders import list_paper_order_proposals
+
+    return {
+        "proposals": list_paper_order_proposals(
+            status="expired",
+            since=since,
+            limit=limit,
+        )
+    }
 
 
 @router.get("/proposals/score")
@@ -439,7 +487,7 @@ async def api_chat_stream(body: dict = Body(...)):
                     mode=mode,
                     model=chat_model,
                     run=run,
-                    extract=False,
+                    extract=should_learn_from_turn(mode=mode),
                 )
 
     return StreamingResponse(
@@ -455,43 +503,79 @@ async def api_chat_stream(body: dict = Body(...)):
 
 @router.post("/chat")
 async def api_chat(body: dict = Body(...)):
+    """The one Python chat brain, encoded as an AI-SDK UIMessageStream.
+
+    This is what the Next.js `/api/chat` route proxies to under `CHAT_BRAIN=python`
+    (the default). It runs native tool-calling, streams `tool-<name>` parts, and
+    reproduces the Approve/Reject HITL handshake for `propose_order`/`create_rule`
+    — replacing BOTH the old in-route TS `streamText` loop and the retired
+    no-tools legacy path (which advertised tools it could never run).
+    """
     messages = body.get("messages")
     if not isinstance(messages, list):
         return JSONResponse({"error": "messages must be a list"}, status_code=400)
 
-    session_id = body.get("sessionId") or body.get("session_id")
-    mode = str(body.get("mode", "quick")).strip().lower()
+    # Match the retired TS route's resolution: the AssistantChatTransport carries
+    # the session id as `id` (saved-mode remoteId); keep that fallback so thread
+    # persistence lands on the same chat_sessions row as before.
+    session_id = (
+        body.get("sessionId") or body.get("session_id") or body.get("id")
+    )
+    mode = normalize_chat_mode(str(body.get("mode", "temporary")))
     model = body.get("model")
     chat_model = str(model).strip() if model else None
-    if mode not in CHAT_MODES:
-        return JSONResponse(
-            {"error": f"mode must be one of: {', '.join(sorted(CHAT_MODES))}"},
-            status_code=400,
-        )
     if session_id is not None:
         session_id = str(session_id).strip()
-    if mode in ("standard", "private", "saved") and not session_id:
+    if mode == "saved" and not session_id:
         return JSONResponse(
             {"error": "sessionId is required for saved chats"},
             status_code=400,
         )
 
+    enabled_raw = body.get("enabledTools") or body.get("enabled_tools")
+    enabled_tools = (
+        {str(t) for t in enabled_raw} if isinstance(enabled_raw, list) else None
+    )
+    inject_memories = bool(
+        body.get("autoInjectMemories") or body.get("auto_inject_memories")
+    )
+
     run = ChatRunResult()
     user_text = last_user_text(messages)
 
+    # Diagnostic for the 2026-07-07 duplicate-responses report (one user row,
+    # four assistant rows persisted): log the request SHAPE (roles/ids/trigger,
+    # never content) so the next occurrence shows exactly what the client sent.
+    # Remove once root-caused.
+    logger.info(
+        "chat turn shape: session=%s trigger=%s messageId=%s msgs=%s",
+        session_id,
+        body.get("trigger"),
+        body.get("messageId"),
+        [
+            (m.get("role"), str(m.get("id"))[:20])
+            for m in messages
+            if isinstance(m, dict)
+        ],
+    )
+
     async def event_generator():
         try:
-            for chunk in run_chat_stream(
+            async for chunk in run_web_chat_stream(
                 messages,
                 session_id=session_id,
                 mode=mode,
                 model=chat_model,
+                enabled_tools=enabled_tools,
+                inject_memories=inject_memories,
                 result=run,
             ):
                 yield chunk
                 await asyncio.sleep(0)
+        except Exception:
+            logging.getLogger(__name__).exception("web chat stream failed")
         finally:
-            if user_text and run.assistant_text:
+            if user_text and (run.assistant_text or run.assistant_message):
                 finalize_chat_turn(
                     messages=messages,
                     user_text=user_text,
@@ -500,7 +584,8 @@ async def api_chat(body: dict = Body(...)):
                     mode=mode,
                     model=chat_model,
                     run=run,
-                    extract=False,
+                    assistant_message=run.assistant_message,
+                    extract=should_learn_from_turn(mode=mode),
                 )
 
     return StreamingResponse(
@@ -557,6 +642,7 @@ def api_list_memories(
     type: str | None = Query(None, alias="type"),
     q: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    include_inactive: bool = Query(False),
 ):
     if type is not None and type not in MEMORY_TYPES:
         return JSONResponse(
@@ -570,7 +656,11 @@ def api_list_memories(
         return {
             "memories": service.search(q.strip(), memory_type=type, limit=limit)
         }
-    return {"memories": service.list(memory_type=type, limit=limit)}
+    return {
+        "memories": service.list(
+            memory_type=type, limit=limit, include_inactive=include_inactive
+        )
+    }
 
 
 @router.get("/memories/{memory_id}")
@@ -599,7 +689,11 @@ def api_create_memory(body: dict = Body(...)):
         return JSONResponse({"error": "metadata must be an object"}, status_code=400)
     try:
         record = get_memory_service().add(
-            content, memory_type=memory_type, metadata=metadata
+            content,
+            memory_type=memory_type,
+            metadata=metadata,
+            source="widget_manual",
+            authority="user_authored",
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -611,6 +705,11 @@ def api_patch_memory(memory_id: int, body: dict = Body(...)):
     content = body.get("content")
     memory_type = body.get("type")
     metadata = body.get("metadata")
+    status = body.get("status")
+    authority = body.get("authority")
+    valid_until = body.get("valid_until")
+    pinned_raw = body.get("pinned")
+    pinned = None if pinned_raw is None else bool(pinned_raw)
     if memory_type is not None:
         memory_type = str(memory_type).strip()
         if memory_type not in MEMORY_TYPES:
@@ -620,6 +719,30 @@ def api_patch_memory(memory_id: int, body: dict = Body(...)):
                 },
                 status_code=400,
             )
+    if status is not None:
+        status = str(status).strip()
+    if authority is not None:
+        authority = str(authority).strip()
+        # §6 authority model: the ONLY server-accepted transition is the
+        # founder's Confirm tap — agent_inferred → user_confirmed. Nothing
+        # else may raise (or rewrite) authority over HTTP.
+        if authority != "user_confirmed":
+            return JSONResponse(
+                {"error": "authority may only be set to 'user_confirmed'"},
+                status_code=400,
+            )
+        current = get_memory_service().get(memory_id)
+        if current is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        if current.get("authority") != "agent_inferred":
+            return JSONResponse(
+                {
+                    "error": "only agent_inferred memories can be confirmed"
+                },
+                status_code=400,
+            )
+    if valid_until is not None:
+        valid_until = str(valid_until).strip()
     if content is not None and not str(content).strip():
         return JSONResponse({"error": "content cannot be empty"}, status_code=400)
     if metadata is not None and not isinstance(metadata, dict):
@@ -630,6 +753,10 @@ def api_patch_memory(memory_id: int, body: dict = Body(...)):
             content=str(content).strip() if content is not None else None,
             memory_type=memory_type,
             metadata=metadata,
+            status=status,
+            pinned=pinned,
+            authority=authority,
+            valid_until=valid_until,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -643,6 +770,29 @@ def api_delete_memory(memory_id: int):
     if not get_memory_service().delete(memory_id):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return {"ok": True}
+
+
+@router.post("/memories/{memory_id}/resolve-proposal")
+def api_resolve_memory_proposal(memory_id: int, body: dict = Body(...)):
+    """Founder resolution of a pending supersede proposal (M-1 review lane).
+
+    ``action='accept'`` retires the targeted protected row and promotes this
+    proposal to ``user_confirmed`` (this endpoint IS the founder Confirm gesture,
+    so the mint is legal); ``action='reject'`` archives the proposal and leaves
+    the protected row untouched. Mutating route — the security middleware already
+    gates it behind the founder API token, so a non-founder request 401s before
+    reaching here."""
+    action = str(body.get("action", "")).strip().lower()
+    if action not in ("accept", "reject"):
+        return JSONResponse(
+            {"error": "action must be 'accept' or 'reject'"}, status_code=400
+        )
+    record = get_memory_service().resolve_proposal(memory_id, action=action)
+    if record is None:
+        return JSONResponse(
+            {"error": "no pending proposal for this memory"}, status_code=404
+        )
+    return record
 
 
 @router.post("/memory/extract")
@@ -708,32 +858,124 @@ def api_list_session_chat_memories(session_id: str):
     return {"memories": out}
 
 
+def _parse_research_symbols(raw: object) -> list[str] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return None
+    symbols: list[str] = []
+    for item in raw:
+        sym = str(item).strip().upper()
+        if sym:
+            symbols.append(sym)
+    return symbols[:50]
+
+
+def _parse_research_request(body: dict) -> tuple[dict[str, object] | None, str | None]:
+    recipe = str(body.get("recipe", "single_stock")).strip().lower()
+    if recipe not in VALID_RECIPES:
+        return None, (
+            f"recipe must be one of: {', '.join(sorted(VALID_RECIPES))}"
+        )
+
+    topic = str(body.get("topic", "")).strip()
+    if recipe == "setup_scan":
+        if not topic:
+            topic = f"Setup scan — {datetime.now(UTC).strftime('%Y-%m-%d')}"
+    elif not topic:
+        return None, "topic is required"
+
+    depth_raw = body.get("depth")
+    if depth_raw is None or not str(depth_raw).strip():
+        depth = resolve_effort(None).name
+    else:
+        depth = str(depth_raw).strip().lower()
+    if depth not in RESEARCH_DEPTHS:
+        return None, f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"
+
+    symbol = body.get("symbol")
+    sym = str(symbol).strip().upper() if symbol else None
+
+    symbols_raw = body.get("symbols")
+    if symbols_raw is not None:
+        symbols = _parse_research_symbols(symbols_raw)
+        if symbols is None:
+            return None, "symbols must be a list of strings"
+    else:
+        symbols = None
+
+    return {
+        "topic": topic,
+        "symbol": sym,
+        "depth": depth,
+        "recipe": recipe,
+        "symbols": symbols,
+    }, None
+
+
 @router.post("/research/run")
 async def api_run_research(body: dict = Body(...)):
-    topic = str(body.get("topic", "")).strip()
-    symbol = body.get("symbol")
-    depth = str(body.get("depth", "standard")).strip().lower()
-    if not topic:
-        return JSONResponse({"error": "topic is required"}, status_code=400)
-    if depth not in RESEARCH_DEPTHS:
-        return JSONResponse(
-            {"error": f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"},
-            status_code=400,
-        )
-    sym = str(symbol).strip().upper() if symbol else None
+    parsed, err = _parse_research_request(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    assert parsed is not None
+    topic = str(parsed["topic"])
+    sym = parsed.get("symbol")
+    depth = str(parsed["depth"])
+    recipe = str(parsed["recipe"])
+    symbols = parsed.get("symbols")
+    if not isinstance(symbols, list) and symbols is not None:
+        symbols = None
     try:
-        job_id = submit_research_job(topic=topic, symbol=sym, depth=depth)
+        # Await the async enqueue directly so _run_job is scheduled on the
+        # main event loop. The sync submit_research_job wrapper would run the
+        # enqueue in a throwaway asyncio.run loop that tears down immediately,
+        # cancelling the _run_job task (status tracking + completion notify)
+        # while the detached executor thread keeps running the research.
+        job_id = await enqueue_research(
+            topic=topic,
+            symbol=sym if isinstance(sym, str) else None,
+            depth=depth,
+            recipe=recipe,
+            symbols=symbols if isinstance(symbols, list) else None,
+        )
     except Exception as exc:
         logger.exception("Research enqueue failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
-    return {"job_id": job_id, "status": "queued", "topic": topic, "symbol": sym, "depth": depth}
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "topic": topic,
+        "symbol": sym,
+        "depth": depth,
+        "recipe": recipe,
+    }
+
+
+@router.get("/research/jobs")
+def api_list_research_jobs(limit: int = Query(10, ge=1, le=100)):
+    return {"jobs": list_jobs(limit=limit)}
 
 
 @router.get("/research/jobs/{job_id}")
-def api_get_research_job(job_id: str):
+def api_get_research_job(
+    job_id: str,
+    events: str | None = Query(None),
+):
     job = get_job(job_id)
     if job is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
+    if events == "all":
+        job_events = job.events
+    elif events is not None:
+        try:
+            event_limit = max(1, int(events))
+            job_events = job.events[-event_limit:]
+        except ValueError:
+            job_events = job.events[-DEFAULT_JOB_EVENTS_RETURN:]
+    else:
+        job_events = job.events[-DEFAULT_JOB_EVENTS_RETURN:]
+    phase = job_events[-1]["phase"] if job_events else job.status
     return {
         "job_id": job.id,
         "status": job.status,
@@ -743,27 +985,36 @@ def api_get_research_job(job_id: str):
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
+        "artifact_id": job.artifact_id,
         "error": job.error,
         "result": job.result,
+        "events": job_events,
+        "phase": phase,
     }
 
 
 @router.post("/research/stream")
 async def api_research_stream(body: dict = Body(...)):
-    topic = str(body.get("topic", "")).strip()
-    symbol = body.get("symbol")
-    depth = str(body.get("depth", "standard")).strip().lower()
-    if not topic:
-        return JSONResponse({"error": "topic is required"}, status_code=400)
-    if depth not in RESEARCH_DEPTHS:
-        return JSONResponse(
-            {"error": f"depth must be one of: {', '.join(sorted(RESEARCH_DEPTHS))}"},
-            status_code=400,
-        )
-    sym = str(symbol).strip().upper() if symbol else None
+    parsed, err = _parse_research_request(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    assert parsed is not None
+    topic = str(parsed["topic"])
+    sym = parsed.get("symbol")
+    depth = str(parsed["depth"])
+    recipe = str(parsed["recipe"])
+    symbols = parsed.get("symbols")
+    if not isinstance(symbols, list) and symbols is not None:
+        symbols = None
 
     async def event_generator():
-        async for chunk in astream_deep_research(topic=topic, symbol=sym, depth=depth):
+        async for chunk in astream_deep_research(
+            topic=topic,
+            symbol=sym if isinstance(sym, str) else None,
+            depth=depth,
+            recipe=recipe,
+            symbols=symbols if isinstance(symbols, list) else None,
+        ):
             yield chunk
             await asyncio.sleep(0)
 

@@ -5,37 +5,33 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-def test_memory_extract_requires_user_and_assistant_text() -> None:
-    from api.main import app
+def test_memory_extract_requires_user_and_assistant_text(mutation_client) -> None:
+    client = mutation_client
+    empty = client.post(
+        "/api/memory/extract",
+        json={"userText": "hello", "assistantText": ""},
+    )
+    assert empty.status_code == 200
+    assert empty.json() == {"memories": []}
 
-    with TestClient(app, base_url="http://127.0.0.1") as client:
-        empty = client.post(
-            "/api/memory/extract",
-            json={"userText": "hello", "assistantText": ""},
-        )
-        assert empty.status_code == 200
-        assert empty.json() == {"memories": []}
-
-        ok = client.post(
-            "/api/memory/extract",
-            json={
-                "messages": [
-                    {
-                        "role": "user",
-                        "parts": [{"type": "text", "text": "I cap single names at 20%"}],
-                    }
-                ],
-                "assistantText": "Understood — 20% max per position.",
-                "sessionId": "chat_abc",
-            },
-        )
-        assert ok.status_code == 200
-        assert "memories" in ok.json()
+    ok = client.post(
+        "/api/memory/extract",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "I cap single names at 20%"}],
+                }
+            ],
+            "assistantText": "Understood — 20% max per position.",
+            "sessionId": "chat_abc",
+        },
+    )
+    assert ok.status_code == 200
+    assert "memories" in ok.json()
 
 
-def test_memory_extract_calls_extractor(monkeypatch) -> None:
-    from api.main import app
-
+def test_memory_extract_calls_extractor(monkeypatch, mutation_client) -> None:
     def fake_extract(**_kwargs):
         return [{"type": "preference", "content": "20% cap", "id": 1}]
 
@@ -44,20 +40,19 @@ def test_memory_extract_calls_extractor(monkeypatch) -> None:
         fake_extract,
     )
 
-    with TestClient(app, base_url="http://127.0.0.1") as client:
-        res = client.post(
-            "/api/memory/extract",
-            json={
-                "userText": "I cap at 20%",
-                "assistantText": "Got it.",
-                "sessionId": "chat_xyz",
-                "model": "deepseek-chat",
-            },
-        )
-        assert res.status_code == 200
-        assert res.json()["memories"] == [
-            {"type": "preference", "content": "20% cap", "id": 1}
-        ]
+    res = mutation_client.post(
+        "/api/memory/extract",
+        json={
+            "userText": "I cap at 20%",
+            "assistantText": "Got it.",
+            "sessionId": "chat_xyz",
+            "model": "deepseek-chat",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json()["memories"] == [
+        {"type": "preference", "content": "20% cap", "id": 1}
+    ]
 
 
 def test_extract_persists_source_message_id(tmp_path, monkeypatch) -> None:
@@ -137,8 +132,13 @@ def test_session_memories_endpoint_filters_chat_session(monkeypatch) -> None:
         "api.ai_routes.get_memory_service",
         lambda: FakeMemoryService(),
     )
+    monkeypatch.setattr("api.auth.API_TOKEN", "pytest-test-token")
 
-    with TestClient(app, base_url="http://127.0.0.1") as client:
+    with TestClient(
+        app,
+        base_url="http://127.0.0.1",
+        headers={"X-API-Token": "pytest-test-token"},
+    ) as client:
         res = client.get("/api/memory/session/sess_a")
         assert res.status_code == 200
         memories = res.json()["memories"]

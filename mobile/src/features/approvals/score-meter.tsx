@@ -13,13 +13,14 @@ import { useEffect } from 'react';
 
 import type { ProposalScore } from '@/api/types';
 import { Badge, Pct, Row, Stack, Text } from '@/components/ui';
-import { colors, radius, spacing, timing } from '@/theme';
+import { radius, spacing, timing, useColors } from '@/theme';
 
 function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
 export function ScoreMeter({ score }: { score?: ProposalScore | null }) {
+  const colors = useColors();
   if (!score) {
     return (
       <Stack gap={spacing.xs}>
@@ -115,6 +116,7 @@ export function ScoreMeter({ score }: { score?: ProposalScore | null }) {
 }
 
 function WinBar({ win, base }: { win: number; base: number }) {
+  const colors = useColors();
   const w = useSharedValue(0);
   useEffect(() => {
     w.value = withTiming(win, timing.slow);

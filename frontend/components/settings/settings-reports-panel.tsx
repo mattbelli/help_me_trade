@@ -5,20 +5,32 @@ import {
   TerminalInput,
   TerminalToggle,
 } from "@/components/ui/terminal";
-import type { ReportsSettings } from "@/lib/api";
+import type { AlertsSettings, ReportsSettings } from "@/lib/api";
 
 export const DEFAULT_REPORTS: ReportsSettings = {
   morning_levels_enabled: true,
   hour_et: 8,
 };
 
+export const DEFAULT_ALERTS: AlertsSettings = {
+  max_push_per_day: 5,
+};
+
 type Props = {
   value: ReportsSettings | undefined;
   onChange: (reports: ReportsSettings) => void;
+  alerts: AlertsSettings | undefined;
+  onAlertsChange: (alerts: AlertsSettings) => void;
 };
 
-export function SettingsReportsPanel({ value, onChange }: Props) {
+export function SettingsReportsPanel({
+  value,
+  onChange,
+  alerts: alertsValue,
+  onAlertsChange,
+}: Props) {
   const reports = value ?? DEFAULT_REPORTS;
+  const alerts = alertsValue ?? DEFAULT_ALERTS;
 
   function patch(partial: Partial<ReportsSettings>) {
     onChange({ ...reports, ...partial });
@@ -67,6 +79,37 @@ export function SettingsReportsPanel({ value, onChange }: Props) {
               const parsed = Number.parseInt(e.target.value, 10);
               if (Number.isNaN(parsed)) return;
               patch({ hour_et: Math.max(0, Math.min(23, parsed)) });
+            }}
+          />
+        </TerminalField>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border p-3">
+        <div>
+          <p className="text-sm font-medium">Alert pushes</p>
+          <p className="text-xs text-muted-foreground">
+            Daily ceiling on flow/confluence phone pushes. In-app notification
+            cards are never capped — this only throttles the phone.
+          </p>
+        </div>
+
+        <TerminalField
+          label="Max phone pushes / day"
+          htmlFor="alerts-max-push"
+          className="max-w-[8rem]"
+        >
+          <TerminalInput
+            id="alerts-max-push"
+            type="number"
+            min={0}
+            max={100}
+            value={alerts.max_push_per_day}
+            onChange={(e) => {
+              const parsed = Number.parseInt(e.target.value, 10);
+              if (Number.isNaN(parsed)) return;
+              onAlertsChange({
+                max_push_per_day: Math.max(0, Math.min(100, parsed)),
+              });
             }}
           />
         </TerminalField>

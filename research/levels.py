@@ -70,8 +70,14 @@ def level_features(
     window: int = 5,
     lookback: int = 252,
     tol_pct: float = 1.0,
+    include_prices: bool = False,
 ) -> dict:
-    """Point-in-time S/R features at bars[idx] using only history up to idx."""
+    """Point-in-time S/R features at bars[idx] using only history up to idx.
+
+    With include_prices=True, adds the nearest actual level prices
+    (support_prices below close, resistance_prices above) for consumers that
+    need concrete levels rather than engineered features.
+    """
     if idx < 0 or idx >= len(bars):
         return {}
     if idx + 1 < window * 2 + 1:
@@ -112,5 +118,13 @@ def level_features(
         span = nearest_resistance - nearest_support
         if span > 0:
             features["range_position"] = (close - nearest_support) / span
+
+    if include_prices:
+        features["support_prices"] = [
+            round(p, 2) for p in sorted(supports_below, reverse=True)[:3]
+        ]
+        features["resistance_prices"] = [
+            round(p, 2) for p in sorted(resistances_above)[:3]
+        ]
 
     return features

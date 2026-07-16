@@ -2,9 +2,17 @@
 
 import { useEffect, useState } from "react";
 
+import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { formatMoney } from "@/lib/api";
+import type { ChannelId } from "@/lib/workspace/channels";
+import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import {
   fetchOrderExecutions,
   fetchTradeEvents,
@@ -29,9 +37,14 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const TH =
-  "border-b border-[var(--border)] px-2 py-1.5 text-[9.5px] font-medium tracking-[0.05em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--border)] px-2 py-1.5";
-const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
+  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
+const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
+const ROW = "group/row transition-colors hover:bg-[var(--bg-hover)]";
+
+type PublishProps = {
+  publish: (symbol: string) => void;
+  linked: boolean;
+};
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
@@ -62,37 +75,52 @@ function formatDateTime(value: string | null | undefined): string {
   });
 }
 
+// App-wide 12-hour ET clock (matches notifications/filings/scans widgets).
+// Returns just the time-of-day, e.g. "2:48p"; "" when no fill timestamp.
+function formatFillClock(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d
+    .toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .replace(" AM", "a")
+    .replace(" PM", "p");
+}
+
 function FilledTab({
   events,
   loading,
   error,
+  publish,
+  linked,
 }: {
   events: TradeEvent[];
   loading: boolean;
   error: string | null;
-}) {
+} & PublishProps) {
   if (loading && events.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2]} />;
   }
-  if (error) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+  if (error && events.length === 0) {
+    return <WidgetError message={error} />;
   }
   if (events.length === 0) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        No trade history
-      </p>
-    );
+    return <WidgetEmpty message="No trade history" />;
   }
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Date</th>
             <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-left", "w-full")}>Side</th>
             <th className={cn(TH, "text-right")}>Qty</th>
             <th className={cn(TH, "text-right")}>Price</th>
             <th className={cn(TH, "text-right")}>Amount</th>
@@ -101,16 +129,35 @@ function FilledTab({
         <tbody>
           {events.map((e) => {
             const amount = parseMoney(e.amount);
+            const sym = e.symbol;
+            const fillClock = formatFillClock(e.fill_time);
             return (
               <tr key={e.id} className={ROW}>
-                <td className={cn(TD, "text-[var(--fg-dim)]")}>{e.trade_date}</td>
-                <td className={cn(TD, "font-medium", sideClass(e.side))}>
-                  {e.symbol ?? "—"}
+                <td
+                  className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}
+                >
+                  {e.trade_date}
+                  {fillClock ? (
+                    <span className="ml-1.5 text-[var(--fg-faint)]">
+                      {fillClock}
+                    </span>
+                  ) : null}
+                </td>
+                <td className={cn(TD, "font-medium")}>
+                  {sym ? (
+                    <ClickableSymbol
+                      symbol={sym}
+                      linked={linked}
+                      onActivate={() => publish(sym)}
+                    />
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td
                   className={cn(
                     TD,
-                    "text-[11px] tracking-wide uppercase",
+                    "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
                     sideClass(e.side),
                   )}
                 >
@@ -149,36 +196,30 @@ function OpenTab({
   orders,
   snapshotLoading,
   hasSnapshot,
+  publish,
+  linked,
 }: {
   orders: TaggedOrder[];
   snapshotLoading: boolean;
   hasSnapshot: boolean;
-}) {
+} & PublishProps) {
   if (snapshotLoading && !hasSnapshot) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2, 2]} />;
   }
   if (!hasSnapshot) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        Waiting for orders…
-      </p>
-    );
+    return <WidgetEmpty message="Waiting for orders…" />;
   }
   if (orders.length === 0) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        No open orders
-      </p>
-    );
+    return <WidgetEmpty message="No open orders" />;
   }
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-left", "w-full")}>Side</th>
             <th className={cn(TH, "text-right")}>Qty</th>
             <th className={cn(TH, "text-right")}>Filled</th>
             <th className={cn(TH, "text-left")}>Type</th>
@@ -191,9 +232,13 @@ function OpenTab({
             <tr key={o.id} className={ROW}>
               <td className={cn(TD, "font-medium text-[var(--c-accent)]")}>
                 <span className="inline-flex items-center gap-1.5">
-                  {o.symbol}
+                  <ClickableSymbol
+                    symbol={o.symbol}
+                    linked={linked}
+                    onActivate={() => publish(o.symbol)}
+                  />
                   {o.accountLabel ? (
-                    <span className="rounded border border-[var(--border)] px-1 text-[9px] text-[var(--fg-faint)]">
+                    <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
                       {o.accountLabel}
                     </span>
                   ) : null}
@@ -202,7 +247,7 @@ function OpenTab({
               <td
                 className={cn(
                   TD,
-                  "text-[11px] tracking-wide uppercase",
+                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
                   sideClass(o.side),
                 )}
               >
@@ -214,10 +259,10 @@ function OpenTab({
               <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
                 {o.filled_qty}
               </td>
-              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
                 {o.order_type}
               </td>
-              <td className={cn(TD, "text-[11px] uppercase", statusClass(o.status))}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(o.status))}>
                 {o.status.replace(/_/g, " ")}
               </td>
               <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
@@ -235,33 +280,31 @@ function RejectedTab({
   executions,
   loading,
   error,
+  publish,
+  linked,
 }: {
   executions: OrderExecution[];
   loading: boolean;
   error: string | null;
-}) {
+} & PublishProps) {
   if (loading && executions.length === 0) {
-    return <Skeleton className="m-3 h-full min-h-32 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 2]} />;
   }
-  if (error) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+  if (error && executions.length === 0) {
+    return <WidgetError message={error} />;
   }
   if (executions.length === 0) {
-    return (
-      <p className="p-3 font-mono text-xs text-[var(--fg-dim)]">
-        No rejected orders
-      </p>
-    );
+    return <WidgetEmpty message="No rejected orders" />;
   }
 
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[12px]">
+      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
         <thead>
           <tr>
             <th className={cn(TH, "text-left")}>Time</th>
             <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Side</th>
+            <th className={cn(TH, "text-left", "w-full")}>Side</th>
             <th className={cn(TH, "text-right")}>Qty</th>
             <th className={cn(TH, "text-left")}>Type</th>
             <th className={cn(TH, "text-left")}>Mode</th>
@@ -271,16 +314,20 @@ function RejectedTab({
         <tbody>
           {executions.map((x) => (
             <tr key={x.id} className={ROW}>
-              <td className={cn(TD, "text-[var(--fg-dim)]")}>
+              <td className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}>
                 {formatDateTime(x.created_at)}
               </td>
-              <td className={cn(TD, "font-medium", sideClass(x.side))}>
-                {x.symbol}
+              <td className={cn(TD, "font-medium")}>
+                <ClickableSymbol
+                  symbol={x.symbol}
+                  linked={linked}
+                  onActivate={() => publish(x.symbol)}
+                />
               </td>
               <td
                 className={cn(
                   TD,
-                  "text-[11px] tracking-wide uppercase",
+                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
                   sideClass(x.side),
                 )}
               >
@@ -289,13 +336,13 @@ function RejectedTab({
               <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
                 {x.qty}
               </td>
-              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
                 {x.order_type}
               </td>
-              <td className={cn(TD, "text-[11px] text-[var(--fg-faint)] uppercase")}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
                 {x.execution_mode}
               </td>
-              <td className={cn(TD, "text-[11px] uppercase", statusClass(x.status))}>
+              <td className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(x.status))}>
                 {x.status.replace(/_/g, " ")}
               </td>
             </tr>
@@ -306,7 +353,9 @@ function RejectedTab({
   );
 }
 
-export function OrdersWidget() {
+export function OrdersWidget({ config }: WidgetProps) {
+  const channel: ChannelId = config.channel ?? "none";
+  const { publish, linked } = usePublishSymbol(channel);
   const { snapshot, loading: snapshotLoading } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
 
@@ -390,14 +439,14 @@ export function OrdersWidget() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         {TABS.map(({ id, label }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
             className={cn(
-              "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+              "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
               tab === id
                 ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
                 : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -408,12 +457,14 @@ export function OrdersWidget() {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
         {tab === "filled" ? (
           <FilledTab
             events={filledEvents}
             loading={filledLoading}
             error={filledError}
+            publish={publish}
+            linked={linked}
           />
         ) : null}
         {tab === "open" ? (
@@ -421,6 +472,8 @@ export function OrdersWidget() {
             orders={openOrders}
             snapshotLoading={snapshotLoading}
             hasSnapshot={!!snapshot}
+            publish={publish}
+            linked={linked}
           />
         ) : null}
         {tab === "rejected" ? (
@@ -428,6 +481,8 @@ export function OrdersWidget() {
             executions={rejectedExecutions}
             loading={rejectedLoading}
             error={rejectedError}
+            publish={publish}
+            linked={linked}
           />
         ) : null}
       </div>

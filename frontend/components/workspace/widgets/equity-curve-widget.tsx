@@ -11,6 +11,10 @@ import {
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  WidgetEmpty,
+  WidgetError,
+} from "@/components/workspace/widget-states";
+import {
   fetchPortfolioHistory,
   fetchSchwabEquityCurve,
   formatMoney,
@@ -38,13 +42,13 @@ type ChartPoint = {
 function MoneyTypeBadge({ kind }: { kind: "real" | "paper" }) {
   if (kind === "real") {
     return (
-      <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[9px] tracking-wide text-[var(--c-amber)] uppercase">
+      <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-amber)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase">
         Real
       </span>
     );
   }
   return (
-    <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[9px] tracking-wide text-[var(--c-blue)] uppercase">
+    <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--c-blue)_35%,transparent)] bg-[var(--bg-inset)] px-2 py-px font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-blue)] uppercase">
       Paper
     </span>
   );
@@ -72,8 +76,8 @@ function EquityTooltip({
 
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1.5 shadow-sm">
-      <p className="font-mono text-[10px] text-[var(--fg-dim)]">{dateLabel}</p>
-      <p className="font-mono text-[11px] font-semibold tabular-nums text-[var(--fg)]">
+      <p className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">{dateLabel}</p>
+      <p className="font-mono text-[length:var(--fs-body)] font-semibold tabular-nums text-[var(--fg)]">
         {formatMoney(point.equity)}
       </p>
     </div>
@@ -195,7 +199,7 @@ export function EquityCurveWidget() {
 
   const rangeButtonClass = (active: boolean) =>
     cn(
-      "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+      "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
       active
         ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
         : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
@@ -203,10 +207,10 @@ export function EquityCurveWidget() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] px-3 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line-divider)] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {currentValue != null ? (
-            <span className="truncate font-mono text-[12px] font-semibold tabular-nums text-[var(--fg)]">
+            <span className="truncate font-mono text-[length:var(--fs-title)] font-semibold tabular-nums text-[var(--fg)]">
               {formatMoney(currentValue)}
             </span>
           ) : null}
@@ -260,14 +264,12 @@ export function EquityCurveWidget() {
 
       <div className="relative min-h-0 flex-1 p-2">
         {error ? (
-          <p className="p-2 font-mono text-[11px] text-[var(--c-red)]">{error}</p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && chartData.length === 0 ? (
           <Skeleton className="h-full min-h-24 rounded-md" />
         ) : emptyMessage ? (
-          <div className="flex h-full min-h-24 items-center justify-center">
-            <p className="font-mono text-xs text-[var(--fg-dim)]">{emptyMessage}</p>
-          </div>
+          <WidgetEmpty message={emptyMessage} />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart

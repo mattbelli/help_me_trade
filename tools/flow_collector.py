@@ -1,0 +1,130 @@
+#!/usr/bin/env python
+"""Standalone options-flow collector process (hmt-flow-collector.service).
+
+Hosts the intraday flow pipeline from signals/options_flow/runner.py — the
+30s REST poll, the OPRA websocket, and the sweep consumer — outside the API
+process, so a stalled API event loop can't blind the stream (2026-07-13:
+20-30s loop stalls killed both streams) and a hot open can't starve the
+trading loops. All output still lands in data/trading.db (WAL); the API keeps
+serving reads from there untouched.
+
+Interlock: refuses to start unless OPTIONS_FLOW_EXTERNAL_COLLECTOR=1 in the
+shared .env — the same flag stops the API from starting the pipeline
+in-process. One switch, one OPRA socket, never two (Alpaca 406s the second
+connection).
+
+Run: .venv/bin/python tools/flow_collector.py
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import signal
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# config.settings loads .env on import — everything below sees the same
+# environment the API does.
+from config.settings import (  # noqa: E402
+    get_watchlists_state,
+    reload_settings,
+)
+from signals.options_flow.runner import OptionsFlowRunner  # noqa: E402
+
+logger = logging.getLogger("flow_collector")
+
+POLL_SECONDS = max(10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30")))
+
+
+def _flag(name: str) -> bool:
+    return os.environ.get(name, "0").strip() not in ("0", "false", "no")
+
+
+def watchlist_symbols() -> list[str]:
+    # The API owns settings writes; drop our cache each call so watchlist
+    # edits made there are picked up without a collector restart.
+    reload_settings()
+    state = get_watchlists_state()
+    syms: set[str] = set()
+    for lst in state.get("lists", []):
+        for s in lst.get("symbols", []):
+            if isinstance(s, str) and s.strip():
+                syms.add(s.strip().upper())
+    return sorted(syms)
+
+
+async def _poll_loop(runner: OptionsFlowRunner) -> None:
+    while True:
+        await runner.intraday_once()
+        await asyncio.sleep(POLL_SECONDS)
+
+
+async def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    if not _flag("OPTIONS_FLOW_EXTERNAL_COLLECTOR"):
+        logger.error(
+            "OPTIONS_FLOW_EXTERNAL_COLLECTOR is not 1 — the API still owns the "
+            "pipeline; refusing to start a second OPRA connection"
+        )
+        return 2
+    if not (_flag("OPTIONS_FLOW_ENABLED") and _flag("OPTIONS_FLOW_STREAM_ENABLED")):
+        logger.error(
+            "OPTIONS_FLOW_ENABLED/OPTIONS_FLOW_STREAM_ENABLED not set — nothing to run"
+        )
+        return 2
+
+    runner = OptionsFlowRunner(watchlist_symbols=watchlist_symbols)
+
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+
+    logger.info(
+        "flow collector starting: poll every %ss, stream + sweep consumer",
+        POLL_SECONDS,
+    )
+    tasks = [
+        asyncio.create_task(runner.stream_run(), name="flow-stream"),
+        asyncio.create_task(runner.sweep_loop(), name="flow-sweeps"),
+        asyncio.create_task(_poll_loop(runner), name="flow-poll"),
+    ]
+    stopper = asyncio.create_task(stop.wait(), name="flow-stop")
+
+    # First exit wins: a stop signal, or any leg dying unexpectedly (systemd
+    # Restart=always brings the whole process back — one supervisor, not three).
+    done, _ = await asyncio.wait(
+        [*tasks, stopper], return_when=asyncio.FIRST_COMPLETED
+    )
+    if stopper not in done:
+        for t in done:
+            exc = t.exception()
+            logger.error(
+                "flow collector: task %s exited%s — shutting down for systemd restart",
+                t.get_name(),
+                f" ({exc!r})" if exc else "",
+            )
+
+    runner.stop()
+    stopper.cancel()
+    for t in tasks:
+        t.cancel()
+    for t in tasks:
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
+    logger.info("flow collector stopped")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(asyncio.run(main()))

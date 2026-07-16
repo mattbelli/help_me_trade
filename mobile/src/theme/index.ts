@@ -6,7 +6,7 @@
  * provider/context needed. If a light mode is ever added, swap these for a hook.
  */
 
-export { colors, applyColors, pnlColor, pnlWash, type Colors } from './colors';
+export { colors, applyColors, pnlColor, pnlWash, useColors, ColorsProvider, type Colors } from './colors';
 export { themes, isLightTheme, THEME_OPTIONS, type ThemeKey, type ThemeMode } from './themes';
 export { ThemeProvider, useThemeMode } from './theme-context';
 export { spacing, radius, elevation, hairline, HIT_SLOP, MIN_TOUCH, type Spacing } from './spacing';

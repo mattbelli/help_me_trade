@@ -1,9 +1,13 @@
-"""Extract durable memories from chat turns (standard mode only)."""
+"""Extract durable memories from chat turns (standard mode only) — design §4.1.
+
+LLM-or-nothing: no regex fallback. Candidates flow through the judge (§4.2), which
+decides ADD/UPDATE/SUPERSEDE/NOOP. Most turns yield zero candidates — that is the
+expected, correct output.
+"""
 
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from ai.chat.alert_intent import looks_like_alert_intent
@@ -12,66 +16,77 @@ from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
-from db.ai_tables import _is_duplicate, _memory_tokens
+from ai.memories.judge import Candidate, judge_and_store
 
 logger = logging.getLogger(__name__)
 
+_EXTRACT_TYPES = frozenset({"directive", "preference", "fact", "lesson"})
 
-def _heuristic_memories(user_text: str, assistant_text: str) -> list[dict[str, str]]:
-    items: list[dict[str, str]] = []
-    lower = user_text.lower()
-
-    pref_patterns = [
-        r"i prefer (.+)",
-        r"i like to (.+)",
-        r"my risk (?:is|tolerance is) (.+)",
-        r"i usually (.+)",
-        r"remember that i (.+)",
-    ]
-    for pattern in pref_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            items.append(
-                {
-                    "type": "preference",
-                    "content": f"User preference: {match.group(1).strip()}",
-                }
-            )
-            break
-
-    if any(word in lower for word in ("lesson", "learned", "mistake", "should have")):
-        snippet = user_text.strip()[:300]
-        if len(snippet) > 20:
-            items.append({"type": "lesson", "content": snippet})
-
-    if not items and len(assistant_text) > 80:
-        if any(word in lower for word in ("always", "never", "rule", "strategy")):
-            items.append(
-                {
-                    "type": "preference",
-                    "content": f"From chat: {user_text.strip()[:200]}",
-                }
-            )
-
-    return items[:2]
+_SYSTEM = (
+    "You extract durable memories for a trading copilot's long-term store. Most "
+    "turns contain NOTHING worth remembering — an empty list is the expected, "
+    "correct output.\n"
+    "A candidate memory must be ALL of: stated by the USER (never the assistant, "
+    "never a restatement of the Already-known list); durable (still true and useful "
+    "in 3 months); about the user's rules, tastes, situation, or a hard-won lesson "
+    "— NOT a question, NOT a one-off request/action (creating an alert, rule, or "
+    "order is an action), NOT market commentary, NOT a risk/config setting (those "
+    "live in Settings).\n"
+    "Types:\n"
+    "- directive: a standing order to you, imperative (never/always ...).\n"
+    "- preference: a soft taste or style.\n"
+    "- fact: a durable fact about the user's accounts/situation/workflow.\n"
+    "- lesson: a behavioral lesson the user stated about their own trading.\n"
+    "Rules: write content in the third person, <= 200 chars, keep the user's "
+    "numbers VERBATIM (20% stays 20%). Also return \"quote\": the user's exact words "
+    "the memory came from (a substring of the user message). Return \"symbols\": "
+    "tickers the memory is about, [] if none. Max 2 candidates per turn.\n"
+    'Return JSON only: {"memories": [{"type": "...", "content": "...", '
+    '"quote": "...", "symbols": ["..."]}]}'
+)
 
 
-def _parse_llm_memories(raw: str) -> list[dict[str, str]]:
-    parsed = parse_json_object(raw)
+def _parse_llm_memories(raw: str) -> list[dict[str, Any]]:
+    parsed = parse_json_object(raw, prefer_keys={"memories"})
     if not parsed:
         return []
     memories = parsed.get("memories", [])
     if not isinstance(memories, list):
         return []
-    out: list[dict[str, str]] = []
+    out: list[dict[str, Any]] = []
     for item in memories:
         if not isinstance(item, dict):
             continue
         mtype = str(item.get("type", "")).strip()
         content = str(item.get("content", "")).strip()
-        if mtype in ("preference", "lesson", "research") and content:
-            out.append({"type": mtype, "content": content})
-    return out[:3]
+        if mtype not in _EXTRACT_TYPES or not content:
+            continue
+        quote_raw = item.get("quote")
+        quote = str(quote_raw).strip() if quote_raw else None
+        symbols_raw = item.get("symbols")
+        symbols = (
+            [str(s).strip().upper() for s in symbols_raw if str(s).strip()]
+            if isinstance(symbols_raw, list)
+            else []
+        )
+        out.append(
+            {"type": mtype, "content": content, "quote": quote, "symbols": symbols}
+        )
+    return out[:2]
+
+
+def _already_known_block() -> str:
+    """The anti-echo negative-example list: recently-touched active memories the
+    extractor must NOT re-extract (the structural fix for the self-reinforcing
+    loop — §4.1)."""
+    try:
+        recent = get_memory_service().list(limit=10)
+    except Exception:  # noqa: BLE001 — never let context-building break extraction
+        recent = []
+    if not recent:
+        return "Already known (do NOT re-extract, even reworded): (none)"
+    lines = [f"- [{m['id']}] {m['content']}" for m in recent]
+    return "Already known (do NOT re-extract, even reworded):\n" + "\n".join(lines)
 
 
 def extract_memories_from_turn(
@@ -82,71 +97,56 @@ def extract_memories_from_turn(
     model: str | None = None,
     source_message_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return memory records created from a chat turn."""
+    """Return memory records created from a chat turn (post-judge)."""
     if not user_text.strip() or not assistant_text.strip():
         return []
 
-    # A rule is not a memory. If this turn was creating an alert/signal rule, the
-    # rule itself is the durable, executable record — don't ALSO store it as a
-    # "preference" (redundant, and it would mislead future grounding into treating
-    # a one-off alert as a standing preference).
+    # A rule is not a memory. If this turn created an alert/signal rule, the rule
+    # itself is the durable, executable record — don't ALSO store it as a memory.
     if looks_like_alert_intent(user_text):
         return []
-
-    # Review/analysis turns synthesize narrative from analytics — do not seed
+    # Review/analysis turns synthesize narrative from analytics — never seed
     # memories from generated reviews (avoids learning fabricated preferences).
     if looks_like_review_intent(user_text):
         return []
 
     llm = get_llm(model=model)
     messages = [
-        LLMMessage(
-            role="system",
-            content=(
-                "Extract ONLY new durable facts the user explicitly stated this turn. "
-                "Return JSON: {\"memories\": [{\"type\": \"preference\"|\"lesson\", "
-                "\"content\": \"...\"}]}. Do NOT extract: the assistant's own statements "
-                "or restatements, facts already known/in memory, risk/config settings, "
-                "or inferences. Only include explicit user preferences or lessons — not "
-                "generic market commentary, and NOT one-off action requests (creating an "
-                "alert, rule, or order are actions, not durable preferences). If the user "
-                "did not explicitly state a new preference or lesson, return "
-                "{\"memories\": []}."
-            ),
-        ),
+        LLMMessage(role="system", content=_SYSTEM),
         LLMMessage(
             role="user",
-            content=f"User:\n{user_text}\n\nAssistant:\n{assistant_text}",
+            content=(
+                f"{_already_known_block()}\n\n"
+                f"User:\n{user_text}\n\nAssistant:\n{assistant_text}"
+            ),
         ),
     ]
 
     try:
-        raw = complete_for_extraction(llm, messages, max_tokens=300)
+        raw = complete_for_extraction(llm, messages, max_tokens=400)
         candidates = _parse_llm_memories(raw)
-    except Exception as exc:
-        logger.warning("LLM memory extraction failed, using heuristics: %s", exc)
-        candidates = []
+    except Exception as exc:  # noqa: BLE001 — LLM-or-nothing, fail-soft
+        logger.warning("LLM memory extraction failed: %s", exc)
+        return []
 
     if not candidates:
-        candidates = _heuristic_memories(user_text, assistant_text)
+        logger.info("LLM memory extraction returned no candidates")
+        return []
 
-    memory = get_memory_service()
     metadata: dict[str, Any] = {"source": "chat", "session_id": session_id}
     if source_message_id:
         metadata["source_message_id"] = source_message_id
-    saved: list[dict[str, Any]] = []
-    for item in candidates:
-        candidate_tokens = _memory_tokens(item["content"])
-        existing = memory.list(memory_type=item["type"], limit=200)
-        if any(
-            _is_duplicate(candidate_tokens, _memory_tokens(row["content"]))
-            for row in existing
-        ):
-            continue
-        record = memory.add(
-            item["content"],
+
+    batch = [
+        Candidate(
             memory_type=item["type"],
+            content=item["content"],
+            quote=item["quote"],
+            symbols=item["symbols"],
+            source="chat_extract",
+            authority="agent_inferred",
             metadata=metadata,
         )
-        saved.append(record)
-    return saved
+        for item in candidates
+    ]
+    return judge_and_store(batch)

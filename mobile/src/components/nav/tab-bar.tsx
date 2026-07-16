@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PressableScale } from '@/components/ui';
 import { Icon, type IconName } from '@/components/ui/icon';
-import { colors, hairline, isLightTheme, spacing, spring, useThemeMode } from '@/theme';
+import { hairline, spacing, spring, useColors, useThemeMode } from '@/theme';
 
 export interface TabDef {
   key: string;
@@ -40,9 +40,9 @@ export function TabBar({
   onSelect: (i: number) => void;
   badges?: Record<string, boolean>;
 }) {
+  const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { resolved } = useThemeMode();
-  const light = isLightTheme(resolved);
+  const { isLight: light } = useThemeMode();
   // The frosted pill is tinted for the active theme — a dark glass on dark themes,
   // a light glass in light mode (otherwise the dark pill + dark icons vanish).
   const pillBg = light ? 'rgba(255,255,255,0.62)' : 'rgba(40,45,54,0.5)';
@@ -121,6 +121,7 @@ function TabItem({
   badge?: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
   // scaleTo=1: never scale the SVG icon on press (scaling rasterizes → pixelates).
   return (
     <PressableScale onPress={onPress} scaleTo={1} haptic={false} style={{ borderRadius: 15 }}>

@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Info } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  WidgetEmpty,
+  WidgetError,
+  WidgetLoading,
+} from "@/components/workspace/widget-states";
 import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
 import { fetchRvolScanner, type RvolScannerResult } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
@@ -44,10 +48,10 @@ function formatPrice(v: number): string {
 function formatAsOf(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString(undefined, {
-      hour: "2-digit",
+      hour: "numeric",
       minute: "2-digit",
       second: "2-digit",
-      hour12: false,
+      hour12: true,
     });
   } catch {
     return "—";
@@ -90,11 +94,11 @@ export function RvolScannerWidget({ config }: WidgetProps) {
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !data) {
-    return <Skeleton className="m-3 h-full min-h-24 rounded-md" />;
+    return <WidgetLoading cols={[2, 1, 1, 1]} />;
   }
 
   if (error && !data) {
-    return <p className="p-3 font-mono text-xs text-[var(--c-red)]">{error}</p>;
+    return <WidgetError message={error} onRetry={load} />;
   }
 
   // ── Off-hours / empty state ────────────────────────────────────────────────
@@ -105,14 +109,14 @@ export function RvolScannerWidget({ config }: WidgetProps) {
     : "—";
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+    <div className="flex h-full flex-col overflow-hidden font-mono text-[length:var(--fs-title)]">
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-2 py-1.5">
-        <span className="text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]">
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--line-divider)] px-2 py-1.5">
+        <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
           {sessionLabel}
         </span>
         {data ? (
-          <span className="text-[9.5px] tabular-nums text-[var(--fg-faint)]">
+          <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
             {formatAsOf(data.as_of)}
           </span>
         ) : null}
@@ -120,21 +124,23 @@ export function RvolScannerWidget({ config }: WidgetProps) {
 
       {/* Off-hours / empty notice */}
       {offHours ? (
-        <p className="p-3 text-[11px] text-[var(--fg-dim)]">
-          {data?.note ?? "Scanner runs during market hours (9:30–16:00 ET)."}
-        </p>
+        <WidgetEmpty
+          message={
+            data?.note ?? "Scanner runs during market hours (9:30–16:00 ET)."
+          }
+        />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
           {/* Column headers */}
-          <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5">
-            <span className="text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]">
+          <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5">
+            <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
               #
             </span>
             {(["Sym", "Last", "RVOL", "Vol"] as const).map((h, idx) => (
               <span
                 key={h}
                 className={cn(
-                  "text-[9.5px] font-medium uppercase tracking-[0.05em] text-[var(--fg-faint)]",
+                  "text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]",
                   idx === 0 ? "text-left" : "text-right",
                 )}
               >
@@ -150,19 +156,19 @@ export function RvolScannerWidget({ config }: WidgetProps) {
               type="button"
               onClick={() => publish(row.symbol)}
               className={cn(
-                "group/row grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--border)] px-2 py-1.5 text-left transition-colors",
+                "group/row grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 text-left transition-colors",
                 linked
                   ? "cursor-pointer hover:bg-[var(--bg-hover)]"
                   : "cursor-default hover:bg-[var(--bg-hover)]",
               )}
             >
               {/* Rank */}
-              <span className="text-[10px] tabular-nums text-[var(--fg-faint)]">
+              <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                 {idx + 1}
               </span>
               {/* Symbol */}
               <span className="group/sym inline-flex min-w-0 items-center gap-0.5">
-                <span className="truncate font-medium text-[var(--c-accent)] underline-offset-2 hover:underline">
+                <span className="truncate font-medium text-[var(--c-accent)] uppercase underline-offset-2 hover:underline">
                   {row.symbol}
                 </span>
                 <span

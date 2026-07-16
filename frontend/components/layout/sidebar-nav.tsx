@@ -6,9 +6,8 @@ import {
   Activity,
   Bot,
   Brain,
-  CandlestickChart,
   LayoutDashboard,
-  LayoutGrid,
+  Kanban,
   LineChart,
   Scale,
   Search,
@@ -32,18 +31,6 @@ const NAV_ITEMS: {
     icon: LayoutDashboard,
   },
   {
-    href: "/trading",
-    label: "Trading",
-    description: "Chart & watchlist",
-    icon: CandlestickChart,
-  },
-  {
-    href: "/charts",
-    label: "Charts",
-    description: "Multi-chart grid",
-    icon: LayoutGrid,
-  },
-  {
     href: "/performance",
     label: "Performance",
     description: "P&L & trade analytics",
@@ -54,6 +41,12 @@ const NAV_ITEMS: {
     label: "Research",
     description: "Deep dives",
     icon: Search,
+  },
+  {
+    href: "/board",
+    label: "Board",
+    description: "Project kanban",
+    icon: Kanban,
   },
   {
     href: "/memories",

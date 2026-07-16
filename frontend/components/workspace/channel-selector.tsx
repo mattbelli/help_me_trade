@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { StandInMark } from "@/components/workspace/stand-in-mark";
 import { channelColor, CHANNELS, type ChannelId } from "@/lib/workspace/channels";
 import { cn } from "@/lib/utils";
 
@@ -22,19 +23,25 @@ export function ChannelSelector({ channel, onChange }: Props) {
       <DropdownMenuTrigger
         type="button"
         className={cn(
-          "workspace-no-drag size-2.5 shrink-0 rounded-sm border border-[var(--border)] outline-none transition-opacity",
-          channel === "none" && "opacity-50",
+          "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-0.5 outline-none transition-colors hover:bg-[var(--bg-hover)]",
         )}
-        style={
-          channel !== "none" ? { backgroundColor: activeColor } : undefined
-        }
+        style={{
+          color: channel !== "none" ? activeColor : "var(--fg-faint)",
+        }}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
         aria-label="Select link channel"
-      />
+        title={
+          channel !== "none" ? `Linked \u00b7 Ch ${channel}` : "Link channel"
+        }
+      >
+        <StandInMark
+          className={cn("size-6", channel === "none" && "opacity-70")}
+        />
+      </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="min-w-36 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[11px] shadow-[var(--panel-shadow)]"
+        className="min-w-36 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
       >
         {CHANNELS.map((ch) => (
           <DropdownMenuItem

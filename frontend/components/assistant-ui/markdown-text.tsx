@@ -9,19 +9,85 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useState } from "react";
+import {
+  Children,
+  isValidElement,
+  type ComponentType,
+  type FC,
+  type ReactNode,
+  memo,
+  useMemo,
+  useState,
+} from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { SyntaxHighlighter } from "@/components/assistant-ui/shiki-highlighter";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 
-const MarkdownTextImpl = () => {
+/**
+ * Optional per-string-token transform (T2 terminal transcript): rewrites raw
+ * text nodes inside prose containers — e.g. `$NVDA` / `[mem:140]` → clickable
+ * chips. Undefined (the default, used by the mobile bubble thread) leaves the
+ * renderer byte-identical.
+ */
+export type MarkdownTextProps = {
+  textTransform?: (text: string) => ReactNode;
+};
+
+// Recursively map string leaves through `transform`, leaving elements intact.
+function transformChildren(
+  children: ReactNode,
+  transform: (text: string) => ReactNode,
+): ReactNode {
+  return Children.map(children, (child) => {
+    if (typeof child === "string") return transform(child);
+    if (isValidElement(child)) return child; // nested markdown element — already handled
+    return child;
+  });
+}
+
+// Prose containers whose text leaves should be tokenized (code/pre excluded).
+const TOKENIZED_TAGS = [
+  "p",
+  "li",
+  "strong",
+  "blockquote",
+  "td",
+  "th",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+] as const;
+
+type TokenizedProps = { children?: ReactNode } & Record<string, unknown>;
+
+function buildTokenizedComponents(transform: (text: string) => ReactNode) {
+  const wrapped: Record<string, ComponentType<TokenizedProps>> = {};
+  for (const tag of TOKENIZED_TAGS) {
+    const Base = (defaultComponents as Record<string, ComponentType<TokenizedProps>>)[tag];
+    if (!Base) continue;
+    wrapped[tag] = function Tokenized({ children, ...props }: TokenizedProps) {
+      return <Base {...props}>{transformChildren(children, transform)}</Base>;
+    };
+  }
+  return { ...defaultComponents, ...wrapped };
+}
+
+const MarkdownTextImpl: FC<MarkdownTextProps> = ({ textTransform }) => {
+  const components = useMemo(
+    () =>
+      textTransform ? buildTokenizedComponents(textTransform) : defaultComponents,
+    [textTransform],
+  );
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
       className="aui-md"
-      components={defaultComponents}
+      components={components}
       defer
     />
   );
@@ -185,13 +251,15 @@ const defaultComponents = memoizeMarkdownComponents({
     />
   ),
   table: ({ className, ...props }) => (
-    <table
-      className={cn(
-        "aui-md-table my-3 w-full border-separate border-spacing-0 overflow-y-auto",
-        className,
-      )}
-      {...props}
-    />
+    <div className="aui-md-table-wrapper my-3 overflow-x-auto">
+      <table
+        className={cn(
+          "aui-md-table w-max min-w-full border-separate border-spacing-0",
+          className,
+        )}
+        {...props}
+      />
+    </div>
   ),
   th: ({ className, ...props }) => (
     <th

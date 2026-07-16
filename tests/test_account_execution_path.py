@@ -111,6 +111,7 @@ def _patch_passing_env(monkeypatch, db_path: Path, *, execution_mode: str = "dry
     monkeypatch.setattr(paper_orders_mod, "DEFAULT_DB_PATH", db_path)
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
     stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
     stub.aplace_order = AsyncMock(  # type: ignore[method-assign]
@@ -355,6 +356,7 @@ async def test_submit_uses_get_broker_for_account_when_bound(
     assert default is not None
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
     stub.aplace_order = AsyncMock(  # type: ignore[method-assign]
         return_value=PlaceOrderResponse(
@@ -415,6 +417,7 @@ async def test_submit_uses_get_broker_for_legacy_intent(
     _patch_passing_env(monkeypatch, db, execution_mode="paper")
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
     stub.aplace_order = AsyncMock(  # type: ignore[method-assign]
         return_value=PlaceOrderResponse(

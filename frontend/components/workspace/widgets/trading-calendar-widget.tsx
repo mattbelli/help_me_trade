@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { WidgetError } from "@/components/workspace/widget-states";
 import {
+  dailyRealizedAmount,
+  dailyRealizedIsCashFlowFallback,
   fetchPerformanceDashboard,
   type PerformanceDashboard,
 } from "@/lib/performance-api";
-import { formatTradeMoney, parseMoney } from "@/lib/trades-api";
+import { formatTradeMoney } from "@/lib/trades-api";
 import { cn } from "@/lib/utils";
 import { useDashboardPrefs } from "@/lib/workspace/use-dashboard-prefs";
 
@@ -22,6 +25,8 @@ type DayCell = {
   net: number;
   count: number;
   hasData: boolean;
+  cashFlowFallback?: boolean;
+  approx?: boolean;
 };
 
 type WeekRow = {
@@ -67,7 +72,10 @@ function pnlClass(value: number): string {
 function buildWeeks(
   year: number,
   month: number,
-  dateMap: Map<string, { net: number; count: number }>,
+  dateMap: Map<
+    string,
+    { net: number; count: number; cashFlowFallback?: boolean; approx?: boolean }
+  >,
 ): WeekRow[] {
   const firstOfMonth = new Date(year, month, 1);
   const lastOfMonth = new Date(year, month + 1, 0);
@@ -88,8 +96,10 @@ function buildWeeks(
         dayNum: cursor.getDate(),
         inMonth,
         net: stat?.net ?? 0,
+        approx: stat?.approx,
         count: stat?.count ?? 0,
         hasData: Boolean(stat),
+        cashFlowFallback: stat?.cashFlowFallback,
       });
       cursor = addDays(cursor, 1);
     }
@@ -113,7 +123,7 @@ function DayTile({
   if (!cell.inMonth) {
     return (
       <div className="flex min-h-[38px] flex-col items-center justify-start rounded-[3px] px-1 py-1">
-        <span className="font-mono text-[10px] text-[var(--fg-faint)] opacity-40">
+        <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)] opacity-40">
           {cell.dayNum}
         </span>
       </div>
@@ -131,7 +141,7 @@ function DayTile({
       onClick={onClick}
       title={
         cell.hasData
-          ? `${cell.date}: ${formatTradeMoney(cell.net)} (${cell.count} close${cell.count === 1 ? "" : "s"})`
+          ? `${cell.date}: ${formatTradeMoney(cell.net)}${cell.cashFlowFallback ? " (cash flow)" : ""}${cell.approx ? " — includes activity with unknown cost basis (pre-history shares)" : ""} (${cell.count} event${cell.count === 1 ? "" : "s"})`
           : cell.date
       }
       className="relative flex min-h-[38px] flex-col items-center justify-start overflow-hidden rounded-[3px] px-1 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
@@ -144,21 +154,21 @@ function DayTile({
           aria-hidden
           className="absolute inset-0"
           style={{
-            backgroundColor: positive ? "var(--c-green)" : "var(--c-red)",
+            backgroundColor: positive ? "var(--c-green-bg)" : "var(--c-red)",
             opacity: 0.05 + intensity * 0.25,
           }}
         />
       ) : null}
-      <span className="relative z-10 font-mono text-[10px] text-[var(--fg-dim)] tabular-nums">
+      <span className="relative z-10 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] tabular-nums">
         {cell.dayNum}
       </span>
       <span
         className={cn(
-          "relative z-10 mt-0.5 font-mono text-[10px] font-semibold tabular-nums",
+          "relative z-10 mt-0.5 font-mono text-[length:var(--fs-table)] font-semibold tabular-nums",
           cell.hasData ? pnlClass(cell.net) : "text-[var(--fg-faint)]",
         )}
       >
-        {cell.hasData ? formatCompact(cell.net) : ""}
+        {cell.hasData ? `${cell.approx ? "≈" : ""}${formatCompact(cell.net)}` : ""}
       </span>
     </button>
   );
@@ -166,10 +176,10 @@ function DayTile({
 
 function RollupTile({ total, muted }: { total: number; muted?: boolean }) {
   return (
-    <div className="flex min-h-[38px] flex-col items-center justify-center rounded-[3px] border-l border-[var(--border)] bg-[var(--bg-inset)] px-1 py-1">
+    <div className="flex min-h-[38px] flex-col items-center justify-center rounded-[3px] border-l border-[var(--line-divider)] bg-[var(--bg-inset)] px-1 py-1">
       <span
         className={cn(
-          "font-mono text-[10px] font-semibold tabular-nums",
+          "font-mono text-[length:var(--fs-table)] font-semibold tabular-nums",
           muted && total === 0 ? "text-[var(--fg-faint)]" : pnlClass(total),
         )}
       >
@@ -238,12 +248,22 @@ export function TradingCalendarWidget() {
   }, [cursor.year, cursor.month, selectedAccountId]);
 
   const dateMap = useMemo(() => {
-    const map = new Map<string, { net: number; count: number }>();
+    const map = new Map<
+      string,
+      {
+        net: number;
+        count: number;
+        cashFlowFallback?: boolean;
+        approx?: boolean;
+      }
+    >();
     if (!dashboard) return map;
     for (const day of dashboard.daily_realized) {
       map.set(day.date, {
-        net: parseMoney(day.net_amount),
+        net: dailyRealizedAmount(day),
         count: day.event_count,
+        cashFlowFallback: dailyRealizedIsCashFlowFallback(day),
+        approx: Boolean(day.avg_approx),
       });
     }
     return map;
@@ -310,7 +330,7 @@ export function TradingCalendarWidget() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line-divider)] px-3 py-2">
         <button
           type="button"
           onClick={() => shiftMonth(-1)}
@@ -327,24 +347,24 @@ export function TradingCalendarWidget() {
         >
           <ChevronRight className="size-3.5" />
         </button>
-        <span className="font-mono text-[12px] font-semibold text-foreground">
+        <span className="font-mono text-[length:var(--fs-title)] font-semibold text-foreground">
           {monthLabel}
         </span>
         {!isCurrentMonth ? (
           <button
             type="button"
             onClick={resetToday}
-            className="rounded px-1.5 py-0.5 font-mono text-[9px] tracking-wide text-[var(--fg-faint)] uppercase transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+            className="rounded px-1.5 py-0.5 font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
           >
             Today
           </button>
         ) : null}
-        <span className="ml-auto font-mono text-[9px] tracking-[0.1em] text-[var(--fg-faint)] uppercase">
+        <span className="ml-auto font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
           Month P/L
         </span>
         <span
           className={cn(
-            "font-mono text-[13px] font-semibold tabular-nums",
+            "font-mono text-[length:var(--fs-title)] font-semibold tabular-nums",
             pnlClass(monthTotal),
           )}
         >
@@ -353,34 +373,32 @@ export function TradingCalendarWidget() {
       </div>
 
       {selectedDetail ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-inset)] px-3 py-1.5">
-          <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line-divider)] bg-[var(--bg-inset)] px-3 py-1.5">
+          <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]">
             {selectedDetail.date}
           </span>
           <span
             className={cn(
-              "font-mono text-[11px] font-semibold tabular-nums",
+              "font-mono text-[length:var(--fs-body)] font-semibold tabular-nums",
               pnlClass(selectedDetail.net),
             )}
           >
             {formatTradeMoney(selectedDetail.net)}
           </span>
-          <span className="font-mono text-[10px] text-[var(--fg-faint)]">
+          <span className="font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
             {selectedDetail.count} close{selectedDetail.count === 1 ? "" : "s"}
           </span>
           {selectedDetail.symbols.length > 0 ? (
-            <span className="truncate font-mono text-[10px] text-[var(--fg-faint)]">
+            <span className="truncate font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
               {selectedDetail.symbols.join(", ")}
             </span>
           ) : null}
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div className="min-h-0 flex-1 overflow-auto p-2 scroll-shadow-y">
         {error ? (
-          <p className="p-2 font-mono text-[11px] text-[var(--c-red)]">
-            {error}
-          </p>
+          <WidgetError message={error} className="p-2" />
         ) : null}
         {loading && !dashboard ? (
           <div className="grid grid-cols-4 gap-1.5">
@@ -398,12 +416,12 @@ export function TradingCalendarWidget() {
             {WEEKDAY_LABELS.map((label) => (
               <div
                 key={`hdr-${label}`}
-                className="px-1 py-0.5 text-center font-mono text-[9px] tracking-wide text-[var(--fg-faint)] uppercase"
+                className="px-1 py-0.5 text-center font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase"
               >
                 {label}
               </div>
             ))}
-            <div className="px-1 py-0.5 text-center font-mono text-[9px] tracking-wide text-[var(--fg-faint)] uppercase">
+            <div className="px-1 py-0.5 text-center font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
               Week
             </div>
 
@@ -427,7 +445,7 @@ export function TradingCalendarWidget() {
             {dowTotals.map((total, i) => (
               <RollupTile key={`dow-${i}`} total={total} muted />
             ))}
-            <div className="min-h-[38px] rounded-[3px] border-l border-[var(--border)] bg-[var(--bg-inset)]" />
+            <div className="min-h-[38px] rounded-[3px] border-l border-[var(--line-divider)] bg-[var(--bg-inset)]" />
           </div>
         )}
       </div>

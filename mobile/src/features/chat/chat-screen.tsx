@@ -19,10 +19,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/ui/icon';
-import { PressableScale, Row, Screen, ScreenTitle, Stack, Text } from '@/components/ui';
-import { colors, hairline, haptics, radius, spacing } from '@/theme';
+import { PageHeading, PressableScale, Row, Screen, Stack, Text } from '@/components/ui';
+import { hairline, haptics, radius, spacing, useColors } from '@/theme';
 
 import { MessageBubble } from './chat-bubbles';
+import { ChatHistory } from './chat-history';
 import { useChat } from './use-chat';
 
 const SUGGESTIONS = [
@@ -36,10 +37,12 @@ const SUGGESTIONS = [
 const TAB_PILL_CLEARANCE = 78;
 
 export function ChatScreen() {
+  const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { turns, status, error, send, stop, reset } = useChat();
+  const { turns, status, error, send, stop, reset, loadSession } = useChat();
   const [draft, setDraft] = useState('');
   const [keyboardUp, setKeyboardUp] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const streaming = status === 'streaming';
@@ -74,14 +77,19 @@ export function ChatScreen() {
           align="center"
           style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.sm }}
         >
-          <ScreenTitle>chat</ScreenTitle>
-          {turns.length > 0 ? (
-            <PressableScale onPress={reset} haptic>
-              <Text variant="caption" color="textMuted">
-                New chat
-              </Text>
+          <PageHeading title="chat" />
+          <Row gap={spacing.lg} align="center">
+            {turns.length > 0 ? (
+              <PressableScale onPress={reset} haptic>
+                <Text variant="caption" color="textMuted">
+                  New chat
+                </Text>
+              </PressableScale>
+            ) : null}
+            <PressableScale onPress={() => setHistoryOpen(true)} haptic hitSlop={8}>
+              <Icon name="list" size={22} color={colors.textMuted} />
             </PressableScale>
-          ) : null}
+          </Row>
         </Row>
 
         <ScrollView
@@ -183,11 +191,21 @@ export function ChatScreen() {
           </Row>
         </View>
       </KeyboardAvoidingView>
+
+      <ChatHistory
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onOpenSession={(id) => {
+          setHistoryOpen(false);
+          void loadSession(id);
+        }}
+      />
     </Screen>
   );
 }
 
 function EmptyState({ onPick }: { onPick: (s: string) => void }) {
+  const colors = useColors();
   return (
     <Stack gap={spacing.xl} style={{ alignItems: 'center' }}>
       <View

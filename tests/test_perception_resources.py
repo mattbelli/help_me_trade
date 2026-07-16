@@ -65,6 +65,13 @@ def test_list_resources_catalog() -> None:
         "decision_journal",
         "my_trades",
         "schwab_accounts",
+        "screener",
+        "market",
+        "news",
+        "calibration",
+        "options_flow",
+        "options_chain",
+        "equity_tape",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]
@@ -75,6 +82,20 @@ async def test_query_unknown_resource() -> None:
     result = await query("positions")
     assert result["error"] == "unknown resource"
     assert "strategies" in result["available"]
+
+
+@pytest.mark.asyncio
+async def test_query_resource_aliases_resolve(resources_db: Path) -> None:
+    # Weaker models (DeepSeek on mobile) guess natural names that differ from the
+    # registered keys — the tool guidance itself says "market regime"/"trades"/"alerts".
+    # Aliases must resolve, not return {"error":"unknown resource"} and show FAILED (the
+    # market_regime-fails-on-mobile-works-on-web bug).
+    for alias in ("market_regime", "regime", "trades", "alerts", "journal", "accounts"):
+        result = await query(alias, db_path=resources_db)
+        assert result.get("error") != "unknown resource", f"alias {alias!r} did not resolve"
+    # the market-regime family maps to the real "market" resource and reads cleanly
+    for alias in ("market_regime", "regime"):
+        assert (await query(alias, db_path=resources_db)).get("resource") == "market"
 
 
 @pytest.mark.asyncio
@@ -168,3 +189,162 @@ async def test_query_fail_soft_on_reader_error(
     assert result["resource"] == "watchlists"
     assert "boom" in result["error"]
     assert result["rows"] == []
+
+
+@pytest.mark.asyncio
+async def test_query_screener_compact_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_run_scan(preset_id, universe, get_bars, *, limit=50):
+        del preset_id, universe, get_bars, limit
+        return {
+            "results": [
+                {
+                    "symbol": "NVDA",
+                    "price": 900.0,
+                    "change_pct": 2.5,
+                    "rvol": 1.8,
+                    "value": 28.0,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("signals.screener.run_scan", fake_run_scan)
+    monkeypatch.setattr(
+        "api.scan_routes._screen_universe",
+        lambda: ["NVDA"],
+    )
+    monkeypatch.setattr(
+        "api.scan_routes._make_bars_getter",
+        lambda: (lambda _sym: None),
+    )
+
+    result = await query("screener", {"preset": "oversold", "limit": 10})
+    assert result["resource"] == "screener"
+    assert result["count"] == 1
+    row = result["rows"][0]
+    assert row["symbol"] == "NVDA"
+    assert row["price"] == 900.0
+    assert row["change_pct"] == 2.5
+    assert row["rvol"] == 1.8
+    assert "RSI" in row["reason"]
+
+
+@pytest.mark.asyncio
+async def test_query_market_regime_fields(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from datetime import date
+
+    db = tmp_path / "market.db"
+    from db.regime import upsert_regime
+
+    today = date.today().isoformat()
+    upsert_regime(
+        [
+            ("DGS10", today, 4.41),
+            ("DGS2", today, 4.10),
+            ("VIXCLS", today, 18.92),
+        ],
+        db_path=db,
+    )
+    result = await query("market", db_path=db)
+    assert result["count"] == 1
+    row = result["rows"][0]
+    assert row["term_spread"] == pytest.approx(0.31)
+    assert row["vix"] == pytest.approx(18.92)
+    assert "regime_label" in row
+    assert row["fresh"] is True
+
+
+@pytest.mark.asyncio
+async def test_query_news_resource(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_fetch(*, limit=50, symbol=None):
+        del limit
+        if symbol == "AAPL":
+            return [
+                {
+                    "headline": "Apple news",
+                    "source": "Reuters",
+                    "datetime": "2026-06-24T12:00:00+00:00",
+                    "url": "https://example.com/aapl",
+                    "symbol": "AAPL",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(
+        "signals.finnhub.fetch_watchlist_news",
+        fake_fetch,
+    )
+    result = await query("news", {"symbol": "AAPL", "limit": 5})
+    assert result["count"] == 1
+    assert result["rows"][0]["headline"] == "Apple news"
+
+
+@pytest.mark.asyncio
+async def test_query_calibration_passthrough(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payload = {
+        "n_resolved": 3,
+        "min_samples": 5,
+        "by_strategy": [],
+        "by_bucket": [],
+    }
+    monkeypatch.setattr(
+        "ai.journal_review.compute_calibration",
+        lambda **_: payload,
+    )
+    result = await query("calibration", db_path=tmp_path / "cal.db")
+    assert result["count"] == 1
+    assert result["rows"][0]["n_resolved"] == 3
+
+
+@pytest.mark.asyncio
+async def test_query_options_chain(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_chain = {
+        "symbol": "SPY",
+        "underlying_price": 620.5,
+        "expirations": ["2026-07-10", "2026-07-17"],
+        "expiry": "2026-07-10",
+        "rows": [{"strike": 620.0, "call": {"bid": 1.2}, "put": {"bid": 1.1}}],
+        "as_of": "2026-07-10T19:59:59Z",
+    }
+    calls: dict = {}
+
+    def fake_build(broker, symbol, expiry, strikes):
+        calls["args"] = (symbol, expiry, strikes)
+        return fake_chain
+
+    monkeypatch.setattr("brokers.factory.get_broker", lambda _name: object())
+    monkeypatch.setattr(
+        "brokers.options_chain.build_options_chain_sync", fake_build
+    )
+
+    result = await query(
+        "options_chain",
+        {"symbol": "spy", "expiration": "2026-07-10", "strikes": 100},
+        db_path=tmp_path / "chain.db",
+    )
+    assert result["count"] == 1
+    assert result["rows"][0]["expiry"] == "2026-07-10"
+    # symbol upcased, expiry passed through, strikes clamped to the LLM cap
+    assert calls["args"] == ("SPY", "2026-07-10", 30)
+
+
+@pytest.mark.asyncio
+async def test_query_options_chain_requires_symbol(tmp_path: Path) -> None:
+    result = await query("options_chain", {}, db_path=tmp_path / "chain.db")
+    assert result["count"] == 1
+    assert "symbol" in str(result["rows"][0].get("error"))
+
+
+@pytest.mark.asyncio
+async def test_query_options_chain_aliases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("brokers.factory.get_broker", lambda _name: None)
+    for alias in ("chain", "option_chain", "greeks"):
+        result = await query(alias, {"symbol": "SPY"}, db_path=tmp_path / "c.db")
+        assert result.get("resource") == "options_chain", alias

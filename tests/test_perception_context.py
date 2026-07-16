@@ -15,6 +15,12 @@ from db.chart_features import create_price_alert, init_chart_features
 from db.earnings_calendar import upsert_earnings
 
 
+@pytest.fixture(autouse=True)
+def _reset_spy_bars_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The SPY-bars TTL cache is module-global — never let it leak across tests."""
+    monkeypatch.setattr("ai.perception.context._spy_bars_cache", None)
+
+
 def _daily_bar(day: int, close: float) -> StockBar:
     return StockBar(
         time=f"2026-01-{day:02d}T21:00:00Z",
@@ -64,9 +70,15 @@ def test_list_capabilities_manifest() -> None:
     caps = list_capabilities()
     assert "symbol" in caps["context_scopes"]
     assert "quote" in caps["context_scopes"]["symbol"]
+    assert "news" in caps["context_scopes"]["symbol"]
+    assert "strategy_signals" in caps["context_scopes"]["symbol"]
     assert "active_alerts" in caps["context_scopes"]["symbol"]
     assert "watchlists" in caps["resources"]
-    assert "strategies" in caps["resources"]
+    assert "screener" in caps["resources"]
+    assert "market" in caps["resources"]
+    assert "calibration" in caps["resources"]
+    assert "propose_order" in caps["write_actions"]
+    assert "create_rule" in caps["write_actions"]
     assert "query" in caps["notes"].lower()
 
 
@@ -157,6 +169,111 @@ async def test_build_symbol_context_assembles_blocks(
     assert ctx["decision_score"]["ev"] == 1.8
     assert len(ctx["active_alerts"]) == 1
     assert ctx["active_alerts"][0]["price"] == 900.0
+
+
+@pytest.mark.asyncio
+async def test_build_symbol_context_news_fail_soft(
+    monkeypatch: pytest.MonkeyPatch,
+    perception_db: Path,
+) -> None:
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", perception_db)
+    monkeypatch.setattr(
+        "ai.perception.context.get_market_data_provider",
+        MagicMock(side_effect=RuntimeError("no provider")),
+    )
+    monkeypatch.setattr(
+        "ai.perception.context.compute_session_levels",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "signals.decision_scorer.score_symbol",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "ai.perception.context.list_price_alerts",
+        lambda **_: [],
+    )
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("news down")
+
+    monkeypatch.setattr("signals.finnhub.afetch_company_news", boom)
+
+    ctx = await build_symbol_context("NVDA", db_path=perception_db)
+    assert ctx["news"] == {"unavailable": True}
+
+
+@pytest.mark.asyncio
+async def test_build_symbol_context_strategy_signals(
+    monkeypatch: pytest.MonkeyPatch,
+    perception_db: Path,
+) -> None:
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", perception_db)
+    monkeypatch.setattr(
+        "ai.perception.context.get_market_data_provider",
+        MagicMock(side_effect=RuntimeError("no provider")),
+    )
+    monkeypatch.setattr(
+        "ai.perception.context.compute_session_levels",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "signals.decision_scorer.score_symbol",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "ai.perception.context.list_price_alerts",
+        lambda **_: [],
+    )
+    monkeypatch.setattr(
+        "signals.finnhub.afetch_company_news",
+        AsyncMock(return_value=[]),
+    )
+
+    from datetime import timedelta
+
+    from signals.strategy_kinds import STRATEGY_KINDS
+
+    monkeypatch.setattr("signals.strategy_kinds._dip_check", lambda _ctx: True)
+    monkeypatch.setattr("signals.strategy_kinds._earnings_check", lambda _ctx: True)
+    monkeypatch.setattr("signals.strategy_kinds._vix_spike_check", lambda _ctx: True)
+
+    base = date(2025, 1, 1)
+    daily = [
+        StockBar(
+            time=f"{(base + timedelta(days=i)).isoformat()}T21:00:00Z",
+            open=99.0 + i,
+            high=101.0 + i,
+            low=98.0 + i,
+            close=100.0 + i,
+            volume=1_000_000.0,
+        )
+        for i in range(260)
+    ]
+
+    async def fake_batch(symbols, **kwargs):
+        del kwargs
+        syms = [str(s).upper() for s in symbols]
+        if "SPY" in syms:
+            return {"NVDA": daily, "SPY": daily}
+        key = syms[0]
+        return {key: daily}
+
+    provider = MagicMock()
+    provider.aget_stock_bars_batch = AsyncMock(side_effect=fake_batch)
+    provider.aget_stock_bars = AsyncMock(return_value=daily)
+    provider.aget_quotes = AsyncMock(return_value={})
+    monkeypatch.setattr(
+        "ai.perception.context.get_market_data_provider",
+        lambda: provider,
+    )
+
+    ctx = await build_symbol_context("NVDA", db_path=perception_db)
+    signals = ctx.get("strategy_signals")
+    assert signals is not None
+    assert len(signals) == len(STRATEGY_KINDS)
+    assert all(isinstance(s["would_fire"], bool) for s in signals)
+    assert all(s.get("rationale") for s in signals)
 
 
 @pytest.mark.asyncio

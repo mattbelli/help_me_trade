@@ -58,9 +58,622 @@ backup only — **do all work on `serv`**. **Access from any tailnet device:** h
 
 ---
 
-## CURRENT FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
+## ▶ START HERE (2026-07-14 overnight) — Workspaces shipped (⚠ backend restart pending) + 6-item polish batch
 
-> ▶ **LATEST (2026-07-02) — Performance page broken into focused cockpit widgets + Company-Info widget +
+> Founder pre-bed batch, all shipped + deployed (PRs #65–#68 merged; BUILD.md 2026-07-14 rows):
+> options-chain call side mirrored (left-aligned), company-info card 720×~760 centered, tickers
+> uppercase app-wide + orders side-color off tickers, undefined-var fixes (--fg/--bg-elevated/
+> --c-purple), custom themes backfill missing knobs from their BASE (midnight-oil bug class),
+> AI-chat prose in Inter + accent headings + 46rem measure (.aui-md), ticker HOVER PREVIEW card
+> (200ms, right side, full-info click-through), and **WORKSPACES** (References/WORKSPACES_SPEC.md):
+> named groups of pages, per-device active (localStorage `hmt-active-workspace`), switcher in the
+> bottom strip, page Duplicate. ⚠ NEW BACKEND ENDPOINTS (`/api/workspace/workspaces`) NEED AN
+> hmt-backend RESTART (not bounced overnight — needs founder auth, or the Jul-15 reauth-cron
+> restart does it); until then workspaces are per-device only and a transitional legacy /pages PUT
+> keeps the server blob fresh. Founder in-browser review pending on the whole batch.
+
+## ▶ EARLIER (2026-07-13 overnight) — Watchlist v3 round 1: column registry + settings + per-list config
+
+> Founder overnight ask: column widths (good defaults), settings menu, order/show-hide, row height,
+> config saved WITH the watchlist, exhaustive researched column set (ToS the UX reference). Shipped on
+> branch `feat/watchlist-columns-v3`: 19-column registry in 5 categories (most from row-payload fields
+> the backend already sent but the UI ignored; only new backend field = `gap_pct`), gear → settings
+> overlay (density presets, drag-reorder + toggles, reset), header-edge width drag, sticky ticker col
+> on h-scroll, per-list `settings` blob validated in `config/settings.py` and stored on the list (syncs
+> to any device). New default order = founder's ToS pref (Sym·Δ%·Last·Vol·RVOL·1d). ruff+tests+tsc
+> green; headless-verified on live data. Deferred columns (52w dist, RSI, SMA dist, bid/ask, IV rank,
+> decision score) — the registry absorbs them later. NOTE: backend must deploy WITH frontend (settings
+> pass-through + gap_pct live in api/main.py + config/settings.py).
+
+## ▶ EARLIER (2026-07-12 LATER) — Stock splits fixed on equity bar history (⚠️ pending backend deploy)
+
+> Founder: CRWD chart draws a giant $800→$200 candle at its Jul-2 4:1 split. Root cause: every
+> Alpaca stock-bars request omitted `adjustment` → Alpaca defaults to `raw` (unadjusted). NOT a
+> cache bug (all bar caches are 5-min TTL); futures via Schwab were unaffected. Fix: `adjustment=
+> split` on all three request builders in `brokers/alpaca.py` (single async/sync + batch) —
+> adapter-wide on purpose: raw-across-split poisoned every consumer (RVOL volume baseline 4× off,
+> momentum fake −75% return, volume profile). `momentum_daily_bars` self-heals (480-day rolling
+> upsert overwrites stale raw rows next refresh). Live-verified continuous CRWD series through the
+> split via the real adapter; hermetic test pins all 3 paths. Committed; **backend deploy blocked
+> by the permission classifier — needs the founder's go** (`tools/serv-deploy.sh backend`).
+
+## ▶ EARLIER (2026-07-12 LATE) — Notifications card UI round 2 + company-info redesign + FINRA short interest, DEPLOYED
+
+> Founder rejected round 1's visuals ("you just added the word ding... this is awful") → widget now
+> renders the mockup's real card grammar: raised cards, colored kind word micro-header, bold mono
+> clickable ticker + accent magnitudes ($15.7M / 2.1×) in headlines, fact preview line collapsed,
+> `◱ N batched` on groups, labeled one-fact lines + ⚠ caveat on expand. Channel-aware now.
+> **Company info** (widget + `i` modal): mkt cap was buried as meta text — now leads the stat grid;
+> added rev growth/P/S/ROE (fetched but never rendered), 52-wk range as a track w/ live price dot,
+> de-pilled session + news chips. **NEW `signals/finra.py`**: consolidated short interest, free +
+> anonymous, 24h cache → `/api/ticker` → "SHORT INT 1.0% out · 1.7d" (% shs out, settlement-date
+> tooltip). **Headless visual loop** (playwright-core + cached chromium vs live :3001, workspace
+> layout routes intercepted so the founder's real layout is untouched) — use it for every UI round;
+> it caught two misses before the founder saw them. Both services deployed + screenshot-verified.
+
+## ▶ EARLIER (2026-07-12) — Notifications surface 4: card inbox + routing matrix shipped
+
+> Founder: options-flow noise drowned the notifications widget (last 7d: 232 rows, 133 flow) and
+> ambient kinds buzzed his phone. He wants the widget as a **front-page inbox with cards + a ding**
+> — "everything important without being so dense i get lost in it"; solo flow prints stay in for
+> now. **Shipped the routing matrix + widget redesign:** `INBOX_ONLY_KINDS` demotion at the
+> `notify()` chokepoint (rvol/earnings/report_ready/research_ready/scan_ready/idea_resolved never
+> push; warning/critical escapes; phone tier untouched: proposals, fills, risk/kill-switch,
+> price_alert, idea_triggered, budget-gated flow). Two gap notifications wired: **idea
+> triggered/resolved** (sweep collects transitions → cards; triggered pushes) and **nightly-scan
+> done** (`scan_ready`, inbox-only). Widget rewrite: correlated fires collapse into one card via
+> `group_key` (45-min chain window, "×5" count, expand → member list, expanding marks read),
+> category filters (trading/flow/alerts/research/system) instead of per-kind button soup, kind =
+> plain lowercase colored word (no pills), two-note **ding** on new arrivals w/ persisted mute
+> (`config.ding`). Store depth 50→100. Tests: routing demotion + transition collection green.
+> Remaining tier ideas (push-side batching for future 40+/hr books) live in
+> `flow_notif_mockup.html` — build at promotion, not now.
+
+## ▶ EARLIER (2026-07-11 NIGHT) — Filings feed shipped (insiders + 13D + congress, all free)
+
+> Founder wanted an Autopilot/Pelosi-tracker-style **feed** ("so I could take a look and decide") —
+> not tracking machinery. Probed sources live: EDGAR getcurrent = free + near-real-time; Finnhub
+> congressional = paywalled; **Lambda Finance free congressional endpoint works**. Shipped:
+> `signals/filings/` (Form 4 open-market buys ≥$100k w/ person/role/value, initial 13D stakes,
+> congress trades w/ party/chamber/range + PTR links), `db/filings.py` (uid dedup),
+> `filings_edgar` 10-min + `filings_congress` 6-h jobs (`FILINGS_FEED_ENABLED`), `/api/filings`,
+> `filings` widget (tabs, click-to-chart, source ↗). Live-tested: $7.2M NTSK insider buy + 89
+> congress rows ingested pre-commit. **A feed, not a signal** — no scoring/alerts/outcomes (spec
+> notes how it would bolt on). Congress lane is statutorily ≤45d stale (every tracker is). Founder
+> must add the widget from the workspace picker. Pending in-browser check.
+
+## ▶ EARLIER (2026-07-11 LATE EVENING) — Idea-outcomes ledger revived; nightly setup scan armed
+
+> Founder asked why the decision-journal + idea-outcomes widgets "populated once and went dead."
+> **Diagnosis: both work; neither had a driver.** `idea_outcomes`' only writer (`run_setup_scan`)
+> is manual-only, last ran Jul 3; `decision_journal` fills only from proposals and no strategy is
+> armed (correct). The 4 pending ideas were honest — SPY never touched its 731.57–738.89 zone
+> (closest 739.51 Jul 8), GS never saw 1000–1010; sweep heartbeat alive at 30-min cadence.
+> **Shipped:** `setup_scan_nightly` job (weekdays ≥17:30 ET, once/day, restart-safe artifact-topic
+> marker, `SETUP_SCAN_NIGHTLY_ENABLED` default ON — **first run Mon Jul 13 evening**, watch
+> `journalctl -u hmt-backend | grep "Nightly setup scan"`); zone dedup in `register_ideas` (daily
+> re-suggestion ≠ new idea); ranker LLM failure now degrades to unranked instead of aborting the
+> scan (silent idea-drop leak closed); sweep stamps `last_price` → widget Open tab shows Last
+> (+% from zone / "at zone") + Expires. **Spec for the next phase:**
+> `IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11.md` — idea-vs-event boundary, decision_journal bridge
+> via `idea_id` (never merge), Phase B = shorts + chat/decision-engine registration. Leftover for
+> founder: live rows id 3–4 are pre-dedup Jul-3 SPY duplicates — delete or let them expire Jul 17
+> (classifier blocked agent-side deletion, correctly). Board card: `idea-ledger-round1`.
+
+## ▶ EARLIER (2026-07-11 EVENING) — Flow intelligence week-1 core SHIPPED; Monday = wildcard rate probe
+
+> **Saturday flow sprint, in order:** widget round-3 fixes → OPRA trades-wildcard **ACK confirmed on
+> our plan** (`scripts/opra_wildcard_probe.py` — market-wide tape possible at $0; data-rate check
+> pending) → 3-agent capacity research (`FLOW_CAPACITY_RESEARCH_2026-07-11.md`) → Fable design
+> (`FLOW_INTELLIGENCE_DESIGN_2026-07-11.md`, founder briefed Q&A-style) → **outcome tracking live**
+> (every flow event stamped ret_15m/1h/eod/1d/5d; nightly in the EOD scan; 1,095 stamped; early
+> 1.5-day tease: $100k+ prints skew contrarian both directions — NOT significant) → widget poll
+> 30s→5s (print-to-pixel now ~3-5s) → **week-1 core built + tests green**: `rolling.py` D-1 burst +
+> D-2 cluster (founder's small-print slicing hypothesis, TWAP footprint metrics instrumented),
+> coverage/minutes_into_session schema, 1s-loop wiring (dormant till Monday), honest symbol-day
+> report units (n≥20 gating), widget burst/cluster rows, `scripts/opra_rate_probe.py`.
+> **MONDAY 09:31 ET: run the rate probe** (stop prod stream first — 1-conn; retry-on-406 built in)
+> → branch decision ~11:00 → build branch W (two-lane ingest + lag governor + quotes-follow-heat)
+> or branch C (DTE quotas per `FLOW_DTE_DIVERSITY_SPEC`). Week 2: pressure widget, breadth, pushes.
+> ⚠️ If the founder's ⚙ filter was hand-set, bursts/clusters need re-checking there (explicit
+> flowTypes persists; only the default gained the new kinds). SPY/QQQ near-invisible intraday =
+> ZERO_DTE_EXCLUDE × recency active-set (explained to founder; quotas/wildcard fix it).
+
+## ▶ EARLIER (2026-07-11) — Options-flow widget REDESIGNED + LIVE (surface 3); DTE-diversity spec awaiting founder
+
+> **The options-flow widget is rebuilt to the approved mockup and deployed** after 3 live
+> founder-feedback rounds: sortable fixed columns (strike/exp split), side = the only saturated
+> color (green ▲/red ▼/grey ◇), row-scoped magnitude bars, always-visible honesty flags, plain
+> depth drawer (no repeated data; z-score always shown, `—` on tape events which never carry it),
+> 12-hour times **app-wide** (ET clock, rvol, scans too — founder: "that's how I go about my day").
+> **The data story that drove it:** `recent_events()`'s 50-cap let the nightly 215-event EOD
+> `unusual_volume` batch (all stamped 21:00, non-directional) bury the 600+ intraday
+> sweeps/blocks. Fixed: cap 250, comma-list `event_type`, and a **⚙ flow-type filter** in the
+> frame header (left of channel dot) that drives the fetch — default = directional tape, EOD off.
+> Score v1 retuned to the real distribution (tape 0.4–5.9; was all-10.0, then all-2.5). Gotcha
+> for future header menus: Base UI `GroupLabel` outside a `Group` THROWS — plain div instead.
+> **Open:** (1) `flow-dte-diversity` (board, next): Fri's tape = 97% 0-1DTE because the active
+> set self-selects by recency — spec at `References/FLOW_DTE_DIVERSITY_SPEC_2026-07-11.md`;
+> founder reading it, asked "is that the best way to see the most important data" — answer him
+> before building. (2) Round-2 settings (scope: watchlist/tickers/premium floor) queued.
+> (3) Founder observation to eventually test mechanically via `ret_1d`/`ret_5d`: the TOP-scored
+> sweep marked the session top twice on Fri (MSFT 4.5 @ 12:57p, TSLA 4.4 @ 1:00p) — contrarian.
+> (4) Notifications redesign (surface 4) is the next big piece of `flow-notif-redesign`.
+> Also this session: **chat memory extraction fix verified + committed** (2059a17) — a stale
+> `mode=="standard"` gate no-op'd extraction on every live route; live routes pass `"saved"`.
+
+## ▶ EARLIER (2026-07-11) — TradingView DELETED — the native engine is the only chart
+
+> **Bye-bye TradingView.** `lightweight-charts` is gone from the repo (package + its `fancy-canvas`
+> transitive dep removed via `npm install`). The workspace chart widget now renders ONLY `NativeChart`
+> — the A/B toggle and the `config.chartEngine` field are removed; `tv-light-chart.tsx` + the TV-only
+> helpers (`chart-trendline.ts`, `chart-session-bands.ts`) deleted; `chart-time.ts` decoupled
+> (`TickMarkType` import + TV-only `formatTickMark` removed); the TradingView attribution link in
+> `workspace-page.tsx` removed. The two legacy sidebar pages that still used TV — **`/trading` +
+> `/charts` — RETIRED**: both routes now `redirect("/workspace")`, dead page components + their nav
+> items (and now-unused icons) deleted, per the workspace-first "old UI dies" direction (founder chose
+> retire). Also closed the logged fast-follow: right-click over an oscillator/volume pane no longer
+> eats the browser menu into a dead zone — `onContextMenuEvent` only claims the right-click where it
+> has an action (price pane / line / segment). `tsc` clean; adversarial review = **SHIP** (it caught
+> the real trap — swapping the legacy pages to standalone `NativeChart` dropped their built-in toolbar
+> since native is driven by the workspace frame's controls; resolved by retiring the pages, not by
+> propping them up).
+> **Deploy: DONE** (frontend rebuilt + restarted several times later the same day during the
+> options-flow rounds — buildId verified each time); founder has been using the workspace live
+> since. In-browser eyeball of the `/trading`,`/charts` redirects: not explicitly confirmed, low risk.
+> **Known minor follow-up (logged):** ext-hours session *background shading* (faint pre/post bands TV
+> drew) isn't ported to native — the ext-hours candles still draw, just without the tint;
+> `intradayBarSession` already lives in `chart-time.ts` for the eventual port. Legacy right-rail /
+> positions deep-links to `/trading?symbol=` now redirect to `/workspace` (symbol-focus dropped on
+> those legacy links only — the workspace's own widgets already click-to-focus). Board:
+> `native-chart-engine`. **NEXT: deploy + verify → then the parked trade-prints bubble overlay is the
+> first post-TV chart feature.**
+
+## ▶ EARLIER (2026-07-11) — Native chart engine: STUDIES live (MAs + RSI/MACD panes)
+
+> **Phase 3 round 1 deployed.** The native engine now renders the frame-toolbar Studies dropdown's
+> full set: SMA 20/50/200 + EMA 20 overlays on the price pane, RSI 14 + MACD 12 26 9 in their own
+> oscillator sub-panes (multi-pane `computeLayout` — panes carved off the plot bottom, separators,
+> per-pane scales, 30/70 bands, sign-colored histogram; crosshair spans all panes). Engine stays
+> headless: wrapper computes series via the SAME `lib/indicators.ts`+`chart-studies.ts` as TV and
+> hands the engine values+colors (`setStudies`). Same `config.studies` — toggles apply to both
+> engines, zero new UI. Sonnet review: SHIP (V_PAD clamp taken; **fast-follow logged: right-click
+> over an oscillator pane is a dead zone** — `regionAt` isn't study-pane-aware). 52 engine tests;
+> live smoke screenshot verified (SPY 1H: SMA + both panes render TV-clean). Also this session:
+> level clustering (×N node lines) BENCHED on founder feedback — every level draws individually.
+> **NEXT: founder verdict on studies → Phase 3 polish → delete lightweight-charts + the TV
+> attribution link in workspace-page.tsx. Idea parked (founder liked it): trade-prints bubble
+> overlay (quotes + aggressor-sized trade circles) from the SIP stream.** Board:
+> `native-chart-engine`.
+
+## ▶ EARLIER (2026-07-10) — Native chart engine: Phase 2 alerts + drawings LIVE
+
+> Building toward TV deletion (founder: "continue the chart building so we can say bye bye to
+> Trading View"). **Rounds 2+3 deployed same evening.** Round 2: right-click context menu
+> (add level / set alert / remove alert / remove level), alert-create popover **extracted to shared
+> `chart-alert-popover.tsx`** (TV imports it), **drag-to-move alert lines** (live preview, PUT on
+> release, preview survives poll recomposes). Round 3: **drawing tools** — right-click *Draw
+> trendline/channel* (two-click placement, rubber-band preview, `timeOfIndex` data-space anchors),
+> endpoint + channel-width **drag handles** (TV width formula), right-click remove; **writes use
+> semantic colors** (`"accent"`, relay §5.1) with shared `resolveDrawingColor` in BOTH readers so
+> native + TV render each other's drawings during the A/B. Sonnet reviews each round (fast-draw
+> dblclick→resetView, zero-width channel handle loss, axis-strip draw clicks — all fixed). 50
+> engine tests; live E2E smokes on :3001 (alert menu/popover; draw→POST→render→delete). **NEXT
+> chart round: studies (overlay SMAs/EMAs + oscillator panes) → Phase 3 polish + founder verdict →
+> delete lightweight-charts + the TV attribution link in workspace-page.tsx.** Board:
+> `native-chart-engine`.
+
+## ▶ EARLIER (2026-07-10) — Native chart engine: Phase 1 BUILT (A/B toggle live)
+
+> Founder is replacing TradingView lightweight-charts on web with OUR engine ("build the best,
+> time/effort no object"; Fable hand-writes the core — no Composer for engine code). **Read
+> `References/CHART_ENGINE.md` before touching `frontend/lib/chart-engine/`** — headless core +
+> Painter adapter (canvas2d now, RN-Skia later = phone sharing), bar-index time scale, two-layer
+> repaint contract, measured perf budget. **Phase 1 done on founder "go phase 1"**: pure core
+> (`scales/ticks/series/merge`, 33 vitest tests — zoom-anchor invariance, pan clamps, autoscale,
+> 1-2-5 ticks, merge mutates-only-last-bar) + `canvas2d.ts` (DPR pixel-snap, two-layer stack) +
+> `engine.ts` (rAF dirty-flag repaint; drag pan / wheel anchored-zoom / dblclick reset / crosshair)
+> + `native-chart.tsx` (bars cache, session-gated live ticks + ±50% plausibility band + staleness
+> refetch — mirrors TvLightChart's gating; CSS-var themes; hover legend). Enable per chart widget:
+> eye menu → "Native engine (beta)" (`config.chartEngine`). Perf: core drawScene 1.32ms @5k bars
+> (4ms budget); `?chartPerf=1` overlay. Headless dpr1+dpr2 screenshots verified. TV stays default
+> until the founder kills it (Phase 3). NEXT: founder A/B feel test → Phase 2 overlays (session
+> nodes, alerts+drag, drawings, ETH shading, studies, axis drag). Board: `native-chart-engine`.
+
+## ▶ EARLIER (2026-07-10) — Confluence engine: any 2 watched things + agent options perception
+
+> Founder: "let's build both… convergence should be any 2 things we are watching." **Four rounds, all
+> committed + tested**: (1) **options_chain perception resource** — chain builder extracted from
+> `api/main.py` → `brokers/options_chain.py`; chat agent can browse expirations/strikes/IV/greeks
+> (aliases chain/greeks); (2) **push budget → setting** `alerts.max_push_per_day` (default 5, Settings →
+> Reports / Alerts + Automations page; in-app cards never capped); (3) **equity tape events** —
+> `signals/equity_tape.py` TapeDetector tapped in SIP `_on_trade` BEFORE the exclude-condition drop
+> (avg-price/derivative crosses ARE the institutional blocks): large = max($1M, 1bp of median daily $vol),
+> $10M no-profile floor, exchange `D` = FINRA TRF = dark_pool, tick-test direction (flagged weak), ±10%
+> off-market corrupt-print guard, 60s (symbol,type) cooldown → `equity_tape_events` (30d prune) via 2s
+> drain loop (health job `equity_tape_flush`); **watchlists now pin into the market stream server-side**;
+> perception resource `equity_tape` (aliases tape/dark_pool/blocks); (4) **confluence engine** —
+> `convergence.py` generalized: components {flow, tape, rvol, level}, ≥2 fire, cross-source DAY memory via
+> event stores (morning sweep + afternoon dark-pool print converge), title "SYM: signal confluence".
+> **Test-hermeticity fixes (pre-existing, exposed by subset runs)**: conftest forces `BROKER=alpaca`
+> (box .env has BROKER=schwab — inert in prod, leaked into proposal tests → 'blocked'); AUDIT_LOOP_NAMES
+> gained options_flow/options_flow_intraday. Full suite + ruff + tsc green. Board: `confluence-engine`,
+> `equity-tape-events`, `perception-options-chain` done; `tape-widget-surface` next (tape events have no
+> cockpit surface yet). Watch after deploy: `equity tape:` log lines; stream symbol count (watchlist pin ≤
+> caps 30/100 hybrid); dark-pool floors may need tuning on real tape.
+
+## ▶ EARLIER (2026-07-09, evening) — Phase 3 LIVE end-to-end + founder UI round + chain viewer
+
+> **Options-flow Phase 3 fully deployed** (founder go "just deploy yourself"): 3a transport + 3b sweeps
+> (first live sweep 1.5s off the tape; AAPL 7-exchange buy_side classified) + 3c enrichment (sweep rows
+> carry detail JSON — underlying px/IV/greeks/OI — chevron dropdown in widget) + at-print quote ring
+> (classifies vs quote PREVAILING at print, fixes fast-sweep undetermined) + hot-quote tuning 150→60
+> (quote flood was ~52% of a core). **Founder UI round committed, visual check pending** (board card
+> `chart-ux-founder-round-0709`): pane-hover flare off, 1px-dotted bell alerts (no axis pills), NEW eye
+> menu (hide Alerts/Drawings), theme-tuned tick flash + price-tint trial. **Options-chain viewer widget**
+> (board `options-chain-viewer`) dispatched to Composer (monitored). Deploy of the UI round + chain
+> viewer pending when the round lands. Fork-storm incident + rules: memory `serv-fork-storm-2026-07-09`.
+
+## ▶ EARLIER (2026-07-09) — Options-flow Phase 3 build (streaming + sweeps)
+
+> Founder go (~13:40 ET): "should we move onto phase 3." **P-1/P-3 probes closed live same day** —
+> `scripts/opra_ws_probe.py`, results `research/options_flow/ws_probe_2026-07-09.md` (commit `6e9e460`):
+> msgpack schemas confirmed (trade `c` = ONE char string, not a list), 1,506 trade subs ACKed (1,000 = our
+> budget not a vendor wall), **ONE ws connection per account** (2nd → 406, first survives — prod stream must
+> be singleton; dev probes conflict with prod), trade lag **p50 = 12 ms**, ISO-sweep `S` prints on tape
+> (SWP-1 corroboration real), **quotes flood 20:1** → architecture: trades BROAD (≤1,000), quotes NARROW
+> hot-subset (recently-printed, cap 150). **30s poll stays running as the permanent fallback** — stream is
+> additive; deterministic event ids dedupe both paths for free. **Round 3a BUILT + committed** (`signals/
+> options_flow/stream.py` + DARK `api/main.py` wiring behind `OPTIONS_FLOW_STREAM_ENABLED=0`; 81 tests +
+> ruff green). ⚠️ The Composer round's pytest verify **fork-stormed serv to load 205** (box froze,
+> self-recovered) — its tests passed a sync `connect_factory` into an awaited seam → zero-wait reconnect
+> spin under mocked sleep. New standing rule (memory `serv-fork-storm-2026-07-09`): NO unmonitored
+> background dispatches; single-threaded verifies with hard timeouts. Orchestrator fixed a real reconnect
+> bug (subscribed sets never cleared per-connection → silent no-data after reconnect) + premature backoff
+> reset + the restart amplifier (`POLL_COLD_START_LOOKBACK_MINUTES=30` cursor floor — a mid-day restart
+> re-pulled ~440k SPY prints). **Round 3b BUILT + committed** (`fadbd90`, hand-written — no
+> dispatch): `sweeps.py` SWP-1 clustering (500ms window, ≥3-exchange sweep / one-exchange ≥5-print split,
+> \$25k/\$250k-index floors, ISO `S` corroborates never gates) + `api/main.py` 1s consumer (at-print DIR-1
+> vs live quote cache → `stream_quote` basis; events → db + existing convergence/push budget) + violet
+> widget sweep label. 144 tests + ruff + tsc green. `OPTIONS_FLOW_STREAM_ENABLED=1` set in `.env`;
+> **DEPLOY PENDING FOUNDER** (`./tools/serv-deploy.sh both`). Post-deploy watch: `options_flow stream:`
+> connect + 60s stats (quote msg rate vs `HOT_QUOTE_MAX=150` — lower it if CPU creeps), `options_flow
+> sweeps:` event lines. Board card `options-flow-phase3`.
+
+## ▶ EARLIER (2026-07-09) — Options-flow Phase 1+2 MERGED TO MAIN + ENABLED LIVE
+
+> Founder: "merge it to main and enable it." Done ~11:15 ET: merge `f0fddee` → main (pushed); backfill on the
+> 23 equity/ETF watchlist names (futures excluded) → 64,444 baseline rows / 61 buckets;
+> **`ZSCORE_STD_FLOOR=1242.65`** set from `research/options_flow/thresholds.md` (committed `bfdfa2a`, UV-2
+> test fixtures rescaled); `OPTIONS_FLOW_ENABLED=1` appended to `.env`; frontend rebuilt + both services
+> restarted via `tools/serv-deploy.sh` (backend PID 553659 / frontend 553910, clean boot, zero errors).
+> SPY/QQQ stay in the flow watchlist with the built-in $250k premium floor + 0DTE exclusion. The 30s intraday
+> poll + convergence pushes (5/day budget) are live during regular hours; first EOD scan tonight after close.
+> **Watch:** journal `options_flow intraday:` cycle lines + that early pushes respect the budget. **Next:**
+> Phase 3 (msgpack websocket + SWP-1 sweeps + at-print DIR-1 — usage gate LIFTED per `multi-user-product-
+> direction`) and the P-3 market-hours probe (condition-code frequency counts to validate F-1/F-2 thresholds).
+
+## ▶ START HERE (2026-07-09) — Options-flow Phase 2 BUILT on `feat/options-flow-screener` (serv), awaiting founder merge call
+
+> Picked up the PC handoff (`References/PC_TO_SERV_2026-07-09_options-flow.md`) and built **Phase 2 end-to-end**
+> in three Composer rounds, each Fable diff-reviewed + verified (commits `4c19f9e` 2a detection / `ff58ff6` 2b
+> 30s poll transport / `139e643` 2c convergence+pushes; 126 hermetic tests, ruff clean; **adversarial safety
+> review SAFE-WITH-NITS, MAJOR dedup finding fixed in-round**). Ships: F-1/F-2/F-3 filters, BLK-1 blocks,
+> DIR-1 quote-rule tagging (`polled_quote`), intraday UV-1, per-contract trade cursors + active set + daily OI
+> refresh, and the **convergence watch** (flow + RVOL≥1.5 + level-touch → ≥2 components → ONE phone push under
+> a 5/day deny-by-default persisted budget; solo ≥$1M). **Founder decisions this session (memories saved):**
+> poll = **30s** (never design slow assuming he reacts slowly — `latency-design-for-fast-reaction`), and
+> **Phase-3 usage gate LIFTED** — building for future users, not just him (`multi-user-product-direction`);
+> transport is swappable by construction (detector consumes normalized prints). Everything still env-gated
+> OFF (`OPTIONS_FLOW_ENABLED=0`) + **not merged to main** (founder authorizes). Next: merge → run backfill on
+> the flow watchlist (sets `ZSCORE_STD_FLOOR`, currently placeholder 0.0) → enable; P-3 market-hours probe
+> (condition-code frequencies); then Phase 3 (msgpack websocket + SWP-1 sweeps). Board card
+> `options-flow-phase2`; BUILD.md 2026-07-09 top row; design doc
+> `research/fable/2026-07-09_options-flow-screener-design.md` is the source of truth.
+
+## ▶ START HERE (2026-07-08) — Schwab token-stale durable fix (both legs) committed, ⚠ DEPLOY PENDING
+
+> Two companion briefs executed (Composer-coded, Opus-reviewed) to close the recurring ~weekly Schwab outage
+> (memory `schwab-token-stale-in-memory`): **(1)** `scripts/schwab_reauth.py` now restarts `hmt-backend` on a
+> successful token mint (read-only `systemctl show` MainPID + SIGTERM → systemd respawns fresh; no sudo,
+> fail-soft, skip-path untouched); **(2)** equity extended-hours quotes moved to **Alpaca SIP**
+> (`brokers/alpaca.py::aget_ext_quotes` → `/v2/stocks/snapshots`; `HybridMarketData.aget_quotes` = Alpaca-ext
+> primary + Schwab-supplemental fail-soft, futures unchanged) so a Schwab outage can't blank equity pre/post
+> charts. ruff green; 34 hybrid/stream/alpaca tests green; regression test reproduces the 07-08 Schwab-raises
+> case. **Both legs are code-in-tree + committed but NOT deployed — take effect on the next backend restart;
+> until then the manual-restart runbook still applies (next token rotation ~Jul 15).** BUILD.md 2026-07-08 top
+> row + board card `schwab-token-stale-durable-fix` (in_progress = deploy pending).
+
+## ▶ START HERE (2026-07-07 ~9:30 ET) — Phase 1b brain + history sidebar DEPLOYED on founder go
+
+> **HEAD b8d9201 is LIVE** (batched deploy, backend + frontend, on the founder's "go" right at the open):
+> **Phase 1b one-Python-chat-brain** (bb71011 — web /api/chat proxies to `ai/chat/loop.py`; `CHAT_BRAIN=ts`
+> in frontend env = one-line revert; web temporarily loses live token streaming — `chat-streaming-followup`
+> carded HIGH) + **terminal chat-history sidebar** (b8d9201 — ☰ quake slide-out replaces the title dropdown).
+> Post-deploy smoke GREEN: /api/chat streams field-exact UIMessageStream from the Python loop, and a native
+> tool round-trip (get_context → tool-input/output chunks → answer) rendered end-to-end; zero errors in both
+> service journals. Founder in-browser eyeball pending on the sidebar. **Ops watch: Schwab streamer gateway
+> 404 since ~1:38am ET 07-07, still down through the open** (their side; loop self-heals every 60s; REST
+> fallback covering ticks; a monitor is armed for "market stream connected"). Zero Schwab 429/403 since the
+> WAF TTL-cache fix; Finnhub free-tier 429s on scanner profile fetches are known/cosmetic. Full detail:
+> BUILD.md 2026-07-07 rows; board.json current.
+
+## ▶ START HERE (2026-07-06 overnight) — autonomous board sweep: 6 cards shipped while founder slept
+
+> Per founder directive ("keep knocking stuff off the kanban one by one without me"): **safety-M1**
+> (unattributable strategy fills now quarantine + critically page — adversarial-reviewed, its MAJOR fixed),
+> **db-retention** (keeper aging + 7d analytics trim; live VACUUM took trading.db **652MB→481MB**), **#41
+> done_for_day** (fill-progress-branched mapping — the naive alias was REJECTED by review for silently
+> skipping partial-fill attribution), **RVOL dedup persistence** (restarts no longer re-fire pushes),
+> **ui-polish-small**, **version-skew reload toast** (armed from next deploy). All committed separately
+> (33ca3c3→f01a8e2), pushed, deployed (backend + frontend). BUILD.md row has full detail. New backlog card
+> `orphan-repair-surface` (repair flow + dead /executions deep-link + earnings_alerts_sent pruning); card #32
+> annotated (proposal-intake tests fail on clean main — env leakage). Founder-morning eyeballs: the whole
+> 2026-07-06 evening UI batch (terminal T2 chat, floating panels, float mode, spawn UX) + tonight's radar
+> labels/picker titles; founder lane unchanged (kill-switch design call, ledger offsets, Monday scan judging).
+
+## ▶ START HERE (2026-07-06 late) — terminal T2 + floating panels + float mode + spawn UX SHIPPED; founder asleep, agent working the board
+
+> Evening batch ALL DEPLOYED :3001 + committed (BUILD.md 2026-07-06 T2 row has full detail): (1) **terminal T2**
+> — chat streams in the ⌘K drawer over the SHARED runtime (dock in sync by construction), flat mono skins, flat
+> tool rows (approvals untouched), inline proposal cards, ticker links, thread switcher w/ rename/delete,
+> command/chat interleave, Esc-interrupt, dormant [mem:ID] chips; + founder polish (caret baseline, 13px
+> --fs-terminal, full-width prose). (2) **FloatingPanel/useFloatingSnap** (`components/ui/floating-panel.tsx`)
+> — company-info, research MD viewer, and "Open full report" (now in-app) float w/ 24px magnet snap to 6
+> targets + corner resize; founder-live fixes: measured-box seed clamp, cramped-axis magnet skip, 78vh MD
+> viewer. (3) **terminal float mode** — header drag both axes, snap bottom/top/center/free, persisted vAnchor;
+> collapsed strip always bottom. (4) **spawn UX** — viewport-aware findPlacement + focusRequest flash (drag-hint
+> pill built then KILLED by founder verdict — don't re-add). ⚠️ Founder eyeball pending on the whole batch
+> (went to bed): tick-flash M1 (Monday quotes), terminal feel, panel drag/resize. **Founder directive
+> (2026-07-06 night): keep knocking cards off the board one by one autonomously** — founder lane stays his
+> (kill-switch design call, ledger offsets, judge-scan-ideas). Terminal next phases: T3 speed pass → T4
+> commands-both-ways → T5 dock demolition. Briefs on disk: float-snap-viewers.md, widget-spawn-ux.md (done),
+> terminal-float-snap.md (done as float mode).
+
+## ▶ START HERE (2026-07-05 late) — founder-live evening batch SHIPPED ×3 rounds; memory overhaul awaiting founder
+
+> Three Composer rounds shipped, deployed :3001, pushed (BUILD.md rows + board current): (1) **scroll
+> ergonomics** — Ctrl/⌘+wheel = chart zoom, plain wheel = page scroll (+hint pill), middle-mouse-drag pans the
+> canvas; header-title centering regression fixed (descender paint room, NOT trim-both_cap_text). (2) **widget
+> polish** — watchlist grab dots exist only in edit mode (rows flush-left like positions; edit = ⋮⋮ left +
+> red − replaces sparkline), earnings badge 10px, "0 open" meta dropped, price-alerts + lives in the widget
+> header (`config.adding`). (3) **theme round** — `--c-green-bg` (fills/dots/flash) split from `--c-green`
+> (text); `--fg-widget-title` + `--fg-table-header` rows so the founder can recolor headers; custom themes now
+> get the `dark:` variant (`.dark` class synced from theme base, `theme-provider.tsx`); Text-group descs are
+> concrete. **Founder still to eyeball all three in-browser** (was mowing the lawn). ⚠️ NEW big thread:
+> **copilot memory stores junk** — deep dive DONE → `References/MEMORY_SYSTEM_REPORT.md` (root causes: regex
+> fallback extractor, research auto-log, inert mem0 vector search, injection off) + 3-phase fix plan; card
+> `memory-overhaul` in the founder lane — do NOT build until he greenlights Phase 1. Also parked: widget spawn
+> UX proposal (card `widget-spawn-ux`, founder lane).
+
+## ▶ START HERE (2026-07-06) — UI sprint SHIPPED; next: brand phase 2 / statement importer / audit cards
+
+> **The entire 2026-07-05 UI sprint is DONE, deployed, pushed** (BUILD.md has per-round rows): polish rounds
+> 1-4 (ticker links / motion + tick-flash / type ladder / widget-state kit), Ember theme (founder's wezterm
+> palette + film grain, replaced warm), floating theme editor (+ honest var rows), header alignment + chart/
+> watchlist ☰ toolbars, watchlist edit mode (pencil → add-row + round red − badges), brand `stand_in` phase 1
+> (channel button = the tinted mark, HMT toolbar, favicon). **Founder eyeball Monday open: the M1 tick-flash**
+> (needs live quotes). Next candidates, founder-priority order: (a) **brand phase 2** (card
+> `brand-overhaul-ui`: boot moment, empty-page watermark, app icon, color question); (b) **`statement-import`**
+> (monthly Schwab PDF → balance anchors + month-end positions; supersedes ledger-offsets guesswork);
+> (c) **`db-retention`** (VACUUM + age hourly keepers; file at 600MB and growing); (d) the 13 audit gap cards
+> (top: `mobile-approval-device-auth`, `safety-fill-attribution-orphan`; founder lane holds the
+> kill-switch-blocks-exits design call). UI-round conventions that now bind: Tailwind v4 needs
+> `text-[length:var(--fs-*)]`; new CSS vars go INSIDE populated :root; dev smoke servers on **3005+ only**
+> (3002 = nhl-gm-sim); deploy = build + `tools/serv-deploy.sh frontend` back-to-back; legacy routes are a
+> build-time blind spot (prerender!) until `retire-old-ui`.
+
+## ▶ START HERE (2026-07-05 pm) — NEXT TASK: UI cleanup/polish rounds
+
+> Founder is about to start the UI quality work. Read **`References/UI_POLISH.md`** (Opus designer
+> review, 32 recs — the good one) and the pruned `References/UI_AUDIT.md` (state-handling findings).
+> ⚠️ Memory [[ui-review-means-visual-quality]]: UI work here = the terminal workspace's LOOK
+> (motion/typography/depth) — never legacy-migration observations; the founder likes the dense mono
+> aesthetic, refine don't replace. Build order (founder-agreed 2026-07-05, dependency-driven): (1)
+> **`ticker-link-gaps`** — the one pure-correctness item, small isolated round (ClickableSymbol:
+> orders blotter, price-alerts, pnl-scatter). (2) **motion batch** from `ui-polish-do-first`:
+> motion.ts scale + prefers-reduced-motion guard FIRST (prerequisite), then M1 price tick-flash,
+> M2 page hot-swap crossfade, N3 approve/reject toast restyle, D2 dead hover-lift; exact values in
+> UI_POLISH.md. (3) **T1+T2 type-scale collapse** — settles the ladder BEFORE anything is built on
+> it. (4) **`ui-empty-states`** LAST on purpose: the shared WidgetEmpty/Loading/Error kit + empty-page
+> CTA instantiates across ~20 widgets and must be born on the final type/motion system (not restyled
+> twice); it also carries the trust-critical fix (8 widgets show silent-empty on fetch failure). Founder favors Opus agents
+> for UI coding rounds (themes were built that way, 2 rounds, both accepted). Deploy rule: `npm run
+> build` ONLY back-to-back with `tools/serv-deploy.sh frontend` ([[frontend-build-breaks-live-server]]).
+>
+> **Everything below this line shipped + pushed overnight 2026-07-04→05** (quotes round 2, idea
+> tracker weekend-kill fix + outcomes widget, conviction lane #44, social buzz P1 — Reddit via RSS
+> round-robin + StockTwits, both verified healthy w/ baselines accruing —, theme editor full-color
+> rounds 1+2, backup restore-drill, generals pending-count fix, UI audit + polish review). Founder
+> lane: theme-editor + outcomes-widget eyeball, PC backup-pull folder check, ledger offsets, Monday
+> scans (both idea lanes journal from day one).
+
+## LATEST (2026-07-05, Saturday-night round — all deployed + pushed, `6e2cdc6`)
+
+> Full detail in BUILD.md's 2026-07-05 rows. (1) **Quotes round 2** (founder live report): /ES stale
+> daily-bar price → `_futures_price_roll` (newer 5-min Globex session rolls the quote forward); weekend
+> ext divergence → "closed" is now an ext session end-to-end (payload, hub, chart header, watchlist EXT
+> badge, dashed line). Live-verified. (2) **⚠️ idea-tracker weekend kill-bug**: closed-market sweeps
+> counted as fetch failures → all 4 day-one ideas falsely `data_gap`'d; fixed (tri-state
+> `fetch_daily_bars_since`), **all 4 ideas restored to pending for Monday's judging window**.
+> (3) **idea-outcomes widget SHIPPED** (`/add idea outcomes`) — founder watches outcomes accumulate from
+> judging day one; in-browser eyeball pending. (4) **#36 backup**: serv chain + restore drill VERIFIED;
+> remaining = founder eyeballs the PC pull folder (card → founder lane). (5) **generals_dip
+> pending-count invariant fixed** (adversarial review SAFE) — correct before sleeves ever get armed.
+> (6) Grid page-switch slide/overlap bug fixed + founder-verified (7/4). Strategic notes carded:
+> broker-protocol hardening, main.py strangler steps 1-2, ship-it/multi-tenant + parked Alpaca-SIP
+> triggers (cards `quotes-extraction-broker-protocol`, `mainpy-lifecycle-split`, `ship-it-multi-tenant`).
+> **Ratchet rule now in force: nothing NEW lands in api/main.py — route modules only.**
+
+## CURRENT FOCUS — Phase 5a SHIPPED + deterministic (2026-07-04); founder judging idea quality
+
+> ▶ **Phase 5a is BUILT, TUNED, DEPLOYED, COMMITTED.** `setup_scan` recipe live end-to-end (Research page →
+> Recipe select → blank symbols = active watchlist, cap 12, futures auto-skipped). Architecture after the
+> founder-agreed reliability round: **code detects, LLM vetoes/grades** — `ai/research/structures.py` (pure,
+> stdlib-only) deterministically detects `pullback_to_support` / `breakout_above_resistance` from real
+> S/R prices (now exported by `research/levels.py include_prices=True`), with entry_state ready|forming,
+> R/R≥1.5 floor; the LLM (veto-and-grade prompt) can kill a structure with a named reason or accept+write
+> thesis/confidence/risks — it can NEVER invent setups or alter levels; ranker returns ordering only.
+> No-structure candidates get deterministic journaled reasons with zero LLM/API spend; quick effort now
+> includes 1 web query (structured candidates only). **Proven: 3 consecutive scans → identical structure
+> sets** (artifacts 171-173; GS consistently detected + consistently vetoed on July-14 earnings; SPY
+> pullback ready 731.57-738.89). Validator regex fixed live (bare `\d+%` rejected benign "1.0% above
+> support" prose — now only numeric probability claims die).
+>
+> **NOW: founder runs scans manually (~1-2 weeks) to judge idea quality — that's the 5b gate.** Serv-side
+> next steps, in order: (1) **conviction lane** (founder-agreed direction): LLM-originated ideas in a
+> labeled "Conviction ideas" section, `origin: "llm_conviction"` vs `"structure"` in the schema,
+> journaled for A/B calibration, HARD-blocked from ever arming/proposing until track record earns it —
+> build after a few days of scan data; (2) threshold tuning from founder feedback (constants atop
+> structures.py); (3) then #42 Setup Book per its gate.
+
+## ALSO FIXED (2026-07-04) — quote consistency round (founder card "Quotes Bugs"), pending deploy
+
+> Phone blank-watchlist root-caused: Schwab bar-batch failures were swallowed → `/api/watchlist/market`
+> returned **200 + empty quotes** → mobile React-Query cache replaced wholesale (web's additive merge
+> masked it as "frozen"). Fixes on `main`: total-batch miss now → `logger.error` + **502** (clients keep
+> last-good data; regression test in `tests/test_watchlist_futures.py`); mobile `useWatchlistMarket`
+> merges additively like web; chart (`use-symbol-quote.ts` → `tv-light-chart.tsx`) now draws a dashed
+> `ext` price line during pre/post/overnight so chart ⇄ watchlist agree off-hours (chart previously froze
+> at the 4pm regular price). **Deploy pending: backend restart + frontend rebuild (human does the
+> restart) + phone bundle refresh**; ext line verifiable from Sun 20:00 ET. Known remaining divergence
+> (on the board, not urgent): positions widgets show broker-snapshot `current_price` (Schwab = derived
+> marketValue/qty on the 20s poll), a third price source. Full detail: BUILD.md 2026-07-04 row.
+
+## PRIOR FOCUS — Phase 5a original brief (2026-07-03, superseded by ship note above)
+
+> ▶ Everything before 5a is DONE and deployed:
+> Research v2 core (Phases 1-4 + data + progress feed), and the ENTIRE audit safety block — #33 execution
+> hardening (paper-endpoint guarantee, daily-loss breaker, in-flight/daily notional caps), #34 auth
+> (fail-closed mutations, API_ADMIN_TOKEN scope, asymmetric kill switch — admin token is in serv .env),
+> #35 delivery shell (ALL of R1-R3/H1-H3, four adversarially-reviewed rounds, built in lockstep with the
+> mac agent via References/SERV_REPLY_35*.md contracts).
+>
+> **Phase 5a scope (founder-agreed):** `setup_scan` recipe over the specialist engine — takes candidate
+> symbols (args or watchlist), runs a quick per-candidate research pass, ranks, and emits validated
+> **`ideas[]`** (symbol, direction long-only, thesis, entry ZONE, stop, targets[], qualitative confidence —
+> **NO win% until calibration earns it**, cite-or-omit on every level) stored on the artifact + rendered in
+> the paper. `ideas[]` carries `entry_condition` + `status` from day one (Setup Book #42 retrofit-proofing).
+> **NO proposal bridge in 5a** — ideas are display+journal only; the founder runs scans manually for ~1-2
+> weeks to judge idea quality. ⛔ **Gates (founder-agreed):** #42 Setup Book (armed setups, entry monitoring,
+> blind+criteria-driven revalidation-at-trigger) builds ONLY after 5a ideas prove worth arming; 5c proposal
+> bridge = money-adjacent, full adversarial ceremony. Design details: `References/RESEARCH_ENGINE_V2.md`
+> (harness vision + Setup Book sections) + tasks #29/#42.
+>
+> **Cadence reminders:** brief → Composer (`node tools/composer-bridge/dispatch.mjs --brief ...`, one at a
+> time) → own diff review → gates (`uv run ruff check .` + `uv run python -m pytest -q` + frontend
+> typecheck) → adversarial Sonnet review for anything trading/-adjacent → commit by explicit path (mac agent
+> shares this tree — `git pull --rebase` before push) → `bash tools/serv-deploy.sh backend|frontend|both`.
+> Backlog (non-gating): #41 done_for_day, #36 off-box backup, #37 data tail, #38 doc-figure hygiene, #32
+> hermetic tests, #39/#40 promotion-gated, #24, #30/#31 (Phase 6 + social specialist), #14/#16/#17.
+
+## PRIOR FOCUS — Research Engine v2 build (2026-07-03)
+
+> ▶ **RESEARCH V2 CORE COMPLETE (2026-07-03, commits dd1b272→945c0cc).** All of: Phase 2 engine, quality
+> round (markdown editor), Phase 4 MD viewer/download/effort-UI + scannable paper (TL;DR/scoreboard/metrics
+> tables), live progress feed, Phase 3 proprietary data (`ai/research/data_sources.py` — internal technicals/
+> levels/RVOL, earnings+EPS surprises, Finnhub fundamentals/news [keys SET+verified], regime, calibration),
+> artifact titles = editor headline. Founder-validated live (artifacts 162/164/165/167). **NEXT BLOCK (audit-
+> driven, founder-agreed): safety #33 (paper-endpoint guarantee/daily-loss breaker/caps) → auth #34 → mobile
+> delivery shell #35 — BEFORE Phase 5 recipes→ideas[]→proposals (#29/#30/#31 queued after).** Full audit gap
+> scorecard: 2026-07-03 sweep — safety-execution + mobile-approval audits had ZERO coverage; now tasks #33-38.
+
+> ▶ **LATEST (2026-07-03) — Research v2 Phases 1+2 SHIPPED: manual role→model config, then THE ENGINE.**
+> Phase 1 (1c8c923 + earlier): `config/research_engine.py` (ROLES, effort presets quick/standard/deep/exhaustive,
+> `resolve_role_model` **manual-only** — founder killed auto-delegate, "maybe we come back to auto later"; keys
+> parked), Settings→Research role→model dropdown table. Phase 2 (this round): v1 `deep_graph.py` DELETED →
+> `ai/research/engine_v2.py` (planner→parallel specialists→critic→editor) + `ai/research/specialists.py`
+> (5-analyst roster, Odysseus-style rolling loops, self-stop capped on exhaustive). Same v1 artifact contract =
+> delivery chain untouched; `depth` = the 4 preset names; effort-scaled job timeouts; all truncation caps now
+> effort-scaled. **Adversarial Sonnet review: 15 findings, 3 gating — all 9 real ones fixed in a dedicated
+> Composer round** (cooperative cancel-event on timeout, citation-href double-escape, partial credit on transient
+> LLM errors, cumulative source caps, payload budgets, expand-downgrade guard, real-sources overwrite + more).
+> 1258 tests + ruff + typecheck green. **Quality round (same night, 96c4c2e): 5 live SLB runs found 3 silent
+> LLM-plumbing failures** (DeepSeek json_object empty-content quirk → retry; finish_reason=length invisible →
+> logged; reasoning tokens eat max_tokens → editor rewritten to write PURE MARKDOWN, headings parsed
+> deterministically — see [[deepseek-llm-lessons]] memory). Validated on artifacts 162/163: ~2k-word cited paper,
+> full structure, 0 id-tokens, direct verdict — **founder confirmed: "definitely a well written report."**
+> ⚠️ Full pytest suite currently hangs on a non-hermetic test hitting live Schwab when the WAF blocks serv
+> (task #32, must-fix — pre-push gate hostage); targeted research tests green. Founder vision captured in
+> `RESEARCH_ENGINE_V2.md`: recipes (morning_briefing/setup_scan→`ideas[]`→proposals) #29, copilot
+> `schedule_research` task-assignment #30, free Reddit-JSON/StockTwits `social_sentiment` specialist #31 (no paid
+> social APIs). Next: Phase 3 perception-layer data per specialist (#27), Phase 4 workspace MD viewer (#28),
+> follow-ups #24.
+>
+> ▶ **Prior (2026-07-02 late night) — Rounds 12–13: five UI bugs + deep-research delivery & web-search fixed
+> (643b8d5 → cb118d8 + config).** Round 12: sector-radar green-dot, widget-overlap-on-nav (hydrate race),
+> custom-theme dark-leaks/hover, reports iframe palette — all shipped. Round 13: deep-research reports were
+> unreachable (memory click dead, no notification, dark viewer) AND web-blind (SEARXNG_URL pointed at :8080 =
+> monitoring dashboard; real SearXNG is container `odysseus-searxng-1` on **:8585** — see [[searxng-port]] memory).
+> Fixed both: completion notification + memory-click routing + themed viewer (committed), and SEARXNG_URL→:8585 in
+> .env+settings.json (backend restarted, live web_search verified). Kicked a fresh SLB research job to confirm
+> end-to-end. Open follow-ups: `web_search_status()` needs a real reachability probe (Settings shows dead URL as
+> fine); research CONTENT quality now unblocked (was starved). Tasks #16 (options expirations), #17 (nightly
+> ledger-vs-broker recon), #14 (data_suspect flag) still pending.
+>
+> Round 11: aggregate realized keyed by (account, symbol) (a494601).
+>
+> ▶ **NEXT BIG BUILD — Research Engine v2 (design LOCKED with founder 2026-07-03, see
+> `References/RESEARCH_ENGINE_V2.md`).** Current deep-research output is thinner than a chat answer
+> (single cheap model, `limit=3`/1500-char/12-source truncation, one 2k-token synthesis). v2 = specialist
+> fan-out (planner→5 parallel finance specialists→critic→chief-editor), a strict SUPERSET of the founder's
+> reference **Odysseus** (`/home/mbelli/odysseus` — ports its plan/parallel-search/rolling-synthesis/self-stop/
+> big-cited-write, adds specialists + our Schwab data). **Model-agnostic** (founder has only DeepSeek v4-pro/flash,
+> no Anthropic key; Max plan not usable as app LLM per ToS): role→model is USER-CONFIGURABLE with an auto-delegate
+> default (strong→planner/critic/editor, fast→specialists). Effort = named presets (quick/standard/deep/exhaustive).
+> Separate UI ask: research must render in the WORKSPACE (popup MD viewer + download; old /research page is
+> pre-widget) + keep the Settings archive. Phases tracked as tasks #25 (config foundation) → #26 (engine) →
+> #27 (proprietary data) → #28 (UI). Quality gate: A/B vs Odysseus's single-model loop, must read clearly richer. Round
+> 10's last-flat merged the same ticker across accounts in all_real/all_paper (TSLA in Individual+Joint on 6/29 →
+> phantom +$4,735). Now keyed by (account_id, symbol); all_real == Σ per-account to the cent, deployed + live
+> verified. Adversarial-reviewed (300 randomized multi-account trials). Open UI bug backlog filed as tasks #18–21
+> (theme dark-leaks/hover, reports iframe palette, widget-overlap-on-nav hydrate race, sector-radar zero-exposure
+> green dot) — recon done, fixes queued next.
+>
+> Round 10 (same night): last-flat realized recognition SHIPPED + deployed (96916e7).
+> Round 9's founder-approved baseline adjustments (TSLA/PLTR/GME, $0-amount `manual_adjustment` events, all 4
+> accounts broker-confirmed flat) made TSLA read fully-closed → closed-only recognition dumped its lifetime
+> +$44.5k into the WEEK view. `db/analytics.py` now books realized at every day a symbol ends flat (telescoping
+> by construction — round-9's double-count is a regression test + 200 randomized property trials). Live verified:
+> day $797.13, week $8,145.92 (= exact day-row sum), lifetime stays in all-time. Same Sonnet reviewer (resumed):
+> SAFE. Remaining from this arc: options-expiration sync gap (task #16) + nightly ledger-vs-broker qty
+> reconciliation (task #17) — see `ledger-baseline-offsets` memory.
+>
+> Round 9 (same night): Schwab multi-leg fill collapse (H5) FIXED, deployed, ledger repaired (e55ab8a). Founder was flat TSLA but ledger showed +74: Schwab splits one fill into same-symbol
+> CLOSING/OPENING legs when a sell crosses flat; the parser kept only the max leg. Parser now sums same-symbol
+> legs; `tools/repair_event_quantities.py` (dry-run-first) fixed the single corrupted event live (126→200 shares;
+> cash was never wrong — `netAmount`). Adversarial review REJECTED (BLOCKER, double-counting) the companion
+> "round-trip realized" rule → reverted; closed-only recognition stands. **OPEN ITEMS:** (1) baseline offsets —
+> all 4 real accounts broker-confirmed FLAT but ledger shows TSLA −6 / PLTR −630 (Ind) / PLTR −900 (Roth Joint) /
+> GME −32 from pre-export-window shares; the $0-amount `manual_adjustment` insert is WRITTEN but classifier-blocked
+> — needs founder approval, then day-realized for those symbols reads true. (2) Expired/settled LONG OPTIONS have
+> no expiration events (sync fetches TRADE only) → unrecorded realized losses (6 contracts found). (3) Next brief:
+> nightly ledger-vs-broker qty reconciliation job that pages on NEW drift. Suite 1219 green; backend restarted.
+>
+> Earlier same day (2026-07-02 pm) — 8 audit rounds + founder's 5 UI bugs, all SHIPPED + deployed (3ee4dfa and
+> earlier): details in BUILD.md rounds 1–8. Worked the `research/fable/` audits in the
+> roadmap's Phase-0-first order; every Composer diff self-reviewed + the money/auth-touching ones adversarially
+> Sonnet-reviewed (each review caught ≥1 real issue, all fixed pre-commit):
+> 1. **H6** `_find_ev_bucket` fabricated-EV → `None` (+ web GenericScore `?? 0` would have rendered "EV +0.00%" — fixed).
+> 2. **Data C1/C2/C3** — paper↔real firewall on every LLM entry point (`PerfScope.fallback` loud in API/UI/chat;
+>    review caught `turn_journal_context`'s unscoped "USER's pattern" line + `my_trades` paper-id hole).
+> 3. **Perception Tier-1** — `screener`/`market`(regime)/`news`/`calibration` resources + `get_context`
+>    news+strategy_signals; `open_orders` drop fixed; `propose_rule`→`create_rule` (honesty); SPY TTL-cache so
+>    report loops don't multiply Schwab calls.
+> 4. **LLM wiring** — journal block injected on web+mobile; memory extraction re-enabled for SAVED chats only.
+> 5. **Ops CRIT-1** — token clock preserved (on-disk wins; cross-instance clobber killed), SPY reality probe
+>    (3-strike critical push), mtime invalidation on ALL schwab adapter caches (incl. execution-side get_broker —
+>    review catch), reauth daily `--skip-if-fresh`, LOW-7 reports-loop guard. **⚠️ Human step on serv: switch the
+>    reauth crontab line to daily (see `deploy/crontab.example`).**
+> Suite 1163→1197 green, ruff + typecheck clean, chokepoint untouched. **Next:** deploy on serv + in-browser check
+> ("give me your 3 best setups" should now scan→regime→rank with calibration hedging); then Phase 0.5 remainder
+> (off-box backup + restore drill, job-runner `/health` v2, DB retention) and roadmap Phase 1.
+
+---
+
+## PREVIOUS FOCUS — Workspace consolidation + polish/new-features (2026-06-30)
+
+> ▶ **(2026-07-02 am) — Performance page broken into focused cockpit widgets + Company-Info widget +
 > workspace→ledger per-account slicing. SHIPPED, deployed on serv (:3001/:8000), 1163 tests green, chokepoint
 > untouched, committed + pushed.** Founder ask: split the monolithic `performance` tile into small tiles, fix
 > "Day realized = $0 after close", add a few new graphs, and turn the loved ticker-info popup into a widget.

@@ -64,6 +64,7 @@ def test_concurrency_cap() -> None:
         max_concurrent=10,
         per_trade_fraction=0.05,
         max_gross_exposure=1.0,
+        cost_pct=0.0,
     )
     assert result["n_taken"] == 10
     assert result["n_skipped"] == 5
@@ -78,6 +79,7 @@ def test_gross_exposure_cap() -> None:
         max_concurrent=10,
         per_trade_fraction=0.5,
         max_gross_exposure=1.0,
+        cost_pct=0.0,
     )
     assert result["n_taken"] == 2
     assert result["n_skipped"] == 3
@@ -162,8 +164,14 @@ def test_sharpe_positive_and_flat() -> None:
     assert flat["sortino"] == 0.0
 
 
+def test_missing_cost_pct_raises() -> None:
+    """cost_pct must be explicit — the old silent 0.30 default is gone."""
+    with pytest.raises(ValueError, match="cost_pct is required"):
+        backtest_portfolio(_single_trade(5.0))
+
+
 def test_metric_keys_present() -> None:
-    result = backtest_portfolio(_single_trade(5.0))
+    result = backtest_portfolio(_single_trade(5.0), cost_pct=0.0)
     expected_keys = {
         "start_equity",
         "final_equity",

@@ -21,6 +21,8 @@ import { ReportsWidget } from "@/components/workspace/widgets/reports-widget";
 import { ResearchWidget } from "@/components/workspace/widgets/research-widget";
 import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
+import { OptionsFlowWidget } from "@/components/workspace/widgets/options-flow-widget";
+import { OptionsChainWidget } from "@/components/workspace/widgets/options-chain-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
 import { PerformanceStatsWidget } from "@/components/workspace/widgets/performance-stats-widget";
@@ -31,6 +33,9 @@ import { PnlScatterWidget } from "@/components/workspace/widgets/pnl-scatter-wid
 import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcome-distribution-widget";
 import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
 import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
+import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
+import { FilingsWidget } from "@/components/workspace/widgets/filings-widget";
+import { ChatWidget } from "@/components/workspace/widgets/chat-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
 
@@ -111,7 +116,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "price-alerts",
     title: "price alerts",
     description: "Configured price alerts",
-    component: PriceAlertsWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: PriceAlertsWidget,
     defaultSize: { w: 12, h: 4, minW: 5, minH: 3 },
   },
   {
@@ -130,6 +136,42 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
   },
   {
+    id: "options-flow",
+    title: "options flow",
+    description:
+      "Unusual options activity on the watchlist — facts about the tape (perception), not a buy/sell signal",
+    channelAware: true,
+    component: OptionsFlowWidget,
+    defaultSize: { w: 12, h: 6, minW: 5, minH: 4 },
+  },
+  {
+    id: "options-chain",
+    title: "Options Chain",
+    description:
+      "Browse an underlying's option chain — expirations, strikes, bid/ask, IV, greeks, volume, OI",
+    channelAware: true,
+    component: OptionsChainWidget,
+    defaultSize: { w: 14, h: 7, minW: 6, minH: 4 },
+  },
+  {
+    id: "idea-outcomes",
+    title: "idea outcomes",
+    description:
+      "Shadow-tracked scan ideas — every idea's mechanical outcome + win rate",
+    channelAware: true,
+    component: IdeaOutcomesWidget,
+    defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
+  },
+  {
+    id: "filings",
+    title: "filings",
+    description:
+      "Insider Form 4 buys, 13D stakes, congressional trades — free primary-source feed",
+    channelAware: true,
+    component: FilingsWidget,
+    defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
+  },
+  {
     id: "rules",
     title: "rules",
     description: "Create, arm, and manage signal rules with trigger log",
@@ -145,7 +187,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   },
   {
     id: "performance",
-    title: "performance",
+    title: "performance (legacy)",
     description: "Trade analytics — P&L charts, calendar, win rate, and round-trips",
     component: PerformanceWidget,
     defaultSize: { w: 16, h: 12, minW: 8, minH: 6 },
@@ -160,7 +202,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   {
     id: "notifications",
     title: "notifications",
-    description: "Full inbox — read, filter, and dismiss alerts",
+    description: "Inbox of alert cards — batched, filtered, with a ding",
+    channelAware: true,
     component: NotificationsWidget,
     defaultSize: { w: 8, h: 6, minW: 4, minH: 3 },
   },
@@ -191,7 +234,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   },
   {
     id: "performance-stats",
-    title: "performance",
+    title: "performance stats",
     description: "Realized/unrealized P&L, win rate, trades, fees",
     component: PerformanceStatsWidget as WidgetDefinition["component"],
     defaultSize: { w: 16, h: 3, minW: 8, minH: 2 },
@@ -207,7 +250,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "orders",
     title: "orders",
     description: "Trade blotter — filled / open / rejected",
-    component: OrdersWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: OrdersWidget,
     defaultSize: { w: 12, h: 6, minW: 6, minH: 4 },
   },
   {
@@ -221,7 +265,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "pnl-scatter",
     title: "hold time vs p&l",
     description: "Each closed trade: holding period vs P&L",
-    component: PnlScatterWidget as WidgetDefinition["component"],
+    channelAware: true,
+    component: PnlScatterWidget,
     defaultSize: { w: 10, h: 6, minW: 6, minH: 4 },
   },
   {
@@ -246,6 +291,14 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: CompanyInfoWidget,
     defaultSize: { w: 12, h: 9, minW: 6, minH: 5 },
+  },
+  {
+    id: "chat",
+    title: "chat",
+    description: "The agent chat — same conversation as the terminal drawer",
+    multiInstance: false,
+    component: ChatWidget as WidgetDefinition["component"],
+    defaultSize: { w: 12, h: 6, minW: 5, minH: 4 },
   },
   // ── Order-flow widgets ────────────────────────────────────────────────────
   {

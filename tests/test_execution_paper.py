@@ -11,6 +11,7 @@ import pytest
 
 from brokers.alpaca import AlpacaError
 from brokers.base import Account, PlaceOrderResponse, Position
+from config import settings as settings_mod
 from db import order_executions as order_executions_mod
 from db import sqlite as sqlite_mod
 from imports.option_symbol import OptionSymbol, to_occ_symbol
@@ -91,6 +92,7 @@ def _patch_passing_env(monkeypatch, db_path: Path, *, execution_mode: str) -> No
     _save_fresh_snapshot(db_path)
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
     stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
     stub.aplace_order = AsyncMock(  # type: ignore[method-assign]
@@ -114,12 +116,8 @@ def _patch_passing_env(monkeypatch, db_path: Path, *, execution_mode: str) -> No
         lambda _symbols: {"AAPL": {"price": 150.0}},
     )
     trading_cfg = {
+        **settings_mod.DEFAULT_SETTINGS["trading"],
         "execution_mode": execution_mode,
-        "kill_switch_active": False,
-        "max_order_value_usd": 50_000,
-        "max_position_pct": 30,
-        "max_open_orders": 10,
-        "max_daily_orders": 20,
     }
     monkeypatch.setattr("trading.risk_engine.is_kill_switch_active", lambda: False)
     monkeypatch.setattr("trading.risk_engine.trading_config", lambda: trading_cfg)
@@ -139,6 +137,7 @@ async def test_execution_paper_submits_to_broker(monkeypatch, tmp_path: Path) ->
     from brokers.alpaca import AlpacaAdapter
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
     stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
     place_mock = AsyncMock(
@@ -175,6 +174,7 @@ async def test_execution_paper_sell_sets_sell_to_close(
     from brokers.alpaca import AlpacaAdapter
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
     stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
     place_mock = AsyncMock(
@@ -228,6 +228,7 @@ async def test_execution_paper_broker_error_rejected(
     from brokers.alpaca import AlpacaAdapter
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.aplace_order = AsyncMock(  # type: ignore[method-assign]
         side_effect=AlpacaError("insufficient buying power")
     )
@@ -289,6 +290,7 @@ async def test_execution_paper_option_routes_occ_symbol(
     from brokers.alpaca import AlpacaAdapter
 
     stub = object.__new__(AlpacaAdapter)
+    stub._base_url = "https://paper-api.alpaca.markets"
     stub.symbol_exists = lambda _symbol: True  # type: ignore[method-assign]
     stub.option_contract_exists = lambda _occ: True  # type: ignore[method-assign]
     place_mock = AsyncMock(

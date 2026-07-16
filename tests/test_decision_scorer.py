@@ -162,6 +162,33 @@ def test_score_features_win_prob_bucket_and_top_factors(tmp_path: Path) -> None:
     assert actual == [(n, c) for n, c in expected[: len(actual)]]
 
 
+def test_score_features_out_of_bucket_win_prob_has_no_ev(tmp_path: Path) -> None:
+    """A win_prob outside every EV bucket must NOT inherit another bucket's EV/CI."""
+    artifacts = _write_synthetic_artifacts(tmp_path)
+    # Table covers only [0.6, 1.0]; a strongly bearish feature set scores below it.
+    artifacts["ev_table"] = [dict(artifacts["ev_table"][1], bin_lo=0.6, bin_hi=1.0)]
+    features = _sample_features(rsi=-3.0, prior_return_3d=3.0)
+
+    result = score_features(features, artifacts)
+
+    assert result["win_prob"] < 0.6
+    assert result["ev_pct"] is None
+    assert result["ci_low"] is None
+    assert result["ci_high"] is None
+    assert result["sufficient"] is False
+
+
+def test_score_features_missing_meta_stats_are_none(tmp_path: Path) -> None:
+    """Missing base_rate/brier must surface as None, never a fabricated 0.0."""
+    artifacts = _write_synthetic_artifacts(tmp_path)
+    artifacts["meta"] = {"n_samples": 90, "data_source": "test.db"}
+
+    result = score_features(_sample_features(), artifacts)
+
+    assert result["base_rate"] is None
+    assert result["brier"] is None
+
+
 def test_load_artifacts_missing_file_returns_none(tmp_path: Path) -> None:
     tmp_path.mkdir(parents=True, exist_ok=True)
     tmp_path.joinpath("model.json").write_text("{}")

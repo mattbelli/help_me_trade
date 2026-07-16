@@ -21,7 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from ai.memories import get_memory_service
+from ai.memories.judge import Candidate, judge_and_store
 from db.base import DEFAULT_DB_PATH
 from research.ev import wilson_ci
 
@@ -215,28 +215,32 @@ def build_calibration_lessons(
 def run_journal_review(
     *,
     db_path: Path = DEFAULT_DB_PATH,
-    memory: Any | None = None,
     max_lessons: int = MAX_LESSONS,
 ) -> dict[str, Any]:
     """Reflection hook: compute calibration + seed ≤``max_lessons`` lesson memories on drift.
 
-    SURFACE-ONLY (writes only ``lesson`` memories; touches no strategy/scorer/config) and
-    FAIL-SOFT — a review error returns an error-tagged dict and seeds nothing, so it can never
-    break the reflection loop it hangs off."""
+    SURFACE-ONLY (writes only ``lesson`` memories through the judge; touches no
+    strategy/scorer/config) and FAIL-SOFT — a review error returns an error-tagged dict and
+    seeds nothing, so it can never break the reflection loop it hangs off."""
     try:
         calibration = compute_calibration(db_path=db_path)
         lessons = build_calibration_lessons(calibration, max_lessons=max_lessons)
+        seeded = 0
         if lessons:
-            mem = memory or get_memory_service()
-            for text in lessons:
-                mem.add(
-                    text,
+            candidates = [
+                Candidate(
                     memory_type="lesson",
+                    content=text,
+                    source="reflection",
+                    authority="agent_inferred",
                     metadata={"source": "journal_calibration"},
                 )
+                for text in lessons
+            ]
+            seeded = len(judge_and_store(candidates, db_path=db_path))
         return {
             "n_resolved": calibration["n_resolved"],
-            "lessons_seeded": len(lessons),
+            "lessons_seeded": seeded,
             "calibration": calibration,
         }
     except Exception:

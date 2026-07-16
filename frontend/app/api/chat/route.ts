@@ -20,10 +20,20 @@ import {
   fetchChatContext,
   fetchLlmRuntime,
   finalizeChatTurn,
-  proxyLegacyPythonChat,
+  proxyPythonChat,
 } from "@/lib/python-server";
 
 export const maxDuration = 120;
+
+/**
+ * Which chat brain serves this route. `python` (default) proxies the whole turn
+ * to the ONE Python loop (`POST /api/chat`) — native tools, approval HITL, and
+ * session persistence all live there. `ts` keeps the legacy in-route AI-SDK
+ * `streamText` loop below (kept intact for a one-line revert; it will be removed
+ * once the Python path is proven). Non-native providers proxy to Python in both
+ * modes (the Python loop degrades to a no-tools completion for them).
+ */
+const CHAT_BRAIN = (process.env.CHAT_BRAIN ?? "python").toLowerCase();
 
 /** Thinking/reasoning models on these providers reject forced tool_choice. */
 const NO_FORCED_TOOL_CHOICE = new Set(["deepseek"]);
@@ -89,7 +99,18 @@ function enabledToolsWithPendingApprovals(
   return [...merged] as ChatToolId[];
 }
 
+/** T0 latency instrumentation: collect named spans → a Server-Timing header. */
+type PerfSpan = { name: string; dur: number };
+function serverTimingHeader(spans: PerfSpan[]): string {
+  return spans
+    .map((s) => `${s.name};dur=${s.dur.toFixed(1)}`)
+    .join(", ");
+}
+
 export async function POST(req: Request) {
+  const tReq = performance.now();
+  const spans: PerfSpan[] = [];
+
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
@@ -100,6 +121,14 @@ export async function POST(req: Request) {
   const messages = body.messages;
   if (!Array.isArray(messages)) {
     return Response.json({ error: "messages must be a list" }, { status: 400 });
+  }
+
+  // Default path: the ONE Python brain. Forward the full body (messages,
+  // session, mode, model, enabledTools, autoInjectMemories) and stream its
+  // UIMessageStream bytes straight through — no TS loop, no context/finalize
+  // round-trips (Python owns all of it).
+  if (CHAT_BRAIN === "python") {
+    return proxyPythonChat(body);
   }
 
   const sessionId =
@@ -117,8 +146,10 @@ export async function POST(req: Request) {
   }
 
   let runtime;
+  const tRuntime = performance.now();
   try {
     runtime = await fetchLlmRuntime(model);
+    spans.push({ name: "runtime", dur: performance.now() - tRuntime });
   } catch (err) {
     return Response.json(
       {
@@ -134,21 +165,21 @@ export async function POST(req: Request) {
   const isNative =
     runtime.openai_compatible || runtime.provider === "anthropic";
   if (!isNative) {
-    return proxyLegacyPythonChat({
-      messages,
-      sessionId,
-      mode,
-      model,
-    });
+    // Non-native provider (e.g. ollama): the TS AI-SDK loop can't tool-call it,
+    // so hand the whole turn to the Python loop, which degrades to a no-tools
+    // completion. Forward the full body for parity (enabledTools etc.).
+    return proxyPythonChat(body);
   }
 
   const userText = lastUserText(messages);
   let system = "";
+  const tContext = performance.now();
   try {
     if (userText) {
-      const ctx = await fetchChatContext(userText, autoInjectMemories);
+      const ctx = await fetchChatContext(userText, autoInjectMemories, true);
       system = ctx.system;
     }
+    spans.push({ name: "context", dur: performance.now() - tContext });
   } catch (err) {
     return Response.json(
       {
@@ -188,12 +219,32 @@ export async function POST(req: Request) {
     languageModel = openai.chat(resolvedModel);
   }
 
+  const tConvert = performance.now();
+  const modelMessages = await convertToModelMessages(messages);
+  spans.push({ name: "convert", dur: performance.now() - tConvert });
+
+  // Provider TTFB: wall-clock from request entry to the first streamed chunk.
+  // Logged server-side (dev-visible) and folded into the debug readout; can't
+  // ride the Server-Timing header since that flushes before streaming starts.
+  const perfDebug = process.env.NEXT_PUBLIC_PERF_DEBUG === "1";
+  let firstChunkSeen = false;
+
   const result = streamText({
     model: languageModel,
     system,
-    messages: await convertToModelMessages(messages),
+    messages: modelMessages,
     tools,
     stopWhen: stepCountIs(6),
+    onChunk: () => {
+      if (firstChunkSeen) return;
+      firstChunkSeen = true;
+      const ttfb = performance.now() - tReq;
+      if (perfDebug) {
+        console.log(
+          `[perf] chat first-token ${ttfb.toFixed(0)}ms (${serverTimingHeader(spans)})`,
+        );
+      }
+    },
     prepareStep: async ({ stepNumber }) => {
       if (stepNumber !== 0 || !orderIntent || !hasProposeOrder) {
         return {};
@@ -208,8 +259,11 @@ export async function POST(req: Request) {
     },
   });
 
+  spans.push({ name: "preamble", dur: performance.now() - tReq });
+
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    headers: { "Server-Timing": serverTimingHeader(spans) },
     onFinish: async ({ responseMessage, messages: allMessages, isAborted }) => {
       if (isAborted) return;
       const assistantText = responseMessage.parts

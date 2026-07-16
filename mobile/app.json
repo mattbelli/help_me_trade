@@ -9,10 +9,11 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#131519",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.helpmetrade.app",
       "supportsTablet": false,
       "infoPlist": {
+        "CFBundleDisplayName": "HMT",
         "NSAppTransportSecurity": {
           "NSExceptionDomains": {
             "ts.net": {

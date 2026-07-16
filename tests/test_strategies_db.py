@@ -81,6 +81,8 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
         "earnings_drift",
         "session_node_spy",
         "momentum_sp500",
+        "generals_dip",
+        "vol_event",
     }
 
     seed_default_strategies(db_path=db)
@@ -92,6 +94,8 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
         "earnings_drift",
         "session_node_spy",
         "momentum_sp500",
+        "generals_dip",
+        "vol_event",
     }
 
 

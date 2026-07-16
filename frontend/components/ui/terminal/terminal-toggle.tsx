@@ -29,7 +29,7 @@ function TerminalToggle({
       data-slot="terminal-toggle"
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[11px] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40",
+        "inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-body)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40",
         checked
           ? tone === "danger"
             ? "border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] text-[var(--c-red)]"

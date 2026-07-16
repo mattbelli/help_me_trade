@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
 import tempfile
@@ -16,10 +17,13 @@ from dotenv import load_dotenv
 
 from config.ai_providers import DEFAULT_AI_SETTINGS, SECRET_AI_KEY_FIELDS, VALID_PROVIDERS
 
+logger = logging.getLogger(__name__)
+
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "data" / "settings.json"
 SECRET_MASK = "********"
 VALID_ALPACA_DATA_FEEDS = frozenset({"iex", "sip"})
+VALID_ALPACA_CONFIGURED_DATA_FEEDS = frozenset({"iex", "sip", "auto"})
 
 SECRET_KEYS = frozenset(
     {
@@ -34,6 +38,14 @@ SECRET_KEYS = frozenset(
 load_dotenv(ROOT / ".env")
 
 _settings_lock = threading.Lock()
+# Serializes apply_settings_patch's whole read-modify-write so two concurrent
+# PUTs can't lost-update a breaker-armed kill_switch_active/entries_halted back
+# to False. Deliberately DISTINCT from _settings_lock (which is held only
+# briefly by load/save): a patch can run a slow AI model-list probe while it
+# holds this lock, and that must never block the fast is_kill_switch_active /
+# is_entries_halted readers (they gate every order) — they only touch
+# _settings_lock.
+_patch_lock = threading.Lock()
 _settings_cache: dict[str, Any] | None = None
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -45,7 +57,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "api_secret_key": "",
             "api_base_url": "https://paper-api.alpaca.markets",
             "data_base_url": "https://data.alpaca.markets",
-            "data_feed": "iex",
+            "data_feed": "auto",
         },
         "schwab": {
             "enabled": False,
@@ -58,6 +70,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ai": DEFAULT_AI_SETTINGS.copy(),
     "research": {
         "searxng_url": "",
+        "model_roles": {},
+        "strong_model": "",
+        "fast_model": "",
+        "auto_delegate": True,
+        "effort": "standard",
     },
     "watchlist": ["SPY", "QQQ", "AAPL", "NVDA", "MU", "AMD"],
     "watchlists": {
@@ -84,9 +101,19 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             {"kind": "evening_brief", "hour_et": 17, "symbols": [], "enabled": False},
         ],
     },
+    "alerts": {
+        # Daily ceiling on flow/confluence phone pushes (in-app notifications
+        # are never capped — this only throttles what reaches the phone).
+        "max_push_per_day": 5,
+    },
     "trading": {
         "execution_mode": "dry_run",
         "kill_switch_active": False,
+        # HALT: blocks exposure-INCREASING orders (entries/adds/short-opens)
+        # while app-managed reduce-only EXITS keep flowing. Distinct from the
+        # kill switch (total freeze). Armed by the daily-loss breaker's hard
+        # stage OR by a human; never auto-arms the kill switch.
+        "entries_halted": False,
         "agent_proposals_enabled": True,
         # deprecated: see strategies registry (db/strategies.py)
         "dip_strategy_enabled": False,
@@ -97,6 +124,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_position_pct": 30,
         "max_open_orders": 10,
         "max_daily_orders": 20,
+        "max_daily_loss_usd": 2500.0,
+        "max_daily_notional_usd": 150000.0,
+        "max_rebalance_run_notional_usd": 120000.0,
         # Short selling (sell-to-open). OFF by default. Only ever honored in
         # dry_run/paper — LIVE short selling stays hard-blocked regardless.
         "allow_short_selling": False,
@@ -129,7 +159,7 @@ def _env_defaults() -> dict[str, Any]:
                 "data_base_url": os.environ.get(
                     "APCA_DATA_BASE_URL", "https://data.alpaca.markets"
                 ).strip(),
-                "data_feed": os.environ.get("APCA_DATA_FEED", "iex").strip(),
+                "data_feed": os.environ.get("APCA_DATA_FEED", "auto").strip(),
             },
             "schwab": {
                 "enabled": broker_env == "schwab",
@@ -220,6 +250,18 @@ def load_settings() -> dict[str, Any]:
         return copy.deepcopy(_settings_cache)
 
 
+def reload_settings() -> None:
+    """Drop the in-process cache so the next load re-reads the settings file.
+
+    Needed by processes that don't own settings writes (the flow collector):
+    the API saves watchlist edits to the file, but this cache never sees them
+    cross-process. Cheap — the next load_settings() rebuilds once.
+    """
+    global _settings_cache
+    with _settings_lock:
+        _settings_cache = None
+
+
 def save_settings(settings: dict[str, Any]) -> None:
     global _settings_cache
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -267,7 +309,22 @@ def _is_masked(value: Any) -> bool:
 
 
 def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
-    """Merge patch into saved settings, preserving secrets when masked/empty."""
+    """Merge patch into saved settings, preserving secrets when masked/empty.
+
+    Route-level auth guards trading.*, kill_switch_active, and entries_halted;
+    this function remains callable internally (e.g. the risk-engine hard-trip
+    arming entries_halted).
+
+    The whole read-modify-write runs under _patch_lock so a concurrent PUT
+    can't lost-update a breaker-armed flag mid-merge. _patch_lock is separate
+    from _settings_lock, so a slow AI model-list probe in here never stalls the
+    fast kill-switch/entries-halted readers.
+    """
+    with _patch_lock:
+        return _apply_settings_patch_locked(patch)
+
+
+def _apply_settings_patch_locked(patch: dict[str, Any]) -> dict[str, Any]:
     current = load_settings()
 
     # Only persist user-editable fields from file (not env-only fallbacks)
@@ -325,10 +382,37 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
 
     if "research" in patch and isinstance(patch["research"], dict):
         if "research" not in current or not isinstance(current.get("research"), dict):
-            current["research"] = {"searxng_url": ""}
-        url = patch["research"].get("searxng_url")
-        if url is not None:
-            current["research"]["searxng_url"] = str(url).strip().rstrip("/")
+            current["research"] = copy.deepcopy(DEFAULT_SETTINGS["research"])
+        research_patch = patch["research"]
+        if "searxng_url" in research_patch:
+            current["research"]["searxng_url"] = (
+                str(research_patch.get("searxng_url", "")).strip().rstrip("/")
+            )
+        if "strong_model" in research_patch:
+            current["research"]["strong_model"] = str(
+                research_patch.get("strong_model", "")
+            ).strip()
+        if "fast_model" in research_patch:
+            current["research"]["fast_model"] = str(
+                research_patch.get("fast_model", "")
+            ).strip()
+        if "auto_delegate" in research_patch:
+            current["research"]["auto_delegate"] = bool(
+                research_patch.get("auto_delegate")
+            )
+        if "effort" in research_patch:
+            current["research"]["effort"] = str(
+                research_patch.get("effort", "standard")
+            ).strip() or "standard"
+        if "model_roles" in research_patch and isinstance(
+            research_patch["model_roles"], dict
+        ):
+            roles = current["research"].get("model_roles")
+            if not isinstance(roles, dict):
+                roles = {}
+            for role, model in research_patch["model_roles"].items():
+                roles[str(role).strip()] = str(model or "").strip()
+            current["research"]["model_roles"] = roles
 
     if "watchlist" in patch and isinstance(patch["watchlist"], list):
         current["watchlist"] = normalize_watchlist(patch["watchlist"])
@@ -366,6 +450,18 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
         if "jobs" in reports_patch:
             current["reports"]["jobs"] = _normalize_report_jobs(reports_patch["jobs"])
 
+    if "alerts" in patch and isinstance(patch["alerts"], dict):
+        if "alerts" not in current or not isinstance(current.get("alerts"), dict):
+            current["alerts"] = copy.deepcopy(DEFAULT_SETTINGS["alerts"])
+        alerts_patch = patch["alerts"]
+        if "max_push_per_day" in alerts_patch:
+            try:
+                current["alerts"]["max_push_per_day"] = max(
+                    0, min(100, int(alerts_patch["max_push_per_day"]))
+                )
+            except (TypeError, ValueError):
+                pass
+
     if "trading" in patch and isinstance(patch["trading"], dict):
         if "trading" not in current or not isinstance(current.get("trading"), dict):
             current["trading"] = copy.deepcopy(DEFAULT_SETTINGS["trading"])
@@ -373,6 +469,8 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
         for key, value in trading_patch.items():
             if key == "kill_switch_active":
                 current["trading"]["kill_switch_active"] = bool(value)
+            elif key == "entries_halted":
+                current["trading"]["entries_halted"] = bool(value)
             elif key == "execution_mode" and str(value).strip() in (
                 "dry_run",
                 "paper",
@@ -381,6 +479,12 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["execution_mode"] = str(value).strip()
             elif key == "max_order_value_usd":
                 current["trading"]["max_order_value_usd"] = float(value)
+            elif key == "max_daily_loss_usd":
+                current["trading"]["max_daily_loss_usd"] = float(value)
+            elif key == "max_daily_notional_usd":
+                current["trading"]["max_daily_notional_usd"] = float(value)
+            elif key == "max_rebalance_run_notional_usd":
+                current["trading"]["max_rebalance_run_notional_usd"] = float(value)
             elif key == "max_position_pct":
                 current["trading"]["max_position_pct"] = float(value)
             elif key == "max_open_orders":
@@ -422,6 +526,44 @@ def _slug_watchlist_id(name: str) -> str:
     return slug or f"list-{uuid.uuid4().hex[:8]}"
 
 
+_WATCHLIST_DENSITIES = {"compact", "comfortable", "spacious"}
+
+
+def normalize_watchlist_settings(raw: object) -> dict | None:
+    """Validate a per-list display-settings blob (columns/order/widths, row
+    density). Unknown column keys are kept as-is — the frontend owns the column
+    registry and silently drops keys it doesn't know, so old servers never
+    strip columns added by a newer frontend."""
+    if not isinstance(raw, dict):
+        return None
+    out: dict = {}
+
+    columns_in = raw.get("columns")
+    if isinstance(columns_in, list):
+        columns: list[dict] = []
+        seen: set[str] = set()
+        for item in columns_in[:64]:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key", "")).strip()
+            if not key or len(key) > 40 or key in seen:
+                continue
+            seen.add(key)
+            col: dict = {"key": key, "visible": bool(item.get("visible", True))}
+            width = item.get("width")
+            if isinstance(width, (int, float)):
+                col["width"] = max(40, min(600, int(width)))
+            columns.append(col)
+        if columns:
+            out["columns"] = columns
+
+    density = raw.get("density")
+    if isinstance(density, str) and density in _WATCHLIST_DENSITIES:
+        out["density"] = density
+
+    return out or None
+
+
 def normalize_watchlists_state(state: dict) -> dict:
     lists_in = state.get("lists")
     if not isinstance(lists_in, list) or not lists_in:
@@ -443,7 +585,11 @@ def normalize_watchlists_state(state: dict) -> dict:
         seen_ids.add(list_id)
         name = str(item.get("name", list_id)).strip() or list_id
         symbols = normalize_watchlist(item.get("symbols", []))
-        lists.append({"id": list_id, "name": name, "symbols": symbols})
+        entry = {"id": list_id, "name": name, "symbols": symbols}
+        list_settings = normalize_watchlist_settings(item.get("settings"))
+        if list_settings is not None:
+            entry["settings"] = list_settings
+        lists.append(entry)
 
     if not lists:
         symbols = normalize_watchlist(DEFAULT_SETTINGS["watchlist"])
@@ -523,7 +669,11 @@ def set_active_watchlist(list_id: str) -> dict:
     return _save_watchlists_state({**state, "active_id": list_id})
 
 
-def create_watchlist(name: str, symbols: list[str] | None = None) -> dict:
+def create_watchlist(
+    name: str,
+    symbols: list[str] | None = None,
+    settings: dict | None = None,
+) -> dict:
     clean_name = name.strip() or "New list"
     state = get_watchlists_state()
     base_id = _slug_watchlist_id(clean_name)
@@ -536,6 +686,9 @@ def create_watchlist(name: str, symbols: list[str] | None = None) -> dict:
         "name": clean_name,
         "symbols": normalize_watchlist(symbols or []),
     }
+    clean_settings = normalize_watchlist_settings(settings)
+    if clean_settings is not None:
+        new_list["settings"] = clean_settings
     return _save_watchlists_state(
         {
             **state,
@@ -550,6 +703,7 @@ def update_watchlist(
     *,
     name: str | None = None,
     symbols: list[str] | None = None,
+    settings: dict | None = None,
 ) -> dict:
     state = get_watchlists_state()
     if not _find_watchlist(state, list_id):
@@ -565,6 +719,12 @@ def update_watchlist(
             updated["name"] = name.strip() or item["name"]
         if symbols is not None:
             updated["symbols"] = normalize_watchlist(symbols)
+        if settings is not None:
+            clean = normalize_watchlist_settings(settings)
+            if clean is not None:
+                updated["settings"] = clean
+            else:
+                updated.pop("settings", None)
         lists.append(updated)
 
     return _save_watchlists_state({**state, "lists": lists})
@@ -664,8 +824,8 @@ def default_chart_layout(symbols: list[str]) -> list[dict]:
 
 
 def normalize_alpaca_data_feed(value: Any) -> str:
-    feed = str(value or "iex").strip().lower()
-    return feed if feed in VALID_ALPACA_DATA_FEEDS else "iex"
+    feed = str(value or "auto").strip().lower()
+    return feed if feed in VALID_ALPACA_CONFIGURED_DATA_FEEDS else "auto"
 
 
 def alpaca_config() -> dict[str, str]:
@@ -748,6 +908,16 @@ def enabled_brokers() -> list[str]:
     return enabled
 
 
+def alerts_config() -> dict[str, Any]:
+    cfg = load_settings().get("alerts", {})
+    defaults = DEFAULT_SETTINGS["alerts"]
+    try:
+        max_push = int(cfg.get("max_push_per_day", defaults["max_push_per_day"]))
+    except (TypeError, ValueError):
+        max_push = int(defaults["max_push_per_day"])
+    return {"max_push_per_day": max(0, max_push)}
+
+
 def trading_config() -> dict[str, Any]:
     cfg = load_settings().get("trading", {})
     defaults = DEFAULT_SETTINGS["trading"]
@@ -756,6 +926,9 @@ def trading_config() -> dict[str, Any]:
         or defaults["execution_mode"],
         "kill_switch_active": bool(
             cfg.get("kill_switch_active", defaults["kill_switch_active"])
+        ),
+        "entries_halted": bool(
+            cfg.get("entries_halted", defaults["entries_halted"])
         ),
         "agent_proposals_enabled": bool(
             cfg.get("agent_proposals_enabled", defaults["agent_proposals_enabled"])
@@ -780,6 +953,18 @@ def trading_config() -> dict[str, Any]:
         ),
         "max_open_orders": int(cfg.get("max_open_orders", defaults["max_open_orders"])),
         "max_daily_orders": int(cfg.get("max_daily_orders", defaults["max_daily_orders"])),
+        "max_daily_loss_usd": float(
+            cfg.get("max_daily_loss_usd", defaults["max_daily_loss_usd"])
+        ),
+        "max_daily_notional_usd": float(
+            cfg.get("max_daily_notional_usd", defaults["max_daily_notional_usd"])
+        ),
+        "max_rebalance_run_notional_usd": float(
+            cfg.get(
+                "max_rebalance_run_notional_usd",
+                defaults["max_rebalance_run_notional_usd"],
+            )
+        ),
         "allow_short_selling": bool(
             cfg.get("allow_short_selling", defaults["allow_short_selling"])
         ),
@@ -873,6 +1058,38 @@ def is_kill_switch_active() -> bool:
 
 def set_kill_switch(active: bool) -> None:
     apply_settings_patch({"trading": {"kill_switch_active": active}})
+
+
+def is_entries_halted() -> bool:
+    """True when exposure-increasing entries are halted (the HALT state).
+
+    Distinct from the kill switch: HALT blocks only orders that ADD exposure
+    (entries/adds/short-opens); app-managed reduce-only exits keep flowing.
+    Deny-by-default — if trading settings are unreadable/ambiguous for ANY
+    reason, return True so entries are denied (the safe direction to fail;
+    exits are gated on exposure direction elsewhere and are never affected).
+    """
+    try:
+        with _settings_lock:
+            settings = (
+                _settings_cache if _settings_cache is not None else _build_settings()
+            )
+        cfg = settings.get("trading")
+        if not isinstance(cfg, dict):
+            return True
+        return bool(
+            cfg.get("entries_halted", DEFAULT_SETTINGS["trading"]["entries_halted"])
+        )
+    except Exception:
+        logger.warning(
+            "entries_halted state unreadable — denying entries (deny-by-default)",
+            exc_info=True,
+        )
+        return True
+
+
+def set_entries_halted(active: bool) -> None:
+    apply_settings_patch({"trading": {"entries_halted": active}})
 
 
 def broker_is_configured(name: str) -> bool:
