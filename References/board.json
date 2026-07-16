@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T03:17:33.144534+00:00",
+  "updated_at": "2026-07-16T03:26:22.919913+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "earnings-drift-extra-day",
+      "title": "earnings_drift: does holding ONE EXTRA DAY on AMC reporters pay? (PC experiment briefed)",
+      "lane": "next",
+      "type": "research",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "2026-07-16. Brief: References/EARNINGS_DRIFT_EXTRA_DAY_EXPERIMENT.md (self-contained, sent to PC). \nQUESTION: exit_lead_td=1 exists ONLY because we couldn't tell BMO from AMC \u2014 selling day-of would sometimes land after the print. If a company reports AMC, the print lands hours AFTER that day's close, so we could hold through day D and sell at D's close = ONE EXTRA DAY of drift on a 9-day hold (~+11% more exposure). Never tested. \n\u2605 LIVE FEASIBILITY ALREADY CONFIRMED (this is why it's worth PC time): Finnhub/AV supply the FORWARD session in earnings_calendar.hour \u2014 measured live, of 957 future rows **544 (57%) have a known session and 247 (26%) are amc**. And it's AUTHORITATIVE not inferred: companies pre-announce their session weeks ahead ('reporting after market close on July 30'); Finnhub's forward hour IS that schedule. Live design: extra day ONLY where forward hour == amc; fail closed on bmo + the 43% null. No new source, no FMP key, no Yahoo scrape (Yahoo 429s this IP outright \u2014 a scraped source that blocks us blocks every future user). \n\u26a0\ufe0f ORCHESTRATOR ERROR WORTH REMEMBERING: I first declared this infeasible because EDGAR can't know the forward session \u2014 TRUE but irrelevant; I was checking the wrong source while holding the right one. Worse, I read the 92% EDGAR-vs-Finnhub agreement as 'EDGAR is 92% reliable' when Finnhub was the REFERENCE \u2014 all 5 disagreements were EDGAR's filing lag, i.e. **Finnhub was right 5/5**. \n\u26a0\ufe0f THE TRAP for the BACKTEST: it must derive the historical session from EDGAR acceptanceDateTime (Finnhub has no history \u2014 rolling 30d window), and that is DIRECTIONALLY BIASED: you cannot file an 8-K before you release, so the stamp is a LOWER BOUND on lateness \u2014 ~7% of EDGAR's 'amc' calls (2 of 28) are really BMO filed late. Those get held THROUGH their print in the sim => their extra-day return contains a real earnings gap. CONSERVATIVE direction => the measured value is a FLOOR (live uses Finnhub's clean forward hour). Say it, don't silently correct it. \nDESIGN: (1) add `accepted_at TEXT` to research/earnings.py's schema \u2014 store the RAW stamp NOT a derived label (re-derivable under stricter rules without a refetch); reuse signals/earnings_edgar.py::session_hour so live/research can't drift (\u26a0\ufe0f UTC->ET conversion FIRST). (2) arm: exit_idx = jn when amc else jn - exit_lead_td; \u26a0\ufe0f ONLY when bars[jn]['d'] == next_e exactly (holiday => jn is the day AFTER the report). (3) 4 pre-registered arms incl. **Arm D = extra day on EVERYTHING (deliberately wrong) as the NEGATIVE CONTROL** \u2014 if D isn't visibly worse than A, the labelling or exit indexing is broken. (4) THE DIAGNOSTIC: extra-day return close[jn]/close[jn-1]-1 split by label \u2014 a true AMC extra day is tight pre-report drift; a false one contains the earnings gap (fat/bimodal). The bmo bucket's same-window return IS a post-report return by construction = a free reference for what a gap day looks like. If amc resembles bmo, the labels are junk. \nCosts unchanged (the arm moves the exit, it does NOT add a trade \u2014 do not add a round trip)."
+    },
     {
       "id": "earnings-drift-breadth-and-entry-timing",
       "title": "earnings_drift: breadth beats concentration (PC-validated) + live enters at the WRONG TIME (47/51 unfaithful)",
