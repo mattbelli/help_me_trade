@@ -213,12 +213,20 @@ class RiskEngine:
                 checks=checks,
                 blocked_reason="qty out of bounds",
             )
-        # Fractional shares are allowed ONLY for portfolio rebalances (rebalance=True,
-        # reachable only from the momentum path), which size by dollar weight to match
-        # the dollar-weighted backtest and would otherwise leave ~24% in cash and drop
-        # every name priced above the per-name budget. Every OTHER path keeps the
-        # whole-share invariant (deny-by-default). The qty range bound above still applies.
-        if qty != qty.to_integral_value() and not intent.rebalance:
+        # Fractional shares are permitted on two signals, both of which size by dollar
+        # weight to match a dollar-weighted backtest and would otherwise leave cash idle
+        # and drop every name priced above the per-name budget:
+        #   - rebalance=True (momentum rebalance path) — ALSO exempts the count throttles.
+        #   - allow_fractional=True (percent-of-equity strategy entries + the exit engine
+        #     closing a fractional position) — lifts ONLY this whole-share invariant, no
+        #     throttle exemption, and EQUITY ONLY (there are no fractional option contracts;
+        #     deny-by-default self-defence against a future caller mis-flagging an option).
+        # Every OTHER path keeps the whole-share invariant (deny-by-default). The qty range
+        # bound above still applies to both.
+        fractional_ok = intent.rebalance or (
+            intent.allow_fractional and intent.asset_class == "us_equity"
+        )
+        if qty != qty.to_integral_value() and not fractional_ok:
             checks["qty_bounds"] = "fail: fractional shares not supported"
             return RiskCheckResult(
                 passed=False,

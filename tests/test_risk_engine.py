@@ -518,3 +518,44 @@ async def test_rebalance_still_enforces_real_gates(monkeypatch, tmp_path: Path) 
     res = await RiskEngine.validate(_intent(rebalance=True, qty=Decimal("400")), db_path=db)
     assert not res.passed
     assert res.blocked_reason  # a real gate caught it, not the exempted count throttles
+
+
+@pytest.mark.asyncio
+async def test_allow_fractional_permits_fractional_qty(monkeypatch, tmp_path: Path) -> None:
+    """allow_fractional=True lifts ONLY the whole-share invariant; the same fractional
+    qty is rejected without it."""
+    db = tmp_path / "risk_frac.db"
+    _patch_passing_env(monkeypatch, db)
+
+    blocked = await RiskEngine.validate(_intent(qty=Decimal("1.5")), db_path=db)
+    assert not blocked.passed
+    assert blocked.blocked_reason == "fractional shares not supported"
+
+    ok = await RiskEngine.validate(
+        _intent(qty=Decimal("1.5"), allow_fractional=True), db_path=db
+    )
+    assert ok.passed, ok.blocked_reason
+
+
+@pytest.mark.asyncio
+async def test_allow_fractional_does_not_exempt_count_throttles(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Unlike rebalance, allow_fractional does NOT bypass the daily-order count throttle
+    — that separation is the whole reason it's a distinct flag."""
+    db = tmp_path / "risk_frac2.db"
+    _patch_passing_env(monkeypatch, db)
+    from db.order_executions import create_execution_record
+
+    for i in range(20):  # max out the daily-order count (cap = 20)
+        create_execution_record(
+            execution_id=f"e{i}", proposal_id=None, session_id=None, symbol="AAPL",
+            side="buy", qty=Decimal("1"), order_type="market", limit_price=None,
+            execution_mode="paper", status="filled", broker="alpaca", db_path=db,
+        )
+
+    res = await RiskEngine.validate(
+        _intent(qty=Decimal("1.5"), allow_fractional=True), db_path=db
+    )
+    assert not res.passed
+    assert "daily order" in (res.blocked_reason or "")

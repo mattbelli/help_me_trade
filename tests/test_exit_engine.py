@@ -178,6 +178,11 @@ async def test_dip_stop_auto_dispatches_sell(
     assert intent.side == "sell"
     assert intent.order_type == "market"
     assert intent.qty == Decimal(str(math.floor(10.0)))
+    assert intent.allow_fractional is False  # whole-share exit stays whole-share
+    # INTEGER wire format: str(Decimal) must be "10", never "10.0" (the REAL snapshot
+    # column reads back 10.0) — a decimal qty could route a non-fractionable symbol's
+    # protective sell through Alpaca's fractional engine and get it rejected.
+    assert str(intent.qty) == "10"
     assert intent.account_id == "acct_1"
     assert len(exit_stubs["proposal_calls"]) == 0
     row = list_open_positions(db_path=db)[0]
@@ -189,6 +194,38 @@ async def test_dip_stop_auto_dispatches_sell(
     assert notify["push"] is True
     assert notify["data"]["exit_mode"] == "auto"
     assert notify["data"]["execution_id"] == "exec_x"
+
+
+@pytest.mark.asyncio
+async def test_fractional_position_full_exits_entirely(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fractional managed position sells its ENTIRE live qty (not floored) and flags
+    the sell fractional. Flooring would orphan the remainder — a fractional position
+    (e.g. a percent-sized earnings_drift entry) would never fully close, and the dust
+    would ride through the print."""
+    db = _db(tmp_path)
+    _seed_account(db)
+    # 2.5 shares held; a -4% move trips the -3% dip stop → full exit.
+    _save_snapshot(
+        db,
+        positions=[_position(avg_entry_price=100.0, current_price=96.0, qty=2.5)],
+    )
+    _open_managed(db, params={"stop_pct": -3.0})
+
+    outcomes = await run_exit_engine(db_path=db)
+
+    assert len(outcomes) == 1
+    assert outcomes[0]["action"] == "exit"
+    assert outcomes[0]["qty"] == 2.5  # the whole position, not math.floor → 2
+    intent = exit_stubs["submit_calls"][0]["intent"]
+    assert intent.side == "sell"
+    assert intent.qty == Decimal("2.5")
+    assert intent.allow_fractional is True
+    # Marker + notify carry the fractional (float) qty — JSON-safe, no int() crash.
+    row = list_open_positions(db_path=db)[0]
+    assert row["exit_context"]["pending_exit"]["qty"] == 2.5
+    assert exit_stubs["notify_calls"][0]["data"]["qty"] == 2.5
 
 
 @pytest.mark.asyncio

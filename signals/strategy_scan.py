@@ -377,6 +377,13 @@ async def _run_strategy(
     if notional is None:
         return []
 
+    # Percent-of-equity sizing deploys an exact dollar fraction, so it fills fractionally
+    # (whole-share flooring would strand cash and drop names above the per-name budget).
+    # Static-dollar strategies keep the whole-share default. Mirrors _resolve_notional's
+    # percent branch.
+    _pct = strategy.get("notional_pct")
+    allow_fractional = _pct is not None and float(_pct or 0) > 0
+
     # The strategy's OWN universe (decoupled from the cockpit's active watchlist).
     symbols = resolve_universe_spec(strategy.get("universe"))
     fetch_symbols = sorted(set(symbols) | {SPY_SYMBOL})
@@ -541,6 +548,7 @@ async def _run_strategy(
                 rule_id=None,
                 rationale=spec.build_rationale(ctx, strategy["name"]),
                 account_id=str(account_id),
+                allow_fractional=allow_fractional,
             )
             if auto_entry:
                 from trading.proposal_intake import auto_execute_entry
