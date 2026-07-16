@@ -261,3 +261,54 @@ not the strategy**.
 
 Still open: per-strategy P&L for `entry_mode='auto'` (never journals → `stats_by_strategy` returns n=0
 forever) — the prerequisite for measuring any of this live.
+
+---
+
+# ⚠️ CORRECTED RESULTS — 2026-07-16 (supersede §1 above)
+
+The first run double-counted costs (`portfolio.py` re-subtracted a 0.30 default against already-net
+`blended_return_pct`). Re-run at the correct 20bps RT. **Both conclusions hold, stronger:**
+
+| config (matched exposure) | CAGR | maxDD | Sharpe | avg invested |
+|---|---|---|---|---|
+| concentrated 5 × 10% | 9.3% | 19.8% | 0.92 | 31% |
+| **breadth 50 × 5%** | **13.2%** | **13.7%** | **1.47** | 35% |
+
+**The double-count was an accidental COST-STRESS TEST — and the edge survived it.** At ~50bps RT
+(double-counted) breadth still returned 8.35% / Sharpe 0.97; at the true 20bps it's 13.2% / 1.47.
+**Breadth beats concentration at BOTH cost levels.** That satisfies the sensitivity leg the validation
+gate asks for (10bps/side + 15/20bps sensitivity) for free — record it as such rather than discarding
+the "wrong" run.
+
+Decile table is **byte-identical** (it never touched the sim) ⇒ **the ranking-premise kill stands**: no
+gradient, only a weak unactionable top-tail hint above +16%.
+
+## Staleness worry: RESOLVED for this experiment (verified)
+
+`research/earnings_strategy.py` imports **nothing** from `strategy_sim` / `validation` / `significance`
+— it computes close-to-close returns inline (`:160-166`). So of PR #28's four fixes (CV leakage,
+next-open fills, embargo, cost single-sourcing) **only cost single-sourcing touches this path**, and
+that's the one now fixed. **These numbers are sound.** The PC should still pull main for anything
+touching the dip book (`strategy_dataset` → `strategy_sim`) or the ML scorer (`validation.py`).
+
+## ⚠️ Read these numbers honestly
+
+- **Benchmark is alpha vs SPY, not raw return.** SPY ≈ 13% CAGR over 2010–2026 — headline return
+  *ties the index*. The real claim is risk-adjusted: **Sharpe 1.47 vs SPY's ~0.85, maxDD 13.7% vs SPY's
+  ~34% (2020).** Same return, half the pain. Quote that, not the 13.2%.
+- **35% avg invested ⇒ 65% idle.** That idle cash is *why* the drawdown is half the index's — not a
+  flaw. But the honest framing is "13.2% on a third of the capital", and it's the strongest argument yet
+  for a combined book: earnings_drift alone leaves two-thirds of strat1 doing nothing.
+- Known fidelity gap (pre-existing, unrelated to costs): the backtest is **close-to-close**
+  (`entry_close = closes[entry_idx]`); live fires intraday at market. See `signals/strategy_scan.py`'s
+  own "Fidelity caveat" docstring.
+
+## Fractional shares — it's OUR policy, not Alpaca (clarified 2026-07-16)
+
+Founder holds fractional shares in STRAT2 *right now*. Nothing is broken and Alpaca is fine with it:
+`trading/risk_engine.py:221` blocks fractional unless `intent.rebalance=True`, set in exactly two
+places — `signals/momentum.py:498,585`. momentum runs in strat2 ⇒ fractional there, whole-share
+everywhere else. Deny-by-default with one granted exception; the error string "fractional shares not
+supported" is misleading — it IS supported, just not permitted for that caller. earnings_drift needs the
+same exception for the identical reason the gate's own comment gives ("~24% in cash and drop every name
+priced above the per-name budget"). Chokepoint change ⇒ own PR + 2 adversarial reviewers.
