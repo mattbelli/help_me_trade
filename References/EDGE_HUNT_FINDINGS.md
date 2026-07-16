@@ -410,3 +410,62 @@ concentration regime (the LLM-slate avenue), and (b) *the vol-event trade* — o
 triggers, now including the new term-structure data. Both ship paper-only with the pre-registered kill
 lines above, Tier-B labels, and journal entries so the calibration loop grades them. The regime fork and
 the tier-1 book stay on separate shelves — decay here is expected and handled, not a scandal.
+
+---
+
+# Round 6 — earnings-drift portfolio construction: breadth, rebalancing, sizing (2026-07-15, founder-directed)
+
+Not an edge hunt — a **sizing/policy study** on the already-validated earnings-drift setup list (6,624 setups,
+614 symbols, 2010–2026, `data/research/earnings_labeled.db`, blowout ≥5%, entry 10td / exit 1td before next
+earnings, returns stored NET of 0.20% RT cost). Question: how should the live sleeve deploy capital?
+Scripts (committed, repo `research/_edgehunt/`): `breadth_vs_concentration.py`, `covid_and_rebalance.py`,
+`_fraction_sweep.py`. Quant-reviewed (verdict believe-with-caveats; both required fixes applied:
+start-of-day-equity sizing, ex-2020 CAGR demoted to directional).
+
+**Prerequisite fix — the PC was running stale research code.** The old `portfolio.py` deducted its own 0.30%
+default cost on top of net-stored returns (double-count). Merged main (473 commits, the pipeline-honesty
+round: cost single-sourcing, next-open fills in `strategy_sim`, CV embargo), rebuilt the dataset, re-ran
+everything. All numbers below are post-fix.
+
+**Marking caveat (applies to every number below):** no intra-trade price path exists in the setup list, so sims
+mark trades by LINEAR ACCRUAL over the holding window (both policies identically). Sharpes under this marking
+are inflated vs event-marking — compare within-table only. Live drawdowns will run deeper than model. The
+earnings builder also still fills at signal close (next-open honesty fix hasn't reached `earnings_strategy.py`)
+— mild optimism. The 614-name earnings universe carries the known survivorship bias (upper-bound numbers).
+
+## ✔ BREADTH beats concentration (not a Covid artifact)
+5 slots × 10% takes 30% of signals (arrival-order clip) vs breadth taking ~all. At matched deployment breadth
+dominates every metric. Covid gate passes: breadth's DD is spread over **six distinct macro events** (2011,
+2015–16, 2018Q4, 2020, 2022×2, 2025-04; deepest 13.2% Covid, next 12.4% and 12.2%); splice 2020 out and
+breadth's maxDD barely moves (13.2→12.4%) while its Sharpe edge persists (3.07 vs 2.06 ex-2020, accrual-marked).
+
+## ✘ KILLED — blowout-magnitude ranking
+Decile bucket of `blowout_reaction_pct` (never previously analyzed): NO monotone gradient. Deciles 1–9 bounce
+0.2–1.2% mean with decile 7 worst (noise, ~2.6σ across 10 comparisons); only decile 10 (>16% reaction) is
+modestly higher (1.33% vs 0.89% pooled, ~1.6σ — not actionable). Don't spend ranking effort on reaction size.
+
+## ✘ KILLED — dynamic equal-weight rebalancing
+Founder's proposal (take every signal, equal-weight all open to ~95% target, cap 10%/name, rebalance on every
+event) tested with explicit one-way churn on resize deltas. Churn is NOT what kills it (5bps ≈ −0.9% CAGR/yr;
+25% tolerance band cuts turnover by a third). The deployment-matched control kills it: **fixed 10%/position
+with arrival-order skips beats the rebalance rule after churn** (20.4%/21.1% vs 20.0%/21.9% CAGR/maxDD) with
+no mid-trade churn and fewer DD episodes. The apparent rebalance win was purely a deployment-level effect.
+Also: "95% deployed" is unattainable — signal flow is earnings-season-clustered, so even take-everything
+averages **53% deployed**. Deployment is signal-limited, not policy-limited; more deployment needs a second
+uncorrelated sleeve, not a sizing rule.
+
+## ★ CHOSEN POLICY — fixed 10 × 10%, arrival-order (the fraction sweep's interior optimum)
+Sweep of per-trade fraction at 50 slots: CAGR **peaks at 10%** (20.4%/21.1% maxDD) — 15%+ fractions LOSE CAGR
+while DD balloons (bigger positions fill the book faster → skip more signals → breadth, the actual edge,
+erodes). Note 10×10% ≡ 50×10%: at 10%/position the no-leverage constraint caps the book at 10 open names, so
+the slot cap never binds. Two-point menu: **50×5% = 13.7% CAGR / 13.2% maxDD** (comfort) vs
+**10×10% = 20.4% / 21.1%** (growth-optimal). Founder chose 10×10% (drawdown-tolerant, no withdrawals).
+Year-by-year: one losing year in 16 (2022: −3.1% vs SPY −18.2%); loses to SPY in ~1/3 of years (strong bulls,
+book only ~48% deployed); **2020 (+73.5%) does heavy CAGR lifting** — ex-2020 typical year ≈ 15–18%.
+**Pre-registered kill line required before live:** entries halt + re-validate if sleeve DD exceeds ~1.5× worst
+backtest episode (≈32% model-marked) or trailing-2y return goes negative while SPY is flat. Paper first.
+
+## Bottom line (round 6)
+Sizing policy settled: **fixed 10% of equity per position, max 10 concurrent, skip when full** — simplest rule
+won every control. Ranking-by-reaction and dynamic rebalancing are both honest kills. The next CAGR unlock is
+a second uncorrelated signal source to fill the ~50% idle time, not leverage or cleverer sizing on this sleeve.
