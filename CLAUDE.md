@@ -18,6 +18,24 @@ and still trust it. The hard part is **decision quality + risk + trust**, not au
 built). Prioritize agent-decision + risk + phone delivery; deprioritize manual-trader polish (DOM ladder,
 greeks chains, fancy chart tools) and especially un-guarded real-money execution.
 
+## ★ THE BEST IDEAS WIN — read this before building anything (founder directive 2026-07-16)
+A basic, first-thought mechanism has **no edge** — the product IS problem solving and creative forward
+thinking. Token count is NEVER a reason to skip ideation on a product-edge problem (rule 4's cost discipline
+covers routine mechanics, not thinking). Standing practice, learned the hard way (a zero-context external
+chatbot out-generated the deeply-anchored main loop on the options quote-cap problem — the winning ideas'
+ingredients were already in this repo, and the anchored agent walked past them):
+- **On any design fork or constraint problem, generate alternatives before building** — including a
+  **zero-context ideation pass**: spawn a fresh agent given ONLY the problem statement, no repo context.
+  Deep context anchors; fresh eyes see past the walls the repo's own doctrines build. Method diversity
+  (already proven for adversarial review) applies to idea GENERATION too.
+- **Treat "forbidden" heuristics as measurable methods.** Honesty rules constrain what we PRESENT to the
+  user, never what we measure. "We never guess" means never present a guess as fact — it does not mean
+  never grade a guess against ground truth to learn its error rate.
+- **Attack the premise, not just the question.** When asked "is there a way to do X?", also answer the
+  inverted question actually being asked. Never present the first workable design as THE design.
+- **Never give up on a constraint** until cheap-and-clever has been exhausted and measured; only then buy
+  the clean solution — with the failure record attached.
+
 ## How to work (the established cadence)
 1. **Delegate coding to Composer — don't hand-edit by default.** Write a precise, self-contained brief (exact
    files, current vs desired behavior, constraints, verify steps) → `node tools/composer-bridge/dispatch.mjs
@@ -38,6 +56,9 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
 4. **Minimize the Opus main-loop token cost** ("you are the expensive one"). Delegate: code → Composer;
    recon/review/research → **Sonnet subagents**; keep the main loop short — don't do heavy generation or broad
    file-reading inline when a subagent can. `/model sonnet` for routine turns is the user's biggest lever.
+   **Scope: routine mechanics ONLY — this rule never trumps "★ THE BEST IDEAS WIN"** (ideation on
+   product-edge problems is worth every token; spawning fresh-context agents to generate/debate ideas is a
+   no-brainer, founder-confirmed).
 
 ## Board discipline — what earns a card, and keeping it honest
 The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work; a
