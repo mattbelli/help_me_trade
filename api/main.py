@@ -2921,6 +2921,52 @@ async def api_options_flow(
     }
 
 
+@app.get("/api/index-pressure")
+async def api_index_pressure(
+    date: str | None = None, series: str | None = None, window: str = "open"
+):
+    """Session-bookend index/megacap flow pressure — raw perception.
+
+    ``window=open`` (09:30-10:00 ET, default) or ``close`` (15:30-16:00 ET).
+    Premium-weighted net imbalance per underlying (bull = call buys + put sells;
+    bear = put buys + call sells; the undetermined remainder is surfaced as
+    ``unclassified_usd``, never guessed). NOT a signal: no score, no win%, and no
+    "abnormal" judgment until the per-minute baseline has accrued enough days
+    (``baseline_days`` is returned so the UI can label the warm-up honestly).
+    ``series=SYM`` adds that underlying's per-minute rows for a sparkline.
+    """
+    from db.index_pressure import baseline_days, day_summary, minute_series
+
+    win = window.strip().lower()
+    if win not in ("open", "close"):
+        return JSONResponse(
+            {"error": "window must be 'open' or 'close'"}, status_code=400
+        )
+    target = (date or datetime.now(_ET).date().isoformat()).strip()
+    try:
+        from signals.options_flow.constants import GAUGE_ZERO_DTE_PICKS
+
+        payload: dict = {
+            "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
+            "date": target,
+            "window": win,
+            "window_et": "09:30-10:00" if win == "open" else "15:30-16:00",
+            "rows": day_summary(target, window=win),
+            "baseline_days": baseline_days(window=win),
+            # Disclosed truncation: index 0-1DTE coverage = the top-N contracts
+            # by day-$vol per name (ATM cluster), not the whole 0DTE chain.
+            "lane": {"zero_dte_top_n": GAUGE_ZERO_DTE_PICKS},
+        }
+        if series:
+            payload["series"] = {
+                "underlying": series.strip().upper(),
+                "minutes": minute_series(target, series, window=win),
+            }
+    except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return payload
+
+
 @app.get("/api/scanner/rvol")
 async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     """Market-wide unusual-volume scanner powered by precomputed volume profiles.

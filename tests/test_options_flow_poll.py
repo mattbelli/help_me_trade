@@ -68,6 +68,7 @@ class FakeAdapter:
         *,
         contracts_by_u: dict[str, list[dict]] | None = None,
         snapshots_by_u: dict[str, dict[str, dict]] | None = None,
+        snapshots_by_u_exp: dict[tuple[str, str], dict[str, dict]] | None = None,
         trades_by_occ: dict[str, list[dict]] | None = None,
         quotes_by_occ: dict[str, dict] | None = None,
         bars_by_occ: dict[str, list[dict]] | None = None,
@@ -76,6 +77,7 @@ class FakeAdapter:
     ) -> None:
         self.contracts_by_u = contracts_by_u or {}
         self.snapshots_by_u = snapshots_by_u or {}
+        self.snapshots_by_u_exp = snapshots_by_u_exp or {}
         self.trades_by_occ = trades_by_occ or {}
         self.quotes_by_occ = quotes_by_occ or {}
         self.bars_by_occ = bars_by_occ or {}
@@ -106,11 +108,13 @@ class FakeAdapter:
         limit: int | None = None,
         max_pages: int = 1,
     ) -> dict:
-        del feed, expiration_date
+        del feed
         u = underlying.strip().upper()
         self.chain_calls.append((u, limit, max_pages))
         if u in self.raise_snapshot_on:
             raise RuntimeError(f"boom:{u}")
+        if expiration_date is not None:
+            return dict(self.snapshots_by_u_exp.get((u, expiration_date), {}))
         return dict(self.snapshots_by_u.get(u, {}))
 
     def get_option_trades(
@@ -684,3 +688,124 @@ def test_per_underlying_print_cap_enforced() -> None:
         assert st.day_prints["NVDA"][-1]["size"] == 4
     finally:
         poll_mod._DAY_PRINTS_CAP = original_cap
+
+
+# --- Gauge lane (audit 2026-07-16 F1) -------------------------------------------------
+
+
+def test_gauge_lane_subscribes_index_zero_dte() -> None:
+    """SPY 0-1 DTE stays OUT of the regular set (detectors discard those prints)
+    but lands in the active set via the gauge lane, flagged gauge_lane."""
+    snaps = {
+        # 0DTE (expiry == TODAY) — the regular path skips these for SPY
+        "SPY260709C00629000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=500),
+        "SPY260709P00627000": _snapshot_trade(ts=f"{TODAY}T14:02:00Z", size=400),
+        # far-dated — regular pick
+        "SPY260821C00640000": _snapshot_trade(ts=f"{TODAY}T14:03:00Z", size=100),
+    }
+    adapter = FakeAdapter(contracts_by_u={"SPY": []}, snapshots_by_u={"SPY": snaps})
+    st = PollState()
+    run_poll_once(adapter, symbols=["SPY"], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    assert "SPY260821C00640000" in st.active
+    assert st.active["SPY260821C00640000"].get("gauge_lane") is None
+    assert "SPY260709C00629000" in st.active
+    assert st.active["SPY260709C00629000"]["gauge_lane"] is True
+    assert "SPY260709P00627000" in st.active
+    assert st.active["SPY260709P00627000"]["gauge_lane"] is True
+
+
+def test_gauge_universe_fetched_beyond_watchlist() -> None:
+    """Gauge names are guaranteed coverage — fetched even when no watchlist has
+    them, outside the watchlist cap (audit F1: IWM/DIA/SPX etc. accrued zero rows
+    forever because the underlying set was watchlist-only)."""
+    snaps = {"QQQ260821C00500000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=50)}
+    adapter = FakeAdapter(contracts_by_u={"NVDA": []}, snapshots_by_u={"QQQ": snaps})
+    st = PollState()
+    run_poll_once(adapter, symbols=["NVDA"], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    fetched = {u for u, _, _ in adapter.chain_calls}
+    assert {"NVDA", "SPY", "QQQ", "IWM", "DIA", "SPX", "AMZN"} <= fetched
+    assert "QQQ260821C00500000" in st.active  # picked without any watchlist
+
+
+def test_gauge_lane_survives_budget_squeeze(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gauge picks allocate BEFORE the regular budget — an over-budget regular set
+    can never evict them (the PR #73 alphabetical-clip lesson, applied to the lane)."""
+    import signals.options_flow.poll as poll_mod
+
+    monkeypatch.setattr(poll_mod, "STREAM_TRADES_MAX", 3)
+
+    snaps_spy = {
+        "SPY260709C00629000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=500),
+    }
+    snaps_nvda = {
+        f"NVDA260821C{i:08d}": _snapshot_trade(ts=f"{TODAY}T14:{i:02d}:00Z", size=10 + i)
+        for i in range(5)
+    }
+    adapter = FakeAdapter(
+        contracts_by_u={"NVDA": [], "SPY": []},
+        snapshots_by_u={"SPY": snaps_spy, "NVDA": snaps_nvda},
+    )
+    st = PollState()
+    run_poll_once(
+        adapter, symbols=["NVDA", "SPY"], today_et=TODAY, now_ms=NOW_MS, state=st
+    )
+
+    assert len(st.active) == 3
+    assert st.active["SPY260709C00629000"]["gauge_lane"] is True  # survived
+    assert sum(1 for o in st.active if o.startswith("NVDA")) == 2  # clipped remainder
+
+
+def test_oi_seed_covers_gauge_names_beyond_watchlist() -> None:
+    """The OI seed is the bell's subscription — gauge names must be seeded even
+    when no watchlist carries them, or the open window's first minutes are blind
+    for exactly the names the gauge exists to measure (audit F1)."""
+    from signals.options_flow.poll import _refresh_oi
+
+    contracts = [
+        {"symbol": "IWM260709C00220000", "open_interest": 5000},
+        {"symbol": "IWM260709P00218000", "open_interest": 4000},
+    ]
+    adapter = FakeAdapter(contracts_by_u={"IWM": contracts})
+    st = PollState()
+    _refresh_oi(adapter, ["NVDA"], TODAY, st)
+
+    assert st.oi_seed.get("IWM") == ["IWM260709C00220000", "IWM260709P00218000"]
+    assert st.oi["IWM260709C00220000"] == 5000
+
+
+def test_spx_zero_dte_routes_to_gauge_lane_not_detectors() -> None:
+    """Review H1: SPX/SPXW get index treatment — SPX 0DTE goes to the gauge lane
+    (not the regular set, where its prints would reach the burst/cluster/sweep
+    detectors as index-0DTE noise the F-3 exclusion exists to prevent)."""
+    snaps = {
+        "SPXW260709C05500000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=200),
+        "SPXW260821C05600000": _snapshot_trade(ts=f"{TODAY}T14:02:00Z", size=50),
+    }
+    adapter = FakeAdapter(contracts_by_u={"SPX": []}, snapshots_by_u={"SPX": snaps})
+    st = PollState()
+    run_poll_once(adapter, symbols=[], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    assert st.active["SPXW260709C05500000"]["gauge_lane"] is True  # 0DTE → gauge lane
+    assert st.active["SPXW260821C05600000"].get("gauge_lane") is None  # far → regular
+
+
+def test_spxw_dailies_recovered_by_per_expiry_fetch() -> None:
+    """SPXW pagination trap (live-caught 2026-07-16): SPX monthlies sort before
+    SPXW dailies, so the paged whole-chain fetch never reaches the 0DTE dailies.
+    Gauge index names re-fetch the next two expiries explicitly."""
+    monthly = {"SPX260821C05600000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=30)}
+    dailies = {"SPXW260709C05500000": _snapshot_trade(ts=f"{TODAY}T14:02:00Z", size=400)}
+    adapter = FakeAdapter(
+        contracts_by_u={"SPX": []},
+        snapshots_by_u={"SPX": monthly},  # what the paged whole-chain fetch sees
+        snapshots_by_u_exp={("SPX", TODAY): dailies},  # only per-expiry reaches these
+    )
+    st = PollState()
+    run_poll_once(adapter, symbols=[], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    assert "SPXW260709C05500000" in st.active  # recovered
+    assert st.active["SPXW260709C05500000"]["gauge_lane"] is True  # 0DTE → gauge lane
+    exp_calls = [c for c in adapter.chain_calls if c[0] == "SPX"]
+    assert len(exp_calls) >= 3  # whole-chain + two per-expiry fetches

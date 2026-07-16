@@ -528,6 +528,45 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
     return [row]
 
 
+def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from db.index_pressure import baseline_days, day_summary
+
+    date = str(filters.get("date") or "").strip() or datetime.now(
+        ZoneInfo("America/New_York")
+    ).date().isoformat()
+    window = str(filters.get("window") or "open").strip().lower()
+    if window not in ("open", "close"):
+        return [{"error": "window must be 'open' or 'close'"}]
+    window_et = "09:30-10:00" if window == "open" else "15:30-16:00"
+    rows = day_summary(date, window=window, db_path=db_path)
+    if not rows:
+        return [{"date": date, "unavailable": True, "window": window, "window_et": window_et}]
+    days = baseline_days(window=window, db_path=db_path)
+    out = []
+    for r in rows:
+        r = dict(r)
+        r["date"] = date
+        r["window"] = window
+        r["window_et"] = window_et
+        r["baseline_days"] = days
+        # Honesty stamp: raw premium sums, not a validated signal; the unclassified
+        # remainder is real flow whose aggressor side could not be determined.
+        caveat = (
+            f"raw {window}-window premium; {r['classified_frac']:.0%} side-classified"
+            "; index 0DTE = top-N contracts by $vol (ATM cluster), not the full chain"
+        )
+        if r.get("coverage"):
+            caveat += f"; lane: {r['coverage']}"
+        if days < 20:
+            caveat += f"; uncalibrated ({days} baseline days)"
+        r["caveat"] = caveat
+        out.append(r)
+    return out
+
+
 async def _read_news(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del db_path
     from signals.finnhub import fetch_watchlist_news
@@ -826,6 +865,21 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_options_chain,
     },
+    "index_pressure": {
+        "description": (
+            "Session-bookend options-flow pressure for the index complex "
+            "(SPY/QQQ/IWM/DIA/SPX) + saturated megacaps — premium-weighted net "
+            "imbalance (bull = call buys + put sells, bear = put buys + call "
+            "sells) with the unclassified remainder surfaced. Windows: open "
+            "(09:30-10:00 ET) and close (15:30-16:00 ET). Raw perception with a "
+            "caveat, never a signal or score."
+        ),
+        "filters": {
+            "date": "optional YYYY-MM-DD — default today (ET)",
+            "window": "optional — open (default) | close",
+        },
+        "read": _read_index_pressure,
+    },
 }
 
 
@@ -860,6 +914,11 @@ _RESOURCE_ALIASES = {
     "tape": "equity_tape",
     "dark_pool": "equity_tape",
     "blocks": "equity_tape",
+    "pressure": "index_pressure",
+    "index_flow": "index_pressure",
+    "opening_pressure": "index_pressure",
+    "closing_pressure": "index_pressure",
+    "gauge": "index_pressure",
 }
 
 
