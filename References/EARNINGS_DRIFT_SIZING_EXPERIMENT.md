@@ -378,3 +378,69 @@ before the data exists.**
 
 **Arm with:** `notional_pct=5`, `max_concurrent_positions=50`, `max_deployed_usd=100000` (= equity;
 mirrors the sim's `max_gross_exposure=1.0` — higher is unmodelled leverage).
+
+---
+
+# ⚠️ ROUND 4 — the 5% recommendation was WRONG. Decision: 10 × 10% + a kill line (2026-07-16)
+
+**Founder challenged both agents' 5% recommendation. He won. Recording the reasoning failures because
+they're instructive.**
+
+## What was wrong (both the orchestrator's and the PC's first answer)
+
+1. **"~37% maxDD at 95% deployed" was FABRICATED.** Extrapolated linearly from 35%→95% deployment and
+   multiplied DD by the ratio. **Never measured.** Reality: **the scenario cannot physically happen** —
+   deployment is signal-limited (§Round 3), so this sleeve tops out ~20% CAGR / ~22% maxDD. A scary
+   number produced by arithmetic and presented in a table as if it were evidence — the exact sin this
+   doc spends three sections warning about.
+2. **"Scales returns and drawdowns proportionally, Sharpe untouched" — FALSE, and the mechanism matters.**
+   Measured: 35% → 53% deployment scaled CAGR **1.46×** but drawdown **1.66×**, and **Sharpe FELL**
+   (3.24 → 3.10 accrual-marked). Why: **drawdowns happen precisely when the book is FULL** — earnings
+   clusters coincide with market stress. Deployment concentrates risk into exactly the windows that hurt.
+   Sizing is about your **worst-moment** deployment, not your average. A linear model is blind to this.
+3. **"Equal-weight across however many are open is the right shape" — FALSE.** The deployment-matched
+   control killed it (§Round 3).
+4. **The reflex itself.** Models pattern-match to "recommend the lower-drawdown option" because it *sounds*
+   responsible. ⚠️ **For capital the founder won't touch, with no withdrawals coming, maxDD is a
+   PSYCHOLOGICAL statistic, not an economic one.** 50 × 5% is a **comfort purchase costing ~7% CAGR/yr,
+   compounding** (~$758k vs ~$1.86M over the backtest window). Refusing 20.4%/21.1% — which **dominates
+   SPY on BOTH axes** (~20% vs 13% CAGR, ~21% vs 34% DD) — is not prudence.
+
+**10% is not "more risk for more return" — the fraction sweep shows CAGR PEAKS at 10%/position: it's the
+growth-optimal point on this signal stream.** Above it you lose return AND add drawdown (you hit the gross
+cap and skip more signals); below it you're buying comfort.
+
+## The ONE argument that survives — and it's DETECTION, not comfort
+
+**The deeper your normal drawdown, the harder it is to detect a DEAD EDGE.** At 50×5% a 20% drawdown is
+unprecedented → a clear alarm. At 10×10%, 20% is within normal range → you'd sit through it, and if the
+edge had died you'd find out **much deeper in the hole**. Month two of the next 2022 won't *feel* like
+evidence something broke.
+
+**The fix is NOT smaller sizing — it's a PRE-REGISTERED KILL LINE decided NOW, while flat** (same
+discipline the regime sleeves got in their spec; and per [[external-repo-inspiration]]: never a permanent
+eyeballed kill — a defined re-enable path is mandatory).
+
+## ✅ REVISED DECISION: 10 slots × 10%, arrival-order, paper-first
+
+**Pre-registered kill line (decided while flat so it can't be rationalised away at −25%):**
+| | |
+|---|---|
+| **halt line** | strat1 account equity **−30% from peak** (≈1.5× the 21.1% model DD, which is known-optimistic: linear accrual + close fills) |
+| **action** | entries HALT; open positions run their 9-day clock out |
+| **re-enable** | re-validate on current data; re-arm ONLY if it still clears the original gate |
+
+★ **Measurable TODAY with no new work** — because the founder is running earnings_drift **alone in
+strat1**, the account equity curve **IS** the strategy's P&L. The per-strategy-attribution gap
+([[per-strategy-attribution]]) stops blocking the kill line the moment the account is solo.
+Source: `account_snapshots.portfolio_value` for `acct_alpaca_strat1`.
+
+**The better line, once auto-entries journal:** realized per-trade mean vs the validated CI
+**[+0.43, +1.28]** — edge-death detection rather than a crude equity stop. One season ≈ ~100 live trades,
+enough for a real Wilson bound. Until then the equity stop is the guard.
+
+**ARM WITH:** `notional_pct=10`, `max_concurrent_positions=10`, `max_deployed_usd=100000` (= equity;
+mirrors the sim's `max_gross_exposure=1.0`).
+
+**Honest expectation:** the real maxDD will EXCEED 21.1% (linear accrual smooths troughs; the builder
+fills at signal close while live fires intraday). Both optimisms point the same way. Budget for worse.
