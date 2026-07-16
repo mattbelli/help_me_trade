@@ -156,9 +156,12 @@ def test_earnings_exit_within_lead():
 
 
 def test_earnings_hold_when_far():
+    # Holiday-free span (2026-01-02 → 2026-01-16 has no NYSE closure between them) so the
+    # count is an unambiguous 10 trading days out. Do NOT end on 2026-01-19 — that's MLK
+    # Day, which the trading-day calendar correctly excludes (would be 9).
     d = evaluate_earnings_exit(
-        today="2026-01-05",
-        earnings_dates=["2025-10-15", "2026-01-19"],
+        today="2026-01-02",
+        earnings_dates=["2025-10-15", "2026-01-16"],
         params={},
     )
     assert d.action == "hold"

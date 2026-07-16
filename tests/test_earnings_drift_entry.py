@@ -122,7 +122,14 @@ def test_gap_out_of_range_no_entry():
 
 
 def test_trading_days_until_counts_weekdays():
-    # Mon 2026-06-22 -> Mon 2026-06-29 = 5 weekdays
+    # Mon 2026-06-22 -> Mon 2026-06-29 = 5 weekdays (no holiday in span)
     assert _trading_days_until("2026-06-22", "2026-06-29") == 5
     assert _trading_days_until("2026-06-22", "2026-06-22") == 0
     assert _trading_days_until("2026-06-29", "2026-06-22") == 0  # past
+
+
+def test_trading_days_until_skips_holidays():
+    # Mon 2026-06-29 -> Mon 2026-07-06 spans observed Independence Day (Fri Jul 3,
+    # since Jul 4 2026 is a Saturday). Weekday count would be 5; holiday-aware is 4.
+    # This is the over-count that, in the earnings exit window, holds into the print.
+    assert _trading_days_until("2026-06-29", "2026-07-06") == 4

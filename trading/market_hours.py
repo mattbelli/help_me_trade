@@ -1,9 +1,15 @@
-"""US equities regular-session market hours (v1 — weekdays only, no holiday calendar)."""
+"""US equities regular-session market hours.
+
+Holiday awareness comes from trading.market_calendar (full-day closures only; see
+its docstring for the half-day non-goal).
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from trading.market_calendar import is_trading_day
 
 _ET = ZoneInfo("America/New_York")
 _SESSION_OPEN = (9, 30)
@@ -11,10 +17,9 @@ _SESSION_CLOSE = (16, 0)
 
 
 def is_market_open(now: datetime | None = None) -> bool:
-    """True during US equities regular session: Mon–Fri 09:30–16:00 ET."""
-    # TODO: Alpaca /v2/clock for holidays
+    """True during US equities regular session: a trading day, 09:30–16:00 ET."""
     t = now.astimezone(_ET) if now is not None else datetime.now(_ET)
-    if t.weekday() >= 5:
+    if not is_trading_day(t.date()):
         return False
     open_minutes = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
     close_minutes = _SESSION_CLOSE[0] * 60 + _SESSION_CLOSE[1]
@@ -25,12 +30,11 @@ def is_market_open(now: datetime | None = None) -> bool:
 def is_after_close(now: datetime) -> bool:
     """True once the regular session on `now`'s ET date is history.
 
-    Not the complement of is_market_open(): pre-open is False here. Weekends
-    read as after-close — there was no session to still be waiting on.
+    Not the complement of is_market_open(): pre-open is False here. Weekends and
+    holidays read as after-close — there was no session to still be waiting on.
     """
-    # TODO: Alpaca /v2/clock for holidays
     t = now.astimezone(_ET)
-    if t.weekday() >= 5:
+    if not is_trading_day(t.date()):
         return True
     close_minutes = _SESSION_CLOSE[0] * 60 + _SESSION_CLOSE[1]
     return t.hour * 60 + t.minute >= close_minutes
@@ -42,13 +46,12 @@ def last_session_close(now: datetime) -> datetime:
     Anything that traded before this instant has been superseded by that close,
     so it can no longer describe the current price.
     """
-    # TODO: Alpaca /v2/clock for holidays
     t = now.astimezone(_ET)
     close = t.replace(
         hour=_SESSION_CLOSE[0], minute=_SESSION_CLOSE[1], second=0, microsecond=0
     )
     if close > t:
         close -= timedelta(days=1)
-    while close.weekday() >= 5:
+    while not is_trading_day(close.date()):
         close -= timedelta(days=1)
     return close
