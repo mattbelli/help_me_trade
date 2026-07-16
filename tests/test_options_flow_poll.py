@@ -751,3 +751,21 @@ def test_gauge_lane_survives_budget_squeeze(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(st.active) == 3
     assert st.active["SPY260709C00629000"]["gauge_lane"] is True  # survived
     assert sum(1 for o in st.active if o.startswith("NVDA")) == 2  # clipped remainder
+
+
+def test_oi_seed_covers_gauge_names_beyond_watchlist() -> None:
+    """The OI seed is the bell's subscription — gauge names must be seeded even
+    when no watchlist carries them, or the open window's first minutes are blind
+    for exactly the names the gauge exists to measure (audit F1)."""
+    from signals.options_flow.poll import _refresh_oi
+
+    contracts = [
+        {"symbol": "IWM260709C00220000", "open_interest": 5000},
+        {"symbol": "IWM260709P00218000", "open_interest": 4000},
+    ]
+    adapter = FakeAdapter(contracts_by_u={"IWM": contracts})
+    st = PollState()
+    _refresh_oi(adapter, ["NVDA"], TODAY, st)
+
+    assert st.oi_seed.get("IWM") == ["IWM260709C00220000", "IWM260709P00218000"]
+    assert st.oi["IWM260709C00220000"] == 5000

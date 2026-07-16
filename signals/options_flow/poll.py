@@ -538,8 +538,14 @@ def _refresh_oi(
     state: PollState,
 ) -> None:
     capped = eligible_underlyings(symbols)
+    # Gauge names get OI seeds too — the seed IS the pre-open subscription (the
+    # bell's first minutes ride it until today's trades exist to rank), and the
+    # open window's first minutes are exactly what the gauge exists to measure.
+    # The seed path intentionally has no 0-1 DTE skip: big-OI same-day expiries
+    # seed the gauge's coverage at the bell (audit 2026-07-16 F1).
+    fetch_order = list(capped) + [u for u in GAUGE_FETCH_UNDERLYINGS if u not in capped]
 
-    for u in capped:
+    for u in fetch_order:
         try:
             contracts = adapter.get_option_contracts(
                 u, expiration_date_gte=today_et, limit=1000
