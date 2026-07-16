@@ -37,7 +37,7 @@ _ET = ZoneInfo("America/New_York")
 # "carry this over to large caps" extension. DTE≤1 only — the study's subject.
 SAMPLE_UNDERLYINGS = ("SPY", "QQQ", "IWM", "DIA", "SPX", "TSLA", "NVDA", "AAPL")
 MAX_DTE = 1
-SAMPLE_SECONDS = 60
+SAMPLE_SECONDS = 15  # quote-timeline resolution for back-pairing tests (prereg)
 # 5-min shoulders around the gauge windows so deltas exist at the edges.
 WINDOWS_ET = ((9 * 60 + 25, 10 * 60 + 5), (15 * 60 + 25, 16 * 60 + 5))
 OUT_DIR = Path(__file__).resolve().parent.parent / "data" / "research" / "chain_samples"
@@ -87,6 +87,8 @@ def _sample_once(broker, today_et: str, out) -> int:
                 continue
             trade = csnap.get("latestTrade") or {}
             day = csnap.get("dailyBar") or {}
+            quote = csnap.get("latestQuote") or {}
+            greeks = csnap.get("greeks") or {}
             out.write(
                 json.dumps(
                     {
@@ -101,6 +103,15 @@ def _sample_once(broker, today_et: str, out) -> int:
                         "day_vol": (day.get("v") if isinstance(day, dict) else None),
                         "last_price": (trade.get("p") if isinstance(trade, dict) else None),
                         "last_ts": (trade.get("t") if isinstance(trade, dict) else None),
+                        # prereg needs: sampled quote timeline (back-pairing at
+                        # 15/30/60s) + greeks/IV (delta-adjusted residual terms)
+                        "bid": (quote.get("bp") if isinstance(quote, dict) else None),
+                        "ask": (quote.get("ap") if isinstance(quote, dict) else None),
+                        "q_ts": (quote.get("t") if isinstance(quote, dict) else None),
+                        "iv": csnap.get("impliedVolatility"),
+                        "delta": (greeks.get("delta") if isinstance(greeks, dict) else None),
+                        "gamma": (greeks.get("gamma") if isinstance(greeks, dict) else None),
+                        "vega": (greeks.get("vega") if isinstance(greeks, dict) else None),
                     }
                 )
                 + "\n"
