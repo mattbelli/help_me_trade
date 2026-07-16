@@ -29,10 +29,22 @@ export const DENSITY_ROW_CLASS: Record<WatchlistDensity, string> = {
 
 // Row text size per density — tighter rows read smaller, airier rows larger.
 // comfortable keeps the widget's historical 13px (--fs-title).
+//
+// The line-height is pinned to a whole px on purpose — it is load-bearing, not
+// styling. A row's pitch is (density py) + line-height + the 1px border-b, and
+// Chromium snaps each border edge to a device pixel independently. Let the pitch
+// go fractional and every other row's border-b snaps top and bottom onto the SAME
+// pixel — a zero-height border that paints nothing at all. That was the "grid
+// lines are cut off, and repopulate when I mouse over them / when rows reorder"
+// glitch: comfortable is the default and inherited line-height 1.5 x 13px = 19.5px
+// => 32.5px rows => exactly every other hairline missing (measured 100/0/100/0...
+// across the rows; 33px rows measure 100 across the board). Reordering reshuffles
+// which rows sit on the half-pixel, which is why the gaps moved around.
+// Keep these integral if --fs-* ever changes.
 export const DENSITY_TEXT_CLASS: Record<WatchlistDensity, string> = {
-  compact: "text-[length:var(--fs-body)]",
-  comfortable: "text-[length:var(--fs-title)]",
-  spacious: "text-[length:calc(var(--fs-title)+1px)]",
+  compact: "text-[length:var(--fs-body)] leading-[18px]", // 12px x 1.5
+  comfortable: "text-[length:var(--fs-title)] leading-[20px]", // was 19.5px
+  spacious: "text-[length:calc(var(--fs-title)+1px)] leading-[21px]", // 14px x 1.5
 };
 
 // ── Pinned symbol column ────────────────────────────────────────────────────
