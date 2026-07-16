@@ -127,11 +127,19 @@ def record_day(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
             ON CONFLICT(date, window) DO UPDATE SET
                 session_type = excluded.session_type,
-                minutes_observed = excluded.minutes_observed,
-                syms = excluded.syms,
-                coverage_modes = excluded.coverage_modes,
+                -- Completeness is MONOTONE (review H2): a post-restart process that
+                -- observed less (or nothing) of the window must never shrink or
+                -- clobber what an earlier writer recorded.
+                minutes_observed = MAX(
+                    index_pressure_days.minutes_observed, excluded.minutes_observed
+                ),
+                syms = MAX(index_pressure_days.syms, excluded.syms),
+                coverage_modes = COALESCE(
+                    excluded.coverage_modes, index_pressure_days.coverage_modes
+                ),
                 writers = index_pressure_days.writers
-                    + (index_pressure_days.writer_pid != excluded.writer_pid),
+                    + (COALESCE(index_pressure_days.writer_pid, -1)
+                       != COALESCE(excluded.writer_pid, -1)),
                 writer_pid = excluded.writer_pid,
                 finalized_at = COALESCE(
                     index_pressure_days.finalized_at, excluded.finalized_at

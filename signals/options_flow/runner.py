@@ -348,6 +348,7 @@ class OptionsFlowRunner:
         rolling = RollingFlow()
         gauges = _fresh_gauges()
         gauge_final: set[str] = set()  # windows finalized today (day row written)
+        gauge_seen: set[str] = set()  # windows THIS process was alive inside
         rolling_last_check = 0.0
         gauge_last_flush = 0.0
         buffer_day = ""
@@ -372,6 +373,7 @@ class OptionsFlowRunner:
                     rolling = RollingFlow()
                     gauges = _fresh_gauges()
                     gauge_final = set()
+                    gauge_seen = set()
                     half_day = is_early_close(now_et.date())
                     buffer_day = today_et
 
@@ -451,7 +453,18 @@ class OptionsFlowRunner:
                                     "failed"
                                 )
                             continue
+                        start_min = WINDOWS[win][0]
+                        if start_min <= now_min <= gauge_cutoff_min[win]:
+                            gauge_seen.add(win)
                         finalize = now_min > gauge_cutoff_min[win]
+                        # Never finalize a window this process wasn't alive inside
+                        # (review H2): a post-close restart would otherwise assert
+                        # a finalized "0 minutes observed" for a window somebody
+                        # else may have watched — the DB merge is monotone as a
+                        # second defense, but don't even make the claim.
+                        if finalize and win not in gauge_seen:
+                            gauge_final.add(win)
+                            continue
                         try:
                             rows = gauge.minute_rows(today_et)
                             if rows:

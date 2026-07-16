@@ -48,7 +48,13 @@ DTE_BUCKETS: tuple[tuple[int, int], ...] = (
     (91, 10_000),
 )  # design §5 UV-2 buckets {2-7, 8-30, 31-90, 90+}
 ZERO_DTE_EXCLUDE = True  # design §5 F-3; exclude DTE≤1 for index/mega-cap
-INDEX_MEGACAP_SET = frozenset({"SPY", "QQQ", "IWM", "DIA"})  # design §5 F-3 / §2.3
+# SPX/SPXW joined 2026-07-16 (review H1): the gauge lane force-fetches SPX, and
+# without index treatment its SPXW-rooted 0DTE would flood the regular lane and
+# the burst/cluster/sweep detectors — the exact noise this set exists to exclude.
+# SPX = fetch root, SPXW = the parsed print underlying; both must be in the set.
+INDEX_MEGACAP_SET = frozenset(
+    {"SPY", "QQQ", "IWM", "DIA", "SPX", "SPXW"}
+)  # design §5 F-3 / §2.3
 
 # --- Index-pressure gauge lane (audit 2026-07-16 F1) --------------------------------
 # The gauge's universe is GUARANTEED subscription coverage, independent of watchlists:
@@ -63,8 +69,12 @@ GAUGE_UNDERLYINGS = frozenset(GAUGE_INDEX_UNDERLYINGS + GAUGE_MEGACAP_UNDERLYING
 GAUGE_FETCH_UNDERLYINGS = (
     tuple(u for u in GAUGE_INDEX_UNDERLYINGS if u != "SPXW") + GAUGE_MEGACAP_UNDERLYINGS
 )
-GAUGE_ZERO_DTE_PICKS = 12  # top 0-1 DTE contracts per gauge index name, by day-$vol
-GAUGE_LANE_BUDGET = 80  # hard cap on gauge-lane subs; allocated BEFORE the regular set
+# Top-N 0-1 DTE contracts per gauge index name, by day-$vol. DISCLOSED truncation
+# (review M1): the ATM cluster carries most 0DTE premium but wing flow past the
+# top N is not measured — the API/perception caveat says so; widen deliberately,
+# never silently.
+GAUGE_ZERO_DTE_PICKS = 20
+GAUGE_LANE_BUDGET = 130  # hard cap on gauge-lane subs; allocated BEFORE the regular set
 
 # --- Retention + watchlist scope (design §4) -------------------------------------
 EVENTS_PRUNE_DAYS = 180  # design §4; options_flow_events retention

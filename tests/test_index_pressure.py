@@ -325,3 +325,35 @@ def test_rolling_detectors_still_exclude_index_zero_dte():
     r.add_print(_print(sym="NVDA", dte=0, occ_symbol="NVDA260716C00170000"))
     assert "SPY" not in r._buckets  # index 0DTE pinned out
     assert "NVDA" in r._buckets  # single names keep 0DTE, as before
+
+
+def test_rolling_pin_covers_spxw():
+    """Review H1: SPXW is the parsed underlying of SPX-root contracts — the
+    detector pin must exclude its 0-1 DTE too."""
+    from signals.options_flow.rolling import RollingFlow
+
+    r = RollingFlow()
+    r.add_print(_print(sym="SPXW", dte=0, occ_symbol="SPXW260716C05500000"))
+    assert "SPXW" not in r._buckets
+
+
+def test_record_day_is_monotone_never_clobbered(tmp_path: Path):
+    """Review H2: a post-restart writer that observed less (or nothing) must never
+    shrink a completeness row an earlier writer recorded."""
+    from db.index_pressure import day_record, record_day
+
+    db = tmp_path / "ip.db"
+    record_day(
+        date="2026-07-16", window="open", session_type="full", minutes_observed=30,
+        syms=13, coverage_modes="gauge_lane", writer_pid=100, finalized=True, db_path=db,
+    )
+    # fresh evening process, empty gauges, would-be zero row
+    record_day(
+        date="2026-07-16", window="open", session_type="full", minutes_observed=0,
+        syms=0, coverage_modes=None, writer_pid=200, finalized=True, db_path=db,
+    )
+    rec = day_record("2026-07-16", "open", db_path=db)
+    assert rec["minutes_observed"] == 30  # not clobbered to 0
+    assert rec["syms"] == 13
+    assert rec["coverage_modes"] == "gauge_lane"  # NULL never erases provenance
+    assert rec["writers"] == 2  # the restart is still visible

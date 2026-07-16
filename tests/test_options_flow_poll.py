@@ -769,3 +769,19 @@ def test_oi_seed_covers_gauge_names_beyond_watchlist() -> None:
 
     assert st.oi_seed.get("IWM") == ["IWM260709C00220000", "IWM260709P00218000"]
     assert st.oi["IWM260709C00220000"] == 5000
+
+
+def test_spx_zero_dte_routes_to_gauge_lane_not_detectors() -> None:
+    """Review H1: SPX/SPXW get index treatment — SPX 0DTE goes to the gauge lane
+    (not the regular set, where its prints would reach the burst/cluster/sweep
+    detectors as index-0DTE noise the F-3 exclusion exists to prevent)."""
+    snaps = {
+        "SPXW260709C05500000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=200),
+        "SPXW260821C05600000": _snapshot_trade(ts=f"{TODAY}T14:02:00Z", size=50),
+    }
+    adapter = FakeAdapter(contracts_by_u={"SPX": []}, snapshots_by_u={"SPX": snaps})
+    st = PollState()
+    run_poll_once(adapter, symbols=[], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    assert st.active["SPXW260709C05500000"]["gauge_lane"] is True  # 0DTE → gauge lane
+    assert st.active["SPXW260821C05600000"].get("gauge_lane") is None  # far → regular

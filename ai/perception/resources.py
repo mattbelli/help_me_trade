@@ -556,6 +556,7 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
         # remainder is real flow whose aggressor side could not be determined.
         caveat = (
             f"raw {window}-window premium; {r['classified_frac']:.0%} side-classified"
+            "; index 0DTE = top-N contracts by $vol (ATM cluster), not the full chain"
         )
         if r.get("coverage"):
             caveat += f"; lane: {r['coverage']}"

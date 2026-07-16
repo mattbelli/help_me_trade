@@ -2944,6 +2944,8 @@ async def api_index_pressure(
         )
     target = (date or datetime.now(_ET).date().isoformat()).strip()
     try:
+        from signals.options_flow.constants import GAUGE_ZERO_DTE_PICKS
+
         payload: dict = {
             "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
             "date": target,
@@ -2951,6 +2953,9 @@ async def api_index_pressure(
             "window_et": "09:30-10:00" if win == "open" else "15:30-16:00",
             "rows": day_summary(target, window=win),
             "baseline_days": baseline_days(window=win),
+            # Disclosed truncation: index 0-1DTE coverage = the top-N contracts
+            # by day-$vol per name (ATM cluster), not the whole 0DTE chain.
+            "lane": {"zero_dte_top_n": GAUGE_ZERO_DTE_PICKS},
         }
         if series:
             payload["series"] = {

@@ -11,10 +11,13 @@ no win%, no "abnormal" flag until a per-minute baseline has accrued enough days
 
 Pure module — no I/O, no clocks (rolling.py discipline): callers feed normalized,
 DIR-1-classified prints (``intraday.normalize_print`` shape, same as
-``RollingFlow.add_print``) and read snapshots. Transport-agnostic, but NOTE: the
-capped active-set lane deliberately excludes 0-1 DTE on SPY/QQQ/IWM/DIA
-(``poll._skip_index_zero_dte``), which is most of index opening flow — real
-coverage comes from the wildcard trades tape, so rows carry the ``coverage`` stamp.
+``RollingFlow.add_print``) and read snapshots. Coverage comes from the GUARANTEED
+GAUGE LANE (audit 2026-07-16 F1 — no wildcard trades tape exists in production):
+the universe below is always fetched regardless of watchlists, and the index
+names' 0-1 DTE — excluded from the regular set because the detectors discard
+those prints — is subscribed for the gauge as the top GAUGE_ZERO_DTE_PICKS
+contracts by day-$vol (a DISCLOSED truncation: wing flow past the top N is not
+measured). Rows carry an accrual-time ``coverage`` stamp.
 
 Bull premium = call buys + put sells; bear = put buys + call sells (aggressor side
 from DIR-1; ``undetermined`` prints accrue to ``unclassified`` and are surfaced,
