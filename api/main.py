@@ -2708,10 +2708,10 @@ async def api_watchlist_market(symbols: str = ""):
             "eps": eq.get("eps"),
             "div_yield": eq.get("div_yield"),
             "market_cap": market_cap,
-            # Prefer the Finnhub calendar's report date (fresher; Schwab's
-            # lastEarningsDate lags weeks after a report) — fall back to Schwab.
-            "last_earnings": last_earnings_date(sym, today_iso)
-            or eq.get("last_earnings_date"),
+            # Our own calendar only — SEC EDGAR now supplies past announce dates, so
+            # this must not depend on Schwab (that would gate the field on the user
+            # holding a Schwab account).
+            "last_earnings": last_earnings_date(sym, today_iso),
             "next_earnings": _next_earnings,
         }
         quotes[sym]["rvol"] = _compute_rvol_field(sym, intraday_by_symbol.get(sym, []))

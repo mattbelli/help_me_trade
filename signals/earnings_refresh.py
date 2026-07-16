@@ -1,9 +1,14 @@
-"""Refresh the live earnings calendar from Alpha Vantage + Finnhub.
+"""Refresh the live earnings calendar from Alpha Vantage + SEC EDGAR (+ Finnhub).
 
-Alpha Vantage provides the forward calendar (including mega-caps) in one call;
-Finnhub supplements past dates for last-earnings lookups. Filters to the symbols
-we actually trade and upserts into the `earnings_calendar` table. Run on a daily
-schedule; safe to run repeatedly.
+Alpha Vantage provides the FORWARD calendar (including mega-caps) in one call.
+SEC EDGAR provides the PAST announcement dates — free, keyless, no account.
+Filters to the symbols we actually trade and upserts into `earnings_calendar`.
+Run on a daily schedule; safe to run repeatedly.
+
+Past dates are EDGAR's job, not Finnhub's: Finnhub's free /calendar/earnings only
+serves a rolling ~30-day window, so it can never supply the prior-earnings date
+that earnings_drift scores its blowout reaction against — which left the strategy
+structurally blind from go-live. Finnhub stays as a supplementary forward source.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from signals.alphavantage import (
 from signals.alphavantage import (
     alphavantage_is_configured,
 )
+from signals.earnings_edgar import afetch_edgar_earnings
 from signals.finnhub import (
     FinnhubError,
     afetch_earnings_calendar,
@@ -67,7 +73,11 @@ def _filter_to_universe(
     return [r for r in rows if r["symbol"] in universe]
 
 
-async def _fetch_calendar_rows(start: str, end: str) -> list[dict[str, str]]:
+async def _fetch_calendar_rows(
+    start: str, end: str, symbols: list[str]
+) -> list[dict[str, str]]:
+    """Forward calendar + past announce dates. EDGAR runs last so its authoritative
+    (date, hour) wins the upsert's ON CONFLICT against a vendor's guess."""
     rows: list[dict[str, str]] = []
     if alphavantage_is_configured():
         rows.extend(await av_afetch_earnings_calendar(horizon="6month"))
@@ -77,6 +87,7 @@ async def _fetch_calendar_rows(start: str, end: str) -> list[dict[str, str]]:
                 rows.extend(await afetch_earnings_calendar(chunk_start, chunk_end))
         except Exception:
             logger.warning("Finnhub earnings calendar fetch failed", exc_info=True)
+    rows.extend(await afetch_edgar_earnings(symbols))
     return rows
 
 
@@ -122,12 +133,15 @@ async def arefresh_earnings_calendar(
     now: datetime | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
-    """Async variant for the scheduler loop."""
-    if not (alphavantage_is_configured() or finnhub_is_configured()):
-        logger.info("Earnings refresh skipped — no earnings calendar API key configured")
+    """Async variant for the scheduler loop.
+
+    No key gate: EDGAR needs neither an API key nor an account, so past dates always
+    refresh. AV/Finnhub add the forward calendar when configured.
+    """
+    if not symbols:
         return 0
     start, end = _window(now or datetime.now(UTC), days_back, days_fwd)
-    rows = await _fetch_calendar_rows(start, end)
+    rows = await _fetch_calendar_rows(start, end, symbols)
     scoped = _filter_to_universe(rows, symbols)
     upserted = upsert_earnings(scoped, db_path=db_path)
     logger.info(

@@ -48,7 +48,6 @@ _SCHWAB_SUPPLEMENT_KEYS = (
     "eps",
     "div_yield",
     "shares_outstanding",
-    "last_earnings_date",
 )
 
 

@@ -42,26 +42,33 @@ def upsert_earnings(
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
-    """Insert/refresh (symbol, date) rows. Each row: {symbol, date, hour?}."""
+    """Insert/refresh (symbol, date) rows. Each row: {symbol, date, hour?, source?}.
+
+    `source` is per-row because one refresh mixes providers (forward dates from a
+    vendor calendar, past announce dates from SEC EDGAR). It updates on conflict, so
+    a date later confirmed by an authoritative source gets re-tagged.
+    """
     init_earnings_calendar_tables(db_path)
     now = _now()
-    cleaned: list[tuple[str, str, str | None, str]] = []
+    cleaned: list[tuple[str, str, str | None, str, str]] = []
     for r in rows:
         symbol = str(r.get("symbol", "")).strip().upper()
         date = str(r.get("date", "")).strip()
         if not symbol or not date:
             continue
         hour = r.get("hour")
-        cleaned.append((symbol, date, str(hour) if hour else None, now))
+        source = str(r.get("source") or "finnhub").strip() or "finnhub"
+        cleaned.append((symbol, date, str(hour) if hour else None, source, now))
     if not cleaned:
         return 0
     with _connect(db_path) as conn:
         conn.executemany(
             """
             INSERT INTO earnings_calendar (symbol, date, hour, source, fetched_at)
-            VALUES (?, ?, ?, 'finnhub', ?)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(symbol, date) DO UPDATE SET
-                hour = excluded.hour,
+                hour = COALESCE(excluded.hour, earnings_calendar.hour),
+                source = excluded.source,
                 fetched_at = excluded.fetched_at
             """,
             cleaned,
