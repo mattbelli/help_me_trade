@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T01:27:57.577980+00:00",
+  "updated_at": "2026-07-16T01:59:18.378169+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "earnings-drift-breadth-and-entry-timing",
+      "title": "earnings_drift: breadth beats concentration (PC-validated) + live enters at the WRONG TIME (47/51 unfaithful)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "2026-07-16. Full brief + results: References/EARNINGS_DRIFT_SIZING_EXPERIMENT.md. \n(1) BREADTH WINS (PC, 6,624 setups): capital-matched 50x5% (35.2% invested) vs live 5x10% (31.3%) -> CAGR 8.35% vs 5.18%, maxDD 17.2% vs 22.7%, Sharpe 0.97 vs 0.54. Concentration is worse in ABSOLUTE terms AND takes only 30% of the signal stream (arrival-order clip). Best Sharpe = 50x3% (0.99, 86% coverage). 3% vs 5% is a risk dial, not a finding. \n(2) RANKING DEAD: blowout_reaction_pct deciles show no gradient (decile 4 ~= decile 9; decile 10 best mean 1.33% but ~1.6sigma w/ fattest variance). Don't build ranking. \n(3) \u2605 FOUNDER CATCH \u2014 LIVE ENTERS AT THE WRONG TIME. Backtest enters at EXACTLY 10 td out (earnings_strategy.py:156, holding always 9d); live fires anywhere in 2..10 (strategy_features.py:340). Harmless in steady state, MASS MIS-ENTRY on cold start \u2014 which deploying the EDGAR fix causes. Measured live: of 51 firing, only **4 are at td==10** (CVS/FTNT/IEX/PTC); 47 would enter late, some holding 2d instead of 9d = an unvalidated strategy wearing earnings_drift's badge. FIX: require td_to_next == entry_lead_td. Then today's cohort is 4 (cap never binds), it self-ramps to the validated ~40-50 concurrent, and it fails closed on late-arriving vendor dates. The '51 fires/$510k/needs caps' alarm was a COLD-START ARTIFACT. \n(4) \u26a0\ufe0f THE PC IS ON STALE RESEARCH CODE \u2014 it rediscovered the cost_pct=0.30 double-count that main already fixed (PR #28 research/pipeline-honesty-fixes: CV leakage + next-open fills + embargo + cost single-sourcing). Breadth ranking survives (identical drag across arms) but the other 3 fixes change CONCLUSIONS. git pull on the PC + re-run before trusting anything further. \nBLOCKERS that are NOT real: max_daily_orders=20 is an arbitrary default (global, off-by-one); fractional shares already work (risk_engine.py:221 gates on intent.rebalance, set only by momentum) \u2014 and the gate's own comment ('would leave ~24% in cash and drop every name above the per-name budget') is VERBATIM the breadth case. BRK.B/BF.B rejected by _SYMBOL_RE=^[A-Z]+$. \nSTILL OPEN: per-strategy P&L for entry_mode='auto' (never journals -> stats_by_strategy n=0 forever) = the prerequisite for measuring this live. See [[per-strategy-attribution]]."
+    },
     {
       "id": "alert-style-dead-column",
       "title": "alert_style is never read \u2014 the Settings per_trade/summary control does nothing",

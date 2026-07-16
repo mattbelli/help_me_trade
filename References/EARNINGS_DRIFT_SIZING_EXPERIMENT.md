@@ -1,0 +1,263 @@
+# earnings_drift — breadth vs concentration (PC experiment brief)
+
+*Written 2026-07-16 for the PC agent (Norgate data lives there; serv has none). Read all of it before
+running anything — the framing decides whether the output means anything.*
+
+## The question
+
+At earnings-season peak, `earnings_drift` produces ~40–51 simultaneous qualifying setups. With a fixed
+pot (~$100k paper), we can either **concentrate** (few names, big size) or go **broad** (many names,
+small size). Which produces better risk-adjusted returns on the real survivorship-free record?
+
+## Why this is not a tuning question — read this first
+
+**Full breadth IS the validated strategy. The cap is the deviation.** This inverts the usual framing and
+it is the single most important thing to understand here.
+
+- `research/earnings_strategy.py:134-198` (`_symbol_setups`) appends **every** event clearing the
+  blowout/gap filters. No cap, no ranking, no top-N, no cross-symbol awareness.
+- The reported stat is an **unweighted per-trade mean** (`:242-244`).
+- The significance test that earned the "validated" label is **explicitly per-date equal-weight**:
+  `research/significance.py:19-27` groups trades by entry_date → equal-weight mean per date, and the
+  block-bootstrap CI `[+0.43, +1.28]` is computed on *that* series (`:143-148`).
+- **No position sizing was modeled at all** — `research/strategy_sim.py` returns percent
+  (`blended_return_pct`), not dollars.
+
+⇒ **The CI does not transfer to a capped variant.** Taking 5 of 51 does not estimate the parameter the CI
+describes; it estimates a size-5 subsample mean. The live strategy is currently capped at 5 (a safety
+brake applied 2026-07-16 after a sim showed 51 would fire at once, uncapped auto, = $510k). That cap is
+temporary and **wears a badge it did not earn**. This experiment decides what replaces it.
+
+Scale of the clip: n=6,624 trades / 2,044 distinct dates / 2010–2026 / ~9 td holding ⇒ **average
+concurrency ≈ 14** across all 17 years *including dead non-season months*; **peak 40–50**. A cap of 5
+binds below even the all-year average — discarding ~64% of the validated sample on average, ~90% at peak.
+
+## ⚠️ What the capped arm actually models (do not skip)
+
+`research/portfolio.py`'s skip rule is **arrival-order** (`:202-215`) — when at `max_concurrent`, it drops
+whatever comes next. Live, `signals/strategy_universe.py` returns `sorted(...)` and
+`signals/strategy_scan.py:420` iterates it and **`break`s** at the cap (`:471`). There is **no ranking
+step anywhere in the earnings path**.
+
+⇒ Both backtest and live select by **arrival/alphabetical order, not quality**. That makes portfolio.py
+*faithful to live* — a feature, not a bug — but be explicit in the writeup:
+
+> **This measures breadth vs *arbitrarily-selected*-N. It does NOT measure breadth vs *best*-N.**
+> "Top-N by blowout strength" does not exist in any code path and is unvalidated (see Query 2).
+
+## The data
+
+- **DB:** `data/research/earnings_labeled.db` (PC only), table **`strategy_setups`**, `source='norgate'`.
+  ⚠️ Note `research/strategy_dataset.py` writes a *same-named* table into a *different* DB
+  (`strategy_labeled.db`, the dip book) — make sure you point at **earnings_labeled.db**.
+- **Returns are already NET of costs**: `research/earnings_strategy.py:166`
+  `net_ret_pct = gross_ret_pct - cost_pct`, default `cost_pct=0.20` (20 bps — note this differs from
+  `strategy_dataset.DEFAULT_COST_PCT=0.10`). **Pass `--cost-pct 0.0`.** Anything else double-counts.
+  First: confirm what cost is actually baked into the existing rows (the builder stores `cost_pct` in its
+  summary, `:227/:249`); if the DB was built with a different value, say so rather than assuming.
+- ⚠️ **NEVER use `bars_validation_slice.db`** — verified survivor-biased (0 of 496 symbols stop trading
+  before 2025-06; SIVB/FRC/ATVI/VMW absent). It is a current-constituents fixture for
+  `momentum_validate.py` correctness only. No number from it may be published.
+
+## The tool
+
+`research/portfolio.py` already models exactly this — `max_concurrent` + `per_trade_fraction`, event-driven,
+with an equity curve. It has a CLI:
+
+```bash
+python -m research.portfolio \
+  --db data/research/earnings_labeled.db \
+  --source norgate \
+  --start-equity 100000 \
+  --max-concurrent <N> \
+  --per-trade-fraction <F> \
+  --sizing fixed \
+  --cost-pct 0.0
+```
+
+`--sizing fixed` is correct: `earnings_drift` has **no stop** (time-based exit only), so risk-sizing is
+inapplicable. It does **not** model share granularity — that's deliberate; whole-share drag is a separate
+live concern (below), not part of this question.
+
+## Pre-registered variants — run ALL, report ALL
+
+Pre-registering matters: sweeping and reporting the winner is multiple testing. `research/overfit.py` has
+DSR/PBO for exactly this. **`n_trials` = 6** (the rows below), not 1.
+
+| Arm | max_concurrent | per_trade_fraction | Gross at full | Why |
+|---|---|---|---|---|
+| A — validated shape | 999 (effectively uncapped) | 0.02 | ~100%+ | What actually earned the CI |
+| B — breadth | 50 | 0.02 | 100% | The founder's proposal |
+| C | 25 | 0.04 | 100% | Middle |
+| D | 14 | 0.07 | ~98% | The validated *average* concurrency |
+| E | 10 | 0.10 | 100% | portfolio.py's own default |
+| F — current live | 5 | 0.10 | 50% | The safety brake; deploys only half the pot |
+
+Hold `max_concurrent × per_trade_fraction ≈ 1.0` so arms differ in **breadth, not leverage** — otherwise
+you're comparing exposure, not diversification. Arm F at 5×0.10 = 50% invested is deliberately the live
+config; also run **F′ = 5 × 0.20** so concentration isn't handicapped purely by sitting in cash.
+
+**Report per arm:** `cagr`, `max_drawdown`, `sharpe`, `avg_pct_invested`, total trades taken, and
+**trades skipped by the cap** (the last one quantifies how much of the validated sample each arm throws
+away). Then: DSR across the 6 arms with true `n_trials`, and PBO/CSCV if the arm ranking is close.
+
+**Expected (state your prior, then check it):** breadth should compress variance — same mean, thinner
+tails, better Sharpe/drawdown — because 50 concurrent bets sample the effect while 5 draw from it. If
+breadth does *not* win on Sharpe, that's the interesting result and worth investigating, not burying.
+
+## Query 2 — is blowout strength predictive at all? (cheapest query in this thread)
+
+Ranking by blowout magnitude was proposed, then found to be **a guess with no evidence** — and the
+existing evidence cuts against it:
+
+- `strategy_stats.json` note: the blowout filter adds only **+0.19%/trade**, and **the control with no
+  blowout filter at all is itself significant** (CI [+0.33, +0.94]). A weak binary gate is a poor
+  ranking key.
+- The only comparison ever run is binary (`require_blowout=True/False`, `earnings_strategy.py:144`) —
+  nothing has ever tested dose-response.
+- `research/ev.py::build_ev_table` buckets by *calibrated model probability* (`:42-47`), not reaction
+  magnitude — and that model is edgeless anyway (`artifacts/meta.json`: n=447, brier 0.2456 vs base_rate
+  0.5369, `honesty.low_confidence: true`). Irrelevant here.
+
+**The data exists and has never been analyzed.** `blowout_reaction_pct` is a real column
+(`earnings_strategy.py:37`, written `:193`, also in `features_json` `:172-177`).
+
+**Do:** bucket all 6,624 setups by `blowout_reaction_pct` decile → win rate + mean return + Wilson CI
+(`research/ev.py::wilson_ci`) per decile. Is it monotonic? Flat = ranking by strength is worthless and we
+stop discussing it. Monotonic = a real (still unvalidated) candidate worth pre-registering separately.
+
+⚠️ Do **not** then re-run the arms filtered to the best decile and report that number — that's the
+multiple-testing trap the repo's own discipline exists to prevent. Decile analysis is **hypothesis
+generation**, and any resulting rule needs its own pre-registered test.
+
+## Live constraints — context only, do NOT model them
+
+These are live-implementation facts. They do not belong in the backtest; they're listed so you know the
+result is actionable and don't "helpfully" model them:
+
+- **Whole shares:** `trading/proposal_intake.py:81` floors qty; `risk_engine.py:221-227` rejects
+  fractional **unless `intent.rebalance`** (set only by `signals/momentum.py:498,585`). Founder confirms
+  fractional works in STRAT2 (~90 momentum names). The gate's own comment — *"would otherwise leave ~24%
+  in cash and drop every name priced above the per-name budget"* — is **verbatim the breadth case**, so
+  the precedent and the rationale both already exist. If breadth wins, that flag gets opened for the
+  scan path.
+- **`max_daily_orders: 20`** (`config/settings.py:126`) is an arbitrary default, not a real constraint —
+  and it's global across all three accounts (`risk_engine.py:686` takes no `account_id`), with an
+  off-by-one (the pending row is written before validate, so an order counts itself → you get 19).
+- **BRK.B / BF.B** are rejected by `_SYMBOL_RE = ^[A-Z]+$` (`risk_engine.py:38,170`) despite being in the
+  sp500 universe.
+- The 5/$50k live caps are **unversioned** — DB-only; a rebuilt DB reverts to seed ($500, uncapped,
+  disabled).
+
+## Honesty rules for the writeup
+
+1. **Never reuse the `[+0.43, +1.28]` CI for a capped arm.** It belongs to arm A only.
+2. Report every arm, including losers. `n_trials = 6` in any DSR.
+3. Say "breadth vs arbitrarily-selected-N", never "vs best-N".
+4. Decile analysis is hypothesis generation, not a result.
+5. If the answer is "no meaningful difference", that is a real and useful finding — say it plainly.
+
+## Deliverable
+
+A table of the 6 arms (+F′) with the metrics above, the decile table with Wilson CIs, a DSR across arms,
+and a one-line recommendation: **the number** (max_concurrent) and **the size** (per_trade_fraction),
+with its honest caveat. That replaces the temporary cap of 5.
+
+Related: `References/STRATEGY_VALIDATION_QUEUE_2026-07-08.md` (the pre-registration discipline this
+follows), `References/board.json` → `earnings-drift-edgar-wire`.
+
+---
+
+# RESULTS — 2026-07-16
+
+## 1. Breadth wins. Decisively. (PC run, `research/_edgehunt/breadth_vs_concentration.py`)
+
+Same 6,624 earnings-blowout setups, `earnings_labeled.db`:
+
+| config | CAGR | maxDD | Sharpe | signals taken | avg invested |
+|---|---|---|---|---|---|
+| 5 × 10% (live cap) | 5.18% | 22.65% | 0.54 | 2,001 / 6,624 (30%) | 31.3% |
+| 50 × 2% | 4.49% | 12.40% | 0.95 | 6,368 / 6,624 (96%) | 19.9% |
+| 50 × 3% | 6.01% | 13.25% | **0.99** | 5,693 (86%) | 26.7% |
+| 50 × 5% | **8.35%** | 17.21% | 0.97 | 4,501 (68%) | 35.2% |
+
+Capital-matched (50×5% @35.2% vs 5×10% @31.3%), **breadth dominates on every metric**: +8.35% vs +5.18%
+CAGR, 17.2% vs 22.7% drawdown, Sharpe 0.97 vs 0.54. The concentrated book isn't merely riskier — the
+arrival-order clip makes it a 30% subsample and it earns **less in absolute terms**.
+
+⇒ **Take breadth. Size small, take nearly everything.** 3% vs 5% is a risk dial, not a finding
+(Sharpe 0.99 vs 0.97 = noise): 3% = smoother + 86% coverage; 5% = +2.3% CAGR for +4% drawdown.
+
+## 2. Blowout-magnitude ranking is DEAD
+
+No gradient across `blowout_reaction_pct` deciles — mean return bounces 0.6–1.2% with no monotone trend.
+Decile 4 ≈ decile 9; decile 7 is worst (0.21%, ~2.6σ below pooled across 10 comparisons = noise, not
+signal). Decile 10 (>16% reaction) has the best mean (1.33%) but at ~1.6σ with the fattest variance
+(stdev 8.8) — not rankable. **"Bigger blowout ⇒ stronger drift" is killed as a continuous feature.** At
+most a weak unproven tail effect above +16%, not worth a threshold. Do not spend ranking effort here.
+
+## 3. ⚠️ The PC is on STALE research code
+
+The PC agent found `backtest_portfolio` double-counting a `cost_pct=0.30` default against already-net
+`blended_return_pct`. **That is fixed on main** — default is `0.0`, `None` raises, and the docstring says
+verbatim *"The old silent 0.30 default was this module's own invention and double-counted against
+net-stored returns."* Main's `earnings_strategy.py` defaults to `0.20`, not `0.30`.
+
+⇒ The PC predates the **`research/pipeline-honesty-fixes`** merge (PR #28), whose four fixes were: CV
+leakage, next-open fills, embargo, **and cost single-sourcing**. It just rediscovered the fourth.
+The breadth ranking survives (identical drag across arms; absolutes understated ~0.3%/RT), but **the
+other three change conclusions, not just levels**. **`git pull` on the PC and re-run before any further
+number is trusted.**
+
+## 4. ★ THE BIG ONE — live enters at the WRONG TIME (founder catch)
+
+The strategy is *"buy at 10 days out, sell 1 day before"* — `exit_lead_td=1` exists only because we
+can't tell bmo/amc, so selling day-of would sometimes land after the print.
+
+- **Backtest** (`research/earnings_strategy.py:156-157`): `entry_idx = jn - entry_lead_td` — enters at
+  **EXACTLY** 10 td out; `holding_days = exit_idx - entry_idx` = **always 9**.
+- **Live** (`research/strategy_features.py:340`): `return exit_lead_td < td_to_next <= entry_lead_td` —
+  fires **anywhere in 2..10**.
+
+Steady state this is harmless (a name enters the band at 10 and fires that day; the band is catch-up
+tolerance). **On COLD START it is a mass mis-entry** — which is exactly what deploying the EDGAR fix
+causes, since the calendar goes empty→full at once.
+
+**Measured on the live universe 2026-07-16** (EDGAR dates + real bars):
+
+| td to next earnings | count | verdict |
+|---|---|---|
+| **10** | **4** | **FAITHFUL** — CVS, FTNT, IEX, PTC |
+| 9 | 8 | late 1d → holds 8d |
+| 8 | 3 | late 2d → holds 7d |
+| 7 | 2 | late 3d → holds 6d |
+| 6 | 8 | late 4d → holds 5d |
+| 5 | 14 | late 5d → holds 4d |
+| 4 | 8 | late 6d → holds 3d |
+| 3 | 4 | late 7d → **holds 2d, not 9** |
+| | **51 total** | **47 UNFAITHFUL** |
+
+**Only 4 of the 51 are the validated trade.** The other 47 are a shorter, unvalidated strategy wearing
+earnings_drift's name and badge. The "51 fires / $510k / needs caps" alarm was **a cold-start artifact,
+not the strategy**.
+
+**FIX: enter only at `td_to_next == entry_lead_td`.** Consequences, all good:
+- Today's cohort = **4 names** (CVS, FTNT, IEX, PTC) → the cap of 5 never binds.
+- **Self-ramping**: ~4–8 entries/day during season × 9-day holds → ~40–50 concurrent at peak =
+  the validated shape, reached organically instead of by picking a number.
+- **Fails closed** when a vendor publishes a forward date late (steady-state case, not just cold start):
+  the name simply doesn't fire that quarter instead of entering a truncated trade.
+
+## Resulting design
+
+| knob | value | source |
+|---|---|---|
+| entry | `td_to_next == 10` exactly | backtest fidelity (§4) |
+| max_concurrent | ~50 | validated peak; emerges from the ramp |
+| per_trade_fraction | 3% (or 5%) | §1 — risk dial, not a finding |
+| ranking | **none** | §2 — no gradient |
+| fractional shares | **required** | else $3k can't buy NVR/BKNG; ~24% stranded in cash |
+| max_daily_orders | raise from 20 | arbitrary default, global, off-by-one |
+
+Still open: per-strategy P&L for `entry_mode='auto'` (never journals → `stats_by_strategy` returns n=0
+forever) — the prerequisite for measuring any of this live.
