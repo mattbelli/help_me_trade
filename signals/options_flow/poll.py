@@ -211,6 +211,19 @@ def _meta_from_occ(occ: str, underlying_hint: str, today_et: str) -> dict | None
     }
 
 
+def _near_expiries(today_et: str, n: int = 2) -> list[str]:
+    """The next `n` calendar dates from today — the 0-1 DTE expiry candidates.
+
+    Calendar days, not trading days: an expiration_date query for a non-expiry
+    date just returns empty, which is cheaper than being clever.
+    """
+    from datetime import date as _date
+    from datetime import timedelta as _td
+
+    d0 = _date.fromisoformat(today_et)
+    return [(d0 + _td(days=i)).isoformat() for i in range(n)]
+
+
 def _trade_is_today(trade: dict, today_et: str) -> bool:
     t = trade.get("t")
     if not t:
@@ -612,6 +625,30 @@ def _refresh_active_set(
             )
             if not isinstance(snaps, dict):
                 continue
+            # SPXW pagination trap (measured live 2026-07-16): OCC symbols sort
+            # SPX-root (monthlies) strictly before SPXW-root (dailies), so the paged
+            # whole-chain fetch exhausts its budget on monthlies and the gauge's
+            # 0-1 DTE dailies never appear. For gauge index names, ALSO fetch the
+            # next two expiries explicitly — small, complete by construction.
+            if u in GAUGE_UNDERLYINGS and u in INDEX_MEGACAP_SET:
+                for exp_date in _near_expiries(today_et):
+                    try:
+                        exp_snaps = adapter.get_option_chain_snapshot(
+                            u,
+                            expiration_date=exp_date,
+                            limit=CHAIN_SNAPSHOT_PAGE_LIMIT,
+                            max_pages=CHAIN_SNAPSHOT_MAX_PAGES,
+                        )
+                        if isinstance(exp_snaps, dict):
+                            for occ, s in exp_snaps.items():
+                                snaps.setdefault(occ, s)
+                    except Exception:
+                        logger.debug(
+                            "options_flow poll: per-expiry fetch failed for %s %s",
+                            u,
+                            exp_date,
+                            exc_info=True,
+                        )
 
             candidates: list[tuple[float, int, str]] = []
             gauge_zero_dte: list[tuple[float, int, str]] = []

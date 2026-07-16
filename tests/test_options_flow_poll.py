@@ -68,6 +68,7 @@ class FakeAdapter:
         *,
         contracts_by_u: dict[str, list[dict]] | None = None,
         snapshots_by_u: dict[str, dict[str, dict]] | None = None,
+        snapshots_by_u_exp: dict[tuple[str, str], dict[str, dict]] | None = None,
         trades_by_occ: dict[str, list[dict]] | None = None,
         quotes_by_occ: dict[str, dict] | None = None,
         bars_by_occ: dict[str, list[dict]] | None = None,
@@ -76,6 +77,7 @@ class FakeAdapter:
     ) -> None:
         self.contracts_by_u = contracts_by_u or {}
         self.snapshots_by_u = snapshots_by_u or {}
+        self.snapshots_by_u_exp = snapshots_by_u_exp or {}
         self.trades_by_occ = trades_by_occ or {}
         self.quotes_by_occ = quotes_by_occ or {}
         self.bars_by_occ = bars_by_occ or {}
@@ -106,11 +108,13 @@ class FakeAdapter:
         limit: int | None = None,
         max_pages: int = 1,
     ) -> dict:
-        del feed, expiration_date
+        del feed
         u = underlying.strip().upper()
         self.chain_calls.append((u, limit, max_pages))
         if u in self.raise_snapshot_on:
             raise RuntimeError(f"boom:{u}")
+        if expiration_date is not None:
+            return dict(self.snapshots_by_u_exp.get((u, expiration_date), {}))
         return dict(self.snapshots_by_u.get(u, {}))
 
     def get_option_trades(
@@ -785,3 +789,23 @@ def test_spx_zero_dte_routes_to_gauge_lane_not_detectors() -> None:
 
     assert st.active["SPXW260709C05500000"]["gauge_lane"] is True  # 0DTE → gauge lane
     assert st.active["SPXW260821C05600000"].get("gauge_lane") is None  # far → regular
+
+
+def test_spxw_dailies_recovered_by_per_expiry_fetch() -> None:
+    """SPXW pagination trap (live-caught 2026-07-16): SPX monthlies sort before
+    SPXW dailies, so the paged whole-chain fetch never reaches the 0DTE dailies.
+    Gauge index names re-fetch the next two expiries explicitly."""
+    monthly = {"SPX260821C05600000": _snapshot_trade(ts=f"{TODAY}T14:01:00Z", size=30)}
+    dailies = {"SPXW260709C05500000": _snapshot_trade(ts=f"{TODAY}T14:02:00Z", size=400)}
+    adapter = FakeAdapter(
+        contracts_by_u={"SPX": []},
+        snapshots_by_u={"SPX": monthly},  # what the paged whole-chain fetch sees
+        snapshots_by_u_exp={("SPX", TODAY): dailies},  # only per-expiry reaches these
+    )
+    st = PollState()
+    run_poll_once(adapter, symbols=[], today_et=TODAY, now_ms=NOW_MS, state=st)
+
+    assert "SPXW260709C05500000" in st.active  # recovered
+    assert st.active["SPXW260709C05500000"]["gauge_lane"] is True  # 0DTE → gauge lane
+    exp_calls = [c for c in adapter.chain_calls if c[0] == "SPX"]
+    assert len(exp_calls) >= 3  # whole-chain + two per-expiry fetches
