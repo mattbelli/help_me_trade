@@ -144,6 +144,23 @@ async def test_option_expired_rejected(monkeypatch, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_fractional_option_rejected_even_with_flag(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """allow_fractional is EQUITY-ONLY — a fractional option is rejected even if some
+    future caller mis-flags it (there are no fractional option contracts). Defense in
+    depth at the chokepoint; no live path can construct this."""
+    db = tmp_path / "risk_opt.db"
+    _patch_passing_env(monkeypatch, db)
+    result = await RiskEngine.validate(
+        _option_intent(qty=Decimal("1.5"), allow_fractional=True),
+        db_path=db,
+    )
+    assert result.passed is False
+    assert result.blocked_reason == "fractional shares not supported"
+
+
+@pytest.mark.asyncio
 async def test_option_sell_requires_held_position(
     monkeypatch, tmp_path: Path
 ) -> None:

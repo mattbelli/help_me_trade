@@ -33,6 +33,13 @@ class OrderIntent:
     # exceeds them. Every real risk gate (value cap, buying power, concentration, kill
     # switch, snapshot freshness) still runs. Set ONLY by the momentum rebalance path.
     rebalance: bool = False
+    # Permit a FRACTIONAL share qty — WITHOUT the rebalance throttle exemption above.
+    # Set by percent-of-equity-sized strategy entries (which deploy an exact dollar
+    # fraction, so flooring to whole shares strands cash and drops every name priced
+    # above the per-name budget) and by the exit engine when closing a fractional
+    # position. Distinct from `rebalance` on purpose: this lifts ONLY the whole-share
+    # invariant, never a count throttle. Every real risk gate still runs.
+    allow_fractional: bool = False
 
 
 @dataclass(frozen=True)
