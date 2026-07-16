@@ -2921,6 +2921,38 @@ async def api_options_flow(
     }
 
 
+@app.get("/api/index-pressure")
+async def api_index_pressure(date: str | None = None, series: str | None = None):
+    """Opening-window (09:30-10:00 ET) index/megacap flow pressure — raw perception.
+
+    Premium-weighted net imbalance per underlying (bull = call buys + put sells;
+    bear = put buys + call sells; the undetermined remainder is surfaced as
+    ``unclassified_usd``, never guessed). NOT a signal: no score, no win%, and no
+    "abnormal" judgment until the per-minute baseline has accrued enough days
+    (``baseline_days`` is returned so the UI can label the warm-up honestly).
+    ``series=SYM`` adds that underlying's per-minute rows for a sparkline.
+    """
+    from db.index_pressure import baseline_days, day_summary, minute_series
+
+    target = (date or datetime.now(_ET).date().isoformat()).strip()
+    try:
+        payload: dict = {
+            "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
+            "date": target,
+            "window_et": "09:30-10:00",
+            "rows": day_summary(target),
+            "baseline_days": baseline_days(),
+        }
+        if series:
+            payload["series"] = {
+                "underlying": series.strip().upper(),
+                "minutes": minute_series(target, series),
+            }
+    except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return payload
+
+
 @app.get("/api/scanner/rvol")
 async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     """Market-wide unusual-volume scanner powered by precomputed volume profiles.

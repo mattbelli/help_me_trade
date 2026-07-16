@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T16:06:44.771769+00:00",
+  "updated_at": "2026-07-16T16:37:46.895574+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "index-pressure-gauge",
+      "title": "Opening index flow pressure gauge \u2014 SPY/QQQ/IWM/SPX(W) + megacaps, 9:30-10:00 ET",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder-committed (07-15) perception source, built 2026-07-16 after the bell verify cleared its gate. Pure aggregator (signals/options_flow/opening_pressure.py) rides the collector sweep_loop's classified prints beside D-1/D-2; per-minute rows persist to index_pressure_minutes (db/index_pressure.py, regime.py-pattern calibration store, coverage-stamped via stream.is_market_wide); GET /api/index-pressure; index_pressure perception resource (+aliases) so chat answers 'what was index flow this am'; compact index-pressure widget (net premium, bull/bear split bar, classified %, uncalibrated footer). Honesty: raw premium only, unclassified surfaced never guessed, no abnormal-flag until >=20 baseline days. Universe incl. SPXW/SPX (wildcard-tape-only names; capped lane excludes index 0DTE). 8 new tests; ruff+tsc green. Pending: deploy (collector restart AFTER close \u2014 owns the OPRA socket), first live window 07-17 open."
+    },
     {
       "id": "exit-engine-snapshot-id-mismatch",
       "title": "\u26a0\ufe0f Exit engine dead since D3 \u2014 snapshot guard compared broker UUID vs ledger id, skipped every position",

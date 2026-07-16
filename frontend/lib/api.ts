@@ -669,6 +669,26 @@ export type OptionsFlowResult = {
   events: OptionsFlowEvent[];
 };
 
+export type IndexPressureRow = {
+  underlying: string;
+  bull_usd: number;
+  bear_usd: number;
+  unclassified_usd: number;
+  net_usd: number;
+  classified_frac: number;
+  n_prints: number;
+  minutes_with_data: number;
+  last_minute: number;
+};
+
+export type IndexPressureResult = {
+  as_of: string;
+  date: string;
+  window_et: string;
+  rows: IndexPressureRow[];
+  baseline_days: number;
+};
+
 export type OptionsChainSide = {
   bid: number | null;
   ask: number | null;
@@ -744,6 +764,24 @@ export async function fetchOptionsFlow(
     const body = await res.json().catch(() => ({}));
     throw new Error(
       (body as { error?: string }).error ?? `Options-flow error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export async function fetchIndexPressure(
+  date?: string,
+): Promise<IndexPressureResult> {
+  const params = new URLSearchParams();
+  if (date) params.set("date", date);
+  const qs = params.size > 0 ? `?${params}` : "";
+  const res = await apiFetch(`${API_BASE}/api/index-pressure${qs}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Index-pressure error ${res.status}`,
     );
   }
   return res.json();

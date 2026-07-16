@@ -307,15 +307,18 @@ class OptionsFlowRunner:
 
     async def sweep_loop(self) -> None:
         """Phase 3b consumer: stream prints → at-print DIR-1 → SWP-1 sweeps → events."""
+        import db.index_pressure as ip_db
         import db.options_flow as of_db
         from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
         from signals.options_flow.convergence import process_events
         from signals.options_flow.intraday import classify_direction, tag_likely_spreads
+        from signals.options_flow.opening_pressure import OpeningPressure
         from signals.options_flow.rolling import RollingFlow
         from signals.options_flow.sweeps import SweepBuffer
 
         buffer = SweepBuffer()
         rolling = RollingFlow()
+        opening = OpeningPressure()
         rolling_last_check = 0.0
         buffer_day = ""
         stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
@@ -336,6 +339,7 @@ class OptionsFlowRunner:
                 if buffer_day != today_et:
                     buffer = SweepBuffer()
                     rolling = RollingFlow()
+                    opening = OpeningPressure()
                     buffer_day = today_et
 
                 if batch:
@@ -358,9 +362,11 @@ class OptionsFlowRunner:
                         p["direction_basis"] = basis
                     tag_likely_spreads(batch)
                     buffer.add(batch)
-                    # D-1/D-2 rolling detectors ride the same classified prints
+                    # D-1/D-2 rolling detectors + opening gauge ride the same
+                    # classified prints (the gauge self-filters to its window/universe)
                     for p in batch:
                         rolling.add_print(p)
+                        opening.add_print(p)
 
                 # burst/cluster checks step once a minute (1-min bucket granularity)
                 now_mono = time.time()
@@ -374,6 +380,26 @@ class OptionsFlowRunner:
                             of_db.insert_event(ev)
                     except Exception:
                         logger.exception("options_flow rolling: check failed")
+                    # Opening gauge flush: rewrite the window's minute rows (upsert =
+                    # last write wins, whole window held in memory). Stops at 10:05 ET —
+                    # the window closes 10:00, the grace covers late-arriving prints
+                    # whose ts still falls inside it; rows are final after that.
+                    if now_et.hour * 60 + now_et.minute <= 10 * 60 + 5:
+                        try:
+                            rows = opening.minute_rows(today_et)
+                            if rows:
+                                ip_db.upsert_minutes(
+                                    rows,
+                                    coverage=(
+                                        "market_wide"
+                                        if stream.is_market_wide
+                                        else "watchlist_capped"
+                                    ),
+                                )
+                        except Exception:
+                            logger.exception(
+                                "options_flow opening pressure: flush failed"
+                            )
 
                 events = buffer.close_ready(int(time.time() * 1000), today_et)
                 if not events:

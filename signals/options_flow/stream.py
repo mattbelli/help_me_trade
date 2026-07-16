@@ -181,6 +181,11 @@ class OptionsFlowStream:
     def latest_quote(self, occ: str) -> tuple[float, float, int] | None:
         return self._quote_cache.get(occ.strip().upper())
 
+    @property
+    def is_market_wide(self) -> bool:
+        """True while the trades tape is the ``*`` wildcard (vs the capped set)."""
+        return "*" in self._subscribed_trades
+
     def quote_at(self, occ: str, ts_ms: int) -> tuple[float, float, int] | None:
         """Quote prevailing at print time: newest ring entry at-or-before ``ts_ms``."""
         sym = occ.strip().upper()
