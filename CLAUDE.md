@@ -18,13 +18,43 @@ and still trust it. The hard part is **decision quality + risk + trust**, not au
 built). Prioritize agent-decision + risk + phone delivery; deprioritize manual-trader polish (DOM ladder,
 greeks chains, fancy chart tools) and especially un-guarded real-money execution.
 
+## ★ THE BEST IDEAS WIN — the reasoning loop for anything that matters (founder directive 2026-07-16)
+On **architecture decisions, real problem solving, and high-importance edits**, do NOT emit the first
+coherent answer. Run the loop: **reason → check → reason → check → reason → check** — every "check" tests
+the current best answer against something REAL (the code as it is, live data, a measurement, an adversarial
+read), and each pass either survives the check or changes because of it. Stop when another check stops
+changing the answer — never merely when the answer sounds right. A basic first-thought mechanism has no
+edge; token count never gates this loop (rule 4's cost discipline covers mechanics, not thinking).
+
+**When you think there isn't a solution, the dead end is evidence about your METHOD, not the problem.
+Switch thinking methods and go again.** Switches that have already won here:
+- **Invert the question.** "What plan gives us all quotes?" was unsolvable; "what removes the need for
+  standing quotes at all?" had answers.
+- **Turn walls into variables.** A "forbidden" heuristic is a measurable method — honesty rules constrain
+  what we PRESENT to the user, never what we measure against ground truth to learn an error rate.
+- **Inventory adjacent ingredients.** The winning pieces are often already in this repo, walked past
+  because doctrine anchored you (the tick test and the poll lane sat here the whole time).
+- **Run a zero-context pass.** Spawn a fresh agent given ONLY the problem statement, no repo context —
+  fresh eyes see past walls the repo's own doctrines build (a basic external chatbot once out-generated
+  the deeply-anchored main loop; never again).
+- **Work backwards from the ideal.** Assume the perfect mechanism exists, describe it, then find which
+  constraint supposedly forbids it — and CHECK whether that constraint is measured reality or inherited
+  assumption.
+Never conclude "impossible," "no edge available," or "we must buy it" until at least two DIFFERENT thinking
+methods have failed and the failure is measured, not assumed.
+
 ## How to work (the established cadence)
-1. **Delegate coding to Composer — don't hand-edit by default.** Write a precise, self-contained brief (exact
-   files, current vs desired behavior, constraints, verify steps) → `node tools/composer-bridge/dispatch.mjs
-   --brief tools/composer-bridge/briefs/<x>.md` (backgrounded, **one run at a time** — parallel runs collide
-   in the working tree) → review the real `git diff` + lint/tests **yourself** before committing. Hand-edit
-   only for surgical fixes or genuinely hard/cross-cutting work. You are the orchestrator (plan/brief/review/
-   architecture); Composer is the coder.
+1. **Route the CODER by stakes — quality first; writing slop 10x faster loses to well-thought-out slow
+   development every single time** (rewritten 2026-07-16; was "delegate to Composer by default," which
+   enshrined the fast-slop default). The bench, all available: **Claude Max plan** — Opus/Sonnet coding
+   subagents, or the orchestrator hand-editing when full-context surgical work is the right tool; **Cursor
+   plan** — Composer, plus Opus/Sonnet/Grok 4.5 routed through it (`node tools/composer-bridge/dispatch.mjs
+   --brief tools/composer-bridge/briefs/<x>.md`, backgrounded, **one tree-writer at a time** — parallel runs
+   collide in the working tree). Route like rule 4: load-bearing or subtle work → a frontier coder with
+   full context; mechanical/boilerplate → Composer/Sonnet is fine. What never changes regardless of coder:
+   a precise, self-contained brief (exact files, current vs desired behavior, constraints, verify steps),
+   and YOU review the real `git diff` + lint/tests before committing — review is where depth concentrates.
+   You are the orchestrator (plan/brief/review/architecture); pick the coder the work deserves.
 2. **Work autonomously — make the call, don't pose menus.** Pick the sensible default and proceed (investigate
    → brief → dispatch → verify → commit). Reserve questions for a genuinely blocking fork with no reasonable
    default (irreversible data loss, a real product-direction choice). Surface *results + decisions made*, not
@@ -35,9 +65,21 @@ greeks chains, fancy chart tools) and especially un-guarded real-money execution
    in-browser check" rather than blocking. **Update `References/board.json` in the SAME commit that does the
    work** — a git hook *blocks* any product-code commit that doesn't also touch `board.json`/`BUILD.md` (see
    **Board discipline** below). Same discipline as BUILD/HANDOFF; a stale board defeats its purpose.
-4. **Minimize the Opus main-loop token cost** ("you are the expensive one"). Delegate: code → Composer;
-   recon/review/research → **Sonnet subagents**; keep the main loop short — don't do heavy generation or broad
-   file-reading inline when a subagent can. `/model sonnet` for routine turns is the user's biggest lever.
+4. **Route depth by stakes, never by task size** (recalibrated 2026-07-16 — the old rule here, "minimize
+   the Opus main-loop token cost," optimized the wrong variable and probably cost us quality: the exit
+   engine shipped dead behind a shallow test assumption; the wildcard fiction was recorded as fact and
+   shaped a committed design; the 07-15 Sonnet→Opus review upgrade already proved cheaper single passes
+   missed disjoint real bugs). The axis is **load-bearing vs mechanical**, not "routine turn" vs not — a
+   one-line constant can be load-bearing (the 0DTE skip), a 500-line widget can be mechanical.
+   - **Always maximum depth**: `trading/` + risk + execution; architecture decisions; anything feeding the
+     Decision Engine; and ANY claim about system state that will be recorded as fact (memories, docs,
+     board, design inputs) — cheap-model recon may *locate* things, but its assertions are hypotheses
+     until verified against code or live state.
+   - **Cheap stays right for**: mechanical edits, formatting, file-location sweeps, UI polish iterations.
+     Delegation (Composer for code, Sonnet for sweeps) survives — depth concentrates in the REVIEW of
+     delegated work, which is where it pays.
+   - **Under budget pressure, drop scope — never depth on load-bearing work.** A smaller thing built
+     deeply beats a bigger thing built shallow; a shallow mechanism has no edge (see ★ THE BEST IDEAS WIN).
 
 ## Board discipline — what earns a card, and keeping it honest
 The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work; a
