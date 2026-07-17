@@ -37,8 +37,7 @@ Deployed live (detail: BUILD_LOG 2026-07-17): (1) positions widget Entered+Entry
 order + one alignment rule; (2) hairline dropout killed app-wide — PR #87's stranded fix landed + the
 whole `--fs-title` bordered-row class swept (11 widgets), pixel-verified PASS via new
 `tools/ui_hairline_probe.py`. **Open:** founder eyeballs both; rip out `70e7097`'s known non-fix
-`[will-change:auto]!` in watchlist-widget.tsx (needs its own drag-compositing verify); close PR #87 as
-superseded (branch `worktree-fix+watchlist-hairline-pitch`).
+`[will-change:auto]!` in watchlist-widget.tsx (needs its own drag-compositing verify).
 
 ## ▶ Workspaces + 07-14 polish batch — founder in-browser review pending
 
