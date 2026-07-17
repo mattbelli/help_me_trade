@@ -19,6 +19,12 @@
 # receipt must exist; its absence means the canary never launched, never pushed,
 # or the transport is dead — all of which are down-signals the founder must see.
 #
+# KNOWN LIMIT (review 2026-07-16): 'sent' is recorded when the push provider
+# ACCEPTS the send (token-send count > 0), not when the device renders it. This
+# check therefore proves send-pipeline liveness; a push accepted upstream but
+# never rendered on-device is invisible to it. A true device-side ack needs a
+# mobile round-trip endpoint — Phase 5 push work (flywheel card).
+#
 # ESCALATION CHANNEL [ADR-5]: independent of the backend and its push pipeline.
 #   1. ntfy.sh topic  — if NTFY_TOPIC is set (preferred; phone push, no backend)
 #   2. mail(1)        — if present (MAILTO or local user mailbox)

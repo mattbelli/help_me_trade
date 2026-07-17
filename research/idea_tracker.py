@@ -615,7 +615,13 @@ def _sweep_row(
             update_outcome(outcome_id, fetch_fail_streak=0, **db_kwargs)
         return None
 
-    if str(patch.get("status")) in _GRADED_STATUSES:
+    # A no_fill expiry never opened a position — a ret/alpha for it would be
+    # counterfactual noise folded into cell alpha by any aggregation that
+    # filters on status alone (review finding). NULL, never phantom.
+    if (
+        str(patch.get("status")) in _GRADED_STATUSES
+        and patch.get("fill_status") != "no_fill"
+    ):
         entry_low = _parse_decimal(row["entry_low"])
         entry_high = _parse_decimal(row["entry_high"])
         if grading_basis == "horizon_return":
@@ -729,13 +735,22 @@ def _record_lane_meters(
     graded: int,
     data_gap: int,
     errors: int,
+    examined: int,
     db_kwargs: dict[str, Any],
 ) -> None:
     """Fail-soft lane meters (spec §4 item 6, §5). Counters use bump (additive);
     max_open_age_days uses gauge (point-in-time — bump would inflate it).
     Synthetic canary rows are already excluded: the counts passed in count only
-    non-synthetic resolutions and list_open filters synthetic=0."""
+    non-synthetic resolutions and list_open filters synthetic=0.
+
+    ``swept`` is the sweep heartbeat — bumped once per completed sweep,
+    unconditionally. Grading is legitimately lumpy (ideas mature on 5-21
+    trading-day horizons), so liveness rules key on swept, never on graded
+    (review HIGH: a healthy-but-quiet grader must not page as dead)."""
     try:
+        bump("idea_tracker", "swept", 1, **db_kwargs)
+        if examined:
+            bump("idea_tracker", "examined", examined, **db_kwargs)
         if graded:
             bump("idea_tracker", "graded", graded, **db_kwargs)
         if data_gap:
@@ -841,6 +856,7 @@ def sweep_open_ideas(
         graded=graded_nonsynth,
         data_gap=data_gap_nonsynth,
         errors=errors_nonsynth,
+        examined=int(counts.get("examined", 0)),
         db_kwargs=db_kwargs,
     )
 

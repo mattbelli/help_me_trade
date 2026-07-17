@@ -222,6 +222,11 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_idea_dedup_open
                 ON idea_outcomes(dedup_key)
                 WHERE dedup_key IS NOT NULL AND status IN ('pending', 'triggered');
+            CREATE INDEX IF NOT EXISTS idx_idea_source_ref
+                ON idea_outcomes(
+                    json_extract(source_ref, '$.kind'),
+                    json_extract(source_ref, '$.id')
+                );
             """
         )
         conn.commit()

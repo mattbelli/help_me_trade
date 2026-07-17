@@ -49,9 +49,10 @@ def bump(
     counter: str,
     n: float = 1,
     *,
+    date: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
-    """Add ``n`` to the (lane, ET-today, counter) cell as an UPSERT.
+    """Add ``n`` to the (lane, ``date`` or ET-today, counter) cell as an UPSERT.
 
     Fail-soft law: a counter write must never propagate into its caller (poll
     loops, the nightly scan, the trading path). A failed bump loses one count,
@@ -68,7 +69,7 @@ def bump(
                     value = lane_stats.value + excluded.value,
                     updated_at = excluded.updated_at
                 """,
-                (lane, et_today(), counter, float(n), _now()),
+                (lane, date or et_today(), counter, float(n), _now()),
             )
             conn.commit()
     except Exception:
@@ -80,9 +81,10 @@ def gauge(
     counter: str,
     value: float,
     *,
+    date: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
-    """Set the (lane, ET-today, counter) cell to ``value`` (last-write-wins).
+    """Set the (lane, ``date`` or ET-today, counter) cell to ``value`` (last-write-wins).
 
     For point-in-time measurements — max_open_age_days and friends — where
     bump's additive UPSERT would inflate the reading. Same fail-soft law.
@@ -98,7 +100,7 @@ def gauge(
                     value = excluded.value,
                     updated_at = excluded.updated_at
                 """,
-                (lane, et_today(), counter, float(value), _now()),
+                (lane, date or et_today(), counter, float(value), _now()),
             )
             conn.commit()
     except Exception:

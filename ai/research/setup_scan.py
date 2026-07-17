@@ -1128,6 +1128,7 @@ async def run_setup_scan(
             "dropped_candidates": dropped,
             "errored": errored,
             "rejected": rejected,
+            "ranker_discarded": ranker_discarded,
             "no_structure": no_structure,
             "no_setup": no_setup,
             "scan_note": scan_note,

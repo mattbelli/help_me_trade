@@ -92,33 +92,39 @@ def rule_conviction_parse_fail(today: date, db_path: Path) -> str | None:
 
 
 def rule_setup_scan_silent(today: date, db_path: Path) -> str | None:
-    """setup_scan registered == 0 for 3 consecutive weekdays (was recently alive)."""
+    """setup_scan did not RUN for 3 consecutive weekdays (was recently alive).
+
+    Keys on the ``ran`` heartbeat, never on ``registered`` — a scan that runs
+    healthily and qualifies 0 ideas is quiet, not dead (review finding: the
+    two must never conflate)."""
     for d in _trailing_trading_days(today, SETUP_SCAN_SILENT_DAYS):
         counters = lane_stats.day("setup_scan", d.isoformat(), db_path=db_path)
-        if counters.get("registered", 0.0) > 0:
+        if counters.get("ran", 0.0) > 0:
             return None
-    if not _lane_alive_recently("setup_scan", "registered", db_path=db_path):
-        return None  # never produced — a fresh lane, not a dead one
+    if not _lane_alive_recently("setup_scan", "ran", db_path=db_path):
+        return None  # never ran — a fresh lane, not a dead one
     return (
-        f"setup_scan registered 0 ideas for {SETUP_SCAN_SILENT_DAYS} consecutive "
-        "trading days — the nightly scan lane is silent"
+        f"setup_scan did not run for {SETUP_SCAN_SILENT_DAYS} consecutive "
+        "trading days — the nightly scan lane is dead"
     )
 
 
 def rule_idea_tracker_silent(today: date, db_path: Path) -> str | None:
-    """idea_tracker graded+examined == 0 for 2 market days (was recently alive)."""
+    """idea_tracker sweep heartbeat absent for 2 market days (was recently alive).
+
+    Keys on the ``swept`` heartbeat (bumped once per completed sweep) — never on
+    ``graded``, which is legitimately lumpy on 5-21 trading-day horizons (review
+    HIGH: a healthy-but-quiet grader must not page as dead, and without a
+    heartbeat a truly dead sweep is indistinguishable from a quiet one)."""
     for d in _trailing_trading_days(today, IDEA_TRACKER_SILENT_DAYS):
         counters = lane_stats.day("idea_tracker", d.isoformat(), db_path=db_path)
-        if counters.get("graded", 0.0) + counters.get("examined", 0.0) > 0:
+        if counters.get("swept", 0.0) > 0:
             return None
-    alive = _lane_alive_recently(
-        "idea_tracker", "graded", db_path=db_path
-    ) or _lane_alive_recently("idea_tracker", "examined", db_path=db_path)
-    if not alive:
+    if not _lane_alive_recently("idea_tracker", "swept", db_path=db_path):
         return None
     return (
-        f"idea_tracker graded+examined 0 for {IDEA_TRACKER_SILENT_DAYS} market days "
-        "— the grader lane is dead"
+        f"idea_tracker sweep heartbeat absent for {IDEA_TRACKER_SILENT_DAYS} "
+        "market days — the grader loop is not running"
     )
 
 
@@ -152,16 +158,25 @@ def rule_max_open_age(today: date, db_path: Path) -> str | None:
 
 def conservation_gap(today: date, db_path: Path) -> str | None:
     """Conservation check v1: every assessed nightly-scan candidate must reach
-    exactly one counted disposition. An imbalance is a new uncounted drop path."""
+    exactly one counted candidate-level disposition. An imbalance is a new
+    uncounted drop path.
+
+    The partition (written by ``api/main._setup_scan_nightly_once`` from the
+    scan's own journal): structure (final validated) + rejected_by_validation +
+    ranker_discarded + no_structure + no_setup == candidates_assessed.
+    Conviction ideas are deliberately EXCLUDED — they are a second lane over the
+    no_structure pool, not a candidate-level disposition (counting them would
+    double-count). Vetoed candidates already land in no_setup."""
     counters = lane_stats.day("setup_scan", today.isoformat(), db_path=db_path)
     assessed = counters.get("candidates_assessed", 0.0)
     if assessed <= 0:
-        return None  # no scan today / counters not yet wired — nothing to reconcile
+        return None  # no scan today — nothing to reconcile
     accounted = (
         counters.get("structure", 0.0)
-        + counters.get("conviction", 0.0)
-        + counters.get("vetoed", 0.0)
         + counters.get("rejected_by_validation", 0.0)
+        + counters.get("ranker_discarded", 0.0)
+        + counters.get("no_structure", 0.0)
+        + counters.get("no_setup", 0.0)
     )
     if abs(accounted - assessed) < 1e-9:
         return None
@@ -207,7 +222,15 @@ async def _fire_alarm(
         group_key=f"pipeline_audit_{rule_id}",
         db_path=db_path,
     )
-    lane_stats.bump(_AUDIT_LANE, f"alarm_fired:{rule_id}", db_path=db_path)
+    # Dedup counter keyed on the AUDIT date, not the live clock — read and
+    # write must use the same key (prover NIT: a late-night run crossing the
+    # UTC/ET boundary must not re-page).
+    lane_stats.bump(
+        _AUDIT_LANE,
+        f"alarm_fired:{rule_id}",
+        date=today.isoformat(),
+        db_path=db_path,
+    )
 
 
 async def _run_rate_rules(today: date, db_path: Path) -> None:
@@ -262,9 +285,13 @@ async def _canary_launch(today: date, db_path: Path) -> None:
     except Exception:
         logger.exception("canary register_idea failed")
 
-    # Send a real push and record its receipt on success. A missing receipt (no
-    # device, push disabled, transport down) is exactly the failure the verify
-    # pass turns into a critical page.
+    # Send a real push and record its receipt on success. KNOWN LIMIT (review):
+    # send_alert_push returns a token-send count, not a device-render ack — this
+    # receipt proves the SEND PIPELINE is alive (config, tokens, transport
+    # accept), which covers every canary-detectable failure except APNs/Expo
+    # accepting a push the device never renders. A true device-side ack needs a
+    # mobile round-trip endpoint — Phase 5 push work, recorded on the flywheel
+    # card. The verify pass turns a missing receipt into a critical page.
     sent = 0
     try:
         from signals.push import send_alert_push
@@ -286,9 +313,12 @@ async def _canary_launch(today: date, db_path: Path) -> None:
         except Exception:
             logger.exception("canary receipt record failed")
 
-    lane_stats.bump(_CANARY_LANE, "launched", db_path=db_path)
+    lane_stats.bump(_CANARY_LANE, "launched", date=today.isoformat(), db_path=db_path)
     lane_stats.bump(
-        _CANARY_LANE, "sent" if (sent and sent > 0) else "send_failed", db_path=db_path
+        _CANARY_LANE,
+        "sent" if (sent and sent > 0) else "send_failed",
+        date=today.isoformat(),
+        db_path=db_path,
     )
 
 

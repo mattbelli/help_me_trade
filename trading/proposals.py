@@ -64,6 +64,9 @@ def _journal_decision(
     # Idea-ledger user_action stamp (idea engine Phase 1): every lifecycle
     # transition flows through here, so this is the one stamp site. Same
     # fail-soft law — the ledger never raises into the approve/reject path.
+    # The lookup rides idx_idea_source_ref (expression index on the same
+    # json_extract pair) so this stays O(log n) as the ledger grows — this
+    # runs before submit on the approve path (review MED).
     action = {"approved": "taken", "rejected": "skipped", "expired": "skipped"}.get(
         decision
     )

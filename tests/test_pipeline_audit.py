@@ -9,7 +9,7 @@ gracefully on an empty lane_stats — no alarms, no crashes.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -233,21 +233,73 @@ def test_rules_return_none_on_empty(tmp_path):
 
 
 def test_conservation_gap_detects_imbalance(tmp_path):
+    """Seeds the EXACT counters production writes (api/main nightly bumps) —
+    the candidate-level partition: structure + rejected_by_validation +
+    ranker_discarded + no_structure + no_setup == candidates_assessed.
+    Conviction/vetoed are deliberately NOT part of the partition."""
     db = tmp_path / "t.db"
     today = datetime.now(_ET).date()
-    # 10 assessed, only 8 accounted for → 2 fell through an uncounted path.
-    _seed(db, "setup_scan", today.isoformat(), "candidates_assessed", 10)
-    _seed(db, "setup_scan", today.isoformat(), "structure", 3)
-    _seed(db, "setup_scan", today.isoformat(), "conviction", 2)
-    _seed(db, "setup_scan", today.isoformat(), "vetoed", 2)
+    # 12 assessed: 2 structure + 1 rejected + 1 ranker-discarded + 5 no_structure
+    # + 2 no_setup = 11 accounted → 1 fell through an uncounted path.
+    _seed(db, "setup_scan", today.isoformat(), "candidates_assessed", 12)
+    _seed(db, "setup_scan", today.isoformat(), "structure", 2)
     _seed(db, "setup_scan", today.isoformat(), "rejected_by_validation", 1)
+    _seed(db, "setup_scan", today.isoformat(), "ranker_discarded", 1)
+    _seed(db, "setup_scan", today.isoformat(), "no_structure", 5)
+    _seed(db, "setup_scan", today.isoformat(), "no_setup", 2)
+    # Conviction present but must not enter the equation (second lane).
+    _seed(db, "setup_scan", today.isoformat(), "conviction_ok", 2)
     msg = pa.conservation_gap(today, db)
     assert msg is not None
     assert "conservation imbalance" in msg
 
     # Balanced → no alarm.
-    _seed(db, "setup_scan", today.isoformat(), "rejected_by_validation", 3)
+    _seed(db, "setup_scan", today.isoformat(), "no_setup", 3)
     assert pa.conservation_gap(today, db) is None
+
+
+def test_tracker_silent_keys_on_swept_heartbeat(tmp_path):
+    """A healthy-but-quiet grader (sweeps running, nothing maturing) must NOT
+    page; a missing heartbeat with recent life MUST (review HIGH)."""
+    db = tmp_path / "t.db"
+    today = datetime.now(_ET).date()
+    window = pa._trailing_trading_days(today, pa.IDEA_TRACKER_SILENT_DAYS)
+
+    # Quiet but alive: swept every day, zero graded → no alarm.
+    for d in window:
+        _seed(db, "idea_tracker", d.isoformat(), "swept", 1)
+        _seed(db, "idea_tracker", d.isoformat(), "graded", 0)
+    assert pa.rule_idea_tracker_silent(today, db) is None
+
+    # Dead: heartbeat absent across the window, but alive before it → alarm.
+    db2 = tmp_path / "t2.db"
+    older = window[-1] - timedelta(days=10)
+    _seed(db2, "idea_tracker", older.isoformat(), "swept", 5)
+    msg = pa.rule_idea_tracker_silent(today, db2)
+    assert msg is not None
+    assert "heartbeat" in msg
+
+
+def test_scan_silent_keys_on_ran_heartbeat(tmp_path):
+    """A scan that runs and qualifies 0 ideas is quiet, not dead — only a
+    missing `ran` heartbeat pages (review finding)."""
+    db = tmp_path / "t.db"
+    today = datetime.now(_ET).date()
+    window = pa._trailing_trading_days(today, pa.SETUP_SCAN_SILENT_DAYS)
+
+    # Ran every night, registered nothing → no alarm.
+    for d in window:
+        _seed(db, "setup_scan", d.isoformat(), "ran", 1)
+        _seed(db, "setup_scan", d.isoformat(), "registered", 0)
+    assert pa.rule_setup_scan_silent(today, db) is None
+
+    # Did not run across the window, alive before it → alarm.
+    db2 = tmp_path / "t2.db"
+    older = window[-1] - timedelta(days=10)
+    _seed(db2, "setup_scan", older.isoformat(), "ran", 1)
+    msg = pa.rule_setup_scan_silent(today, db2)
+    assert msg is not None
+    assert "did not run" in msg
 
 
 def test_path_a_failures_pure_signal(tmp_path):

@@ -861,6 +861,11 @@ def test_no_fill_on_unfilled_expiry(idea_db) -> None:
     assert row["status"] == "expired"
     assert row["fill_status"] == "no_fill"
     assert row["exit_reason"] == "time"
+    # No fill = no position = no return: benchmark legs stay NULL, never a
+    # phantom ret/alpha folded into cell aggregates (review finding).
+    assert row["ret_pct"] is None
+    assert row["spy_ret_pct"] is None
+    assert row["alpha_pct"] is None
 
 
 def test_fill_status_filled_on_triggered_expiry(idea_db) -> None:

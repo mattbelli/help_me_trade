@@ -1769,12 +1769,30 @@ async def _setup_scan_nightly_once() -> None:
     try:
         from db.lane_stats import bump
 
+        bump("setup_scan", "ran", 1)  # heartbeat — the silent-lane rule keys on this
         bump("setup_scan", "registered", structure + conviction)
         bump("setup_scan", "conviction_ok", conviction)
         # Vetoed shadows are registered inside run_setup_scan and never surface in
         # its return, so the count isn't visible from here — bump 0 to materialize
         # the counter row (add-semantics keep any in-scan writer's real count intact).
         bump("setup_scan", "vetoed", 0)
+        # Conservation v1 counters (pipeline_audit.conservation_gap): the
+        # candidate-level partition from the scan's own journal — structure +
+        # rejected_by_validation + ranker_discarded + no_structure + no_setup
+        # must equal candidates_assessed. Conviction is a second lane over the
+        # no_structure pool, deliberately not part of this partition.
+        scan = {}
+        if isinstance(result, dict):
+            report = result.get("report")
+            if isinstance(report, dict) and isinstance(report.get("scan"), dict):
+                scan = report["scan"]
+        if scan:
+            bump("setup_scan", "candidates_assessed", len(scan.get("candidates") or []))
+            bump("setup_scan", "structure", structure)
+            bump("setup_scan", "rejected_by_validation", len(scan.get("rejected") or []))
+            bump("setup_scan", "ranker_discarded", len(scan.get("ranker_discarded") or []))
+            bump("setup_scan", "no_structure", len(scan.get("no_structure") or []))
+            bump("setup_scan", "no_setup", len(scan.get("no_setup") or []))
     except Exception:
         logger.exception("lane_stats bump failed (setup_scan)")
     artifact_id = result.get("artifact_id") if isinstance(result, dict) else None
