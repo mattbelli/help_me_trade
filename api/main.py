@@ -1896,6 +1896,15 @@ def _register_background_jobs() -> None:
             interval_s=float(REFLECTION_INTERVAL_SECONDS),
         )
     )
+    from signals.pipeline_audit import pipeline_audit_once
+
+    register_job(
+        jobs_mod.Job(
+            name="pipeline_audit",
+            fn=pipeline_audit_once,
+            interval_s=900.0,
+        )
+    )
     register_watchdog_job()
 
 
