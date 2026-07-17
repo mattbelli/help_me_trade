@@ -1709,13 +1709,38 @@ def _setup_scan_nightly_topic(today_et: date) -> str:
 def _setup_scan_already_ran(today_et: date) -> bool:
     if today_et in _setup_scan_ran_dates:
         return True
-    from db.ai_tables import list_research_artifacts
+    from db.ai_tables import artifact_exists_by_topic
 
+    # Exact-match indexed lookup, not a bounded list scan: a high artifact volume
+    # could push the day's marker past the limit=20 window (the Jul-14 triple-run).
     topic = _setup_scan_nightly_topic(today_et)
-    if any(a.get("topic") == topic for a in list_research_artifacts(limit=20)):
+    if artifact_exists_by_topic(topic):
         _setup_scan_ran_dates.add(today_et)
         return True
     return False
+
+
+def _count_scan_ideas(result: object) -> tuple[int, int]:
+    """(structure, conviction) idea counts from a run_setup_scan result.
+
+    Ideas live at ``result["report"]["ideas"]`` (NOT ``result["ideas"]`` — the
+    banner bug that logged 0). Each idea carries an ``origin`` stamped server-side;
+    ``origin == "structure"`` is a structure setup, anything else is a conviction
+    (LLM-nominated) idea."""
+    ideas = None
+    if isinstance(result, dict):
+        report = result.get("report")
+        if isinstance(report, dict):
+            ideas = report.get("ideas")
+    if not isinstance(ideas, list):
+        return 0, 0
+    structure = sum(
+        1 for i in ideas if isinstance(i, dict) and i.get("origin") == "structure"
+    )
+    conviction = sum(
+        1 for i in ideas if isinstance(i, dict) and i.get("origin") != "structure"
+    )
+    return structure, conviction
 
 
 async def _setup_scan_nightly_once() -> None:
@@ -1735,16 +1760,51 @@ async def _setup_scan_nightly_once() -> None:
     _setup_scan_ran_dates.add(today_et)
     for d in [d for d in _setup_scan_ran_dates if d < today_et - timedelta(days=1)]:
         _setup_scan_ran_dates.discard(d)
-    ideas = result.get("ideas") if isinstance(result, dict) else None
-    n_ideas = len(ideas) if isinstance(ideas, list) else 0
-    logger.info("Nightly setup scan done: %d idea(s)", n_ideas)
+    structure, conviction = _count_scan_ideas(result)
+    logger.info(
+        "Nightly setup scan done: %d structure + %d conviction idea(s)",
+        structure,
+        conviction,
+    )
+    try:
+        from db.lane_stats import bump
+
+        bump("setup_scan", "ran", 1)  # heartbeat — the silent-lane rule keys on this
+        bump("setup_scan", "registered", structure + conviction)
+        bump("setup_scan", "conviction_ok", conviction)
+        # Vetoed shadows are registered inside run_setup_scan and never surface in
+        # its return, so the count isn't visible from here — bump 0 to materialize
+        # the counter row (add-semantics keep any in-scan writer's real count intact).
+        bump("setup_scan", "vetoed", 0)
+        # Conservation v1 counters (pipeline_audit.conservation_gap): the
+        # candidate-level partition from the scan's own journal — structure +
+        # rejected_by_validation + ranker_discarded + no_structure + no_setup
+        # must equal candidates_assessed. Conviction is a second lane over the
+        # no_structure pool, deliberately not part of this partition.
+        scan = {}
+        if isinstance(result, dict):
+            report = result.get("report")
+            if isinstance(report, dict) and isinstance(report.get("scan"), dict):
+                scan = report["scan"]
+        if scan:
+            bump("setup_scan", "candidates_assessed", len(scan.get("candidates") or []))
+            bump("setup_scan", "structure", structure)
+            bump("setup_scan", "rejected_by_validation", len(scan.get("rejected") or []))
+            bump("setup_scan", "ranker_discarded", len(scan.get("ranker_discarded") or []))
+            bump("setup_scan", "no_structure", len(scan.get("no_structure") or []))
+            bump("setup_scan", "no_setup", len(scan.get("no_setup") or []))
+    except Exception:
+        logger.exception("lane_stats bump failed (setup_scan)")
     artifact_id = result.get("artifact_id") if isinstance(result, dict) else None
     try:
         from signals.notify import notify
 
         await notify(
             kind="scan_ready",
-            title=f"Nightly setup scan done — {n_ideas} idea(s) registered",
+            title=(
+                f"Nightly setup scan done — {structure} structure + "
+                f"{conviction} conviction idea(s)"
+            ),
             body=f"{today_et.isoformat()} · tracked in idea outcomes",
             severity="info",
             ref_type="research",
@@ -1894,6 +1954,15 @@ def _register_background_jobs() -> None:
             name="reflection",
             fn=reflection_once,
             interval_s=float(REFLECTION_INTERVAL_SECONDS),
+        )
+    )
+    from signals.pipeline_audit import pipeline_audit_once
+
+    register_job(
+        jobs_mod.Job(
+            name="pipeline_audit",
+            fn=pipeline_audit_once,
+            interval_s=900.0,
         )
     )
     register_watchdog_job()
