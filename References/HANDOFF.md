@@ -49,8 +49,3 @@ Shipped 07-14 (PRs #65–68) — detail: BUILD_LOG 2026-07-14. **Open:** founder
 
 Fixed #91 (dead since D3) — detail: BUILD_LOG 2026-07-16. **Open:** 7 earnings_drift positions must
 auto-sell on 2026-07-29; sibling unguarded fallbacks recorded on `data-correctness-m-tail`.
-
-## ▶ Docs freshness cloud agent — blocked on founder GitHub connect
-
-Weekly Opus auditor is specced and ready (Mon 10:00 UTC). **Open:** founder installs the Claude GitHub
-App (https://claude.ai/code/onboarding?magic=github-app-setup), then any session re-runs the create.
