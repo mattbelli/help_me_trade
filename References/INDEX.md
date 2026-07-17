@@ -8,8 +8,9 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 
 | Doc | What it is |
 |---|---|
-| `HANDOFF.md` | "You are here" — current focus. Read first every session. Keep lean; old versions → `HANDOFF_ARCHIVE.md` |
-| `BUILD.md` | Roadmap + dated history rows (400KB — **grep, never read whole**) |
+| `HANDOFF.md` | OPEN threads only (tense rule: entries die when closed; no archive — history = BUILD_LOG + git). Read first every session |
+| `BUILD.md` | The plan: vision, ★ Decision Engine, roadmap, debt, principles, gates (~50KB, readable) |
+| `BUILD_LOG.md` | Dated journal, one row per round, newest first (350KB — **grep, never read whole**) |
 | `board.json` | Live kanban (rendered at `/board`) — in-flight work, founder decision lane |
 | `ARCHITECTURE.md` | Plain-English subsystem tour |
 | `ARCHITECTURE_DIAGRAM.excalidraw` / `ARCHITECTURE_MODULES.excalidraw` | Editable diagrams: concept-level agent loop / module+process level (2026-07-17) |

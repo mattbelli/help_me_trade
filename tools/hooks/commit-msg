@@ -31,7 +31,7 @@ prod_re='^(api|trading|db|signals|ai|imports|config|brokers|frontend|mobile|scri
 touches_code="$(printf '%s\n' "$staged" | grep -E "$prod_re" || true)"
 [ -z "$touches_code" ] && exit 0   # docs/tests/board-only commit — no card needed
 
-if printf '%s\n' "$staged" | grep -qE '^References/(board\.json|BUILD\.md)$'; then
+if printf '%s\n' "$staged" | grep -qE '^References/(board\.json|BUILD\.md|BUILD_LOG\.md)$'; then
   exit 0
 fi
 

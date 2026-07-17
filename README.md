@@ -69,4 +69,5 @@ cd frontend && npm run typecheck
 | Phone surface | `mobile/` |
 | Specs, plans, history | `References/` |
 
-Full map with one-liners per module: `AGENTS.md`. Roadmap + dated build history: `References/BUILD.md`.
+Full map with one-liners per module: `AGENTS.md`. Roadmap: `References/BUILD.md`; dated build journal:
+`References/BUILD_LOG.md` (grep it).

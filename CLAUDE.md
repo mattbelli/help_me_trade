@@ -1,8 +1,9 @@
 # CLAUDE.md — how to work on help_me_trade
 
 *Auto-loaded every session: the mission + the working agreements that keep agents consistent here.
-Companions: `AGENTS.md` (codebase map), `References/HANDOFF.md` (current focus — read first),
-`References/BUILD.md` (plan + dated history), `References/ARCHITECTURE.md` (subsystem tour).*
+Companions: `AGENTS.md` (codebase map), `References/HANDOFF.md` (OPEN threads — read first),
+`References/BUILD.md` (the plan), `References/BUILD_LOG.md` (dated journal — grep, never read whole),
+`References/ARCHITECTURE.md` (subsystem tour).*
 
 ## Mission — judge every feature against this
 help_me_trade is an **autonomous trading agent that works in the background** so the user — a dad with a job —
@@ -59,12 +60,14 @@ methods have failed and the failure is measured, not assumed.
    → brief → dispatch → verify → commit). Reserve questions for a genuinely blocking fork with no reasonable
    default (irreversible data loss, a real product-direction choice). Surface *results + decisions made*, not
    option-menus. The user is often remote/away and wants momentum.
-3. **Commit cadence: iterate → confirm → BUILD.md → commit.** Don't commit per micro-edit. Build it, leave it
-   in the working tree, let the user use + adjust it; once it's good, update `References/BUILD.md` (flip
-   status, add a history row), THEN commit + push the consolidated round. For UI-only work, note "pending
-   in-browser check" rather than blocking. **Update `References/board.json` in the SAME commit that does the
-   work** — a git hook *blocks* any product-code commit that doesn't also touch `board.json`/`BUILD.md` (see
-   **Board discipline** below). Same discipline as BUILD/HANDOFF; a stale board defeats its purpose.
+3. **Commit cadence: iterate → confirm → BUILD_LOG row → commit.** Don't commit per micro-edit. Build it,
+   leave it in the working tree, let the user use + adjust it; once it's good, add a `References/BUILD_LOG.md`
+   history row (past tense, the record) and update `References/HANDOFF.md` (open items ONLY — tense rule:
+   HANDOFF never re-narrates shipped work, it points at the log row; delete entries when threads close), THEN
+   commit + push the consolidated round. For UI-only work, note "pending in-browser check" rather than
+   blocking. **Update `References/board.json` in the SAME commit that does the work** — a git hook *blocks*
+   any product-code commit that doesn't also touch `board.json`/`BUILD.md`/`BUILD_LOG.md` (see **Board
+   discipline** below). A stale board defeats its purpose.
 4. **Route depth by stakes, never by task size** (recalibrated 2026-07-16 — the old rule here, "minimize
    the Opus main-loop token cost," optimized the wrong variable and probably cost us quality: the exit
    engine shipped dead behind a shallow test assumption; the wildcard fiction was recorded as fact and
@@ -83,7 +86,7 @@ methods have failed and the failure is measured, not assumed.
 
 ## Board discipline — what earns a card, and keeping it honest
 The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work; a
-git hook **blocks** any commit that changes product code without also updating `board.json` or `BUILD.md`
+git hook **blocks** any commit that changes product code without also updating `board.json`, `BUILD.md`, or `BUILD_LOG.md`
 (escape hatch: `[no-board]` in the message for a genuine typo/refactor/hotfix).
 - **A card must clear all three:** (1) it has a *deliverable* — a code/doc/config diff (if "done" isn't a
   diff, it's not a card); (2) it's *not already on the board* — search first, and if it overlaps an existing
@@ -95,7 +98,7 @@ git hook **blocks** any commit that changes product code without also updating `
 - **Lifecycle, tied to the commit:** open a card (`in_progress`) when work *starts*, not speculatively; the
   commit (or the consolidated round's commit) that changes the work updates the card in that same commit —
   flip status, move lane, record the outcome. Done + verified → move to `done` (the newest stay visible; the
-  frontend collapses the older ones into **Archive**). **Don't delete cards — archive them** (git + BUILD.md
+  frontend collapses the older ones into **Archive**). **Don't delete cards — archive them** (git + BUILD_LOG.md
   are the narrative; the board keeps the record). Delete only true junk that never should have been a card.
 - **One card per thread** — if two cards are the same thread, combine on sight.
 - Decisions only the founder can make go in the `founder` lane ("Waiting on you").
