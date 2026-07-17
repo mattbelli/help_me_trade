@@ -1,4 +1,11 @@
-"""Mem0-compatible memory service with local SQLite fallback."""
+"""Memory service — one store (local SQLite), one seam.
+
+mem0 was removed 2026-07-17 (founder call, per MEMORY_OVERHAUL_DESIGN.md §5.1): it was a
+third store that produced two real bugs (delete-drift; the inert `{"results": [...]}`
+search parsing) while its semantic search never actually served a hit. The judge +
+FTS5/embedding retriever built by the overhaul replace its entire value natively.
+`MemoryService` keeps the same public API so no caller changed.
+"""
 
 from __future__ import annotations
 
@@ -20,21 +27,7 @@ USER_ID = "trader"
 
 
 class MemoryService:
-    """Wraps mem0ai when available; always mirrors to local SQLite."""
-
-    def __init__(self) -> None:
-        self._mem0: Any | None = None
-        self._init_mem0()
-
-    def _init_mem0(self) -> None:
-        try:
-            from mem0 import Memory  # type: ignore[import-untyped]
-
-            self._mem0 = Memory()
-            logger.info("Mem0 Memory client initialized")
-        except Exception as exc:
-            logger.info("Mem0 unavailable, using local SQLite store: %s", exc)
-            self._mem0 = None
+    """The single seam in front of the local SQLite memory store."""
 
     def add(
         self,
@@ -49,7 +42,7 @@ class MemoryService:
     ) -> dict[str, Any]:
         meta = dict(metadata or {})
         meta["type"] = memory_type
-        record = create_memory(
+        return create_memory(
             memory_type=memory_type,
             content=content,
             metadata=meta,
@@ -58,16 +51,6 @@ class MemoryService:
             quote=quote,
             symbols=symbols,
         )
-        if self._mem0 is not None:
-            try:
-                self._mem0.add(
-                    content,
-                    user_id=USER_ID,
-                    metadata={"category": memory_type, **meta, "local_id": record["id"]},
-                )
-            except Exception as exc:
-                logger.warning("Mem0 add failed (local copy saved): %s", exc)
-        return record
 
     def list(
         self,
@@ -85,37 +68,7 @@ class MemoryService:
     ) -> list[dict[str, Any]]:
         from ai.memories.retrieval import retrieve_relevant_memories
 
-        if self._mem0 is not None:
-            try:
-                results = self._mem0.search(
-                    query,
-                    user_id=USER_ID,
-                    limit=limit,
-                )
-                if results:
-                    out: list[dict[str, Any]] = []
-                    for item in results:
-                        if isinstance(item, dict):
-                            meta = item.get("metadata") or {}
-                            cat = meta.get("category") or meta.get("type") or "preference"
-                            if memory_type and cat != memory_type:
-                                continue
-                            out.append(
-                                {
-                                    "id": item.get("id"),
-                                    "type": cat,
-                                    "content": item.get("memory") or item.get("text", ""),
-                                    "metadata": meta,
-                                    "score": item.get("score"),
-                                }
-                            )
-                    if out:
-                        return out[:limit]
-            except Exception as exc:
-                logger.warning("Mem0 search failed, falling back to local: %s", exc)
-        return retrieve_relevant_memories(
-            query, memory_type=memory_type, limit=limit
-        )
+        return retrieve_relevant_memories(query, memory_type=memory_type, limit=limit)
 
     def get(self, memory_id: int) -> dict[str, Any] | None:
         return get_memory(memory_id)
@@ -132,7 +85,7 @@ class MemoryService:
         authority: str | None = None,
         valid_until: str | None = None,
     ) -> dict[str, Any] | None:
-        record = update_memory(
+        return update_memory(
             memory_id,
             content=content,
             memory_type=memory_type,
@@ -142,22 +95,6 @@ class MemoryService:
             authority=authority,
             valid_until=valid_until,
         )
-        if record is None:
-            return None
-        if self._mem0 is not None and content is not None:
-            try:
-                self._mem0.add(
-                    content,
-                    user_id=USER_ID,
-                    metadata={
-                        "category": record["type"],
-                        **record.get("metadata", {}),
-                        "local_id": memory_id,
-                    },
-                )
-            except Exception as exc:
-                logger.warning("Mem0 update mirror failed (local saved): %s", exc)
-        return record
 
     def resolve_proposal(
         self, memory_id: int, *, action: str
@@ -168,20 +105,7 @@ class MemoryService:
         return resolve_memory_proposal(memory_id, action=action)
 
     def delete(self, memory_id: int) -> bool:
-        deleted = delete_memory(memory_id)
-        if deleted and self._mem0 is not None:
-            try:
-                found = self._mem0.get_all(
-                    filters={"user_id": USER_ID, "local_id": memory_id}
-                )
-                items = found.get("results", []) if isinstance(found, dict) else found or []
-                for item in items:
-                    item_id = item.get("id") if isinstance(item, dict) else None
-                    if item_id:
-                        self._mem0.delete(item_id)
-            except Exception as exc:
-                logger.warning("Mem0 delete failed (local delete succeeded): %s", exc)
-        return deleted
+        return delete_memory(memory_id)
 
 
 _memory_service: MemoryService | None = None

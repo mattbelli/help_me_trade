@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-17T17:59:46.133524+00:00",
+  "updated_at": "2026-07-17T19:17:59.818455+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -910,10 +910,10 @@
     {
       "id": "llm-mem0-inert",
       "title": "mem0 semantic search is dead code \u2014 replace with FTS5 (LLM audit)",
-      "lane": "backlog",
+      "lane": "done",
       "type": "bug",
       "priority": "normal",
-      "notes": "mem0 .search() mis-parses {results:[...]} \u2192 silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt \u2014 carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep). \u2192 2026-07-05: ABSORBED into memory-overhaul Phase 2 (founder lane) \u2014 the write-side junk was the bigger half (see References/MEMORY_SYSTEM_REPORT.md); FTS5-vs-sqlite-vec is decided there, not here.",
+      "notes": "mem0 .search() mis-parses {results:[...]} \u2192 silently falls back to token-overlap; vector memory retrieval has never worked. Keeps getting lost in Known-debt \u2014 carding so it's visible. Audit suggests: rip mem0, SQLite FTS5 over the memories table (already local, no service dep). \u2192 2026-07-05: ABSORBED into memory-overhaul Phase 2 (founder lane) \u2014 the write-side junk was the bigger half (see References/MEMORY_SYSTEM_REPORT.md); FTS5-vs-sqlite-vec is decided there, not here. CLOSED 2026-07-17: mem0 removed entirely (founder call in grill session) \u2014 dependency dropped from requirements, wrapper branches deleted, MemoryService API unchanged (single local SQLite store); mirroring test deleted with the mirror. 48 memory tests green.",
       "updated_at": "2026-07-05"
     },
     {
