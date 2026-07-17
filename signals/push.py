@@ -629,12 +629,21 @@ def _la_content_state(
     }
     score = proposal.get("score")
     if isinstance(score, dict):
+        # Forward the calibration verdict, never a bare number: when the sample is
+        # insufficient or no win_prob exists, ship ONLY the "unproven" flag and NO
+        # winProb/evPct keys (the 07-08 leak was stripping exactly this qualifier).
+        # When the number is trustworthy, its qualifier (ci_low + n_samples) travels
+        # inseparably with it.
         win_prob = score.get("win_prob")
-        if win_prob is not None:
+        if not score.get("sufficient") or win_prob is None:
+            out["calibration"] = "unproven"
+        else:
             out["winProb"] = win_prob
-        ev_pct = score.get("ev_pct")
-        if ev_pct is not None:
-            out["evPct"] = ev_pct
+            out["ciLow"] = score.get("ci_low")
+            out["nSamples"] = score.get("n_samples")
+            ev_pct = score.get("ev_pct")
+            if ev_pct is not None:
+                out["evPct"] = ev_pct
         validated = score.get("validated")
         if validated is not None:
             out["validated"] = validated

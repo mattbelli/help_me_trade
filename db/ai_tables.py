@@ -73,6 +73,8 @@ def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON memories(memory_type, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_research_created
                 ON research_artifacts(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_research_topic
+                ON research_artifacts(topic);
             CREATE INDEX IF NOT EXISTS idx_reflection_created
                 ON reflection_runs(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_rule_events_created
@@ -764,6 +766,21 @@ def list_research_artifacts(
             (max(1, min(limit, 100)),),
         ).fetchall()
     return [_row_to_research(r) for r in rows]
+
+
+def artifact_exists_by_topic(topic: str, *, db_path: Path = DEFAULT_DB_PATH) -> bool:
+    """True if a research artifact with this EXACT topic exists (indexed lookup).
+
+    Replaces the bounded ``list_research_artifacts(limit=20)`` scan the nightly
+    "already ran" guard used — an exact match on the indexed ``topic`` column so a
+    high artifact volume can never hide the day's marker (the Jul-14 triple-run bug)."""
+    init_ai_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM research_artifacts WHERE topic = ? LIMIT 1",
+            (topic,),
+        ).fetchone()
+    return row is not None
 
 
 def _row_to_research(row: sqlite3.Row) -> dict[str, Any]:
