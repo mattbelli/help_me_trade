@@ -137,6 +137,69 @@ async def _size_candidate(
     }
 
 
+def _register_idea_shadow(
+    candidate: TradeCandidate,
+    *,
+    entry_ref_price: Any,
+    user_action: str,
+    source_ref: dict[str, Any],
+    db_path: Path,
+) -> None:
+    """Fail-soft calibration-ledger registration (idea engine Phase 1).
+
+    The ledger is downstream of trading: any failure here is logged and
+    counted, and must never propagate into the propose/execute path. Only
+    buy entries register — sells reduce a held long (exits are not ideas).
+    """
+    try:
+        if str(candidate.side or "").lower() != "buy" or entry_ref_price is None:
+            return
+        from config.idea_engine import STRATEGY_HORIZONS
+
+        from db.idea_outcomes import register_idea
+
+        source = str(candidate.source or "")
+        if source.startswith("strategy:"):
+            origin = source
+            family = source.split(":", 1)[1] or "unknown"
+        elif candidate.rule_id:
+            origin = f"scan:{candidate.rule_id}"
+            family = "rule_alert"
+        else:
+            origin = source or "unknown"
+            family = "unknown"
+        register_idea(
+            origin=origin,
+            signal_family=family,
+            symbol=str(candidate.symbol).upper(),
+            direction="long",
+            entry_zone=None,
+            stop=None,
+            targets=None,
+            thesis=str(candidate.rationale or ""),
+            grading_basis="horizon_return",
+            entry_ref_price=str(entry_ref_price),
+            plan_horizon=STRATEGY_HORIZONS.get(family, "21d"),
+            user_action=user_action,
+            source_ref=source_ref,
+            db_path=db_path,
+        )
+        try:
+            from db.lane_stats import bump
+
+            bump("path_a_register", "registered", db_path=db_path)
+        except Exception:
+            pass
+    except Exception:
+        logger.warning("idea-ledger registration failed (fail-soft)", exc_info=True)
+        try:
+            from db.lane_stats import bump
+
+            bump("path_a_register", "failures", db_path=db_path)
+        except Exception:
+            pass
+
+
 async def propose_trade(
     candidate: TradeCandidate,
     *,
@@ -194,6 +257,13 @@ async def propose_trade(
         if "error" in row:
             return {"status": "invalid", "reason": row["error"]}
 
+        _register_idea_shadow(
+            candidate,
+            entry_ref_price=sized.get("price"),
+            user_action="skipped",
+            source_ref={"kind": "proposal", "id": str(row["id"])},
+            db_path=db_path,
+        )
         return {"status": "proposed", "id": row["id"]}
     except Exception:
         logger.exception(
@@ -252,6 +322,13 @@ async def auto_execute_entry(
             db_path=db_path,
         )
         result = await ExecutionService.submit(intent, db_path=db_path)
+        _register_idea_shadow(
+            candidate,
+            entry_ref_price=sized.get("price"),
+            user_action="auto",
+            source_ref={"kind": "execution", "id": str(result.execution_id)},
+            db_path=db_path,
+        )
         await notify(
             kind="execution",
             title=f"BUY {args['qty']} {args['symbol']} @ mkt [{result.execution_mode}]",
