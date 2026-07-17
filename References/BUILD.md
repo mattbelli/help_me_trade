@@ -129,6 +129,17 @@ calibrated model or labeled explicitly as heuristic conviction** — never inven
 rule/strategy still passes the **backtest → paper gate** before it's trusted (no curve-fit auto-arm). This is
 the CLAUDE.md honesty rule applied to the headline feature.
 
+**[Founder directive 2026-07-17 — calibration is a FILTER, not the product.]** Markets are non-stationary
+and a fused multi-factor win% ("you'll win 68% if you take this") needs sample sizes that never converge
+inside one regime — **chasing that number is explicitly NOT the priority.** What IS required: log EVERY
+idea + outcome, grade mechanically (the idea ledger), and use the grades ORDINALLY — rank the lanes,
+weed out bad idea-types, tighten the filter so only a handful of good ideas reach the phone (idea count
+is budgeted; never a thousand pings). The displayed number stays honest per the guardrail above
+(Wilson-bounded or "unproven") — but the app's forefront is IDEA GENERATION + event-driven investigation
+(social pop → research it in-app; RVOL 4× normal → look; two giant put sweeps co-occur at 10am → connect
+the dots), not probability precision. Cardinal calibration ("68%") doesn't converge; ordinal calibration
+("this lane beats that lane; kill the junk lane") converges in weeks and survives regime drift.
+
 ### Sequencing
 Maps onto **R5 (deepen PERCEIVE/REASON)** but is elevated to the app's headline value-driver. Order: R3-C ships
 the proposal *pipe* (one source, fixed sizing) → then iterate the decision engine deep — data sources →
@@ -282,6 +293,13 @@ than-absent. Current state now lives where it stays current: **`HANDOFF.md`** (o
 *In-flight truth = `board.json` + `HANDOFF.md`; this section is the STRATEGIC arc only — update it when
 the arc changes, not per round. The 07-01 cockpit-hardening backlog (P1–P12) that lived here shipped
 across the July rounds (BUILD_LOG rows 2026-07-01 → 07-16) and is retired.*
+
+*Order founder-confirmed 2026-07-17 (grill session): **#1–2 are the forefront** — "get the fusion layer
+and idea engine running, populate ideas, start learning from them" — then the AI-chat surface upgraded to
+work with all of it, closing the self-learning loop end-to-end. The app runs two parallel avenues:
+**(a) event-driven ideas → phone approve** (the away-from-desk product) and **(b) frozen strategies on
+paper autopilot → watch results → promote to real only on observed evidence.** Memory overhaul stays
+parked until the idea engine gives it something to recall (mem0 removal excepted — that goes anytime).*
 
 1. **Idea Engine** — Phase 1 LIVE (07-16); verify gate, then Phase 2 spec *informed by the first live
    week of lane meters* (`IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` is governing). This is the vehicle
