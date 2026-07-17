@@ -1,129 +1,85 @@
-# Help Me Trade — Agent Brief
+# Help Me Trade — Agent Brief (codebase map)
 
-**★ THE BEST IDEAS WIN.** On architecture decisions, problem solving, and high-importance edits, run the
-loop from the top of `CLAUDE.md`: **reason → check → reason → check** against something real, until checks
-stop changing the answer — and when you think there isn't a solution, that's evidence about your METHOD,
-not the problem: switch thinking methods (invert the question, turn walls into measurable variables,
-inventory adjacent ingredients, zero-context pass, work backwards from the ideal) and go again.
+*Rewritten 2026-07-17, every claim verified against the code that day. `CLAUDE.md` (auto-loaded) owns the
+mission, working agreements, and safety rules — this file is the MAP. Current focus: `References/HANDOFF.md`.
+History/roadmap: `References/BUILD.md` (**grep it, never read it whole — 400KB**).*
 
-**What this is:** An autonomous trading agent (not a generic chatbot) whose engine is one continuous loop: PERCEIVE → REASON → DECIDE → ACT → DELIVER → LEARN. FastAPI backend (Python, port 8000) + Next.js frontend (port 3001). Brokers: Alpaca (paper primary) + Schwab. Storage: local SQLite (WAL). LLM: provider-agnostic factory (Anthropic, OpenAI, DeepSeek, Ollama, mock). The dashboard is a cockpit to configure and supervise the agent; the loop runs server-side. **Roadmap (what to build next):** `References/BUILD.md`. **Loop architecture + tech research:** `References/AGENT_LOOP_RESEARCH.md`.
+**What this is:** an autonomous trading agent — one loop: PERCEIVE → REASON → DECIDE → ACT → DELIVER →
+LEARN. FastAPI backend (port 8000) + Next.js workspace cockpit (port 3001) + Expo phone app; SQLite (WAL).
+Runs on an always-on Linux box ("serv") as systemd units: `hmt-backend`, `hmt-frontend`, plus standalone
+market-data collectors `hmt-flow-collector` (OPRA options socket, `tools/flow_collector.py`) and
+`hmt-equity-collector` (equity tape wildcard socket, `tools/equity_collector.py`) — env-interlocked so the
+API and collector never both own a socket. Brokers: Alpaca (paper execution + SIP data), Schwab (READ-ONLY
+real accounts + futures data). LLM: provider-agnostic factory. Autonomy ladder: alerts ✅ → phone-approval
+proposals ✅ (the headline unlock) → bounded auto-execute (in progress, hard-gated).
 
----
-
-## Before large work
-
-1. Read `References/BUILD.md §6` (current priorities)
-2. Match existing patterns in the module map below
-3. Never wire order execution without `RiskEngine` + `ExecutionService` (Phase 4)
-
----
-
-## Codebase map
-
-### Backend
+## Backend map
 
 | Subsystem | Key files | Purpose |
 |---|---|---|
-| **App entry** | `api/main.py` | FastAPI app, mounts all routers, starts background loops (`_poll_loop`, `_signal_scan_loop`, reflection scheduler) |
-| **API routes** | `api/ai_routes.py`, `api/performance_routes.py`, `api/trade_routes.py`, `api/alert_checker.py` | REST + SSE endpoints for chat, memory, performance, trades, alerts |
-| **Auth/middleware** | `api/auth.py`, `api/middleware.py`, `api/deps.py` | `API_TOKEN` bearer check, host-header guard, dependency injection |
-| **Brokers** | `brokers/alpaca.py`, `brokers/schwab.py`, `brokers/base.py`, `brokers/factory.py`, `brokers/market_stream.py`, `brokers/errors.py` | `BrokerAdapter` protocol; frozen dataclasses; Alpaca WS quote hub + ring buffer; multi-broker factory |
-| **Config** | `config/settings.py`, `config/ai_providers.py`, `config/research.py` | Pydantic settings loaded from `.env`; broker enable flags; LLM provider config |
-| **DB — ledger** | `db/trades.py`, `db/sqlite.py`, `db/base.py` | `trade_events` table, WAL mode, schema versioning |
-| **DB — analytics** | `db/analytics.py`, `db/realized_pnl.py`, `db/fifo_round_trips.py`, `db/chart_features.py` | Period P&L, cash-flow vs realized toggle, FIFO pairing (unreliable — see gotchas) |
-| **DB — AI/behavioral** | `db/ai_tables.py`, `db/behavioral.py`, `db/chat_sessions.py` | Rules, alerts, memories, insights, reflection, paper orders, chat sessions |
-| **DB — corporate actions** | `db/corporate_actions.py` | Splits/dividends affecting cost basis |
-| **Imports** | `imports/schwab_transactions.py`, `imports/alpaca_activities.py`, `imports/base.py`, `imports/money.py`, `imports/option_symbol.py` | Full-history JSON import; `Decimal` parsing; dedup by `external_key` |
-| **Trading** | `trading/sync.py` | Broker sync on connect + hourly; read-only today |
-| **Portfolio** | `portfolio/analytics.py` | Exposure, concentration, drift flags used by DECIDE stage |
-| **Signals** | `signals/indicators.py`, `signals/features.py` | SMA/EMA/RSI/ATR/crosses; `build_indicator_facts` → flat fact dict for LLM |
-| **Signals — rules** | `signals/rule_schema.py`, `signals/scan.py` | `RuleSpec`, `METRIC_REGISTRY` (~40 metrics), condition evaluation, transition triggers + cooldown |
-| **Signals — backtest** | `signals/backtest.py` | Rule backtesting against historical bars |
-| **Signals — context** | `signals/trade_context.py` | Per-trade signal context capture |
-| **AI — LLM** | `ai/llm/factory.py`, `ai/llm/base.py`, `ai/llm/structured.py`, `ai/llm/config.py` | Provider factory (anthropic/openai/deepseek/openrouter/ollama/mock); `parse_json_object` shared util |
-| **AI — chat** | `ai/chat/brain.py`, `ai/chat/agent.py`, `ai/chat/tools.py`, `ai/chat/context.py`, `ai/chat/stream.py` | Python "brain": tool dispatch, streaming, portfolio/memory/research/rule tools; **`trading` toolset never exposed to chat** |
-| **AI — memory** | `ai/memories/retrieval.py`, `ai/chat/memory_extract.py` | Token-overlap retrieval (RAG placeholder); extraction from conversation turns |
-| **AI — research** | `ai/research/deep_graph.py`, `ai/research/jobs.py`, `ai/research/citations.py`, `ai/research/sources.py` | Async research job queue; LangGraph-ish plan→collect→analyze→synthesize |
-| **AI — rules** | `ai/rules/engine.py` | `evaluate_rules` against snapshot + event facts; fires WS `alert` events |
-| **AI — reflection** | `ai/reflection/service.py`, `ai/reflection/scheduler.py` | Periodic background reflection over trade history |
-| **AI — insights** | `ai/insights.py`, `ai/retrospective.py`, `ai/perf_context.py` | Analytics-grounded insight generation; retrospective summaries |
+| **★ Execution chokepoint** | `trading/execution_service.py` (`submit()` — the ONLY broker path, kill-switch first), `trading/risk_engine.py` (`validate()` gates every order: caps, buying power, concentration, daily-loss breaker `db/risk_breaker.py`), `trading/models.py` (frozen `OrderIntent`/`RiskCheckResult`) | Deny-by-default; paper before live; LIVE hard-blocked. Adversarial review required on any change here |
+| **Proposals / approvals** | `trading/proposals.py` (approve/reject, phone proposals, expiry sweep, push retry), `trading/proposal_intake.py` (`propose_trade`, `auto_execute_entry`, scan-fire intake + idea-shadow registration), `db/chat_approvals.py`, `db/push_deliveries.py` | The propose → phone-approve → execute flow |
+| **Auto engines** | `trading/exit_engine.py` (stop/target/trail over `db/managed_positions.py`), `signals/strategy_scan.py` + `strategy_kinds.py` + `strategy_universe.py` (registry-driven entry scans → propose), `signals/exit_evaluators.py` | Every strategy ships DISABLED + propose-mode; founder arms manually |
+| **★ Idea ledger** | `db/idea_outcomes.py` (`register_idea`, dedup, fabricated-probability wall), `research/idea_tracker.py` (`sweep_open_ideas` — Grading Law resolution: target/stop/time, SPY alpha leg, stop-wins tie-break), `db/lane_stats.py` (bump/gauge meters), `signals/pipeline_audit.py` (silence alarms + daily canary), `config/idea_engine.py` (constants = "law") | EVERY idea outcome-tracked, taken or not; calibration ground truth |
+| **Decision scoring** | `signals/decision_scorer.py` + `research/artifacts/` (offline-trained calibrator/EV tables), `signals/strategy_stats.py`, `signals/confluence_score.py` (unusualness, NOT a win%), `ai/journal_review.py` (predicted-vs-realized calibration) | Win% displayed = calibrated, never fabricated |
+| **Options flow** | `signals/options_flow/` — `runner.py` (pipeline host), `stream.py` (OPRA ws), `poll.py`, `detect.py` (UV-1/2), `sweeps.py`, `convergence.py`, `opening_pressure.py` (index gauge), `scan.py` (EOD) | Runs in `hmt-flow-collector`, NOT the API (`OPTIONS_FLOW_EXTERNAL_COLLECTOR=1`) |
+| **Equity tape** | `signals/equity_tape.py` (blocks/dark pool), `signals/equity_stream/` (wildcard ws + detectors) | Runs in `hmt-equity-collector` |
+| **Other perception** | `signals/`: `regime.py` (FRED/VIX), `momentum.py`, `volume_profile.py` (RVOL), `earnings_edgar.py` + `earnings_refresh.py`, `finra.py` (short interest), `filings/` (Form 4/13D + congress), `social_buzz.py`, `session_node_strategy.py`, `screener.py` | Perception sources — "no proven edge" is never a reason not to build one |
+| **Rules/alerts** | `signals/rule_schema.py` + `scan.py`, `ai/rules/engine.py`, `signals/backtest.py` | User rules: ~40-metric registry, transitions + cooldown |
+| **Delivery** | `signals/notify.py` (persist-then-deliver chokepoint, `INBOX_ONLY_KINDS` demotion), `signals/push.py` (phone, budget-gated), `db/notifications.py`, `db/device_tokens.py`, `db/live_activities.py` | One notify path; push budget in settings |
+| **AI — chat** | `ai/chat/loop.py` (ONE provider-agnostic tool loop for all surfaces), `web_agent.py` (AI-SDK stream for Next proxy), `mobile_agent.py` (SSE), `tools.py` + `tool_specs.py`, `context.py`, `memory_extract.py` | **`trading` toolset NEVER exposed to chat** — propose-only |
+| **AI — other** | `ai/llm/` (factory: anthropic/openai/deepseek/openrouter/ollama/mock), `ai/research/` (engine v2 + `setup_scan.py` = nightly idea scan), `ai/memories/` (judge-gated writes + FTS5 retrieval), `ai/reflection/`, `ai/insights.py`, `ai/retrospective.py`, `ai/perception/` (read-layer: context + resource registry) | |
+| **API host** | `api/main.py` (~17 asyncio loops + `api/jobs.py` registry: poll, scans, sweeps, idea tracker, pipeline audit, nightly setup scan, retention, reflection…), routers: `ai_routes`, `trade_routes`, `performance_routes`, `strategy/notification/scan/schwab/journal/ticker/social/orders/device/fill_orphan` | |
+| **DB — ledger** | `db/trades.py` (event ledger), `db/realized_pnl.py` (**net-cash = truth**), `db/fifo_round_trips.py` (approximate — never authoritative), `db/decision_journal.py`, `db/order_executions.py` (audited, adversarial-review zone), `db/account_scope.py` (selector→ledger id resolver, label-fragile), `db/retention.py` | Money = TEXT/Decimal |
+| **Brokers** | `brokers/alpaca.py` (primary), `brokers/schwab*.py` (read-only real + futures), `factory.py`, `hybrid_market_data.py`/`hybrid_market_stream.py` (per-asset-class routing: futures→Schwab, equities→Alpaca), `market_stream.py` (browser-facing WS hub), `options_chain.py` | Schwab NEVER a hard dependency; never burst-request it (WAF) |
+| **Imports** | `imports/schwab_transactions.py`, `alpaca_activities.py`, `money.py` (Decimal parsing), `option_symbol.py` | Dedup by `external_key` |
 
-### Frontend
+## Frontend map (`frontend/`)
 
 | Subsystem | Key files | Purpose |
 |---|---|---|
-| **Chat runtime** | `frontend/app/api/chat/route.ts`, `frontend/lib/use-trading-chat-runtime.ts` | Next.js route using Vercel AI SDK `streamText`; calls Python brain endpoints |
-| **Chat UI** | `frontend/components/assistant-ui/thread.tsx`, `frontend/components/agents/` | assistant-ui Thread; Approve/Reject order card; turn-learned-memories chips |
-| **Memory** | `frontend/lib/memories.ts`, `frontend/lib/learned-memories-context.tsx`, `frontend/components/agents/turn-learned-memories.tsx` | Client-side extract trigger `onFinish`; Edit/Discard chips |
-| **Workspace shell** | `frontend/components/workspace/workspace-grid.tsx`, `frontend/components/workspace/workspace-toolbar.tsx`, `frontend/components/workspace/command-console.tsx`, `frontend/components/workspace/copilot-sidebar.tsx` | Widget-grid cockpit; bottom command console; right-rail copilot dock |
-| **Workspace state** | `frontend/lib/workspace/use-workspace-store.ts`, `frontend/lib/workspace/widget-registry.tsx`, `frontend/lib/workspace/grid-metrics.ts`, `frontend/lib/workspace/channels.ts`, `frontend/lib/workspace/use-channel-store.ts` | Grid layout, widget registry, channel system, grid dimension math |
-| **Performance** | `frontend/app/performance/`, `frontend/components/performance/`, `frontend/lib/performance-api.ts` | Period P&L, calendar, FIFO charts, realized vs cash-flow toggle |
-| **API client** | `frontend/lib/api.ts`, `frontend/lib/trades-api.ts`, `frontend/lib/research.ts`, `frontend/lib/rules.ts` | Typed fetch wrappers calling FastAPI |
-| **Settings** | `frontend/components/settings/`, `frontend/lib/ai-settings.ts` | Provider/model config, broker settings |
+| **Workspace shell** | `app/page.tsx` (workspace IS the main URL), `components/workspace/workspace-grid.tsx`, `lib/workspace/widget-registry.tsx` (**30 widgets**: chart, watchlist, options-flow, index-pressure, idea-outcomes, agent-proposals, notifications, chat…), `lib/workspace/channels.ts` (6 colored symbol-link channels), `use-workspace-store.ts` (workspaces = named page groups) | Tickers everywhere click-to-focus-chart via channels |
+| **Terminal** | `components/workspace/terminal/terminal.tsx` (bottom drawer: chat + commands), `lib/workspace/use-workspace-commands.ts` | |
+| **★ Chart engine (ours)** | `lib/chart-engine/` — `engine.ts`, `canvas2d.ts`, `painter.ts` (RN-Skia later), pure `scales/ticks/series/merge` + vitest; `components/trading/native-chart.tsx` | TradingView is DELETED — this is the only chart. Controls in top toolbar, never floating |
+| **Chat** | `app/api/chat/route.ts` (proxies to Python brain via `lib/python-server.ts`; `CHAT_BRAIN=ts` = legacy revert), `components/assistant-ui/` | Brain is Python; Node never places orders |
+| **Watchlist** | `lib/workspace/watchlist-columns.tsx` (19-col registry, density presets), `widgets/watchlist-widget.tsx` | Per-list settings sync server-side |
+| **Standalone pages** | `/performance`, `/research`, `/board` (kanban ← `References/board.json`), `/memories`, `/agents`, `/rules`, `/automations`; `/trading` `/charts` `/trades` = dead redirects | |
+| **Mobile web** | `components/workspace/mobile-workspace.tsx` — 4-tab bottom-nav surface, NOT the grid | Phone ≠ desktop grid; widgets never overlap |
+| **API clients** | `lib/api.ts` (main, 1.7k lines) + `journal/performance/reports/scans/strategies/ticker-info/trades-api.ts` | |
 
----
+**Phone app (`mobile/`)**: Expo/RN — `src/features/approvals/` (proposal card), `src/push/` (lock-screen
+approve w/ biometric, Live Activities, APNs), `src/api/chat-stream.ts` (SSE from `mobile_agent.py`).
 
-## Agent loop → file map
+## Conventions an agent must know (details in CLAUDE.md — these are the map-level ones)
 
-| Stage | Files |
-|---|---|
-| **PERCEIVE** | `brokers/market_stream.py` (WS hub + ring buffer), `brokers/alpaca.py` (snapshot/bars), `signals/indicators.py` + `signals/features.py` (fact dict), `api/main.py` `_poll_loop` + `_signal_scan_loop` |
-| **REASON** | `ai/llm/factory.py` (provider), `ai/chat/brain.py` + `ai/chat/agent.py` (stream + tool planner), `ai/chat/context.py` (grounding), `ai/memories/retrieval.py` (retrieval), `ai/insights.py` |
-| **DECIDE** | `signals/rule_schema.py` + `signals/scan.py` (rule candidates), `ai/rules/engine.py` (evaluate), `portfolio/analytics.py` (exposure/risk flags), `ai/chat/tools.py` `propose_order` |
-| **ACT** | `trading/sync.py` (read-only today) — **RiskEngine + ExecutionService not yet built; this is the bottleneck** |
-| **DELIVER** | `api/alert_checker.py`, `brokers/market_stream.py` WS broadcast, `frontend/lib/workspace/use-alert-stream.ts`, `frontend/components/workspace/notification-banner.tsx` |
-| **LEARN** | `ai/chat/memory_extract.py`, `ai/memories/retrieval.py`, `ai/reflection/service.py`, `db/behavioral.py`, `db/ai_tables.py` |
+- **Money is `Decimal`** in `trading/` (float→Decimal seam at propose_order); SQLite stores money as TEXT.
+- **Net-cash realized P&L is truth; FIFO is approximate** — never present FIFO as authoritative.
+- **Tests**: ~2,300 collected. Run TARGETED modules (`python -m pytest tests/test_x.py -q`) — the full
+  suite hangs on network/ws tests. Require pytest's own exit code AND the "N passed" line (`| tail` masks
+  hangs). Options-flow convergence tests need the `dedup_store` fixture.
+- **Lint/typecheck**: `ruff check .` (config `ruff.toml`, py312, line 100) + `cd frontend && npm run typecheck`.
+- **Git hook** (`tools/hooks/commit-msg`): product-code commits must also stage `References/board.json` or
+  `BUILD.md`; escape hatch `[no-board]`. Docs/tests-only commits are exempt.
+- **Shared working tree**: stage by explicit path, never `git add -u/-A`; one tree-writer at a time.
+- **Secrets** in gitignored `.env`; `data/` is gitignored (real ledger + user financial exports).
 
----
+## Run / deploy
 
-## Key conventions — an agent must know these
+```bash
+# serv (production — the normal case): build frontend first if it changed, then
+tools/serv-deploy.sh [backend|frontend|both]   # kills MainPID; systemd relaunches. No sudo.
+# units are SYSTEM units: systemctl status hmt-backend (not --user)
 
-**Money is `Decimal`** (stored as SQLite TEXT, never REAL). `imports/money.py` centralizes parsing. Broker types still use `float` — conversion is a known gap.
-
-**Realized P&L ≠ FIFO round-trips.** Net-cash truth (`db/realized_pnl.py`) is reliable. FIFO round-trips (`db/fifo_round_trips.py`) are best-effort and break on: date-only export timestamps (intraday scalps pair wrong), shorts, pre-import-window positions. The Performance UI lets the user toggle between the two views; don't treat FIFO numbers as authoritative.
-
-**Coding tasks go to Composer, not hand-edits.** Dispatch via:
-```
-node tools/composer-bridge/dispatch.mjs --brief <path-to-brief-file>
-```
-One run at a time. Logs to `tools/composer-bridge/last-run.log`. Brief files live in `References/`. Only hand-edit for trivial one-liners or when Composer is inappropriate.
-
-**Never expose the `trading` toolset to the chat agent.** Order execution is a separate toolset gated behind RiskEngine (not built). The chat agent has: portfolio, memories, research, web_search, propose_order (card only), create_rule (arms immediately).
-
-**LLM proposes; deterministic code disposes.** The LLM never holds account state. Hard risk limits live in deterministic code, not prompts.
-
-**Tests:** `pytest` — run targeted subsets and pipe through `| tail` to avoid drowning in output. 230+ tests cover auth, db/WAL, poll health, structured JSON, tools, Schwab import, analytics (realized/behavioral/trade-context), rules/backtest, retrospective + honest-perf guardrails, chat brain, memory extract/dedup.
-
-**Secrets** in gitignored `.env` (repo root) and `frontend/.env.local`. Never commit either. `data/` is gitignored — real ledger SQLite and user trade export files live there.
-
-**Chat host is Next.js** (`frontend/app/api/chat/route.ts`, Vercel AI SDK). Python is the brain — it never hosts the conversation. Node never places orders; it only calls authenticated Python endpoints.
-
-**No LangGraph runtime for chat.** Research may keep LangGraph. Reject assistant-ui LangGraph adapter. No hosted Mem0 cloud SDK in Node.
-
----
-
-## Run commands
-
-```powershell
-# Backend (repo root, activate venv first)
-.venv\Scripts\Activate.ps1
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-
-# Frontend
-cd frontend
-npm run dev        # port 3001  (or: bun run dev)
+# local dev
+source .venv/bin/activate && uvicorn api.main:app --reload --port 8000
+cd frontend && npm run dev   # 3001
 ```
 
-Full details + env knobs: `References/STARTUP.md`.
-
-If port 8000 is busy: `netstat -ano | findstr ":8000"` → `taskkill /PID <pid> /F`.
-
----
+⚠️ Never `npm run build` under a live `next start` outside a deploy (stale-chunk breakage). Kill any dev
+server you spawn (3005+). Journald timestamps are UTC (ET−4). Full ops detail: `References/SERVER_SETUP.md`.
 
 ## Maintenance
 
-When a phase completes or priorities shift, update **both** before closing:
-1. `References/BUILD.md` — mark items done, adjust §6 priorities
-2. This file — refresh Current state and loop scorecard
-
-BUILD.md is source of truth; this file is the fast brief agents read first.
+This file is the fast brief agents trust — a stale map is worse than no map. When a subsystem ships,
+moves, or dies, refresh the affected rows **in the same round** (the HANDOFF/BUILD update step). Rewritten
+2026-07-17 after drifting badly for ~3 weeks; don't let it drift again.
