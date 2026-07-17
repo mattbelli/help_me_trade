@@ -155,7 +155,6 @@ def _register_idea_shadow(
         if str(candidate.side or "").lower() != "buy" or entry_ref_price is None:
             return
         from config.idea_engine import STRATEGY_HORIZONS
-
         from db.idea_outcomes import register_idea
 
         source = str(candidate.source or "")

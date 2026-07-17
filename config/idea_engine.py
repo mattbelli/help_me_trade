@@ -14,10 +14,11 @@ from collections import defaultdict
 IDEA_COOLDOWN_MIN_DEFAULT = 30
 IDEA_COOLDOWN_MIN: dict[str, int] = defaultdict(lambda: IDEA_COOLDOWN_MIN_DEFAULT)
 
-# Path A horizon templates (spec §3). "exit_lead" is resolved from the strategy's
-# own params at call time; "21d" is a literal trading-day horizon.
+# Path A horizon templates (spec §3), literal trading-day horizons so the grader
+# never needs call-time strategy-param resolution. earnings_drift enters at
+# td=10 and exits at td=1 before the print → 9 trading days held.
 STRATEGY_HORIZONS: dict[str, str] = {
-    "earnings_drift": "exit_lead",
+    "earnings_drift": "9d",
     "momentum_sp500": "21d",
 }
 

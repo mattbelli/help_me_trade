@@ -271,6 +271,85 @@ class TestLedgerConfig:
         assert IDEA_COOLDOWN_MIN["some_new_origin"] == 30
 
     def test_strategy_horizons_and_tiebreak(self):
-        assert STRATEGY_HORIZONS["earnings_drift"] == "exit_lead"
+        assert STRATEGY_HORIZONS["earnings_drift"] == "9d"
         assert STRATEGY_HORIZONS["momentum_sp500"] == "21d"
         assert GRADING_TIEBREAK == "stop"
+
+
+# --------------------------------------------------------------------------- #
+# [ADR-6] direction symmetry — shorts first-class in measurement
+# --------------------------------------------------------------------------- #
+class TestLedgerDirectionSymmetry:
+    def test_short_plan_valid_geometry_registers(self, idea_db):
+        idea = _plan(
+            idea_db,
+            direction="short",
+            entry_zone={"low": "100", "high": "105"},
+            stop="110",           # short: stop above the zone
+            targets=["95", "90"],  # short: targets below, strictly descending
+        )
+        assert isinstance(idea, int)
+
+    def test_short_plan_stop_below_zone_rejected(self, idea_db):
+        assert (
+            _plan(
+                idea_db,
+                direction="short",
+                stop="95",  # long-shaped stop on a short plan
+                targets=["90"],
+            )
+            is None
+        )
+
+    def test_short_plan_target_above_zone_rejected(self, idea_db):
+        assert (
+            _plan(
+                idea_db,
+                direction="short",
+                stop="110",
+                targets=["120"],  # long-shaped target on a short plan
+            )
+            is None
+        )
+
+    def test_short_targets_must_descend(self, idea_db):
+        assert (
+            _plan(
+                idea_db,
+                direction="short",
+                stop="110",
+                targets=["90", "95"],  # not strictly descending
+            )
+            is None
+        )
+
+    def test_invalid_direction_rejected(self, idea_db):
+        assert _plan(idea_db, direction="sideways") is None
+
+    def test_long_and_short_same_symbol_are_distinct_dedup_buckets(self, idea_db):
+        long_id = _plan(idea_db)
+        short_id = _plan(
+            idea_db, direction="short", stop="110", targets=["95"]
+        )
+        assert isinstance(long_id, int) and isinstance(short_id, int)
+        assert long_id != short_id
+
+
+class TestLedgerSyntheticKwarg:
+    def test_register_idea_synthetic_flag_persists_and_hides(self, idea_db):
+        idea = _plan(idea_db, origin="canary", synthetic=1)
+        assert isinstance(idea, int)
+        with connect(idea_db) as conn:
+            row = conn.execute(
+                "SELECT synthetic FROM idea_outcomes WHERE id = ?", (idea,)
+            ).fetchone()
+        assert row["synthetic"] == 1
+        assert list_open(db_path=idea_db) == []
+
+    def test_default_is_not_synthetic(self, idea_db):
+        idea = _plan(idea_db)
+        with connect(idea_db) as conn:
+            row = conn.execute(
+                "SELECT synthetic FROM idea_outcomes WHERE id = ?", (idea,)
+            ).fetchone()
+        assert row["synthetic"] == 0

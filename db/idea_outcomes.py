@@ -350,6 +350,42 @@ def _validate_long_plan(
     )
 
 
+def _validate_short_plan(
+    entry_zone: Any, stop: Any, targets: Any
+) -> tuple[str, str, str, str] | None:
+    """Side-correctness checks for a short plan ([ADR-6] direction symmetry):
+    stop must sit ABOVE the zone, targets BELOW it, strictly descending.
+    Measurement-side only — the execution chokepoint's no-short gate is
+    untouched by this validator existing."""
+    if not isinstance(entry_zone, dict):
+        return None
+    low = _parse_price(entry_zone.get("low"))
+    high = _parse_price(entry_zone.get("high"))
+    if low is None or high is None or low > high:
+        return None
+    stop_d = _parse_price(stop)
+    if stop_d is None or stop_d <= high:  # short: stop must sit above the zone
+        return None
+    if not isinstance(targets, list) or not (1 <= len(targets) <= 3):
+        return None
+    parsed: list[Any] = []
+    for raw in targets:
+        t = _parse_price(raw)
+        if t is None or t >= low:  # short: targets below the zone
+            return None
+        if parsed and t >= parsed[-1]:  # strictly descending
+            return None
+        parsed.append(t)
+    entry_low = str(entry_zone.get("low", "")).strip()
+    entry_high = str(entry_zone.get("high", "")).strip()
+    return (
+        entry_low,
+        entry_high,
+        str(stop).strip(),
+        json.dumps([str(t) for t in targets]),
+    )
+
+
 def register_ideas(
     artifact_id: int,
     ideas: list[dict[str, Any]],
@@ -443,6 +479,7 @@ def register_idea(
     user_action: str = "skipped",
     regime_at_entry: str | None = None,
     entry_ref_price: str | None = None,
+    synthetic: int = 0,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int | None:
     """The narrow write path for non-artifact idea sources (spec §2).
@@ -450,7 +487,8 @@ def register_idea(
     Returns the new idea id, or None when the registration is deduped (an open
     row already holds this cooldown bucket) or rejected as invalid. NO conviction
     filter — low-confidence ideas are logged; that is how the calibration bins
-    earn their shape. Long-only in Phase 1.
+    earn their shape. Direction-symmetric ([ADR-6]): short ideas are first-class
+    in measurement; only the execution chokepoint stays no-short.
     """
     init_idea_outcomes_tables(db_path)
 
@@ -459,8 +497,8 @@ def register_idea(
     direction = str(direction or "long").strip().lower()
     if not symbol or not origin:
         return None
-    if direction != "long":
-        logger.warning("register_idea: only long setups supported (got %r)", direction)
+    if direction not in ("long", "short"):
+        logger.warning("register_idea: invalid direction %r", direction)
         return None
     if grading_basis not in GRADING_BASES:
         logger.warning("register_idea: unknown grading_basis %r", grading_basis)
@@ -507,9 +545,14 @@ def register_idea(
         stop_val = ""
         targets_json = "[]"
     else:  # plan
-        plan = _validate_long_plan(entry_zone, stop, targets)
+        validate_plan = (
+            _validate_short_plan if direction == "short" else _validate_long_plan
+        )
+        plan = validate_plan(entry_zone, stop, targets)
         if plan is None:
-            logger.warning("register_idea: invalid plan geometry for %s", symbol)
+            logger.warning(
+                "register_idea: invalid %s plan geometry for %s", direction, symbol
+            )
             return None
         entry_low, entry_high, stop_val, targets_json = plan
 
@@ -539,6 +582,7 @@ def register_idea(
         "dedup_key": dedup_key,
         "cluster_key": _cluster_key(as_of, direction),
         "grading_basis": grading_basis,
+        "synthetic": 1 if synthetic else 0,
         "updated_at": now,
     }
 

@@ -75,6 +75,36 @@ def bump(
         logger.exception("lane_stats bump failed: lane=%s counter=%s", lane, counter)
 
 
+def gauge(
+    lane: str,
+    counter: str,
+    value: float,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """Set the (lane, ET-today, counter) cell to ``value`` (last-write-wins).
+
+    For point-in-time measurements — max_open_age_days and friends — where
+    bump's additive UPSERT would inflate the reading. Same fail-soft law.
+    """
+    try:
+        init_lane_stats_tables(db_path)
+        with _connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO lane_stats (lane, date, counter, value, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(lane, date, counter) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (lane, et_today(), counter, float(value), _now()),
+            )
+            conn.commit()
+    except Exception:
+        logger.exception("lane_stats gauge failed: lane=%s counter=%s", lane, counter)
+
+
 def day(lane: str, date: str, *, db_path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
     """Every counter for one lane on one ET date, as ``{counter: value}``."""
     init_lane_stats_tables(db_path)
