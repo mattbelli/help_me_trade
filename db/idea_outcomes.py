@@ -780,6 +780,22 @@ def update_outcome(
         return int(cur.rowcount or 0) > 0
 
 
+def has_registration_on(
+    origin: str, as_of_date: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> bool:
+    """True when any idea with *origin* registered on *as_of_date* (YYYY-MM-DD).
+
+    Liveness probe for the canary verify pass: a green push receipt alone
+    cannot prove the ledger write path is alive (GPT-5.6 audit finding 3)."""
+    init_idea_outcomes_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM idea_outcomes WHERE origin = ? AND substr(as_of, 1, 10) = ? LIMIT 1",
+            (origin, as_of_date),
+        ).fetchone()
+    return row is not None
+
+
 def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     init_idea_outcomes_tables(db_path)
     with _connect(db_path) as conn:

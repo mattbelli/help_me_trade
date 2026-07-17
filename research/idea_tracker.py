@@ -92,7 +92,12 @@ def _first_evaluable_date(as_of: str) -> date:
 
 
 def _is_trading_day(d: date) -> bool:
-    return d.weekday() < 5
+    # Real NYSE calendar (holidays included) — weekday()<5 alone let holidays
+    # count as trading days, silently shortening every graded horizon
+    # (GPT-5.6 audit finding 13).
+    from trading.market_calendar import is_trading_day
+
+    return is_trading_day(d)
 
 
 def _add_trading_days(start: date, n: int) -> date:
@@ -521,8 +526,14 @@ def _stamp_benchmark(
 
     ret_pct = entry ref → resolution price, signed by direction. spy_ret_pct =
     market-long SPY return over [first_evaluable, resolved] from the one cached
-    series. alpha = ret - spy. Any leg that can't be computed stays NULL (never
-    zero): a missing SPY series drops spy+alpha while ret still resolves."""
+    series (always stored market-long — the raw benchmark record). alpha is
+    measured against the DIRECTION-CONSISTENT passive alternative: long → spy,
+    short → −spy (i.e. alpha = ret − sign·spy). A direction-signed ret against
+    a long-only benchmark let a beta-one short book ret−(−spy) ≈ +2·|spy|
+    "alpha" in a crash — doubling the common shock instead of removing it
+    (GPT-5.6 audit finding 10, 2026-07-17). Any leg that can't be computed
+    stays NULL (never zero): a missing SPY series drops spy+alpha while ret
+    still resolves."""
     resolved_raw = patch.get("resolved_at")
     if not resolved_raw:
         return
@@ -541,7 +552,10 @@ def _stamp_benchmark(
     spy = _spy_return(spy_by_date, first_evaluable, resolved_date)
     patch["ret_pct"] = ret
     patch["spy_ret_pct"] = spy
-    patch["alpha_pct"] = (ret - spy) if (ret is not None and spy is not None) else None
+    benchmark = (-spy if direction == "short" else spy) if spy is not None else None
+    patch["alpha_pct"] = (
+        (ret - benchmark) if (ret is not None and benchmark is not None) else None
+    )
 
 
 def _sweep_row(

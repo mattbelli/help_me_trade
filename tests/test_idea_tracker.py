@@ -1101,3 +1101,43 @@ def test_max_open_age_gauge_excludes_synthetic(idea_db) -> None:
     assert {r["symbol"] for r in list_open(db_path=idea_db)} == {"AAPL"}
     meters = lane_stats.day("idea_tracker", lane_stats.et_today(), db_path=idea_db)
     assert meters["max_open_age_days"] == 3.0
+
+
+def test_alpha_benchmark_is_direction_consistent() -> None:
+    """A beta-one short in a crash earns ~0 alpha, not +2x the market move
+    (GPT-5.6 audit finding 10): alpha measures against the direction-consistent
+    passive alternative (long -> spy, short -> -spy)."""
+    from decimal import Decimal
+
+    from research.idea_tracker import _stamp_benchmark
+
+    spy = {
+        date(2026, 1, 5): Decimal("100"),
+        date(2026, 1, 9): Decimal("90"),  # -10% market crash
+    }
+
+    # Short that fell exactly with the market: no edge over shorting SPY.
+    patch_short = {"resolved_at": "2026-01-09T21:00:00+00:00", "resolution_price": "90"}
+    _stamp_benchmark(
+        patch_short,
+        entry_ref=Decimal("100"),
+        direction="short",
+        first_evaluable=date(2026, 1, 5),
+        bars=[],
+        spy_by_date=spy,
+    )
+    assert patch_short["ret_pct"] == pytest.approx(10.0)
+    assert patch_short["spy_ret_pct"] == pytest.approx(-10.0)  # stored market-long
+    assert patch_short["alpha_pct"] == pytest.approx(0.0)
+
+    # Long that fell with the market: no alpha either way (unchanged behavior).
+    patch_long = {"resolved_at": "2026-01-09T21:00:00+00:00", "resolution_price": "90"}
+    _stamp_benchmark(
+        patch_long,
+        entry_ref=Decimal("100"),
+        direction="long",
+        first_evaluable=date(2026, 1, 5),
+        bars=[],
+        spy_by_date=spy,
+    )
+    assert patch_long["alpha_pct"] == pytest.approx(0.0)

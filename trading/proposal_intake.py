@@ -167,7 +167,7 @@ def _register_idea_shadow(
         else:
             origin = source or "unknown"
             family = "unknown"
-        register_idea(
+        idea_id = register_idea(
             origin=origin,
             signal_family=family,
             symbol=str(candidate.symbol).upper(),
@@ -186,7 +186,14 @@ def _register_idea_shadow(
         try:
             from db.lane_stats import bump
 
-            bump("path_a_register", "registered", db_path=db_path)
+            # register_idea returns None when the row was deduped (same idea
+            # still open) or rejected by a validation wall — counting that as
+            # "registered" hid dropped samples from the meters (GPT-5.6 audit
+            # finding 8, 2026-07-17).
+            if idea_id is not None:
+                bump("path_a_register", "registered", db_path=db_path)
+            else:
+                bump("path_a_register", "deduped_or_rejected", db_path=db_path)
         except Exception:
             pass
     except Exception:

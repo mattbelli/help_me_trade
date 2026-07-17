@@ -36,8 +36,11 @@ function TradeProposalActivity(props: TradeProposalState, _env: LiveActivityEnvi
   const sideColor = props.side === 'buy' ? '#5bc98a' : '#ef6f6c';
   const pending = props.status === 'pending';
 
-  const wp = props.winProb != null ? ` · ${Math.round(props.winProb * 100)}% win` : '';
-  const summary = `${props.side.toUpperCase()} ${props.qty} ${props.symbol} · ${props.orderType}${wp}`;
+  // winProb is intentionally NEVER rendered here: this widget has no calibration
+  // fields (ciLow/nSamples), and a bare percentage violates the honesty contract
+  // (founder SUPPRESS directive 2026-07-08). Numbers return only via a payload
+  // that carries its full calibration context.
+  const summary = `${props.side.toUpperCase()} ${props.qty} ${props.symbol} · ${props.orderType}`;
   const statusText =
     props.status === 'executed'
       ? 'Executed'
@@ -94,7 +97,7 @@ function TradeProposalActivity(props: TradeProposalState, _env: LiveActivityEnvi
     ),
     expandedTrailing: (
       <Text modifiers={[foregroundColor(ACCENT), font({ size: 12 })]}>
-        {props.winProb != null ? `${Math.round(props.winProb * 100)}% win` : props.orderType}
+        {props.orderType}
       </Text>
     ),
     expandedBottom: actions,

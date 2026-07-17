@@ -83,11 +83,8 @@ async def test_missing_canary_receipt_fires_critical(tmp_path, monkeypatch):
 
     monkeypatch.setattr("signals.push.send_alert_push", fake_push)
 
-    def fake_register(**kwargs):
-        return 1
-
-    monkeypatch.setattr("db.idea_outcomes.register_idea", fake_register, raising=False)
-
+    # Registration runs for REAL against the tmp DB — the verify pass now also
+    # probes the ledger leg, and a mocked-away register would (correctly) page.
     notifs: list[dict] = []
 
     async def fake_notify(**kw):
@@ -119,9 +116,7 @@ async def test_present_canary_receipt_no_critical(tmp_path, monkeypatch):
         return 1  # push succeeded → the launch records a receipt
 
     monkeypatch.setattr("signals.push.send_alert_push", fake_push)
-    monkeypatch.setattr(
-        "db.idea_outcomes.register_idea", lambda **kw: 1, raising=False
-    )
+    # Real registration into the tmp DB — the ledger leg must be green too.
 
     notifs: list[dict] = []
 
@@ -308,3 +303,37 @@ def test_path_a_failures_pure_signal(tmp_path):
     assert pa.rule_path_a_register_failures(today, db) is None
     _seed(db, "path_a_register", today.isoformat(), "failures", 1)
     assert pa.rule_path_a_register_failures(today, db) is not None
+
+
+@pytest.mark.asyncio
+async def test_dead_ledger_pages_even_with_green_receipt(tmp_path, monkeypatch):
+    """A healthy push transport must not hide a dead ledger write path: when
+    register_idea silently fails (fail-soft by design), the verify pass pages
+    canary_ledger_row_missing (GPT-5.6 audit finding 3)."""
+    db = tmp_path / "t.db"
+    monkeypatch.setattr(pa, "is_trading_day", lambda d: True)
+
+    async def fake_push(*args, **kwargs):
+        return 1  # transport healthy → receipt records
+
+    monkeypatch.setattr("signals.push.send_alert_push", fake_push)
+    # Dead ledger: registration returns None (the same shape as a swallowed
+    # validation failure or dedup drop).
+    monkeypatch.setattr(
+        "db.idea_outcomes.register_idea", lambda **kw: None, raising=False
+    )
+
+    notifs: list[dict] = []
+
+    async def fake_notify(**kw):
+        notifs.append(kw)
+        return {}
+
+    monkeypatch.setattr(pa, "notify", fake_notify)
+
+    await pa.run_audit(_now_at(15, 0), db)
+    await pa.run_audit(_now_at(15, 45), db)
+
+    criticals = [c for c in notifs if c["severity"] == "critical"]
+    assert len(criticals) == 1
+    assert "ledger row missing" in criticals[0]["title"]

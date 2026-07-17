@@ -280,6 +280,10 @@ async def _canary_launch(today: date, db_path: Path) -> None:
             plan_horizon="5d",
             grading_basis="plan",
             synthetic=1,
+            # Pinned to the canary's day: register_idea's default as_of is UTC
+            # now, whose DATE drifts past today after 20:00 ET — the verify
+            # pass probes this row by (origin, date) and must find it.
+            as_of=f"{today.isoformat()}T12:00:00+00:00",
             db_path=db_path,
         )
     except Exception:
@@ -328,6 +332,32 @@ async def _canary_verify(today: date, db_path: Path) -> None:
     )
     if launched <= 0:
         return  # never launched today (e.g. a restart after 15:30) — nothing to assert
+
+    # Ledger leg: the canary must have landed its idea_outcomes row. A green
+    # push receipt alone lets a dead ledger hide behind a healthy transport —
+    # register errors are swallowed at launch by design (fail-soft), so the
+    # verify pass is where their absence must page (GPT-5.6 audit finding 3).
+    ledger_ok = True
+    try:
+        from db.idea_outcomes import has_registration_on
+
+        ledger_ok = has_registration_on("canary", today.isoformat(), db_path=db_path)
+    except Exception:
+        logger.exception("canary ledger-leg check failed")
+    if not ledger_ok:
+        await _fire_alarm(
+            "canary_ledger_row_missing",
+            today,
+            db_path,
+            severity="critical",
+            title="Idea Engine canary ledger row missing",
+            body=(
+                f"Canary {_canary_id(today)} launched but no idea_outcomes row "
+                "registered — the ledger write path may be dead."
+            ),
+            kind="ops_canary",
+        )
+
     if has_sent_delivery(_canary_id(today), db_path=db_path):
         return  # receipt present — the transport round-tripped
     await _fire_alarm(
