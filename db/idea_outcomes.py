@@ -4,15 +4,38 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from ai.research.ideas import (
+    _CONFIDENCE_VALUES,
+    _has_fabricated_probability,
+    _parse_price,
+)
+from config.idea_engine import IDEA_COOLDOWN_MIN
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
 from db.schema_helpers import _add_column_if_missing
 
 logger = logging.getLogger(__name__)
+
+# Local ET zone — db/idea_outcomes must never import from trading/ (the
+# dependency points ledger→nothing; trading→ledger, never the reverse).
+_ET = ZoneInfo("America/New_York")
+
+# Duration-style plan_horizon parsing for the intraday-horizon guard ([ADR-3]).
+# Named horizons ('earnings_exit', 'exit_lead', ...) don't match → treated as
+# multi-day and never rejected. One trading session ≈ 6.5 hours.
+_TRADING_HOURS_PER_DAY = 6.5
+_HORIZON_DURATION_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([dhm])\s*$", re.IGNORECASE)
+
+# Grading bases (spec [ADR-2]). 'plan' = zone/stop/targets Grading Law;
+# 'horizon_return' = entry-ref → close at a fixed horizon (Path A proposals).
+GRADING_BASES = frozenset({"plan", "horizon_return"})
 
 OPEN_STATUSES = frozenset({"pending", "triggered"})
 # Rows the mechanical sweep re-examines each pass. data_gap is included so a
@@ -150,6 +173,57 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         # quote fetch at read time.
         _add_column_if_missing(conn, "idea_outcomes", "last_price", "TEXT")
         _add_column_if_missing(conn, "idea_outcomes", "last_price_at", "TEXT")
+
+        # Idea Engine Phase 1 (spec §1). Identity of the sample cell:
+        _add_column_if_missing(
+            conn, "idea_outcomes", "signal_family", "TEXT NOT NULL DEFAULT 'unknown'"
+        )
+        _add_column_if_missing(
+            conn, "idea_outcomes", "direction", "TEXT NOT NULL DEFAULT 'long'"
+        )
+        _add_column_if_missing(conn, "idea_outcomes", "confidence_label", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "regime_at_entry", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "plan_horizon", "TEXT")
+        # Provenance + audit:
+        _add_column_if_missing(
+            conn, "idea_outcomes", "user_action", "TEXT NOT NULL DEFAULT 'skipped'"
+        )
+        _add_column_if_missing(conn, "idea_outcomes", "source_ref", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "dossier_ref", "TEXT")
+        _add_column_if_missing(
+            conn, "idea_outcomes", "bear_case", "TEXT NOT NULL DEFAULT ''"
+        )
+        _add_column_if_missing(conn, "idea_outcomes", "dedup_key", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "episode_id", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "cluster_key", "TEXT")
+        _add_column_if_missing(
+            conn, "idea_outcomes", "synthetic", "INTEGER NOT NULL DEFAULT 0"
+        )
+        _add_column_if_missing(conn, "idea_outcomes", "user_id", "TEXT")
+        # Grading (NULL until ripe — NEVER zero-filled):
+        _add_column_if_missing(
+            conn, "idea_outcomes", "grading_basis", "TEXT NOT NULL DEFAULT 'plan'"
+        )
+        _add_column_if_missing(
+            conn, "idea_outcomes", "grading_resolution", "TEXT NOT NULL DEFAULT 'daily'"
+        )
+        _add_column_if_missing(conn, "idea_outcomes", "fill_status", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "ret_pct", "REAL")
+        _add_column_if_missing(conn, "idea_outcomes", "spy_ret_pct", "REAL")
+        _add_column_if_missing(conn, "idea_outcomes", "alpha_pct", "REAL")
+        _add_column_if_missing(conn, "idea_outcomes", "exit_reason", "TEXT")
+
+        # Calibration-cell index + the open-row dedup wall (partial unique over
+        # the cooldown key). Created after the columns exist.
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_idea_cell
+                ON idea_outcomes(origin, signal_family, status);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_idea_dedup_open
+                ON idea_outcomes(dedup_key)
+                WHERE dedup_key IS NOT NULL AND status IN ('pending', 'triggered');
+            """
+        )
         conn.commit()
 
 
@@ -173,6 +247,107 @@ def _row_to_outcome(row: Any) -> dict[str, Any]:
     else:
         out["verdict"] = None
     return out
+
+
+def _insert_idea(
+    conn: Any, values: dict[str, Any], *, raw_columns: dict[str, str] | None = None
+) -> Any:
+    """Shared INSERT OR IGNORE core for both register paths.
+
+    `values` maps column → bound value; `raw_columns` maps column → a raw SQL
+    expression spliced straight into VALUES (a self-allocating subquery, kept
+    inside the INSERT so it stays race-safe under SQLite's single writer).
+    Absent columns take their schema defaults. IGNORE fires on either unique
+    index (legacy (artifact_id, idea_index) or the dedup_key open-row wall), so
+    callers dedup by rowcount."""
+    raw_columns = raw_columns or {}
+    columns = list(values.keys()) + list(raw_columns.keys())
+    slots = ["?"] * len(values) + list(raw_columns.values())
+    return conn.execute(
+        f"INSERT OR IGNORE INTO idea_outcomes ({', '.join(columns)}) "
+        f"VALUES ({', '.join(slots)})",
+        [values[c] for c in values],
+    )
+
+
+def _to_et(as_of_iso: str) -> datetime:
+    """Parse an ISO timestamp to ET. Naive inputs are assumed already-ET-agnostic
+    UTC (now_iso emits UTC); unparseable input falls back to now()."""
+    try:
+        dt = datetime.fromisoformat(as_of_iso)
+    except (TypeError, ValueError):
+        dt = datetime.now(_ET)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_ET)
+    return dt.astimezone(_ET)
+
+
+def _dedup_bucket(as_of_iso: str, cooldown_min: int) -> str:
+    """ET-date + intraday cooldown window index (spec §1)."""
+    dt = _to_et(as_of_iso)
+    window = max(1, int(cooldown_min))
+    minute_of_day = dt.hour * 60 + dt.minute
+    return f"{dt.date().isoformat()}:{minute_of_day // window}"
+
+
+def _cluster_key(as_of_iso: str, direction: str) -> str:
+    """(direction, ISO-week bucket, day) — stamped now so Phase 4 correlation
+    math has history (spec §1). The macro-day tag is the ET date in Phase 1."""
+    dt = _to_et(as_of_iso)
+    iso = dt.isocalendar()
+    return f"{direction}:{iso.year}W{iso.week:02d}:{dt.date().isoformat()}"
+
+
+def _horizon_trading_days(plan_horizon: str | None) -> float | None:
+    """Parse a duration-style horizon into trading days, or None for named
+    templates. Used only by the intraday-horizon guard ([ADR-3])."""
+    if not plan_horizon:
+        return None
+    match = _HORIZON_DURATION_RE.match(str(plan_horizon))
+    if match is None:
+        return None
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit == "d":
+        return value
+    if unit == "h":
+        return value / _TRADING_HOURS_PER_DAY
+    return value / (_TRADING_HOURS_PER_DAY * 60)  # 'm'
+
+
+def _validate_long_plan(
+    entry_zone: Any, stop: Any, targets: Any
+) -> tuple[str, str, str, str] | None:
+    """Side-correctness checks for a long plan (reuse of the validate_ideas
+    rules, minus the last-price plausibility leg register_idea has no input for).
+    Returns (entry_low, entry_high, stop, targets_json) raw strings, or None."""
+    if not isinstance(entry_zone, dict):
+        return None
+    low = _parse_price(entry_zone.get("low"))
+    high = _parse_price(entry_zone.get("high"))
+    if low is None or high is None or low > high:
+        return None
+    stop_d = _parse_price(stop)
+    if stop_d is None or stop_d >= low:  # long: stop must sit below the zone
+        return None
+    if not isinstance(targets, list) or not (1 <= len(targets) <= 3):
+        return None
+    parsed: list[Any] = []
+    for raw in targets:
+        t = _parse_price(raw)
+        if t is None or t <= high:  # long: targets above the zone
+            return None
+        if parsed and t <= parsed[-1]:  # strictly ascending
+            return None
+        parsed.append(t)
+    entry_low = str(entry_zone.get("low", "")).strip()
+    entry_high = str(entry_zone.get("high", "")).strip()
+    return (
+        entry_low,
+        entry_high,
+        str(stop).strip(),
+        json.dumps([str(t) for t in targets]),
+    )
 
 
 def register_ideas(
@@ -227,31 +402,167 @@ def register_ideas(
             if dup is not None:
                 continue
 
-            cur = conn.execute(
-                """
-                INSERT OR IGNORE INTO idea_outcomes (
-                    artifact_id, idea_index, symbol, as_of,
-                    entry_low, entry_high, stop, targets_json,
-                    status, origin, veto_reason, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-                """,
-                (
-                    int(artifact_id),
-                    int(idx),
-                    symbol,
-                    as_of,
-                    entry_low,
-                    entry_high,
-                    stop,
-                    targets_json,
-                    origin,
-                    veto_reason,
-                    now,
-                ),
+            cur = _insert_idea(
+                conn,
+                {
+                    "artifact_id": int(artifact_id),
+                    "idea_index": int(idx),
+                    "symbol": symbol,
+                    "as_of": as_of,
+                    "entry_low": entry_low,
+                    "entry_high": entry_high,
+                    "stop": stop,
+                    "targets_json": targets_json,
+                    "status": "pending",
+                    "origin": origin,
+                    "veto_reason": veto_reason,
+                    "updated_at": now,
+                },
             )
             inserted += int(cur.rowcount or 0)
         conn.commit()
     return inserted
+
+
+def register_idea(
+    *,
+    origin: str,
+    signal_family: str,
+    symbol: str,
+    direction: str = "long",
+    entry_zone: dict[str, Any] | None,
+    stop: str | None,
+    targets: list[str] | None,
+    thesis: str = "",
+    bear_case: str = "",
+    confidence_label: str | None = None,
+    as_of: str | None = None,
+    plan_horizon: str | None = None,
+    grading_basis: str = "plan",
+    source_ref: dict[str, Any] | None = None,
+    user_action: str = "skipped",
+    regime_at_entry: str | None = None,
+    entry_ref_price: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int | None:
+    """The narrow write path for non-artifact idea sources (spec §2).
+
+    Returns the new idea id, or None when the registration is deduped (an open
+    row already holds this cooldown bucket) or rejected as invalid. NO conviction
+    filter — low-confidence ideas are logged; that is how the calibration bins
+    earn their shape. Long-only in Phase 1.
+    """
+    init_idea_outcomes_tables(db_path)
+
+    symbol = str(symbol or "").strip().upper()
+    origin = str(origin or "").strip()
+    direction = str(direction or "long").strip().lower()
+    if not symbol or not origin:
+        return None
+    if direction != "long":
+        logger.warning("register_idea: only long setups supported (got %r)", direction)
+        return None
+    if grading_basis not in GRADING_BASES:
+        logger.warning("register_idea: unknown grading_basis %r", grading_basis)
+        return None
+
+    label = str(confidence_label).strip().lower() if confidence_label else None
+    if label is not None and label not in _CONFIDENCE_VALUES:
+        logger.warning("register_idea: invalid confidence_label %r", confidence_label)
+        return None
+
+    # Honesty wall — never persist an LLM-authored numeric probability (the
+    # 07-08 leak shape); mirrors validate_ideas on the free-text fields.
+    if _has_fabricated_probability(thesis, bear_case):
+        logger.warning("register_idea: rejected fabricated probability for %s", symbol)
+        return None
+
+    # Intraday-horizon guard ([ADR-3]): Phase 1 grades daily bars only.
+    horizon_td = _horizon_trading_days(plan_horizon)
+    if horizon_td is not None and horizon_td < 1.0:
+        logger.warning(
+            "register_idea: rejected intraday plan_horizon %r for %s (%.3f trading days)",
+            plan_horizon,
+            symbol,
+            horizon_td,
+        )
+        return None
+
+    if grading_basis == "horizon_return":
+        if not entry_ref_price or not plan_horizon:
+            logger.warning(
+                "register_idea: horizon_return requires entry_ref_price + plan_horizon (%s)",
+                symbol,
+            )
+            return None
+        if stop is not None or targets:
+            logger.warning(
+                "register_idea: horizon_return forbids stop/targets (%s)", symbol
+            )
+            return None
+        entry_ref = str(entry_ref_price).strip()
+        if not entry_ref:
+            return None
+        entry_low = entry_high = entry_ref
+        stop_val = ""
+        targets_json = "[]"
+    else:  # plan
+        plan = _validate_long_plan(entry_zone, stop, targets)
+        if plan is None:
+            logger.warning("register_idea: invalid plan geometry for %s", symbol)
+            return None
+        entry_low, entry_high, stop_val, targets_json = plan
+
+    now = _now()
+    as_of = str(as_of or now).strip() or now
+    cooldown = int(IDEA_COOLDOWN_MIN[origin])
+    dedup_key = f"{origin}:{symbol}:{direction}:{_dedup_bucket(as_of, cooldown)}"
+
+    values: dict[str, Any] = {
+        "artifact_id": 0,
+        "symbol": symbol,
+        "as_of": as_of,
+        "entry_low": entry_low,
+        "entry_high": entry_high,
+        "stop": stop_val,
+        "targets_json": targets_json,
+        "status": "pending",
+        "origin": origin,
+        "signal_family": str(signal_family or "unknown").strip() or "unknown",
+        "direction": direction,
+        "confidence_label": label,
+        "regime_at_entry": (str(regime_at_entry).strip() or None) if regime_at_entry else None,
+        "plan_horizon": str(plan_horizon).strip() if plan_horizon else None,
+        "user_action": str(user_action or "skipped").strip() or "skipped",
+        "source_ref": json.dumps(source_ref) if source_ref is not None else None,
+        "bear_case": str(bear_case or ""),
+        "dedup_key": dedup_key,
+        "cluster_key": _cluster_key(as_of, direction),
+        "grading_basis": grading_basis,
+        "updated_at": now,
+    }
+
+    with _connect(db_path) as conn:
+        # The legacy UNIQUE(artifact_id, idea_index) predates this path and would
+        # otherwise shadow the dedup_key guard for a fixed idea_index=0, so
+        # self-allocate a non-colliding index (starts at 0 for the first row).
+        # The dedup_key partial-unique index remains the real open-row wall —
+        # INSERT OR IGNORE fires on it for a true duplicate. The MAX+1 subquery
+        # runs inside the INSERT under the write lock, so it stays race-safe.
+        cur = _insert_idea(
+            conn,
+            values,
+            raw_columns={
+                "idea_index": (
+                    "(SELECT COALESCE(MAX(idea_index) + 1, 0) "
+                    "FROM idea_outcomes WHERE artifact_id = 0)"
+                )
+            },
+        )
+        conn.commit()
+        if int(cur.rowcount or 0) == 0:
+            return None  # deduped by the open-row wall
+        return int(cur.lastrowid)
 
 
 def list_open(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
@@ -261,7 +572,7 @@ def list_open(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
         rows = conn.execute(
             f"""
             SELECT * FROM idea_outcomes
-            WHERE status IN ({placeholders})
+            WHERE status IN ({placeholders}) AND synthetic = 0
             ORDER BY updated_at ASC, id ASC
             """,
             tuple(OPEN_STATUSES),
@@ -297,7 +608,7 @@ def list_recent_open(
         rows = conn.execute(
             f"""
             SELECT * FROM idea_outcomes
-            WHERE status IN ({placeholders}) AND origin != ?
+            WHERE status IN ({placeholders}) AND origin != ? AND synthetic = 0
             ORDER BY updated_at DESC, id DESC
             LIMIT ?
             """,
@@ -316,7 +627,7 @@ def list_recent_resolved(
         rows = conn.execute(
             f"""
             SELECT * FROM idea_outcomes
-            WHERE status IN ({placeholders}) AND origin != ?
+            WHERE status IN ({placeholders}) AND origin != ? AND synthetic = 0
             ORDER BY resolved_at DESC, updated_at DESC, id DESC
             LIMIT ?
             """,
@@ -402,13 +713,14 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
         # pollute the paper's win% — they surface under by_origin instead.
         rows = conn.execute(
             "SELECT status, COUNT(*) AS n FROM idea_outcomes "
-            "WHERE origin != ? GROUP BY status",
+            "WHERE origin != ? AND synthetic = 0 GROUP BY status",
             (VETOED_ORIGIN,),
         ).fetchall()
         origin_rows = conn.execute(
             """
             SELECT origin, status, COUNT(*) AS n
             FROM idea_outcomes
+            WHERE synthetic = 0
             GROUP BY origin, status
             """
         ).fetchall()
@@ -416,7 +728,7 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
         # it never counts toward the 5b gate.
         verdict_rows = conn.execute(
             "SELECT founder_verdict FROM idea_outcomes "
-            "WHERE origin != ? AND founder_verdict IS NOT NULL "
+            "WHERE origin != ? AND synthetic = 0 AND founder_verdict IS NOT NULL "
             "AND founder_verdict != ''",
             (VETOED_ORIGIN,),
         ).fetchall()
