@@ -695,9 +695,20 @@ def update_outcome(
     notes: str | None = None,
     last_price: str | None = None,
     last_price_at: str | None = None,
+    ret_pct: float | None = None,
+    spy_ret_pct: float | None = None,
+    alpha_pct: float | None = None,
+    exit_reason: str | None = None,
+    fill_status: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> bool:
-    """Apply a forward-only update. Returns True if a row was modified."""
+    """Apply a forward-only update. Returns True if a row was modified.
+
+    The Grading Law fields (``ret_pct``/``spy_ret_pct``/``alpha_pct``/
+    ``exit_reason``/``fill_status``) follow the same None-means-skip contract as
+    every other column: a NULL benchmark leg (SPY fetch failure) is written by
+    simply not passing the field, so the column stays NULL — never zero-filled.
+    """
     init_idea_outcomes_tables(db_path)
     fields: list[str] = ["updated_at = ?"]
     values: list[Any] = [_now()]
@@ -738,6 +749,21 @@ def update_outcome(
     if last_price_at is not None:
         fields.append("last_price_at = ?")
         values.append(last_price_at)
+    if ret_pct is not None:
+        fields.append("ret_pct = ?")
+        values.append(float(ret_pct))
+    if spy_ret_pct is not None:
+        fields.append("spy_ret_pct = ?")
+        values.append(float(spy_ret_pct))
+    if alpha_pct is not None:
+        fields.append("alpha_pct = ?")
+        values.append(float(alpha_pct))
+    if exit_reason is not None:
+        fields.append("exit_reason = ?")
+        values.append(exit_reason)
+    if fill_status is not None:
+        fields.append("fill_status = ?")
+        values.append(fill_status)
 
     values.append(int(outcome_id))
     with _connect(db_path) as conn:

@@ -8,12 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
+from config.idea_engine import GRADING_TIEBREAK
 from db.ai_tables import init_ai_tables, save_research_artifact
 from db.idea_outcomes import (
     get_summary,
     init_idea_outcomes_tables,
     list_open,
     list_recent_resolved,
+    register_idea,
     register_ideas,
     update_outcome,
 )
@@ -698,3 +700,399 @@ def test_intraday_idea_still_uses_its_own_session(idea_db) -> None:
         counts = sweep_open_ideas(now=datetime(2026, 1, 6, 20, 0, 0), db_path=idea_db)
 
     assert counts["lost"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Grading Law v1 (spec §4) — SPY benchmark, exit_reason, tie-break, no_fill,
+# horizon_return, direction-aware short grading, lane meters
+# --------------------------------------------------------------------------- #
+def _split_fetch(symbol_bars, spy_bars):
+    """A fetch mock that returns a distinct SPY series from the idea's series so
+    the benchmark leg can be asserted independently."""
+
+    def _fx(symbol, since):
+        return spy_bars if symbol == "SPY" else symbol_bars
+
+    return _fx
+
+
+def _register_horizon(
+    db,
+    *,
+    symbol: str = "AAPL",
+    entry_ref: str = "100",
+    horizon: str = "5d",
+    as_of: str = "2026-01-06T15:00:00+00:00",
+    direction: str = "long",
+) -> int:
+    return register_idea(
+        origin="strategy:momentum_sp500",
+        signal_family="momentum_sp500",
+        symbol=symbol,
+        direction=direction,
+        entry_zone=None,
+        stop=None,
+        targets=None,
+        grading_basis="horizon_return",
+        entry_ref_price=entry_ref,
+        plan_horizon=horizon,
+        as_of=as_of,
+        db_path=db,
+    )
+
+
+def _register_short(
+    db,
+    *,
+    symbol: str = "TSLA",
+    as_of: str = "2026-01-06T15:00:00+00:00",
+    entry_low: str = "100",
+    entry_high: str = "105",
+    stop: str = "110",
+    targets: list[str] | None = None,
+) -> int:
+    return register_idea(
+        origin="convergence",
+        signal_family="flow_conv",
+        symbol=symbol,
+        direction="short",
+        entry_zone={"low": entry_low, "high": entry_high},
+        stop=stop,
+        targets=targets or ["95", "90"],
+        as_of=as_of,
+        db_path=db,
+    )
+
+
+def test_benchmark_alpha_stamped_on_win(idea_db) -> None:
+    """SPY leg: a resolved long win stamps ret_pct (entry-mid → target),
+    spy_ret_pct over [first_evaluable, resolved] from the ONE cached SPY series,
+    and alpha = ret - spy."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")  # 100-105, stop 95, tgt 110
+    start = date(2026, 1, 6)
+    symbol_bars = [
+        _bar(start + timedelta(days=1), low=102, high=103),  # 2026-01-07 trigger
+        _bar(start + timedelta(days=2), low=104, high=111),  # 2026-01-08 win @110
+    ]
+    spy_bars = [
+        _bar(start, low=399, high=401, close=400),  # 2026-01-06
+        _bar(start + timedelta(days=1), low=403, high=405, close=404),
+        _bar(start + timedelta(days=2), low=407, high=409, close=408),  # 01-08
+    ]
+    fx = _split_fetch(symbol_bars, spy_bars)
+    with patch("research.idea_tracker.fetch_daily_bars_since", side_effect=fx):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "won"
+    assert row["exit_reason"] == "target"
+    assert row["fill_status"] == "filled"
+    assert row["ret_pct"] == pytest.approx((110 - 102.5) / 102.5 * 100, rel=1e-4)
+    assert row["spy_ret_pct"] == pytest.approx(2.0, rel=1e-6)  # 400 -> 408
+    assert row["alpha_pct"] == pytest.approx(
+        (110 - 102.5) / 102.5 * 100 - 2.0, rel=1e-4
+    )
+
+
+def test_benchmark_null_when_spy_missing(idea_db) -> None:
+    """SPY fetch failure → spy_ret_pct + alpha_pct stay NULL (never 0), the row
+    still resolves on its own series with ret_pct stamped."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")
+    start = date(2026, 1, 6)
+    symbol_bars = [
+        _bar(start + timedelta(days=1), low=102, high=103),
+        _bar(start + timedelta(days=2), low=104, high=111),
+    ]
+
+    def fx(symbol, since):
+        return None if symbol == "SPY" else symbol_bars
+
+    with patch("research.idea_tracker.fetch_daily_bars_since", side_effect=fx):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "won"
+    assert row["ret_pct"] is not None
+    assert row["spy_ret_pct"] is None
+    assert row["alpha_pct"] is None
+
+
+def test_tiebreak_stop_wins_same_bar(idea_db) -> None:
+    """TIE-BREAK LAW: one bar (after trigger) touching BOTH stop and target
+    grades LOST — stop wins (GRADING_TIEBREAK)."""
+    assert GRADING_TIEBREAK == "stop"
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00", stop="98", targets=["110"])
+    start = date(2026, 1, 6)
+    trigger_day = start + timedelta(days=1)
+    bars = [
+        _bar(trigger_day, low=102, high=103),  # trigger
+        _bar(trigger_day + timedelta(days=1), low=97, high=112),  # stop 98 AND tgt 110
+    ]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "lost"
+    assert row["exit_reason"] == "stop"
+    assert row["fill_status"] == "filled"
+    assert row["resolution_price"] == "97"  # str(bar_low) — the long stop-out
+
+
+def test_no_fill_on_unfilled_expiry(idea_db) -> None:
+    """A pending idea whose zone is never touched by expiry → expired +
+    fill_status='no_fill' + exit_reason='time'."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")  # zone 100-105
+    start = date(2026, 1, 6)
+    quiet = _trading_days(start, IDEA_TTL_DAYS + 2)
+    bars = [_bar(d, low=106, high=108) for d in quiet if d >= start]  # never touch zone
+    expiry_day = quiet[IDEA_TTL_DAYS]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts = sweep_open_ideas(
+            now=datetime(expiry_day.year, expiry_day.month, expiry_day.day, 16, 0, 0),
+            db_path=idea_db,
+        )
+
+    assert counts["expired"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "expired"
+    assert row["fill_status"] == "no_fill"
+    assert row["exit_reason"] == "time"
+
+
+def test_fill_status_filled_on_triggered_expiry(idea_db) -> None:
+    """A row that triggered then timed out → expired + fill_status='filled'."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")
+    start = date(2026, 1, 6)
+    trigger_day = start + timedelta(days=1)
+    post = _trading_days(trigger_day, RESOLVE_TTL_DAYS + 3)
+    bars = [_bar(trigger_day, low=102, high=103)]
+    for d in post[1:]:
+        bars.append(_bar(d, low=103, high=106))  # never hits tgt 110 or stop 95
+    expiry_day = post[RESOLVE_TTL_DAYS]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(
+            now=datetime(expiry_day.year, expiry_day.month, expiry_day.day, 16, 0, 0),
+            db_path=idea_db,
+        )
+
+    assert counts["expired"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["fill_status"] == "filled"
+    assert row["exit_reason"] == "time"
+
+
+def test_horizon_return_resolves_at_exact_trading_day_won(idea_db) -> None:
+    """horizon_return: resolves at the close of first_evaluable + N trading days;
+    positive signed return → won, exit_reason='time', fill_status='filled'."""
+    assert isinstance(_register_horizon(idea_db, entry_ref="100", horizon="5d"), int)
+    start = date(2026, 1, 6)  # first_evaluable
+    resolve_day = _trading_days(start, 6)[5]  # +5 trading days -> 2026-01-13
+    pre_bars = [_bar(d, low=99, high=103, close=102) for d in _trading_days(start, 5)]
+
+    # No bar has reached the horizon yet — the row stays open, never guessed.
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=pre_bars):
+        c1 = sweep_open_ideas(now=datetime(2026, 1, 12, 16, 0, 0), db_path=idea_db)
+    assert c1.get("won", 0) == 0 and c1.get("lost", 0) == 0
+    assert list_open(db_path=idea_db)[0]["status"] == "pending"
+
+    bars = pre_bars + [_bar(resolve_day, low=104, high=108, close=106)]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        c2 = sweep_open_ideas(now=datetime(2026, 1, 14, 16, 0, 0), db_path=idea_db)
+
+    assert c2["won"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "won"
+    assert row["resolved_at"] == resolve_day.isoformat()
+    assert row["exit_reason"] == "time"
+    assert row["fill_status"] == "filled"
+    assert row["ret_pct"] == pytest.approx(6.0, rel=1e-6)  # (106-100)/100
+
+
+def test_horizon_return_lost_when_return_negative(idea_db) -> None:
+    """horizon_return: a negative signed return at the horizon close → lost."""
+    _register_horizon(idea_db, entry_ref="100", horizon="5d")
+    start = date(2026, 1, 6)
+    resolve_day = _trading_days(start, 6)[5]
+    bars = [_bar(d, low=90, high=101, close=95) for d in _trading_days(start, 5)]
+    bars.append(_bar(resolve_day, low=90, high=99, close=94))  # below ref 100
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts = sweep_open_ideas(now=datetime(2026, 1, 14, 16, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "lost"
+    assert row["exit_reason"] == "time"
+    assert row["ret_pct"] == pytest.approx(-6.0, rel=1e-6)  # (94-100)/100
+
+
+def test_horizon_return_unparseable_horizon_stays_open(idea_db) -> None:
+    """A named/unparseable horizon leaves the row OPEN (never guess a date)."""
+    assert isinstance(_register_horizon(idea_db, horizon="exit_lead"), int)
+    start = date(2026, 1, 6)
+    bars = [
+        _bar(d, low=90, high=110, close=100 + i)
+        for i, d in enumerate(_trading_days(start, 40))
+    ]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        counts = sweep_open_ideas(now=datetime(2026, 3, 1, 16, 0, 0), db_path=idea_db)
+
+    assert counts.get("won", 0) == 0
+    assert counts.get("lost", 0) == 0
+    assert list_open(db_path=idea_db)[0]["status"] == "pending"
+
+
+def test_short_plan_triggers_and_wins(idea_db) -> None:
+    """[ADR-6] short grading: trigger on zone touch, a target BELOW entry → won;
+    ret_pct signed from the short perspective (a fall is positive)."""
+    _register_short(idea_db)  # zone 100-105, stop 110, targets 95/90
+    start = date(2026, 1, 6)
+    trigger_day = start + timedelta(days=1)
+    bars = [
+        _bar(trigger_day, low=101, high=103),  # touch zone
+        _bar(trigger_day + timedelta(days=1), low=94, high=99),  # short tgt 95 hit
+    ]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["won"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "won"
+    assert row["direction"] == "short"
+    assert row["exit_reason"] == "target"
+    assert row["resolution_price"] == "95"
+    assert row["ret_pct"] == pytest.approx((102.5 - 95) / 102.5 * 100, rel=1e-4)
+
+
+def test_short_plan_stops_out(idea_db) -> None:
+    """[ADR-6] short grading: a stop ABOVE entry hit → lost, exit_reason='stop',
+    resolution price is the bar HIGH (mirror of the long bar-low stop-out)."""
+    _register_short(idea_db)  # stop 110 above the zone
+    start = date(2026, 1, 6)
+    trigger_day = start + timedelta(days=1)
+    bars = [
+        _bar(trigger_day, low=101, high=103),
+        _bar(trigger_day + timedelta(days=1), low=104, high=112),  # high 112 >= stop 110
+    ]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "lost"
+    assert row["exit_reason"] == "stop"
+    assert row["resolution_price"] == "112"
+
+
+def test_short_plan_tiebreak_stop_wins_inverted(idea_db) -> None:
+    """[ADR-6] short grading: one bar touching BOTH the short target (below) and
+    the short stop (above) grades LOST — the tie-break is direction-symmetric."""
+    _register_short(idea_db, targets=["95"])  # stop 110, target 95
+    start = date(2026, 1, 6)
+    trigger_day = start + timedelta(days=1)
+    bars = [
+        _bar(trigger_day, low=101, high=103),
+        _bar(trigger_day + timedelta(days=1), low=94, high=111),  # tgt 95 AND stop 110
+    ]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1
+    assert list_recent_resolved(db_path=idea_db)[0]["exit_reason"] == "stop"
+
+
+def test_short_plan_mfe_mae_signs(idea_db) -> None:
+    """[ADR-6] short MFE/MAE: favorable = price falling (MFE from the lowest low),
+    adverse = price rising (MAE from the highest high) — both positive."""
+    _register_short(idea_db)  # entry mid 102.5, stop 110, targets 95/90
+    start = date(2026, 1, 6)
+    trigger_day = start + timedelta(days=1)
+    post = _trading_days(trigger_day, RESOLVE_TTL_DAYS + 3)
+    bars = [_bar(trigger_day, low=101, high=103)]
+    bars.append(_bar(post[1], low=98, high=104))  # dip (favorable), no target
+    bars.append(_bar(post[2], low=100, high=108))  # rise (adverse), no stop
+    for d in post[3:]:
+        bars.append(_bar(d, low=100, high=104))
+    expiry_day = post[RESOLVE_TTL_DAYS]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        sweep_open_ideas(
+            now=datetime(expiry_day.year, expiry_day.month, expiry_day.day, 16, 0, 0),
+            db_path=idea_db,
+        )
+
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "expired"
+    assert row["mfe_pct"] == pytest.approx((102.5 - 98) / 102.5 * 100, rel=1e-4)
+    assert row["mae_pct"] == pytest.approx((108 - 102.5) / 102.5 * 100, rel=1e-4)
+
+
+def test_legacy_long_row_grades_identically(idea_db) -> None:
+    """REGRESSION: a default long structure idea grades byte-identically to the
+    pre-Grading-Law behavior — unchanged status/triggered_at/resolved_at/price;
+    the new benchmark fields ride alongside without altering the grade."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00")
+    start = date(2026, 1, 6)
+    bars = [
+        _bar(start + timedelta(days=1), low=102, high=103),
+        _bar(start + timedelta(days=2), low=104, high=111),
+    ]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "won"
+    assert row["direction"] == "long"
+    assert row["triggered_at"] == (start + timedelta(days=1)).isoformat()
+    assert row["resolved_at"] == (start + timedelta(days=2)).isoformat()
+    assert row["resolution_price"] == "110"
+    assert row["first_target_hit"] == 0
+    assert row["exit_reason"] == "target"
+    assert row["fill_status"] == "filled"
+
+
+def test_max_open_age_gauge_excludes_synthetic(idea_db) -> None:
+    """LANE METER: max_open_age_days is the max trading-day age of OPEN
+    non-synthetic rows — an older OPEN synthetic canary must not inflate it."""
+    from db import lane_stats
+
+    # Real open idea aged 3 trading days at now=2026-01-09.
+    register_idea(
+        origin="convergence",
+        signal_family="flow_conv",
+        symbol="AAPL",
+        entry_zone={"low": "100", "high": "105"},
+        stop="95",
+        targets=["110"],
+        as_of="2026-01-06T15:00:00+00:00",
+        db_path=idea_db,
+    )
+    # Synthetic canary: OLDER (aged 7) but still open — must be excluded.
+    register_idea(
+        origin="canary",
+        signal_family="canary",
+        symbol="MSFT",
+        entry_zone={"low": "100", "high": "105"},
+        stop="95",
+        targets=["110"],
+        as_of="2025-12-30T15:00:00+00:00",
+        synthetic=1,
+        db_path=idea_db,
+    )
+
+    quiet = [_bar(date(2026, 1, 7), low=106, high=108)]  # nothing resolves
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=quiet):
+        sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    # Both rows are still open; the synthetic's larger age is excluded.
+    assert {r["symbol"] for r in list_open(db_path=idea_db)} == {"AAPL"}
+    meters = lane_stats.day("idea_tracker", lane_stats.et_today(), db_path=idea_db)
+    assert meters["max_open_age_days"] == 3.0
