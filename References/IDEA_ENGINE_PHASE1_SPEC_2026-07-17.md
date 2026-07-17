@@ -267,3 +267,16 @@ build time), pytest's own exit code + `N passed` line required. `ruff check .` +
 
 *Phase 2 spec is written only after this gate passes — informed by what the lane meters actually show
 in the first live week.*
+
+## Addendum — founder direction (during build)
+
+**[ADR-6] Direction symmetry supersedes "long-only Phase 1" at the LEDGER layer.** `register_idea`
+plan-basis validation must accept `direction="short"` with inverted geometry (stop above zone, targets
+below) + tests, applied at wave-1 integration. Grading Law resolution is direction-aware (§4 `ret_pct`
+already signed). What stays long-only for now: `ai/research/ideas.validate_ideas` (untouched until
+Phase 3) and the execution chokepoint (founder-gated, unchanged). Path A registration remains
+buy-entries-only because Path A strategies cannot short at execution — revisit when that unlocks.
+
+**[ADR-7] Multi-surface delivery is a requirement, not a nicety.** All Phase 4/5 UI work renders the
+one composed payload on BOTH desktop workspace and phone; acceptance for any idea surface includes the
+desktop rendering.
