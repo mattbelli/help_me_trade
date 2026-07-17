@@ -691,6 +691,16 @@ def _conviction_raw_from_llm(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _bump_lane(lane: str, counter: str) -> None:
+    """Fail-soft lane_stats bump — the meter must never break the scan lane."""
+    try:
+        from db.lane_stats import bump
+
+        bump(lane, counter)
+    except Exception:
+        logger.debug("lane_stats bump failed (%s/%s)", lane, counter, exc_info=True)
+
+
 async def _run_conviction_pass(
     *,
     no_structure_assessments: list[dict[str, Any]],
@@ -735,14 +745,34 @@ async def _run_conviction_pass(
                 ],
             ),
         ]
+        # 6000, not 2000: the conviction paper JSON was truncating mid-object at
+        # 2000 (finish_reason=length, logged inside the provider) — the dead-lane
+        # symptom. complete_for_extraction returns only the text, so finish_reason
+        # isn't visible at this seam; the raw tail is the diagnostic we log instead.
         raw = await asyncio.to_thread(
-            complete_for_extraction, llm, messages, max_tokens=2000
+            complete_for_extraction, llm, messages, max_tokens=6000
         )
         parsed = parse_json_object(raw, prefer_keys={"ideas"})
         if not parsed:
-            journal["note"] = "conviction pass returned invalid JSON"
-            logger.warning("Conviction pass: invalid JSON")
-            return [], [], journal
+            logger.warning(
+                "Conviction pass: parse failure (empty=%s, raw tail=%r) — retrying once",
+                not (raw or "").strip(),
+                (raw or "")[-200:],
+            )
+            # One retry on empty-content/truncation — the documented DeepSeek idiom.
+            raw = await asyncio.to_thread(
+                complete_for_extraction, llm, messages, max_tokens=6000
+            )
+            parsed = parse_json_object(raw, prefer_keys={"ideas"})
+            if not parsed:
+                _bump_lane("conviction_pass", "parse_fail")
+                journal["note"] = "conviction pass returned invalid JSON"
+                logger.warning(
+                    "Conviction pass: invalid JSON after retry (raw tail=%r)",
+                    (raw or "")[-200:],
+                )
+                return [], [], journal
+        _bump_lane("conviction_pass", "ok")
 
         raw_ideas_payload = parsed.get("ideas")
         if not isinstance(raw_ideas_payload, list):
