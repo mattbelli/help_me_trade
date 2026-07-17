@@ -121,6 +121,7 @@ from db.notifications import init_notifications_tables
 from db.order_executions import (
     count_pending_paper_executions,
     count_submitted_executions,
+    entry_dates_by_symbol,
     init_execution_tables,
 )
 from db.paper_orders import init_paper_order_tables
@@ -2254,6 +2255,10 @@ def _combined_snapshot_response() -> dict | None:
         s["account_label"] = acct["label"] if acct else None
         s["is_default"] = bool(acct["is_default"]) if acct else False
         s["money_type"] = _account_money_type(str(s.get("broker") or ""))
+        if s.get("account_id") and s.get("positions"):
+            entered = entry_dates_by_symbol(str(s["account_id"]))
+            for p in s["positions"]:
+                p["entered_at"] = entered.get(p.get("symbol"))
 
     primary = primary_broker()
     # Top-level summary is pinned to the DEFAULT account (deterministic) rather

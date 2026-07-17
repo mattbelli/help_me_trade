@@ -156,7 +156,7 @@ export function RvolScannerWidget({ config }: WidgetProps) {
               type="button"
               onClick={() => publish(row.symbol)}
               className={cn(
-                "group/row grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 text-left transition-colors",
+                "group/row grid w-full grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 text-left leading-[20px] transition-colors",
                 linked
                   ? "cursor-pointer hover:bg-[var(--bg-hover)]"
                   : "cursor-default hover:bg-[var(--bg-hover)]",

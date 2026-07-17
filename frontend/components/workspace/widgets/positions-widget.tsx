@@ -28,10 +28,13 @@ type SortKey =
   | "symbol"
   | "qty"
   | "side"
+  | "entered_at"
+  | "avg_entry_price"
   | "current_price"
   | "market_value"
   | "unrealized_pl";
 
+// One alignment rule: Symbol anchors left, everything else is right-aligned.
 const COLUMNS: {
   label: string;
   key: SortKey;
@@ -39,11 +42,31 @@ const COLUMNS: {
 }[] = [
   { label: "Symbol", key: "symbol", align: "left" },
   { label: "Qty", key: "qty", align: "right" },
-  { label: "Side", key: "side", align: "left" },
+  { label: "Side", key: "side", align: "right" },
+  { label: "Entered", key: "entered_at", align: "right" },
+  { label: "Entry", key: "avg_entry_price", align: "right" },
   { label: "Price", key: "current_price", align: "right" },
   { label: "Value", key: "market_value", align: "right" },
   { label: "Unrealized", key: "unrealized_pl", align: "right" },
 ];
+
+// ISO timestamp → "07/16/2026 09:33" in the viewer's local time.
+function formatEntered(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const date = d.toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${date} ${time}`;
+}
 
 function sortPositions(
   rows: TaggedPosition[],
@@ -58,8 +81,8 @@ function sortPositions(
     const va = a[key];
     const vb = b[key];
 
-    if (key === "symbol" || key === "side") {
-      return mul * String(va).localeCompare(String(vb));
+    if (key === "symbol" || key === "side" || key === "entered_at") {
+      return mul * String(va ?? "").localeCompare(String(vb ?? ""));
     }
 
     return mul * ((va as number) - (vb as number));
@@ -118,8 +141,17 @@ function PositionRow({
       <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatQty(p.qty)}
       </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
         {p.side}
+      </td>
+      <td
+        className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-faint)]"
+        title={p.entered_at ?? undefined}
+      >
+        {formatEntered(p.entered_at)}
+      </td>
+      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
+        {formatMoney(p.avg_entry_price)}
       </td>
       <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
         {formatMoney(p.current_price)}
@@ -239,7 +271,7 @@ function PaperPositions({
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {sortedPositions.map((p, idx) => (
             <PositionRow
               key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
@@ -438,7 +470,7 @@ function RealPositions({
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {rows.map((p, idx) => (
             <RealPositionRow
               key={`${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}

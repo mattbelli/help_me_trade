@@ -376,7 +376,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                         toggleExpand(ev.id);
                       }
                     }}
-                    className="group/row relative grid cursor-pointer items-center gap-x-2 overflow-hidden px-2 py-1.5 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                    className="group/row relative grid cursor-pointer items-center gap-x-2 overflow-hidden px-2 py-1.5 text-left leading-[20px] transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ gridTemplateColumns: GRID_COLS }}
                   >
                     {/* magnitude bar — width = score, tinted by side; scoped to the

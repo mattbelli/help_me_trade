@@ -31,6 +31,15 @@ Gauge (open+close windows) + chain sampler + print lab deployed 07-16 — detail
 `CLASSIFICATION_LAB_PREREG_2026-07-16.md` (LAW — never improvise on the data); deferred audit findings
 F3/F4/F8 remain on the `index-0dte-concentration-study` / gauge cards.
 
+## ▶ 07-17 UI round — founder in-browser check pending
+
+Deployed live (detail: BUILD_LOG 2026-07-17): (1) positions widget Entered+Entry columns, new column
+order + one alignment rule; (2) hairline dropout killed app-wide — PR #87's stranded fix landed + the
+whole `--fs-title` bordered-row class swept (11 widgets), pixel-verified PASS via new
+`tools/ui_hairline_probe.py`. **Open:** founder eyeballs both; rip out `70e7097`'s known non-fix
+`[will-change:auto]!` in watchlist-widget.tsx (needs its own drag-compositing verify); close PR #87 as
+superseded (branch `worktree-fix+watchlist-hairline-pitch`).
+
 ## ▶ Workspaces + 07-14 polish batch — founder in-browser review pending
 
 Shipped 07-14 (PRs #65–68) — detail: BUILD_LOG 2026-07-14. **Open:** founder hasn't eyeballed the batch

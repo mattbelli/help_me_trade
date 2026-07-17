@@ -272,7 +272,7 @@ export function ScansWidget({ config }: WidgetProps) {
           {data.results.map((row: ScanResultRow, idx) => (
             <div
               key={row.symbol}
-              className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+              className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_4rem_3.75rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 leading-[20px] transition-colors hover:bg-[var(--bg-hover)]"
             >
               <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
                 {idx + 1}

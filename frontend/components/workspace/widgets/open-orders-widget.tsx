@@ -87,7 +87,7 @@ export function OpenOrdersWidget({ config }: WidgetProps) {
             )}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {orders.map((order) => (
             <tr
               key={order.id}

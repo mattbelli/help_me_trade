@@ -51,6 +51,13 @@
        (settled 2026-07-07: went +1, then +2, then founder discovered he'd been
        judging at 90% browser zoom — final call "drop the font back 1" = net +1
        from the original ladder. Don't retune without a zoom check first.) */
+    /* ⚠ Bordered data rows must have INTEGRAL pitch (padding + line-height +
+       1px border). The default line-height 1.5 makes 13px title text 19.5px —
+       Chromium then pixel-snaps alternate 1px row borders to zero height and
+       they vanish (the recurring "grid lines disappear" bug). Any widget row
+       with border-b at --fs-title needs leading-[20px] (see watchlist
+       DENSITY_TEXT_CLASS + the tbody pins in the table widgets). micro(15)/
+       table(16.5→pin 17 if ever bordered)/body(18) — check before shipping. */
     --fs-micro: 10px;
     --fs-table: 11px;
     --fs-body: 12px;

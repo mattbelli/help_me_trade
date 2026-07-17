@@ -126,7 +126,7 @@ function FilledTab({
             <th className={cn(TH, "text-right")}>Amount</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {events.map((e) => {
             const amount = parseMoney(e.amount);
             const sym = e.symbol;
@@ -227,7 +227,7 @@ function OpenTab({
             <th className={cn(TH, "text-right")}>Limit</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {orders.map((o) => (
             <tr key={o.id} className={ROW}>
               <td className={cn(TD, "font-medium text-[var(--c-accent)]")}>
@@ -311,7 +311,7 @@ function RejectedTab({
             <th className={cn(TH, "text-left")}>Status</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {executions.map((x) => (
             <tr key={x.id} className={ROW}>
               <td className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}>

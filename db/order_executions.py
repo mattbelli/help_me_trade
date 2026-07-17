@@ -652,3 +652,46 @@ def list_stale_pending_paper_executions(
             params,
         ).fetchall()
     return [_row_to_execution(row) for row in rows]
+
+
+def entry_dates_by_symbol(
+    account_id: str | None = None,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, str]:
+    """Entry timestamp per currently-open symbol.
+
+    Walks filled executions in fill order, tracking cumulative signed qty; a
+    symbol's entry is the buy that took it from flat to long, and closing back
+    to flat forgets it. Read-only — display enrichment, not a trading input.
+    """
+    init_execution_tables(db_path)
+    account_clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple[Any, ...] = (account_id,) if account_id is not None else ()
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT symbol, side, qty, filled_qty, submitted_at, created_at
+            FROM order_executions
+            WHERE status = 'filled'{account_clause}
+            ORDER BY COALESCE(submitted_at, created_at) ASC
+            """,
+            params,
+        ).fetchall()
+    entered: dict[str, str] = {}
+    cum: dict[str, Decimal] = {}
+    for row in rows:
+        qty = Decimal(str(row["filled_qty"] or row["qty"] or "0"))
+        if qty <= 0:
+            continue
+        symbol = row["symbol"]
+        prev = cum.get(symbol, Decimal("0"))
+        if row["side"] == "buy":
+            if prev <= 0:
+                entered[symbol] = row["submitted_at"] or row["created_at"]
+            cum[symbol] = prev + qty
+        else:
+            cum[symbol] = prev - qty
+            if cum[symbol] <= 0:
+                entered.pop(symbol, None)
+    return entered

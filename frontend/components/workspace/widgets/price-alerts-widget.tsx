@@ -361,7 +361,7 @@ export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
                 )}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="leading-[20px]">
               {alerts.map((alert) => (
                 <tr
                   key={alert.id}

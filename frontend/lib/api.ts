@@ -82,6 +82,7 @@ export type Position = {
   unrealized_pl: number;
   avg_entry_price: number;
   current_price: number;
+  entered_at?: string | null;
 };
 
 export type Order = {

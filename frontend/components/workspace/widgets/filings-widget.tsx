@@ -227,7 +227,7 @@ export function FilingsWidget({ config }: WidgetProps) {
                   <th className={cn(TH, "text-right")} aria-label="source link" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="leading-[20px]">
                 {visible.map((ev) => {
                   const kind = kindLabel(ev);
                   return (

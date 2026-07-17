@@ -224,7 +224,7 @@ function OpenTable({
             <th className={cn(TH, "text-left")}>Expires</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {rows.map((row) => (
             <tr key={row.id} className={ROW}>
               <td className={cn(TD, "font-medium text-foreground")}>
@@ -441,7 +441,7 @@ function ResolvedTable({
             <th className={cn(TH, "text-left")}>Grade</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="leading-[20px]">
           {rows.map((row) => {
             const gradeable = GRADEABLE_STATUSES.has(row.status);
             const open = gradingId === row.id;
