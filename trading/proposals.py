@@ -61,6 +61,34 @@ def _journal_decision(
             decision,
             exc_info=True,
         )
+    # Idea-ledger user_action stamp (idea engine Phase 1): every lifecycle
+    # transition flows through here, so this is the one stamp site. Same
+    # fail-soft law — the ledger never raises into the approve/reject path.
+    # The lookup rides idx_idea_source_ref (expression index on the same
+    # json_extract pair) so this stays O(log n) as the ledger grows — this
+    # runs before submit on the approve path (review MED).
+    action = {"approved": "taken", "rejected": "skipped", "expired": "skipped"}.get(
+        decision
+    )
+    if action:
+        try:
+            from db.base import connect as _ledger_connect
+            from db.base import now_iso as _ledger_now
+
+            with _ledger_connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE idea_outcomes SET user_action = ?, updated_at = ? "
+                    "WHERE json_extract(source_ref, '$.kind') = 'proposal' "
+                    "AND json_extract(source_ref, '$.id') = ?",
+                    (action, _ledger_now(), str(proposal_id)),
+                )
+                conn.commit()
+        except Exception:
+            logger.warning(
+                "idea-ledger user_action stamp failed for %s (fail-soft)",
+                proposal_id,
+                exc_info=True,
+            )
 
 
 def _proposal_summary(intent_fields: dict[str, Any]) -> str:
