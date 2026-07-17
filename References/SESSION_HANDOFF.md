@@ -1,5 +1,7 @@
 # Session Handoff — continue Phase 6 in a fresh Claude Code session
 
+> **SUPERSEDED BY `HANDOFF.md`** (this was the one-off Phase-6 bootstrap, 2026-06-18).
+
 Read this first, then `References/BUILD.md` (roadmap) and `References/IDEA_BANK.md`
 (vision + every locked decision). This file captures the working context that only
 lived in the previous chat session.

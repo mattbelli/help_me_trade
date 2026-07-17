@@ -1,5 +1,7 @@
 # Idea Ledger Unification — spec (2026-07-11)
 
+> **SUPERSEDED BY `IDEA_LEDGER_SPEC_2026-07-15.md` → `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` + `IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md`** — kept for the record; do not build from this.
+
 **Goal:** one calibration ledger where EVERY suggested trade idea — from any source, taken
 or not — is registered at birth and outcome-tracked mechanically. This is the
 "calibration counts everything" rule made concrete: win% is only honest when the

@@ -7,10 +7,25 @@ set -u
 msg_file="$1"
 msg="$(cat "$msg_file" 2>/dev/null || true)"
 
-case "$msg" in *"[no-board]"*) exit 0;; esac
-
 staged="$(git diff --cached --name-only)"
 [ -z "$staged" ] && exit 0
+
+# Index discipline (mechanical, no escape hatch): a commit that ADDS a new
+# References/*.md must also stage References/INDEX.md — the doc map stays
+# honest by construction. (Edits to existing docs are the weekly audit's job.)
+new_refs="$(git diff --cached --name-only --diff-filter=A | grep -E '^References/.*\.md$' | grep -v '^References/INDEX\.md$' || true)"
+if [ -n "$new_refs" ] && ! printf '%s\n' "$staged" | grep -qx 'References/INDEX.md'; then
+  cat >&2 <<MSG
+✗ Index discipline: this commit adds new References/ doc(s) without updating
+  References/INDEX.md. Add a line for each (Living or Historical) and stage it.
+
+  New docs:
+$(printf '%s\n' "$new_refs" | sed 's/^/    /')
+MSG
+  exit 1
+fi
+
+case "$msg" in *"[no-board]"*) exit 0;; esac
 
 prod_re='^(api|trading|db|signals|ai|imports|config|brokers|frontend|mobile|scripts)/'
 touches_code="$(printf '%s\n' "$staged" | grep -E "$prod_re" || true)"

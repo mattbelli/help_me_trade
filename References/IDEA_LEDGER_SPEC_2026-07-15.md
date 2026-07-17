@@ -1,5 +1,7 @@
 # Idea Ledger & Live Calibration — spec (2026-07-15)
 
+> **SUPERSEDED BY `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` + `IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md`** (Paths A+B unified) — kept for the record; do not build from this.
+
 **Goal.** One mechanical ledger where EVERY suggested trade idea — from any source, taken or not —
 is registered at birth, graded by price, and turned into *calibrated* per-source reliability. The
 founder's 2026-07-15 direction: **generation frequency is the calibration flywheel.** LLM sources

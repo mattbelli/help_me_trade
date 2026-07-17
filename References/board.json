@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-17T14:50:44.669263+00:00",
+  "updated_at": "2026-07-17T15:48:42.902173+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -16,7 +16,7 @@
       "type": "ops",
       "priority": "high",
       "owner": "agent",
-      "notes": "Founder 2026-07-17: 'are our MD files doing enough to point a fresh agent around the repo?' Measured: AGENTS.md dangerously stale (claimed RiskEngine not built; Windows commands; missing every subsystem since ~June); HANDOFF 138KB with START HERE 3 days behind; README tracer-bullet era. AGENTS.md rewritten from 3 verified code-recon sweeps (every load-bearing claim spot-checked); HANDOFF archived in full to HANDOFF_ARCHIVE.md + rebuilt lean (~5KB, idea-engine verify gate = START HERE); README = thin human front door routing agents to CLAUDE/AGENTS/HANDOFF. Repo-graph tools declined at ~200k LOC \u2014 freshness was the bottleneck, not findability. Follow-up: References/ has 117 files and no index; keep AGENTS.md fresh per its Maintenance footer (same-round rule)."
+      "notes": "Founder 2026-07-17: 'are our MD files doing enough to point a fresh agent around the repo?' Measured: AGENTS.md dangerously stale (claimed RiskEngine not built; Windows commands; missing every subsystem since ~June); HANDOFF 138KB with START HERE 3 days behind; README tracer-bullet era. AGENTS.md rewritten from 3 verified code-recon sweeps (every load-bearing claim spot-checked); HANDOFF archived in full to HANDOFF_ARCHIVE.md + rebuilt lean (~5KB, idea-engine verify gate = START HERE); README = thin human front door routing agents to CLAUDE/AGENTS/HANDOFF. Repo-graph tools declined at ~200k LOC \u2014 freshness was the bottleneck, not findability. Follow-up: References/ has 117 files and no index; keep AGENTS.md fresh per its Maintenance footer (same-round rule). ROUND 2 (same day): References/INDEX.md created (curated living-docs map + categorized historical tail); SUPERSEDED-BY headers stamped into IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11, IDEA_LEDGER_SPEC_2026-07-15, MEMORY_SYSTEM_REPORT, SESSION_HANDOFF; commit-msg hook extended (new References/*.md requires INDEX.md staged \u2014 mechanical, no escape hatch); CLAUDE.md/AGENTS.md pointers added; weekly docs-freshness cloud agent scheduled (founder chose cloud agent over standing card). Also committed: honesty-redteam + refactor-backlog docs (were untracked), both architecture .excalidraw diagrams."
     },
     {
       "id": "index-0dte-concentration-study",

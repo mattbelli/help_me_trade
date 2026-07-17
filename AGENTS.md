@@ -2,7 +2,8 @@
 
 *Rewritten 2026-07-17, every claim verified against the code that day. `CLAUDE.md` (auto-loaded) owns the
 mission, working agreements, and safety rules — this file is the MAP. Current focus: `References/HANDOFF.md`.
-History/roadmap: `References/BUILD.md` (**grep it, never read it whole — 400KB**).*
+Which References/ doc is current: `References/INDEX.md`. History/roadmap: `References/BUILD.md` (**grep it,
+never read it whole — 400KB**).*
 
 **What this is:** an autonomous trading agent — one loop: PERCEIVE → REASON → DECIDE → ACT → DELIVER →
 LEARN. FastAPI backend (port 8000) + Next.js workspace cockpit (port 3001) + Expo phone app; SQLite (WAL).

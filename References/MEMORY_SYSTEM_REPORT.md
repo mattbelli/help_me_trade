@@ -1,5 +1,7 @@
 # Copilot Memory — why it's storing junk, and how to make it real
 
+> **SUPERSEDED BY `MEMORY_OVERHAUL_DESIGN.md`** (adversarial upgrade of this report) — and the overhaul itself is PARKED in the founder lane.
+
 *Founder-requested deep dive, 2026-07-05. Investigation only — no code changed. Companion cards on the board
 (`memory-overhaul` in the founder lane). Written to be readable without knowing the tech; jargon gets explained
 the first time it appears.*

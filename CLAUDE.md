@@ -145,8 +145,8 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
   honesty rules actually constrain is **presentation, not construction**: never dress an unvalidated angle as a
   scored/validated signal, never fabricate a win% — label it as perception and let the user weigh it. Build the
   angle; be honest about what it is.
-- `References/CODE_AUDIT.md` (cleanup backlog), `References/WATCHLIST_SPEC.md` (next feature),
-  `References/SERVER_SETUP.md` (the home Linux server this now runs on).
+- `References/INDEX.md` — the doc map: which References/ docs are CURRENT vs historical (hook-enforced on
+  new docs). Also: `CODE_AUDIT.md` (cleanup backlog), `SERVER_SETUP.md` (the home Linux server).
 - **Kill any dev/smoke server you spawn when you're done.** Headless-UI/screenshot checks spin up a Next
   dev server (port 3005+) on the shared box; left running it leaks to multiple GB of RAM over days. Tear
   down the one you started — don't leave zombies eating the host's memory.

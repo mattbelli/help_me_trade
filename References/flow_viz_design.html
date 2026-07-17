@@ -1,0 +1,344 @@
+<title>Flow-Viz Design Reference</title>
+
+<style>
+:root{
+  --bg:#f4efe6; --panel:#fbf8f2; --pane:#eee6d7;
+  --ink:#34281b; --dim:#7c6d57; --faint:#a2947d;
+  --rule:#e4dac7; --rule-2:#d3c5ac;
+  --accent:#bd5a1c; --accent-2:#d9772f;
+  --buy:#2f9e6b; --sell:#cf463e;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#14100b; --panel:#1c150e; --pane:#0e0b07;
+    --ink:#eaddc8; --dim:#9d8e77; --faint:#6f6350;
+    --rule:#2c2318; --rule-2:#453626;
+    --accent:#e88a45; --accent-2:#e0752d;
+    --buy:#5bc98a; --sell:#ef6f6c;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f4efe6; --panel:#fbf8f2; --pane:#eee6d7;
+  --ink:#34281b; --dim:#7c6d57; --faint:#a2947d;
+  --rule:#e4dac7; --rule-2:#d3c5ac;
+  --accent:#bd5a1c; --accent-2:#d9772f; --buy:#2f9e6b; --sell:#cf463e;
+}
+:root[data-theme="dark"]{
+  --bg:#14100b; --panel:#1c150e; --pane:#0e0b07;
+  --ink:#eaddc8; --dim:#9d8e77; --faint:#6f6350;
+  --rule:#2c2318; --rule-2:#453626;
+  --accent:#e88a45; --accent-2:#e0752d; --buy:#5bc98a; --sell:#ef6f6c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:
+  radial-gradient(120% 60% at 100% 0%, color-mix(in srgb,var(--accent) 7%, transparent), transparent 60%),
+  var(--bg);
+  color:var(--ink);font-family:var(--sans);line-height:1.7;
+  font-size:16px;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:864px;margin:0 auto;padding:0 24px 96px}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 40%,transparent)}
+a:hover{border-bottom-color:var(--accent)}
+
+/* topbar */
+.top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--rule);
+  font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);display:flex;justify-content:space-between;padding:11px 24px;margin-bottom:44px}
+.top .b{color:var(--accent)}
+
+/* header */
+header{padding:8px 0 30px;border-bottom:1px solid var(--rule-2)}
+.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 18px}
+h1{font-family:var(--mono);font-weight:700;font-size:clamp(1.85rem,5.2vw,2.7rem);line-height:1.12;
+  letter-spacing:-.01em;text-wrap:balance;margin:0 0 18px;color:var(--ink)}
+.scope{font-size:1.02rem;color:var(--dim);max-width:64ch;margin:0 0 22px;line-height:1.6}
+.meta{font-family:var(--mono);font-size:.76rem;color:var(--faint);display:flex;flex-wrap:wrap;
+  gap:6px 14px;align-items:center}
+.meta b{color:var(--accent-2);font-weight:600}
+.meta .sep{color:var(--rule-2)}
+
+/* doc body */
+.doc{padding-top:14px}
+.doc h2{font-family:var(--mono);font-size:1.34rem;font-weight:700;line-height:1.25;color:var(--ink);
+  margin:64px 0 4px;padding-top:22px;border-top:1px solid var(--rule);text-wrap:balance}
+.doc h2::before{content:"▸ ";color:var(--accent)}
+.doc h3{font-size:1.08rem;font-weight:700;color:var(--accent);margin:34px 0 2px;letter-spacing:.01em}
+.doc h4{font-family:var(--mono);font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--dim);margin:24px 0 0}
+.doc p{margin:14px 0;max-width:70ch}
+.doc ul,.doc ol{margin:12px 0;padding-left:22px;max-width:72ch}
+.doc li{margin:8px 0}
+.doc li::marker{color:var(--accent-2)}
+.doc strong{color:var(--ink);font-weight:700}
+.doc em{color:var(--dim)}
+.doc hr{border:0;border-top:1px solid var(--rule);margin:44px 0}
+
+/* inline code + terminal panes */
+.doc :not(pre)>code{font-family:var(--mono);font-size:.85em;background:var(--pane);
+  color:var(--accent-2);padding:.1em .38em;border-radius:3px;border:1px solid var(--rule)}
+.doc pre{background:var(--pane);border:1px solid var(--rule-2);border-left:3px solid var(--accent);
+  border-radius:5px;padding:16px 18px;overflow-x:auto;margin:18px 0;
+  box-shadow:0 1px 0 color-mix(in srgb,var(--accent) 8%,transparent)}
+.doc pre code{font-family:var(--mono);font-size:.82rem;line-height:1.55;color:var(--ink);
+  background:none;border:0;padding:0;white-space:pre}
+
+/* tables */
+.scroll{overflow-x:auto;margin:18px 0;border:1px solid var(--rule);border-radius:6px}
+.doc table{border-collapse:collapse;width:100%;font-size:.86rem;font-variant-numeric:tabular-nums}
+.doc th{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;
+  text-align:left;color:var(--accent);background:var(--pane);padding:10px 14px;
+  border-bottom:1px solid var(--rule-2);white-space:nowrap}
+.doc td{padding:9px 14px;border-bottom:1px solid var(--rule);color:var(--ink);vertical-align:top}
+.doc tr:last-child td{border-bottom:0}
+
+footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:.73rem;color:var(--faint);line-height:1.7}
+
+@media (max-width:560px){ body{font-size:15px} .wrap{padding:0 16px 72px} .top{padding:10px 16px} }
+@media (prefers-reduced-motion:no-preference){
+  header,.doc>*{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+  .doc>*{animation-delay:.04s}
+}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+</style>
+
+<div class="top"><span class="b">help_me_trade</span><span>design reference</span></div>
+<div class="wrap">
+<header>
+  <p class="eyebrow">flow visualization · research pass</p>
+  <h1>Order-Flow &amp; Alerts Design Reference</h1>
+  <p class="scope">Scope: chart flow-overlay, options-flow widget, notifications/alerts. Hard rules in force everywhere: no pill/rounded chips (plain lowercase colored words only), no internal widget headers (grid WidgetHeader owns chrome), chart controls in toolbar only (in-chart actions = right-click), every ticker click-to-focuses the chart, monospace/dense/Bloomberg-not-consumer-app, mobile bottom-tab with no overlapping widgets.</p>
+  <p class="meta"><b>7 sonnet agents</b><span class="sep">·</span>5 platforms studied<span class="sep">·</span>our code audited<span class="sep">·</span><b>2026-07-11</b><span class="sep">·</span>research doc — mockups come next</p>
+</header>
+<div class="doc">
+<hr />
+<h2>1. Big ideas (the 5-8 patterns worth stealing everywhere)</h2>
+<ol>
+<li><strong>Fixed-slot templates, not free-text sentences.</strong> Every row/alert goes through the same field order every time (who → what → how big → why) so the eye stops reading and starts pattern-matching positions. This is the single biggest fix — it kills both current pain surfaces (<code>·</code>-joined hand-built sentences in options-flow rows and notification bodies).</li>
+<li><strong>Color is the <em>second</em> channel, never the only one.</strong> Pair every color with a glyph/sign (▲/▼, +/−) so meaning survives a sunlit phone screen and colorblind users, and so color stays scarce enough to mean something.</li>
+<li><strong>One canonical color law across all three surfaces: aggressor side.</strong> Not instrument type, not event category, not P&amp;L. We already fixed this for the options-flow side chip (<code>204abed</code>) — extend the <em>same</em> mapping to chart markers and notifications so a color learned in one surface transfers instantly to the others.</li>
+<li><strong>Magnitude as visual weight, not just a printed number.</strong> Row/glyph size, font-weight, or a bullet-graph fill communicates "how big" pre-attentively; the digit is still there for precision but isn't the first thing read.</li>
+<li><strong>Progressive disclosure: dumb glyph → tap for detail → full reasoning only in chat/timeline.</strong> Three tiers, three surfaces. Nothing on the resting view should require reading a sentence.</li>
+<li><strong>Honesty/confidence must be a first-class glyph in the glance, not a hover tooltip.</strong> This is a correctness requirement here specifically (per the honesty red-team finding) — an unvalidated signal must look visually different from a validated one at a glance, not just in a <code>title=</code> attribute.</li>
+<li><strong>De-dupe and batch correlated fires into one push.</strong> Repeat/simultaneous alerts are the #1 driver of "just mute it" — already founder-mandated for momentum fills; apply the same suppression layer to every alert class.</li>
+<li><strong>Sort by importance, not just time — position is itself a signal.</strong> A composite "unusualness" score (we already have the ingredients: <code>confluence_score</code>, <code>vol_zscore</code>, RVOL) should drive default ordering, with time/ticker sort as an explicit power-user toggle.</li>
+</ol>
+<hr />
+<h2>2. Surface A — Chart flow-overlay (big buys/sweeps/option flow on the chart)</h2>
+<p><strong>Feasibility ceiling up front:</strong> no L2/MBO depth feed → no liquidity heatmap, no strict book-depth sweep/absorption detection, no DOM ladder. Everything below is buildable from SIP trades+quotes (equities) and the existing OPRA options-flow classification (side, size, sweep proxy) we already compute.</p>
+<h3>Patterns to adopt</h3>
+<ul>
+<li><strong>Marker lane below the price pane, not glyphs pinned to candles.</strong> An options sweep doesn't have a natural equity price to anchor to (pinning to open/close/mid is misleading); a dedicated thin lane under price (like the volume pane) sidesteps that and solves overlap — same-candle events stack horizontally in the lane instead of colliding on the candle.</li>
+<li><strong>Color = side, shape = event type, size = log(notional).</strong> Two colors (buy-side aggressor / sell-side aggressor, matching the already-fixed side-chip law) crossed with 2-3 shapes (triangle = directional sweep, diamond = block/large print, dot = repeat cluster). No free text on the glyph. Radius scales <code>base + k*log(notional)</code>, clamped to a max px so one $10M print doesn't dwarf the lane.</li>
+<li><strong>Zero text by default; hover/tap reveals detail.</strong> Contract, strike/exp, size, price, aggressor side, timestamp live in a tooltip/hover-card — reuse the exact hover-card pattern already used for watchlist/positions (ticker-links-everywhere convention), don't invent a new one.</li>
+<li><strong>Zoom-aware clustering.</strong> At wide zoom, bucket events per visible pixel-column into one aggregate glyph ("+12" or a darker dot) instead of a smear of 200 overlapping marks; unfold to individuals on zoom-in. Skip for v1 if options-flow volume per symbol/day is still low tens — build when it's not.</li>
+<li><strong>Aggressor trade bubbles for equity tape specifically</strong> are feasible today off the same <code>_on_trade</code> tick-rule classification the SIP-hygiene fix already does (Lee-Ready style: at/above ask = buy aggressor, at/below bid = sell aggressor). This is a straightforward viz layer on data we already classify, separate from the options-flow lane.</li>
+<li><strong>Delta/CVD as a lightweight optional sub-pane</strong> (not v1): one number per bar, cheapest of the order-flow patterns, divergence (price new high, CVD doesn't) is a classic tell — flag as a fast-follow once the marker lane ships, not a blocker.</li>
+</ul>
+<h3>How to render it in our terminal look</h3>
+<ul>
+<li>Toolbar (not floating): a toggle group in the existing top toolbar — "flow: off / equity / options / both" — never a button drawn over the canvas, per the chart-ui rule.</li>
+<li>The lane itself is a new sub-pane, same visual treatment as the existing volume histogram (thin, axis-minimal, monochrome background) — markers are the only saturated color in it.</li>
+<li>Right-click on a marker (not left-click, which is reserved for click-to-focus elsewhere) opens the same context-menu affordance already used for "set alert" at a level, extended with "view flow detail" / "jump to options-flow row".</li>
+<li>Explicit non-goal for now: no heatmap, no DOM ladder, no book-depth sweep/absorption — label any sweep/absorption marker we do ship as a <strong>proxy</strong> (burst + quote-through-tick heuristic), never implied depth-verified, matching the honesty-labeling discipline already established for the Decision Engine.</li>
+</ul>
+<h3>Before → after (ascii sketch)</h3>
+<pre><code>Before: nothing on the chart — flow only visible in a separate widget, disconnected from price context.
+
+After (marker lane under candles):
+  price pane:  ─────╱‾‾╲___╱‾‾‾‾╲──
+  flow lane:      ▲       ◆    ▲▲(+3)
+                 buy      block  clustered buys (zoomed out)
+  hover on ▲ → &quot;AAPL 211.34 · CALL sweep $215 8/16 · $1.24M · 6.1x avg · 14:32:07 ET&quot;
+</code></pre>
+<h3>Open questions for the founder</h3>
+<ul>
+<li>Equity-tape markers and options-flow markers in the <strong>same lane</strong> (visually distinguished by shape) or <strong>two stacked lanes</strong>? Same lane is denser; two lanes is clearer but costs vertical real estate.</li>
+<li>Default lane on/off per chart, or opt-in per session? (Given "step away and trust it," probably default-on but auto-thins via clustering.)</li>
+<li>Is a CVD sub-pane wanted at all, or is that manual-trader polish we should deprioritize per the mission (autonomy ladder over DOM-style tools)?</li>
+</ul>
+<hr />
+<h2>3. Surface B — Options-flow widget redesign</h2>
+<p><em>This is the founder's stated #1 pain point — build first.</em></p>
+<h3>What's broken today (from the audit)</h3>
+<ul>
+<li>Line 1 packs 5 independently-colored fields (time, ticker, side, type, premium) with three different hues in one row and no legend; line 2's field count/order changes <strong>per event type</strong> (UV-1 has 4 segments, sweep has 5), so nothing lines up into a column — the eye re-parses every row's shape.</li>
+<li>Expand reveals a <em>second</em> wall-of-text (<code>formatExpandedDetail</code>, 7 abbreviated Greek symbols joined by <code>·</code>) — not a real drill-down, just a longer string.</li>
+<li>No visible unusualness/rank signal beyond premium; a $2M sweep and a $2M chain-surge look equally salient.</li>
+<li>The honesty caveat (<code>caveat</code> field, e.g. "side inferred from tick test — weak") only shows as a native <code>title</code> tooltip — invisible unless hovered. This is exactly the red-team failure mode: low-confidence data rendered identically to high-confidence data.</li>
+</ul>
+<h3>Patterns to adopt</h3>
+<ul>
+<li><strong>Fixed-width columns, monospace tabular numerals, right-aligned.</strong> Every event type renders through the <em>same</em> column set — <code>TIME | TICKER | SIDE | TYPE | STRIKE/EXP·DTE | SIZE | PREMIUM | FLAG</code>. Fields that don't apply to a given event type render blank/dash, not omitted — column position must never shift row-to-row. This alone fixes the "re-parse every row" problem.</li>
+<li><strong>Type/flags as a narrow plain-word column, not five competing hues.</strong> Collapse <code>block/sweep/unusual-volume/chain-surge/pressure</code> into one small learnable vocabulary rendered as <strong>plain lowercase colored words</strong> (per house rule — never a bordered badge): e.g. <code>sweep</code> in one reserved accent, <code>block</code> in another, with side (call/put, buy/sell) carrying the green/red channel instead. Don't spend 5 hues on event-type <em>and</em> 2 more on side — reserve saturated color for the side/aggressor fact only (canonical color law), let type be a plain word in a muted/neutral tint.</li>
+<li><strong>Row weight = magnitude, not just a right-aligned number.</strong> A subtle left-edge fill (bullet-graph style, div/SVG, no axis/legend) proportional to size-vs-this-ticker's-own-baseline (<code>vol_zscore</code> or premium vs trailing avg — data already exists) — the row's <em>weight</em> is read before the digit.</li>
+<li><strong>Default sort by unusualness, not pure time.</strong> We already compute the closest thing to this (<code>confluence_score.py</code>'s <code>score</code> + <code>drivers</code>) but it's currently trapped inside the confluence push payload — surface a per-row z-score/ratio-based composite as the default sort key, with an explicit time-sort toggle for power users. Don't fabricate a black-box score (Tradytics anti-pattern) — the components (<code>vol_zscore</code>, <code>vol_oi_ratio</code>, exchange count) must be inspectable on hover, same honesty discipline as the Decision Engine.</li>
+<li><strong>Honesty flag as a visible glyph, not a hover-only tooltip.</strong> Give <code>caveat</code>/<code>direction_basis=weak</code> its own always-visible marker (a muted word like <code>unconfirmed</code> or a dimmed side color) in the fixed column set — never rely on <code>title=</code> alone.</li>
+<li><strong>Progressive disclosure done properly:</strong> default row shows the 6 decision fields; expand reveals Greeks/quote detail in an actual aligned mini-grid (label:value pairs, not a 7-field <code>·</code> string), still no prose.</li>
+<li><strong>Persistent filter rail, not a modal</strong> — side/premium-floor/DTE/event-type/sweep-only toggles live in the toolbar/settings rail (already how this app's toolbar-owns-chrome rule works), saved as presets.</li>
+<li><strong>Ship a sane default floor.</strong> Per the anti-pattern warning (FlowAlgo/BlackBoxStocks firehose), default to sweep/block-first ordering + a reasonable premium floor rather than showing every sub-$10k print at equal visual weight.</li>
+</ul>
+<h3>Concrete before → after</h3>
+<pre><code>BEFORE (current, two different shapes for two event types):
+
+14:32:07 ET  NVDA ⓘ  ▲ call   sweep        $1.24M
+             Aug 130C · 4d · 420 ctr · 3 prints · NYSE/ARCA
+             [chevron] und $131.02 · iv 62% · δ .48 · γ .02 · θ -.11 · ν .09 · oi 1,200 · 129.80×130.10
+
+14:32:41 ET  TSLA ⓘ  ▼ put    chain surge  $340K
+             $250-260 bucket · 3.1σ · 180 ctr
+
+AFTER (one fixed column set, weight-fill, honesty glyph, plain-word type):
+
+ TIME     TICKER  SIDE  TYPE     STRIKE/EXP    DTE  SIZE     PREMIUM   FLAG
+ ▓▓▓▓░░ 14:32:07  NVDA  ▲ call   sweep    Aug 130C    4d  420 ctr  $1.24M   —
+ ▓░░░░░ 14:32:41  TSLA  ▼ put    chain surge  250-260    —  180 ctr  $340K    —
+ ▓▓░░░░ 14:33:02  AAPL  ▲ call   unusual vol  Sep 215C   38d 300 ctr  $610K   unconfirmed
+
+ (left bar = magnitude weight vs. this ticker's own baseline; blank cells for
+ inapplicable fields, e.g. chain-surge has no single strike; &quot;unconfirmed&quot; is
+ the always-visible honesty glyph, not a hover-only tooltip)
+</code></pre>
+<h3>Open questions for the founder</h3>
+<ul>
+<li>Collapse <code>unusual_volume</code> / <code>block</code> / <code>sweep</code> / <code>chain_surge</code> / <code>directional_pressure</code> into fewer visual buckets, or keep all 5 as distinct words? (Recommend: keep 5 words, but strip 4 of the 5 current hues — only side keeps saturated color.)</li>
+<li>Is a composite unusualness score (built from existing <code>vol_zscore</code>/<code>confluence_score</code> ingredients) something you want surfaced per-row now, or should that wait for calibration work broadly?</li>
+<li>Default premium floor value — pick one, or make it a per-user setting from day one?</li>
+</ul>
+<hr />
+<h2>4. Surface C — Notifications / alerts redesign</h2>
+<p><em>Founder's stated #2 pain point — build after the options-flow widget.</em></p>
+<h3>What's broken today (from the audit)</h3>
+<ul>
+<li>Every push/notification body is a hand-built Python string concatenating 3-5 differently-formatted clauses with inconsistent separators across sources (<code>convergence.py</code> uses <code>" + "</code> and <code>· score X</code>; <code>detect.py</code>'s UV-1 reason uses <code>:</code> and <code>,</code>; <code>equity_tape.py</code> uses <code>·</code> throughout) — the eye can't pattern-match across notification <em>kinds</em> because each kind invents its own sentence shape.</li>
+<li>Full detail and the one-line summary are the same string — collapsed view is <code>line-clamp-2</code> truncation of a paragraph, not a designed headline tier; expanded view is <code>whitespace-pre-wrap</code> of the same paragraph. There's no real tiering.</li>
+<li>The toast banner always shows the same amber <code>AlertTriangle</code> icon regardless of actual severity — severity only exists as a 2px left border color, easy to miss.</li>
+<li>No de-dupe/batching — this is the exact "40+/hr fill" alert-fatigue risk already flagged for auto-entry, but the underlying wall-of-text problem is present for <em>every</em> alert source (confluence pushes, options-flow solo pushes, equity-tape prints), not just fills.</li>
+</ul>
+<h3>Patterns to adopt</h3>
+<ul>
+<li><strong>Enforce one <code>format_alert(symbol, action, size, reason)</code> template at the phone-push chokepoint.</strong> No free-text bodies bypass it. This is a backend change (Python, in <code>signals/push.py</code> / wherever bodies are assembled) as much as a frontend one — the fix belongs at the formatting layer that all three current ad-hoc string-builders (<code>convergence.py</code>, <code>detect.py</code>, <code>equity_tape.py</code>) currently duplicate independently.</li>
+<li><strong>Three tiers, three surfaces, never blended:</strong>
+  1. <em>Headline</em> (push title / lock screen): <code>SYMBOL · glyph+side · magnitude-vs-baseline · one-clause why</code>. Capped, never truncates mid-word because it's built from fixed slots, not a sentence.
+  2. <em>Detail card</em> (in-app notification card / approval card): a handful of short <strong>separate lines</strong>, each one fact — never woven into prose. This is where entry/stop/targets/win% or the flow specifics (strike/exp/premium/ratio) live.
+  3. <em>Full reasoning</em> (chat/timeline only): the current prose style is fine <em>here</em> — comparable historical prints, full decision-engine chain, calibration history.</li>
+<li><strong>Magnitude-first framing:</strong> lead with the ratio-vs-baseline ("6.1x avg" / "3.2x normal size"), not the raw absolute number — this is a formatting change on data we already have (<code>vol_oi_ratio</code>, RVOL, <code>confluence_score</code> drivers), not new plumbing.</li>
+<li><strong>Actionable verb, not descriptive noun:</strong> "AAPL call sweep — $1.24M" not "AAPL unusual options activity alert."</li>
+<li><strong>Color+glyph, never color alone, and no pill chrome:</strong> replace the current bordered kind-chip (<code>kindChipClass</code>) with a plain colored word + directional glyph (<code>▲ call</code> in green) — same fix as the options-flow widget, same canonical side-color law.</li>
+<li><strong>Confidence/honesty flag as a visible headline element, not buried.</strong> Directly actionable given the existing red-team finding: the headline template's fixed slots must include the validation flag (e.g., a distinct rendering for "unvalidated edge") as a first-class glyph that survives transport to the phone card — not something stripped before it reaches the widget, and not merely inferable from the caveat text.</li>
+<li><strong>De-dupe/cooldown + batched digest as one shared layer</strong>, applied to every alert class (options-flow spikes, equity-tape prints, decision-engine proposals), not just the momentum-fills case it's currently earmarked for: collapse "5 sweeps on AAPL in 3 min" into one push with a count, and suppress identical re-fires within a cooldown window instead of re-pushing.</li>
+<li><strong>Toast severity should actually vary the icon/color</strong>, not always render the same amber triangle — reserve animation/pulse strictly for items crossing an actionability threshold (reuse whatever significance score already gates phone delivery, don't invent a second one).</li>
+</ul>
+<h3>Concrete before → after</h3>
+<pre><code>BEFORE (current confluence push body, one wall-of-text paragraph):
+Title: &quot;AAPL: signal confluence&quot;
+Body:  &quot;$1.2M ask-side call flow + $3.4M dark-pool print + RVOL 2.1x · score 2.7&quot;
+
+BEFORE (current UV-1 solo push):
+Body: &quot;NVDA Aug $130C: 4,200 contracts, 6.3x OI, $2.1M premium (EOD)&quot;
+
+AFTER — headline tier (lock screen / push title):
+&quot;AAPL ▲ call sweep — $1.24M (6x avg) — into earnings&quot;        [flag: validated components only]
+&quot;NVDA ▲ call — $2.1M (6.3x OI) — chain confirms&quot;             [flag: unconfirmed — no direction basis]
+
+AFTER — detail-card tier (in-app notification/approval card):
+ AAPL   211.34   +1.8%
+ ▲ call sweep · $215 strike · Aug 16
+ $1.24M premium · 6.1x 20d avg
+ why: aggressive buy-side, near-the-money, pre-earnings
+ [confidence: unvalidated edge]
+
+AFTER — chat/timeline tier: full prose, comparable historical sweeps,
+decision-engine reasoning chain, calibration history — unchanged from today's
+prose style, just relocated out of the push/card.
+</code></pre>
+<h3>Open questions for the founder</h3>
+<ul>
+<li>Cooldown window length and batching threshold (e.g., "≥3 same-symbol fires in 5 min → batch") — pick defaults or make configurable per alert class?</li>
+<li>Should the headline-tier honesty flag be a word (<code>unconfirmed</code>) or a distinct glyph shape — given "no pill chips," leaning toward a plain word, but confirm it shouldn't be color-only (accessibility rule from pattern 6).</li>
+<li>Does the toast banner need per-severity icons at all, or is severity-in-border-color sufficient once the headline template itself carries the honesty/magnitude signal? (Leaning: yes, still worth it — motion/icon should be reserved for "needs a decision now," per the pre-attentive-motion pattern.)</li>
+</ul>
+<hr />
+<h2>5. Feasibility &amp; sequencing</h2>
+<h3>Buildable now, from data we already have</h3>
+<div class="scroll"><table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Data already exists?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fixed-column options-flow widget layout</td>
+<td>Yes</td>
+<td><code>db/options_flow.py</code> schema already has every field needed (side, type, size, premium, dte, strike, exchanges, direction_basis)</td>
+</tr>
+<tr>
+<td>Row magnitude weight (bullet-graph fill)</td>
+<td>Yes</td>
+<td><code>vol_zscore</code>, <code>vol_oi_ratio</code> already computed in <code>detect.py</code></td>
+</tr>
+<tr>
+<td>Honesty glyph on options-flow rows + notifications</td>
+<td>Yes</td>
+<td><code>caveat</code>/<code>direction_basis</code> fields already exist — this is purely a rendering-visibility fix, not new data</td>
+</tr>
+<tr>
+<td>Default sort by unusualness</td>
+<td>Partial</td>
+<td><code>confluence_score.py</code> score exists but only for ≥2-component hits; solo-event rows would need a lighter per-row z-score composite (cheap: reuse <code>vol_zscore</code> directly)</td>
+</tr>
+<tr>
+<td>Notification headline template + 3-tier structure</td>
+<td>Yes</td>
+<td>Requires refactoring the string-building in <code>convergence.py</code>/<code>detect.py</code>/<code>equity_tape.py</code>/<code>push.py</code> into one shared formatter — no new data, moderate backend refactor</td>
+</tr>
+<tr>
+<td>De-dupe/cooldown/batch layer</td>
+<td>Yes</td>
+<td>Same data, needs a new shared suppression component (currently only planned for momentum fills — generalize it)</td>
+</tr>
+<tr>
+<td>Equity aggressor trade bubbles (chart)</td>
+<td>Yes</td>
+<td>Same tick-rule classification as the SIP-hygiene fix already in <code>_on_trade</code></td>
+</tr>
+<tr>
+<td>Options-flow marker lane on chart</td>
+<td>Yes</td>
+<td>Event payload already carries side/size/timestamp; new lane sub-pane, not new data</td>
+</tr>
+<tr>
+<td>Sweep/absorption proxy markers (chart)</td>
+<td>Partial</td>
+<td>Proxy-only (burst + quote-through-tick heuristic); must be labeled as approximation, same honesty discipline</td>
+</tr>
+<tr>
+<td>Delta/CVD sub-pane</td>
+<td>Yes but lower priority</td>
+<td>Cheapest order-flow addition if ever wanted; not required for v1</td>
+</tr>
+</tbody>
+</table></div>
+<h3>Needs new data (out of reach until a depth feed exists)</h3>
+<ul>
+<li>Liquidity heatmap (Bookmap-style resting-size ladder) — needs L2/MBP-10.</li>
+<li>DOM/order-book ladder visualization — needs L2/MBO.</li>
+<li>Strict book-depth sweep detection ("consumed N levels of resting size") — needs L2; our version is a trades+quotes proxy only.</li>
+<li>Strict absorption ("resting size refilling as it's hit") — needs L2; our version is an outcome-inference proxy only.</li>
+<li>Footprint/Numbers-Bars ladder chart — feasible from trades+quotes in principle, but a heavier build (per-price-level volume bucketing across the whole chart); flag as a <em>future</em> full order-flow view, not part of this three-surface pass.</li>
+</ul>
+<h3>Recommended build order (matches founder's stated pain order)</h3>
+<ol>
+<li><strong>Options-flow widget redesign</strong> — fixed columns, collapsed color law, magnitude weight, visible honesty flag, real drill-down for Greeks. Highest daily pain, zero new data needed, backend changes are additive (expose existing fields, don't need new detection logic).</li>
+<li><strong>Notifications/alerts redesign</strong> — shared <code>format_alert</code> template + 3-tier structure + de-dupe/batch layer. Touches more backend call sites (<code>convergence.py</code>, <code>detect.py</code>, <code>equity_tape.py</code>, <code>push.py</code>) than the widget, so budget more review time; this is exactly the kind of change that should get the adversarial-review treatment given it touches the phone-delivery chokepoint and the honesty-flag correctness requirement.</li>
+<li><strong>Chart flow-overlay</strong> — new marker lane + equity aggressor bubbles + options-flow markers, reusing color/glyph conventions already locked in by steps 1-2 (so the same visual grammar transfers across all three surfaces per the cross-surface-consistency principle). Do this last both because it's the founder's stated third priority and because it benefits from the color/weight/honesty-glyph vocabulary being settled by the other two surfaces first — building it first would risk inventing a fourth grammar instead of reusing the first two.</li>
+</ol>
+</div>
+<footer>Synthesized from a multi-agent research workflow (Bookmap · databento · Sierra · Unusual Whales · Cheddar Flow · Tradytics · thinkorswim · TradingView · Tufte/Bloomberg) plus an audit of our current options-flow widget &amp; notification bodies. A doc to decide from — not yet decisions.</footer>
+</div>
