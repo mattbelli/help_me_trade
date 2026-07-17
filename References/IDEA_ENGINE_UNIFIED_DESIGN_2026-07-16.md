@@ -190,3 +190,16 @@ No probability/win%/score field exists; the validator rejects unknown keys — L
 - **zero-context** — the graded attention policy: dispositions as registered predictions, `NOT_INVESTIGATED_*` cohorts graded so the budget's discarded alpha is a report; the apprenticeship ladder with symmetric journaled demotion; no-probability-field-in-schema; heartbeats carrying work counts + freshness; the canary (adapted with its critic's T2 routing, storage namespace, and expectancy-not-win% repairs).
 - **ideal-first** — working backwards from the three artifacts: the card anatomy (WHY NOW/ANGLES/PLAN/BEAR/SIZE/HONESTY with per-line provenance); the always-sent wrap as user-side heartbeat with attempted/parsed/failed; ε-sampled drop floor + suppressed-cohort regret line; ledger-queries-never-parallel-counters; "zero and dead are different numbers" (adapted with its critic's estimand pinning, tie-break law, canonical-template shadow, and transport-truncation fixes).
 - **failure-first** — the conservation law as the architecture; auditor-first phasing whose Phase-1 verify reproduces the actual incident; the single serializer with send-time refusal; hash-sampled A/B; staleness recheck with dual timestamps; explicit counted shedding + reserved opening sub-budget; per-symbol percentile normalization (adapted with its critic's transport-canary, immediate-investigation, Approve-wiring, and cluster-n completions).
+## Addenda — founder direction (2026-07-16, during Phase 1 build)
+
+1. **Direction symmetry — think both sides.** "No shorting" is an EXECUTION safety rule at the
+   chokepoint (sells only reduce a held long) and stays until separately unlocked by the founder. The
+   idea engine is MEASUREMENT: short ideas are first-class from birth — registered, graded
+   (direction-aware resolution: short win = target below entry before stop above), calibrated in their
+   own direction-split cells, and rendered in digests/widgets. No layer of this design may assume
+   long-only except the execution gate itself. Long-only anywhere else is a bug, not a default.
+2. **Every surface, not just the phone.** "Phone" in this document names the push/interrupt lane, not
+   the only consumer. The single serializer (`compose_idea_payload`) feeds per-surface renderers:
+   phone card, desktop workspace widgets (ideas feed / scorecard / ops-pipeline), inbox digest, and
+   chat. Desktop and phone ship together with slightly different UIs over the same payload; a feature
+   that exists on one surface and not the other needs a stated reason.
