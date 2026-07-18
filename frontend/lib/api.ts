@@ -1243,6 +1243,8 @@ export type PendingProposal = {
   symbol: string;
   side: string;
   qty: number;
+  limit_price?: number | null;
+  notional?: number | null;
   expires_at: string | null;
   payload_hash: string;
   score?: ProposalScore | null;

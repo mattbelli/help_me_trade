@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-18T00:04:12Z",
+  "updated_at": "2026-07-18T00:07:53Z",
   "lanes": [
     "inbox",
     "founder",
@@ -12,13 +12,13 @@
     {
       "id": "idea-engine-audit-fixes-2026-07-17",
       "title": "GPT-5.6 audit fixes Round 0 \u2014 restore truth in the shipped Idea Engine loop",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "fix",
       "priority": "critical",
       "owner": "agent",
-      "notes": "Two external GPT-5.6-sol audits (References/AUDIT_GPT56_*_2026-07-17.md) found 17 real defects; 8/8 verified claims true. Round 0 commit 1: phone bare-win% suppressed (07-08 SUPPRESS directive), Path A register-result counter honesty (registered vs deduped_or_rejected), dead-man exec bit into git, alpha vs direction-consistent benchmark (short crash = 0 not +2x), canary ledger-leg probe (canary_ledger_row_missing critical), NYSE holiday calendar in idea_tracker. 94 targeted tests green, Opus adversarial review SHIP. REMAINING: alarm engine median logic + never-worked-lane rule + alarm-fired-only-on-delivered (gpt-5.6 dispatch); web approval parity (gpt-5.6 dispatch). Follow-up noted: ledger probe fails-quiet on hard DB exception (pre-existing class). | Commit 2/2 (alarm engine, gpt-5.6-sol build + orchestrator review-amendments): trailing observed-day median rules (ALARM_RATE_MEDIAN_DAYS finally referenced) w/ new-deploy fixed-streak floor; never-worked-lane rule (grace = 3 attempt-days; vetoed counts as scan output \u2014 review caught day-one false page + DESC-order deploy-proxy bug in the delegated diff); alarm dedup only records on persisted notify (failed page retries next pass). 15 tests green, ruff clean, rules dry-run quiet vs production DB. Remaining: web approval parity dispatch.",
+      "notes": "Two external GPT-5.6-sol audits (References/AUDIT_GPT56_*_2026-07-17.md) found 17 real defects; 8/8 verified claims true. Round 0 commit 1: phone bare-win% suppressed (07-08 SUPPRESS directive), Path A register-result counter honesty (registered vs deduped_or_rejected), dead-man exec bit into git, alpha vs direction-consistent benchmark (short crash = 0 not +2x), canary ledger-leg probe (canary_ledger_row_missing critical), NYSE holiday calendar in idea_tracker. 94 targeted tests green, Opus adversarial review SHIP. REMAINING: alarm engine median logic + never-worked-lane rule + alarm-fired-only-on-delivered (gpt-5.6 dispatch); web approval parity (gpt-5.6 dispatch). Follow-up noted: ledger probe fails-quiet on hard DB exception (pre-existing class). | Commit 2/2 (alarm engine, gpt-5.6-sol build + orchestrator review-amendments): trailing observed-day median rules (ALARM_RATE_MEDIAN_DAYS finally referenced) w/ new-deploy fixed-streak floor; never-worked-lane rule (grace = 3 attempt-days; vetoed counts as scan output \u2014 review caught day-one false page + DESC-order deploy-proxy bug in the delegated diff); alarm dedup only records on persisted notify (failed page retries next pass). 15 tests green, ruff clean, rules dry-run quiet vs production DB. Remaining: web approval parity dispatch. | Commit 3/3 (web approval parity, gpt-5.6-sol build): desktop Approve now two-step same-button confirm ('Confirm BUY qty SYM \u00b7 ~$notional') w/ 5s window + outside-click/blur/Escape disarm; Reject stays one-click; handler/API untouched; typecheck clean. ROUND 0 COMPLETE \u2014 pending founder in-browser check on the confirm UX. Deployed to serv post-commit.",
       "created_at": "2026-07-17T23:54:03Z",
-      "updated_at": "2026-07-18T00:04:12Z"
+      "updated_at": "2026-07-18T00:07:53Z"
     },
     {
       "id": "agent-docs-refresh-2026-07-17",

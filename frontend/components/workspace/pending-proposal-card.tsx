@@ -9,6 +9,8 @@ import { ProposalScore } from "@/components/workspace/proposal-score";
 import { useWorkspaceToast } from "@/components/workspace/workspace-toast";
 import {
   approveProposal,
+  formatMoney,
+  formatQty,
   rejectProposal,
   type PendingProposal,
 } from "@/lib/api";
@@ -38,9 +40,13 @@ export function PendingProposalCard({
   const { showToast } = useWorkspaceToast();
   const { publish, linked } = usePublishSymbol(channel);
   const [pending, setPending] = useState(false);
+  const [armedProposalId, setArmedProposalId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const approveButtonRef = useRef<HTMLButtonElement>(null);
   const expiredNotifiedRef = useRef(false);
 
+  const side = proposal.side.toUpperCase();
+  const approveArmed = armedProposalId === proposal.id;
   const hasExpiry =
     proposal.expires_at != null && Number.isFinite(Date.parse(proposal.expires_at));
   const countdown = hasExpiry
@@ -64,8 +70,47 @@ export function PendingProposalCard({
     onResolved();
   }, [expired, onResolved]);
 
-  const side = proposal.side.toUpperCase();
+  useEffect(() => {
+    if (!approveArmed) return;
+
+    const timeoutId = window.setTimeout(
+      () => setArmedProposalId(null),
+      5000,
+    );
+    const disarmOnOutsidePointer = (event: PointerEvent) => {
+      if (
+        !(event.target instanceof Node) ||
+        !approveButtonRef.current?.contains(event.target)
+      ) {
+        setArmedProposalId(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", disarmOnOutsidePointer);
+    return () => {
+      window.clearTimeout(timeoutId);
+      document.removeEventListener("pointerdown", disarmOnOutsidePointer);
+    };
+  }, [approveArmed]);
+
   const disabled = pending || expired;
+  const confirmationDetails = [
+    typeof proposal.notional === "number" &&
+    Number.isFinite(proposal.notional)
+      ? `~${formatMoney(proposal.notional)}`
+      : null,
+    typeof proposal.limit_price === "number" &&
+    Number.isFinite(proposal.limit_price)
+      ? `${formatMoney(proposal.limit_price)} limit`
+      : null,
+  ].filter((detail): detail is string => detail !== null);
+  const approveLabel = approveArmed
+    ? `Confirm ${side} ${formatQty(proposal.qty)} ${proposal.symbol}${
+        confirmationDetails.length > 0
+          ? ` · ${confirmationDetails.join(" · ")}`
+          : ""
+      }`
+    : "Approve";
 
   async function handleApprove() {
     setPending(true);
@@ -117,6 +162,15 @@ export function PendingProposalCard({
     }
   }
 
+  function handleApproveClick() {
+    if (!approveArmed) {
+      setArmedProposalId(proposal.id);
+      return;
+    }
+    setArmedProposalId(null);
+    void handleApprove();
+  }
+
   return (
     <div className="group/row space-y-3 rounded-lg border border-[color-mix(in_srgb,var(--c-amber)_30%,transparent)] bg-[color-mix(in_srgb,var(--c-amber)_5%,transparent)] p-3 text-[length:var(--fs-title)] shadow-sm">
       <div>
@@ -153,14 +207,19 @@ export function PendingProposalCard({
 
       <div className="flex gap-2">
         <Button
+          ref={approveButtonRef}
           type="button"
           size="sm"
           className="gap-1.5"
           disabled={disabled}
-          onClick={() => void handleApprove()}
+          onBlur={() => setArmedProposalId(null)}
+          onClick={handleApproveClick}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setArmedProposalId(null);
+          }}
         >
           <CheckIcon className="size-3.5" />
-          {pending ? "…" : "Approve"}
+          {pending ? "…" : approveLabel}
         </Button>
         <Button
           type="button"
