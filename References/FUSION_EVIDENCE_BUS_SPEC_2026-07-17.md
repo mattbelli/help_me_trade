@@ -368,8 +368,15 @@ spreadsheet-style read-only view over `idea_outcomes` — every idea as a row: d
 direction, lane/origin, rank-at-registration, entry/stop/target, status
 (pending/triggered/closed), result %, alpha vs SPY, taken/skipped (+ skip reason once Phase C
 captures it). Sort/filter by lane and cohort; tickers click-to-chart. This is the ground-truth
-"dev mode" surface — the cohort curves (§2.4b) render beside it in the Strategy Lab visual
-grammar (our line vs the SPY line) once ranked batches accumulate.
+"dev mode" surface.
+
+**Cohort curves live in the STRATEGY LAB, not a widget (founder call 2026-07-18).** The §2.4b
+scorecards (all/top-5/top-25 per lane vs SPY) are strategies-being-tracked, and the founder's
+framing of the Strategy Lab (`STRATEGY_LAB_SPEC.md`, research branch) is exactly that: one page
+where strategies prove themselves — backtested sleeves AND live/tracked cohorts, same visual
+grammar (our line vs the SPY line), room to breathe that a grid widget lacks. So Phase B builds
+the lab page's first live section (cohort curves over the unified ledger) instead of a
+cohort widget; the backtest-visualizer half joins when the PC/Norgate artifacts merge.
 
 ### 2.9 Shocks and news (founder ask 2026-07-17 — "the Iran headline problem")
 
@@ -396,8 +403,10 @@ grade bad. Three honest layers — and one refusal:
   spec's scoring model (§2.2), `fusion_mech` register-everything (§2.4, incl. `JOURNAL_ORIGINS`),
   social day-part component (§2.5), shock rider, notification consolidation (§2.7). Observe-only
   bars. Legacy convergence push path stays.
-- **B — Evidence Stack widget + Idea Ledger table** (web, §2.8) + the cohort-scorecard rollup
-  (§2.4b; curves render as ranked batches accumulate).
+- **B — Evidence Stack widget + Idea Ledger table** (web, §2.8) + the **Strategy Lab page's
+  first live section**: the cohort-scorecard curves (§2.4b; render as ranked batches
+  accumulate). Widgets = daily supervision in the grid; the lab = where strategies prove
+  themselves (backtest sleeves join later from the research-branch artifacts).
 - **C — investigation tiers + pushes, ONE archetype first** (direction-audit sequencing):
   Unified's dossier → T1 → REASON v1 (+v2 hash A/B) with horizon cell-tags (§2.4), proven
   end-to-end on a single high-value archetype — **options-actor + structure co-fire** — before
