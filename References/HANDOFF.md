@@ -47,8 +47,13 @@ Zero-context composition audit of hmt-backend verified claim-by-claim and archiv
 - ▶ **Rank-2 exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent →
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)
-- ⏳ **loop-lag measurement**: fusion ATR shipped 07-16 so it cannot explain the 07-13 20–30s stalls —
-  a suspect is still unmeasured; wrap remaining suspects with wall-clock or add a loop-lag probe
+- ⏳ **loop-lag: 07-13 stalls decomposed 07-18** (journal archaeology, poll-gap ground truth — detail:
+  BUILD_LOG 2026-07-18): daytime starvation class KILLED by the 07-14/15 extractions; open/close
+  keepalive drops = upstream Alpaca burst (poll cadence perfect, benign); overnight stalls REMAIN LIVE
+  (41s poll gap 07-16 00:18Z EOD-era; 30s gap 07-17 02:19Z during setup scan, which is already
+  to_thread'd → suspect worker-thread SQLite write txns blocking the loop's sync DB writes —
+  unproven). Verify next week's nights post-step-1; persisting setup-scan stalls = direct Rank-1
+  evidence. A ~20-line loop-lag heartbeat probe would replace journal archaeology — founder go
 - Schwab jobs stay in-process behind config gates (founder leaning: Schwab is personal, not product —
   Rank-3 tier, no action now)
 
