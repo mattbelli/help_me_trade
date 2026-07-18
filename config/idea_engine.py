@@ -34,6 +34,10 @@ ALARM_CONVICTION_PARSE_FAIL_DAYS = 2
 ALARM_SCAN_ZERO_REGISTERED_DAYS = 3
 ALARM_TRACKER_ZERO_DAYS = 2
 ALARM_MAX_OPEN_AGE_SLACK_DAYS = 3
+ALARM_NEVER_WORKED_GRACE_DAYS = 3
+ALARM_EXPECTED_LANES = frozenset(
+    {"setup_scan", "conviction_pass", "idea_tracker", "path_a_register"}
+)
 
 # Canary + external dead-man times (ET). The tracker registers a synthetic idea,
 # waits for the next sweep, and asserts a push receipt within the timeout.
@@ -55,4 +59,11 @@ def validate_config() -> None:
     assert ALARM_SCAN_ZERO_REGISTERED_DAYS >= 1
     assert ALARM_TRACKER_ZERO_DAYS >= 1
     assert ALARM_MAX_OPEN_AGE_SLACK_DAYS >= 0
+    assert ALARM_NEVER_WORKED_GRACE_DAYS >= 1
+    assert ALARM_EXPECTED_LANES == {
+        "setup_scan",
+        "conviction_pass",
+        "idea_tracker",
+        "path_a_register",
+    }
     assert CANARY_RECEIPT_TIMEOUT_MIN > 0

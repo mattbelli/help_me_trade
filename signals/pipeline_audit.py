@@ -17,8 +17,14 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from statistics import median
 from zoneinfo import ZoneInfo
 
+from config.idea_engine import (
+    ALARM_EXPECTED_LANES,
+    ALARM_NEVER_WORKED_GRACE_DAYS,
+    ALARM_RATE_MEDIAN_DAYS,
+)
 from db import lane_stats
 from db.base import DEFAULT_DB_PATH
 from db.push_deliveries import has_sent_delivery, record_delivery
@@ -35,6 +41,26 @@ PARSE_FAIL_STREAK_DAYS = 2  # ...for this many consecutive trading days
 SETUP_SCAN_SILENT_DAYS = 3  # setup_scan registered==0 for N consecutive weekdays
 IDEA_TRACKER_SILENT_DAYS = 2  # tracker graded+examined==0 for N market days
 SILENCE_LIFE_LOOKBACK = 15  # a silent lane only alarms if it was alive this recently
+RATE_BASELINE_MIN_DAYS = 3
+RATE_COLLAPSE_FRACTION = 0.5
+_MAX_BASELINE_CALENDAR_DAYS = 3650
+
+# attempt counters (the lane tried) → output counters (ANY >0 proves wiring).
+# setup_scan's vetoed shadows count as output — a healthy scan can qualify zero
+# recommended ideas for days (quiet ≠ dead, the same conflation the silent
+# rules guard), but a wired one still lands vetoed registrations.
+_EXPECTED_LANE_COUNTERS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "setup_scan": (("ran",), ("registered", "vetoed")),
+    "conviction_pass": (("ok", "parse_fail"), ("ok",)),
+    "idea_tracker": (
+        ("swept", "examined", "graded", "data_gap", "errors"),
+        ("graded",),
+    ),
+    "path_a_register": (
+        ("registered", "deduped_or_rejected", "failures"),
+        ("registered",),
+    ),
+}
 
 # --- Canary timing ------------------------------------------------------------
 CANARY_LAUNCH_HOUR_ET = 15  # launch the daily canary at/after 15:00 ET
@@ -71,6 +97,50 @@ def _lane_alive_recently(
     return any(value > 0 for _, value in points)
 
 
+def _trailing_counter_values(
+    lane: str, counter: str, today: date, *, db_path: Path
+) -> list[float]:
+    """Up to N prior observed trading-day values, newest first.
+
+    A day with any counters for the lane is an observation; an absent target
+    counter on such a day is zero. Completely absent days do not consume the
+    history window.
+    """
+    values: list[float] = []
+    d = today - timedelta(days=1)
+    scanned = 0
+    while (
+        len(values) < ALARM_RATE_MEDIAN_DAYS
+        and scanned < _MAX_BASELINE_CALENDAR_DAYS
+    ):
+        if is_trading_day(d):
+            counters = lane_stats.day(lane, d.isoformat(), db_path=db_path)
+            if counters:
+                values.append(counters.get(counter, 0.0))
+        d -= timedelta(days=1)
+        scanned += 1
+    return values
+
+
+def _trailing_counter_median(
+    lane: str, counter: str, today: date, *, db_path: Path
+) -> float | None:
+    """Trailing observed-day median for one persisted lane counter."""
+    values = _trailing_counter_values(lane, counter, today, db_path=db_path)
+    return float(median(values)) if values else None
+
+
+def _collapsed_vs_baseline(
+    lane: str, counter: str, today: date, *, db_path: Path
+) -> tuple[bool, float | None]:
+    values = _trailing_counter_values(lane, counter, today, db_path=db_path)
+    if len(values) < RATE_BASELINE_MIN_DAYS:
+        return False, None
+    baseline = float(median(values))
+    current = lane_stats.day(lane, today.isoformat(), db_path=db_path).get(counter, 0.0)
+    return baseline > 0 and current < baseline * RATE_COLLAPSE_FRACTION, baseline
+
+
 # ---------------------------------------------------------------------------
 # Pure rate rules — each returns an alarm message, or None when healthy/unknown
 # ---------------------------------------------------------------------------
@@ -92,11 +162,27 @@ def rule_conviction_parse_fail(today: date, db_path: Path) -> str | None:
 
 
 def rule_setup_scan_silent(today: date, db_path: Path) -> str | None:
-    """setup_scan did not RUN for 3 consecutive weekdays (was recently alive).
+    """setup_scan heartbeat collapsed vs its trailing observed-day median.
 
     Keys on the ``ran`` heartbeat, never on ``registered`` — a scan that runs
     healthily and qualifies 0 ideas is quiet, not dead (review finding: the
     two must never conflate)."""
+    collapsed, baseline = _collapsed_vs_baseline(
+        "setup_scan", "ran", today, db_path=db_path
+    )
+    if baseline is not None:
+        if not collapsed:
+            return None
+        current = lane_stats.day(
+            "setup_scan", today.isoformat(), db_path=db_path
+        ).get("ran", 0.0)
+        return (
+            f"setup_scan run heartbeat collapsed to {current:.0f} today versus "
+            f"trailing median {baseline:g} — the nightly scan lane may be dead"
+        )
+
+    # New-deploy floor: retain the old fixed streak until three observed
+    # history days exist, so an unseeded install cannot page on day one.
     for d in _trailing_trading_days(today, SETUP_SCAN_SILENT_DAYS):
         counters = lane_stats.day("setup_scan", d.isoformat(), db_path=db_path)
         if counters.get("ran", 0.0) > 0:
@@ -110,12 +196,26 @@ def rule_setup_scan_silent(today: date, db_path: Path) -> str | None:
 
 
 def rule_idea_tracker_silent(today: date, db_path: Path) -> str | None:
-    """idea_tracker sweep heartbeat absent for 2 market days (was recently alive).
+    """idea_tracker heartbeat collapsed vs its trailing observed-day median.
 
     Keys on the ``swept`` heartbeat (bumped once per completed sweep) — never on
     ``graded``, which is legitimately lumpy on 5-21 trading-day horizons (review
     HIGH: a healthy-but-quiet grader must not page as dead, and without a
     heartbeat a truly dead sweep is indistinguishable from a quiet one)."""
+    collapsed, baseline = _collapsed_vs_baseline(
+        "idea_tracker", "swept", today, db_path=db_path
+    )
+    if baseline is not None:
+        if not collapsed:
+            return None
+        current = lane_stats.day(
+            "idea_tracker", today.isoformat(), db_path=db_path
+        ).get("swept", 0.0)
+        return (
+            f"idea_tracker sweep heartbeat collapsed to {current:.0f} today versus "
+            f"trailing median {baseline:g} — the grader loop may not be running"
+        )
+
     for d in _trailing_trading_days(today, IDEA_TRACKER_SILENT_DAYS):
         counters = lane_stats.day("idea_tracker", d.isoformat(), db_path=db_path)
         if counters.get("swept", 0.0) > 0:
@@ -154,6 +254,108 @@ def rule_max_open_age(today: date, db_path: Path) -> str | None:
         f"oldest open idea is {max_age:.0f} trading days (> {ceiling}) — the grader "
         "is not resolving matured ideas"
     )
+
+
+def _has_lifetime_value(
+    lane: str, counters: tuple[str, ...], *, db_path: Path
+) -> bool:
+    return any(
+        lane_stats.series(lane, counter, 1_000_000, db_path=db_path)
+        for counter in counters
+    )
+
+
+def _has_lifetime_output(
+    lane: str, counters: tuple[str, ...], *, db_path: Path
+) -> bool:
+    return any(
+        value > 0
+        for counter in counters
+        for _, value in lane_stats.series(lane, counter, 1_000_000, db_path=db_path)
+    )
+
+
+def _attempt_day_count(
+    lane: str, counters: tuple[str, ...], *, db_path: Path
+) -> int:
+    """Distinct dates on which the lane recorded ANY attempt counter."""
+    days: set[str] = set()
+    for counter in counters:
+        for day, _ in lane_stats.series(lane, counter, 1_000_000, db_path=db_path):
+            days.add(day)
+    return len(days)
+
+
+def _engine_deploy_proxy(*, db_path: Path) -> date | None:
+    """Earliest expected-lane attempt, used when no explicit deploy row exists.
+
+    ``lane_stats.series`` is newest-first (ORDER BY date DESC), so the OLDEST
+    observation is the LAST element — reading [0] here silently turned the
+    proxy into "latest activity" and killed the grace path (review catch)."""
+    observed: list[date] = []
+    for lane in ALARM_EXPECTED_LANES:
+        attempt_counters, _ = _EXPECTED_LANE_COUNTERS[lane]
+        for counter in attempt_counters:
+            points = lane_stats.series(lane, counter, 1_000_000, db_path=db_path)
+            if points:
+                try:
+                    observed.append(date.fromisoformat(points[-1][0]))
+                except ValueError:
+                    continue
+    return min(observed) if observed else None
+
+
+def _trading_days_elapsed(start: date, end: date) -> int:
+    elapsed = 0
+    d = start + timedelta(days=1)
+    while d <= end:
+        if is_trading_day(d):
+            elapsed += 1
+        d += timedelta(days=1)
+    return elapsed
+
+
+def _never_worked_lanes(today: date, db_path: Path) -> list[tuple[str, tuple[str, ...]]]:
+    """Expected lanes with zero lifetime output after enough evidence to judge.
+
+    Two paths to "enough evidence": the lane ATTEMPTED on ≥ grace distinct days
+    (so one quiet first day never pages — real-DB review catch: setup_scan's
+    only history day had ran=1/output=0 and would have nagged from day one), or
+    the lane never attempted at all AND grace trading days have passed since
+    the engine's earliest observed activity (miswired-from-birth jobs)."""
+    deploy_proxy = _engine_deploy_proxy(db_path=db_path)
+    grace_elapsed = (
+        deploy_proxy is not None
+        and _trading_days_elapsed(deploy_proxy, today)
+        >= ALARM_NEVER_WORKED_GRACE_DAYS
+    )
+    broken: list[tuple[str, tuple[str, ...]]] = []
+    for lane in sorted(ALARM_EXPECTED_LANES):
+        attempt_counters, output_counters = _EXPECTED_LANE_COUNTERS[lane]
+        if _has_lifetime_output(lane, output_counters, db_path=db_path):
+            continue
+        attempt_days = _attempt_day_count(lane, attempt_counters, db_path=db_path)
+        if attempt_days >= ALARM_NEVER_WORKED_GRACE_DAYS or (
+            attempt_days == 0 and grace_elapsed
+        ):
+            broken.append((lane, output_counters))
+    return broken
+
+
+def _never_worked_message(lane: str, output_counters: tuple[str, ...]) -> str:
+    outputs = "/".join(output_counters)
+    return (
+        f"expected lane has never produced lifetime output: {lane}.{outputs}"
+        " — verify wiring before treating silence as healthy"
+    )
+
+
+def rule_never_worked(today: date, db_path: Path) -> str | None:
+    """Expected lanes that have attempted work but never produced output."""
+    broken = _never_worked_lanes(today, db_path)
+    if not broken:
+        return None
+    return "; ".join(_never_worked_message(*lane) for lane in broken)
 
 
 def conservation_gap(today: date, db_path: Path) -> str | None:
@@ -213,15 +415,21 @@ async def _fire_alarm(
     )
     if fired > 0:
         return  # already paged for this rule today
-    await notify(
-        kind=kind,
-        title=title,
-        body=body,
-        severity=severity,
-        push=True,
-        group_key=f"pipeline_audit_{rule_id}",
-        db_path=db_path,
-    )
+    try:
+        persisted = await notify(
+            kind=kind,
+            title=title,
+            body=body,
+            severity=severity,
+            push=True,
+            group_key=f"pipeline_audit_{rule_id}",
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("pipeline_audit alarm notify failed: rule=%s", rule_id)
+        return
+    if not persisted:
+        return
     # Dedup counter keyed on the AUDIT date, not the live clock — read and
     # write must use the same key (prover NIT: a late-night run crossing the
     # UTC/ET boundary must not re-page).
@@ -249,6 +457,21 @@ async def _run_rate_rules(today: date, db_path: Path) -> None:
                 title=f"Idea Engine lane alarm: {rule_id}",
                 body=msg,
             )
+    try:
+        never_worked = _never_worked_lanes(today, db_path)
+    except Exception:
+        logger.exception("pipeline_audit never-worked check failed")
+        return
+    for lane, output_counter in never_worked:
+        rule_id = f"never_worked:{lane}"
+        await _fire_alarm(
+            rule_id,
+            today,
+            db_path,
+            severity="warning",
+            title=f"Idea Engine lane alarm: {rule_id}",
+            body=_never_worked_message(lane, output_counter),
+        )
 
 
 # ---------------------------------------------------------------------------

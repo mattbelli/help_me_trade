@@ -55,7 +55,7 @@ async def test_parse_fail_streak_fires_one_ops_alert(tmp_path, monkeypatch):
 
     async def fake_notify(**kw):
         calls.append(kw)
-        return {}
+        return {"id": "persisted"}
 
     monkeypatch.setattr(pa, "notify", fake_notify)
 
@@ -89,7 +89,7 @@ async def test_missing_canary_receipt_fires_critical(tmp_path, monkeypatch):
 
     async def fake_notify(**kw):
         notifs.append(kw)
-        return {}
+        return {"id": "persisted"}
 
     monkeypatch.setattr(pa, "notify", fake_notify)
 
@@ -122,7 +122,7 @@ async def test_present_canary_receipt_no_critical(tmp_path, monkeypatch):
 
     async def fake_notify(**kw):
         notifs.append(kw)
-        return {}
+        return {"id": "persisted"}
 
     monkeypatch.setattr(pa, "notify", fake_notify)
 
@@ -153,7 +153,7 @@ async def test_canary_registers_synthetic_namespace(tmp_path, monkeypatch):
     monkeypatch.setattr("db.idea_outcomes.register_idea", fake_register, raising=False)
 
     async def fake_notify(**kw):
-        return {}
+        return {"id": "persisted"}
 
     monkeypatch.setattr(pa, "notify", fake_notify)
 
@@ -206,7 +206,7 @@ async def test_zero_history_no_alarms(tmp_path, monkeypatch):
 
     async def fake_notify(**kw):
         calls.append(kw)
-        return {}
+        return {"id": "persisted"}
 
     monkeypatch.setattr(pa, "notify", fake_notify)
 
@@ -225,6 +225,94 @@ def test_rules_return_none_on_empty(tmp_path):
     assert pa.rule_path_a_register_failures(today, db) is None
     assert pa.rule_max_open_age(today, db) is None
     assert pa.conservation_gap(today, db) is None
+
+
+def test_silent_rule_uses_trailing_observed_day_median(tmp_path):
+    today = datetime.now(_ET).date()
+    history = pa._trailing_trading_days(today - timedelta(days=1), 10)
+
+    collapsed_db = tmp_path / "collapsed.db"
+    normal_db = tmp_path / "normal.db"
+    for d in history:
+        for db in (collapsed_db, normal_db):
+            _seed(db, "setup_scan", d.isoformat(), "ran", 8)
+    _seed(collapsed_db, "setup_scan", today.isoformat(), "ran", 0)
+    _seed(normal_db, "setup_scan", today.isoformat(), "ran", 8)
+
+    assert (
+        pa._trailing_counter_median(
+            "setup_scan", "ran", today, db_path=collapsed_db
+        )
+        == 8
+    )
+    collapsed = pa.rule_setup_scan_silent(today, collapsed_db)
+    assert collapsed is not None
+    assert "trailing median 8" in collapsed
+    assert pa.rule_setup_scan_silent(today, normal_db) is None
+
+
+@pytest.mark.asyncio
+async def test_never_worked_lane_pages_once_daily_then_stops(tmp_path, monkeypatch):
+    db = tmp_path / "t.db"
+    today = datetime.now(_ET).date()
+    # Grace: a single quiet attempt day must NOT page (real-DB case: the scan's
+    # first day had ran=1/output=0 with perfectly healthy wiring).
+    _seed(db, "setup_scan", today.isoformat(), "ran", 1)
+    _seed(db, "setup_scan", today.isoformat(), "registered", 0)
+    assert pa.rule_never_worked(today, db) is None
+
+    # Three distinct attempt days with zero lifetime output → page.
+    for d in pa._trailing_trading_days(today, 3)[1:]:
+        _seed(db, "setup_scan", d.isoformat(), "ran", 1)
+
+    calls: list[dict] = []
+
+    async def fake_notify(**kw):
+        calls.append(kw)
+        return {"id": "persisted"}
+
+    monkeypatch.setattr(pa, "notify", fake_notify)
+
+    await pa.run_audit(_now_at(10), db)
+    await pa.run_audit(_now_at(10), db)
+
+    never_worked = [c for c in calls if "never_worked" in c["title"]]
+    assert len(never_worked) == 1
+    assert "setup_scan.registered/vetoed" in never_worked[0]["body"]
+
+    # A vetoed shadow registration is output too — quiet ≠ dead.
+    _seed(db, "setup_scan", today.isoformat(), "vetoed", 1)
+    assert pa.rule_never_worked(today, db) is None
+
+
+@pytest.mark.asyncio
+async def test_failed_notify_does_not_set_alarm_dedup(tmp_path, monkeypatch):
+    db = tmp_path / "t.db"
+    today = datetime.now(_ET).date()
+    calls = 0
+
+    async def failed_notify(**kw):
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("persist unavailable")
+
+    monkeypatch.setattr(pa, "notify", failed_notify)
+
+    kwargs = {
+        "severity": "warning",
+        "title": "test",
+        "body": "test",
+    }
+    await pa._fire_alarm("retry_me", today, db, **kwargs)
+    await pa._fire_alarm("retry_me", today, db, **kwargs)
+
+    assert calls == 2
+    assert (
+        lane_stats.day("pipeline_audit", today.isoformat(), db_path=db).get(
+            "alarm_fired:retry_me", 0
+        )
+        == 0
+    )
 
 
 def test_conservation_gap_detects_imbalance(tmp_path):
@@ -327,7 +415,7 @@ async def test_dead_ledger_pages_even_with_green_receipt(tmp_path, monkeypatch):
 
     async def fake_notify(**kw):
         notifs.append(kw)
-        return {}
+        return {"id": "persisted"}
 
     monkeypatch.setattr(pa, "notify", fake_notify)
 
