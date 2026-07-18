@@ -9,7 +9,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from ai.research.data_sources import _bar_date, fetch_daily_bars_since
+from ai.research.data_sources import (
+    _bar_date,
+    fetch_daily_bars_batch,
+    fetch_daily_bars_since,
+)
 from config.idea_engine import GRADING_TIEBREAK
 from db.idea_outcomes import list_open, list_sweepable, update_outcome
 from db.lane_stats import bump, gauge
@@ -66,7 +70,14 @@ def _parse_as_of_date(as_of: str) -> date:
     return dt.date()
 
 
-def _first_evaluable_date(as_of: str) -> date:
+# Origins that grade from the NEXT session unconditionally (spec §2.4): the
+# registration day's daily bar contains pre-trigger movement — a stop touched
+# at 09:40 must never grade a dot that fired at 14:00. Day-one continuation is
+# a uniformly owned cost, so ordinal comparisons stay fair.
+NEXT_SESSION_ORIGINS = frozenset({"fusion_mech"})
+
+
+def _first_evaluable_date(as_of: str, *, origin: str | None = None) -> date:
     """The first session that can legitimately grade this idea.
 
     An idea minted after the close describes a session that is already history,
@@ -86,8 +97,11 @@ def _first_evaluable_date(as_of: str) -> date:
     if dt is None or dt.tzinfo is None:
         # Date-only or unparseable — no clock to place against the close, so
         # keep the legacy same-day basis rather than invent a session boundary.
-        return _parse_as_of_date(as_of)
+        base = _parse_as_of_date(as_of)
+        return _add_trading_days(base, 1) if origin in NEXT_SESSION_ORIGINS else base
     et_date = dt.astimezone(_ET).date()
+    if origin in NEXT_SESSION_ORIGINS:
+        return _add_trading_days(et_date, 1)
     return _add_trading_days(et_date, 1) if is_after_close(dt) else et_date
 
 
@@ -267,7 +281,9 @@ def _process_pending(
             "notes": "invalid snapshot prices",
         }
 
-    start_date = _first_evaluable_date(str(row["as_of"]))
+    start_date = _first_evaluable_date(
+        str(row["as_of"]), origin=str(row.get("origin") or "")
+    )
     expiry_date = _add_trading_days(start_date, IDEA_TTL_DAYS)
 
     for bar in bars:
@@ -491,7 +507,9 @@ def _process_horizon(
         # source surfaces through the dead-grader alarm rather than vanishing.
         return None
 
-    start_date = _first_evaluable_date(str(row["as_of"]))
+    start_date = _first_evaluable_date(
+        str(row["as_of"]), origin=str(row.get("origin") or "")
+    )
     resolve_date = _add_trading_days(start_date, horizon_n)
 
     for bar in bars:
@@ -564,13 +582,27 @@ def _sweep_row(
     now_date: date,
     db_path: Path | None = None,
     spy_by_date: dict[date, Decimal] | None = None,
+    batch_bars: dict[str, list[Any] | None] | None = None,
 ) -> str | None:
     spy_by_date = spy_by_date or {}
-    first_evaluable = _first_evaluable_date(str(row["as_of"]))
+    first_evaluable = _first_evaluable_date(
+        str(row["as_of"]), origin=str(row.get("origin") or "")
+    )
     # Fetch from the first EVALUABLE session, not as_of: an idea minted after
     # tonight's close has no bar to read until tomorrow, and the tri-state
     # contract then reports [] ("no session yet") rather than a resolvable bar.
-    bars = fetch_daily_bars_since(str(row["symbol"]), first_evaluable)
+    # Journal-class populations come pre-fetched in one batch; re-filter to THIS
+    # row's first_evaluable (the batch was fetched from the population minimum).
+    symbol = str(row["symbol"]).strip().upper()
+    if batch_bars is not None and symbol in batch_bars:
+        prefetched = batch_bars[symbol]
+        bars = (
+            None
+            if prefetched is None
+            else [b for b in prefetched if (_bar_date(b) or date.min) >= first_evaluable]
+        )
+    else:
+        bars = fetch_daily_bars_since(str(row["symbol"]), first_evaluable)
     outcome_id = int(row["id"])
     status = str(row["status"])
     direction = str(row.get("direction") or "long").strip().lower() or "long"
@@ -725,7 +757,12 @@ def _fetch_spy_series(rows: list[dict[str, Any]]) -> dict[date, Decimal]:
     a fetch failure yields {} so every row still resolves on its own series with
     a NULL benchmark leg (spec §4 item 1)."""
     try:
-        starts = [_first_evaluable_date(str(r.get("as_of") or "")) for r in rows]
+        starts = [
+            _first_evaluable_date(
+                str(r.get("as_of") or ""), origin=str(r.get("origin") or "")
+            )
+            for r in rows
+        ]
         if not starts:
             return {}
         bars = fetch_daily_bars_since(_SPY_SYMBOL, min(starts))
@@ -775,7 +812,10 @@ def _record_lane_meters(
         max_age = max(
             (
                 _trading_days_between(
-                    _first_evaluable_date(str(r.get("as_of") or "")), now_date
+                    _first_evaluable_date(
+                        str(r.get("as_of") or ""), origin=str(r.get("origin") or "")
+                    ),
+                    now_date
                 )
                 for r in open_rows
             ),
@@ -818,6 +858,22 @@ def sweep_open_ideas(
     rows = list(list_sweepable(**db_kwargs))
     spy_by_date = _fetch_spy_series(rows) if rows else {}
 
+    # Journal-class rows (fusion_mech register-everything) are a symbol
+    # population thousands wide — pre-fetch their daily bars in batches instead
+    # of one call per row. Other lanes keep the per-row fetch path unchanged.
+    journal_rows = [r for r in rows if str(r.get("origin") or "") in NEXT_SESSION_ORIGINS]
+    batch_bars: dict[str, list[Any] | None] | None = None
+    if journal_rows:
+        earliest = min(
+            _first_evaluable_date(
+                str(r.get("as_of") or ""), origin=str(r.get("origin") or "")
+            )
+            for r in journal_rows
+        )
+        batch_bars = fetch_daily_bars_batch(
+            [str(r.get("symbol") or "") for r in journal_rows], earliest
+        )
+
     graded_nonsynth = 0
     data_gap_nonsynth = 0
     errors_nonsynth = 0
@@ -826,8 +882,13 @@ def sweep_open_ideas(
         is_synth = int(row.get("synthetic") or 0) == 1
         counts["examined"] += 1
         try:
+            is_journal = str(row.get("origin") or "") in NEXT_SESSION_ORIGINS
             result = _sweep_row(
-                row, now_date=now_date, db_path=db_path, spy_by_date=spy_by_date
+                row,
+                now_date=now_date,
+                db_path=db_path,
+                spy_by_date=spy_by_date,
+                batch_bars=batch_bars if is_journal else None,
             )
         except Exception:
             counts["errors"] += 1

@@ -386,6 +386,7 @@ def _maybe_call_registrar(
         episode,
         fusion_db.episode_dots(episode_id, db_path=db_path),
         {**score_state, "signature": episode["signature"]},
+        db_path=db_path,
     )
 
 

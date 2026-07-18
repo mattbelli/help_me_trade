@@ -13,6 +13,10 @@ from collections import defaultdict
 # ceremony at the call site.
 IDEA_COOLDOWN_MIN_DEFAULT = 30
 IDEA_COOLDOWN_MIN: dict[str, int] = defaultdict(lambda: IDEA_COOLDOWN_MIN_DEFAULT)
+# fusion_mech is one row per symbol-day BY CONSTRUCTION (the episode's
+# registration_called guard is the primary wall); the day-wide cooldown is the
+# dedup_key backstop for replay/restart races.
+IDEA_COOLDOWN_MIN["fusion_mech"] = 1440
 
 # Path A horizon templates (spec §3), literal trading-day horizons so the grader
 # never needs call-time strategy-param resolution. earnings_drift enters at

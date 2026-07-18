@@ -126,7 +126,7 @@ def test_cursor_resume_has_no_gap_or_replay(
     calls: list[tuple[dict, list[dict], dict]] = []
     monkeypatch.setattr(
         "signals.fusion.registrar.register_stack",
-        lambda episode, dots, score: calls.append((episode, dots, score)),
+        lambda episode, dots, score, **kwargs: calls.append((episode, dots, score)),
     )
     put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
     insert_flow(_flow("flow-1"), fusion_db)

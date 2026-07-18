@@ -51,6 +51,14 @@ RESOLVED_WIN_LOSS = frozenset({"won", "lost"})
 # get_summary), still visible per-origin.
 VETOED_ORIGIN = "structure_vetoed"
 
+# Journal-class lanes (spec §2.4): register-everything origins whose rows feed
+# calibration but are excluded from the headline win-rate, recent lists, and
+# the founder 5b grading queue — the VETOED_ORIGIN precedent, generalized.
+# Every summary/list/grading filter uses this set, never the single string.
+JOURNAL_ORIGINS = frozenset({VETOED_ORIGIN, "fusion_mech"})
+_JOURNAL_SQL = ",".join("?" * len(JOURNAL_ORIGINS))
+_JOURNAL_PARAMS = tuple(sorted(JOURNAL_ORIGINS))
+
 # The founder grades JUDGMENT (5b): only fully resolved ideas can be graded —
 # never pending/triggered (still open), never invalidated/data_gap (no clean
 # outcome to judge), never the vetoed journal-only lane.
@@ -116,7 +124,7 @@ def grade_outcome(
             return "not_found"
         status = str(row["status"])
         origin = str(row["origin"] or "structure")
-        if origin == VETOED_ORIGIN or status not in GRADEABLE_STATUSES:
+        if origin in JOURNAL_ORIGINS or status not in GRADEABLE_STATUSES:
             return "not_gradeable"
         conn.execute(
             "UPDATE idea_outcomes SET founder_verdict = ?, updated_at = ? WHERE id = ?",
@@ -657,11 +665,12 @@ def list_recent_open(
         rows = conn.execute(
             f"""
             SELECT * FROM idea_outcomes
-            WHERE status IN ({placeholders}) AND origin != ? AND synthetic = 0
+            WHERE status IN ({placeholders}) AND origin NOT IN ({_JOURNAL_SQL})
+              AND synthetic = 0
             ORDER BY updated_at DESC, id DESC
             LIMIT ?
             """,
-            (*OPEN_STATUSES, VETOED_ORIGIN, lim),
+            (*OPEN_STATUSES, *_JOURNAL_PARAMS, lim),
         ).fetchall()
     return [_row_to_outcome(r) for r in rows]
 
@@ -676,11 +685,12 @@ def list_recent_resolved(
         rows = conn.execute(
             f"""
             SELECT * FROM idea_outcomes
-            WHERE status IN ({placeholders}) AND origin != ? AND synthetic = 0
+            WHERE status IN ({placeholders}) AND origin NOT IN ({_JOURNAL_SQL})
+              AND synthetic = 0
             ORDER BY resolved_at DESC, updated_at DESC, id DESC
             LIMIT ?
             """,
-            (*TERMINAL_STATUSES, VETOED_ORIGIN, lim),
+            (*TERMINAL_STATUSES, *_JOURNAL_PARAMS, lim),
         ).fetchall()
     return [_row_to_outcome(r) for r in rows]
 
@@ -803,9 +813,9 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
         # structures are journal-only (calibration) and must never flatter or
         # pollute the paper's win% — they surface under by_origin instead.
         rows = conn.execute(
-            "SELECT status, COUNT(*) AS n FROM idea_outcomes "
-            "WHERE origin != ? AND synthetic = 0 GROUP BY status",
-            (VETOED_ORIGIN,),
+            f"SELECT status, COUNT(*) AS n FROM idea_outcomes "
+            f"WHERE origin NOT IN ({_JOURNAL_SQL}) AND synthetic = 0 GROUP BY status",
+            _JOURNAL_PARAMS,
         ).fetchall()
         origin_rows = conn.execute(
             """
@@ -818,10 +828,10 @@ def get_summary(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
         # Founder grades — vetoed journal-only lane is never founder-facing, so
         # it never counts toward the 5b gate.
         verdict_rows = conn.execute(
-            "SELECT founder_verdict FROM idea_outcomes "
-            "WHERE origin != ? AND synthetic = 0 AND founder_verdict IS NOT NULL "
-            "AND founder_verdict != ''",
-            (VETOED_ORIGIN,),
+            f"SELECT founder_verdict FROM idea_outcomes "
+            f"WHERE origin NOT IN ({_JOURNAL_SQL}) AND synthetic = 0 "
+            f"AND founder_verdict IS NOT NULL AND founder_verdict != ''",
+            _JOURNAL_PARAMS,
         ).fetchall()
 
     counts: dict[str, int] = {}

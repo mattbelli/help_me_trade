@@ -254,11 +254,16 @@ rolled up into **cohort portfolios**, each tracked like its own strategy vs SPY:
 - **Cohorts (v1)**: per lane — (1) ALL registered ideas, (2) top-5 per registration batch,
   (3) top-25 per registration batch. If top-5 ≥ top-25 ≥ all ≥ SPY, the ranking has ordinal
   value; if top-5 underperforms all, the score is anti-informative — either answer is the point.
-- **Rank is PINNED at registration (hindsight rule — non-negotiable)**: every registration
-  stamps `rank_in_batch` + a batch id into `source_ref` from the score that exists AT THAT
-  INSTANT. Cohort membership is derived from the stamp forever; "top 5" is never recomputed
-  from later knowledge. (Measured gap 07-18: `llm_conviction` rows persist no
-  confidence/rank — the stamp is added to BOTH lanes' registration paths in Phase A.)
+- **Rank is PINNED before the grading window opens (hindsight rule — non-negotiable)**:
+  cohort membership derives only from information fixed before `first_evaluable`; "top 5"
+  is never recomputed from graded knowledge. Per-lane mechanics (settled in A2, 07-18):
+  **artifact lanes** (`llm_conviction`, `reason_*`) already pin `idea_index` = emission
+  order per artifact — that IS their batch rank; **`fusion_mech`** stamps
+  `score_at_registration` in `source_ref` at the anchor instant, AND — because its grading
+  starts at the NEXT session — the registration day's *final* stack score is also fixed
+  pre-window, so the nightly rollup may rank fusion cohorts by day-final score, stamped
+  once, never recomputed. Both satisfy the rule's actual purpose: no outcome knowledge
+  enters the rank.
 - **Construction is PRE-REGISTERED (estimand discipline — changed rules = new cohort name)**:
   equal weight per idea; entry at the lane's grading basis (fusion_mech: next-session start;
   LLM lanes: per Unified); exit per each idea's own plan grading; cohort period return = mean

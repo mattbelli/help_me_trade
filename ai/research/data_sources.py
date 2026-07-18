@@ -129,6 +129,41 @@ def fetch_daily_bars_since(symbol: str, since: date) -> list[Any] | None:
     return [b for b in bars if (_bar_date(b) or date.min) >= since]
 
 
+def fetch_daily_bars_batch(
+    symbols: list[str], since: date
+) -> dict[str, list[Any] | None]:
+    """Batched ``fetch_daily_bars_since`` for register-everything populations.
+
+    One Alpaca batch request per page instead of a call per symbol (spec §2.4
+    named work item: the fusion_mech sweep would otherwise be thousands of
+    calls). Same tri-state PER SYMBOL as the single fetch: ``None`` = no bars
+    (fetch failed or symbol absent from the response), list = bars on/after
+    ``since`` (possibly empty when no session yet).
+    """
+    cleaned = sorted({normalize_research_symbol(s) for s in symbols} - {""})
+    if not cleaned:
+        return {}
+    if not broker_is_configured("alpaca"):
+        return {s: None for s in cleaned}
+    lookback_days = max(30, (date.today() - since).days + 14)
+    try:
+        broker = get_broker("alpaca")
+        by_symbol = broker.get_stock_bars_batch(
+            cleaned, timeframe="1Day", days=lookback_days
+        )
+    except (BrokerError, AttributeError, TypeError) as exc:
+        logger.warning("Batch bars fetch failed for %d symbols: %s", len(cleaned), exc)
+        return {s: None for s in cleaned}
+    out: dict[str, list[Any] | None] = {}
+    for sym in cleaned:
+        bars = by_symbol.get(sym)
+        if not bars:
+            out[sym] = None
+        else:
+            out[sym] = [b for b in bars if (_bar_date(b) or date.min) >= since]
+    return out
+
+
 def _bars_to_indicator_bars(bars: list[Any]) -> list[dict[str, float]]:
     return [
         {"o": b.open, "h": b.high, "l": b.low, "c": b.close, "v": b.volume}
