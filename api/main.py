@@ -46,6 +46,7 @@ from api.poll_health import poll_health
 from api.scan_routes import router as scan_router
 from api.schwab_routes import router as schwab_router
 from api.social_routes import router as social_router
+from api.strategy_lab_routes import router as strategy_lab_router
 from api.strategy_routes import router as strategy_router
 from api.ticker_routes import router as ticker_router
 from api.trade_routes import router as trade_router
@@ -2218,6 +2219,7 @@ app.include_router(device_router)
 app.include_router(trade_router)
 app.include_router(performance_router)
 app.include_router(strategy_router)
+app.include_router(strategy_lab_router)
 app.include_router(notification_router)
 app.include_router(scan_router)
 app.include_router(schwab_router)

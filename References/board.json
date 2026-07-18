@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "fusion-phase-b-widgets",
-      "title": "Fusion Phase B \u2014 Idea Ledger + Evidence Stack widgets",
+      "title": "Fusion Phase B \u2014 widgets + Strategy Lab page (artifact half)",
       "lane": "in_progress",
       "type": "feature",
       "priority": "high",
       "owner": "agent",
-      "notes": "Built overnight 07-18 by gpt-5.6-sol (founder-authorized quota burn), grok cross-review found N+1 + dishonest date column (updated_at aliased as created_at \u2014 ledger reordered every sweep) + TZ/empty-state issues; orchestrator verified findings, gpt-5.6 fix round, re-verified (13 targeted tests + typecheck + ruff). Idea Ledger: GET /api/ideas/ledger (rows+total ONLY, no aggregate stats \u2014 journal lanes visible per-row), as_of-ordered, lane/status toolbar filters. Evidence Stack: GET /api/fusion/episodes(+/{id}), list_recent_episodes w/ JOIN'd dot_count, accordion dot timeline in ET, observe-only footer disclaimer. PENDING: founder in-browser check after deploy \u2192 move to done. Remaining Phase B scope: Strategy Lab page first live section (cohort curves \u2014 design synthesis under orchestrator judgment, research/overnight_2026-07-18/)."
+      "notes": "Built overnight 07-18 by gpt-5.6-sol (founder-authorized quota burn), grok cross-review found N+1 + dishonest date column (updated_at aliased as created_at \u2014 ledger reordered every sweep) + TZ/empty-state issues; orchestrator verified findings, gpt-5.6 fix round, re-verified (13 targeted tests + typecheck + ruff). Idea Ledger: GET /api/ideas/ledger (rows+total ONLY, no aggregate stats \u2014 journal lanes visible per-row), as_of-ordered, lane/status toolbar filters. Evidence Stack: GET /api/fusion/episodes(+/{id}), list_recent_episodes w/ JOIN'd dot_count, accordion dot timeline in ET, observe-only footer disclaimer. PENDING: founder in-browser check after deploy \u2192 move to done. Remaining Phase B scope: Strategy Lab page first live section (cohort curves \u2014 design synthesis under orchestrator judgment, research/overnight_2026-07-18/). || 07-18 midday: Strategy Lab ARTIFACT HALF shipped per the judged synthesis (research/overnight_2026-07-18/design_final_draft_gpt56.md): /strategy-lab page + nav, api/strategy_lab_routes.py (catalog/benchmarks/sleeves over committed research-branch artifacts, mtime cache, verbatim caveats), backtest equity + year/quarter bars + modeled metrics + honesty rails, cohort section = honest capability:not_built stub. Artifacts merged from research branch. REMAINING: cohort scorecard store (\u00a72.4b rollup math) = orchestrator-built with review, NOT delegated; then cohort routes go live. Founder in-browser check pending for widgets AND lab page."
     },
     {
       "id": "fusion-phase-a-substrate",

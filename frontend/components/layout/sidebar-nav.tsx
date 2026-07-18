@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Bot,
   Brain,
+  FlaskConical,
   LayoutDashboard,
   Kanban,
   LineChart,
@@ -40,6 +41,12 @@ const NAV_ITEMS: {
     label: "Research",
     description: "Deep dives",
     icon: Search,
+  },
+  {
+    href: "/strategy-lab",
+    label: "Strategy Lab",
+    description: "Backtests & journals",
+    icon: FlaskConical,
   },
   {
     href: "/board",

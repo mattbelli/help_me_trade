@@ -1872,3 +1872,69 @@ export async function gradeIdeaOutcome(
   const data = await res.json();
   return data.verdict as IdeaVerdict;
 }
+
+// ── Strategy Lab (read-only research artifacts) ──────────────────────────────
+
+export type StrategyLabPoint = [date: string, equity: number];
+
+export type StrategyLabMetrics = {
+  cagr?: number;
+  max_drawdown?: number;
+  sharpe?: number;
+  avg_invested?: number;
+  per_trade_mean_pct?: number;
+  win_pct?: number;
+};
+
+export type StrategyLabSleeve = {
+  id: string;
+  label: string;
+  generated: string;
+  config: Record<string, unknown> & { n_trades?: number };
+  provenance?: Record<string, unknown>;
+  caveats: string[];
+  metrics: StrategyLabMetrics;
+  equity: StrategyLabPoint[];
+};
+
+export type StrategyLabCatalog = {
+  sleeves: Omit<StrategyLabSleeve, "equity">[];
+  benchmarks: string[];
+  capability?: string;
+  error?: string;
+};
+
+export type StrategyLabBenchmarks = {
+  generated: string;
+  series: Record<string, StrategyLabPoint[]>;
+};
+
+export type StrategyLabCohortCatalog = {
+  generated_at: string | null;
+  capability: string;
+  lanes: Array<Record<string, unknown>>;
+};
+
+async function strategyLabJson<T>(path: string): Promise<T> {
+  const res = await apiFetch(`${API_BASE}${path}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Strategy Lab API error ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+export function fetchStrategyLabCatalog(): Promise<StrategyLabCatalog> {
+  return strategyLabJson("/api/strategy-lab");
+}
+
+export function fetchStrategyLabBenchmarks(): Promise<StrategyLabBenchmarks> {
+  return strategyLabJson("/api/strategy-lab/benchmarks");
+}
+
+export function fetchStrategyLabSleeve(id: string): Promise<StrategyLabSleeve> {
+  return strategyLabJson(
+    `/api/strategy-lab/sleeves/${encodeURIComponent(id)}`,
+  );
+}
+
+export function fetchStrategyLabCohorts(): Promise<StrategyLabCohortCatalog> {
+  return strategyLabJson("/api/strategy-lab/cohorts");
+}
