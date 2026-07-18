@@ -118,6 +118,20 @@ def is_trading_day(d: date) -> bool:
     return d not in _nyse_holidays(d.year)
 
 
+def monthly_opex_date(year: int, month: int) -> date:
+    """The monthly equity/index OpEx session: 3rd Friday, or the preceding
+    trading day when that Friday is a holiday (exchange rule for expirations)."""
+    d = _nth_weekday(year, month, 4, 3)
+    while not is_trading_day(d):
+        d -= timedelta(days=1)
+    return d
+
+
+def is_monthly_opex(d: date) -> bool:
+    """True if `d` is the monthly OpEx session (see monthly_opex_date)."""
+    return d == monthly_opex_date(d.year, d.month)
+
+
 def is_early_close(d: date) -> bool:
     """True if `d` is an NYSE half-day (13:00 ET close).
 

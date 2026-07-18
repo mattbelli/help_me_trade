@@ -567,6 +567,24 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
     return out
 
 
+def _read_flow_report(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    from db.reports import recent_reports_by_kind
+
+    date = str(filters.get("date") or "").strip()
+    reports = recent_reports_by_kind("flow_decomp", limit=10, db_path=db_path)
+    if date:
+        reports = [r for r in reports if (r.get("payload") or {}).get("et_date") == date]
+    if not reports:
+        return [{"unavailable": True, "date": date or "latest"}]
+    r = reports[0]
+    payload = dict(r.get("payload") or {})
+    # The structured decomposition IS the payload; body is presentation HTML.
+    payload["title"] = r.get("title")
+    payload["report_id"] = r.get("id")
+    payload["generated_at"] = r.get("generated_at")
+    return [payload]
+
+
 async def _read_news(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del db_path
     from signals.finnhub import fetch_watchlist_news
@@ -880,6 +898,20 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_index_pressure,
     },
+    "flow_report": {
+        "description": (
+            "Post-close flow decomposition report: the index-pressure gauge's "
+            "premium broken into parent orders, lanes (index vs single names), "
+            "tenor buckets, and concentration, plus rule-based characterizations "
+            "(e.g. 'bear premium was N long-tenor blocks — consistent with "
+            "institutional hedging, not directional flow'). Heuristic reads with "
+            "caveats attached — perception, never a validated signal."
+        ),
+        "filters": {
+            "date": "optional YYYY-MM-DD — default latest available",
+        },
+        "read": _read_flow_report,
+    },
 }
 
 
@@ -919,6 +951,9 @@ _RESOURCE_ALIASES = {
     "opening_pressure": "index_pressure",
     "closing_pressure": "index_pressure",
     "gauge": "index_pressure",
+    "flow_decomp": "flow_report",
+    "flow_decomposition": "flow_report",
+    "daily_flow_report": "flow_report",
 }
 
 

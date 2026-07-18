@@ -247,6 +247,16 @@ def minute_series(
     ]
 
 
+def day_completeness(date: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """The completeness-sidecar rows for one date (one per finalized window)."""
+    init_index_pressure_table(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM index_pressure_days WHERE date = ?", (date,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def baseline_days(*, window: str = "open", db_path: Path = DEFAULT_DB_PATH) -> int:
     """How many distinct dates have accrued — the calibration warm-up gate."""
     init_index_pressure_table(db_path)

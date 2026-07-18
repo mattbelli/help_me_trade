@@ -1567,6 +1567,8 @@ async def _generate_report_by_kind(
         return await reports_mod.generate_evening_brief_report(syms, et_date=et_date)
     if kind == "on_request":
         return await reports_mod.generate_on_request_report(topic or "", syms, et_date=et_date)
+    if kind == "flow_decomp":
+        return await reports_mod.generate_flow_decomp_report(et_date=et_date)
     return None
 
 
@@ -3710,6 +3712,7 @@ _GENERATABLE_REPORT_KINDS = (
     "morning_brief",
     "evening_brief",
     "on_request",
+    "flow_decomp",
 )
 
 
