@@ -10,6 +10,17 @@
   ],
   "cards": [
     {
+      "id": "backend-composition-step1-2026-07-18",
+      "title": "Backend composition audit \u2014 verified; step-1 loop-safety fixes shipped",
+      "lane": "done",
+      "type": "fix",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Zero-context audit of the hmt-backend process verified claim-by-claim (all confirmed) and archived at References/BACKEND_COMPOSITION_AUDIT_2026-07-18.md. Step 1 shipped: (1) social_buzz + regime_sleeves registered (both ran invisible to /health + watchdog \u2014 mark_alive no-ops unregistered); (2) nightly EOD options scan + fill_outcomes off-loop via to_thread (sync broker HTTP + SQLite were on the loop that runs the exit engine and phone approvals); (3) fusion ATR split into two thread-run sync helpers around the async bars fetch (its UNION walks both event tables every 300s RTH). Also fixed pre-existing red test on main: test_registry_includes_all_audit_loop_names (07-16 fusion trio registered without updating the list). OPEN on HANDOFF: Rank-1 nightly research worker (collector seam), Rank-2 exit-engine own cadence (trading-adjacent, adversarial review; audit argues AGAINST out-of-process order path \u2014 conflicts with old rung-3 note), loop-lag measurement (fusion ATR can't explain the 07-13 stalls).",
+      "created_at": "2026-07-18",
+      "updated_at": "2026-07-18"
+    },
+    {
       "id": "research-capture-compression-2026-07-18",
       "title": "Research capture retention \u2014 lossless gzip for print lab + chain samples",
       "lane": "done",

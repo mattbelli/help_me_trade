@@ -43,6 +43,11 @@ AUDIT_LOOP_NAMES = [
     "filings_edgar",
     "filings_congress",
     "setup_scan_nightly",
+    "fusion_intake",
+    "fusion_atr_refresh",
+    "pipeline_audit",
+    "regime_sleeves",
+    "social_buzz",
 ]
 
 

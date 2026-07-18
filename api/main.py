@@ -156,6 +156,7 @@ from signals.regime import refresh_regime_macro
 from signals.regime_sleeves import run_regime_sleeves_scan
 from signals.scan import run_signal_scan
 from signals.session_node_strategy import compute_session_levels, run_session_node_scan
+from signals.social_buzz import _LOOP_INTERVAL_SECONDS as _SOCIAL_BUZZ_INTERVAL_SECONDS
 from signals.social_buzz import social_buzz_loop
 from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
@@ -640,6 +641,7 @@ async def _regime_sleeves_loop() -> None:
             acted = await run_regime_sleeves_scan()
             if acted:
                 logger.info("Regime-sleeves scan acted: %s", acted)
+            mark_alive("regime_sleeves")
         except Exception:
             logger.exception("Regime-sleeves scan failed")
         await asyncio.sleep(REGIME_SLEEVES_SCAN_INTERVAL_SECONDS)
@@ -1199,7 +1201,11 @@ async def _options_flow_eod_once() -> None:
 
         symbols = _all_watchlist_symbols()
         event_date = today_et.isoformat()
-        summary = run_eod_scan(broker, symbols=symbols, event_date=event_date)
+        # Off-loop: sync broker HTTP + SQLite across the whole watchlist, and
+        # this loop also runs the exit engine and phone approvals.
+        summary = await asyncio.to_thread(
+            run_eod_scan, broker, symbols=symbols, event_date=event_date
+        )
         _mark_options_flow_scanned(today_et)
         logger.info(
             "options_flow EOD: date=%s underlyings=%s events=%s daily_rows=%s",
@@ -1215,7 +1221,7 @@ async def _options_flow_eod_once() -> None:
         try:
             from signals.options_flow.outcomes import fill_outcomes
 
-            oc = fill_outcomes(broker)
+            oc = await asyncio.to_thread(fill_outcomes, broker)
             logger.info("options_flow outcomes: %s", oc)
         except Exception:
             logger.exception("options_flow outcomes: fill failed")
@@ -1892,19 +1898,16 @@ async def _fusion_intake_once() -> None:
     )
 
 
-async def _fusion_atr_refresh_once() -> None:
-    """Once-daily external work, deliberately separate from trigger intake."""
-    from datetime import datetime
-    from decimal import Decimal
+def _fusion_atr_pending_symbols_sync(as_of: str) -> list[str]:
+    """Event-store ∪ watchlist symbols still missing today's cached ATR.
 
+    The UNION walks both event tables end to end — sync SQLite, thread-only."""
     from db.base import DEFAULT_DB_PATH, connect
     from db.equity_tape import init_db as init_equity_tape
-    from db.fusion import put_atr
     from db.options_flow import init_db as init_options_flow
 
     init_options_flow(DEFAULT_DB_PATH)
     init_equity_tape(DEFAULT_DB_PATH)
-    as_of = datetime.now(_ET).date().isoformat()
     with connect(DEFAULT_DB_PATH) as conn:
         rows = conn.execute(
             """
@@ -1919,14 +1922,18 @@ async def _fusion_atr_refresh_once() -> None:
                 "SELECT symbol FROM fusion_atr_cache WHERE as_of_date = ?", (as_of,)
             ).fetchall()
         }
-    symbols = sorted(
+    return sorted(
         ({str(row["symbol"]).upper() for row in rows} | set(_all_watchlist_symbols()))
         - cached_today
     )
-    if not symbols:
-        return
-    provider = get_market_data_provider()
-    bars_by_symbol = await provider.aget_stock_bars_batch(symbols, timeframe="1Day", days=40)
+
+
+def _fusion_atr_store_sync(bars_by_symbol, as_of: str) -> None:
+    """Compute ATR-14 per symbol and cache it — sync SQLite writes, thread-only."""
+    from decimal import Decimal
+
+    from db.fusion import put_atr
+
     today_et = datetime.now(_ET).date()
     for symbol, bars in bars_by_symbol.items():
         completed = []
@@ -1950,6 +1957,19 @@ async def _fusion_atr_refresh_once() -> None:
         atr14 = indicators.atr(highs, lows, closes, 14)
         if atr14 is not None:
             put_atr(symbol, as_of, Decimal(str(round(atr14, 6))))
+
+
+async def _fusion_atr_refresh_once() -> None:
+    """Once-daily external work, deliberately separate from trigger intake."""
+    as_of = datetime.now(_ET).date().isoformat()
+    symbols = await asyncio.to_thread(_fusion_atr_pending_symbols_sync, as_of)
+    if not symbols:
+        return
+    provider = get_market_data_provider()
+    bars_by_symbol = await provider.aget_stock_bars_batch(
+        symbols, timeframe="1Day", days=40
+    )
+    await asyncio.to_thread(_fusion_atr_store_sync, bars_by_symbol, as_of)
 
 
 def _register_background_jobs() -> None:
@@ -1990,6 +2010,8 @@ def _register_background_jobs() -> None:
         ),
         ("bars_prewarm", _BARS_PREWARM_INTERVAL, None),
         ("equity_tape_flush", _EQUITY_TAPE_FLUSH_SECONDS, None),
+        ("regime_sleeves", float(REGIME_SLEEVES_SCAN_INTERVAL_SECONDS), None),
+        ("social_buzz", float(_SOCIAL_BUZZ_INTERVAL_SECONDS), None),
     ]
     for name, interval_s, enabled in heartbeat_jobs:
         register_job(
