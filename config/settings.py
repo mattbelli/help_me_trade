@@ -99,6 +99,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "jobs": [
             {"kind": "morning_brief", "hour_et": 8, "symbols": [], "enabled": False},
             {"kind": "evening_brief", "hour_et": 17, "symbols": [], "enabled": False},
+            # Deterministic (no LLM tokens); the generator itself waits for the
+            # close-window gauge finalize before producing anything.
+            {"kind": "flow_decomp", "hour_et": 16, "symbols": [], "enabled": True},
         ],
     },
     "alerts": {
@@ -973,7 +976,7 @@ def trading_config() -> dict[str, Any]:
 
 # Report kinds the background scheduler can run as configured jobs. The legacy
 # SPY ``morning_levels`` keeps its own dedicated path, so it is not listed here.
-SCHEDULABLE_REPORT_KINDS = ("levels", "morning_brief", "evening_brief")
+SCHEDULABLE_REPORT_KINDS = ("levels", "morning_brief", "evening_brief", "flow_decomp")
 
 
 def _normalize_report_jobs(raw: Any) -> list[dict[str, Any]]:

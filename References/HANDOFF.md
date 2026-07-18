@@ -30,12 +30,16 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 - acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
   broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 
-## ▶ Index-pressure gauge — first OpEx verify TODAY (2026-07-17)
+## ▶ Options flow — gauge verified 07-17; decomposition report + classification scoring open
 
-Gauge (open+close windows) + chain sampler + print lab deployed 07-16 — detail: BUILD_LOG 2026-07-16.
-**Open:** today is OpEx = the verify day; metrics are pre-registered in
-`CLASSIFICATION_LAB_PREREG_2026-07-16.md` (LAW — never improvise on the data); deferred audit findings
-F3/F4/F8 remain on the `index-0dte-concentration-study` / gauge cards.
+07-17 OpEx verify PASSED (both windows finalized clean, single writer; print lab 599k prints
+64% stream-quote truth) — detail: BUILD_LOG 2026-07-17/18. **Open:** (1) Flow Decomposition
+daily report built 07-18 (board `flow-daily-decomposition-report`) — needs merge + deploy
+before Mon 07-20 16:00 ET for its first scheduled run; (2) classification-lab SCORER not yet
+built — metrics pre-registered in `CLASSIFICATION_LAB_PREREG_2026-07-16.md` (LAW — never
+improvise on the data); proposed DTE-cut addendum + F3 direction-semantics stamp await founder
+sign-off; deferred audit findings F3/F4/F8 remain on the `index-0dte-concentration-study` /
+gauge cards.
 
 ## ▶ 07-17 UI round — founder in-browser check pending
 

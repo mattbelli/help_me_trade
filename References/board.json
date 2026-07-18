@@ -10,6 +10,17 @@
   ],
   "cards": [
     {
+      "id": "flow-daily-decomposition-report",
+      "title": "Flow Decomposition daily report \u2014 post-close order/tenor/concentration breakdown of the gauge",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder ask 07-17 (gauge day 1 read net-bear into a rip): the manual decomposition \u2014 SPX bear premium was 2-3 long-tenor hedge blocks, not directional \u2014 now runs mechanically after every close. Pure rules in signals/options_flow/daily_report.py (order clustering, tenor buckets, per-underlying hedge-block rule measured against real 07-17 data: SPX fires at top-3 71%/long-tenor 100%, SPY/QQQ broad flow stays quiet); deterministic report kind flow_decomp (scheduler 16:xx ET, waits for gauge finalize; reports widget renders HTML); perception resource flow_report = idea-engine/fusion evidence hook; print-lab rows now carry spread/hyg flags (runner). 07-17 report generated + saved (id 25eaa564abb7). Follow-ups: prereg DTE-cut addendum (founder sign-off), F3 direction-semantics stamp still open.",
+      "created_at": "2026-07-18",
+      "updated_at": "2026-07-18"
+    },
+    {
       "id": "fusion-phase-a-substrate",
       "title": "Fusion Evidence Bus Phase A \u2014 evidence substrate (observe-only)",
       "lane": "in_progress",

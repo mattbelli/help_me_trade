@@ -11,6 +11,7 @@ Two families live here:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import UTC, date, datetime
@@ -39,6 +40,7 @@ REPORT_KIND_LABELS: dict[str, str] = {
     "morning_brief": "Morning Brief",
     "evening_brief": "Evening Brief",
     "on_request": "On-Request Report",
+    "flow_decomp": "Flow Decomposition",
 }
 
 # Shared JSON contract appended to every brief system prompt.
@@ -472,4 +474,241 @@ async def generate_on_request_report(
         symbols=syms,
         et_date=et_date,
         db_path=resolved,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Flow decomposition — deterministic post-close report (no LLM): what the
+# index-pressure gauge's premium was actually made of. Numbers-of-record come
+# from the gauge DB; order/tenor/concentration decomposition comes from the
+# print-lab capture. See signals/options_flow/daily_report.py for the rules.
+# ---------------------------------------------------------------------------
+
+_FLOW_WINDOW_TITLES = {"open": "Open window", "close": "Close window"}
+# Don't generate a same-day report before the close-window finalize (~16:06 ET)
+# has had a chance to land; the 15-min scheduler poll simply retries.
+_FLOW_REPORT_READY_ET = (16, 20)
+
+
+def _fmt_musd(v: float) -> str:
+    sign = "-" if v < 0 else ""
+    return f"{sign}${abs(v) / 1e6:,.1f}M"
+
+
+def _flow_gauge_lane_sums(gauge_rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    from signals.options_flow.constants import INDEX_MEGACAP_SET
+
+    lanes = {
+        "index": {"bull_usd": 0.0, "bear_usd": 0.0, "unclassified_usd": 0.0},
+        "single_name": {"bull_usd": 0.0, "bear_usd": 0.0, "unclassified_usd": 0.0},
+    }
+    for r in gauge_rows:
+        lane = "index" if r["underlying"] in INDEX_MEGACAP_SET else "single_name"
+        for k in ("bull_usd", "bear_usd", "unclassified_usd"):
+            lanes[lane][k] += float(r[k])
+    for d in lanes.values():
+        d["net_usd"] = d["bull_usd"] - d["bear_usd"]
+    return lanes
+
+
+def _load_print_lab_rows(db_path: Path, date_iso: str) -> list[dict[str, Any]] | None:
+    """Parse one day's print-lab JSONL (None = file absent). Bad lines skipped."""
+    path = db_path.parent / "research" / "print_lab" / f"{date_iso}.jsonl"
+    if not path.exists():
+        return None
+    rows: list[dict[str, Any]] = []
+    with path.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows
+
+
+def _flow_window_section(
+    window: str,
+    analysis: dict[str, Any],
+    gauge_rows: list[dict[str, Any]],
+    chars: list[dict[str, str]],
+    warnings: list[str],
+) -> dict[str, str]:
+    from signals.options_flow.daily_report import WINDOW_LABELS
+
+    lines: list[str] = []
+    for w in warnings:
+        lines.append(f"**{w}**")
+    if gauge_rows:
+        lanes = _flow_gauge_lane_sums(gauge_rows)
+        gross = sum(
+            v[k] for v in lanes.values() for k in ("bull_usd", "bear_usd", "unclassified_usd")
+        )
+        classified = sum(v["bull_usd"] + v["bear_usd"] for v in lanes.values())
+        idx, sn = lanes["index"], lanes["single_name"]
+        lines.append(
+            f"Gauge: index net {_fmt_musd(idx['net_usd'])} "
+            f"({_fmt_musd(idx['bull_usd'])} bull / {_fmt_musd(idx['bear_usd'])} bear) · "
+            f"single names net {_fmt_musd(sn['net_usd'])} "
+            f"({_fmt_musd(sn['bull_usd'])} / {_fmt_musd(sn['bear_usd'])}) · "
+            f"{(classified / gross if gross else 0):.0%} of premium side-classified"
+        )
+        top_names = sorted(gauge_rows, key=lambda r: -abs(float(r["net_usd"])))[:4]
+        lines.append(
+            "By name (net): "
+            + " · ".join(f"{r['underlying']} {_fmt_musd(float(r['net_usd']))}" for r in top_names)
+        )
+    else:
+        lines.append("**No gauge rows recorded for this window.**")
+
+    conc = analysis["concentration"]
+    if conc["n_orders"]:
+        lines.append("")
+        lines.append("Largest orders (prints clustered per contract/side/second):")
+        for o in analysis["top_orders"]:
+            stance = "bull" if o["stance"] == "bull" else "bear"
+            lines.append(
+                f"{o['time_et']} ET — {o['contracts']:,}x {o['occ']} ({o['dte']}d, "
+                f"{'call' if o['right'] == 'c' else 'put'} {o['dir'].replace('_side', '')}) "
+                f"= {_fmt_musd(o['premium_usd'])} [{stance}]"
+            )
+        lines.append(
+            f"Concentration: top-10 orders = {conc['top10_share']:.0%} of classified "
+            f"order premium ({conc['n_orders']:,} orders / {conc['n_prints']:,} prints)"
+        )
+        if gauge_rows:
+            gauge_classified = sum(float(r["bull_usd"]) + float(r["bear_usd"]) for r in gauge_rows)
+            if gauge_classified > 0 and conc["classified_usd"] > gauge_classified * 1.15:
+                extra = conc["classified_usd"] - gauge_classified
+                lines.append(
+                    f"Basis note: the decomposition carries ~{_fmt_musd(extra)} more "
+                    "classified premium than the gauge — prints the gauge excludes "
+                    "(multi-leg/hygiene), so large orders above may include spread legs."
+                )
+        tenor_bits = []
+        for t in analysis["tenor"]:
+            net = t["bull_usd"] - t["bear_usd"]
+            if t["bull_usd"] or t["bear_usd"]:
+                tenor_bits.append(f"{t['bucket']} {_fmt_musd(net)}")
+        if tenor_bits:
+            lines.append("Tenor (net, classified): " + " · ".join(tenor_bits))
+    else:
+        lines.append("Print-lab decomposition unavailable for this window.")
+
+    if chars:
+        lines.append("")
+        lines.append("Reads (rule-based, heuristic):")
+        for c in chars:
+            lines.append(f"• {c['text']}")
+    return {
+        "heading": f"{_FLOW_WINDOW_TITLES.get(window, window)} ({WINDOW_LABELS.get(window, '')})",
+        "body": "\n".join(lines),
+    }
+
+
+async def generate_flow_decomp_report(
+    *,
+    db_path: Path | None = None,
+    et_date: date | None = None,
+    now_et: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Build + store the post-close flow decomposition report.
+
+    Returns None (scheduler retries) when it's a non-trading day, when today's
+    close-window finalize hasn't had time to land yet, or when there is no flow
+    data at all for the date.
+    """
+    from db.index_pressure import day_completeness, day_summary
+    from signals.options_flow import daily_report as flow
+    from trading.market_calendar import is_early_close, is_monthly_opex, is_trading_day
+
+    resolved = db_path if db_path is not None else DEFAULT_DB_PATH
+    if now_et is None:
+        now_et = datetime.now(_ET)
+    if et_date is None:
+        et_date = now_et.date()
+    if not is_trading_day(et_date):
+        return None
+    date_iso = et_date.isoformat()
+
+    early = is_early_close(et_date)
+    opex = is_monthly_opex(et_date)
+    expected_windows = ["open"] if early else ["open", "close"]
+
+    completeness = {r["window"]: r for r in day_completeness(date_iso, db_path=resolved)}
+    if et_date == now_et.date():
+        # Mid-window flushes write the day row with finalized_at NULL — only a
+        # non-null finalized_at means the window's accounting is complete.
+        missing = [
+            w for w in expected_windows if not (completeness.get(w) or {}).get("finalized_at")
+        ]
+        if missing and (now_et.hour, now_et.minute) < _FLOW_REPORT_READY_ET:
+            return None
+
+    gauge = {w: day_summary(date_iso, window=w, db_path=resolved) for w in expected_windows}
+    prints = await asyncio.to_thread(_load_print_lab_rows, resolved, date_iso)
+    if prints is None and not any(gauge.values()):
+        return None
+
+    windows: dict[str, dict[str, Any]] = {}
+    characterizations: list[dict[str, str]] = []
+    sections: list[dict[str, str]] = []
+    for w in expected_windows:
+        analysis = flow.analyze_window(prints or [], w)
+        chars = flow.characterize(analysis, is_opex=opex)
+        warnings: list[str] = []
+        if not (completeness.get(w) or {}).get("finalized_at"):
+            warnings.append(f"{w} window was never finalized — data may be incomplete.")
+        if prints is None:
+            warnings.append("Print-lab capture missing — gauge totals only.")
+        sections.append(_flow_window_section(w, analysis, gauge[w], chars, warnings))
+        analysis.pop("orders", None)  # full order list is large; payload keeps top_orders
+        windows[w] = analysis
+        characterizations.extend(chars)
+
+    metrics: list[dict[str, str]] = []
+    for w in expected_windows:
+        lanes = _flow_gauge_lane_sums(gauge[w])
+        metrics.append({"label": f"{w.capitalize()} index net", "value": _fmt_musd(lanes["index"]["net_usd"])})
+    metrics.append({"label": "Session", "value": "Monthly OpEx" if opex else ("Early close" if early else "Regular")})
+
+    summary_bits = []
+    for w in expected_windows:
+        lanes = _flow_gauge_lane_sums(gauge[w])
+        summary_bits.append(f"{w}: index net {_fmt_musd(lanes['index']['net_usd'])}")
+    summary = "Gauge " + "; ".join(summary_bits) + "."
+    if characterizations:
+        summary += " " + characterizations[0]["text"]
+    else:
+        summary += " No characterization rule fired — flow looked broad rather than block-driven."
+
+    title = f"Flow Decomposition · {date_iso}" + (" · OpEx" if opex else "")
+    report_json: dict[str, Any] = {
+        "title": title,
+        "symbol": "INDEX",
+        "summary": summary,
+        "metrics": metrics,
+        "sections": sections,
+        "risks": list(flow.CAVEATS),
+        "next_steps": [],
+        "generated_at": datetime.now(_ET).isoformat(),
+    }
+    html_body = render_report_html(report_json, meta_label="Flow decomposition")
+    payload: dict[str, Any] = {
+        "et_date": date_iso,
+        # The scheduler's once-per-day guard matches on payload dedup_key —
+        # omitting it means regenerate + re-push every 15-min poll (review C1).
+        "dedup_key": "flow_decomp",
+        "opex": opex,
+        "session": "early_close" if early else "full",
+        "completeness": completeness,
+        "gauge": gauge,
+        "windows": windows,
+        "characterizations": characterizations,
+        "caveats": list(flow.CAVEATS),
+    }
+    return save_report(
+        "flow_decomp", "INDEX", title, html_body, payload, format="html", db_path=resolved
     )

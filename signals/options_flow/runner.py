@@ -362,7 +362,11 @@ class OptionsFlowRunner:
         import db.options_flow as of_db
         from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
         from signals.options_flow.convergence import process_events
-        from signals.options_flow.intraday import classify_direction, tag_likely_spreads
+        from signals.options_flow.intraday import (
+            classify_direction,
+            is_hygiene_excluded,
+            tag_likely_spreads,
+        )
         from signals.options_flow.opening_pressure import WINDOWS, PressureGauge
         from signals.options_flow.rolling import RollingFlow
         from signals.options_flow.sweeps import SweepBuffer
@@ -411,6 +415,11 @@ class OptionsFlowRunner:
                     buffer_day = today_et
 
                 if batch:
+                    # Tag spreads BEFORE the lab write so the capture carries the
+                    # flags (added 2026-07-17: the flow-decomposition report and
+                    # the classification-lab scorer both need to separate spread
+                    # legs; tagging is read-only w.r.t. classification inputs).
+                    tag_likely_spreads(batch)
                     lab_rows: list[dict] = []
                     for p in batch:
                         direction = "undetermined"
@@ -431,23 +440,26 @@ class OptionsFlowRunner:
                                     basis = "stream_quote"
                         p["direction"] = direction
                         p["direction_basis"] = basis
-                        lab_rows.append(
-                            {
-                                "ts_ms": p.get("ts_ms"),
-                                "occ": p.get("occ_symbol"),
-                                "u": p.get("underlying"),
-                                "price": p.get("price"),
-                                "size": p.get("size"),
-                                "dte": p.get("dte"),
-                                "dir": direction,
-                                "basis": basis,
-                                "bid": lab_quote[0] if lab_quote else None,
-                                "ask": lab_quote[1] if lab_quote else None,
-                                "q_ts_ms": lab_quote[2] if lab_quote else None,
-                            }
-                        )
+                        row = {
+                            "ts_ms": p.get("ts_ms"),
+                            "occ": p.get("occ_symbol"),
+                            "u": p.get("underlying"),
+                            "price": p.get("price"),
+                            "size": p.get("size"),
+                            "dte": p.get("dte"),
+                            "dir": direction,
+                            "basis": basis,
+                            "bid": lab_quote[0] if lab_quote else None,
+                            "ask": lab_quote[1] if lab_quote else None,
+                            "q_ts_ms": lab_quote[2] if lab_quote else None,
+                        }
+                        # Sparse flags (only-when-true keeps the ~100MB/day file lean).
+                        if p.get("spread_leg") or p.get("likely_spread"):
+                            row["spread"] = True
+                        if is_hygiene_excluded(p.get("conditions") or []):
+                            row["hyg"] = True
+                        lab_rows.append(row)
                     _print_lab_write(lab_rows, now_et)
-                    tag_likely_spreads(batch)
                     buffer.add(batch)
                     # D-1/D-2 rolling detectors + pressure gauges ride the same
                     # classified prints (gauges self-filter to window/universe).

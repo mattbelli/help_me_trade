@@ -21,6 +21,7 @@ export const REPORT_KINDS = [
   { value: "levels", label: "Levels" },
   { value: "morning_brief", label: "Morning brief" },
   { value: "evening_brief", label: "Evening brief" },
+  { value: "flow_decomp", label: "Flow decomposition" },
 ] as const;
 
 export type GenerateKind =
@@ -28,7 +29,8 @@ export type GenerateKind =
   | "levels"
   | "morning_brief"
   | "evening_brief"
-  | "on_request";
+  | "on_request"
+  | "flow_decomp";
 
 async function readError(res: Response, fallback: string): Promise<string> {
   const body = await res.json().catch(() => ({}));

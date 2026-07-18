@@ -122,6 +122,26 @@ def list_reports(*, limit: int = 30, db_path: Path | None = None) -> list[dict[s
     return [_row_to_report(row) for row in rows]
 
 
+def recent_reports_by_kind(
+    kind: str, *, limit: int = 10, db_path: Path | None = None
+) -> list[dict[str, Any]]:
+    resolved = _db_path(db_path)
+    init_reports_tables(resolved)
+    cap = max(1, min(int(limit), 200))
+    with _connect(resolved) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, kind, symbol, title, body, format, payload_json, generated_at
+            FROM reports
+            WHERE kind = ?
+            ORDER BY generated_at DESC
+            LIMIT ?
+            """,
+            (kind.strip(), cap),
+        ).fetchall()
+    return [_row_to_report(row) for row in rows]
+
+
 def get_report(report_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
     resolved = _db_path(db_path)
     init_reports_tables(resolved)
