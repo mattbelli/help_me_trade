@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import gzip
 import logging
 import os
+import shutil
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 
 logger = logging.getLogger(__name__)
+
+_ET = ZoneInfo("America/New_York")
 
 RAW_KEEP_DAYS = 14  # raw runs downsample to one-per-hour past this age
 KEEPER_KEEP_DAYS = 90  # hourly keepers downsample to one-per-day past this age
@@ -261,3 +266,50 @@ def prune_poll_history(
     }
     logger.debug("prune_poll_history cutoff=%s result=%s", cutoff, result)
     return result
+
+
+# Research capture streams under data/research/ that append one <YYYY-MM-DD>.jsonl
+# per session and never touch it again after the close window. They are the
+# classification lab's pre-registered ground truth (CLASSIFICATION_LAB_PREREG),
+# so retention must be LOSSLESS — gzip only (~14x measured on 2026-07-17), never
+# downsample or delete.
+RESEARCH_CAPTURE_DIRS = ("print_lab", "chain_samples")
+
+
+def compress_research_captures(
+    research_root: Path | None = None, *, today: str | None = None
+) -> dict[str, int]:
+    """Gzip prior sessions' research capture JSONL in place; today's file is
+    still being appended to and is left alone. Idempotent: a crash between the
+    atomic .gz replace and the source unlink just re-compresses next run."""
+    root = (
+        research_root
+        if research_root is not None
+        else DEFAULT_DB_PATH.parent / "research"
+    )
+    if today is None:
+        today = datetime.now(_ET).date().isoformat()
+    counts = {"compressed": 0, "bytes_before": 0, "bytes_after": 0}
+    for sub in RESEARCH_CAPTURE_DIRS:
+        directory = root / sub
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.jsonl")):
+            if path.stem >= today:
+                continue
+            gz_path = path.with_suffix(".jsonl.gz")
+            tmp_path = path.with_suffix(".jsonl.gz.tmp")
+            size_before = path.stat().st_size
+            try:
+                with path.open("rb") as src, gzip.open(tmp_path, "wb") as dst:
+                    shutil.copyfileobj(src, dst, 1 << 20)
+                os.replace(tmp_path, gz_path)
+                path.unlink()
+            except OSError:
+                logger.exception("research capture compress failed: %s", path)
+                tmp_path.unlink(missing_ok=True)
+                continue
+            counts["compressed"] += 1
+            counts["bytes_before"] += size_before
+            counts["bytes_after"] += gz_path.stat().st_size
+    return counts

@@ -278,3 +278,21 @@ async def test_generate_skips_non_trading_day(tmp_path: Path) -> None:
         now_et=datetime(2026, 7, 18, 12, 0, tzinfo=_ET),
     )
     assert report is None
+
+
+def test_load_print_lab_rows_falls_back_to_gzip(tmp_path: Path) -> None:
+    import gzip
+    import json as _json
+
+    from signals.reports import _load_print_lab_rows
+
+    lab_dir = tmp_path / "research" / "print_lab"
+    lab_dir.mkdir(parents=True)
+    rows = [{"occ": "SPY260717C00715000", "size": 2, "dir": "buy_side"}]
+    # Nightly retention gzips prior sessions in place — the reader must follow.
+    with gzip.open(lab_dir / "2026-07-17.jsonl.gz", "wt") as f:
+        for row in rows:
+            f.write(_json.dumps(row) + "\n")
+
+    assert _load_print_lab_rows(tmp_path / "app.db", "2026-07-17") == rows
+    assert _load_print_lab_rows(tmp_path / "app.db", "2026-07-16") is None

@@ -12,6 +12,7 @@ Two families live here:
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import logging
 from datetime import UTC, date, datetime
@@ -514,10 +515,16 @@ def _flow_gauge_lane_sums(gauge_rows: list[dict[str, Any]]) -> dict[str, dict[st
 def _load_print_lab_rows(db_path: Path, date_iso: str) -> list[dict[str, Any]] | None:
     """Parse one day's print-lab JSONL (None = file absent). Bad lines skipped."""
     path = db_path.parent / "research" / "print_lab" / f"{date_iso}.jsonl"
-    if not path.exists():
+    gz_path = path.with_suffix(".jsonl.gz")
+    if path.exists():
+        f = path.open()
+    elif gz_path.exists():
+        # Nightly retention gzips prior sessions' files in place.
+        f = gzip.open(gz_path, "rt")
+    else:
         return None
     rows: list[dict[str, Any]] = []
-    with path.open() as f:
+    with f:
         for line in f:
             line = line.strip()
             if not line:

@@ -370,7 +370,7 @@ class OptionsFlowRunner:
         from signals.options_flow.opening_pressure import WINDOWS, PressureGauge
         from signals.options_flow.rolling import RollingFlow
         from signals.options_flow.sweeps import SweepBuffer
-        from trading.market_calendar import is_early_close
+        from trading.market_calendar import is_early_close, is_trading_day
 
         def _fresh_gauges() -> dict[str, PressureGauge]:
             return {w: PressureGauge(w) for w in WINDOWS}
@@ -489,7 +489,12 @@ class OptionsFlowRunner:
                 # 30 rows, last-write-wins upsert of in-memory running totals), and a
                 # 60s flush would make the widget lag the tape by up to a minute
                 # during the exact half hours the gauge exists for.
-                if now_mono - gauge_last_flush >= 10.0:
+                # Weekend/holiday guard: the wall clock still walks through the
+                # window minutes and would finalize a false "full session, 0
+                # minutes observed" day row (Sat 2026-07-18 did exactly that).
+                if now_mono - gauge_last_flush >= 10.0 and is_trading_day(
+                    now_et.date()
+                ):
                     gauge_last_flush = now_mono
                     now_min = now_et.hour * 60 + now_et.minute
                     for win, gauge in gauges.items():

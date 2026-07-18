@@ -498,3 +498,63 @@ def test_prune_returns_observability_fields(retention_db: Path) -> None:
     assert isinstance(rows_deleted, dict)
     assert set(rows_deleted) == set(ALLOWLIST)
     assert all(isinstance(v, int) for v in rows_deleted.values())
+
+
+def test_compress_research_captures_gzips_prior_days_only(tmp_path: Path) -> None:
+    import gzip
+
+    from db.retention import compress_research_captures
+
+    root = tmp_path / "research"
+    lab = root / "print_lab"
+    chains = root / "chain_samples"
+    lab.mkdir(parents=True)
+    chains.mkdir(parents=True)
+    (lab / "2026-07-16.jsonl").write_text('{"a": 1}\n{"a": 2}\n')
+    (lab / "2026-07-17.jsonl").write_text('{"b": 1}\n')
+    (chains / "2026-07-16.jsonl").write_text('{"c": 1}\n')
+    (chains / "sampler_2026-07-16.log").write_text("log line\n")
+
+    counts = compress_research_captures(root, today="2026-07-17")
+
+    assert counts["compressed"] == 2
+    # Only the two prior-day files count (gzip header overhead dominates on
+    # fixture-sized inputs, so no ratio assertion — 14x is for real files).
+    assert counts["bytes_before"] == 27
+    assert counts["bytes_after"] > 0
+    # Prior sessions: gzipped in place, byte-identical content, source removed.
+    assert not (lab / "2026-07-16.jsonl").exists()
+    with gzip.open(lab / "2026-07-16.jsonl.gz", "rt") as f:
+        assert f.read() == '{"a": 1}\n{"a": 2}\n'
+    assert not (chains / "2026-07-16.jsonl").exists()
+    # Today's file may still be appended to — untouched.
+    assert (lab / "2026-07-17.jsonl").exists()
+    assert not (lab / "2026-07-17.jsonl.gz").exists()
+    # Non-jsonl files (sampler logs) are out of scope.
+    assert (chains / "sampler_2026-07-16.log").exists()
+
+
+def test_compress_research_captures_idempotent_and_heals_partial_run(
+    tmp_path: Path,
+) -> None:
+    import gzip
+
+    from db.retention import compress_research_captures
+
+    lab = tmp_path / "research" / "print_lab"
+    lab.mkdir(parents=True)
+    (lab / "2026-07-15.jsonl").write_text('{"a": 1}\n')
+    first = compress_research_captures(tmp_path / "research", today="2026-07-17")
+    assert first["compressed"] == 1
+
+    second = compress_research_captures(tmp_path / "research", today="2026-07-17")
+    assert second["compressed"] == 0
+
+    # Crash between the atomic .gz replace and the source unlink leaves BOTH
+    # files behind — the next run must re-compress and finish the removal.
+    (lab / "2026-07-15.jsonl").write_text('{"a": 1}\n')
+    healed = compress_research_captures(tmp_path / "research", today="2026-07-17")
+    assert healed["compressed"] == 1
+    assert not (lab / "2026-07-15.jsonl").exists()
+    with gzip.open(lab / "2026-07-15.jsonl.gz", "rt") as f:
+        assert f.read() == '{"a": 1}\n'

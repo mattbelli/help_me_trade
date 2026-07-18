@@ -1417,7 +1417,7 @@ _db_retention_last_date: dict = {}
 async def _db_retention_once() -> None:
     from db.earnings_alerts import prune_earnings_alerts_sent
     from db.equity_tape import prune as prune_equity_tape
-    from db.retention import prune_poll_history
+    from db.retention import compress_research_captures, prune_poll_history
 
     now_et = datetime.now(_ET)
     if not (1 <= now_et.hour < 5):
@@ -1430,12 +1430,17 @@ async def _db_retention_once() -> None:
     pruned_alerts = await asyncio.to_thread(prune_earnings_alerts_sent)
     # Equity tape events (blocks + dark-pool prints) age out past EVENTS_PRUNE_DAYS.
     pruned_tape = await asyncio.to_thread(prune_equity_tape)
+    # Prior sessions' research capture JSONL (print lab + chain samples) gzip
+    # losslessly (~14x) once immutable — never downsampled (lab ground truth).
+    compressed = await asyncio.to_thread(compress_research_captures)
     _db_retention_last_date["date"] = today
     logger.info(
-        "DB retention complete: %s (earnings_alerts_sent pruned=%s, equity_tape pruned=%s)",
+        "DB retention complete: %s (earnings_alerts_sent pruned=%s, equity_tape "
+        "pruned=%s, research_jsonl=%s)",
         counts,
         pruned_alerts,
         pruned_tape,
+        compressed,
     )
 
 

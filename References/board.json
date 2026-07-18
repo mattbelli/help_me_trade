@@ -10,13 +10,24 @@
   ],
   "cards": [
     {
+      "id": "research-capture-compression-2026-07-18",
+      "title": "Research capture retention \u2014 lossless gzip for print lab + chain samples",
+      "lane": "done",
+      "type": "fix",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Closes the 'index_pressure_* has NO retention' follow-up from the foundation audit. Measured reality: the DB gauge tables are already the compact form (~330 rows/day, sub-MB) \u2014 the weight was the research JSONL: print_lab 112MB + chain_samples 331MB on 07-17 (OpEx; ~36MB ordinary day). Both are CLASSIFICATION_LAB_PREREG ground truth, so retention must be LOSSLESS: nightly retention job now gzips prior sessions' *.jsonl in place (measured 14.1x print lab, 13.9x chains; ~3-4GB/yr compressed, no delete tier). compress_research_captures() in db/retention.py (atomic tmp+replace, crash-healing, today's file untouched); _load_print_lab_rows falls back to .jsonl.gz; weekend/holiday guard (is_trading_day) on the gauge finalizer stops false 'full session, 0 minutes' day rows (Sat 07-18 wrote one \u2014 deleted). Open (founder call, post-lab-verdict): whether the chain sampler keeps running after the concentration study answers.",
+      "created_at": "2026-07-18",
+      "updated_at": "2026-07-18"
+    },
+    {
       "id": "foundation-audit-fixes-2026-07-18",
       "title": "Foundation audit round 0 \u2014 Grok zero-context audit verified, agreed fixes shipped",
       "lane": "done",
       "type": "fix",
       "priority": "high",
       "owner": "agent",
-      "notes": "Grok 4.5 zero-context audit cross-checked against code + live DB (its numbers were exact; severity story partly wrong \u2014 nightly retention IS running, poll tables are near DESIGNED steady state; real unbounded growers were equity_tape +35MB/day w/ unscheduled prune, and index_pressure_*). Shipped: (1) rule_id=None fix (signals/strategy_scan.py:548) \u2014 validated strategy conviction now attaches on Path A proposals; strategy_stats keys verified = strategy ids; origin stays strategy:* (source branch wins, test-asserted). (2) equity_tape.prune() wired into nightly retention (30d). (3) retention Tier 3 hard ceiling 365d (longest reader lookback = 7d). 75 targeted tests, ruff clean. Follow-ups: index_pressure_* has NO retention (small policy needed); tape 30d window ~= 1GB steady state at measured rate \u2014 whether tape_velocity (62% of rows, no consumer) keeps persisting at full rate is a fusion-v2 design question; VACUUM deferred (freelist ~58MB, nothing to reclaim until tape prune ages in).",
+      "notes": "Grok 4.5 zero-context audit cross-checked against code + live DB (its numbers were exact; severity story partly wrong \u2014 nightly retention IS running, poll tables are near DESIGNED steady state; real unbounded growers were equity_tape +35MB/day w/ unscheduled prune, and index_pressure_*). Shipped: (1) rule_id=None fix (signals/strategy_scan.py:548) \u2014 validated strategy conviction now attaches on Path A proposals; strategy_stats keys verified = strategy ids; origin stays strategy:* (source branch wins, test-asserted). (2) equity_tape.prune() wired into nightly retention (30d). (3) retention Tier 3 hard ceiling 365d (longest reader lookback = 7d). 75 targeted tests, ruff clean. Follow-ups: index_pressure_* retention CLOSED same day (see research-capture-compression-2026-07-18 \u2014 gauge tables were already tiny; the weight was research JSONL, now gzipped nightly); tape 30d window ~= 1GB steady state at measured rate \u2014 whether tape_velocity (62% of rows, no consumer) keeps persisting at full rate is a fusion-v2 design question; VACUUM deferred (freelist ~58MB, nothing to reclaim until tape prune ages in).",
       "created_at": "2026-07-18",
       "updated_at": "2026-07-18"
     },
