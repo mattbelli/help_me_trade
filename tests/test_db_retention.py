@@ -16,6 +16,8 @@ from db.decision_journal import init_decision_journal_tables, record_decision
 from db.retention import (
     ALLOWLIST,
     ANALYTICS_KEEP_DAYS,
+    DELETE_KEEP_DAYS,
+    KEEPER_KEEP_DAYS,
     RAW_KEEP_DAYS,
     SNAPSHOT_TABLES,
     prune_poll_history,
@@ -434,6 +436,55 @@ def test_analytics_trim_respects_cutoff_but_keeps_skeleton(
 
     second = prune_poll_history(db_path=retention_db)
     assert second["analytics_trimmed"] == 0
+
+
+def test_hard_delete_removes_runs_past_delete_keep_days(retention_db: Path) -> None:
+    now = datetime.now(UTC)
+    with connect(retention_db) as conn:
+        # Past the hard-delete horizon: the run and ALL its children must be gone —
+        # downsampling alone would have kept this as a lone daily keeper forever.
+        ancient_ts = (
+            (now - timedelta(days=DELETE_KEEP_DAYS + 30)).replace(hour=3).isoformat()
+        )
+        ancient_run = _seed_poll_run(
+            conn, captured_at=ancient_ts, broker="alpaca", account_id="acct_a"
+        )
+        # Older than the daily-keeper cutoff but inside the hard-delete horizon: it is
+        # downsampled to a lone daily keeper, but its skeleton survives.
+        kept_ts = (
+            (now - timedelta(days=KEEPER_KEEP_DAYS + 10)).replace(hour=3).isoformat()
+        )
+        kept_run = _seed_poll_run(
+            conn, captured_at=kept_ts, broker="alpaca", account_id="acct_b"
+        )
+        conn.commit()
+
+    result = prune_poll_history(db_path=retention_db)
+
+    with connect(retention_db) as conn:
+        assert (
+            conn.execute(
+                "SELECT 1 FROM poll_runs WHERE id = ?", (ancient_run,)
+            ).fetchone()
+            is None
+        ), "run past the hard-delete horizon survived"
+        for table in SNAPSHOT_TABLES:
+            assert (
+                conn.execute(
+                    f"SELECT 1 FROM {table} WHERE poll_run_id = ?",  # noqa: S608
+                    (ancient_run,),
+                ).fetchone()
+                is None
+            ), f"{table} child of hard-deleted run survived"
+        # The within-horizon keeper survives (its skeleton, at least).
+        assert conn.execute(
+            "SELECT 1 FROM poll_runs WHERE id = ?", (kept_run,)
+        ).fetchone(), "within-horizon daily keeper was wrongly hard-deleted"
+
+    assert result["runs_hard_deleted"] >= 1
+
+    second = prune_poll_history(db_path=retention_db)
+    assert second["runs_hard_deleted"] == 0
 
 
 def test_prune_returns_observability_fields(retention_db: Path) -> None:

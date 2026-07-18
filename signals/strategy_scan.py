@@ -545,7 +545,7 @@ async def _run_strategy(
                 notional_usd=Decimal(str(notional)),
                 order_type="market",
                 source=f"strategy:{strategy['id']}",
-                rule_id=None,
+                rule_id=strategy["id"],
                 rationale=spec.build_rationale(ctx, strategy["name"]),
                 account_id=str(account_id),
                 allow_fractional=allow_fractional,

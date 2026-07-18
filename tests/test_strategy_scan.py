@@ -211,7 +211,7 @@ async def test_predicate_pass_proposes_trade(monkeypatch, tmp_path: Path) -> Non
     assert candidate.source == "strategy:dip_buy"
     assert candidate.notional_usd == Decimal("750")
     assert candidate.account_id is not None
-    assert candidate.rule_id is None
+    assert candidate.rule_id == "dip_buy"
     assert "Dip-Buy:" in (candidate.rationale or "")
 
 
@@ -611,6 +611,7 @@ async def test_earnings_strategy_proposes_when_predicate_passes(
     candidate = propose_mock.await_args.args[0]
     assert candidate.symbol == PASS_SYMBOL
     assert candidate.source == "strategy:earnings_drift"
+    assert candidate.rule_id == "earnings_drift"
     assert candidate.notional_usd == Decimal("600")
     assert "Earnings Drift:" in (candidate.rationale or "")
     assert "pre-earnings drift" in (candidate.rationale or "")

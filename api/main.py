@@ -1416,6 +1416,7 @@ _db_retention_last_date: dict = {}
 
 async def _db_retention_once() -> None:
     from db.earnings_alerts import prune_earnings_alerts_sent
+    from db.equity_tape import prune as prune_equity_tape
     from db.retention import prune_poll_history
 
     now_et = datetime.now(_ET)
@@ -1427,11 +1428,14 @@ async def _db_retention_once() -> None:
     counts = await asyncio.to_thread(prune_poll_history)
     # RVOL alert-dedup keys grow ~1 row/symbol/day forever — prune the old ones.
     pruned_alerts = await asyncio.to_thread(prune_earnings_alerts_sent)
+    # Equity tape events (blocks + dark-pool prints) age out past EVENTS_PRUNE_DAYS.
+    pruned_tape = await asyncio.to_thread(prune_equity_tape)
     _db_retention_last_date["date"] = today
     logger.info(
-        "DB retention complete: %s (earnings_alerts_sent pruned=%s)",
+        "DB retention complete: %s (earnings_alerts_sent pruned=%s, equity_tape pruned=%s)",
         counts,
         pruned_alerts,
+        pruned_tape,
     )
 
 

@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 RAW_KEEP_DAYS = 14  # raw runs downsample to one-per-hour past this age
 KEEPER_KEEP_DAYS = 90  # hourly keepers downsample to one-per-day past this age
+# Hard ceiling: runs older than this are deleted outright (skeleton + children), not
+# just downsampled — without it the daily keepers accrue forever and the tables have no
+# upper bound. The longest lookback any reader needs is 7 days (list_equity_history /
+# get_snapshot_days_ago cap at 7d; every other reader takes the latest run), so a full
+# year of daily keepers is deep headroom while still giving the tables a firm bound.
+DELETE_KEEP_DAYS = 365
 # snapshot_analytics JSON trimmed past this age (skeleton stays). The sole
 # reader (_load_analytics) only ever fetches the LATEST run per account, so
 # even 7 days is pure headroom; at ~10MB/day of blobs this constant IS the
@@ -95,6 +101,16 @@ def _prunable_daily_run_ids(conn, cutoff: str) -> list[int]:
     return [int(row["id"]) for row in rows]
 
 
+def _deletable_run_ids(conn, cutoff: str) -> list[int]:
+    """All poll runs older than the hard-delete horizon — removed entirely (skeleton +
+    children). Downsampling only thins old history; this is what bounds it."""
+    rows = conn.execute(
+        "SELECT id FROM poll_runs WHERE captured_at < ?",
+        (cutoff,),
+    ).fetchall()
+    return [int(row["id"]) for row in rows]
+
+
 def _trimmable_analytics_run_ids(conn, cutoff: str) -> list[int]:
     """Analytics blobs for surviving runs older than ``cutoff`` — trimmed even
     when the poll_run keeper stays (the run skeleton is history; the fat JSON goes)."""
@@ -168,17 +184,21 @@ def prune_poll_history(
     raw_keep_days: int = RAW_KEEP_DAYS,
     keeper_keep_days: int = KEEPER_KEEP_DAYS,
     analytics_keep_days: int = ANALYTICS_KEEP_DAYS,
+    delete_keep_days: int = DELETE_KEEP_DAYS,
     batch: int = 5000,
 ) -> dict[str, int | dict[str, int]]:
     """Age poll history: raw→hourly past ``raw_keep_days``, hourly keepers→daily
-    past ``keeper_keep_days``, and trim analytics JSON past ``analytics_keep_days``."""
+    past ``keeper_keep_days``, hard-delete runs past ``delete_keep_days``, and trim
+    analytics JSON past ``analytics_keep_days``."""
     now = datetime.now(UTC)
     cutoff = (now - timedelta(days=raw_keep_days)).isoformat()
     keeper_cutoff = (now - timedelta(days=keeper_keep_days)).isoformat()
+    delete_cutoff = (now - timedelta(days=delete_keep_days)).isoformat()
     analytics_cutoff = (now - timedelta(days=analytics_keep_days)).isoformat()
     counts = {table: 0 for table in ALLOWLIST}
     counts["orphaned_analytics_deleted"] = 0
     counts["analytics_trimmed"] = 0
+    counts["runs_hard_deleted"] = 0
     hours_kept = 0
 
     with _connect(db_path) as conn:
@@ -192,6 +212,14 @@ def prune_poll_history(
     with _connect(db_path) as conn:
         daily_prunable = _prunable_daily_run_ids(conn, keeper_cutoff)
     _delete_runs_across_tables(db_path, daily_prunable, batch, counts)
+
+    # Tier 3: hard ceiling — runs older than delete_keep_days go entirely (skeleton +
+    # every child). This is the upper bound the downsample tiers alone never impose.
+    with _connect(db_path) as conn:
+        deletable = _deletable_run_ids(conn, delete_cutoff)
+    runs_before = counts["poll_runs"]
+    _delete_runs_across_tables(db_path, deletable, batch, counts)
+    counts["runs_hard_deleted"] = counts["poll_runs"] - runs_before
 
     # Orphaned analytics (poll_run already gone).
     for i in range(0, len(orphan_ids), batch):

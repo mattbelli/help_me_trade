@@ -179,6 +179,40 @@ async def test_propose_trade_happy_path(monkeypatch, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_strategy_candidate_propagates_rule_id_and_keeps_origin(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A strategy-scan candidate now carries rule_id (so proposals.py loads the
+    strategy's backtested conviction instead of the edgeless generic scorer), yet its
+    idea-ledger origin must stay strategy:<id> — the source branch in
+    _register_idea_shadow wins over the rule_id branch."""
+    db = tmp_path / "intake.db"
+    _patch_env(monkeypatch, db)
+
+    result = await propose_trade(
+        _candidate(source="strategy:dip_buy", rule_id="dip_buy"), db_path=db
+    )
+    assert result["status"] == "proposed"
+
+    # rule_id reached create_phone_proposal (the same value proposals.py keys
+    # strategy_conviction() on) and is persisted on the proposal.
+    row = paper_orders_mod.get_proposal(result["id"], db_path=db)
+    assert row is not None
+    assert row["source"] == "strategy:dip_buy"
+    assert row["rule_id"] == "dip_buy"
+
+    # Idea-ledger origin stays strategy:dip_buy — NOT relabeled scan:dip_buy.
+    conn = sqlite3.connect(db)
+    origin_rows = conn.execute(
+        "SELECT origin, signal_family FROM idea_outcomes"
+    ).fetchall()
+    conn.close()
+    assert len(origin_rows) == 1
+    assert origin_rows[0][0] == "strategy:dip_buy"
+    assert origin_rows[0][1] == "dip_buy"
+
+
+@pytest.mark.asyncio
 async def test_propose_trade_market_closed(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "intake.db"
     _patch_env(monkeypatch, db)
