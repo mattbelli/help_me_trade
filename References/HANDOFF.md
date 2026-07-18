@@ -41,9 +41,11 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 Zero-context composition audit of hmt-backend verified claim-by-claim and archived
 (`References/BACKEND_COMPOSITION_AUDIT_2026-07-18.md` — read its header first). Step-1 fixes SHIPPED
 (blind jobs registered; EOD scan / fill_outcomes / fusion ATR off-loop — BUILD_LOG 2026-07-18). **Open:**
-- ▶ **Rank-1 nightly research worker** — new systemd unit via the collector seam (env flag +
-  `tools/research_worker.py` + WAL); moves setup_scan_nightly, options_flow EOD, volume_profile,
-  momentum bars, reflection. Own design round; founder go needed
+- ▶ **Rank-1 nightly research worker — design DONE, awaiting founder approval**
+  (`References/RESEARCH_WORKER_DESIGN_2026-07-18.md`, board `rank1-research-worker-design`): five
+  jobs → `hmt-research-worker` via the collector seam; Opus adversarial review folded (liveness
+  honesty + lease guard + deploy ordering). On approval: R1a mechanical extraction (deployable
+  anytime) → R1b split after the Mon 07-20 probe verdict
 - ▶ **Rank-2 exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent →
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)

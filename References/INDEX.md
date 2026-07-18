@@ -31,6 +31,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `AUDIT_GPT56_IDEA_ENGINE_FUSION_2026-07-17.md` | External gpt-5.6-sol technical audit (17 findings, 8/8 verified) — findings age as fixes land; Round 0 fixed the shipped-code set |
 | `AUDIT_GPT56_PRODUCT_DIRECTION_2026-07-17.md` | External gpt-5.6-sol product-direction audit vs the founder vision — sequencing + Strategy Packs + blind spots |
 | `BACKEND_COMPOSITION_AUDIT_2026-07-18.md` | Zero-context audit of the hmt-backend process (inventory, failure domains, split ranks) — all claims verified; step-1 fixes shipped; Rank-1 worker + Rank-2 exit cadence OPEN |
+| `RESEARCH_WORKER_DESIGN_2026-07-18.md` | Rank-1 design: extract the 5 nightly research jobs into `hmt-research-worker` via the collector seam — Opus-adversarially-reviewed, AWAITING FOUNDER approval (board `rank1-research-worker-design`) |
 | `CLASSIFICATION_LAB_PREREG_2026-07-16.md` | ★ Pre-registered print-lab metrics — LAW: never improvise metrics on the data |
 | `COLLECTOR_PRESSURE_AUDIT_2026-07-16.md` | The "DO NOT MERGE" gauge audit — deferred findings F3/F4/F8 still open |
 | `DECISION_ENGINE_FUSION_DESIGN_2026-07-13.md` | REASON scorecard→EV design — a LATER layer, NOT "the fusion layer" (that's the Evidence Bus spec); gated on factor admission + 8 founder decisions |
