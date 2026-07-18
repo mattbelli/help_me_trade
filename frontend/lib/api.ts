@@ -1915,6 +1915,30 @@ export type StrategyLabCohortCatalog = {
   lanes: Array<Record<string, unknown>>;
 };
 
+export type StrategyLabPaperPosition = {
+  symbol: string;
+  qty: string | null;
+  entry_date: string;
+  entry_price: string | null;
+  mark: number | null;
+  unrealized_pct: number | null;
+  days_held: number | null;
+};
+
+export type StrategyLabPaperBook = {
+  strategy_id: string;
+  label: string;
+  positions: StrategyLabPaperPosition[];
+  n_positions: number;
+  mean_unrealized_pct: number | null;
+  oldest_entry: string | null;
+  planned_exit_note: string | null;
+};
+
+export type StrategyLabPaperCatalog = {
+  books: StrategyLabPaperBook[];
+};
+
 async function strategyLabJson<T>(path: string): Promise<T> {
   const res = await apiFetch(`${API_BASE}${path}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Strategy Lab API error ${res.status}`);
@@ -1937,4 +1961,8 @@ export function fetchStrategyLabSleeve(id: string): Promise<StrategyLabSleeve> {
 
 export function fetchStrategyLabCohorts(): Promise<StrategyLabCohortCatalog> {
   return strategyLabJson("/api/strategy-lab/cohorts");
+}
+
+export function fetchStrategyLabPaper(): Promise<StrategyLabPaperCatalog> {
+  return strategyLabJson("/api/strategy-lab/paper");
 }

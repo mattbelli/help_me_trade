@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, SlidersHorizontal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, RefreshCw, SlidersHorizontal } from "lucide-react";
 
 import { PagesMenu } from "@/components/layout/pages-menu";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,12 @@ import {
   fetchStrategyLabBenchmarks,
   fetchStrategyLabCatalog,
   fetchStrategyLabCohorts,
+  fetchStrategyLabPaper,
   fetchStrategyLabSleeve,
   type StrategyLabBenchmarks,
   type StrategyLabCohortCatalog,
+  type StrategyLabPaperBook,
+  type StrategyLabPaperCatalog,
   type StrategyLabPoint,
   type StrategyLabSleeve,
 } from "@/lib/api";
@@ -30,6 +33,7 @@ type LabSeries = {
 };
 type PeriodMode = "year" | "quarter";
 type RangeMode = "all" | "10y" | "5y";
+type LabSection = "backtests" | "paper" | "journals";
 
 const SLEEVE_COLORS = ["#d97706", "#7c3aed", "#0891b2", "#be123c"];
 const BENCHMARK_COLORS: Record<string, string> = {
@@ -62,6 +66,13 @@ function filterRange(points: StrategyLabPoint[], range: RangeMode): StrategyLabP
   return points.filter(([date]) => dateMs(date) >= cutoff);
 }
 
+function sampleLabel(item: LabSeries): string {
+  if (item.evidence === "backtest") {
+    return `${item.sleeve?.config.n_trades ?? "unknown"} trades`;
+  }
+  return `${item.points.length} observations`;
+}
+
 export function StrategyLabHeader({
   artifactTime,
   cohortTime,
@@ -82,7 +93,7 @@ export function StrategyLabHeader({
             Strategy Lab
           </h1>
           <p className="truncate text-[10px] text-[var(--fg-dim)]">
-            research backtests and forward journals · artifacts{" "}
+            research backtests, live paper, and forward journals · artifacts{" "}
             {artifactTime ?? "unavailable"} · cohorts {cohortTime ?? "not available"}
           </p>
         </div>
@@ -131,27 +142,39 @@ function PickerContents({
   onToggle: (id: string) => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {(["backtest", "benchmark"] as const).map((group) => (
         <fieldset key={group}>
-          <legend className="mb-2 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            {group === "backtest" ? "research sleeves" : "benchmarks"}
+          <legend className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--fg-faint)]">
+            {group === "backtest" ? "Backtests" : "Benchmarks"}
           </legend>
-          <div className="space-y-1.5">
+          <div className="space-y-0.5">
             {series
               .filter((item) => item.evidence === group)
               .map((item) => (
-                <label key={item.id} className="flex cursor-pointer items-center gap-2 text-xs">
+                <label
+                  key={item.id}
+                  className={cn(
+                    "group flex min-h-9 cursor-pointer items-center gap-2 border-l-2 px-2 text-[12px] transition-colors hover:bg-foreground/[0.04]",
+                    selected.has(item.id)
+                      ? "border-l-current bg-foreground/[0.035] text-foreground"
+                      : "border-l-transparent text-muted-foreground",
+                  )}
+                  style={selected.has(item.id) ? { borderLeftColor: item.color } : undefined}
+                >
                   <input
                     type="checkbox"
                     checked={selected.has(item.id)}
                     onChange={() => onToggle(item.id)}
-                    className="size-3.5 accent-amber-600"
+                    className="sr-only"
                   />
-                  <span className="size-2" style={{ backgroundColor: item.color }} />
-                  <span>{item.label}</span>
+                  <span className="h-px w-3 shrink-0" style={{ backgroundColor: item.color }} />
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   <span
-                    className={group === "backtest" ? "text-amber-600" : "text-slate-500"}
+                    className={cn(
+                      "font-mono text-[9px]",
+                      group === "backtest" ? "text-amber-600" : "text-slate-500",
+                    )}
                   >
                     {group}
                   </span>
@@ -160,7 +183,7 @@ function PickerContents({
           </div>
         </fieldset>
       ))}
-      <p className="text-[11px] text-muted-foreground">
+      <p className={cn("font-mono text-[10px] text-[var(--fg-faint)]", limitMessage && "text-amber-500")}>
         {selected.size}/{limit} lines
         {limitMessage ? " · Deselect one to add." : ""}
       </p>
@@ -168,11 +191,47 @@ function PickerContents({
   );
 }
 
-export function SeriesPicker(props: Parameters<typeof PickerContents>[0]) {
+export function SeriesPicker(
+  props: Parameters<typeof PickerContents>[0] & {
+    activeSection: LabSection;
+    onNavigate: (section: LabSection) => void;
+  },
+) {
+  const { activeSection, onNavigate, ...pickerProps } = props;
   return (
-    <div className="hidden min-w-56 border-l border-border/60 pl-5 md:block">
-      <PickerContents {...props} />
-    </div>
+    <aside className="hidden h-full w-[244px] shrink-0 flex-col border-r border-[var(--line-divider)] bg-[var(--bg-raised)] md:flex">
+      <nav className="border-b border-[var(--line-divider)] p-3" aria-label="Strategy Lab sections">
+        {([
+          ["backtests", "Research backtests"],
+          ["paper", "Paper book"],
+          ["journals", "Forward journals"],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onNavigate(id)}
+            className={cn(
+              "flex h-9 w-full items-center border-l-2 px-3 text-left text-[13px] transition-colors",
+              activeSection === id
+                ? "border-l-[var(--c-accent)] bg-foreground/[0.045] text-foreground"
+                : "border-l-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <PickerContents {...pickerProps} />
+      </div>
+      <p
+        className="shrink-0 border-t border-[var(--line-divider)] p-3 text-[10px] leading-[1.45] text-[var(--fg-dim)]"
+        style={{ paddingBottom: `calc(0.75rem + ${TERMINAL_COLLAPSED_HEIGHT}px)` }}
+      >
+        Historical simulations, live paper positions, and observational journals are different
+        evidence. No curve on this page establishes significance or expected return.
+      </p>
+    </aside>
   );
 }
 
@@ -183,16 +242,16 @@ export function MobileStrategyLabControls({
 }) {
   return (
     <details className="group md:hidden">
-      <summary className="flex cursor-pointer list-none items-center gap-2 border-b border-border py-2 text-xs">
+      <summary className="flex h-11 cursor-pointer list-none items-center gap-2 border-b border-border px-4 text-[13px]">
         <SlidersHorizontal className="size-3.5" />
-        series & chart controls
+        Navigate & select series
+        <ChevronDown className="ml-auto size-3.5 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="fixed inset-x-0 bottom-0 z-50 max-h-[78vh] overflow-y-auto border-t border-border bg-background p-5 shadow-2xl">
-        <div className="mb-4 text-xs font-medium">Strategy Lab controls</div>
+      <div className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] overflow-y-auto border-t border-border bg-background p-5 shadow-2xl">
+        <div className="mb-5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+          Lab navigation
+        </div>
         {children}
-        <p className="mt-5 text-[11px] text-muted-foreground">
-          Tap “series & chart controls” again to close.
-        </p>
       </div>
     </details>
   );
@@ -272,27 +331,51 @@ export function StrategyLabToolbar({
 
 export function SourceHonestyRail({ series }: { series: LabSeries[] }) {
   return (
-    <div className="divide-y divide-border/50 border-y border-border/60">
+    <div className="grid gap-2 xl:grid-cols-2">
       {series.map((item) => {
         const points = item.points;
-        const sample =
-          item.evidence === "backtest"
-            ? `${item.sleeve?.config.n_trades ?? "unknown"} trades · ${points[0]?.[0]} → ${points.at(-1)?.[0]}`
-            : `${points.length} observations · ${points[0]?.[0]} → ${points.at(-1)?.[0]}`;
+        const sample = `${sampleLabel(item)} · ${points[0]?.[0]} → ${points.at(-1)?.[0]}`;
+        const caveats = item.sleeve?.caveats ?? [];
+        const warning = item.sleeve && needsLevelsWarning(item.sleeve);
         return (
-          <div key={item.id} className="py-2 text-[11px] leading-relaxed">
-            <span className="font-medium">{item.label}</span>
-            {" · "}
-            <span className={item.evidence === "backtest" ? "text-amber-600" : "text-slate-500"}>
-              {item.evidence}
-            </span>
-            {" · "}
-            <span className="font-mono text-muted-foreground">{sample}</span>
-            {item.sleeve?.caveats.map((caveat) => (
-              <span key={caveat} className="block pl-3 text-muted-foreground">
-                {caveat}
+          <div
+            key={item.id}
+            className={cn(
+              "min-w-0 border border-border/60 bg-[var(--bg-raised)] px-3 py-2.5",
+              item.sleeve && "border-amber-500/30",
+            )}
+          >
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
+              <span className="truncate font-medium text-foreground">{item.label}</span>
+              <span className={item.evidence === "backtest" ? "text-amber-500" : "text-slate-500"}>
+                {item.evidence}
               </span>
-            ))}
+              <span className="font-mono text-[10px] text-muted-foreground">{sample}</span>
+            </div>
+            {warning ? (
+              <p className="mt-2 text-[11px] leading-snug text-amber-500">
+                Absolute levels are not calibrated. Linear-accrual marking suppresses volatility
+                and drawdown, and signal-close fills are optimistic. Use these simulations to
+                compare rankings, not to trust absolute Sharpe or drawdown.
+              </p>
+            ) : null}
+            {caveats.length > 0 ? (
+              <div className="mt-2 border-t border-amber-500/20 pt-2 text-[11px] leading-snug text-muted-foreground">
+                <p>{caveats[0]}</p>
+                {caveats.length > 1 ? (
+                  <details className="group/caveats mt-1">
+                    <summary className="cursor-pointer list-none font-mono text-[10px] text-amber-500/80">
+                      +{caveats.length - 1} caveat{caveats.length === 2 ? "" : "s"}
+                    </summary>
+                    <div className="mt-1.5 space-y-1">
+                      {caveats.slice(1).map((caveat, index) => (
+                        <p key={`${index}:${caveat}`}>{caveat}</p>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         );
       })}
@@ -320,11 +403,11 @@ export function BacktestEquityChart({
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const x = (date: string) => 58 + ((dateMs(date) - minX) / Math.max(maxX - minX, 1)) * 922;
+  const x = (date: string) => 74 + ((dateMs(date) - minX) / Math.max(maxX - minX, 1)) * 1102;
   const y = (value: number) =>
-    18 +
+    24 +
     (1 - ((logScale ? Math.log(Math.max(value, 1)) : value) - minY) / Math.max(maxY - minY, 1)) *
-      282;
+      398;
   const hovered = hoverTime == null
     ? []
     : plotted.flatMap((item) => {
@@ -346,83 +429,105 @@ export function BacktestEquityChart({
       });
 
   return (
-    <figure>
-      <div className="mb-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px]">
+    <figure className="min-w-0">
+      <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1.5 text-[12px]">
         {plotted.map((item) => (
-          <span key={item.id}>
-            <span style={{ color: item.color }}>━━</span> {item.label} ·{" "}
+          <span key={item.id} className="flex items-baseline gap-1.5">
+            <span className="font-mono" style={{ color: item.color }}>━━</span>
+            <span>{item.label}</span>
             <span className={item.evidence === "backtest" ? "text-amber-600" : "text-slate-500"}>
               {item.evidence}
+            </span>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {sampleLabel(item)}
             </span>
           </span>
         ))}
       </div>
       <svg
-        viewBox="0 0 1000 330"
-        className="h-[290px] w-full touch-pan-y"
+        viewBox="0 0 1200 470"
+        className="h-[clamp(420px,58vh,680px)] w-full touch-pan-y"
         role="img"
         aria-label="Historical simulation equity"
         onPointerMove={(event) => {
           const bounds = event.currentTarget.getBoundingClientRect();
-          const viewX = ((event.clientX - bounds.left) / bounds.width) * 1000;
-          const ratio = Math.max(0, Math.min(1, (viewX - 58) / 922));
+          const viewX = ((event.clientX - bounds.left) / bounds.width) * 1200;
+          const ratio = Math.max(0, Math.min(1, (viewX - 74) / 1102));
           setHoverTime(minX + ratio * (maxX - minX));
         }}
         onPointerLeave={() => setHoverTime(null)}
       >
         {[0, 1, 2, 3, 4].map((tick) => {
-          const yy = 18 + tick * 70.5;
+          const yy = 24 + tick * 99.5;
           const transformed = maxY - (tick / 4) * (maxY - minY);
           const value = logScale ? Math.exp(transformed) : transformed;
           return (
             <g key={tick}>
-              <line x1="58" x2="980" y1={yy} y2={yy} stroke="currentColor" opacity=".12" />
-              <text x="52" y={yy + 4} textAnchor="end" className="fill-muted-foreground text-[10px]">
+              <line x1="74" x2="1176" y1={yy} y2={yy} stroke="currentColor" opacity=".12" />
+              <text x="64" y={yy + 5} textAnchor="end" className="fill-muted-foreground text-[14px]">
                 {money(value)}
               </text>
             </g>
           );
         })}
-        {plotted.map((item) => (
-          <path
-            key={item.id}
-            d={item.points
-              .map(([date, value], index) => `${index === 0 ? "M" : "L"}${x(date).toFixed(2)},${y(value).toFixed(2)}`)
-              .join(" ")}
-            fill="none"
-            stroke={item.color}
-            strokeWidth={item.evidence === "backtest" ? 1.7 : 1.25}
-            vectorEffect="non-scaling-stroke"
-          >
-            <title>
-              {item.label} · {item.evidence} · generated {item.generated} · historical simulation
-            </title>
-          </path>
-        ))}
+        {plotted.map((item) => {
+          const path = item.points
+            .map(([date, value], index) => `${index === 0 ? "M" : "L"}${x(date).toFixed(2)},${y(value).toFixed(2)}`)
+            .join(" ");
+          const title = `${item.label} · ${item.evidence} · ${sampleLabel(item)} · generated ${item.generated} · historical simulation`;
+          return (
+            <g key={item.id}>
+              <path
+                d={path}
+                fill="none"
+                stroke="transparent"
+                strokeWidth="16"
+                vectorEffect="non-scaling-stroke"
+              >
+                <title>{title}</title>
+              </path>
+              <path
+                d={path}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={item.evidence === "backtest" ? 2.4 : 1.8}
+                vectorEffect="non-scaling-stroke"
+                pointerEvents="none"
+              >
+                <title>{title}</title>
+              </path>
+            </g>
+          );
+        })}
         {hoverTime != null && (
           <line
-            x1={58 + ((hoverTime - minX) / Math.max(maxX - minX, 1)) * 922}
-            x2={58 + ((hoverTime - minX) / Math.max(maxX - minX, 1)) * 922}
-            y1="18"
-            y2="300"
+            x1={74 + ((hoverTime - minX) / Math.max(maxX - minX, 1)) * 1102}
+            x2={74 + ((hoverTime - minX) / Math.max(maxX - minX, 1)) * 1102}
+            y1="24"
+            y2="422"
             stroke="currentColor"
             opacity=".35"
           />
         )}
-        <text x="58" y="322" className="fill-muted-foreground text-[10px]">
-          {new Date(minX).toISOString().slice(0, 10)}
-        </text>
-        <text x="980" y="322" textAnchor="end" className="fill-muted-foreground text-[10px]">
-          {new Date(maxX).toISOString().slice(0, 10)}
-        </text>
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+          <text
+            key={ratio}
+            x={74 + ratio * 1102}
+            y="456"
+            textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"}
+            className="fill-muted-foreground text-[13px]"
+          >
+            {new Date(minX + ratio * (maxX - minX)).toISOString().slice(0, 7)}
+          </text>
+        ))}
       </svg>
       {hovered.length > 0 && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-border/50 pt-2 font-mono text-[10px]">
+        <div className="flex min-h-8 flex-wrap gap-x-5 gap-y-1 border-t border-border/50 pt-2 font-mono text-[11px]">
           {hovered.map(({ item, point }) => (
             <span key={item.id}>
               <span style={{ color: item.color }}>{item.label}</span> · {point[0]} ·{" "}
-              {money(point[1])} · {item.evidence} · generated {item.generated} · historical
-              simulation
+              {money(point[1])} · {item.evidence} · {sampleLabel(item)} · generated{" "}
+              {item.generated} · historical simulation
             </span>
           ))}
         </div>
@@ -489,7 +594,18 @@ export function PeriodReturnsChart({
   const barWidth = Math.max(2, Math.min(13, (band - 3) / Math.max(series.length, 1)));
   return (
     <figure>
-      <svg viewBox="0 0 1000 310" className="h-[270px] w-full" role="img" aria-label={`${mode} returns`}>
+      <div className="mb-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px]">
+        {series.map((item) => (
+          <span key={item.id}>
+            <span style={{ color: item.color }}>■</span> {item.label} ·{" "}
+            <span className={item.evidence === "backtest" ? "text-amber-600" : "text-slate-500"}>
+              {item.evidence}
+            </span>{" "}
+            · <span className="font-mono text-muted-foreground">{sampleLabel(item)}</span>
+          </span>
+        ))}
+      </div>
+      <svg viewBox="0 0 1000 330" className="h-[320px] w-full" role="img" aria-label={`${mode} returns`}>
         <line x1="55" x2="990" y1={zero} y2={zero} stroke="currentColor" opacity=".5" />
         {visibleKeys.map((key, keyIndex) => (
           <g key={key}>
@@ -509,7 +625,8 @@ export function PeriodReturnsChart({
                   opacity=".85"
                 >
                   <title>
-                    {item.label} · {value.label} · {value.value.toFixed(2)}%
+                    {item.label} · {item.evidence} · {sampleLabel(item)} · {value.label} ·{" "}
+                    {value.value.toFixed(2)}%
                     {value.partial ? ` · partial period · ${value.start} → ${value.end}` : ""}
                   </title>
                 </rect>
@@ -517,18 +634,18 @@ export function PeriodReturnsChart({
             })}
             <text
               x={58 + keyIndex * band}
-              y="282"
-              transform={`rotate(-45 ${58 + keyIndex * band} 282)`}
-              className="fill-muted-foreground text-[9px]"
+              y="290"
+              transform={`rotate(-45 ${58 + keyIndex * band} 290)`}
+              className="fill-muted-foreground text-[12px]"
             >
               {keyIndex === 0 ? `${key}*` : key}
             </text>
           </g>
         ))}
-        <text x="5" y={zero - 116} className="fill-muted-foreground text-[9px]">
+        <text x="5" y={zero - 116} className="fill-muted-foreground text-[12px]">
           +{maxAbs.toFixed(0)}%
         </text>
-        <text x="5" y={zero + 120} className="fill-muted-foreground text-[9px]">
+        <text x="5" y={zero + 120} className="fill-muted-foreground text-[12px]">
           -{maxAbs.toFixed(0)}%
         </text>
       </svg>
@@ -576,27 +693,23 @@ function needsLevelsWarning(sleeve: StrategyLabSleeve): boolean {
 export function BacktestMetricsStrip({ series }: { series: LabSeries[] }) {
   const spy = series.find((item) => item.id === "benchmark:SPY");
   return (
-    <div className="divide-y divide-border/60 border-y border-border/60">
+    <div className="grid gap-px border border-border/60 bg-border/60 xl:grid-cols-2">
       {series.map((item) => {
         const derived = derivedMetrics(item.points);
         const metrics = item.sleeve?.metrics;
         const excess = item.sleeve ? overlapExcess(item, spy) : null;
         return (
-          <div key={item.id} className="py-4">
-            <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
-              <h3 className="text-sm font-medium">{item.label}</h3>
-              <span className={item.evidence === "backtest" ? "text-xs text-amber-600" : "text-xs text-slate-500"}>
+          <div key={item.id} className="bg-background p-4">
+            <div className="mb-4 flex flex-wrap items-baseline gap-x-2">
+              <h3 className="text-[14px] font-medium">{item.label}</h3>
+              <span className={item.evidence === "backtest" ? "text-[11px] text-amber-600" : "text-[11px] text-slate-500"}>
                 {item.evidence}
               </span>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {sampleLabel(item)}
+              </span>
             </div>
-            {item.sleeve && needsLevelsWarning(item.sleeve) && (
-              <p className="mb-3 max-w-5xl border-l-2 border-amber-500/60 pl-3 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
-                Absolute levels are not calibrated. Linear-accrual marking suppresses volatility
-                and drawdown, and signal-close fills are optimistic. Use these simulations to
-                compare rankings, not to trust absolute Sharpe or drawdown.
-              </p>
-            )}
-            <dl className="grid grid-cols-2 gap-x-5 gap-y-3 font-mono text-[11px] sm:grid-cols-4 lg:grid-cols-8">
+            <dl className="grid grid-cols-2 gap-x-5 gap-y-5 font-mono sm:grid-cols-4">
               <Metric label="modeled CAGR" value={pct(metrics?.cagr ?? derived.cagr)} />
               <Metric label="modeled max drawdown" value={pct(metrics?.max_drawdown ?? derived.maxDrawdown)} />
               {item.sleeve && (
@@ -622,10 +735,139 @@ export function BacktestMetricsStrip({ series }: { series: LabSeries[] }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <dt className="min-h-8 text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-sm tabular-nums text-foreground">{value}</dd>
+    <div className="min-w-0">
+      <dt className="text-[9px] uppercase leading-tight tracking-[0.1em] text-[var(--fg-faint)]">
+        {label}
+      </dt>
+      <dd className="mt-1.5 text-[18px] leading-none tabular-nums text-foreground">{value}</dd>
     </div>
+  );
+}
+
+function paperPrice(value: string | number | null): string {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  return Number(value).toFixed(2);
+}
+
+function paperPct(value: number | null): string {
+  if (value == null) return "—";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function PaperBookBlock({ book }: { book: StrategyLabPaperBook }) {
+  const marked = book.positions.filter((position) => position.unrealized_pct != null);
+  const winner = marked.reduce(
+    (best, position) =>
+      best == null || position.unrealized_pct! > best.unrealized_pct! ? position : best,
+    marked[0],
+  );
+  const loser = marked.reduce(
+    (worst, position) =>
+      worst == null || position.unrealized_pct! < worst.unrealized_pct! ? position : worst,
+    marked[0],
+  );
+  const age = Math.max(...book.positions.map((position) => position.days_held ?? 0), 0);
+
+  return (
+    <div className="border-y border-border/60">
+      <div className="flex min-h-9 flex-wrap items-baseline gap-x-2 border-b border-border/60 py-2">
+        <h3 className="text-[13px] font-medium text-foreground">{book.label}</h3>
+        <span className="font-mono text-[10px] lowercase text-cyan-500">paper</span>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          unrealized · {age}d old · n={book.n_positions}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[650px] border-collapse font-mono text-[10px] tabular-nums">
+          <thead className="text-[9px] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+            <tr className="h-5 border-b border-border/50">
+              <th className="px-2 text-left font-normal">symbol</th>
+              <th className="px-2 text-right font-normal">qty</th>
+              <th className="px-2 text-right font-normal">entry date</th>
+              <th className="px-2 text-right font-normal">entry</th>
+              <th className="px-2 text-right font-normal">mark</th>
+              <th className="px-2 text-right font-normal">unrealized%</th>
+              <th className="px-2 text-right font-normal">days</th>
+            </tr>
+          </thead>
+          <tbody>
+            {book.positions.map((position) => (
+              <tr
+                key={`${book.strategy_id}:${position.symbol}`}
+                className="h-5 border-b border-border/35 last:border-b-0"
+              >
+                <td className="px-2 text-left text-foreground">{position.symbol}</td>
+                <td className="px-2 text-right">{position.qty ?? "—"}</td>
+                <td className="px-2 text-right">{position.entry_date.slice(0, 10)}</td>
+                <td className="px-2 text-right">{paperPrice(position.entry_price)}</td>
+                <td className="px-2 text-right">{paperPrice(position.mark)}</td>
+                <td
+                  className={cn(
+                    "px-2 text-right",
+                    position.unrealized_pct != null &&
+                      (position.unrealized_pct >= 0 ? "text-emerald-500" : "text-red-500"),
+                  )}
+                >
+                  {paperPct(position.unrealized_pct)}
+                </td>
+                <td className="px-2 text-right">{position.days_held ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="border-t border-border/50 py-2 font-mono text-[10px] text-muted-foreground">
+        equal-weight mean{" "}
+        <span
+          className={cn(
+            book.mean_unrealized_pct != null &&
+              (book.mean_unrealized_pct >= 0 ? "text-emerald-500" : "text-red-500"),
+          )}
+        >
+          {paperPct(book.mean_unrealized_pct)}
+        </span>
+        {" · "}biggest winner{" "}
+        {winner ? `${winner.symbol} ${paperPct(winner.unrealized_pct)}` : "—"}
+        {" · "}biggest loser {loser ? `${loser.symbol} ${paperPct(loser.unrealized_pct)}` : "—"}
+        {book.planned_exit_note ? ` · ${book.planned_exit_note}` : ""}
+      </p>
+    </div>
+  );
+}
+
+export function PaperBookSection({
+  catalog,
+  error,
+}: {
+  catalog: StrategyLabPaperCatalog | null;
+  error: string | null;
+}) {
+  return (
+    <section id="paper-book" className="scroll-mt-4 border-t border-border px-4 py-8 sm:px-6">
+      <div className="mb-5">
+        <p className="font-mono text-[10px] lowercase text-cyan-500">paper</p>
+        <h2 className="mt-1 text-[16px] font-semibold">Live paper book</h2>
+        <p className="mt-1 text-[11px] text-[var(--fg-dim)]">
+          live paper positions · unrealized marks, not results · a few days of data establishes
+          nothing
+        </p>
+      </div>
+      {error ? (
+        <StrategyLabErrorBoundary message={error} />
+      ) : catalog == null ? (
+        <div className="py-10 text-sm text-muted-foreground">Loading paper positions…</div>
+      ) : catalog.books.length === 0 ? (
+        <StrategyLabEmptyState>
+          no strategies currently hold paper positions
+        </StrategyLabEmptyState>
+      ) : (
+        <div className="space-y-6">
+          {catalog.books.map((book) => (
+            <PaperBookBlock key={book.strategy_id} book={book} />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -637,10 +879,13 @@ export function CohortSection({
   error: string | null;
 }) {
   return (
-    <section className="border-t border-border pt-8">
+    <section id="forward-journals" className="scroll-mt-4 border-t border-border px-4 py-8 sm:px-6">
       <div className="mb-5">
-        <h2 className="text-lg font-semibold">Forward cohort scorecards</h2>
-        <p className="mt-1 max-w-4xl text-sm text-muted-foreground">
+        <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--c-blue)]">
+          live-tracked
+        </p>
+        <h2 className="mt-1 text-[16px] font-semibold">Forward cohort scorecards</h2>
+        <p className="mt-1 max-w-4xl text-[13px] text-muted-foreground">
           Observational forward journals. Membership and rank are pinned before outcomes.
           Scorecards are not brokerage equity and do not imply significance.
         </p>
@@ -649,9 +894,13 @@ export function CohortSection({
         <StrategyLabErrorBoundary message={error} />
       ) : catalog?.capability === "not_built" ? (
         <StrategyLabEmptyState>
-          <span className="block text-foreground">Forward cohort scorecards are not built.</span>
-          The canonical scheduler scorecard store is not available. No cohort return,
-          benchmark, or cumulative series is reconstructed from ledger rows.
+          <span className="block text-[15px] text-foreground">
+            Forward cohort scorecards are not built.
+          </span>
+          <span className="mt-1 block text-[12px]">
+            The canonical scheduler scorecard store is not available. No cohort return,
+            benchmark, or cumulative series is reconstructed from ledger rows.
+          </span>
         </StrategyLabEmptyState>
       ) : catalog == null ? (
         <div className="py-10 text-sm text-muted-foreground">Loading cohort capability…</div>
@@ -666,9 +915,11 @@ export function StrategyLabPage() {
   const [sleeves, setSleeves] = useState<StrategyLabSleeve[]>([]);
   const [benchmarks, setBenchmarks] = useState<StrategyLabBenchmarks | null>(null);
   const [cohorts, setCohorts] = useState<StrategyLabCohortCatalog | null>(null);
+  const [paper, setPaper] = useState<StrategyLabPaperCatalog | null>(null);
   const [artifactCapability, setArtifactCapability] = useState<string | null>(null);
   const [artifactError, setArtifactError] = useState<string | null>(null);
   const [cohortError, setCohortError] = useState<string | null>(null);
+  const [paperError, setPaperError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isPhone, setIsPhone] = useState(false);
   const [limitMessage, setLimitMessage] = useState(false);
@@ -677,6 +928,11 @@ export function StrategyLabPage() {
   const [range, setRange] = useState<RangeMode>("all");
   const [periodMode, setPeriodMode] = useState<PeriodMode>("year");
   const [quarterCount, setQuarterCount] = useState(12);
+  const [activeSection, setActiveSection] = useState<LabSection>("backtests");
+  const contentRef = useRef<HTMLElement>(null);
+  const backtestsRef = useRef<HTMLElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
+  const journalsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 767px)");
@@ -690,6 +946,7 @@ export function StrategyLabPage() {
     setLoading(true);
     setArtifactError(null);
     setCohortError(null);
+    setPaperError(null);
     const artifactWork = (async () => {
       const catalog = await fetchStrategyLabCatalog();
       setArtifactCapability(catalog.capability ?? "available");
@@ -712,7 +969,12 @@ export function StrategyLabPage() {
       .catch((error: unknown) =>
         setCohortError(error instanceof Error ? error.message : "Cohort capability failed."),
       );
-    await Promise.allSettled([artifactWork, cohortWork]);
+    const paperWork = fetchStrategyLabPaper()
+      .then(setPaper)
+      .catch((error: unknown) =>
+        setPaperError(error instanceof Error ? error.message : "Paper book failed."),
+      );
+    await Promise.allSettled([artifactWork, paperWork, cohortWork]);
     setLoading(false);
   }, []);
 
@@ -826,6 +1088,35 @@ export function StrategyLabPage() {
       onReset={reset}
     />
   );
+  const navigate = (section: LabSection) => {
+    setActiveSection(section);
+    const target =
+      section === "backtests"
+        ? backtestsRef.current
+        : section === "paper"
+          ? paperRef.current
+          : journalsRef.current;
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  useEffect(() => {
+    const root = contentRef.current;
+    const paperSection = paperRef.current;
+    const journals = journalsRef.current;
+    if (!root || !paperSection || !journals) return;
+    const sync = () => {
+      const rootTop = root.getBoundingClientRect().top;
+      const paperTop = paperSection.getBoundingClientRect().top;
+      const journalTop = journals.getBoundingClientRect().top;
+      const threshold = rootTop + Math.min(root.clientHeight * 0.45, 320);
+      setActiveSection(
+        journalTop <= threshold ? "journals" : paperTop <= threshold ? "paper" : "backtests",
+      );
+    };
+    sync();
+    root.addEventListener("scroll", sync, { passive: true });
+    return () => root.removeEventListener("scroll", sync);
+  }, [allSeries.length, paper?.books.length, cohorts?.capability]);
 
   return (
     <div className="flex h-svh min-h-0 flex-col bg-background">
@@ -835,75 +1126,119 @@ export function StrategyLabPage() {
         loading={loading}
         onRefresh={() => void load()}
       />
-      <main className="min-h-0 flex-1 overflow-auto">
-        <div
-          className="mx-auto w-full max-w-[1920px] space-y-9 px-4 py-5 sm:px-6 sm:py-6"
-          // Reserve the collapsed terminal strip's height so the last section
-          // isn't hidden under the fixed viewport overlay (board does this).
-          style={{ paddingBottom: `calc(1.5rem + ${TERMINAL_COLLAPSED_HEIGHT}px)` }}
-        >
-        <p className="border-l-2 border-amber-500/70 pl-3 text-sm leading-relaxed text-foreground/90">
-          Historical simulations and observational journals are different evidence. No
-          curve on this page establishes significance or expected return.
-        </p>
-        <section>
-          <div className="mb-5">
-            <h2 className="text-lg font-semibold">Research backtests</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Committed historical research artifacts · native dates · no forward-fill
-            </p>
-          </div>
-          {artifactError ? (
-            <StrategyLabErrorBoundary message={artifactError} />
-          ) : artifactCapability === "unavailable" ? (
-            <StrategyLabEmptyState>
-              No committed Strategy Lab artifacts are available.
-            </StrategyLabEmptyState>
-          ) : allSeries.length === 0 ? (
-            <div className="py-10 text-sm text-muted-foreground">Loading committed artifacts…</div>
-          ) : (
-            <>
-              <MobileStrategyLabControls>
-                <div className="mb-5">{picker}</div>
-                {controls}
-              </MobileStrategyLabControls>
-              <div className="hidden md:block">{controls}</div>
-              <div className="mt-5 grid gap-5 md:grid-cols-[minmax(0,1fr)_15rem]">
-                <div className="min-w-0 space-y-7">
-                  <SourceHonestyRail series={visible} />
-                  <div>
-                    <h3 className="mb-3 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      Equity · historical simulation
-                    </h3>
-                    <BacktestEquityChart series={visible} logScale={logScale} range={range} />
-                  </div>
-                  <div className="border-t border-border/60 pt-6">
-                    <h3 className="mb-3 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      Calendar {periodMode} returns
-                    </h3>
-                    <PeriodReturnsChart series={visible} mode={periodMode} quarterCount={quarterCount} />
-                  </div>
+      <div className="flex min-h-0 flex-1">
+        <SeriesPicker
+          series={allSeries}
+          selected={selected}
+          limit={lineLimit}
+          limitMessage={limitMessage}
+          onToggle={toggle}
+          activeSection={activeSection}
+          onNavigate={navigate}
+        />
+        <main ref={contentRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <p className="border-b border-border/60 px-4 py-2.5 text-[11px] leading-snug text-muted-foreground md:hidden">
+            Historical simulations, live paper positions, and observational journals are
+            different evidence. No curve on this page establishes significance or expected
+            return.
+          </p>
+          <MobileStrategyLabControls>
+            <nav className="mb-5 grid grid-cols-3 gap-px border border-border bg-border">
+              <button
+                type="button"
+                onClick={() => navigate("backtests")}
+                className="bg-background px-3 py-3 text-left text-[12px] text-foreground"
+              >
+                Research backtests
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("paper")}
+                className="bg-background px-3 py-3 text-left text-[12px] text-foreground"
+              >
+                Paper book
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("journals")}
+                className="bg-background px-3 py-3 text-left text-[12px] text-foreground"
+              >
+                Forward journals
+              </button>
+            </nav>
+            <div className="mb-5">{picker}</div>
+            {controls}
+          </MobileStrategyLabControls>
+          <div
+            className="mx-auto w-full max-w-[2200px]"
+            // Reserve the collapsed terminal strip's height so the last section
+            // isn't hidden under the fixed viewport overlay (board does this).
+            style={{ paddingBottom: `calc(1.5rem + ${TERMINAL_COLLAPSED_HEIGHT}px)` }}
+          >
+            <section ref={backtestsRef} id="research-backtests" className="scroll-mt-0">
+              <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/60 px-4 py-4 sm:px-6">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-amber-500">
+                    backtest
+                  </p>
+                  <h2 className="mt-1 text-[16px] font-semibold">Research backtests</h2>
                 </div>
-                <SeriesPicker
-                  series={allSeries}
-                  selected={selected}
-                  limit={lineLimit}
-                  limitMessage={limitMessage}
-                  onToggle={toggle}
-                />
+                <p className="font-mono text-[10px] text-muted-foreground">
+                  native dates · no forward-fill
+                </p>
               </div>
-              <div className="mt-7">
-                <h3 className="mb-3 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  Reported metrics
-                </h3>
-                <BacktestMetricsStrip series={visible} />
-              </div>
-            </>
-          )}
-        </section>
-        <CohortSection catalog={cohorts} error={cohortError} />
-        </div>
-      </main>
+              {artifactError ? (
+                <div className="px-4 py-6 sm:px-6">
+                  <StrategyLabErrorBoundary message={artifactError} />
+                </div>
+              ) : artifactCapability === "unavailable" ? (
+                <div className="px-4 py-6 sm:px-6">
+                  <StrategyLabEmptyState>
+                    No committed Strategy Lab artifacts are available.
+                  </StrategyLabEmptyState>
+                </div>
+              ) : allSeries.length === 0 ? (
+                <div className="px-4 py-12 text-sm text-muted-foreground sm:px-6">
+                  Loading committed artifacts…
+                </div>
+              ) : (
+                <>
+                  <div className="hidden px-4 sm:px-6 md:block">{controls}</div>
+                  <div className="space-y-7 px-4 py-5 sm:px-6">
+                    <SourceHonestyRail series={visible} />
+                    <div>
+                      <h3 className="mb-2 text-[14px] font-medium">
+                        Equity <span className="font-normal text-muted-foreground">· historical simulation</span>
+                      </h3>
+                      <BacktestEquityChart series={visible} logScale={logScale} range={range} />
+                    </div>
+                    <div className="border-t border-border/60 pt-6">
+                      <h3 className="mb-3 text-[14px] font-medium">
+                        Calendar {periodMode} returns
+                      </h3>
+                      <PeriodReturnsChart
+                        series={visible}
+                        mode={periodMode}
+                        quarterCount={quarterCount}
+                      />
+                    </div>
+                    <div className="border-t border-border/60 pt-6">
+                      <h3 className="mb-3 text-[14px] font-medium">Reported metrics</h3>
+                      <BacktestMetricsStrip series={visible} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+            <div ref={paperRef}>
+              <PaperBookSection catalog={paper} error={paperError} />
+            </div>
+            <div ref={journalsRef}>
+              <CohortSection catalog={cohorts} error={cohortError} />
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
