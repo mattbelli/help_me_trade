@@ -61,8 +61,8 @@ Zero-context composition audit of hmt-backend verified claim-by-claim and archiv
 
 07-17 OpEx verify PASSED (both windows finalized clean, single writer; print lab 599k prints
 64% stream-quote truth) — detail: BUILD_LOG 2026-07-17/18. **Open:** (1) Flow Decomposition
-daily report built 07-18 (board `flow-daily-decomposition-report`) — needs merge + deploy
-before Mon 07-20 16:00 ET for its first scheduled run; (2) classification-lab SCORER not yet
+daily report MERGED (`4392443`, Opus SHIP review) + in the 07-18 backend deploy — ⏳ verify
+its first scheduled run Mon 07-20 post-close (~16:1x ET); (2) classification-lab SCORER not yet
 built — metrics pre-registered in `CLASSIFICATION_LAB_PREREG_2026-07-16.md` (LAW — never
 improvise on the data); proposed DTE-cut addendum + F3 direction-semantics stamp await founder
 sign-off; deferred audit findings F3/F4/F8 remain on the `index-0dte-concentration-study` /
