@@ -301,11 +301,18 @@ work with all of it, closing the self-learning loop end-to-end. The app runs two
 paper autopilot → watch results → promote to real only on observed evidence.** Memory overhaul stays
 parked until the idea engine gives it something to recall (mem0 removal excepted — that goes anytime).*
 
-1. **Idea Engine** — Phase 1 LIVE (07-16); verify gate, then Phase 2 spec *informed by the first live
-   week of lane meters* (`IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` is governing). This is the vehicle
-   for the ★ Decision Engine's event-gated idea throughput + calibration flywheel.
-2. **★ Decision Engine fusion layer** — build to `DECISION_ENGINE_FUSION_DESIGN_2026-07-13.md`:
-   multi-signal fusion + LLM-on-top + S/R ladders, honest calibrated EV/win% as samples accrue.
+1. **Idea Engine** — Phase 1 deployed 07-16; the 07-17 GPT-5.6 audit found its acceptance promises
+   incompletely shipped (convergence registration, median alarms) — **Round 0 fixes landed + deployed
+   07-18** (`AUDIT_GPT56_IDEA_ENGINE_FUSION_2026-07-17.md`; commits 9a15594/46d3d98/7f44ccc).
+   `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` is governing. This is the vehicle for the ★ Decision
+   Engine's event-gated idea throughput + calibration flywheel.
+2. **★ Fusion layer = the Evidence Bus** — build to `FUSION_EVIDENCE_BUS_SPEC_2026-07-17.md` (v3),
+   the Phase 2 delta set ON the Unified Design: one intake substrate (cursor-poll → episodes →
+   dispositions), actor-group scoring, register-everything journal lane, evidence widget, then
+   Unified's investigation tiers on ONE archetype. **The 07-13 `DECISION_ENGINE_FUSION_DESIGN` (REASON
+   scorecard → calibrated EV/win%) is a DIFFERENT, LATER layer** — still gated on factor admission +
+   the 8 founder-lane decisions + the calibration-is-a-filter directive; do not build it as "the
+   fusion layer".
 3. **Autonomy rung 3 — bounded auto-execute** — Increment 3 typed double-gate for LIVE; rung-3 design
    intel staged (fs kill-switch sentinel, notional reconciliation, consent-hash audit chain).
 4. **Perception: verify + extend** — index-pressure OpEx verify + classification lab (pre-registered

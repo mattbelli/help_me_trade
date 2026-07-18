@@ -11,18 +11,22 @@ closes, **delete its entry** — there is no archive (pre-07-17 narrative: git h
 
 ---
 
-## ▶ Idea Engine Phase 1 — verify gate TODAY (2026-07-17)
+## ▶ Idea Engine + fusion build — Round 0 shipped, Phase A next (2026-07-18)
 
-Deployed 07-16 ~23:20 ET (PRs #95–97) — detail: BUILD_LOG rows 2026-07-16/17; spec =
-`IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md` (gate + acceptance drills in §Deploy).
+07-17: two external gpt-5.6-sol audits (see INDEX; 8/8 verified) reopened the Phase 1 gate —
+its spec promises hadn't all shipped. **Round 0 fixes committed (9a15594/46d3d98/7f44ccc) and
+DEPLOYED 07-18 ~00:08 ET** (detail: BUILD_LOG 2026-07-17/18). Build order + coder routing
+founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — this push only).
 **Open:**
-- ✅ this morning: lane meters flowing; launch canary sent + receipt row; dead-man `--check-only` green
-- ⏳ 15:00 ET canary lands on founder's phone → ⏳ 16:45 ET first armed dead-man cron run → ⏳ tonight's
-  post-close nightly scan banner shows real structure/conviction counts
+- ⏳ founder in-browser check: web Approve two-step confirm UX (workspace proposal card)
+- ⏳ Mon 07-20 (next trading day): first fully-automatic 16:45 ET dead-man run (exec bit now in
+  git); 15:00 canary + median/never-worked alarm rules run live for the first time
 - ⚠️ founder must SUBSCRIBE to the ntfy dead-man topic (in crontab) or pages go nowhere
-- acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades; broken
-  parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
-- **Phase 2 spec only after the gate passes**, informed by the first live week of lane meters
+- ⏳ founder sign-off on `FUSION_EVIDENCE_BUS_SPEC_2026-07-17.md` **v3** → dispatch Phase A
+  (evidence substrate: ingest_seq cursors, intake job, episodes/dispositions, fusion_mech
+  journal lane, batch grader, notification consolidation — observe-only, legacy pushes stay)
+- acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
+  broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 
 ## ▶ Index-pressure gauge — first OpEx verify TODAY (2026-07-17)
 

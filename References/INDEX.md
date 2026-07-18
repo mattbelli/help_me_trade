@@ -26,10 +26,13 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | Doc | Status |
 |---|---|
 | `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` | ★ GOVERNING design for the idea engine (Paths A+B unified). Supersedes both idea-ledger specs |
-| `IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md` | Phase 1 implementation spec — DEPLOYED 07-16; verify gate + acceptance drills live here |
+| `IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md` | Phase 1 implementation spec — DEPLOYED 07-16; audit gaps fixed in Round 0 (07-18) |
+| `FUSION_EVIDENCE_BUS_SPEC_2026-07-17.md` | ★ v3 BUILD spec for the fusion layer — the Phase 2 delta set ON the Unified Design (grill + 4 audits). Roadmap §4 item 2 builds to THIS |
+| `AUDIT_GPT56_IDEA_ENGINE_FUSION_2026-07-17.md` | External gpt-5.6-sol technical audit (17 findings, 8/8 verified) — findings age as fixes land; Round 0 fixed the shipped-code set |
+| `AUDIT_GPT56_PRODUCT_DIRECTION_2026-07-17.md` | External gpt-5.6-sol product-direction audit vs the founder vision — sequencing + Strategy Packs + blind spots |
 | `CLASSIFICATION_LAB_PREREG_2026-07-16.md` | ★ Pre-registered print-lab metrics — LAW: never improvise metrics on the data |
 | `COLLECTOR_PRESSURE_AUDIT_2026-07-16.md` | The "DO NOT MERGE" gauge audit — deferred findings F3/F4/F8 still open |
-| `DECISION_ENGINE_FUSION_DESIGN_2026-07-13.md` | Current Decision Engine fusion/scoring layer design |
+| `DECISION_ENGINE_FUSION_DESIGN_2026-07-13.md` | REASON scorecard→EV design — a LATER layer, NOT "the fusion layer" (that's the Evidence Bus spec); gated on factor admission + 8 founder decisions |
 | `DECISION_ENGINE_RESEARCH.md` | Evidence base (06-21 deep research: fusion, calibration, LLM role) |
 | `DECISION_ENGINE_HONESTY_REDTEAM_2026-07-08.md` | Honesty audit of every score-to-user path; founder chose SUPPRESS |
 | `EARNINGS_DRIFT_SIZING_EXPERIMENT.md` / `EARNINGS_DRIFT_EXTRA_DAY_EXPERIMENT.md` | Active PC/Norgate experiment briefs (07-16) |
