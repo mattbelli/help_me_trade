@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw, SlidersHorizontal } from "lucide-react";
 
+import { PagesMenu } from "@/components/layout/pages-menu";
 import { Button } from "@/components/ui/button";
+import { TERMINAL_COLLAPSED_HEIGHT } from "@/lib/workspace/use-terminal-store";
 import {
   fetchStrategyLabBenchmarks,
   fetchStrategyLabCatalog,
@@ -72,27 +74,29 @@ export function StrategyLabHeader({
   onRefresh: () => void;
 }) {
   return (
-    <header className="border-b border-border/70 pb-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Strategy Lab</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            research backtests and forward journals
-          </p>
-          <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-            artifacts {artifactTime ?? "unavailable"} · cohorts{" "}
-            {cohortTime ?? "not available"}
+    <header className="flex h-[52px] shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg-raised)] px-3.5 sm:px-4">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        <PagesMenu />
+        <div className="min-w-0">
+          <h1 className="truncate font-mono text-[13px] font-semibold tracking-tight text-foreground">
+            Strategy Lab
+          </h1>
+          <p className="truncate text-[10px] text-[var(--fg-dim)]">
+            research backtests and forward journals · artifacts{" "}
+            {artifactTime ?? "unavailable"} · cohorts {cohortTime ?? "not available"}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
-          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
-          Refresh
-        </Button>
       </div>
-      <p className="mt-5 border-l-2 border-amber-500/70 pl-3 text-sm leading-relaxed text-foreground/90">
-        Historical simulations and observational journals are different evidence. No
-        curve on this page establishes significance or expected return.
-      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRefresh}
+        disabled={loading}
+        className="shrink-0 gap-1.5"
+      >
+        <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+        <span className="hidden sm:inline">Refresh</span>
+      </Button>
     </header>
   );
 }
@@ -824,14 +828,24 @@ export function StrategyLabPage() {
   );
 
   return (
-    <main className="min-h-0 flex-1 overflow-auto">
-      <div className="mx-auto w-full max-w-[1920px] space-y-9 px-4 py-5 sm:px-6 sm:py-6">
-        <StrategyLabHeader
-          artifactTime={benchmarks?.generated ?? sleeves[0]?.generated ?? null}
-          cohortTime={cohorts?.generated_at ?? null}
-          loading={loading}
-          onRefresh={() => void load()}
-        />
+    <div className="flex h-svh min-h-0 flex-col bg-background">
+      <StrategyLabHeader
+        artifactTime={benchmarks?.generated ?? sleeves[0]?.generated ?? null}
+        cohortTime={cohorts?.generated_at ?? null}
+        loading={loading}
+        onRefresh={() => void load()}
+      />
+      <main className="min-h-0 flex-1 overflow-auto">
+        <div
+          className="mx-auto w-full max-w-[1920px] space-y-9 px-4 py-5 sm:px-6 sm:py-6"
+          // Reserve the collapsed terminal strip's height so the last section
+          // isn't hidden under the fixed viewport overlay (board does this).
+          style={{ paddingBottom: `calc(1.5rem + ${TERMINAL_COLLAPSED_HEIGHT}px)` }}
+        >
+        <p className="border-l-2 border-amber-500/70 pl-3 text-sm leading-relaxed text-foreground/90">
+          Historical simulations and observational journals are different evidence. No
+          curve on this page establishes significance or expected return.
+        </p>
         <section>
           <div className="mb-5">
             <h2 className="text-lg font-semibold">Research backtests</h2>
@@ -888,7 +902,8 @@ export function StrategyLabPage() {
           )}
         </section>
         <CohortSection catalog={cohorts} error={cohortError} />
-      </div>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-// The legacy /charts multi-chart grid is retired — the workspace's chart
-// widgets supersede it. Kept as a redirect so old bookmarks / links land.
-export default function ChartsRoute() {
-  redirect("/workspace");
+// Legacy sidebar UI retired (founder order 2026-07-18) — one UI world.
+// Old deep-links land on the workspace.
+export default function ChartsRedirect() {
+  redirect("/");
 }

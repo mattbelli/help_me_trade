@@ -1,5 +1,7 @@
-import { MemoriesPage } from "@/components/memories/memories-page";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return <MemoriesPage />;
+// Legacy sidebar UI retired (founder order 2026-07-18) — one UI world.
+// Old deep-links land on the workspace.
+export default function MemoriesRedirect() {
+  redirect("/");
 }

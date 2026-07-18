@@ -36,6 +36,7 @@ export type CommandResult = {
 export const WORKSPACE_COMMANDS = [
   "/positions",
   "/board",
+  "/lab",
   "/add",
   "/theme",
   "/clear",
@@ -178,6 +179,10 @@ export function useWorkspaceCommands() {
           router.push("/board");
           showToast("Project board");
           return { handled: true, output: "navigating to project board" };
+        case "/lab":
+          router.push("/strategy-lab");
+          showToast("Strategy Lab");
+          return { handled: true, output: "navigating to strategy lab" };
         case "/add": {
           const arg = value.split(/\s+/).slice(1).join(" ").trim();
           if (!arg) {

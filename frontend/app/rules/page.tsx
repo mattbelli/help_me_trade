@@ -1,5 +1,7 @@
-import { RulesPage } from "@/components/rules/rules-page";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return <RulesPage />;
+// Legacy sidebar UI retired (founder order 2026-07-18) — one UI world.
+// Old deep-links land on the workspace.
+export default function RulesRedirect() {
+  redirect("/");
 }

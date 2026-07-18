@@ -10,6 +10,7 @@ export const TOP_LEVEL_PAGES = [
   { href: "/", label: "Workspace" },
   { href: "/board", label: "Board" },
   { href: "/research", label: "Research" },
+  { href: "/strategy-lab", label: "Strategy Lab" },
 ] as const;
 
 function isActivePage(href: string, pathname: string | null): boolean {

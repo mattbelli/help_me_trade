@@ -1,17 +1,7 @@
-import { Suspense } from "react";
+import { redirect } from "next/navigation";
 
-import { PerformancePage } from "@/components/performance/performance-page";
-
-export default function Page() {
-  return (
-    <Suspense
-      fallback={
-        <div className="p-8 text-sm text-muted-foreground">
-          Loading performance…
-        </div>
-      }
-    >
-      <PerformancePage />
-    </Suspense>
-  );
+// Legacy sidebar UI retired (founder order 2026-07-18) — one UI world.
+// Old deep-links land on the workspace.
+export default function PerformanceRedirect() {
+  redirect("/");
 }
