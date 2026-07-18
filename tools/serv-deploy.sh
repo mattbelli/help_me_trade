@@ -21,6 +21,18 @@ restart() {
   sleep 6
   local newpid
   newpid=$(systemctl show "$svc" -p MainPID --value 2>/dev/null)
+  if [[ "$newpid" == "$pid" ]]; then
+    # SIGTERM ignored (seen 2026-07-18: uvicorn survived TERM during a loop
+    # stall) — a same-PID "success" means the OLD code is still serving.
+    echo "[$svc] WARNING: PID unchanged after TERM — escalating to SIGKILL"
+    kill -9 "$pid"
+    sleep 6
+    newpid=$(systemctl show "$svc" -p MainPID --value 2>/dev/null)
+    if [[ "$newpid" == "$pid" ]]; then
+      echo "[$svc] FAILED: still PID $pid after SIGKILL — deploy did NOT land"
+      return 1
+    fi
+  fi
   echo "[$svc] active=$(systemctl is-active "$svc") newMainPID=$newpid (was $pid)"
 }
 
