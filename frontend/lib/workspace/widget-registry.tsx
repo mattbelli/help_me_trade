@@ -31,6 +31,8 @@ import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcom
 import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
 import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
 import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
+import { IdeaLedgerWidget } from "@/components/workspace/widgets/idea-ledger-widget";
+import { EvidenceStackWidget } from "@/components/workspace/widgets/evidence-stack-widget";
 import { FilingsWidget } from "@/components/workspace/widgets/filings-widget";
 import { ChatWidget } from "@/components/workspace/widgets/chat-widget";
 
@@ -167,6 +169,22 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: IdeaOutcomesWidget,
     defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
+  },
+  {
+    id: "idea-ledger",
+    title: "idea ledger",
+    description: "Every registered idea + outcome",
+    channelAware: true,
+    component: IdeaLedgerWidget,
+    defaultSize: { w: 12, h: 6, minW: 6, minH: 3 },
+  },
+  {
+    id: "evidence-stack",
+    title: "evidence stacks",
+    description: "Fusion evidence stacks (observe-only)",
+    channelAware: true,
+    component: EvidenceStackWidget,
+    defaultSize: { w: 10, h: 6, minW: 5, minH: 3 },
   },
   {
     id: "filings",

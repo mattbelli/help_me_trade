@@ -96,7 +96,7 @@ from db.accounts import (
     reconcile_account_external_id,
 )
 from db.ai_tables import delete_rule, init_ai_tables
-from db.base import DEFAULT_DB_PATH
+from db.base import DEFAULT_DB_PATH, connect
 from db.chart_features import (
     create_chart_drawing,
     create_price_alert,
@@ -3599,6 +3599,65 @@ def api_idea_outcomes():
         "summary": get_summary(),
         "open": [_enrich_open_idea(r) for r in list_recent_open()],
         "resolved": list_recent_resolved(limit=50),
+    }
+
+
+@app.get("/api/ideas/ledger")
+def api_idea_ledger(
+    origin: str | None = None,
+    status: str | None = None,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    from db.idea_outcomes import list_ledger_rows
+
+    return list_ledger_rows(
+        origin=origin,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/api/fusion/episodes")
+def api_fusion_episodes(
+    day: str | None = None,
+    limit: int = Query(50, ge=1, le=100),
+):
+    from db.fusion import list_recent_episodes
+
+    rows = list_recent_episodes(
+        market_day=day,
+        limit=limit,
+        db_path=DEFAULT_DB_PATH,
+    )
+    return {
+        "episodes": rows,
+        "day": day if day is not None else (rows[0]["market_day"] if rows else None),
+    }
+
+
+@app.get("/api/fusion/episodes/{episode_id}")
+def api_fusion_episode(episode_id: str):
+    from db.fusion import episode_dots
+
+    with connect(DEFAULT_DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT id, symbol, market_day, opened_at, updated_at, anchor_dot_id,
+                   anchor_price, anchor_atr14, anchor_direction,
+                   registration_called, score, direction_state, contested,
+                   signature, market_shock
+            FROM fusion_episodes
+            WHERE id = ?
+            """,
+            (episode_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Fusion episode not found")
+    return {
+        "episode": dict(row),
+        "dots": episode_dots(episode_id, db_path=DEFAULT_DB_PATH),
     }
 
 

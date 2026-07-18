@@ -22,14 +22,17 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 - ⏳ Mon 07-20 (next trading day): first fully-automatic 16:45 ET dead-man run (exec bit now in
   git); 15:00 canary + median/never-worked alarm rules run live for the first time
 - ⚠️ founder must SUBSCRIBE to the ntfy dead-man topic (in crontab) or pages go nowhere
-- ▶ **Phase A SHIPPED + DEPLOYED 07-18** (A1 substrate `8984aac` + A2 registrar seam, one
-  round; spec v3.1 w/ cohort scorecards §2.4b + Idea Ledger table §2.8; detail: BUILD_LOG
-  2026-07-18 ×2). **Observe window OPEN** — verify next trading session (Mon 07-20): intake
-  job runs market-hours, `fusion_mech` rows appear in idea_outcomes, conservation counters
-  balance, no card/push surfaces anything (`FUSION_CARDS_ENABLED=False`). Follow-ups on card
-  `fusion-phase-a-substrate` (state-dot adapters A1b, VIX shock leg dead, retention, 3 LOW
-  review findings). Phase B (widgets: Evidence Stack + Idea Ledger table + cohort rollup) =
-  next round, gpt-5.6 dispatch
+- ▶ **Phase A SHIPPED + DEPLOYED 07-18; hardened same night** (A1 `8984aac` + A2 `2a5e71d`;
+  overnight audit → F1/F2/F7 ledger-hole fixes `4ac6377`; detail: BUILD_LOG 2026-07-18 ×3).
+  **Observe window opens Mon 07-20** — verify: intake runs market-hours, `fusion_mech` rows
+  appear, conservation balances, nothing user-visible (`FUSION_CARDS_ENABLED=False`).
+  Follow-ups on `fusion-phase-a-substrate` (A1b restamp/dirty queues, retention, contested
+  scoring F10). **Phase B widgets SHIPPED** (Idea Ledger + Evidence Stack, card
+  `fusion-phase-b-widgets`) — founder in-browser check pending after deploy
+- ▶ **Overnight 07-18 doc harvest awaiting founder**: `research/overnight_2026-07-18/`
+  (map: `NIGHT_LEDGER.md`) — Strategy Lab design duel + synthesis (orchestrator judgment
+  next), roadmap designs + critiques (news dots / nightly wrap / watchlist v3), perception
+  ideation. Remaining Cursor quota burns by ~midday Sat on founder-directed rounds
 - acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
   broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 

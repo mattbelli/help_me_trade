@@ -1691,6 +1691,122 @@ export async function getIdeaOutcomes(): Promise<IdeaOutcomesResponse> {
   return res.json();
 }
 
+export type IdeaLedgerRow = {
+  id: number;
+  as_of: string;
+  updated_at: string;
+  symbol: string;
+  direction: string;
+  origin: string;
+  idea_index: number;
+  entry_low: string;
+  entry_high: string;
+  stop: string;
+  targets_json: string;
+  status: IdeaOutcomeStatus;
+  user_action: string;
+  ret_pct: number | null;
+  spy_ret_pct: number | null;
+  alpha_pct: number | null;
+  source_ref: string | null;
+};
+
+export type IdeaLedgerResponse = {
+  rows: IdeaLedgerRow[];
+  total: number;
+};
+
+export async function getIdeaLedger(params?: {
+  origin?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<IdeaLedgerResponse> {
+  const query = new URLSearchParams();
+  if (params?.origin) query.set("origin", params.origin);
+  if (params?.status) query.set("status", params.status);
+  if (params?.limit != null) query.set("limit", String(params.limit));
+  if (params?.offset != null) query.set("offset", String(params.offset));
+  const suffix = query.size > 0 ? `?${query}` : "";
+  const res = await apiFetch(`${API_BASE}/api/ideas/ledger${suffix}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Idea ledger error ${res.status}`);
+  return res.json();
+}
+
+export type FusionEpisode = {
+  id: string;
+  symbol: string;
+  market_day: string;
+  opened_at: string;
+  updated_at: string;
+  anchor_dot_id: string | null;
+  anchor_price: string | null;
+  anchor_atr14: string | null;
+  anchor_direction: string | null;
+  registration_called: number;
+  score: number;
+  direction_state: string;
+  contested: number;
+  signature: string;
+  market_shock: number;
+  dot_count?: number;
+};
+
+export type EvidenceDot = {
+  id: string;
+  episode_id: string;
+  source_store: string;
+  source_event_id: string;
+  source_ingest_seq: number;
+  symbol: string;
+  ts: string;
+  component: string;
+  actor_group: string;
+  dot_kind: string;
+  direction: string;
+  raw_value: string | null;
+  points: number;
+  detail: Record<string, unknown>;
+  trigger_price: string | null;
+  prior_close_atr14: string | null;
+  stamped: number;
+  created_at: string;
+};
+
+export type FusionEpisodesResponse = {
+  episodes: FusionEpisode[];
+  day: string | null;
+};
+
+export type FusionEpisodeResponse = {
+  episode: FusionEpisode;
+  dots: EvidenceDot[];
+};
+
+export async function getFusionEpisodes(
+  day?: string,
+): Promise<FusionEpisodesResponse> {
+  const query = day ? `?${new URLSearchParams({ day })}` : "";
+  const res = await apiFetch(`${API_BASE}/api/fusion/episodes${query}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Fusion episodes error ${res.status}`);
+  return res.json();
+}
+
+export async function getFusionEpisode(
+  id: string,
+): Promise<FusionEpisodeResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/api/fusion/episodes/${encodeURIComponent(id)}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Fusion episode error ${res.status}`);
+  return res.json();
+}
+
 export type FilingKind = "insider_buy" | "stake_13d" | "congress_trade";
 
 export type FilingEvent = {

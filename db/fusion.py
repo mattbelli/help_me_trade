@@ -217,6 +217,43 @@ def get_atr(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> Decimal | None:
     return Decimal(str(row["atr14"])) if row else None
 
 
+def list_recent_episodes(
+    *,
+    market_day: str | None = None,
+    limit: int = 50,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict]:
+    init_fusion_tables(db_path)
+    lim = max(1, min(int(limit), 500))
+    with _connect(db_path) as conn:
+        resolved_day = market_day
+        if resolved_day is None:
+            row = conn.execute("SELECT MAX(market_day) AS market_day FROM fusion_episodes").fetchone()
+            resolved_day = str(row["market_day"]) if row and row["market_day"] else None
+        if resolved_day is None:
+            return []
+        rows = conn.execute(
+            """
+            SELECT e.id, e.symbol, e.market_day, e.opened_at, e.updated_at,
+                   e.anchor_dot_id, e.anchor_price, e.anchor_atr14,
+                   e.anchor_direction, e.registration_called, e.score,
+                   e.direction_state, e.contested, e.signature, e.market_shock,
+                   COALESCE(d.dot_count, 0) AS dot_count
+            FROM fusion_episodes AS e
+            LEFT JOIN (
+                SELECT episode_id, COUNT(*) AS dot_count
+                FROM evidence_dots
+                GROUP BY episode_id
+            ) AS d ON d.episode_id = e.id
+            WHERE e.market_day = ?
+            ORDER BY e.score DESC, e.updated_at DESC
+            LIMIT ?
+            """,
+            (resolved_day, lim),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def episode_dots(episode_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
     with _connect(db_path) as conn:
         rows = conn.execute(

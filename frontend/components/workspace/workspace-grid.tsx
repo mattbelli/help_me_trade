@@ -640,6 +640,181 @@ function OptionsFlowHeaderControls({
   );
 }
 
+const IDEA_LEDGER_LANES = [
+  "all",
+  "structure",
+  "llm_conviction",
+  "structure_vetoed",
+  "fusion_mech",
+  "strategy:earnings_drift",
+  "strategy:momentum_sp500",
+  "convergence",
+  "canary",
+] as const;
+
+const IDEA_LEDGER_STATUSES = ["all", "open", "resolved"] as const;
+
+type IdeaLedgerConfig = {
+  ledgerOrigin?: string;
+  ledgerStatus?: string;
+};
+
+function IdeaLedgerHeaderControls({
+  config,
+  onConfigChange,
+}: {
+  config: WidgetInstanceConfig;
+  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+}) {
+  const ledgerConfig = config as WidgetInstanceConfig & IdeaLedgerConfig;
+  const lane = ledgerConfig.ledgerOrigin ?? "all";
+  const status = ledgerConfig.ledgerStatus ?? "all";
+  const changeConfig = (patch: Partial<IdeaLedgerConfig>) =>
+    onConfigChange(patch as Partial<WidgetInstanceConfig>);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        type="button"
+        className={cn(
+          "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)]",
+          lane === "all" && status === "all"
+            ? "text-[var(--fg-dim)] hover:text-foreground"
+            : "text-[var(--c-accent)]",
+        )}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label="Filter idea ledger"
+        title="Filter idea ledger"
+      >
+        <SlidersHorizontal className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="min-w-52 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+      >
+        <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+          lane
+        </div>
+        {IDEA_LEDGER_LANES.map((option) => (
+          <DropdownMenuItem
+            key={option}
+            onClick={() => changeConfig({ ledgerOrigin: option })}
+            className={cn(
+              "flex items-center justify-between gap-3 px-2 py-1 lowercase",
+              lane === option ? "text-foreground" : "text-[var(--fg-dim)]",
+            )}
+          >
+            {option}
+            {lane === option ? <Check className="size-3" /> : null}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+          status
+        </div>
+        {IDEA_LEDGER_STATUSES.map((option) => (
+          <DropdownMenuItem
+            key={option}
+            onClick={() => changeConfig({ ledgerStatus: option })}
+            className={cn(
+              "flex items-center justify-between gap-3 px-2 py-1 lowercase",
+              status === option ? "text-foreground" : "text-[var(--fg-dim)]",
+            )}
+          >
+            {option}
+            {status === option ? <Check className="size-3" /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+const EVIDENCE_SCORE_FILTERS = [
+  { value: 0, label: "all" },
+  { value: 2, label: "≥2" },
+  { value: 4, label: "≥4" },
+] as const;
+const EVIDENCE_DIRECTION_FILTERS = ["all", "bull", "bear", "contested"] as const;
+
+type EvidenceStackConfig = {
+  evidenceMinScore?: number;
+  evidenceDirection?: string;
+};
+
+function EvidenceStackHeaderControls({
+  config,
+  onConfigChange,
+}: {
+  config: WidgetInstanceConfig;
+  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+}) {
+  const evidenceConfig = config as WidgetInstanceConfig & EvidenceStackConfig;
+  const minScore = evidenceConfig.evidenceMinScore ?? 0;
+  const direction = evidenceConfig.evidenceDirection ?? "all";
+  const changeConfig = (patch: Partial<EvidenceStackConfig>) =>
+    onConfigChange(patch as Partial<WidgetInstanceConfig>);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        type="button"
+        className={cn(
+          "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)]",
+          minScore === 0 && direction === "all"
+            ? "text-[var(--fg-dim)] hover:text-foreground"
+            : "text-[var(--c-accent)]",
+        )}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label="Filter evidence stacks"
+        title="Filter evidence stacks"
+      >
+        <SlidersHorizontal className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="min-w-40 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+      >
+        <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+          min score
+        </div>
+        {EVIDENCE_SCORE_FILTERS.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            onClick={() => changeConfig({ evidenceMinScore: option.value })}
+            className={cn(
+              "flex items-center justify-between gap-3 px-2 py-1 lowercase",
+              minScore === option.value ? "text-foreground" : "text-[var(--fg-dim)]",
+            )}
+          >
+            {option.label}
+            {minScore === option.value ? <Check className="size-3" /> : null}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+          direction
+        </div>
+        {EVIDENCE_DIRECTION_FILTERS.map((option) => (
+          <DropdownMenuItem
+            key={option}
+            onClick={() => changeConfig({ evidenceDirection: option })}
+            className={cn(
+              "flex items-center justify-between gap-3 px-2 py-1 lowercase",
+              direction === option ? "text-foreground" : "text-[var(--fg-dim)]",
+            )}
+          >
+            {option}
+            {direction === option ? <Check className="size-3" /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Notifications header: unread count + one ⚙ dropdown holding the category
     filter, the new-card sound toggle, and mark-all-read — replacing the old
     in-widget filter/button row (widgets don't get a second header bar). */
@@ -840,6 +1015,18 @@ function WidgetHeader({
       ) : null}
       {widgetType === "notifications" && config && onConfigChange ? (
         <NotificationsHeaderControls
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      ) : null}
+      {widgetType === "idea-ledger" && config && onConfigChange ? (
+        <IdeaLedgerHeaderControls
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      ) : null}
+      {widgetType === "evidence-stack" && config && onConfigChange ? (
+        <EvidenceStackHeaderControls
           config={config}
           onConfigChange={onConfigChange}
         />
