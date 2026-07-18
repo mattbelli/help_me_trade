@@ -47,13 +47,13 @@ Zero-context composition audit of hmt-backend verified claim-by-claim and archiv
 - ▶ **Rank-2 exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent →
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)
-- ⏳ **loop-lag: 07-13 stalls decomposed 07-18** (journal archaeology, poll-gap ground truth — detail:
-  BUILD_LOG 2026-07-18): daytime starvation class KILLED by the 07-14/15 extractions; open/close
-  keepalive drops = upstream Alpaca burst (poll cadence perfect, benign); overnight stalls REMAIN LIVE
-  (41s poll gap 07-16 00:18Z EOD-era; 30s gap 07-17 02:19Z during setup scan, which is already
-  to_thread'd → suspect worker-thread SQLite write txns blocking the loop's sync DB writes —
-  unproven). Verify next week's nights post-step-1; persisting setup-scan stalls = direct Rank-1
-  evidence. A ~20-line loop-lag heartbeat probe would replace journal archaeology — founder go
+- ⏳ **loop-lag: 07-13 stalls decomposed + probe ARMED; verdict Mon 07-20 night** (detail: BUILD_LOG
+  2026-07-18 ×2): daytime starvation class KILLED by the extractions; open/close keepalive drops =
+  upstream Alpaca burst (poll cadence perfect, benign); overnight stalls = the live class — Fri
+  night's 64s gap landed exactly on the OLD sync EOD scan (pre-step-1 PID; step 1 deployed Sat
+  18:49Z, zero nightly data yet). `api/loop_probe.py` deployed: any ≥2s loop stall now dumps all
+  thread stacks (`[EVENT LOOP]` marked) + executor-lag heartbeat; grep `loop_probe:`. Mon night
+  ~00:40Z Tue: silence = step 1 fixed it; a dump = the culprit stack, feeds the Rank-1 design
 - Schwab jobs stay in-process behind config gates (founder leaning: Schwab is personal, not product —
   Rank-3 tier, no action now)
 

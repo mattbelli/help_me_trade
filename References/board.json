@@ -10,6 +10,17 @@
   ],
   "cards": [
     {
+      "id": "loop-lag-probe-2026-07-18",
+      "title": "Loop-lag probe \u2014 stall stack dumps + executor-lag heartbeat (api/loop_probe.py)",
+      "lane": "done",
+      "type": "ops",
+      "priority": "normal",
+      "owner": "agent",
+      "notes": "Built after the 07-18 stall decomposition (BUILD_LOG 2026-07-18): journal archaeology proved the 07-13 daytime starvation class dead post-extractions, open/close keepalive drops upstream-benign, but overnight stalls live \u2014 Fri 07-17 night (PRE-step-1 PID 1173077) showed a 64s poll gap + stream drop landing exactly on the sync options_flow EOD scan finishing 00:43:58Z (strongest single-cause conviction yet; step 1's to_thread wrap deployed only Sat 18:49Z). Probe: on-loop heartbeat (4x/s) + daemon watchdog thread that dumps ALL thread stacks past a 2s stall (loop thread marked [EVENT LOOP] \u2014 distinguishes sync-on-loop block vs GIL convoy vs DB-lock pileup) + executor heartbeat (to_thread pool round-trip, logs lag >=3s \u2014 pool saturation is invisible to the loop beat). Grep keys: 'loop_probe: event-loop stall' / 'executor lag'. Tests prove a blocked loop dumps the culprit frame. VERDICT WINDOW: Mon 07-20 night ~00:40Z Tue \u2014 silence = step 1 fixed the EOD stall; a dump = the culprit's stack, feeds the Rank-1 worker design.",
+      "created_at": "2026-07-18",
+      "updated_at": "2026-07-18"
+    },
+    {
       "id": "backend-composition-step1-2026-07-18",
       "title": "Backend composition audit \u2014 verified; step-1 loop-safety fixes shipped",
       "lane": "done",

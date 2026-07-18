@@ -38,6 +38,7 @@ from api.jobs import (
     start_all,
 )
 from api.journal_routes import router as journal_router
+from api.loop_probe import LoopProbe
 from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
 from api.orders_routes import router as orders_router
@@ -2136,6 +2137,9 @@ def _register_background_jobs() -> None:
     register_watchdog_job()
 
 
+_loop_probe = LoopProbe()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not auth_enabled():
@@ -2205,7 +2209,7 @@ async def lifespan(app: FastAPI):
             await reconcile_pending_executions(name)
     await _poll_once()
     _register_background_jobs()
-    background_tasks = start_all() + [
+    background_tasks = _loop_probe.start() + start_all() + [
         asyncio.create_task(_poll_loop()),
         asyncio.create_task(_signal_scan_loop()),
         asyncio.create_task(_session_node_loop()),
@@ -2234,6 +2238,7 @@ async def lifespan(app: FastAPI):
             background_tasks.append(asyncio.create_task(_flow_runner.stream_run()))
             background_tasks.append(asyncio.create_task(_flow_runner.sweep_loop()))
     yield
+    _loop_probe.stop()
     _flow_runner.stop()
     for task in background_tasks:
         task.cancel()
