@@ -45,6 +45,19 @@ CANARY_REGISTER_ET = "15:00"
 CANARY_RECEIPT_TIMEOUT_MIN = 30
 DEADMAN_ET = "16:45"
 
+# Fusion Phase A1 remains observe-only until explicitly armed.  These values are
+# deterministic policy constants so score/shock cohorts can be reproduced.
+FUSION_CARDS_ENABLED = False
+FUSION_POLL_SECONDS = 60.0
+FUSION_STORM_BATCH_EVENTS = 500
+FUSION_STORM_KEEP_EVENTS = 200
+FUSION_SOCIAL_SPIKE_RATIO = 2.0
+FUSION_SPY_SHOCK_MOVE_PCT = 2.0
+FUSION_VIX_SHOCK_MOVE_PCT = 8.0
+FUSION_SHOCK_WINDOW_MINUTES = 60
+FUSION_CARD_DAILY_CAP = 50
+FUSION_CARD_TRAILING_PERCENTILE = 0.75
+
 
 def validate_config() -> None:
     """Assert the invariants the rest of the engine relies on (config-rot defense)."""
@@ -67,3 +80,6 @@ def validate_config() -> None:
         "path_a_register",
     }
     assert CANARY_RECEIPT_TIMEOUT_MIN > 0
+    assert FUSION_CARDS_ENABLED is False
+    assert 0 < FUSION_STORM_KEEP_EVENTS <= FUSION_STORM_BATCH_EVENTS
+    assert 0 < FUSION_CARD_TRAILING_PERCENTILE < 1

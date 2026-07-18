@@ -32,6 +32,7 @@ def init_db(db_path: Path | None = None) -> None:
             """
             CREATE TABLE IF NOT EXISTS options_flow_events (
                 id TEXT PRIMARY KEY,
+                ingest_seq INTEGER,
                 ts TEXT NOT NULL,
                 underlying TEXT NOT NULL,
                 occ_symbol TEXT NOT NULL,
@@ -62,6 +63,10 @@ def init_db(db_path: Path | None = None) -> None:
                 ON options_flow_events (underlying);
             CREATE INDEX IF NOT EXISTS idx_of_events_type
                 ON options_flow_events (event_type);
+            CREATE TABLE IF NOT EXISTS bus_ingest_sequences (
+                store TEXT PRIMARY KEY,
+                next_seq INTEGER NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS options_flow_daily (
                 underlying TEXT NOT NULL,
@@ -81,6 +86,42 @@ def init_db(db_path: Path | None = None) -> None:
             """
         )
         _add_column_if_missing(conn, "options_flow_events", "detail", "TEXT")
+        _add_column_if_missing(conn, "options_flow_events", "ingest_seq", "INTEGER")
+        # Stable integer cursor migration.  Existing rows are numbered once in
+        # first-seen order; the writer below never updates this column.
+        missing = conn.execute(
+            """
+            SELECT id FROM options_flow_events
+            WHERE ingest_seq IS NULL
+            ORDER BY created_at ASC, id ASC
+            """
+        ).fetchall()
+        next_seq = int(
+            conn.execute(
+                "SELECT COALESCE(MAX(ingest_seq), 0) + 1 FROM options_flow_events"
+            ).fetchone()[0]
+        )
+        for row in missing:
+            conn.execute(
+                "UPDATE options_flow_events SET ingest_seq = ? WHERE id = ?",
+                (next_seq, row["id"]),
+            )
+            next_seq += 1
+        conn.execute(
+            """
+            INSERT INTO bus_ingest_sequences (store, next_seq)
+            VALUES ('options_flow', ?)
+            ON CONFLICT(store) DO UPDATE SET
+                next_seq = MAX(bus_ingest_sequences.next_seq, excluded.next_seq)
+            """,
+            (next_seq,),
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_of_events_ingest_seq
+            ON options_flow_events (ingest_seq)
+            """
+        )
         # Intraday outcome horizons (signals/options_flow/outcomes.py) — underlying
         # forward returns from the print ts; ret_1d/ret_5d are original columns.
         _add_column_if_missing(conn, "options_flow_events", "ret_15m", "REAL")
@@ -93,9 +134,7 @@ def init_db(db_path: Path | None = None) -> None:
         # minutes_into_session = ET minutes since 09:30 (DST makes this non-derivable
         # in SQL). Weekday / size bucket / 0DTE derive from ts+columns at query time.
         _add_column_if_missing(conn, "options_flow_events", "coverage", "TEXT")
-        _add_column_if_missing(
-            conn, "options_flow_events", "minutes_into_session", "INTEGER"
-        )
+        _add_column_if_missing(conn, "options_flow_events", "minutes_into_session", "INTEGER")
         conn.commit()
 
 
@@ -159,20 +198,36 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
         detail_json = None
     created = event.get("created_at") or _now()
     with _connect(resolved) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT ingest_seq FROM options_flow_events WHERE id = ?",
+            (event["id"],),
+        ).fetchone()
+        if existing is None:
+            seq_row = conn.execute(
+                """
+                UPDATE bus_ingest_sequences
+                SET next_seq = next_seq + 1
+                WHERE store = 'options_flow'
+                RETURNING next_seq - 1
+                """
+            ).fetchone()
+            ingest_seq = int(seq_row[0])
+        else:
+            ingest_seq = int(existing["ingest_seq"])
         conn.execute(
             """
             INSERT INTO options_flow_events (
-                id, ts, underlying, occ_symbol, right, strike, expiry, dte,
+                id, ingest_seq, ts, underlying, occ_symbol, right, strike, expiry, dte,
                 otm_pct, event_type, contracts, premium_usd, vol_oi_ratio,
                 vol_zscore, direction, direction_basis, spread_flag, n_prints,
                 exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail,
                 coverage, minutes_into_session
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?,
-                ?, ?
+                ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(id) DO UPDATE SET
                 underlying = excluded.underlying,
@@ -200,6 +255,7 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
             """,
             (
                 event["id"],
+                ingest_seq,
                 event["ts"],
                 str(event.get("underlying") or "").strip().upper(),
                 event.get("occ_symbol"),
@@ -411,8 +467,11 @@ def stamp_outcomes(
     init_db(resolved)
     sets, params = [], []
     for col, val in (
-        ("ret_15m", ret_15m), ("ret_1h", ret_1h), ("ret_eod", ret_eod),
-        ("ret_1d", ret_1d), ("ret_5d", ret_5d),
+        ("ret_15m", ret_15m),
+        ("ret_1h", ret_1h),
+        ("ret_eod", ret_eod),
+        ("ret_1d", ret_1d),
+        ("ret_5d", ret_5d),
     ):
         if val is not None:
             sets.append(f"{col} = ?")
@@ -430,9 +489,7 @@ def stamp_outcomes(
         conn.commit()
 
 
-def events_missing_outcomes(
-    *, limit: int = 2000, db_path: Path | None = None
-) -> list[dict]:
+def events_missing_outcomes(*, limit: int = 2000, db_path: Path | None = None) -> list[dict]:
     """Events not yet outcome-resolved, oldest first (the filler's work queue)."""
     resolved = _db_path(db_path)
     init_db(resolved)

@@ -41,6 +41,9 @@ def init_notifications_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON notifications (account_id);
             CREATE INDEX IF NOT EXISTS idx_notifications_strategy
                 ON notifications (strategy_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_fusion_group
+                ON notifications(group_key)
+                WHERE kind = 'fusion_stack' AND group_key IS NOT NULL;
             """
         )
         conn.commit()
@@ -160,6 +163,119 @@ def create_notification(
     }
 
 
+def upsert_group_notification(
+    *,
+    group_key: str,
+    kind: str,
+    title: str,
+    body: str = "",
+    severity: str = "info",
+    ref_type: str | None = None,
+    ref_id: str | None = None,
+    data: dict[str, Any] | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Create or update one card under a serialized ``group_key`` transaction."""
+    init_notifications_tables(db_path)
+    clean_key = group_key.strip()
+    if not clean_key:
+        raise ValueError("group_key is required")
+    now = _now()
+    payload = dict(data or {})
+    with _connect(db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """
+            SELECT id FROM notifications
+            WHERE group_key = ? AND kind = ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (clean_key, kind),
+        ).fetchone()
+        if row is None:
+            notification_id = uuid.uuid4().hex[:12]
+            conn.execute(
+                """
+                INSERT INTO notifications(
+                    id, kind, title, body, severity, ref_type, ref_id,
+                    group_key, data_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notification_id,
+                    kind,
+                    title,
+                    body,
+                    severity,
+                    ref_type,
+                    ref_id,
+                    clean_key,
+                    json.dumps(payload),
+                    now,
+                ),
+            )
+        else:
+            notification_id = str(row["id"])
+            conn.execute(
+                """
+                UPDATE notifications SET
+                    title = ?, body = ?, severity = ?, ref_type = ?, ref_id = ?,
+                    data_json = ?, dismissed_at = NULL
+                WHERE id = ?
+                """,
+                (
+                    title,
+                    body,
+                    severity,
+                    ref_type,
+                    ref_id,
+                    json.dumps(payload),
+                    notification_id,
+                ),
+            )
+        conn.commit()
+    result = _get_notification_row(notification_id, db_path=db_path)
+    if result is None:
+        raise RuntimeError("notification upsert committed without a row")
+    return result
+
+
+def evict_notification(
+    notification_id: str,
+    *,
+    reason: str = "score_ranked_cap",
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Dismiss a card and persist an explicit eviction marker in its payload."""
+    init_notifications_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT data_json FROM notifications WHERE id = ?",
+            (notification_id.strip(),),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["data_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload.update({"evicted": True, "eviction_reason": reason, "evicted_at": now})
+        conn.execute(
+            """
+            UPDATE notifications
+            SET dismissed_at = ?, data_json = ?
+            WHERE id = ?
+            """,
+            (now, json.dumps(payload), notification_id.strip()),
+        )
+        conn.commit()
+    return _get_notification_row(notification_id.strip(), db_path=db_path)
+
+
 def list_notifications(
     *,
     limit: int = 50,
@@ -202,9 +318,7 @@ def list_notifications(
     return [_row_to_notification(row) for row in rows]
 
 
-def mark_read(
-    notification_id: str, *, db_path: Path = DEFAULT_DB_PATH
-) -> dict[str, Any] | None:
+def mark_read(notification_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any] | None:
     init_notifications_tables(db_path)
     clean_id = notification_id.strip()
     now = _now()
@@ -224,9 +338,7 @@ def mark_read(
     return _get_notification_row(clean_id, db_path=db_path)
 
 
-def mark_all_read(
-    *, account_id: str | None = None, db_path: Path = DEFAULT_DB_PATH
-) -> int:
+def mark_all_read(*, account_id: str | None = None, db_path: Path = DEFAULT_DB_PATH) -> int:
     init_notifications_tables(db_path)
     now = _now()
     with _connect(db_path) as conn:
@@ -252,9 +364,7 @@ def mark_all_read(
         return int(cur.rowcount)
 
 
-def dismiss(
-    notification_id: str, *, db_path: Path = DEFAULT_DB_PATH
-) -> dict[str, Any] | None:
+def dismiss(notification_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any] | None:
     init_notifications_tables(db_path)
     clean_id = notification_id.strip()
     now = _now()

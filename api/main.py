@@ -169,12 +169,8 @@ from trading.sync import async_sync_all_enabled_brokers
 ROOT = Path(__file__).resolve().parent.parent
 BOARD_JSON_PATH = ROOT / "References" / "board.json"
 _EMPTY_BOARD: dict = {"updated_at": None, "lanes": [], "cards": []}
-POLL_INTERVAL_SECONDS = max(
-    5, int(os.environ.get("POLL_INTERVAL_SECONDS", "20"))
-)
-SIGNAL_SCAN_INTERVAL_SECONDS = max(
-    30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300"))
-)
+POLL_INTERVAL_SECONDS = max(5, int(os.environ.get("POLL_INTERVAL_SECONDS", "20")))
+SIGNAL_SCAN_INTERVAL_SECONDS = max(30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300")))
 # Session-node reacts to SPY touching a level on the 1-min chart, so it runs on its
 # OWN fast cadence (default 60s = the bar granularity) — decoupled from the heavy
 # 5-min signal scan so we don't also run the expensive daily-bar scans every minute.
@@ -190,22 +186,24 @@ REGIME_SLEEVES_SCAN_INTERVAL_SECONDS = max(
 )
 MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS = 24 * 3600
 VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
-RVOL_ALERT_INTERVAL_SECONDS = max(
-    60, int(os.environ.get("RVOL_ALERT_INTERVAL_SECONDS", "300"))
-)
+RVOL_ALERT_INTERVAL_SECONDS = max(60, int(os.environ.get("RVOL_ALERT_INTERVAL_SECONDS", "300")))
 RVOL_ALERT_THRESHOLD = float(os.environ.get("RVOL_ALERT_THRESHOLD", "3.0"))
-_RVOL_ALERTS_ENABLED = os.environ.get("RVOL_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
-OPTIONS_FLOW_INTERVAL_SECONDS = float(
-    os.environ.get("OPTIONS_FLOW_INTERVAL_SECONDS", "1800")
+_RVOL_ALERTS_ENABLED = os.environ.get("RVOL_ALERTS_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
 )
+OPTIONS_FLOW_INTERVAL_SECONDS = float(os.environ.get("OPTIONS_FLOW_INTERVAL_SECONDS", "1800"))
 _OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not in (
     "0",
     "false",
     "no",
 )
-_SETUP_SCAN_NIGHTLY_ENABLED = os.environ.get(
-    "SETUP_SCAN_NIGHTLY_ENABLED", "1"
-).strip() not in ("0", "false", "no")
+_SETUP_SCAN_NIGHTLY_ENABLED = os.environ.get("SETUP_SCAN_NIGHTLY_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
+)
 _FILINGS_FEED_ENABLED = os.environ.get("FILINGS_FEED_ENABLED", "1").strip() not in (
     "0",
     "false",
@@ -214,12 +212,12 @@ _FILINGS_FEED_ENABLED = os.environ.get("FILINGS_FEED_ENABLED", "1").strip() not 
 FILINGS_INSIDER_MIN_USD = float(os.environ.get("FILINGS_INSIDER_MIN_USD", "100000"))
 # Earliest ET clock time (fractional hours) for the nightly setup scan — after
 # the close so the day's daily bar is final.
-SETUP_SCAN_NIGHTLY_AFTER_ET = float(
-    os.environ.get("SETUP_SCAN_NIGHTLY_AFTER_ET", "17.5")
+SETUP_SCAN_NIGHTLY_AFTER_ET = float(os.environ.get("SETUP_SCAN_NIGHTLY_AFTER_ET", "17.5"))
+_OPTIONS_FLOW_STREAM_ENABLED = os.environ.get("OPTIONS_FLOW_STREAM_ENABLED", "0").strip() not in (
+    "0",
+    "false",
+    "no",
 )
-_OPTIONS_FLOW_STREAM_ENABLED = os.environ.get(
-    "OPTIONS_FLOW_STREAM_ENABLED", "0"
-).strip() not in ("0", "false", "no")
 # "1" = the standalone collector process (tools/flow_collector.py) owns the
 # intraday flow pipeline and the API must NOT run it: Alpaca allows one OPRA
 # websocket per account, so two hosts 406-fight each other into backoff. Both
@@ -234,14 +232,14 @@ _OPTIONS_FLOW_EXTERNAL_COLLECTOR = os.environ.get(
 _EQUITY_TAPE_EXTERNAL_COLLECTOR = os.environ.get(
     "EQUITY_TAPE_EXTERNAL_COLLECTOR", "0"
 ).strip() not in ("0", "false", "no")
-OPTIONS_FLOW_POLL_SECONDS = max(
-    10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30"))
-)
+OPTIONS_FLOW_POLL_SECONDS = max(10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30")))
 SCHWAB_HEALTH_INTERVAL_SECONDS = max(
     300, int(os.environ.get("SCHWAB_HEALTH_INTERVAL_SECONDS", str(6 * 3600)))
 )
-_SCHWAB_HEALTH_ALERTS_ENABLED = (
-    os.environ.get("SCHWAB_HEALTH_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+_SCHWAB_HEALTH_ALERTS_ENABLED = os.environ.get("SCHWAB_HEALTH_ALERTS_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
 )
 SCHWAB_SNAPSHOT_INTERVAL_SECONDS = max(
     300, int(os.environ.get("SCHWAB_SNAPSHOT_INTERVAL_SECONDS", str(1800)))
@@ -249,15 +247,19 @@ SCHWAB_SNAPSHOT_INTERVAL_SECONDS = max(
 EARNINGS_ALERT_INTERVAL_SECONDS = max(
     60, int(os.environ.get("EARNINGS_ALERT_INTERVAL_SECONDS", str(6 * 3600)))
 )
-_EARNINGS_ALERTS_ENABLED = (
-    os.environ.get("EARNINGS_ALERTS_ENABLED", "1").strip() not in ("0", "false", "no")
+_EARNINGS_ALERTS_ENABLED = os.environ.get("EARNINGS_ALERTS_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
 )
 MORNING_REPORT_INTERVAL_SECONDS = max(
     60, int(os.environ.get("MORNING_REPORT_INTERVAL_SECONDS", "900"))
 )
-_MORNING_REPORT_ENV_ENABLED = os.environ.get(
-    "MORNING_REPORT_ENABLED", "1"
-).strip() not in ("0", "false", "no")
+_MORNING_REPORT_ENV_ENABLED = os.environ.get("MORNING_REPORT_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
+)
 MORNING_REPORT_SYMBOL = "SPY"
 _BARS_PREWARM_INTERVAL = 15.0
 _TRADE_SYNC_INTERVAL_SECONDS = 3600.0
@@ -274,6 +276,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
 
 # NB: the live-quote hub follows the DATA provider (MARKET_DATA_PROVIDER), NOT the
 # execution broker. Keeps Schwab data/streaming decoupled from order routing —
@@ -503,9 +506,7 @@ async def _poll_once() -> None:
 
         swept = await sweep_unmanaged_terminal_fills()
         if swept:
-            logger.warning(
-                "Unmanaged-fill sweep quarantined %d new orphan fill(s)", swept
-            )
+            logger.warning("Unmanaged-fill sweep quarantined %d new orphan fill(s)", swept)
     except Exception:
         logger.exception("Unmanaged-fill sweep pass failed")
 
@@ -658,8 +659,7 @@ async def _regime_refresh_loop() -> None:
 
 def _momentum_strategy_enabled() -> bool:
     return any(
-        s.get("enabled") and str(s.get("id", "")).startswith("momentum")
-        for s in list_strategies()
+        s.get("enabled") and str(s.get("id", "")).startswith("momentum") for s in list_strategies()
     )
 
 
@@ -855,9 +855,7 @@ async def _idea_tracker_loop() -> None:
 
     async def _run_pass() -> None:
         transitions: list[dict] = []
-        counts = await asyncio.to_thread(
-            sweep_open_ideas, transitions=transitions
-        )
+        counts = await asyncio.to_thread(sweep_open_ideas, transitions=transitions)
         if any(counts.get(k, 0) for k in counts if k != "examined"):
             logger.info("Idea tracker sweep: %s", counts)
         for t in transitions:
@@ -882,10 +880,7 @@ async def _idea_tracker_loop() -> None:
 async def _alert_symbol_loop() -> None:
     while True:
         try:
-            symbols = {
-                str(a["symbol"]).upper()
-                for a in list_price_alerts(active_only=True)
-            }
+            symbols = {str(a["symbol"]).upper() for a in list_price_alerts(active_only=True)}
             # Pin the watchlists too: the tape detector (blocks/dark pool) and
             # confluence only see subscribed symbols — "things we are watching"
             # must stream server-side, not just while a browser has them open.
@@ -894,9 +889,7 @@ async def _alert_symbol_loop() -> None:
                 from config.settings import get_watchlists_state
 
                 for wl in get_watchlists_state().get("lists") or []:
-                    watch.update(
-                        str(s).upper() for s in (wl.get("symbols") or [])
-                    )
+                    watch.update(str(s).upper() for s in (wl.get("symbols") or []))
             except Exception:
                 logger.debug("watchlist pin failed", exc_info=True)
             await market_hub.ensure_symbols(watch)
@@ -969,8 +962,9 @@ async def _equity_tape_flush_loop() -> None:
                 if reachable != collector_reachable:
                     (logger.info if reachable else logger.error)(
                         "equity tape: collector proxy %s",
-                        "reachable again" if reachable else
-                        "UNREACHABLE — watchlist stream is down until "
+                        "reachable again"
+                        if reachable
+                        else "UNREACHABLE — watchlist stream is down until "
                         "hmt-equity-collector returns (or flip the flag to 0)",
                     )
                 collector_reachable = reachable
@@ -1204,9 +1198,7 @@ async def _options_flow_eod_once() -> None:
 
         symbols = _all_watchlist_symbols()
         event_date = today_et.isoformat()
-        summary = run_eod_scan(
-            broker, symbols=symbols, event_date=event_date
-        )
+        summary = run_eod_scan(broker, symbols=symbols, event_date=event_date)
         _mark_options_flow_scanned(today_et)
         logger.info(
             "options_flow EOD: date=%s underlyings=%s events=%s daily_rows=%s",
@@ -1287,9 +1279,7 @@ async def _earnings_alert_once() -> None:
 
             milestones: list[tuple[str, str]] = []
             if 1 < days_until <= 14:
-                milestones.append(
-                    ("t14", f"📅 {sym} earnings in 2 weeks — {earnings_date_str}")
-                )
+                milestones.append(("t14", f"📅 {sym} earnings in 2 weeks — {earnings_date_str}"))
             if 0 < days_until <= 1:
                 milestones.append(
                     (
@@ -1333,7 +1323,9 @@ async def _earnings_alert_once() -> None:
 
 
 # Schwab health alert state: last-alert date (resets each ET day)
-_schwab_health_last_date: dict[str, date] = {}  # key: alert type ("expiring"/"offline"/"probe_failed")
+_schwab_health_last_date: dict[
+    str, date
+] = {}  # key: alert type ("expiring"/"offline"/"probe_failed")
 _schwab_probe_failures = 0
 _SCHWAB_PROBE_FAILURE_THRESHOLD = 3
 
@@ -1379,9 +1371,7 @@ async def _schwab_health_once() -> None:
                     },
                 )
                 _schwab_health_last_date["expiring"] = today_et
-                logger.warning(
-                    "Schwab health alert: token expiring in %.2f days", days_left
-                )
+                logger.warning("Schwab health alert: token expiring in %.2f days", days_left)
 
     # Probe only when the token *claims* to be fine — an offline token already
     # paged above; probing it too would double-alert (alert fatigue).
@@ -1575,9 +1565,7 @@ async def _generate_report_by_kind(
     if kind == "evening_brief":
         return await reports_mod.generate_evening_brief_report(syms, et_date=et_date)
     if kind == "on_request":
-        return await reports_mod.generate_on_request_report(
-            topic or "", syms, et_date=et_date
-        )
+        return await reports_mod.generate_on_request_report(topic or "", syms, et_date=et_date)
     return None
 
 
@@ -1594,9 +1582,7 @@ async def _run_scheduled_report(job: dict) -> None:
         return
 
     today = now_et.date()
-    symbols = [
-        str(s).strip().upper() for s in (job.get("symbols") or []) if str(s).strip()
-    ]
+    symbols = [str(s).strip().upper() for s in (job.get("symbols") or []) if str(s).strip()]
     dedup_key = ",".join(symbols) if kind == "levels" else kind
     if report_exists_for_day(kind, today, dedup_key=dedup_key):
         return
@@ -1641,9 +1627,7 @@ async def _reports_scheduler_loop() -> None:
                 try:
                     await _run_scheduled_report(job)
                 except Exception:
-                    logger.exception(
-                        "Scheduled report job failed: %s", job.get("kind")
-                    )
+                    logger.exception("Scheduled report job failed: %s", job.get("kind"))
         except Exception:
             # Guards the config reads too — this loop must never die (audit LOW-7).
             logger.exception("Reports scheduler loop iteration failed")
@@ -1735,12 +1719,8 @@ def _count_scan_ideas(result: object) -> tuple[int, int]:
             ideas = report.get("ideas")
     if not isinstance(ideas, list):
         return 0, 0
-    structure = sum(
-        1 for i in ideas if isinstance(i, dict) and i.get("origin") == "structure"
-    )
-    conviction = sum(
-        1 for i in ideas if isinstance(i, dict) and i.get("origin") != "structure"
-    )
+    structure = sum(1 for i in ideas if isinstance(i, dict) and i.get("origin") == "structure")
+    conviction = sum(1 for i in ideas if isinstance(i, dict) and i.get("origin") != "structure")
     return structure, conviction
 
 
@@ -1803,16 +1783,13 @@ async def _setup_scan_nightly_once() -> None:
         await notify(
             kind="scan_ready",
             title=(
-                f"Nightly setup scan done — {structure} structure + "
-                f"{conviction} conviction idea(s)"
+                f"Nightly setup scan done — {structure} structure + {conviction} conviction idea(s)"
             ),
             body=f"{today_et.isoformat()} · tracked in idea outcomes",
             severity="info",
             ref_type="research",
             ref_id=str(artifact_id) if artifact_id is not None else None,
-            action_url=(
-                f"/research?id={artifact_id}" if artifact_id is not None else None
-            ),
+            action_url=(f"/research?id={artifact_id}" if artifact_id is not None else None),
             push=False,
         )
     except Exception:
@@ -1820,6 +1797,147 @@ async def _setup_scan_nightly_once() -> None:
 
 
 _background_jobs_registered = False
+_fusion_shock_until_mono = 0.0
+
+
+def _fusion_price_from_cache(symbol: str):
+    """Read the backend's existing bars caches only; never fetch."""
+    from decimal import Decimal
+
+    sym = symbol.strip().upper()
+    now_wall = time.time()
+    candidates: list[tuple[float, object]] = []
+    for (cached_sym, timeframe), (stored_at, bars) in _wl_bars_cache.items():
+        if cached_sym == sym and bars:
+            ttl = _WL_BARS_TTL_S.get(timeframe, 90.0)
+            if now_wall - stored_at <= ttl:
+                candidates.append((stored_at, bars[-1]))
+    for key, (expires, response) in _BARS_CACHE.items():
+        if key and key[0] == sym and expires > time.monotonic():
+            bars = response.get("bars") if isinstance(response, dict) else None
+            if bars:
+                candidates.append((expires, bars[-1]))
+    if not candidates:
+        return None
+    latest = max(candidates, key=lambda item: item[0])[1]
+    close = latest.get("close") if isinstance(latest, dict) else getattr(latest, "close", None)
+    return Decimal(str(close)) if close is not None else None
+
+
+def _fusion_cached_daily_move(symbol: str) -> float | None:
+    sym = symbol.strip().upper()
+    newest: tuple[float, list] | None = None
+    hit = _wl_bars_cache.get((sym, "1Day"))
+    if hit is not None and hit[1]:
+        newest = hit
+    for key, (expires, response) in _BARS_CACHE.items():
+        if key and key[0] == sym and key[1] == "1Day":
+            bars = response.get("bars") if isinstance(response, dict) else None
+            if bars and (newest is None or expires > newest[0]):
+                newest = (expires, bars)
+    if newest is None or len(newest[1]) < 2:
+        return None
+    bars = newest[1]
+    previous = bars[-2]
+    current = bars[-1]
+    prev_close = previous.get("close") if isinstance(previous, dict) else previous.close
+    last_close = current.get("close") if isinstance(current, dict) else current.close
+    if not prev_close:
+        return None
+    return (float(last_close) / float(prev_close) - 1.0) * 100.0
+
+
+def _fusion_shock_active() -> bool:
+    global _fusion_shock_until_mono
+    from config.idea_engine import (
+        FUSION_SHOCK_WINDOW_MINUTES,
+        FUSION_SPY_SHOCK_MOVE_PCT,
+        FUSION_VIX_SHOCK_MOVE_PCT,
+    )
+
+    now = time.monotonic()
+    spy_move = _fusion_cached_daily_move("SPY")
+    vix_move = _fusion_cached_daily_move("VIX")
+    if (
+        spy_move is not None
+        and abs(spy_move) >= FUSION_SPY_SHOCK_MOVE_PCT
+        or vix_move is not None
+        and vix_move >= FUSION_VIX_SHOCK_MOVE_PCT
+    ):
+        _fusion_shock_until_mono = max(
+            _fusion_shock_until_mono, now + FUSION_SHOCK_WINDOW_MINUTES * 60
+        )
+    return now <= _fusion_shock_until_mono
+
+
+async def _fusion_intake_once() -> None:
+    from signals.fusion.intake import intake_once
+
+    await asyncio.to_thread(
+        intake_once,
+        price_lookup=_fusion_price_from_cache,
+        shock_lookup=_fusion_shock_active,
+    )
+
+
+async def _fusion_atr_refresh_once() -> None:
+    """Once-daily external work, deliberately separate from trigger intake."""
+    from datetime import datetime
+    from decimal import Decimal
+
+    from db.base import DEFAULT_DB_PATH, connect
+    from db.equity_tape import init_db as init_equity_tape
+    from db.fusion import put_atr
+    from db.options_flow import init_db as init_options_flow
+
+    init_options_flow(DEFAULT_DB_PATH)
+    init_equity_tape(DEFAULT_DB_PATH)
+    as_of = datetime.now(_ET).date().isoformat()
+    with connect(DEFAULT_DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT underlying AS symbol FROM options_flow_events
+            UNION
+            SELECT symbol FROM equity_tape_events
+            """
+        ).fetchall()
+        cached_today = {
+            str(row["symbol"])
+            for row in conn.execute(
+                "SELECT symbol FROM fusion_atr_cache WHERE as_of_date = ?", (as_of,)
+            ).fetchall()
+        }
+    symbols = sorted(
+        ({str(row["symbol"]).upper() for row in rows} | set(_all_watchlist_symbols()))
+        - cached_today
+    )
+    if not symbols:
+        return
+    provider = get_market_data_provider()
+    bars_by_symbol = await provider.aget_stock_bars_batch(symbols, timeframe="1Day", days=40)
+    today_et = datetime.now(_ET).date()
+    for symbol, bars in bars_by_symbol.items():
+        completed = []
+        for bar in bars:
+            raw_time = getattr(bar, "time", None)
+            try:
+                bar_time = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+                bar_day = (
+                    bar_time.astimezone(_ET).date()
+                    if bar_time.tzinfo is not None
+                    else bar_time.date()
+                )
+            except (TypeError, ValueError):
+                bar_day = None
+            if bar_day == today_et:
+                continue
+            completed.append(bar)
+        highs = [float(bar.high) for bar in completed]
+        lows = [float(bar.low) for bar in completed]
+        closes = [float(bar.close) for bar in completed]
+        atr14 = indicators.atr(highs, lows, closes, 14)
+        if atr14 is not None:
+            put_atr(symbol, as_of, Decimal(str(round(atr14, 6))))
 
 
 def _register_background_jobs() -> None:
@@ -1829,6 +1947,7 @@ def _register_background_jobs() -> None:
     _background_jobs_registered = True
 
     from api import jobs as jobs_mod
+    from config.idea_engine import FUSION_POLL_SECONDS
 
     noop = jobs_mod._heartbeat_noop
 
@@ -1892,8 +2011,7 @@ def _register_background_jobs() -> None:
             name="options_flow_intraday",
             fn=_flow_runner.intraday_once,
             interval_s=float(OPTIONS_FLOW_POLL_SECONDS),
-            enabled=lambda: _OPTIONS_FLOW_ENABLED
-            and not _OPTIONS_FLOW_EXTERNAL_COLLECTOR,
+            enabled=lambda: _OPTIONS_FLOW_ENABLED and not _OPTIONS_FLOW_EXTERNAL_COLLECTOR,
         )
     )
     register_job(
@@ -1961,6 +2079,21 @@ def _register_background_jobs() -> None:
 
     register_job(
         jobs_mod.Job(
+            name="fusion_intake",
+            fn=_fusion_intake_once,
+            interval_s=float(FUSION_POLL_SECONDS),
+            market_hours_only=True,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="fusion_atr_refresh",
+            fn=_fusion_atr_refresh_once,
+            interval_s=300.0,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
             name="pipeline_audit",
             fn=pipeline_audit_once,
             interval_s=900.0,
@@ -1998,6 +2131,9 @@ async def lifespan(app: FastAPI):
     init_earnings_alert_tables()
     init_reports_tables()
     init_notifications_tables()
+    from db.fusion import init_fusion_tables
+
+    init_fusion_tables()
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
@@ -2510,9 +2646,7 @@ async def _wl_cached_bars_batch(
         else:
             missing.append(sym)
     if missing:
-        fetched = await provider.aget_stock_bars_batch(
-            missing, timeframe=timeframe, days=days
-        )
+        fetched = await provider.aget_stock_bars_batch(missing, timeframe=timeframe, days=days)
         for sym in missing:
             bars = fetched.get(sym) or []
             # Cache empty results too — an unfetchable symbol otherwise
@@ -2542,8 +2676,7 @@ def _compute_wl_baseline(bars: list) -> dict | None:
     # low <= close <= high, so a low/high wildly inconsistent with its own
     # close is bogus — substitute the close so 52w and ATR stay sane.
     highs = [
-        h if (c and h <= c * 2) else c
-        for h, c in ((float(b.high), float(b.close)) for b in bars)
+        h if (c and h <= c * 2) else c for h, c in ((float(b.high), float(b.close)) for b in bars)
     ]
     lows = [
         lo if (c and lo >= c * 0.5) else c
@@ -2576,9 +2709,7 @@ async def _wl_baselines_batch(provider, symbols: list[str]) -> dict[str, dict | 
         missing.append(sym)
     if missing:
         try:
-            fetched = await provider.aget_stock_bars_batch(
-                missing, timeframe="1Day", days=300
-            )
+            fetched = await provider.aget_stock_bars_batch(missing, timeframe="1Day", days=300)
         except BrokerError:
             logger.warning("Watchlist baseline bars fetch failed", exc_info=True)
             fetched = {}
@@ -2596,11 +2727,7 @@ async def api_watchlist_market(symbols: str = ""):
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
-    symbol_list = [
-        s.strip().upper()
-        for s in symbols.split(",")
-        if s.strip()
-    ]
+    symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     if not symbol_list:
         symbol_list = get_watchlist()
     if not symbol_list:
@@ -2627,9 +2754,7 @@ async def api_watchlist_market(symbols: str = ""):
     # cache-shared bars call (free when SPY is already on the list).
     spy_change_pct: float | None = None
     try:
-        spy_bars = (await _wl_cached_bars_batch(provider, ["SPY"], days=12)).get(
-            "SPY"
-        ) or []
+        spy_bars = (await _wl_cached_bars_batch(provider, ["SPY"], days=12)).get("SPY") or []
         if len(spy_bars) >= 2 and float(spy_bars[-2].close):
             spy_change_pct = round(
                 (float(spy_bars[-1].close) - float(spy_bars[-2].close))
@@ -2722,9 +2847,7 @@ async def api_watchlist_market(symbols: str = ""):
                 "market_cap": None,
                 "last_earnings": None,
                 "next_earnings": None,
-                "rvol": _compute_rvol_field(
-                    sym, intraday_by_symbol.get(sym, []), session="globex"
-                ),
+                "rvol": _compute_rvol_field(sym, intraday_by_symbol.get(sym, []), session="globex"),
             }
             continue
 
@@ -2947,9 +3070,7 @@ async def api_options_chain(
     from brokers.options_chain import build_options_chain_sync
 
     try:
-        result = await asyncio.to_thread(
-            build_options_chain_sync, broker, sym, expiry, strikes_key
-        )
+        result = await asyncio.to_thread(build_options_chain_sync, broker, sym, expiry, strikes_key)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
     except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
@@ -3013,9 +3134,7 @@ async def api_index_pressure(
 
     win = window.strip().lower()
     if win not in ("open", "close"):
-        return JSONResponse(
-            {"error": "window must be 'open' or 'close'"}, status_code=400
-        )
+        return JSONResponse({"error": "window must be 'open' or 'close'"}, status_code=400)
     target = (date or datetime.now(_ET).date().isoformat()).strip()
     try:
         from signals.options_flow.constants import GAUGE_ZERO_DTE_PICKS
@@ -3120,13 +3239,10 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
 
     # Batch fetch quotes in chunks; gather concurrently.
     chunks = [
-        symbols[i : i + _SCANNER_CHUNK_SIZE]
-        for i in range(0, len(symbols), _SCANNER_CHUNK_SIZE)
+        symbols[i : i + _SCANNER_CHUNK_SIZE] for i in range(0, len(symbols), _SCANNER_CHUNK_SIZE)
     ]
     try:
-        chunk_results = await asyncio.gather(
-            *(provider.aget_quotes(chunk) for chunk in chunks)
-        )
+        chunk_results = await asyncio.gather(*(provider.aget_quotes(chunk) for chunk in chunks))
     except BrokerError as exc:
         return JSONResponse(
             {"error": f"Schwab quote fetch failed: {exc}"},
@@ -3177,9 +3293,7 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
     }
 
 
-def _session_intraday_closes(
-    bars: list[StockBar], *, futures: bool = False
-) -> list[float]:
+def _session_intraday_closes(bars: list[StockBar], *, futures: bool = False) -> list[float]:
     if not bars:
         return []
 
@@ -3193,9 +3307,7 @@ def _session_intraday_closes(
         from research.intraday_profile import globex_session_date
 
         sessions = [
-            (sd, bar)
-            for bar in bars
-            if (sd := globex_session_date(_bar_et(bar))) is not None
+            (sd, bar) for bar in bars if (sd := globex_session_date(_bar_et(bar))) is not None
         ]
         if not sessions:
             return []
@@ -3218,9 +3330,7 @@ def _session_intraday_closes(
     return [round(b.close, 4) for b in kept]
 
 
-def _futures_price_roll(
-    daily_bars: list[StockBar], intraday_bars: list[StockBar]
-) -> dict | None:
+def _futures_price_roll(daily_bars: list[StockBar], intraday_bars: list[StockBar]) -> dict | None:
     """Roll a futures quote forward when the 5-min series has a whole Globex
     session the daily series lacks — Schwab's futures DAILY bars can lag a
     session (e.g. the 2026-07-03 holiday half-session never got a daily bar),
@@ -3236,16 +3346,12 @@ def _futures_price_roll(
         return datetime.fromisoformat(bar.time.replace("Z", "+00:00")).astimezone(_ET)
 
     sessions = [
-        (sd, bar)
-        for bar in intraday_bars
-        if (sd := globex_session_date(_bar_et(bar))) is not None
+        (sd, bar) for bar in intraday_bars if (sd := globex_session_date(_bar_et(bar))) is not None
     ]
     if not sessions:
         return None
     latest_session = max(sd for sd, _ in sessions)
-    last_daily_date = datetime.fromisoformat(
-        daily_bars[-1].time.replace("Z", "+00:00")
-    ).date()
+    last_daily_date = datetime.fromisoformat(daily_bars[-1].time.replace("Z", "+00:00")).date()
     if latest_session <= last_daily_date:
         return None
 
@@ -3325,11 +3431,7 @@ async def api_symbols_overnight(symbols: str = ""):
     if isinstance(broker, JSONResponse):
         return broker
 
-    symbol_list = [
-        s.strip().upper()
-        for s in symbols.split(",")
-        if s.strip()
-    ]
+    symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     if not symbol_list:
         return {"overnight_tradable": []}
 
@@ -3501,9 +3603,7 @@ def api_idea_outcomes():
 
 
 @app.post("/api/ideas/outcomes/{outcome_id}/grade")
-def api_grade_idea_outcome(
-    outcome_id: int, request: Request, body: dict = Body(...)
-):
+def api_grade_idea_outcome(outcome_id: int, request: Request, body: dict = Body(...)):
     """Founder-only 5b judging: grade a RESOLVED idea against the rubric.
     Re-grading overwrites (the founder can revise)."""
     verify_mutation_token(request)
@@ -3543,7 +3643,13 @@ def api_get_report(report_id: str):
     return report
 
 
-_GENERATABLE_REPORT_KINDS = ("morning_levels", "levels", "morning_brief", "evening_brief", "on_request")
+_GENERATABLE_REPORT_KINDS = (
+    "morning_levels",
+    "levels",
+    "morning_brief",
+    "evening_brief",
+    "on_request",
+)
 
 
 @app.post("/api/reports/generate")
@@ -3569,21 +3675,15 @@ async def api_generate_report(body: dict = Body(...), push: bool = False):
         symbols = [MORNING_REPORT_SYMBOL]
     topic = str(body.get("topic", "")).strip()
     if kind == "on_request" and not topic:
-        return JSONResponse(
-            {"error": "kind 'on_request' requires a 'topic'"}, status_code=400
-        )
+        return JSONResponse({"error": "kind 'on_request' requires a 'topic'"}, status_code=400)
 
     try:
-        report = await _generate_report_by_kind(
-            kind, symbols=symbols or None, topic=topic or None
-        )
+        report = await _generate_report_by_kind(kind, symbols=symbols or None, topic=topic or None)
     except Exception as exc:
         logger.exception("Manual report generate failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
     if report is None:
-        return JSONResponse(
-            {"error": "No data available for this report"}, status_code=404
-        )
+        return JSONResponse({"error": "No data available for this report"}, status_code=404)
 
     try:
         await _notify_report_ready(report, push=push)
@@ -3628,16 +3728,19 @@ def _overnight_delayed_flag() -> bool:
         return False
     return data_tier(broker) == "free"
 
+
 # Recency of chart-bar requests, used to keep the cache warm (prewarm loop below).
 # spec = (timeframe, days) the frontend actually requests — capturing it avoids
 # hardcoding the frontend's per-timeframe `days` here (they must match the cache key).
-_BARS_SEEN_SYMBOLS: dict[str, float] = {}          # symbol -> last-requested monotonic
+_BARS_SEEN_SYMBOLS: dict[str, float] = {}  # symbol -> last-requested monotonic
 _BARS_SEEN_SPECS: dict[tuple[str, int], float] = {}  # (timeframe, days) -> last-requested monotonic
-_BARS_SEEN_TTL = 30 * 60.0          # forget a symbol/spec 30 min after last request
-_BARS_PREWARM_REFRESH_LEAD = 25.0   # refetch when <25s of cache TTL remains (never go cold mid-use)
-_BARS_PREWARM_MAX_SYMBOLS = 40      # cap Schwab load for big watchlists
-_BARS_PREWARM_PACE = 0.25           # sleep between actual fetches (s)
-_BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {("1Day", 1825)}  # the default chart view, warm from boot
+_BARS_SEEN_TTL = 30 * 60.0  # forget a symbol/spec 30 min after last request
+_BARS_PREWARM_REFRESH_LEAD = 25.0  # refetch when <25s of cache TTL remains (never go cold mid-use)
+_BARS_PREWARM_MAX_SYMBOLS = 40  # cap Schwab load for big watchlists
+_BARS_PREWARM_PACE = 0.25  # sleep between actual fetches (s)
+_BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {
+    ("1Day", 1825)
+}  # the default chart view, warm from boot
 
 
 @app.get("/api/bars")
@@ -3877,11 +3980,7 @@ def api_put_workspace_layout(body: dict = Body(...)):
     for item in layout:
         if not _is_valid_layout_item(item):
             return JSONResponse(
-                {
-                    "error": (
-                        "each layout item must have string i, type and numeric x, y, w, h"
-                    )
-                },
+                {"error": ("each layout item must have string i, type and numeric x, y, w, h")},
                 status_code=400,
             )
     save_workspace_layout(layout)
@@ -4045,9 +4144,7 @@ def api_post_board_inbox(body: dict = Body(...)):
     if not title:
         raise HTTPException(status_code=400, detail="title is required")
     if len(title) > 200:
-        raise HTTPException(
-            status_code=400, detail="title must be at most 200 characters"
-        )
+        raise HTTPException(status_code=400, detail="title must be at most 200 characters")
 
     notes_raw = body.get("notes", "")
     if notes_raw is None:
@@ -4056,9 +4153,7 @@ def api_post_board_inbox(body: dict = Body(...)):
         raise HTTPException(status_code=400, detail="notes must be a string")
     notes = notes_raw.strip()
     if len(notes) > 500:
-        raise HTTPException(
-            status_code=400, detail="notes must be at most 500 characters"
-        )
+        raise HTTPException(status_code=400, detail="notes must be at most 500 characters")
 
     board = _load_board_for_mutation()
 
@@ -4126,9 +4221,7 @@ def api_create_alert(body: dict = Body(...)):
     note = str(body.get("note", ""))
     repeat = bool(body.get("repeat", False))
     if not symbol or price is None:
-        return JSONResponse(
-            {"error": "symbol and price are required"}, status_code=400
-        )
+        return JSONResponse({"error": "symbol and price are required"}, status_code=400)
     if direction not in ("above", "below", "cross"):
         return JSONResponse(
             {"error": "direction must be one of: above, below, cross"},
@@ -4199,9 +4292,7 @@ def api_create_drawing(body: dict = Body(...)):
     kind = str(body.get("kind", "")).strip().lower()
     data = body.get("data", {})
     if not symbol or not kind:
-        return JSONResponse(
-            {"error": "symbol and kind are required"}, status_code=400
-        )
+        return JSONResponse({"error": "symbol and kind are required"}, status_code=400)
     if kind not in ("level", "trendline", "channel"):
         return JSONResponse(
             {"error": "kind must be one of: level, trendline, channel"},

@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+from db.base import connect
+from db.equity_tape import init_db as init_tape_db
+from db.equity_tape import insert_event as insert_tape
+from db.fusion import conservation_counts, init_fusion_tables, put_atr
+from db.options_flow import init_db as init_flow_db
+from db.options_flow import insert_event as insert_flow
+from signals.fusion.intake import intake_once
+
+
+@pytest.fixture
+def fusion_db(tmp_path: Path) -> Path:
+    path = tmp_path / "fusion.db"
+    init_fusion_tables(path)
+    return path
+
+
+def _flow(event_id: str, premium: int = 1_000_000) -> dict:
+    return {
+        "id": event_id,
+        "ts": "2026-07-17T14:30:00+00:00",
+        "underlying": "TSLA",
+        "occ_symbol": "TSLA260821C00300000",
+        "right": "call",
+        "event_type": "sweep",
+        "premium_usd": premium,
+        "direction": "buy_side",
+        "created_at": "2026-07-17T14:30:01+00:00",
+    }
+
+
+def _tape(event_id: str, notional: int = 2_000_000) -> dict:
+    return {
+        "id": event_id,
+        "ts": "2026-07-17T14:40:00+00:00",
+        "symbol": "TSLA",
+        "event_type": "dark_pool",
+        "price": 320,
+        "size": 6250,
+        "notional_usd": notional,
+        "direction": "buy_side",
+        "created_at": "2026-07-17T14:40:01+00:00",
+    }
+
+
+def test_ingest_seq_is_assigned_once_and_preserved_on_upsert(fusion_db: Path) -> None:
+    insert_flow(_flow("flow-1"), fusion_db)
+    insert_tape(_tape("tape-1"), fusion_db)
+    with connect(fusion_db) as conn:
+        flow_seq = conn.execute(
+            "SELECT ingest_seq FROM options_flow_events WHERE id = 'flow-1'"
+        ).fetchone()[0]
+        tape_seq = conn.execute(
+            "SELECT ingest_seq FROM equity_tape_events WHERE id = 'tape-1'"
+        ).fetchone()[0]
+
+    insert_flow(_flow("flow-1", premium=3_000_000), fusion_db)
+    insert_tape(_tape("tape-1", notional=5_000_000), fusion_db)
+    with connect(fusion_db) as conn:
+        flow = conn.execute(
+            "SELECT ingest_seq, premium_usd FROM options_flow_events WHERE id = 'flow-1'"
+        ).fetchone()
+        tape = conn.execute(
+            "SELECT ingest_seq, notional_usd FROM equity_tape_events WHERE id = 'tape-1'"
+        ).fetchone()
+    assert flow["ingest_seq"] == flow_seq
+    assert tape["ingest_seq"] == tape_seq
+    assert flow["premium_usd"] == 3_000_000
+    assert tape["notional_usd"] == 5_000_000
+
+
+def test_ingest_seq_migration_backfills_created_order(tmp_path: Path) -> None:
+    db = tmp_path / "legacy.db"
+    with connect(db) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE options_flow_events (
+                id TEXT PRIMARY KEY, ts TEXT NOT NULL, underlying TEXT NOT NULL,
+                occ_symbol TEXT NOT NULL, right TEXT, strike REAL, expiry TEXT,
+                dte INTEGER, otm_pct REAL, event_type TEXT NOT NULL,
+                contracts INTEGER, premium_usd REAL, vol_oi_ratio REAL,
+                vol_zscore REAL, direction TEXT, direction_basis TEXT,
+                spread_flag INTEGER, n_prints INTEGER, exchanges TEXT,
+                reason TEXT, caveat TEXT, ret_1d REAL, ret_5d REAL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO options_flow_events(
+                id, ts, underlying, occ_symbol, event_type, created_at
+            ) VALUES
+                ('later', '2026-07-17T15:00:00Z', 'TSLA', 'O2', 'sweep',
+                 '2026-07-17T15:00:01Z'),
+                ('earlier', '2026-07-17T14:00:00Z', 'TSLA', 'O1', 'sweep',
+                 '2026-07-17T14:00:01Z');
+
+            CREATE TABLE equity_tape_events (
+                id TEXT PRIMARY KEY, ts TEXT NOT NULL, symbol TEXT NOT NULL,
+                event_type TEXT NOT NULL, exchange TEXT, price REAL, size INTEGER,
+                notional_usd REAL, direction TEXT, direction_basis TEXT,
+                conditions TEXT, reason TEXT, caveat TEXT, detail TEXT,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.commit()
+    init_flow_db(db)
+    init_tape_db(db)
+    with connect(db) as conn:
+        rows = conn.execute(
+            "SELECT id, ingest_seq FROM options_flow_events ORDER BY ingest_seq"
+        ).fetchall()
+    assert [(row["id"], row["ingest_seq"]) for row in rows] == [
+        ("earlier", 1),
+        ("later", 2),
+    ]
+
+
+def test_cursor_resume_has_no_gap_or_replay(
+    fusion_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[dict, list[dict], dict]] = []
+    monkeypatch.setattr(
+        "signals.fusion.registrar.register_stack",
+        lambda episode, dots, score: calls.append((episode, dots, score)),
+    )
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    insert_flow(_flow("flow-1"), fusion_db)
+    first = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320.25"))
+    assert first["scored"] == 1
+
+    second = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320.25"))
+    assert sum(second.values()) == 0
+
+    insert_tape(_tape("tape-1"), fusion_db)
+    third = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("321.00"))
+    assert third["scored"] == 1
+    with connect(fusion_db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM fusion_dispositions").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM evidence_dots").fetchone()[0] == 2
+    assert len(calls) == 1
+    anchor, dots, score = calls[0]
+    assert anchor["anchor_price"] == "320.25"
+    assert anchor["anchor_atr14"] == "12.50"
+    assert anchor["anchor_direction"] == "bull"
+    assert dots[0]["component"] == "option_sweep"
+    assert score["signature"] == "option_sweep"
+
+
+def test_unstampable_is_stored_and_conservation_balances(fusion_db: Path) -> None:
+    insert_flow(_flow("flow-unstamped"), fusion_db)
+    counters = intake_once(db_path=fusion_db)
+    assert counters["unstampable"] == 1
+    with connect(fusion_db) as conn:
+        dot = conn.execute(
+            "SELECT stamped FROM evidence_dots WHERE source_event_id = 'flow-unstamped'"
+        ).fetchone()
+        episode_score = conn.execute("SELECT score FROM fusion_episodes").fetchone()[0]
+        disposition = conn.execute(
+            """
+            SELECT disposition FROM fusion_dispositions
+            WHERE source_event_id = 'flow-unstamped'
+            """
+        ).fetchone()
+    assert dot["stamped"] == 0
+    assert episode_score == 0
+    assert disposition["disposition"] == "unstampable"
+    assert conservation_counts(db_path=fusion_db) == {"inputs": 1, "dispositions": 1}
+
+
+def test_storm_shedding_accounts_every_event(fusion_db: Path) -> None:
+    put_atr("TSLA", "2026-07-16", Decimal("10"), db_path=fusion_db)
+    for number in range(4):
+        insert_flow(_flow(f"flow-{number}", premium=(number + 1) * 100_000), fusion_db)
+    counters = intake_once(
+        db_path=fusion_db,
+        price_lookup=lambda _symbol: Decimal("300"),
+        storm_threshold=3,
+        storm_keep=2,
+    )
+    assert counters["shed"] == 2
+    assert conservation_counts(db_path=fusion_db) == {"inputs": 4, "dispositions": 4}

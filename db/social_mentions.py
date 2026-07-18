@@ -119,6 +119,22 @@ def _hour_suffix(bucket: str) -> str:
     return bucket.split("T", 1)[1]
 
 
+def _day_part_hours(hour_suffix: str) -> tuple[str, tuple[str, ...]]:
+    """Map an ET hour to the stable v1 social-baseline day parts."""
+    hour = int(hour_suffix)
+    if 4 <= hour <= 8:
+        name, hours = "pre_open", range(4, 9)
+    elif 9 <= hour <= 11:
+        name, hours = "open", range(9, 12)
+    elif 12 <= hour <= 13:
+        name, hours = "midday", range(12, 14)
+    elif 14 <= hour <= 15:
+        name, hours = "close", range(14, 16)
+    else:
+        name, hours = "after_hours", (*range(16, 24), *range(0, 4))
+    return name, tuple(f"{value:02d}" for value in hours)
+
+
 def _baseline_hour_mean(
     conn: Any,
     *,
@@ -126,44 +142,103 @@ def _baseline_hour_mean(
     hour_suffix: str,
     exclude_date_prefix: str,
     lookback_days: int = _BASELINE_LOOKBACK_DAYS,
+    source: str | None = None,
 ) -> tuple[float | None, int]:
-    """Mean same-hour mentions over trailing days (excluding ``exclude_date_prefix``).
+    """Mean hourly mentions in this day-part over trailing days.
 
     Returns (mean, day_count). Mean is None when fewer than ``_MIN_BASELINE_DAYS``
     distinct days have observations.
     """
     end_day = datetime.strptime(exclude_date_prefix, "%Y-%m-%d").date() - timedelta(days=1)
     start_day = end_day - timedelta(days=lookback_days - 1)
+    _, hours = _day_part_hours(hour_suffix)
+    placeholders = ",".join("?" for _ in hours)
+    source_clause = " AND source = ?" if source is not None else ""
+    params: list[Any] = [
+        symbol,
+        f"{start_day.isoformat()}T00",
+        f"{end_day.isoformat()}T23",
+        *hours,
+    ]
+    if source is not None:
+        params.append(source)
     rows = conn.execute(
-        """
+        f"""
         SELECT bucket, SUM(mentions) AS total
         FROM social_mentions
         WHERE symbol = ?
-          AND bucket LIKE ?
           AND bucket >= ?
           AND bucket <= ?
+          AND substr(bucket, 12, 2) IN ({placeholders})
+          {source_clause}
         GROUP BY bucket
         """,
-        (
-            symbol,
-            f"%T{hour_suffix}",
-            f"{start_day.isoformat()}T00",
-            f"{end_day.isoformat()}T23",
-        ),
+        params,
     ).fetchall()
 
-    daily_totals: list[int] = []
+    samples: list[int] = []
+    days: set[str] = set()
     for row in rows:
         bucket = str(row["bucket"])
         day_prefix = bucket.split("T", 1)[0]
         if day_prefix == exclude_date_prefix:
             continue
-        daily_totals.append(int(row["total"]))
+        days.add(day_prefix)
+        samples.append(int(row["total"]))
 
-    day_count = len(daily_totals)
+    day_count = len(days)
     if day_count < _MIN_BASELINE_DAYS:
         return None, day_count
-    return sum(daily_totals) / day_count, day_count
+    return sum(samples) / len(samples), day_count
+
+
+def get_source_buzz(
+    symbol: str,
+    source: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return day-part-normalized buzz for one social venue."""
+    init_social_mentions_tables(db_path)
+    sym = str(symbol).strip().upper()
+    src = str(source).strip().lower()
+    if src not in SOURCES:
+        raise ValueError(f"unsupported social source: {source}")
+    when = now.astimezone(_ET) if now is not None else datetime.now(_ET)
+    bucket = et_hour_bucket(when)
+    today_prefix = _today_et_prefix(when)
+    hour_suffix = _hour_suffix(bucket)
+    day_part, _ = _day_part_hours(hour_suffix)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(mentions), 0) AS total
+            FROM social_mentions
+            WHERE symbol = ? AND bucket = ? AND source = ?
+            """,
+            (sym, bucket, src),
+        ).fetchone()
+        baseline, baseline_days = _baseline_hour_mean(
+            conn,
+            symbol=sym,
+            hour_suffix=hour_suffix,
+            exclude_date_prefix=today_prefix,
+            source=src,
+        )
+    last_hour = int(row["total"]) if row else 0
+    ratio = last_hour / baseline if baseline is not None and baseline > 0 else None
+    return {
+        "symbol": sym,
+        "source": src,
+        "last_hour": last_hour,
+        "baseline_hour": baseline,
+        "baseline_days": baseline_days,
+        "anomaly_ratio": ratio,
+        "state": "warming" if baseline is None else "ready",
+        "bucket": bucket,
+        "day_part": day_part,
+    }
 
 
 def get_buzz(
@@ -179,6 +254,7 @@ def get_buzz(
     current_bucket = et_hour_bucket(when)
     today_prefix = _today_et_prefix(when)
     hour_suffix = _hour_suffix(current_bucket)
+    day_part, _ = _day_part_hours(hour_suffix)
 
     with _connect(db_path) as conn:
         last_hour = _sum_mentions_for_bucket(conn, symbol=sym, bucket=current_bucket)
@@ -212,6 +288,7 @@ def get_buzz(
         "anomaly_ratio": anomaly_ratio,
         "state": state,
         "bucket": current_bucket,
+        "day_part": day_part,
     }
 
 
