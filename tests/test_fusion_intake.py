@@ -184,3 +184,102 @@ def test_storm_shedding_accounts_every_event(fusion_db: Path) -> None:
     )
     assert counters["shed"] == 2
     assert conservation_counts(db_path=fusion_db) == {"inputs": 4, "dispositions": 4}
+
+
+def test_unstampable_first_pass_never_locks_out_the_day(fusion_db: Path) -> None:
+    # First event lands before the ATR cache warms: unstampable, and the
+    # episode must NOT latch registration_called (the F2 lockout class).
+    insert_flow(_flow("flow-early"), fusion_db)
+    first = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320"))
+    assert first["unstampable"] == 1
+    with connect(fusion_db) as conn:
+        latch = conn.execute(
+            "SELECT registration_called FROM fusion_episodes"
+        ).fetchone()[0]
+    assert latch == 0
+
+    # Caches warm, a second stampable print arrives: the day registers off it.
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    insert_flow(_flow("flow-late", premium=2_000_000), fusion_db)
+    second = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("321"))
+    assert second["scored"] == 1
+    with connect(fusion_db) as conn:
+        row = conn.execute(
+            "SELECT registration_called, anchor_price FROM fusion_episodes"
+        ).fetchone()
+    assert row["registration_called"] == 1
+    assert row["anchor_price"] == "321"
+
+
+def test_registrar_crash_leaves_latch_open_and_replay_retries(
+    fusion_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def _boom(episode, dots, score, **kwargs):
+        calls.append(episode["id"])
+        if len(calls) == 1:
+            raise RuntimeError("simulated crash mid-register")
+
+    monkeypatch.setattr("signals.fusion.registrar.register_stack", _boom)
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    insert_flow(_flow("flow-1"), fusion_db)
+    with pytest.raises(RuntimeError):
+        intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320.25"))
+    with connect(fusion_db) as conn:
+        latch = conn.execute(
+            "SELECT registration_called FROM fusion_episodes"
+        ).fetchone()[0]
+        cursor = conn.execute(
+            "SELECT last_ingest_seq FROM bus_cursors WHERE store = 'options_flow'"
+        ).fetchone()
+    assert latch == 0  # the old latch-first order left 1 here: a silent hole
+    assert cursor is None or cursor[0] == 0  # event not consumed — replay due
+
+    second = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320.25"))
+    assert second["scored"] == 1
+    assert len(calls) == 2
+    with connect(fusion_db) as conn:
+        assert conn.execute(
+            "SELECT registration_called FROM fusion_episodes"
+        ).fetchone()[0] == 1
+
+
+def test_market_day_naive_timestamp_is_utc() -> None:
+    from signals.fusion.intake import _market_day
+
+    # 02:30 naive = UTC = 22:30 ET the previous day. Attaching ET (the old
+    # behavior) split one session's evidence across two episodes.
+    assert _market_day("2026-07-18T02:30:00") == "2026-07-17"
+    assert _market_day("2026-07-18T02:30:00Z") == "2026-07-17"
+    assert _market_day("2026-07-17T14:30:00-04:00") == "2026-07-17"
+
+
+def test_crash_replay_restamps_dot_and_registers(
+    fusion_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The exact F2 chain: pass 1 runs before the caches warm AND dies before
+    # the cursor advances (set_cursor no-op). The persisted dot is unstamped.
+    # The replay has price+ATR: the upsert must fill the stamps so the day
+    # anchors on real values instead of latching NULLs or staying locked out.
+    insert_flow(_flow("flow-1"), fusion_db)
+    monkeypatch.setattr("db.fusion.set_cursor", lambda *a, **k: None)
+    first = intake_once(db_path=fusion_db)  # no price_lookup: unstampable
+    assert first["unstampable"] == 1
+    monkeypatch.undo()
+
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    second = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320.25"))
+    assert second["scored"] == 1
+    with connect(fusion_db) as conn:
+        dot = conn.execute(
+            "SELECT stamped, trigger_price FROM evidence_dots"
+        ).fetchone()
+        episode = conn.execute(
+            "SELECT registration_called, anchor_price, anchor_atr14 FROM fusion_episodes"
+        ).fetchone()
+    assert dot["stamped"] == 1
+    assert dot["trigger_price"] == "320.25"
+    assert episode["registration_called"] == 1
+    assert episode["anchor_price"] == "320.25"
+    assert episode["anchor_atr14"] == "12.50"

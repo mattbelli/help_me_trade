@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -284,14 +284,15 @@ def _insert_idea(
 
 
 def _to_et(as_of_iso: str) -> datetime:
-    """Parse an ISO timestamp to ET. Naive inputs are assumed already-ET-agnostic
-    UTC (now_iso emits UTC); unparseable input falls back to now()."""
+    """Parse an ISO timestamp to ET. Naive inputs are assumed UTC (now_iso emits
+    UTC) — attaching ET to a naive evening-UTC stamp would shift the idea into
+    the wrong session and mis-bucket cooldown/dedup. Unparseable → now()."""
     try:
         dt = datetime.fromisoformat(as_of_iso)
     except (TypeError, ValueError):
         dt = datetime.now(_ET)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=_ET)
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(_ET)
 
 
@@ -916,4 +917,56 @@ def _grading_summary(verdict_rows: list[Any]) -> dict[str, Any]:
             "max_numbers_wrong": 0,
         },
         "gate_pass": gate_pass,
+    }
+
+
+def list_ledger_rows(
+    *,
+    origin: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """List the complete idea ledger, including journal-only origins."""
+    init_idea_outcomes_tables(db_path)
+    where: list[str] = []
+    params: list[Any] = []
+    if origin:
+        where.append("origin = ?")
+        params.append(origin)
+    if status == "open":
+        placeholders = ",".join("?" * len(OPEN_STATUSES))
+        where.append(f"status IN ({placeholders})")
+        params.extend(sorted(OPEN_STATUSES))
+    elif status == "resolved":
+        placeholders = ",".join("?" * len(OPEN_STATUSES))
+        where.append(f"status NOT IN ({placeholders})")
+        params.extend(sorted(OPEN_STATUSES))
+    elif status:
+        where.append("status = ?")
+        params.append(status)
+
+    where_sql = f" WHERE {' AND '.join(where)}" if where else ""
+    lim = max(1, min(int(limit), 500))
+    off = max(0, int(offset))
+    with _connect(db_path) as conn:
+        total_row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM idea_outcomes{where_sql}",
+            params,
+        ).fetchone()
+        rows = conn.execute(
+            f"""
+            SELECT id, as_of, updated_at, symbol, direction, origin, idea_index,
+                   entry_low, entry_high, stop, targets_json, status, user_action,
+                   ret_pct, spy_ret_pct, alpha_pct, source_ref
+            FROM idea_outcomes{where_sql}
+            ORDER BY as_of DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, lim, off),
+        ).fetchall()
+    return {
+        "rows": [dict(row) for row in rows],
+        "total": int(total_row["n"]) if total_row is not None else 0,
     }

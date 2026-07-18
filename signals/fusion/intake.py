@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable
@@ -54,7 +54,10 @@ def _market_day(ts: str) -> str:
     try:
         value = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
         if value.tzinfo is None:
-            value = value.replace(tzinfo=_ET)
+            # Stores emit UTC ISO; a missing offset means UTC, never ET — a
+            # naive evening-UTC stamp read as ET would bucket into the wrong
+            # session and split one day's evidence across two episodes.
+            value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(_ET).date().isoformat()
     except (TypeError, ValueError):
         return datetime.now(_ET).date().isoformat()
@@ -178,7 +181,22 @@ def _insert_dot(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_store, source_event_id, component) DO UPDATE SET
                 detail_json = excluded.detail_json,
-                points = excluded.points
+                points = excluded.points,
+                -- Crash-replay restamp: a first pass before the price/ATR caches
+                -- warmed leaves NULL stamps; a replay that has them fills the
+                -- gaps. COALESCE keeps the ORIGINAL stamp when present (history
+                -- is never rewritten), and stamped is recomputed from the
+                -- coalesced pair.
+                trigger_price = COALESCE(
+                    evidence_dots.trigger_price, excluded.trigger_price),
+                prior_close_atr14 = COALESCE(
+                    evidence_dots.prior_close_atr14, excluded.prior_close_atr14),
+                stamped = CASE WHEN
+                    COALESCE(evidence_dots.trigger_price,
+                             excluded.trigger_price) IS NOT NULL
+                    AND COALESCE(evidence_dots.prior_close_atr14,
+                                 excluded.prior_close_atr14) IS NOT NULL
+                    THEN 1 ELSE 0 END
             """,
             (
                 dot_id,
@@ -362,11 +380,23 @@ def _maybe_call_registrar(
         ).fetchone()
         if dot_row is None:
             return
+        # Never anchor on an unstamped dot: a crash-replay can present a dot
+        # whose persisted stamps predate the caches warming even though THIS
+        # pass has live price/ATR. Latching a NULL anchor would burn the whole
+        # symbol-day (register_stack refuses it, and the latch blocks every
+        # later stampable dot). Leave the episode unlatched instead.
+        if (
+            not int(dot_row["stamped"] or 0)
+            or dot_row["trigger_price"] is None
+            or dot_row["prior_close_atr14"] is None
+            or dot_row["direction"] not in ("bull", "bear")
+        ):
+            return
         conn.execute(
             """
             UPDATE fusion_episodes SET
                 anchor_dot_id = ?, anchor_price = ?, anchor_atr14 = ?,
-                anchor_direction = ?, registration_called = 1
+                anchor_direction = ?
             WHERE id = ? AND registration_called = 0
             """,
             (
@@ -388,6 +418,18 @@ def _maybe_call_registrar(
         {**score_state, "signature": episode["signature"]},
         db_path=db_path,
     )
+    # Latch ONLY after the ledger call returned. A crash (or an exception from
+    # register_stack) before this point leaves registration_called=0, so the
+    # replayed event retries; register_idea's dedup_key wall absorbs the
+    # duplicate call (test_same_symbol_day_registers_once proves it). The old
+    # order — latch first, register second — turned any crash in that window
+    # into a silent, permanent hole in the measurement ledger.
+    with _connect(db_path) as conn:
+        conn.execute(
+            "UPDATE fusion_episodes SET registration_called = 1 WHERE id = ?",
+            (episode_id,),
+        )
+        conn.commit()
 
 
 def intake_once(
