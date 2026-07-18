@@ -1,6 +1,15 @@
 # Copilot Memory Overhaul — elite design (2026-07-05)
 
-*Adversarial review + implementation-grade upgrade of `References/MEMORY_SYSTEM_REPORT.md`. Every claim below
+> **STATUS 2026-07-18 (verified vs code + board): Phase 0+1 of this design SHIPPED 2026-07-06/07**
+> (`ef1b8fd`→`cd65a3a`: junk writers + Jaccard dedup deleted, LLM judge with the §6 authority model
+> live in `ai/memories/judge.py`, save/forget tools, widget trust surface, founder-review supersede
+> lane). **Phase 2 (semantic retrieval) is NOT built** — board card `memory-overhaul`, status `next`.
+> Also: `4ad3701` (07-17) removed mem0 entirely, so the mem0-inert findings below are moot.
+> NOT superseded by the Evidence Bus spec — that's market-evidence fusion; this is copilot/chat
+> memory. For Phase 2 work, re-verify line refs; the "what it got wrong" analysis is history now.
+
+*Adversarial review + implementation-grade upgrade of `References/MEMORY_SYSTEM_REPORT.md` (now in
+`archive/`). Every claim below
 was re-verified against the live code and the live DB (read-only). This doc supersedes the report's Phase 1–3
 sketch and the BUILD.md R4 line "sqlite-vec + recall_memory" (References/BUILD.md:60) — see §9 for why.*
 

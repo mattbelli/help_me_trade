@@ -47,7 +47,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `PERCEPTION_LAYER.md` | Agent read layer design (get_context/query/manifest — built) |
 | `RESEARCH_ENGINE_V2.md` | Research engine specialist fan-out design (built 07-03) |
 | `MULTI_ACCOUNT_PLAN.md` | Durable multi-account architecture spec |
-| `MEMORY_OVERHAUL_DESIGN.md` | Copilot memory overhaul — PARKED in founder lane, do not build unguided |
+| `MEMORY_OVERHAUL_DESIGN.md` | Copilot memory overhaul — Phase 0+1 SHIPPED 07-06/07 (judge + authority model live in `ai/memories/`); Phase 2 retrieval pending (board: `memory-overhaul`) |
 | `ALPHA_PREP_SPEC.md` | Single-founder → alpha-testable/cloud plan (directional, parked) |
 | `DATA_LAYER_LIMITS_AUDIT_2026-07-14.md` | Alpaca/system rate limits audit |
 | `SHORT_TRADING_FINDINGS.md` | Decision record: no agent-traded shorts (measurement stays short-aware) |
@@ -55,21 +55,9 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 
 ## Historical (kept for the record — do not treat as current)
 
-- **Built design records / completed briefs**: `DECISION_JOURNAL_DESIGN.md`, `NOTIFICATIONS_FOUNDATION.md`,
-  `COPILOT_TERMINAL_DESIGN.md`, `AUTO_ENTRY_SPEC.md`, `TACTICAL_SLEEVES_SPEC.md`,
-  `MOMENTUM_PORTFOLIO_SPEC.md`, `REGIME_SLEEVES_IMPL.md`, `FLOW_DTE_DIVERSITY_SPEC_2026-07-11.md`,
-  `FLOW_VIZ_DESIGN_2026-07-11.md`, `MOBILE_CHAT_BRIEF.md`, `WEB_CHAT_DESIGN_BRIEF.md`, `R3_KICKOFF.md`,
-  `UI_AUDIT.md`, `UI_POLISH.md`, `MEMORY_SYSTEM_REPORT.md` (superseded), `CONSOLIDATION_PLAN.md`,
-  `PHASE_6_BRIEF.md` + 9 `PHASE_6_*_BRIEF.md` batch briefs, `SESSION_HANDOFF.md` (superseded),
-  `IDEA_LEDGER_UNIFICATION_SPEC_2026-07-11.md` + `IDEA_LEDGER_SPEC_2026-07-15.md` (both superseded)
-- **Recon snapshots (point-in-time, 06-29/30)**: `CONSOLIDATION_RECON.md`, `CONSOLIDATION_S2_RECON.md`,
-  `CONSOLIDATION_S3_RECON.md`, `CHAT_RESTYLE_RECON.md`, `THEME_OVERHAUL_RECON.md`, `THEME_PORT_RECON.md`,
-  `SAVE_LAYOUTS_RECON.md`, `PERF_SPLIT_RECON.md`, `PHASE_1B_EMIT_RECON.md`, `PHASE_1C_FRONTEND_RECON.md`
-- **Cross-machine relay mail (serv↔Mac↔PC, all resolved)**: `MAC_*.md`, `SERV_*.md` (except
-  `SERVER_SETUP.md`/`SERV` none current), `RN_*.md` (except `RN_SKIA_CHART_RELAY.md` above),
-  `PC_TO_SERV_2026-07-09_options-flow.md`, `PC_DECISION_ENGINE_QUESTIONNAIRE.md`,
-  `SERV_TO_MAC_HANDOFF_2026-07-03.md`
-- **Research saves**: `RVOL_VOLUME_PROFILE_RESEARCH.md`, `SCHWAB_MARKETDATA_RESEARCH.md`,
-  `FLOW_CAPACITY_RESEARCH_2026-07-11.md`
-- **Mockups / dumps**: `hermes-ui-v2.html`, `hermes-console-draft.html`, `index.html`, `index(1).html`,
-  `flow_notif_mockup.html`, `flow_viz_design.html`, `current orchestrator convo.md`
+All historical docs live in **`archive/`** (moved 2026-07-18 — the root holds ONLY the current docs above).
+`archive/README.md` is that folder's map: built design records + completed briefs, recon snapshots,
+resolved cross-machine relay mail (MAC_/SERV_/RN_/PC_), research saves, mockups/dumps, and the pre-06-20
+planning docs merged into BUILD.md. **Rule: when a root doc is superseded, stamp it
+`> **SUPERSEDED BY [x]**`, `git mv` it to `archive/`, and move its INDEX line's content into
+`archive/README.md` — in the same commit.** Never update an archived doc; change the living doc instead.
