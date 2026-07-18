@@ -22,9 +22,11 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 - ⏳ Mon 07-20 (next trading day): first fully-automatic 16:45 ET dead-man run (exec bit now in
   git); 15:00 canary + median/never-worked alarm rules run live for the first time
 - ⚠️ founder must SUBSCRIBE to the ntfy dead-man topic (in crontab) or pages go nowhere
-- ⏳ founder sign-off on `FUSION_EVIDENCE_BUS_SPEC_2026-07-17.md` **v3** → dispatch Phase A
-  (evidence substrate: ingest_seq cursors, intake job, episodes/dispositions, fusion_mech
-  journal lane, batch grader, notification consolidation — observe-only, legacy pushes stay)
+- ▶ **Phase A IN FLIGHT** (spec v3.1 signed off 07-18, incl. cohort scorecards §2.4b + Idea
+  Ledger table §2.8): A1 substrate dispatched to gpt-5.6-sol
+  (`briefs/fusion-phase-a1-substrate-2026-07-18.md`); A2 = orchestrator after A1 review
+  (registrar seam: fusion_mech + JOURNAL_ORIGINS, batch grader, rank_in_batch stamp both
+  lanes). Board: `fusion-phase-a-substrate`. Observe-only; legacy pushes stay
 - acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
   broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 

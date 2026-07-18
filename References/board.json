@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-18T00:07:53Z",
+  "updated_at": "2026-07-18",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "fusion-phase-a-substrate",
+      "title": "Fusion Evidence Bus Phase A \u2014 evidence substrate (observe-only)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "critical",
+      "owner": "agent",
+      "notes": "Spec v3.1 SIGNED OFF by founder 2026-07-18 (incl. cohort-scorecard addendum \u00a72.4b + Idea Ledger table \u00a72.8). A1 dispatched to gpt-5.6-sol (brief: tools/composer-bridge/briefs/fusion-phase-a1-substrate-2026-07-18.md): ingest_seq cursor contract + migration, trigger-intake job (episodes/dispositions/conservation/shedding), dot-mint price+ATR stamping, actor-group scorer w/ 5-min collapse + four-way direction, social day-parts, shock rider, bar-gated cards behind FUSION_CARDS_ENABLED=False. A2 (orchestrator, after A1 review): registrar seam \u2014 fusion_mech register-everything + JOURNAL_ORIGINS in db/idea_outcomes.py, batched daily-bar grading path, rank_in_batch stamping (both lanes) for cohort scorecards. Observe-only; legacy convergence pushes stay live."
+    },
     {
       "id": "idea-engine-audit-fixes-2026-07-17",
       "title": "GPT-5.6 audit fixes Round 0 \u2014 restore truth in the shipped Idea Engine loop",

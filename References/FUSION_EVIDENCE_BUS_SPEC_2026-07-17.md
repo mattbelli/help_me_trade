@@ -7,10 +7,11 @@ ledger — specified as **the Phase 2 delta set on `IDEA_ENGINE_UNIFIED_DESIGN_2
 (see §1b ADR: one architecture, one writer into the ledger). Shipped Phase 1 (Grading Law, lanes,
 alarms, `register_idea`) is a CONSUMER of this — nothing in it changes.*
 
-**Status: v3 — BUILD-READY pending founder sign-off.** v1 = grill session; v2 = actor-group
-re-review + two Claude audits; v3 = the GPT-5.6 technical audit's fixes folded in (findings
-1–17, `AUDIT_GPT56_IDEA_ENGINE_FUSION_2026-07-17.md`) + the direction audit's product deltas
-(four-lane alerting, skip reasons, one-archetype Phase C). The audit's shipped-code findings
+**Status: v3.1 — SIGNED OFF by the founder 2026-07-18; Phase A in build.** v1 = grill session;
+v2 = actor-group re-review + two Claude audits; v3 = the GPT-5.6 technical audit's fixes folded
+in (findings 1–17, `AUDIT_GPT56_IDEA_ENGINE_FUSION_2026-07-17.md`) + the direction audit's
+product deltas (four-lane alerting, skip reasons, one-archetype Phase C); v3.1 = founder
+sign-off + the cohort-scorecard addendum (§2.4b) and the Idea Ledger table widget (§2.8). The audit's shipped-code findings
 were fixed separately in **Round 0** (commits `9a15594`/`46d3d98`/`7f44ccc`, deployed
 2026-07-18): phone win% suppressed, Path A counter honesty, direction-consistent alpha,
 canary ledger-leg probe, NYSE calendar, median+never-worked alarms, web approval confirm.
@@ -245,6 +246,33 @@ The bus feeds `db/idea_outcomes.register_idea` (the existing narrow write path; 
 - **Phone pushes come ONLY from the LLM lane**, inside the existing daily push budget. Budgeted
   pings, never a thousand ideas.
 
+### 2.4b Cohort scorecards — ideas graded as portfolios (founder ask 2026-07-18)
+
+Per-idea outcomes are noisy; baskets converge. On top of individual grading, the ledger is
+rolled up into **cohort portfolios**, each tracked like its own strategy vs SPY:
+
+- **Cohorts (v1)**: per lane — (1) ALL registered ideas, (2) top-5 per registration batch,
+  (3) top-25 per registration batch. If top-5 ≥ top-25 ≥ all ≥ SPY, the ranking has ordinal
+  value; if top-5 underperforms all, the score is anti-informative — either answer is the point.
+- **Rank is PINNED at registration (hindsight rule — non-negotiable)**: every registration
+  stamps `rank_in_batch` + a batch id into `source_ref` from the score that exists AT THAT
+  INSTANT. Cohort membership is derived from the stamp forever; "top 5" is never recomputed
+  from later knowledge. (Measured gap 07-18: `llm_conviction` rows persist no
+  confidence/rank — the stamp is added to BOTH lanes' registration paths in Phase A.)
+- **Construction is PRE-REGISTERED (estimand discipline — changed rules = new cohort name)**:
+  equal weight per idea; entry at the lane's grading basis (fusion_mech: next-session start;
+  LLM lanes: per Unified); exit per each idea's own plan grading; cohort period return = mean
+  of member idea returns; cumulative equity curve per cohort vs SPY over the same days,
+  direction-consistent benchmark (short ideas measured vs −SPY, per Round 0).
+- **Mechanics**: a read-side rollup on the existing grading scheduler — no new write path, no
+  registration change beyond the rank stamp. Curves + per-cohort stats land in lane_stats-style
+  storage for the widget (§2.8).
+- **Presentation honesty**: cohort curves are **observational tracking of a forward journal**,
+  labeled as such — never "validated strategy", no win%/EV framing, Wilson-bounded stats only
+  once earned. (The Norgate backtest visualizer — `STRATEGY_LAB_SPEC.md`, research branch,
+  unbuilt — is the separate backtest view; its "live-vs-backtest overlay" future item is where
+  these curves eventually meet it.)
+
 ### 2.5 Attention component (social buzz)
 
 Baseline code already exists — this is a MIGRATION, not greenfield: `db/social_mentions.py` has
@@ -330,6 +358,14 @@ Two tabs, deliberately unpolished ("the glass wall"):
 All from `evidence_dots` + existing stores; presentation only. Phone surface deferred until web
 proves out. Ticker links click-to-chart per house rule.
 
+**Idea Ledger table (founder ask 2026-07-18 — ships in Phase B beside the stack widget):** a
+spreadsheet-style read-only view over `idea_outcomes` — every idea as a row: date, symbol,
+direction, lane/origin, rank-at-registration, entry/stop/target, status
+(pending/triggered/closed), result %, alpha vs SPY, taken/skipped (+ skip reason once Phase C
+captures it). Sort/filter by lane and cohort; tickers click-to-chart. This is the ground-truth
+"dev mode" surface — the cohort curves (§2.4b) render beside it in the Strategy Lab visual
+grammar (our line vs the SPY line) once ranked batches accumulate.
+
 ### 2.9 Shocks and news (founder ask 2026-07-17 — "the Iran headline problem")
 
 An external shock (war headline, macro print) can crush every open idea and make a good idea
@@ -355,7 +391,8 @@ grade bad. Three honest layers — and one refusal:
   spec's scoring model (§2.2), `fusion_mech` register-everything (§2.4, incl. `JOURNAL_ORIGINS`),
   social day-part component (§2.5), shock rider, notification consolidation (§2.7). Observe-only
   bars. Legacy convergence push path stays.
-- **B — Evidence Stack widget** (web, §2.8).
+- **B — Evidence Stack widget + Idea Ledger table** (web, §2.8) + the cohort-scorecard rollup
+  (§2.4b; curves render as ranked batches accumulate).
 - **C — investigation tiers + pushes, ONE archetype first** (direction-audit sequencing):
   Unified's dossier → T1 → REASON v1 (+v2 hash A/B) with horizon cell-tags (§2.4), proven
   end-to-end on a single high-value archetype — **options-actor + structure co-fire** — before
