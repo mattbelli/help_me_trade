@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-18",
+  "updated_at": "2026-07-19",
   "lanes": [
     "inbox",
     "founder",
@@ -16,9 +16,9 @@
       "type": "design",
       "priority": "high",
       "owner": "agent",
-      "notes": "Design DRAFTED + Opus adversarial review folded in (2 HIGH: liveness illusion for gate-inside-fn jobs -> honest 4-layer story w/ dead-man receipts pulled into v1 + flow-EOD silent-lane rule; double-run windows -> worker lease guard + disown-before-own deploy order; M1 corrected _market_session = brokers.market_clock alias, no trading/ touch). Moves setup_scan_nightly, flow EOD+fill_outcomes, volume_profile, momentum bars, reflection into hmt-research-worker via the collector seam (RESEARCH_WORKER_EXTERNAL flag, tools/research_worker.py, api/research_jobs.py shared registration). Honest scope: fixes loop starvation + deploy blast radius, NOT WAL single-writer contention (txn hygiene lands in the same modules if Monday's probe convicts). WAITING ON FOUNDER: approve design -> R1a mechanical extraction (deployable anytime), then R1b split after Mon 07-20 night probe verdict.",
+      "notes": "Design DRAFTED + TWO reviews folded. (1) Opus adversarial review (2 HIGH: liveness illusion for gate-inside-fn jobs -> honest 4-layer story w/ dead-man receipts pulled into v1 + flow-EOD silent-lane rule; double-run windows -> worker lease guard + disown-before-own deploy order; M1 corrected _market_session = brokers.market_clock alias, no trading/ touch). (2) External Grok audit 07-19, verdict approve-with-fixes, every claim re-verified against code: R1 lease heartbeat was underspecified ('each supervisor pass' doesn't exist -- run_job sleeps 900s-24h) -> dedicated 60s lease-ticker task, touch-at-start, lease = ownership signal not health signal; R2 R1a run_on_start contradiction (today's momentum/VP loops run-first at boot; sleep-first Jobs would never run on a restarts-daily box) -> run_on_start=True for momentum/VP under BOTH owners + boot-pass test; M-folds: flow-EOD bump placed exactly where _mark_options_flow_scanned sits (post-scan, pre-fill_outcomes) + fail-soft bump read-back verify; Schwab restart claim softened (factory CRIT-1 mtime invalidation self-heals next pass); worker pages = persist+push, no live cockpit WS toast (empty hub, fail-soft); stale 'relocate _market_session' line in R1a purged. Moves setup_scan_nightly, flow EOD+fill_outcomes, volume_profile, momentum bars, reflection into hmt-research-worker via the collector seam (RESEARCH_WORKER_EXTERNAL flag, tools/research_worker.py, api/research_jobs.py shared registration). Honest scope: fixes loop starvation + deploy blast radius, NOT WAL single-writer contention (txn hygiene lands in the same modules if Monday's probe convicts). WAITING ON FOUNDER: approve design -> R1a mechanical extraction (deployable anytime), then R1b split after Mon 07-20 night probe verdict.",
       "created_at": "2026-07-18",
-      "updated_at": "2026-07-18"
+      "updated_at": "2026-07-19"
     },
     {
       "id": "loop-lag-probe-2026-07-18",
