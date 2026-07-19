@@ -32,8 +32,9 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 - ▶ **Multi-angle reasoning A/B — design ready, awaiting founder go** (2026-07-19):
   `References/MULTI_ANGLE_REASONING_AB_2026-07-19.md`, board `multi-angle-reasoning-ab`
   (founder lane). Bull/bear/judge panel vs the single veto-grade voice; paired shadow +
-  alternating control; alpha-adjudicated prereg metrics; Opus-reviewed, blocking fixes
-  folded. On go: one focused build round + review
+  alternating control; alpha-adjudicated prereg metrics; Opus-reviewed + Grok cross-audit
+  folded (B1 nights[] pair capture on dedup-skip; episode-unit adjudication; paper-prompt
+  mandate). On go: one focused build round + review
 - ▶ **Overnight 07-18 doc harvest awaiting founder**: `research/overnight_2026-07-18/`
   (map: `NIGHT_LEDGER.md`) — Strategy Lab design duel + synthesis (orchestrator judgment
   next), roadmap designs + critiques (news dots / nightly wrap / watchlist v3), perception
