@@ -317,3 +317,79 @@ def test_registry_includes_all_audit_loop_names() -> None:
     _register_background_jobs()
     registered = {job.name for job in jobs.JOBS if job.name != "watchdog"}
     assert registered == set(AUDIT_LOOP_NAMES)
+
+
+RESEARCH_JOB_NAMES = {
+    "setup_scan_nightly",
+    "options_flow",
+    "momentum_bars_refresh",
+    "volume_profile_refresh",
+    "reflection",
+}
+
+
+def test_registry_skips_research_jobs_when_worker_external(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import api.main as main_mod
+
+    monkeypatch.setattr(main_mod, "_RESEARCH_WORKER_EXTERNAL", True)
+    main_mod._register_background_jobs()
+    registered = {job.name for job in jobs.JOBS}
+    assert registered & RESEARCH_JOB_NAMES == set()
+    assert "poll" in registered  # the rest of the registry is intact
+    assert "options_flow_intraday" in registered  # collector-seam job unaffected
+
+
+def test_registry_has_no_duplicate_job_names() -> None:
+    from api.main import _register_background_jobs
+
+    _register_background_jobs()
+    names = [job.name for job in jobs.JOBS]
+    assert len(names) == len(set(names))
+
+
+@pytest.mark.asyncio
+async def test_run_on_start_executes_before_first_sleep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def fn() -> None:
+        nonlocal calls
+        calls += 1
+
+    job = register_job(Job(name="boot", fn=fn, interval_s=3600.0, run_on_start=True))
+
+    async def fake_sleep(_seconds: float) -> None:
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(jobs.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_job(job)
+
+    assert calls == 1  # ran before any sleep
+
+
+@pytest.mark.asyncio
+async def test_default_job_sleeps_before_first_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def fn() -> None:
+        nonlocal calls
+        calls += 1
+
+    job = register_job(Job(name="sleep_first", fn=fn, interval_s=3600.0))
+
+    async def fake_sleep(_seconds: float) -> None:
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(jobs.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_job(job)
+
+    assert calls == 0

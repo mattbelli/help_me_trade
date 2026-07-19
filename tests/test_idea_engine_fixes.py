@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from ai.research.setup_scan import _run_conviction_pass
-from api.main import _count_scan_ideas
+from api.research_jobs import _count_scan_ideas
 from db.ai_tables import artifact_exists_by_topic, save_research_artifact
 from signals.push import _la_content_state
 

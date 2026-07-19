@@ -128,7 +128,7 @@ async def refresh_universe_bars(
         logger.info("Momentum bars refresh: no rows to upsert")
         return 0
 
-    written = upsert_daily_bars(rows, db_path=db_path)
+    written = await asyncio.to_thread(upsert_daily_bars, rows, db_path=db_path)
     logger.info(
         "Momentum bars refresh: upserted %d rows across %d symbols",
         written,

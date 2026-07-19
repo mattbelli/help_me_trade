@@ -57,6 +57,14 @@ def upsert_daily_bars(
     return len(cleaned)
 
 
+def latest_universe_bar_date(db_path: Path = DEFAULT_DB_PATH) -> str | None:
+    """Newest bar date across the whole table (ISO string), or None when empty."""
+    init_momentum_bars_table(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT MAX(date) AS d FROM momentum_daily_bars").fetchone()
+    return str(row["d"]) if row and row["d"] else None
+
+
 def load_daily_bars(
     symbols: list[str],
     db_path: Path = DEFAULT_DB_PATH,

@@ -41,12 +41,13 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 Zero-context composition audit of hmt-backend verified claim-by-claim and archived
 (`References/BACKEND_COMPOSITION_AUDIT_2026-07-18.md` — read its header first). Step-1 fixes SHIPPED
 (blind jobs registered; EOD scan / fill_outcomes / fusion ATR off-loop — BUILD_LOG 2026-07-18). **Open:**
-- ▶ **Rank-1 nightly research worker — design DONE, awaiting founder approval**
-  (`References/RESEARCH_WORKER_DESIGN_2026-07-18.md`, board `rank1-research-worker-design`): five
-  jobs → `hmt-research-worker` via the collector seam; Opus adversarial review + external Grok
-  audit (07-19, approve-with-fixes) both folded — liveness honesty, dedicated lease ticker,
-  `run_on_start` boot semantics, deploy ordering. On approval: R1a mechanical extraction
-  (deployable anytime) → R1b split after the Mon 07-20 probe verdict
+- ▶ **Rank-1 nightly research worker — APPROVED 07-19; R1a SHIPPED, R1b open**
+  (`References/RESEARCH_WORKER_DESIGN_2026-07-18.md`, board `rank1-research-worker-design`): R1a
+  mechanical extraction committed 07-19 (`api/research_jobs.py` + `signals/universe.py` +
+  `Job.run_on_start`; backend still owns all five jobs; Opus diff review PASS, 0 HIGH/MED; detail:
+  BUILD_LOG 2026-07-19). ⚠️ **deliberately NOT deployed yet** — Monday night's loop probe must
+  measure step-1 code, not a fresh refactor; deploy R1a with (or right after) the verdict read.
+  Then R1b (worker shell + lease ticker + unit + flag flip + dead-man receipts + /health block)
 - ▶ **Rank-2 exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent →
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)

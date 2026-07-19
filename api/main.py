@@ -9,7 +9,7 @@ import os
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket
@@ -17,7 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ai.llm.factory import clear_llm_cache
-from ai.reflection.scheduler import REFLECTION_INTERVAL_SECONDS, reflection_once
 from ai.rules.engine import evaluate_on_snapshot
 from api.ai_routes import router as ai_router
 from api.auth import (
@@ -44,6 +43,9 @@ from api.notification_routes import router as notification_router
 from api.orders_routes import router as orders_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
+from api.research_jobs import OPTIONS_FLOW_ENABLED as _OPTIONS_FLOW_ENABLED
+from api.research_jobs import RESEARCH_WORKER_EXTERNAL as _RESEARCH_WORKER_EXTERNAL
+from api.research_jobs import register_research_jobs
 from api.scan_routes import router as scan_router
 from api.schwab_routes import router as schwab_router
 from api.social_routes import router as social_router
@@ -151,7 +153,6 @@ from db.workspace import (
 )
 from signals import indicators
 from signals.earnings_refresh import arefresh_earnings_calendar
-from signals.momentum import refresh_universe_bars
 from signals.options_flow.runner import OptionsFlowRunner
 from signals.regime import refresh_regime_macro
 from signals.regime_sleeves import run_regime_sleeves_scan
@@ -162,6 +163,7 @@ from signals.social_buzz import social_buzz_loop
 from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
+from signals.universe import all_watchlist_symbols as _all_watchlist_symbols
 from signals.volume_profile import build_profile, load_profile, profile_dir, rvol_now
 from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
@@ -187,22 +189,9 @@ REGIME_REFRESH_INTERVAL_SECONDS = 24 * 3600
 REGIME_SLEEVES_SCAN_INTERVAL_SECONDS = max(
     60, int(os.environ.get("REGIME_SLEEVES_SCAN_INTERVAL_SECONDS", "600"))
 )
-MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS = 24 * 3600
-VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS = 24 * 3600
 RVOL_ALERT_INTERVAL_SECONDS = max(60, int(os.environ.get("RVOL_ALERT_INTERVAL_SECONDS", "300")))
 RVOL_ALERT_THRESHOLD = float(os.environ.get("RVOL_ALERT_THRESHOLD", "3.0"))
 _RVOL_ALERTS_ENABLED = os.environ.get("RVOL_ALERTS_ENABLED", "1").strip() not in (
-    "0",
-    "false",
-    "no",
-)
-OPTIONS_FLOW_INTERVAL_SECONDS = float(os.environ.get("OPTIONS_FLOW_INTERVAL_SECONDS", "1800"))
-_OPTIONS_FLOW_ENABLED = os.environ.get("OPTIONS_FLOW_ENABLED", "0").strip() not in (
-    "0",
-    "false",
-    "no",
-)
-_SETUP_SCAN_NIGHTLY_ENABLED = os.environ.get("SETUP_SCAN_NIGHTLY_ENABLED", "1").strip() not in (
     "0",
     "false",
     "no",
@@ -213,9 +202,6 @@ _FILINGS_FEED_ENABLED = os.environ.get("FILINGS_FEED_ENABLED", "1").strip() not 
     "no",
 )
 FILINGS_INSIDER_MIN_USD = float(os.environ.get("FILINGS_INSIDER_MIN_USD", "100000"))
-# Earliest ET clock time (fractional hours) for the nightly setup scan — after
-# the close so the day's daily bar is final.
-SETUP_SCAN_NIGHTLY_AFTER_ET = float(os.environ.get("SETUP_SCAN_NIGHTLY_AFTER_ET", "17.5"))
 _OPTIONS_FLOW_STREAM_ENABLED = os.environ.get("OPTIONS_FLOW_STREAM_ENABLED", "0").strip() not in (
     "0",
     "false",
@@ -270,10 +256,6 @@ _ALERT_SYMBOL_INTERVAL_SECONDS = 30.0
 _PROPOSAL_SWEEP_INTERVAL_SECONDS = 60.0
 _IDEA_TRACKER_INTERVAL_MARKET_SECONDS = 1800.0
 _IDEA_TRACKER_INTERVAL_OFF_SECONDS = 3600.0
-_PROFILE_FRESH_S = 20 * 3600
-_PROFILE_BUILD_MIN_INTERVAL_S = 0.6  # ~100/min, safely under Schwab's ~120/min
-_UNIVERSE_DIR = Path(__file__).resolve().parent.parent / "signals" / "universes"
-_LIQUID_CORE_FILES = ("sp500.json", "russell1000.json", "nasdaq100.json")
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -659,101 +641,6 @@ async def _regime_refresh_loop() -> None:
         else:
             mark_alive("regime_refresh")
         await asyncio.sleep(REGIME_REFRESH_INTERVAL_SECONDS)
-
-
-def _momentum_strategy_enabled() -> bool:
-    return any(
-        s.get("enabled") and str(s.get("id", "")).startswith("momentum") for s in list_strategies()
-    )
-
-
-async def _momentum_bars_refresh_once() -> int:
-    if not _momentum_strategy_enabled():
-        return 0
-    return await refresh_universe_bars()
-
-
-async def _momentum_bars_refresh_loop() -> None:
-    while True:
-        try:
-            n = await _momentum_bars_refresh_once()
-            if n:
-                logger.info("Momentum daily bars refresh upserted %d rows", n)
-        except Exception:
-            logger.exception("Momentum bars refresh loop iteration failed")
-        else:
-            mark_alive("momentum_bars_refresh")
-        await asyncio.sleep(MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS)
-
-
-def _all_watchlist_symbols() -> list[str]:
-    state = get_watchlists_state()
-    syms: set[str] = set()
-    for lst in state.get("lists", []):
-        for s in lst.get("symbols", []):
-            if isinstance(s, str) and s.strip():
-                syms.add(s.strip().upper())
-    return sorted(syms)
-
-
-def _liquid_core_symbols() -> list[str]:
-    syms: set[str] = set()
-    for fname in _LIQUID_CORE_FILES:
-        try:
-            data = json.loads((_UNIVERSE_DIR / fname).read_text())
-            for s in data.get("symbols", []):
-                if isinstance(s, str) and s.strip():
-                    syms.add(s.strip().upper())
-        except Exception:
-            logger.exception("Failed to load universe file %s", fname)
-    return sorted(syms)
-
-
-def _profile_universe() -> list[str]:
-    return sorted(set(_liquid_core_symbols()) | set(_all_watchlist_symbols()))
-
-
-def _profile_is_fresh(symbol: str) -> bool:
-    fp = profile_dir() / f"{symbol}.json"
-    try:
-        return fp.is_file() and (time.time() - fp.stat().st_mtime) < _PROFILE_FRESH_S
-    except OSError:
-        return False
-
-
-async def _volume_profile_refresh_once() -> int:
-    symbols = [s for s in _profile_universe() if not _profile_is_fresh(s)]
-    if not symbols:
-        return 0
-    try:
-        provider = get_market_data_provider()
-    except BrokerError as exc:
-        logger.warning("Volume profile refresh: provider unavailable: %s", exc)
-        return 0
-    built = 0
-    logger.info("Volume profile precompute: %d symbols to build", len(symbols))
-    for i, sym in enumerate(symbols):
-        prof = await build_profile(provider, sym)
-        if prof is not None:
-            built += 1
-        if i % 100 == 0 and i:
-            logger.info("Volume profile precompute progress: %d/%d", i, len(symbols))
-        await asyncio.sleep(_PROFILE_BUILD_MIN_INTERVAL_S)
-    logger.info("Volume profile precompute done: built %d/%d", built, len(symbols))
-    return built
-
-
-async def _volume_profile_refresh_loop() -> None:
-    while True:
-        try:
-            n = await _volume_profile_refresh_once()
-            if n:
-                logger.info("Volume profiles refreshed for %d symbols", n)
-        except Exception:
-            logger.exception("Volume profile refresh loop iteration failed")
-        else:
-            mark_alive("volume_profile_refresh")
-        await asyncio.sleep(VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS)
 
 
 async def _trade_sync_loop() -> None:
@@ -1152,84 +1039,8 @@ async def _rvol_alert_once() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Options-flow EOD scan (Phase 1c): nightly UV-1/UV-2 into options_flow_events.
-# Env-gated OFF by default (serv-only; PC order-flow-RAM incident). Pull-only —
-# no notifications here (Phase 2 convergence watch).
-# ---------------------------------------------------------------------------
-_options_flow_ran_dates: set[date] = set()
-_options_flow_non_alpaca_logged = False
-
-
-def _should_options_flow_scan(today_et: date) -> bool:
-    return today_et not in _options_flow_ran_dates
-
-
-def _mark_options_flow_scanned(today_et: date) -> None:
-    _options_flow_ran_dates.add(today_et)
-    # Bound memory: keep only today and yesterday.
-    stale = [d for d in _options_flow_ran_dates if d < today_et - timedelta(days=1)]
-    for d in stale:
-        _options_flow_ran_dates.discard(d)
-
-
-async def _options_flow_eod_once() -> None:
-    """After-close EOD options-flow scan; once per ET day; fail-soft."""
-    global _options_flow_non_alpaca_logged
-    try:
-        if _market_session() not in ("post", "closed", "overnight"):
-            return
-
-        today_et = datetime.now(_ET).date()
-        if not _should_options_flow_scan(today_et):
-            return
-
-        try:
-            broker = get_broker("alpaca")  # options data lives only on Alpaca
-        except Exception as exc:
-            logger.warning("options_flow EOD: Alpaca broker unavailable: %s", exc)
-            return
-
-        if not hasattr(broker, "get_option_bars"):
-            if not _options_flow_non_alpaca_logged:
-                logger.warning(
-                    "options_flow EOD: broker has no get_option_bars "
-                    "(options data requires Alpaca); skipping"
-                )
-                _options_flow_non_alpaca_logged = True
-            return
-
-        from signals.options_flow.scan import run_eod_scan
-
-        symbols = _all_watchlist_symbols()
-        event_date = today_et.isoformat()
-        # Off-loop: sync broker HTTP + SQLite across the whole watchlist, and
-        # this loop also runs the exit engine and phone approvals.
-        summary = await asyncio.to_thread(
-            run_eod_scan, broker, symbols=symbols, event_date=event_date
-        )
-        _mark_options_flow_scanned(today_et)
-        logger.info(
-            "options_flow EOD: date=%s underlyings=%s events=%s daily_rows=%s",
-            event_date,
-            summary.get("underlyings"),
-            summary.get("events"),
-            summary.get("daily_rows"),
-        )
-
-        # Outcome filler (calibration): stamp underlying forward returns on every
-        # flow event whose horizons have elapsed — today's tape gets its intraday
-        # horizons now that the session's bars exist.
-        try:
-            from signals.options_flow.outcomes import fill_outcomes
-
-            oc = await asyncio.to_thread(fill_outcomes, broker)
-            logger.info("options_flow outcomes: %s", oc)
-        except Exception:
-            logger.exception("options_flow outcomes: fill failed")
-    except Exception:
-        logger.exception("options_flow EOD: unexpected failure")
-
-
+# The nightly EOD options-flow scan lives in api/research_jobs.py (R1a) so the
+# research worker can own it after the R1b split.
 # The intraday flow pipeline (poll + OPRA stream + sweep consumer) lives in
 # signals/options_flow/runner.py so the standalone collector process
 # (tools/flow_collector.py) can host it instead of this event loop --
@@ -1698,123 +1509,8 @@ async def _filings_initial_fill() -> None:
             logger.exception("Filings initial fill failed: %s", fn.__name__)
 
 
-# ---------------------------------------------------------------------------
-# Nightly setup scan: keeps the idea-outcomes calibration ledger fed without a
-# human remembering to run it. Weekday evenings after the close; once per ET
-# day. The artifact topic doubles as the restart-safe "already ran" marker.
-# ---------------------------------------------------------------------------
-_setup_scan_ran_dates: set[date] = set()
-
-
-def _setup_scan_nightly_topic(today_et: date) -> str:
-    return f"Setup scan (nightly) — {today_et.isoformat()}"
-
-
-def _setup_scan_already_ran(today_et: date) -> bool:
-    if today_et in _setup_scan_ran_dates:
-        return True
-    from db.ai_tables import artifact_exists_by_topic
-
-    # Exact-match indexed lookup, not a bounded list scan: a high artifact volume
-    # could push the day's marker past the limit=20 window (the Jul-14 triple-run).
-    topic = _setup_scan_nightly_topic(today_et)
-    if artifact_exists_by_topic(topic):
-        _setup_scan_ran_dates.add(today_et)
-        return True
-    return False
-
-
-def _count_scan_ideas(result: object) -> tuple[int, int]:
-    """(structure, conviction) idea counts from a run_setup_scan result.
-
-    Ideas live at ``result["report"]["ideas"]`` (NOT ``result["ideas"]`` — the
-    banner bug that logged 0). Each idea carries an ``origin`` stamped server-side;
-    ``origin == "structure"`` is a structure setup, anything else is a conviction
-    (LLM-nominated) idea."""
-    ideas = None
-    if isinstance(result, dict):
-        report = result.get("report")
-        if isinstance(report, dict):
-            ideas = report.get("ideas")
-    if not isinstance(ideas, list):
-        return 0, 0
-    structure = sum(1 for i in ideas if isinstance(i, dict) and i.get("origin") == "structure")
-    conviction = sum(1 for i in ideas if isinstance(i, dict) and i.get("origin") != "structure")
-    return structure, conviction
-
-
-async def _setup_scan_nightly_once() -> None:
-    now_et = datetime.now(_ET)
-    if now_et.weekday() >= 5:
-        return
-    if now_et.hour + now_et.minute / 60 < SETUP_SCAN_NIGHTLY_AFTER_ET:
-        return
-    today_et = now_et.date()
-    if _setup_scan_already_ran(today_et):
-        return
-
-    from ai.research.setup_scan import run_setup_scan
-
-    logger.info("Nightly setup scan starting: %s", today_et)
-    result = await run_setup_scan(topic=_setup_scan_nightly_topic(today_et))
-    _setup_scan_ran_dates.add(today_et)
-    for d in [d for d in _setup_scan_ran_dates if d < today_et - timedelta(days=1)]:
-        _setup_scan_ran_dates.discard(d)
-    structure, conviction = _count_scan_ideas(result)
-    logger.info(
-        "Nightly setup scan done: %d structure + %d conviction idea(s)",
-        structure,
-        conviction,
-    )
-    try:
-        from db.lane_stats import bump
-
-        bump("setup_scan", "ran", 1)  # heartbeat — the silent-lane rule keys on this
-        bump("setup_scan", "registered", structure + conviction)
-        bump("setup_scan", "conviction_ok", conviction)
-        # Vetoed shadows are registered inside run_setup_scan and never surface in
-        # its return, so the count isn't visible from here — bump 0 to materialize
-        # the counter row (add-semantics keep any in-scan writer's real count intact).
-        bump("setup_scan", "vetoed", 0)
-        # Conservation v1 counters (pipeline_audit.conservation_gap): the
-        # candidate-level partition from the scan's own journal — structure +
-        # rejected_by_validation + ranker_discarded + no_structure + no_setup
-        # must equal candidates_assessed. Conviction is a second lane over the
-        # no_structure pool, deliberately not part of this partition.
-        scan = {}
-        if isinstance(result, dict):
-            report = result.get("report")
-            if isinstance(report, dict) and isinstance(report.get("scan"), dict):
-                scan = report["scan"]
-        if scan:
-            bump("setup_scan", "candidates_assessed", len(scan.get("candidates") or []))
-            bump("setup_scan", "structure", structure)
-            bump("setup_scan", "rejected_by_validation", len(scan.get("rejected") or []))
-            bump("setup_scan", "ranker_discarded", len(scan.get("ranker_discarded") or []))
-            bump("setup_scan", "no_structure", len(scan.get("no_structure") or []))
-            bump("setup_scan", "no_setup", len(scan.get("no_setup") or []))
-    except Exception:
-        logger.exception("lane_stats bump failed (setup_scan)")
-    artifact_id = result.get("artifact_id") if isinstance(result, dict) else None
-    try:
-        from signals.notify import notify
-
-        await notify(
-            kind="scan_ready",
-            title=(
-                f"Nightly setup scan done — {structure} structure + {conviction} conviction idea(s)"
-            ),
-            body=f"{today_et.isoformat()} · tracked in idea outcomes",
-            severity="info",
-            ref_type="research",
-            ref_id=str(artifact_id) if artifact_id is not None else None,
-            action_url=(f"/research?id={artifact_id}" if artifact_id is not None else None),
-            push=False,
-        )
-    except Exception:
-        logger.exception("scan_ready notify failed")
-
-
+# The nightly setup scan lives in api/research_jobs.py (R1a) so the research
+# worker can own it after the R1b split.
 _background_jobs_registered = False
 _fusion_shock_until_mono = 0.0
 
@@ -1995,16 +1691,6 @@ def _register_background_jobs() -> None:
         ("earnings_refresh", float(EARNINGS_REFRESH_INTERVAL_SECONDS), None),
         ("regime_refresh", float(REGIME_REFRESH_INTERVAL_SECONDS), None),
         (
-            "momentum_bars_refresh",
-            float(MOMENTUM_BARS_REFRESH_INTERVAL_SECONDS),
-            None,
-        ),
-        (
-            "volume_profile_refresh",
-            float(VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS),
-            None,
-        ),
-        (
             "reports_scheduler",
             float(MORNING_REPORT_INTERVAL_SECONDS),
             lambda: _MORNING_REPORT_ENV_ENABLED,
@@ -2035,26 +1721,10 @@ def _register_background_jobs() -> None:
     )
     register_job(
         jobs_mod.Job(
-            name="options_flow",
-            fn=_options_flow_eod_once,
-            interval_s=float(OPTIONS_FLOW_INTERVAL_SECONDS),
-            enabled=lambda: _OPTIONS_FLOW_ENABLED,
-        )
-    )
-    register_job(
-        jobs_mod.Job(
             name="options_flow_intraday",
             fn=_flow_runner.intraday_once,
             interval_s=float(OPTIONS_FLOW_POLL_SECONDS),
             enabled=lambda: _OPTIONS_FLOW_ENABLED and not _OPTIONS_FLOW_EXTERNAL_COLLECTOR,
-        )
-    )
-    register_job(
-        jobs_mod.Job(
-            name="setup_scan_nightly",
-            fn=_setup_scan_nightly_once,
-            interval_s=900.0,
-            enabled=lambda: _SETUP_SCAN_NIGHTLY_ENABLED,
         )
     )
     register_job(
@@ -2103,13 +1773,6 @@ def _register_background_jobs() -> None:
             interval_s=3600.0,
         )
     )
-    register_job(
-        jobs_mod.Job(
-            name="reflection",
-            fn=reflection_once,
-            interval_s=float(REFLECTION_INTERVAL_SECONDS),
-        )
-    )
     from signals.pipeline_audit import pipeline_audit_once
 
     register_job(
@@ -2134,6 +1797,17 @@ def _register_background_jobs() -> None:
             interval_s=900.0,
         )
     )
+    # The five nightly research jobs (setup scan, flow EOD, volume profiles,
+    # momentum bars, reflection) register through ONE shared entry point so the
+    # standalone research worker can own them after the R1b split — same
+    # ownership seam as the collectors.
+    if _RESEARCH_WORKER_EXTERNAL:
+        logger.info(
+            "research jobs: RESEARCH_WORKER_EXTERNAL=1 — the standalone research "
+            "worker owns the night shift; not registering the five research jobs"
+        )
+    else:
+        register_research_jobs()
     register_watchdog_job()
 
 
@@ -2222,8 +1896,6 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_earnings_refresh_loop()),
         asyncio.create_task(_regime_refresh_loop()),
         asyncio.create_task(_regime_sleeves_loop()),
-        asyncio.create_task(_momentum_bars_refresh_loop()),
-        asyncio.create_task(_volume_profile_refresh_loop()),
         asyncio.create_task(_reports_scheduler_loop()),
         asyncio.create_task(_bars_prewarm_loop()),
         asyncio.create_task(_equity_tape_flush_loop()),

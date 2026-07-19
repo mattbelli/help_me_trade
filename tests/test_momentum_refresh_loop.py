@@ -1,13 +1,17 @@
-"""Daily momentum bars refresh loop — api/main.py."""
+"""Daily momentum bars refresh job — api/research_jobs.py."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from config import settings as settings_mod
+
+_ET = ZoneInfo("America/New_York")
 
 
 def _init_db(tmp_path: Path) -> Path:
@@ -57,15 +61,16 @@ async def test_momentum_bars_refresh_once_when_enabled(
         conn.commit()
 
     refresh_mock = AsyncMock(return_value=42)
-    monkeypatch.setattr("api.main.refresh_universe_bars", refresh_mock)
+    monkeypatch.setattr("api.research_jobs.refresh_universe_bars", refresh_mock)
     monkeypatch.setattr(
-        "api.main.list_strategies",
+        "api.research_jobs.list_strategies",
         lambda **kw: __import__(
             "db.strategies", fromlist=["list_strategies"]
         ).list_strategies(**kw, db_path=db),
     )
+    monkeypatch.setattr("api.research_jobs._momentum_boot_freshness_checked", True)
 
-    from api.main import _momentum_bars_refresh_once
+    from api.research_jobs import _momentum_bars_refresh_once
 
     n = await _momentum_bars_refresh_once()
     assert n == 42
@@ -78,16 +83,48 @@ async def test_momentum_bars_refresh_once_skips_when_no_enabled_momentum(
 ) -> None:
     db = _init_db(tmp_path)
     refresh_mock = AsyncMock(return_value=99)
-    monkeypatch.setattr("api.main.refresh_universe_bars", refresh_mock)
+    monkeypatch.setattr("api.research_jobs.refresh_universe_bars", refresh_mock)
     monkeypatch.setattr(
-        "api.main.list_strategies",
+        "api.research_jobs.list_strategies",
         lambda **kw: __import__(
             "db.strategies", fromlist=["list_strategies"]
         ).list_strategies(**kw, db_path=db),
     )
 
-    from api.main import _momentum_bars_refresh_once
+    from api.research_jobs import _momentum_bars_refresh_once
 
     n = await _momentum_bars_refresh_once()
     assert n == 0
     refresh_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_boot_pass_skips_when_bars_current(monkeypatch) -> None:
+    refresh_mock = AsyncMock(return_value=42)
+    monkeypatch.setattr("api.research_jobs.refresh_universe_bars", refresh_mock)
+    monkeypatch.setattr("api.research_jobs._momentum_strategy_enabled", lambda: True)
+    monkeypatch.setattr("api.research_jobs._momentum_boot_freshness_checked", False)
+    # Today always satisfies >= last-completed-weekday, whatever day it is.
+    today_iso = datetime.now(_ET).date().isoformat()
+    monkeypatch.setattr("api.research_jobs.latest_universe_bar_date", lambda: today_iso)
+
+    from api.research_jobs import _momentum_bars_refresh_once
+
+    n = await _momentum_bars_refresh_once()
+    assert n == 0
+    refresh_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_boot_pass_refreshes_when_bars_stale(monkeypatch) -> None:
+    refresh_mock = AsyncMock(return_value=42)
+    monkeypatch.setattr("api.research_jobs.refresh_universe_bars", refresh_mock)
+    monkeypatch.setattr("api.research_jobs._momentum_strategy_enabled", lambda: True)
+    monkeypatch.setattr("api.research_jobs._momentum_boot_freshness_checked", False)
+    monkeypatch.setattr("api.research_jobs.latest_universe_bar_date", lambda: "2020-01-02")
+
+    from api.research_jobs import _momentum_bars_refresh_once
+
+    n = await _momentum_bars_refresh_once()
+    assert n == 42
+    refresh_mock.assert_awaited_once_with()

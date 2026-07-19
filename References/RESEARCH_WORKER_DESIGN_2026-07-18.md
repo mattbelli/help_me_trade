@@ -1,6 +1,9 @@
 # Rank-1 Nightly Research Worker — design (2026-07-18)
 
-*Status: DESIGN — awaiting founder approval; no implementation yet. Inputs: the composition audit
+*Status: APPROVED (founder, 2026-07-19). **R1a SHIPPED 2026-07-19** (mechanical extraction —
+`api/research_jobs.py` + `signals/universe.py` + `Job.run_on_start`, backend still owns all five;
+Opus adversarial diff review PASS, zero HIGH/MED; committed, deploy held until the Mon 07-20 probe
+verdict is read so the probe measures step-1 code). R1b (the split) next, after that verdict. Inputs: the composition audit
 (`BACKEND_COMPOSITION_AUDIT_2026-07-18.md` Rank-1 section), an Opus recon sweep of the five jobs +
 collector seam with every load-bearing claim re-verified against code first-hand, and the loop-lag
 probe (verdict Mon 07-20 night — informs emphasis, not direction; see §7). Adversarial review: DONE

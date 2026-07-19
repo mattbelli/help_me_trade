@@ -31,6 +31,11 @@ class Job:
     enabled: Callable[[], bool] | None = None
     market_hours_only: bool = False
     heartbeat_only: bool = False
+    # Run the fn once at startup before entering the sleep loop. For
+    # long-interval jobs (24h) on a box that restarts more often than their
+    # interval — without this, the sleep-first ordering below means they
+    # never run at all.
+    run_on_start: bool = False
     last_success: float | None = field(default=None, repr=False)
     last_success_at: str | None = field(default=None, repr=False)
     consecutive_failures: int = field(default=0, repr=False)
@@ -76,11 +81,15 @@ def _sleep_seconds(job: Job) -> float:
 
 
 async def run_job(job: Job) -> None:
+    first_pass = job.run_on_start
     while True:
-        try:
-            await asyncio.sleep(_sleep_seconds(job))
-        except asyncio.CancelledError:
-            raise
+        if first_pass:
+            first_pass = False
+        else:
+            try:
+                await asyncio.sleep(_sleep_seconds(job))
+            except asyncio.CancelledError:
+                raise
         try:
             # Gate checks inside the guard: a raising enabled() callable must
             # skip the pass, never kill the supervisor task.
