@@ -137,6 +137,11 @@ def _collapsed_vs_baseline(
     if len(values) < RATE_BASELINE_MIN_DAYS:
         return False, None
     baseline = float(median(values))
+    if not is_trading_day(today):
+        # A lane can't "collapse today" on a day it was never expected to run —
+        # without this, every rule with a formed baseline false-pages all
+        # weekend (today's 0 vs the weekday median).
+        return False, baseline
     current = lane_stats.day(lane, today.isoformat(), db_path=db_path).get(counter, 0.0)
     return baseline > 0 and current < baseline * RATE_COLLAPSE_FRACTION, baseline
 
@@ -363,7 +368,7 @@ def conservation_gap(today: date, db_path: Path) -> str | None:
     exactly one counted candidate-level disposition. An imbalance is a new
     uncounted drop path.
 
-    The partition (written by ``api/main._setup_scan_nightly_once`` from the
+    The partition (written by ``api/research_jobs._setup_scan_nightly_once`` from the
     scan's own journal): structure (final validated) + rejected_by_validation +
     ranker_discarded + no_structure + no_setup == candidates_assessed.
     Conviction ideas are deliberately EXCLUDED — they are a second lane over the

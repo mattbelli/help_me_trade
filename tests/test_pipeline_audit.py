@@ -9,7 +9,7 @@ gracefully on an empty lane_stats — no alarms, no crashes.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -228,7 +228,11 @@ def test_rules_return_none_on_empty(tmp_path):
 
 
 def test_silent_rule_uses_trailing_observed_day_median(tmp_path):
-    today = datetime.now(_ET).date()
+    # Pinned to a trading day: collapse can only fire on days the lane should
+    # have run, so evaluating "today" on a live weekend clock would (correctly)
+    # return None and break the assertion below.
+    today = date(2026, 7, 17)
+    assert pa.is_trading_day(today)
     history = pa._trailing_trading_days(today - timedelta(days=1), 10)
 
     collapsed_db = tmp_path / "collapsed.db"
@@ -383,6 +387,20 @@ def test_scan_silent_keys_on_ran_heartbeat(tmp_path):
     msg = pa.rule_setup_scan_silent(today, db2)
     assert msg is not None
     assert "did not run" in msg
+
+
+def test_collapse_rules_never_fire_on_non_trading_days(tmp_path):
+    """A formed baseline must not page on a weekend — the lane was never
+    expected to run, so today's 0 vs the weekday median is not a collapse.
+    (Caught live: this suite first ran on a Saturday and the healthy-history
+    case above paged.)"""
+    db = tmp_path / "t.db"
+    saturday = date(2026, 7, 18)
+    assert not pa.is_trading_day(saturday)
+
+    for d in pa._trailing_trading_days(saturday, pa.SETUP_SCAN_SILENT_DAYS):
+        _seed(db, "setup_scan", d.isoformat(), "ran", 1)
+    assert pa.rule_setup_scan_silent(saturday, db) is None
 
 
 def test_path_a_failures_pure_signal(tmp_path):
