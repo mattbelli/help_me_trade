@@ -45,7 +45,8 @@ export function notificationTarget(
     case "report_ready":
       return { widgetType: "reports" };
     case "research_ready":
-      return { route: n.action_url || "/research" };
+    case "scan_ready":
+      return { widgetType: "research" };
   }
   return null;
 }
