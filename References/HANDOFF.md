@@ -37,7 +37,10 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 - ▶ **Overnight 07-18 doc harvest awaiting founder**: `research/overnight_2026-07-18/`
   (map: `NIGHT_LEDGER.md`) — Strategy Lab design duel + synthesis (orchestrator judgment
   next), roadmap designs + critiques (news dots / nightly wrap / watchlist v3), perception
-  ideation. Remaining Cursor quota burns by ~midday Sat on founder-directed rounds
+  ideation. Remaining Cursor quota burns by ~midday Sat on founder-directed rounds.
+  The overnight round's TREE edits (strategy-lab entry-source fallback + chart axis work)
+  are parked UNREVIEWED on **draft PR #100** (`lab/strategy-lab-overnight-0719`, parked
+  07-19 to unblock the frontend deploy) — judge together with the duel synthesis
 - acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
   broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 
