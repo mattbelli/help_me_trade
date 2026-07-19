@@ -10,6 +10,17 @@
   ],
   "cards": [
     {
+      "id": "spx-structural-strikes-study",
+      "title": "SPX structural strikes \u2014 gamma-wall/collar overlay + pre-registered magnet study",
+      "lane": "backlog",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "agent",
+      "notes": "Founder 07-19: SPX whale prints are largely structural (JPM/JHEQX quarterly collar class \u2014 known strikes, rolled quarterly at Mar/Jun/Sep/Dec ends) and act as magnets + S/R as far as he's seen; wants them MARKED \u2014 a chart study on SPX, another angle for trade ideas. Two phases, measurement first: (1) MAGNET STUDY \u2014 pre-register metrics (print-lab pattern, prereg = LAW) for pin/magnet behavior: distance-to-top-OI-strike into expiry vs control days, on chain snapshots the index chain sampler already collects daily; (2) CHART STUDY \u2014 top-OI strike rails + known-collar annotations + roll-date calendar rendered by our chart engine (top-toolbar control, plain lowercase labels, no pills); overlay states what the study MEASURED, never folklore ('magnet' label only if phase 1 validates). If validated: 'price approaching validated magnet strike' becomes a fusion evidence type. Related: flow_decomp hedge-block reads (classifies these prints as structural), index-0dte-concentration-study (adjacent strike-concentration machinery), options-flow-academic-prior memory (whale prints = hedging, not informed flow).",
+      "created_at": "2026-07-19",
+      "updated_at": "2026-07-19"
+    },
+    {
       "id": "multi-angle-reasoning-ab",
       "title": "Greenlight: multi-angle reasoning A/B \u2014 bull/bear/judge panel vs the single veto-grade voice (design ready)",
       "lane": "founder",
