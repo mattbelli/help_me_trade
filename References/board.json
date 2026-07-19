@@ -10,6 +10,17 @@
   ],
   "cards": [
     {
+      "id": "multi-angle-reasoning-ab",
+      "title": "Greenlight: multi-angle reasoning A/B \u2014 bull/bear/judge panel vs the single veto-grade voice (design ready)",
+      "lane": "founder",
+      "type": "decision",
+      "priority": "normal",
+      "owner": "founder",
+      "notes": "Design captured + Opus-adversarially-reviewed 2026-07-19 (References/MULTI_ANGLE_REASONING_AB_2026-07-19.md). Your 07-19 ask: keep the single voice, add a multi-angle lane, measure which outperforms \u2014 with the honest 'it's bloat' outcome pre-defined (K1 kill rule). Shape: every structure candidate assessed by BOTH lanes (paired shadow); a deterministic hash picks which lane's verdict ships; origin NEVER forks (trade-path boundary untouched); disagreements adjudicated on alpha_pct (never raw won/lost \u2014 tape-bias fix from review); all metrics pre-registered, prereg = LAW. Cost bound: <=48 specialist calls/night worst case vs 12 today, nightly scan only, ships default-OFF behind MULTI_ANGLE_AB_ENABLED. Review verdict SHIP-WITH-FIXES; all 3 blocking fixes folded (alpha adjudication, honesty screen in register_ideas, bear-case surface = nightly paper not phone). DECISION: go / no-go on the one-round build. Selection committee (panel-picks-5) deliberately deferred to when fusion lanes arm (doc section 7).",
+      "created_at": "2026-07-19",
+      "updated_at": "2026-07-19"
+    },
+    {
       "id": "rank1-research-worker-design",
       "title": "Rank-1 nightly research worker \u2014 APPROVED; R1a shipped, R1b pending (References/RESEARCH_WORKER_DESIGN_2026-07-18.md)",
       "lane": "in_progress",

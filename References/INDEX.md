@@ -26,6 +26,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | Doc | Status |
 |---|---|
 | `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` | ★ GOVERNING design for the idea engine (Paths A+B unified). Supersedes both idea-ledger specs |
+| `MULTI_ANGLE_REASONING_AB_2026-07-19.md` | Design: bull/bear/judge panel A/B vs the single veto-grade voice — paired shadow, alternating control, alpha-adjudicated prereg metrics. Opus-reviewed (fixes folded); AWAITING FOUNDER GO |
 | `IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md` | Phase 1 implementation spec — DEPLOYED 07-16; audit gaps fixed in Round 0 (07-18) |
 | `FUSION_EVIDENCE_BUS_SPEC_2026-07-17.md` | ★ v3 BUILD spec for the fusion layer — the Phase 2 delta set ON the Unified Design (grill + 4 audits). Roadmap §4 item 2 builds to THIS |
 | `AUDIT_GPT56_IDEA_ENGINE_FUSION_2026-07-17.md` | External gpt-5.6-sol technical audit (17 findings, 8/8 verified) — findings age as fixes land; Round 0 fixed the shipped-code set |
