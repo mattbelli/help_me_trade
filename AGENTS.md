@@ -39,12 +39,12 @@ proposals ✅ (the headline unlock) → bounded auto-execute (in progress, hard-
 
 | Subsystem | Key files | Purpose |
 |---|---|---|
-| **Workspace shell** | `app/page.tsx` (workspace IS the main URL), `components/workspace/workspace-grid.tsx`, `lib/workspace/widget-registry.tsx` (**30 widgets**: chart, watchlist, options-flow, index-pressure, idea-outcomes, agent-proposals, notifications, chat…), `lib/workspace/channels.ts` (6 colored symbol-link channels), `use-workspace-store.ts` (workspaces = named page groups) | Tickers everywhere click-to-focus-chart via channels |
+| **Workspace shell** | `app/page.tsx` (workspace IS the main URL), `components/workspace/workspace-grid.tsx`, `lib/workspace/widget-registry.tsx` (**33 widgets**: chart, watchlist, options-flow, index-pressure, idea-outcomes, idea-ledger, evidence-stack, agent-proposals, notifications, chat…), `lib/workspace/channels.ts` (6 colored symbol-link channels), `use-workspace-store.ts` (workspaces = named page groups) | Tickers everywhere click-to-focus-chart via channels |
 | **Terminal** | `components/workspace/terminal/terminal.tsx` (bottom drawer: chat + commands), `lib/workspace/use-workspace-commands.ts` | |
 | **★ Chart engine (ours)** | `lib/chart-engine/` — `engine.ts`, `canvas2d.ts`, `painter.ts` (RN-Skia later), pure `scales/ticks/series/merge` + vitest; `components/trading/native-chart.tsx` | TradingView is DELETED — this is the only chart. Controls in top toolbar, never floating |
 | **Chat** | `app/api/chat/route.ts` (proxies to Python brain via `lib/python-server.ts`; `CHAT_BRAIN=ts` = legacy revert), `components/assistant-ui/` | Brain is Python; Node never places orders |
 | **Watchlist** | `lib/workspace/watchlist-columns.tsx` (19-col registry, density presets), `widgets/watchlist-widget.tsx` | Per-list settings sync server-side |
-| **Standalone pages** | `/performance`, `/research`, `/board` (kanban ← `References/board.json`), `/memories`, `/agents`, `/rules`, `/automations`; `/trading` `/charts` `/trades` = dead redirects | |
+| **Standalone pages** | `/performance`, `/research`, `/board` (kanban ← `References/board.json`), `/memories`, `/agents`, `/rules`, `/automations`, `/strategy-lab`; `/trading` `/charts` `/trades` = dead redirects | |
 | **Mobile web** | `components/workspace/mobile-workspace.tsx` — 4-tab bottom-nav surface, NOT the grid | Phone ≠ desktop grid; widgets never overlap |
 | **API clients** | `lib/api.ts` (main, 1.7k lines) + `journal/performance/reports/scans/strategies/ticker-info/trades-api.ts` | |
 
