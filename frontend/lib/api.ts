@@ -977,7 +977,9 @@ export type SessionLevelKind =
   | "support"
   | "resistance"
   | "prior_high"
-  | "prior_low";
+  | "prior_low"
+  | "prior_week_high"
+  | "prior_week_low";
 
 export type SessionLevel = {
   name: string;

@@ -109,6 +109,9 @@ function sessionLevelColor(kind: SessionLevel["kind"]): string {
       return resolveCssColor("--c-amber", "#e0975b");
     case "prior_high":
       return resolveCssColor("--c-blue", "#6cb0ff");
+    case "prior_week_high":
+    case "prior_week_low":
+      return resolveCssColor("--c-purple", "#b48ce8");
     default:
       return resolveCssColor("--fg-faint", "#616873");
   }

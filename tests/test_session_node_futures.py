@@ -11,13 +11,14 @@ Equity behaviour is also asserted to be byte-identical to before.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from brokers.alpaca import StockBar
 from research.intraday_bars import IntradayBar
+from research.intraday_profile import to_ny
 from signals.session_node_strategy import compute_session_levels
 
 # EDT = UTC-4 (all test dates are in June 2024)
@@ -245,3 +246,111 @@ async def test_equity_session_unchanged_excludes_overnight(
     assert by_name["PDL"] == RTH_LOW, (
         f"Expected equity PDL={RTH_LOW} (RTH low tick only), got {by_name['PDL']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Weekly levels (PWH/PWL) — prior COMPLETED week from daily bars, equities only
+# ---------------------------------------------------------------------------
+
+def _daily_stockbar(day: date, *, high: float, low: float) -> StockBar:
+    """Daily bar stamped at 05:00 UTC = midnight ET on `day` (matches Alpaca)."""
+    mid = (high + low) / 2
+    return StockBar(
+        time=f"{day.isoformat()}T05:00:00Z",
+        open=mid, high=high, low=low, close=mid, volume=1_000_000.0,
+    )
+
+
+def _patch_provider_with_daily(
+    monkeypatch: pytest.MonkeyPatch,
+    symbol: str,
+    minute_bars: list[IntradayBar],
+    daily_bars: list[StockBar] | Exception,
+) -> None:
+    """Timeframe-aware provider mock: 1Min → session bars, 1Day → daily bars."""
+    minute_stock = _intraday_to_stockbars(minute_bars)
+
+    async def _batch(symbols, *, timeframe, days, **kwargs):
+        if timeframe == "1Day":
+            if isinstance(daily_bars, Exception):
+                raise daily_bars
+            return {symbol: daily_bars}
+        return {symbol: minute_stock}
+
+    provider = MagicMock()
+    provider.aget_stock_bars_batch = AsyncMock(side_effect=_batch)
+    monkeypatch.setattr(
+        "signals.session_node_strategy.get_market_data_provider",
+        lambda: provider,
+    )
+
+
+@pytest.mark.asyncio
+async def test_equity_weekly_levels_from_prior_completed_week(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PWH/PWL are the prior COMPLETED Mon–Fri extremes — current-week bars and
+    older weeks must both be excluded."""
+    today = to_ny(datetime.now(UTC).isoformat()).date()
+    this_monday = today - timedelta(days=today.weekday())
+    prior_monday = this_monday - timedelta(days=7)
+    older_monday = this_monday - timedelta(days=14)
+
+    daily = [
+        # Two weeks back: extremes that must NOT win.
+        _daily_stockbar(older_monday, high=500.0, low=0.5),
+        # Prior completed week (Mon–Fri): PWH=90 (Wed), PWL=3 (Wed).
+        _daily_stockbar(prior_monday, high=10.0, low=5.0),
+        _daily_stockbar(prior_monday + timedelta(days=1), high=20.0, low=8.0),
+        _daily_stockbar(prior_monday + timedelta(days=2), high=90.0, low=3.0),
+        _daily_stockbar(prior_monday + timedelta(days=3), high=15.0, low=6.0),
+        _daily_stockbar(prior_monday + timedelta(days=4), high=12.0, low=7.0),
+    ]
+    # Current (incomplete) week: extremes that must be excluded. Only add days
+    # strictly before today so the fixture is valid on any weekday.
+    for offset in range((today - this_monday).days):
+        daily.append(
+            _daily_stockbar(this_monday + timedelta(days=offset), high=200.0, low=1.0)
+        )
+
+    prior_bars = _build_prior_session_bars()
+    current_bar = _rth_bar(_CURRENT_DATE, 9, 30, price=RTH_BASE)
+    _patch_provider_with_daily(monkeypatch, "SPY", prior_bars + [current_bar], daily)
+    monkeypatch.setattr("signals.session_node_strategy.is_market_open", lambda: True)
+
+    payload = await compute_session_levels("SPY")
+    assert payload is not None, "compute_session_levels returned None for SPY"
+
+    by_name = {lv["name"]: lv for lv in payload["levels"]}
+    assert "PWH" in by_name and "PWL" in by_name, (
+        f"weekly levels missing from {sorted(by_name)}"
+    )
+    assert by_name["PWH"]["price"] == 90.0, (
+        f"PWH must be the prior completed week's high (90), got {by_name['PWH']['price']}"
+    )
+    assert by_name["PWL"]["price"] == 3.0, (
+        f"PWL must be the prior completed week's low (3), got {by_name['PWL']['price']}"
+    )
+    assert by_name["PWH"]["kind"] == "prior_week_high"
+    assert by_name["PWL"]["kind"] == "prior_week_low"
+
+
+@pytest.mark.asyncio
+async def test_weekly_levels_failure_soft_keeps_session_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A daily-bar fetch failure must never cost the session nodes."""
+    prior_bars = _build_prior_session_bars()
+    current_bar = _rth_bar(_CURRENT_DATE, 9, 30, price=RTH_BASE)
+    _patch_provider_with_daily(
+        monkeypatch, "SPY", prior_bars + [current_bar],
+        RuntimeError("daily bars unavailable"),
+    )
+    monkeypatch.setattr("signals.session_node_strategy.is_market_open", lambda: True)
+
+    payload = await compute_session_levels("SPY")
+    assert payload is not None, "session levels must survive a weekly-fetch failure"
+
+    names = {lv["name"] for lv in payload["levels"]}
+    assert {"POC", "VAH", "VAL", "PDH", "PDL"} <= names
+    assert "PWH" not in names and "PWL" not in names

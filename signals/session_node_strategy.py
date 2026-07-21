@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from math import floor
 from pathlib import Path
@@ -48,6 +48,7 @@ SESSION_NODE_NOTIONAL_USD = 500.0
 LOG_PATH = RESEARCH_DATA_DIR / "session_node_log.csv"
 _BAR_DAYS = 5
 _FUTURES_BAR_DAYS = 10  # ~3 Globex sessions in 5 calendar days; 10 gives a comfortable buffer
+_WEEKLY_BAR_DAYS = 15  # calendar days of DAILY bars — always spans the prior full trading week
 _BUYING_POWER_BUFFER = Decimal("0.95")
 _STRUCTURE_TAG = "structure-reaction · low-confidence · human-discretion"
 
@@ -57,6 +58,8 @@ _LEVEL_KINDS: dict[str, str] = {
     "VAL": "support",
     "PDH": "prior_high",
     "PDL": "prior_low",
+    "PWH": "prior_week_high",
+    "PWL": "prior_week_low",
 }
 
 
@@ -436,6 +439,52 @@ async def load_session_node_context(
     )
 
 
+async def _prior_week_levels(symbol: str) -> list[dict[str, Any]]:
+    """Prior COMPLETED week's high/low (PWH/PWL) from daily bars — equities only.
+
+    Weekly structure outranks a daily node in salience, but it rides the exact
+    same cache → proximity → structure-dot path; the level NAME is what tells
+    downstream consumers (dossier claims, charts) it is weekly. Failure-soft by
+    contract: a fetch/shape problem here must never cost the session nodes, so
+    every error path returns []. Weekly volume nodes (wPOC/wVAH/wVAL) are a
+    deliberate deferral — they need a week of 1-min bars (~3× the drain's
+    current fetch); high/low come from a tiny daily-bar request.
+    """
+    try:
+        provider = get_market_data_provider()
+        bars_by_symbol = await provider.aget_stock_bars_batch(
+            [symbol], timeframe="1Day", days=_WEEKLY_BAR_DAYS
+        )
+        today = to_ny(datetime.now(UTC).isoformat()).date()
+        this_monday = today - timedelta(days=today.weekday())
+        prior = [
+            (to_ny(bar.time).date(), bar)
+            for bar in bars_by_symbol.get(symbol, [])
+            if to_ny(bar.time).date() < this_monday
+        ]
+        if not prior:
+            return []
+        # Most recent completed week only (holiday gaps make "last 5 bars" wrong).
+        last_day = max(day for day, _ in prior)
+        week_monday = last_day - timedelta(days=last_day.weekday())
+        week = [bar for day, bar in prior if day >= week_monday]
+        return [
+            {
+                "name": "PWH",
+                "price": max(bar.high for bar in week),
+                "kind": _LEVEL_KINDS["PWH"],
+            },
+            {
+                "name": "PWL",
+                "price": min(bar.low for bar in week),
+                "kind": _LEVEL_KINDS["PWL"],
+            },
+        ]
+    except Exception:
+        logger.debug("prior-week levels unavailable for %s", symbol, exc_info=True)
+        return []
+
+
 async def compute_session_levels(
     symbol: str = SYMBOL,
     *,
@@ -478,6 +527,8 @@ async def compute_session_levels(
             ("PDL", nodes.pdl),
         )
     ]
+    if not sym.startswith("/"):
+        levels.extend(await _prior_week_levels(sym))
     return {
         "symbol": sym,
         "session_date": nodes.session_date.isoformat(),
