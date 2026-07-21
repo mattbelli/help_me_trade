@@ -113,6 +113,11 @@ DOSSIER_SUMMARY_MAX_CHARS = 4000
 # Nothing else — then DEPLOY (a backend restart is required: these flags are read
 # at import time). Everything C5 shipped keys off REASON_EMIT_ENABLED, so flipping
 # (2) arms delivery + both new alarm rules in one move. Do NOT edit any of this now.
+# PLUS one runtime step at ARM (settings, not code): alerts.max_push_per_day is 0 —
+# founder killed ALL flow-lane phone pushes 07-21 ("first-5-of-hundreds has no
+# value; send none"), superseding the no-blackout rule. Restore it to 5 via
+# PUT /api/settings when arming, or the new idea lane pushes nothing; convergence
+# pushes retire in the same round so the pool serves ONLY investigated ideas.
 REASON_EMIT_ENABLED = False
 # Lane ceilings — defense in depth OVER C1's 5/day investigation gate (a runaway
 # poll can never exceed these). T1 triages ≤8 candidates/call; v1 is one call per
