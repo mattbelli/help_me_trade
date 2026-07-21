@@ -14,6 +14,7 @@ in ``api/main.py`` at a 900s interval). All state lives in ``lane_stats``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -447,9 +448,12 @@ async def _fire_alarm(
 
 
 async def _run_rate_rules(today: date, db_path: Path) -> None:
+    # Rules run via to_thread: they must stay plain sync reads with no event-loop
+    # access (the full rule sweep is seconds of SQLite reads — loop-probe measured
+    # ~5s stalls every 15 min when run inline).
     for rule_id, fn in RATE_RULES:
         try:
-            msg = fn(today, db_path)  # type: ignore[operator]
+            msg = await asyncio.to_thread(fn, today, db_path)
         except Exception:
             logger.exception("pipeline_audit rule %s check failed", rule_id)
             continue
@@ -463,7 +467,7 @@ async def _run_rate_rules(today: date, db_path: Path) -> None:
                 body=msg,
             )
     try:
-        never_worked = _never_worked_lanes(today, db_path)
+        never_worked = await asyncio.to_thread(_never_worked_lanes, today, db_path)
     except Exception:
         logger.exception("pipeline_audit never-worked check failed")
         return
@@ -619,7 +623,7 @@ async def _run_canary(now_et: datetime, db_path: Path) -> None:
 
 async def _run_conservation_check(today: date, db_path: Path) -> None:
     try:
-        msg = conservation_gap(today, db_path)
+        msg = await asyncio.to_thread(conservation_gap, today, db_path)
     except Exception:
         logger.exception("pipeline_audit conservation check failed")
         return

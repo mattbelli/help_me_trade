@@ -50,23 +50,23 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 Zero-context composition audit of hmt-backend verified claim-by-claim and archived
 (`References/BACKEND_COMPOSITION_AUDIT_2026-07-18.md` — read its header first). Step-1 fixes SHIPPED
 (blind jobs registered; EOD scan / fill_outcomes / fusion ATR off-loop — BUILD_LOG 2026-07-18). **Open:**
-- ▶ **Rank-1 nightly research worker — APPROVED 07-19; R1a SHIPPED, R1b open**
+- ▶ **Rank-1 nightly research worker — APPROVED 07-19; R1a LIVE, R1b open (founder-held)**
   (`References/RESEARCH_WORKER_DESIGN_2026-07-18.md`, board `rank1-research-worker-design`): R1a
-  mechanical extraction committed 07-19 (`api/research_jobs.py` + `signals/universe.py` +
-  `Job.run_on_start`; backend still owns all five jobs; Opus diff review PASS, 0 HIGH/MED; detail:
-  BUILD_LOG 2026-07-19). ⚠️ **deliberately NOT deployed yet** — Monday night's loop probe must
-  measure step-1 code, not a fresh refactor; deploy R1a with (or right after) the verdict read.
-  Then R1b (worker shell + lease ticker + unit + flag flip + dead-man receipts + /health block)
+  went live Mon 06:00Z — the Schwab-reauth cron's backend restart picked up the 07-19 commits
+  before the planned with-verdict deploy (inert as designed: flag off, backend owns all five
+  jobs; detail: BUILD_LOG 2026-07-21). R1b (worker shell + lease ticker + unit + flag flip +
+  dead-man receipts + /health block) is spec'd + recon-complete, ON HOLD per founder 07-20
+  ("No need to start now")
 - ▶ **Rank-2 exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent →
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)
-- ⏳ **loop-lag: 07-13 stalls decomposed + probe ARMED; verdict Mon 07-20 night** (detail: BUILD_LOG
-  2026-07-18 ×2): daytime starvation class KILLED by the extractions; open/close keepalive drops =
-  upstream Alpaca burst (poll cadence perfect, benign); overnight stalls = the live class — Fri
-  night's 64s gap landed exactly on the OLD sync EOD scan (pre-step-1 PID; step 1 deployed Sat
-  18:49Z, zero nightly data yet). `api/loop_probe.py` deployed: any ≥2s loop stall now dumps all
-  thread stacks (`[EVENT LOOP]` marked) + executor-lag heartbeat; grep `loop_probe:`. Mon night
-  ~00:40Z Tue: silence = step 1 fixed it; a dump = the culprit stack, feeds the Rank-1 design
+- ⏳ **loop-lag: VERDICT IN 07-21 — 30–41s overnight class EXTINCT; auditor 5s class found + fixed,
+  verify pending** (detail: BUILD_LOG 2026-07-21): zero stalls >7.2s across 3 days of probe data
+  (07-18→07-21); the surviving class = `pipeline_audit` rate rules running sync SQLite sweeps
+  inline on the loop — uniform ~5s every 15 min, 186 occurrences, MainThread stack proof. Fixed
+  via `asyncio.to_thread` (rules + never-worked + conservation). OPEN: confirm post-restart audit
+  cycles show no 15-min stall line, and re-grep the full overnight window Tue morning before
+  closing this thread
 - Schwab jobs stay in-process behind config gates (founder leaning: Schwab is personal, not product —
   Rank-3 tier, no action now)
 
