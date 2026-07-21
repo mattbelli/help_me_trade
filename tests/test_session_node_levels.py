@@ -117,7 +117,9 @@ async def test_compute_session_levels_returns_five_named_levels(
     assert payload is not None
     assert payload["symbol"] == "SPY"
     assert payload["session_date"] == DAY1.isoformat()
-    assert len(payload["levels"]) == 5
+    # 5 session nodes + PWH/PWL (the mock serves the same bars for the weekly
+    # daily-bar fetch, so the prior completed week always exists here).
+    assert len(payload["levels"]) == 7
 
     by_name = {level["name"]: level for level in payload["levels"]}
     assert by_name["POC"]["kind"] == "poc"
@@ -125,6 +127,8 @@ async def test_compute_session_levels_returns_five_named_levels(
     assert by_name["VAL"]["kind"] == "support"
     assert by_name["PDH"]["kind"] == "prior_high"
     assert by_name["PDL"]["kind"] == "prior_low"
+    assert by_name["PWH"]["kind"] == "prior_week_high"
+    assert by_name["PWL"]["kind"] == "prior_week_low"
     for level in payload["levels"]:
         assert isinstance(level["price"], float)
         assert level["price"] > 0
@@ -202,7 +206,8 @@ def test_api_session_node_levels_shape(
     data = resp.json()
     assert data["symbol"] == "SPY"
     assert data["session_date"] == DAY1.isoformat()
-    assert len(data["levels"]) == 5
+    # 5 session nodes + PWH/PWL (same-bars mock → prior week always present).
+    assert len(data["levels"]) == 7
 
 
 def test_api_session_node_levels_empty_when_no_data(
