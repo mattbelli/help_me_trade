@@ -722,14 +722,17 @@ def update_outcome(
     alpha_pct: float | None = None,
     exit_reason: str | None = None,
     fill_status: str | None = None,
+    grading_resolution: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> bool:
     """Apply a forward-only update. Returns True if a row was modified.
 
     The Grading Law fields (``ret_pct``/``spy_ret_pct``/``alpha_pct``/
-    ``exit_reason``/``fill_status``) follow the same None-means-skip contract as
-    every other column: a NULL benchmark leg (SPY fetch failure) is written by
-    simply not passing the field, so the column stays NULL — never zero-filled.
+    ``exit_reason``/``fill_status``/``grading_resolution``) follow the same
+    None-means-skip contract as every other column: a NULL benchmark leg (SPY
+    fetch failure) is written by simply not passing the field, so the column
+    stays NULL — never zero-filled. ``grading_resolution`` is stamped 'minute' by
+    the minute-bar grader; the daily path leaves it at the schema default 'daily'.
     """
     init_idea_outcomes_tables(db_path)
     fields: list[str] = ["updated_at = ?"]
@@ -786,6 +789,9 @@ def update_outcome(
     if fill_status is not None:
         fields.append("fill_status = ?")
         values.append(fill_status)
+    if grading_resolution is not None:
+        fields.append("grading_resolution = ?")
+        values.append(grading_resolution)
 
     values.append(int(outcome_id))
     with _connect(db_path) as conn:

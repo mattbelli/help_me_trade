@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,7 @@ from ai.research.data_sources import (
     _bar_date,
     fetch_daily_bars_batch,
     fetch_daily_bars_since,
+    fetch_minute_bars,
 )
 from config.idea_engine import GRADING_TIEBREAK
 from db.idea_outcomes import list_open, list_sweepable, update_outcome
@@ -43,6 +44,17 @@ _HORIZON_DAYS_RE = re.compile(r"^\s*(\d+)\s*d\s*$", re.IGNORECASE)
 
 # The benchmark symbol — one adjusted daily series per sweep (in-sweep cache).
 _SPY_SYMBOL = "SPY"
+
+# Origins whose PLAN ideas grade on MINUTE bars (the Grading Law). Event-driven
+# intraday origins can hit a same-day target and THEN gap through the stop
+# overnight — a sequence daily bars physically cannot order (one daily bar
+# carries no intraday tick order), so daily grading would silently mislabel that
+# win as a loss. Those origins grade on minute bars instead, stamped
+# grading_resolution='minute', with a flagged daily fallback when minute data is
+# missing. Membership is an ESTIMAND decision: a different bar granularity is a
+# different measured game, so adding an origin changes what its win% MEANS —
+# never add one casually.
+MINUTE_GRADED_ORIGINS = frozenset({"reason_v1"})
 
 __all__ = ["sweep_open_ideas"]
 
@@ -576,10 +588,341 @@ def _stamp_benchmark(
     )
 
 
+# --------------------------------------------------------------------------- #
+# MINUTE-BAR grading (the Grading Law) — event-driven intraday plan origins.
+# Every decision here MIRRORS a daily-path function at minute granularity; the
+# only new behavior is same-day sequencing (evaluate from the as_of TIMESTAMP,
+# not the daily path's next-day _first_evaluable_date) + the resolution stamp.
+# --------------------------------------------------------------------------- #
+def _bar_datetime(bar: Any) -> datetime | None:
+    """The bar's full aware timestamp (minute bars carry HH:MM). Naive parses are
+    UTC by house convention — the sibling of _bar_date used by the minute walk."""
+    raw = str(getattr(bar, "time", "") or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+# RTH bounds for the minute walk (bar label = the minute's START, so 15:59 is
+# the last regular bar; the 16:00 bar mixes the closing auction with after-hours
+# prints). Alpaca minute bars INCLUDE pre/post-market — the bars endpoint has no
+# session filter — and a thin extended-hours wick must never grade a stop/zone/
+# target touch the plan could not actually trade.
+_RTH_START = time(9, 30)
+_RTH_END = time(16, 0)
+
+
+def _is_rth_minute_bar(bar: Any) -> bool:
+    dt = _bar_datetime(bar)
+    if dt is None:
+        return False
+    t = dt.astimezone(_ET).time()
+    return _RTH_START <= t < _RTH_END
+
+
+def _parse_as_of_dt(as_of: str) -> datetime | None:
+    """The idea's mint instant as an aware datetime (None if unparseable). The
+    minute walk starts HERE — a bar that printed before the idea was minted must
+    never grade it (the NTSK trap, at minute resolution)."""
+    raw = str(as_of or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _session_close_dt(d: date) -> datetime:
+    """16:00 ET on ``d`` — the horizon's end instant on the minute path (used only
+    to cap the fetch window; the walk itself decides expiry by trading-day date)."""
+    return datetime(d.year, d.month, d.day, 16, 0, tzinfo=_ET)
+
+
+def _process_minute_plan(
+    row: dict[str, Any],
+    bars: list[Any],
+    *,
+    now_date: date,
+    direction: str,
+    as_of_dt: datetime,
+    expiry_date: date,
+) -> dict[str, Any] | None:
+    """Grade a plan-basis idea against MINUTE bars in one re-entrant walk.
+
+    Mirrors _process_pending (pre-trigger) + _process_triggered (post-trigger) at
+    minute granularity, re-deriving the trigger from as_of every pass (so it is
+    idempotent regardless of the persisted pending/triggered status). Same-bar
+    conservative rules, same tie-break, same fill_status/exit_reason vocabulary —
+    the ONLY change from the daily functions is the bar granularity and stamping
+    grading_resolution='minute' on any terminal resolution.
+    """
+    entry_low = _parse_decimal(row["entry_low"])
+    entry_high = _parse_decimal(row["entry_high"])
+    stop = _parse_decimal(row["stop"])
+    if entry_low is None or entry_high is None or stop is None:
+        return {
+            "status": "invalidated",
+            "resolved_at": now_date.isoformat(),
+            "resolution_price": None,
+            "notes": "invalid snapshot prices",
+            "grading_resolution": "minute",
+        }
+    targets = row.get("targets") or []
+    target0 = _parse_decimal(targets[0]) if targets else None
+    entry = _entry_mid(entry_low, entry_high)
+
+    was_triggered = str(row.get("status")) == "triggered"
+    triggered = False
+    triggered_at: str | None = None
+    mfe_pct: float | None = None
+    mae_pct: float | None = None
+
+    for bar in bars:
+        bar_dt = _bar_datetime(bar)
+        if bar_dt is None or bar_dt < as_of_dt:
+            continue  # predates the idea — never grades it (NTSK trap, minute-scale)
+        bar_date = bar_dt.date()
+        bar_low = _parse_decimal(getattr(bar, "low", None))
+        bar_high = _parse_decimal(getattr(bar, "high", None))
+        if bar_low is None or bar_high is None:
+            continue
+
+        if not triggered:
+            if _zone_touched(bar_low, bar_high, entry_low, entry_high):
+                mfe_pct, mae_pct = _update_excursions(
+                    entry=entry,
+                    bar_low=bar_low,
+                    bar_high=bar_high,
+                    mfe_pct=mfe_pct,
+                    mae_pct=mae_pct,
+                    direction=direction,
+                )
+                # _process_pending same-bar rule: zone + stop in one bar is a real
+                # entry that stopped out -> LOST (invalidated would flatter win%).
+                if _stop_hit(bar_low, bar_high, stop, direction):
+                    return {
+                        "status": "lost",
+                        "triggered_at": bar_date.isoformat(),
+                        "resolved_at": bar_date.isoformat(),
+                        "resolution_price": str(stop),
+                        "exit_reason": "stop",
+                        "fill_status": "filled",
+                        "mfe_pct": mfe_pct,
+                        "mae_pct": mae_pct,
+                        "grading_resolution": "minute",
+                    }
+                # Zone touched, no stop: TRIGGERED. The trigger bar can never prove
+                # a win (the run to target may precede the dip into the zone) — a
+                # strictly-later bar must, so do NOT check the target here.
+                triggered = True
+                triggered_at = bar_date.isoformat()
+                continue
+            if _stop_hit(bar_low, bar_high, stop, direction):
+                # Stop breached without ever touching the zone: the planned entry
+                # never existed -> invalidated (mirror _process_pending).
+                return {
+                    "status": "invalidated",
+                    "resolved_at": bar_date.isoformat(),
+                    "resolution_price": str(
+                        bar_high if direction == "short" else bar_low
+                    ),
+                    "grading_resolution": "minute",
+                }
+            if bar_date > expiry_date:
+                # Horizon end = expiry_date's session close; the first bar past it
+                # with the zone never touched -> no-fill expiry (_process_pending).
+                return {
+                    "status": "expired",
+                    "resolved_at": expiry_date.isoformat(),
+                    "resolution_price": None,
+                    "exit_reason": "time",
+                    "fill_status": "no_fill",
+                    "grading_resolution": "minute",
+                }
+            continue
+
+        # Triggered: mirror _process_triggered on bars STRICTLY AFTER the trigger
+        # bar (the walk only reaches here on later bars, so the guard is implicit).
+        mfe_pct, mae_pct = _update_excursions(
+            entry=entry,
+            bar_low=bar_low,
+            bar_high=bar_high,
+            mfe_pct=mfe_pct,
+            mae_pct=mae_pct,
+            direction=direction,
+        )
+        stop_now = _stop_hit(bar_low, bar_high, stop, direction)
+        target_now = target0 is not None and _target_hit(
+            bar_low, bar_high, target0, direction
+        )
+        # TIE-BREAK LAW (config.GRADING_TIEBREAK): one bar touching BOTH resolves
+        # pessimistically — stop wins.
+        if stop_now and (not target_now or GRADING_TIEBREAK == "stop"):
+            return {
+                "status": "lost",
+                "triggered_at": triggered_at,
+                "resolved_at": bar_date.isoformat(),
+                "resolution_price": str(bar_high if direction == "short" else bar_low),
+                "exit_reason": "stop",
+                "fill_status": "filled",
+                "mfe_pct": mfe_pct,
+                "mae_pct": mae_pct,
+                "grading_resolution": "minute",
+            }
+        if target_now:
+            return {
+                "status": "won",
+                "triggered_at": triggered_at,
+                "resolved_at": bar_date.isoformat(),
+                "resolution_price": str(target0),
+                "exit_reason": "target",
+                "fill_status": "filled",
+                "first_target_hit": 0,
+                "mfe_pct": mfe_pct,
+                "mae_pct": mae_pct,
+                "grading_resolution": "minute",
+            }
+        if bar_date > expiry_date:
+            return {
+                "status": "expired",
+                "triggered_at": triggered_at,
+                "resolved_at": expiry_date.isoformat(),
+                "resolution_price": None,
+                "exit_reason": "time",
+                "fill_status": "filled",
+                "mfe_pct": mfe_pct,
+                "mae_pct": mae_pct,
+                "grading_resolution": "minute",
+            }
+
+    # Bars exhausted without a terminal resolution.
+    now_past_expiry = now_date > expiry_date
+    if triggered:
+        if now_past_expiry:
+            return {
+                "status": "expired",
+                "triggered_at": triggered_at,
+                "resolved_at": expiry_date.isoformat(),
+                "resolution_price": None,
+                "exit_reason": "time",
+                "fill_status": "filled",
+                "mfe_pct": mfe_pct,
+                "mae_pct": mae_pct,
+                "grading_resolution": "minute",
+            }
+        # Persist a NEW trigger, or advanced excursions on a known one; else quiet
+        # (mirror _process_triggered's "only write when something changed").
+        if not was_triggered or mfe_pct != row.get("mfe_pct") or mae_pct != row.get("mae_pct"):
+            return {
+                "status": "triggered",
+                "triggered_at": triggered_at,
+                "mfe_pct": mfe_pct,
+                "mae_pct": mae_pct,
+            }
+        return None
+    if now_past_expiry:
+        return {
+            "status": "expired",
+            "resolved_at": expiry_date.isoformat(),
+            "resolution_price": None,
+            "exit_reason": "time",
+            "fill_status": "no_fill",
+            "grading_resolution": "minute",
+        }
+    return None
+
+
+def _grade_minute(
+    row: dict[str, Any],
+    *,
+    now_dt: datetime,
+    now_date: date,
+    direction: str,
+    outcome_id: int,
+    current_status: str,
+    first_evaluable: date,
+    spy_by_date: dict[date, Decimal],
+    db_kwargs: dict[str, Any],
+) -> tuple[bool, str | None]:
+    """Own a minute-graded plan row for this sweep.
+
+    Returns ``(handled, result)``. ``handled=False`` ONLY when the minute FETCH
+    failed (None) — the caller then falls back to the unchanged daily sweep.
+    ``handled=True`` means the minute path owns the row; ``result`` mirrors
+    _apply_update / _sweep_row (a status string, 'excursion_updates', or None).
+    """
+    if now_dt.tzinfo is None:  # naive stamps are UTC by house convention
+        now_dt = now_dt.replace(tzinfo=UTC)
+    as_of_dt = _parse_as_of_dt(str(row["as_of"]))
+    horizon_n = _horizon_trading_days(row.get("plan_horizon"))
+    if as_of_dt is None or horizon_n is None:
+        # No timestamp or no whole-day horizon to place the walk against — leave
+        # the row untouched (never guess a window). reason_v1 always supplies
+        # both ([ADR-3] + the V1 contract), so this is belt-and-braces.
+        return (True, None)
+
+    expiry_date = _add_trading_days(as_of_dt.astimezone(_ET).date(), horizon_n)
+    end_dt = min(now_dt, _session_close_dt(expiry_date))
+    if end_dt <= as_of_dt:
+        return (True, None)  # nothing to fetch yet (idea just minted)
+
+    bars = fetch_minute_bars(str(row["symbol"]), as_of_dt, end_dt)
+    if bars is None:
+        return (False, None)  # fetch failed -> daily fallback (flagged 'daily')
+    # One filter covers the walk AND _resolution_close: only RTH bars referee.
+    bars = [b for b in bars if _is_rth_minute_bar(b)]
+
+    patch = _process_minute_plan(
+        row,
+        bars,
+        now_date=now_date,
+        direction=direction,
+        as_of_dt=as_of_dt,
+        expiry_date=expiry_date,
+    )
+    if not patch:
+        if int(row.get("fetch_fail_streak") or 0) > 0:
+            update_outcome(outcome_id, fetch_fail_streak=0, **db_kwargs)
+        return (True, None)
+
+    # Terminal graded rows carry the benchmark leg. The SPY series is DAILY and
+    # reused as-is — the benchmark's resolution is not the plan's, so a minute
+    # plan measured against a daily SPY leg is correct by design. no_fill /
+    # invalidated get no benchmark (mirror the daily path).
+    if (
+        str(patch.get("status")) in _GRADED_STATUSES
+        and patch.get("fill_status") != "no_fill"
+    ):
+        entry_low = _parse_decimal(row["entry_low"])
+        entry_high = _parse_decimal(row["entry_high"])
+        entry_ref = (
+            _entry_mid(entry_low, entry_high)
+            if entry_low is not None and entry_high is not None
+            else None
+        )
+        _stamp_benchmark(
+            patch,
+            entry_ref=entry_ref,
+            direction=direction,
+            first_evaluable=first_evaluable,
+            bars=bars,
+            spy_by_date=spy_by_date,
+        )
+
+    return (True, _apply_update(outcome_id, current_status, patch, db_kwargs=db_kwargs))
+
+
 def _sweep_row(
     row: dict[str, Any],
     *,
     now_date: date,
+    now_dt: datetime | None = None,
     db_path: Path | None = None,
     spy_by_date: dict[date, Decimal] | None = None,
     batch_bars: dict[str, list[Any] | None] | None = None,
@@ -588,6 +931,39 @@ def _sweep_row(
     first_evaluable = _first_evaluable_date(
         str(row["as_of"]), origin=str(row.get("origin") or "")
     )
+    outcome_id = int(row["id"])
+    status = str(row["status"])
+    direction = str(row.get("direction") or "long").strip().lower() or "long"
+    grading_basis = str(row.get("grading_basis") or "plan").strip() or "plan"
+    origin = str(row.get("origin") or "")
+    db_kwargs = {} if db_path is None else {"db_path": db_path}
+
+    # ── Grading Law: event-driven intraday PLAN origins grade on MINUTE bars so a
+    # same-day target then an overnight gap through the stop sequences correctly
+    # (daily bars can't order a same-day stop vs target). Only OPEN rows take this
+    # path — data_gap recovery stays on the daily path, which owns the restore
+    # logic. The minute path owns the row unless its fetch failed (None), when we
+    # fall through to the daily sweep UNCHANGED (grading_resolution defaults to
+    # 'daily', so the untouched daily path already satisfies the fallback flag). ──
+    if (
+        status in ("pending", "triggered")
+        and grading_basis == "plan"
+        and origin in MINUTE_GRADED_ORIGINS
+    ):
+        handled, minute_result = _grade_minute(
+            row,
+            now_dt=now_dt or datetime.now(UTC),
+            now_date=now_date,
+            direction=direction,
+            outcome_id=outcome_id,
+            current_status=status,
+            first_evaluable=first_evaluable,
+            spy_by_date=spy_by_date,
+            db_kwargs=db_kwargs,
+        )
+        if handled:
+            return minute_result
+
     # Fetch from the first EVALUABLE session, not as_of: an idea minted after
     # tonight's close has no bar to read until tomorrow, and the tri-state
     # contract then reports [] ("no session yet") rather than a resolvable bar.
@@ -603,11 +979,6 @@ def _sweep_row(
         )
     else:
         bars = fetch_daily_bars_since(str(row["symbol"]), first_evaluable)
-    outcome_id = int(row["id"])
-    status = str(row["status"])
-    direction = str(row.get("direction") or "long").strip().lower() or "long"
-    grading_basis = str(row.get("grading_basis") or "plan").strip() or "plan"
-    db_kwargs = {} if db_path is None else {"db_path": db_path}
 
     if bars is None:
         if status == "data_gap":
@@ -746,6 +1117,7 @@ def _apply_update(
         alpha_pct=patch.get("alpha_pct"),
         exit_reason=patch.get("exit_reason"),
         fill_status=patch.get("fill_status"),
+        grading_resolution=patch.get("grading_resolution"),
         fetch_fail_streak=0,
         **db_kwargs,
     )
@@ -886,6 +1258,7 @@ def sweep_open_ideas(
             result = _sweep_row(
                 row,
                 now_date=now_date,
+                now_dt=now_dt,
                 db_path=db_path,
                 spy_by_date=spy_by_date,
                 batch_bars=batch_bars if is_journal else None,

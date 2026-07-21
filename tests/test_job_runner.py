@@ -45,6 +45,7 @@ AUDIT_LOOP_NAMES = [
     "setup_scan_nightly",
     "fusion_intake",
     "fusion_atr_refresh",
+    "fusion_levels_refresh",
     "pipeline_audit",
     "regime_sleeves",
     "social_buzz",

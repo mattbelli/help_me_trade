@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date
+from datetime import date, datetime
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
@@ -127,6 +127,36 @@ def fetch_daily_bars_since(symbol: str, since: date) -> list[Any] | None:
     if not bars:
         return None
     return [b for b in bars if (_bar_date(b) or date.min) >= since]
+
+
+def fetch_minute_bars(
+    symbol: str, start: datetime, end: datetime
+) -> list[Any] | None:
+    """Minute (1Min) Alpaca bars in [start, end] — the Grading Law's minute lane.
+
+    Same tri-state contract as ``fetch_daily_bars_since``: ``None`` = the FETCH
+    failed (the caller falls back to daily); ``[]`` = fetch OK but no minute bars
+    in the window yet (a fresh intraday idea, or after-hours) — NOT a failure.
+    Alpaca-only. NOTE: Alpaca minute bars INCLUDE pre/post-market prints (the
+    bars endpoint has no session filter) — the GRADER filters to RTH; this
+    function stays a dumb transport.
+
+    Deliberately DUMB — no caching layer: the reason lane is <=5 ideas/day over a
+    tiny open-idea symbol set, so a per-row fetch is fine. Do not add a cache
+    here speculatively.
+    """
+    sym = normalize_research_symbol(symbol)
+    if not sym or not broker_is_configured("alpaca"):
+        return None
+    try:
+        broker = get_broker("alpaca")
+        bars = broker.get_stock_bars_range(
+            sym, timeframe="1Min", start=start, end=end
+        )
+    except (BrokerError, AttributeError, TypeError) as exc:
+        logger.warning("Minute bars fetch failed for %s: %s", sym, exc)
+        return None
+    return list(bars) if bars is not None else []
 
 
 def fetch_daily_bars_batch(

@@ -38,15 +38,17 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
   provider verified equities→Alpaca). **OPEN:** (1) ⏳ session-2 verify Tue 07-21: shadow
   gate counts (`fusion_investigations` / `fusion_would_investigate`), first levels drain
   (`levels_stamped` vs `levels_refresh_failed` — watch Alpaca rate pressure), storm
-  behavior at the open; (2) C2 dossier builder SHIPPED (9-angle claim matrix, INERT)
-  and C3 T1+REASON v1 SHIPPED (`research/reason.py` + `db/llm_spend.py`, DARK behind
+  behavior at the open; (2) C2 dossier builder SHIPPED (9-angle claim matrix, INERT),
+  C3 T1+REASON v1 SHIPPED (`research/reason.py` + `db/llm_spend.py`, DARK behind
   `REASON_EMIT_ENABLED=False` — the C5 arming seam; no-probability contract, parse
-  ladder, dismissal/failure template shadows [ADR-6] direction-aware) → next C4
-  minute-bar grading → C5 delivery/arming (adversarial Opus review; must revisit the
-  documented idea-registered-before-marker crash window + add the lane's alarm rules,
-  deliberately absent while dark) → C6 flip (cards on, legacy convergence pushes
-  retire only at founder ARM — no-blackout rule). REASON v2 A/B stays founder-gated
-  (multi-angle card below)
+  ladder, dismissal/failure template shadows [ADR-6] direction-aware), and C4
+  minute-bar grading SHIPPED (`MINUTE_GRADED_ORIGINS={"reason_v1"}`, RTH-only walk
+  from the as_of timestamp, flagged daily fallback; inert-by-data — 0 live rows)
+  → next C5 delivery/arming (adversarial Opus review; must revisit the documented
+  idea-registered-before-marker crash window + add the lane's alarm rules
+  deliberately absent while dark + decide `_stamp_last_price` on the minute path)
+  → C6 flip (cards on, legacy convergence pushes retire only at founder ARM —
+  no-blackout rule). REASON v2 A/B stays founder-gated (multi-angle card below)
 - ▶ **Multi-angle reasoning A/B — design ready, awaiting founder go** (2026-07-19):
   `References/MULTI_ANGLE_REASONING_AB_2026-07-19.md`, board `multi-angle-reasoning-ab`
   (founder lane). Bull/bear/judge panel vs the single veto-grade voice; paired shadow +
