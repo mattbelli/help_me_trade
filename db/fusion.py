@@ -89,6 +89,20 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 updated_at TEXT NOT NULL
             );
 
+            -- Storm-cheap session-levels read-cache, the structure sibling of
+            -- fusion_atr_cache: a once-daily job stamps the latest completed
+            -- session's nodes (PDH/PDL/VAL/VAH/POC) per active symbol here (the
+            -- network fetch lives in that producer, exactly like ATR's), and the
+            -- trigger intake only ever READS it on the hot path — never a live
+            -- compute_session_levels call during a burst. levels_json is the JSON
+            -- array the legacy nearest_level() consumes: [{"name","price",...}].
+            CREATE TABLE IF NOT EXISTS fusion_session_levels (
+                symbol TEXT PRIMARY KEY,
+                as_of_date TEXT NOT NULL,
+                levels_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS fusion_score_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 episode_id TEXT NOT NULL,
@@ -248,6 +262,57 @@ def get_atr(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> Decimal | None:
             (symbol.strip().upper(),),
         ).fetchone()
     return Decimal(str(row["atr14"])) if row else None
+
+
+def put_session_levels(
+    symbol: str,
+    as_of_date: str,
+    levels: list[dict[str, Any]],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """Stamp the latest completed session's nodes for *symbol* (producer side).
+
+    ``levels`` is the JSON array the legacy ``nearest_level`` consumes — one dict
+    per node with at least ``name`` and ``price`` (e.g. ``{"name":"PDH","price":
+    320.5,"kind":"prior_high"}``). Last-write-wins per symbol, mirroring put_atr.
+    """
+    init_fusion_tables(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO fusion_session_levels(symbol, as_of_date, levels_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                as_of_date = excluded.as_of_date,
+                levels_json = excluded.levels_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                symbol.strip().upper(),
+                as_of_date,
+                json.dumps(list(levels), default=str),
+                now_iso(),
+            ),
+        )
+        conn.commit()
+
+
+def get_session_levels(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """The cached session nodes for *symbol*, or ``[]`` — storm-cheap intake read."""
+    init_fusion_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT levels_json FROM fusion_session_levels WHERE symbol = ?",
+            (symbol.strip().upper(),),
+        ).fetchone()
+    if row is None:
+        return []
+    try:
+        parsed = json.loads(row["levels_json"])
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
 
 
 def list_recent_episodes(

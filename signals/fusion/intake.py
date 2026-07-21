@@ -18,9 +18,12 @@ from config.idea_engine import (
 from db import fusion as fusion_db
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.base import connect as _connect
+from db.chart_features import init_chart_features
+from db.lane_stats import bump
 from db.social_mentions import SOURCES, get_source_buzz
 from signals.fusion import registrar
 from signals.fusion.scorer import options_direction, score_dots, tape_direction
+from signals.options_flow.constants import CONV_LEVEL_ATR
 from trading.market_hours import _ET
 
 PriceLookup = Callable[[str], Decimal | None]
@@ -317,6 +320,145 @@ def _attach_shock(episode: dict, ts: str, db_path: Path) -> None:
     )
 
 
+def _structure_points(dist_atr: float) -> float:
+    """Proximity closeness in [0, 1]: 1.0 sitting on the level, → 0 at the
+    CONV_LEVEL_ATR×ATR edge. Closer-is-higher makes the scorer's latest/best
+    max() pick the closest level, and any genuinely-near level scores > 0."""
+    return round(max(0.0, 1.0 - dist_atr / CONV_LEVEL_ATR), 4)
+
+
+def _active_alert_prices(symbol: str, db_path: Path) -> list[float]:
+    """Active founder price-alert levels for *symbol* on this db.
+
+    Reads the ``price_alerts`` store (db/chart_features.py — api/price-alerts
+    backs onto it) with the SAME active predicate as ``list_price_alerts``
+    (``triggered = 0 OR repeat = 1``), but honoring ``db_path`` so the intake
+    stays on its own connection. Store read only — never a network call."""
+    prices: list[float] = []
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT price FROM price_alerts
+            WHERE symbol = ? AND (triggered = 0 OR repeat = 1)
+            """,
+            (symbol.strip().upper(),),
+        ).fetchall()
+    for row in rows:
+        try:
+            if row["price"] is not None:
+                prices.append(float(row["price"]))
+        except (TypeError, ValueError):
+            continue
+    return prices
+
+
+def _mint_structure_dot(
+    episode: dict,
+    ts: str,
+    component: str,
+    best: dict,
+    trigger_price: float,
+    source: str,
+    db_path: Path,
+) -> None:
+    """Mint/refresh the single (episode, component) structure state dot.
+
+    Latest/best per the state-dot idiom (see ``_attach_attention``): a STABLE
+    source_event_id keyed on the episode+component means ``_insert_dot``'s
+    ON CONFLICT refreshes the same row in place (points + detail) instead of
+    appending — one dot per component, closest level's proximity in ``points``,
+    the current level snapshot in ``detail``. Direction is always ``none`` so
+    structure never enters a directional sum."""
+    dist_atr = float(best.get("dist_atr") or 0.0)
+    detail = {
+        "component": component,
+        "level_name": str(best.get("name") or "level"),
+        "level_price": best.get("price"),
+        "dist_atr": dist_atr,
+        "threshold_atr": CONV_LEVEL_ATR,
+        "trigger_price": trigger_price,
+        "source": source,
+        "display_only": False,
+    }
+    _insert_dot(
+        episode_id=episode["id"],
+        source_store="structure",
+        source_event_id=f"{episode['id']}:{component}",
+        source_ingest_seq=0,
+        symbol=episode["symbol"],
+        ts=ts,
+        component=component,
+        actor_group="structure",
+        dot_kind="state",
+        direction="none",
+        raw_value=None,
+        points=_structure_points(dist_atr),
+        detail=detail,
+        price=None,
+        atr14=None,
+        db_path=db_path,
+    )
+    bump("fusion_intake", "structure_dots", db_path=db_path)
+
+
+def _attach_structure(
+    episode: dict,
+    ts: str,
+    price: Decimal | None,
+    atr14: Decimal | None,
+    db_path: Path,
+) -> None:
+    """State-group STRUCTURE context for an actor-anchored episode (spec §2.1/§2.2).
+
+    Runs ONLY inside the actor-dot path (the episode already exists) — structure
+    is a STATE group and never creates a stack (the trigger rule). Derives, from
+    stores only: (a) the nearest cached session level (PDH/PDL/VAL/VAH/POC) within
+    CONV_LEVEL_ATR×ATR(14) of the actor dot's stamped price, and (b) any active
+    founder price alert within the same proximity — reusing the legacy
+    ``nearest_level`` proximity (never a second definition). Mints/refreshes at
+    most one dot per component (closest wins). Storm-cheap: zero network. If the
+    dot's price or ATR is unstamped, structure is skipped for this pass — counted,
+    never raised."""
+    if price is None or atr14 is None:
+        bump("fusion_intake", "structure_skipped_unstamped", db_path=db_path)
+        return
+    try:
+        price_f = float(price)
+        atr_f = float(atr14)
+    except (TypeError, ValueError):
+        bump("fusion_intake", "structure_skipped_unstamped", db_path=db_path)
+        return
+    if atr_f <= 0:
+        bump("fusion_intake", "structure_skipped_unstamped", db_path=db_path)
+        return
+
+    # Legacy level component — same stores, same 0.5×ATR proximity semantics.
+    from signals.options_flow.convergence import nearest_level
+
+    symbol = str(episode["symbol"])
+    session_best = nearest_level(
+        price=price_f,
+        levels=fusion_db.get_session_levels(symbol, db_path=db_path),
+        alert_prices=[],
+        atr_value=atr_f,
+    )
+    if session_best is not None:
+        _mint_structure_dot(
+            episode, ts, "session_level", session_best, price_f, "session_levels", db_path
+        )
+
+    alert_best = nearest_level(
+        price=price_f,
+        levels=[],
+        alert_prices=_active_alert_prices(symbol, db_path),
+        atr_value=atr_f,
+    )
+    if alert_best is not None:
+        _mint_structure_dot(
+            episode, ts, "price_alert", alert_best, price_f, "price_alerts", db_path
+        )
+
+
 def _rescore(episode_id: str, db_path: Path) -> dict[str, Any]:
     dots = fusion_db.episode_dots(episode_id, db_path=db_path)
     state = score_dots(dots)
@@ -448,6 +590,7 @@ def intake_once(
     init_options(db_path)
     init_equity(db_path)
     fusion_db.init_fusion_tables(db_path)
+    init_chart_features(db_path)  # price_alerts store, read by _attach_structure
     counters = {key: 0 for key in fusion_db.DISPOSITIONS}
     lookup = price_lookup or (lambda _symbol: None)
     shock = bool(shock_lookup()) if shock_lookup is not None else False
@@ -541,6 +684,7 @@ def intake_once(
             )
             _attach_attention(episode, str(event["ts"]), db_path)
             _attach_shock(episode, str(event["ts"]), db_path)
+            _attach_structure(episode, str(event["ts"]), price, atr14, db_path)
             state = _rescore(episode["id"], db_path)
             if disposition == "scored":
                 _maybe_call_registrar(episode["id"], dot_id, state, db_path)

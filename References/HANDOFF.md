@@ -32,9 +32,12 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 - ▶ **Phase C build OPENED 07-21** (founder go; board `fusion-phase-c-investigation`, detail:
   BUILD_LOG 2026-07-21): C1 shadow investigation gate SHIPPED (`signals/fusion/investigate.py`
   — archetype `options_actor`+`structure`, 5/day budget + opening reserve, counts only).
-  **OPEN:** (1) ⚠️ intake mints NO structure dots yet — the archetype matches zero live
-  episodes; **C1b (session-levels/price-alerts state-dot attachment) must ship before the
-  session-2 shadow verify means anything**; (2) then C2 dossier → C3 T1+REASON v1
+  C1b SHIPPED same night (structure state dots: `price_alert` component fully live;
+  `session_level` wired end-to-end reading new `fusion_session_levels` cache).
+  **OPEN:** (1) ⚠️ **C1c — the once-daily levels PRODUCER** (mirror `_fusion_atr_refresh_once`:
+  compute_session_levels → put_session_levels) — until it stamps the cache, session-level
+  dots are empty and the archetype fires only on price-alert symbols; (2) then C2 dossier
+  → C3 T1+REASON v1
   (`REASON_EMIT_ENABLED=False`) → C4 minute-bar grading → C5 delivery/arming (adversarial
   Opus review) → C6 flip (cards on, legacy convergence pushes retire only at founder ARM —
   no-blackout rule). REASON v2 A/B stays founder-gated (multi-angle card below)
