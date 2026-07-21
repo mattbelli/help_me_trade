@@ -79,6 +79,14 @@ INVESTIGATE_TRAILING_SESSIONS = 7
 INVESTIGATE_MIN_POOL = 20
 REASON_SHADOW_ONLY = True
 
+# Fusion Phase C2 — DOSSIER BUILDER (deterministic claim matrix; zero LLM/network).
+# The plain-text matrix rendering (signals/dossier.build_dossier) is hard-capped so
+# the T1/T2 prompt that consumes it stays bounded; truncation drops WHOLE trailing
+# claims (never mid-line) and appends a "(+N claims truncated)" marker. This is a
+# law constant, not a deployment toggle — a bigger budget is a NEW estimand for the
+# investigator, never an env override.
+DOSSIER_SUMMARY_MAX_CHARS = 4000
+
 
 def validate_config() -> None:
     """Assert the invariants the rest of the engine relies on (config-rot defense)."""
@@ -112,3 +120,5 @@ def validate_config() -> None:
     assert REASON_OPENING_WINDOW_MIN > 0
     assert INVESTIGATE_TRAILING_SESSIONS >= 1
     assert INVESTIGATE_MIN_POOL >= 1
+    # Fusion C2 dossier invariant.
+    assert DOSSIER_SUMMARY_MAX_CHARS > 0

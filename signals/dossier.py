@@ -1,0 +1,718 @@
+"""Fusion Phase C2 — the DOSSIER BUILDER (deterministic claim matrix).
+
+Pure code. **Zero LLM calls, zero network — store reads only.** Given an admitted
+Fusion episode (a symbol-day evidence stack, ``db/fusion.py``), assemble the fixed
+set of perception ANGLES into a stable claim matrix that the Phase C3 investigator
+(T1 null-hypothesis triage → REASON v1/v2) consumes. The investigator renders angle
+VALUES from these claims deterministically and cites claim ids STRICTLY, so:
+
+  * ``claim_id`` is deterministic + stable — ``f"{angle}:{n}"`` with ``n`` assigned
+    in a FIXED angle order and a FIXED intra-angle sort (by ts, then value). The
+    same episode state in yields the same ids out (``tests/test_dossier.py``).
+  * an angle with nothing to say is OMITTED (no empty claims); a dossier is valid
+    with as few as the ``evidence`` angle alone.
+
+This module is INERT: nothing in production imports it yet (C3's investigator becomes
+its caller). It never writes to any store except via ``build_and_store_dossier`` →
+``db/idea_dossiers``.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from config.idea_engine import DOSSIER_SUMMARY_MAX_CHARS
+from db import equity_tape as equity_tape_db
+from db import fusion as fusion_db
+from db import options_flow as options_flow_db
+from db.base import DEFAULT_DB_PATH
+from db.base import connect as _connect
+from db.chart_features import init_chart_features
+from db.earnings_calendar import last_earnings_date, next_earnings_date
+from db.idea_dossiers import put_dossier
+from db.index_pressure import day_summary
+from db.managed_positions import list_open_positions
+from db.regime import latest_observation
+from db.social_mentions import get_buzz
+from signals.fusion.scorer import options_direction, tape_direction
+from trading.market_calendar import is_trading_day
+
+_ET = ZoneInfo("America/New_York")
+
+# Fixed angle order — governs how angles appear in the matrix + summary, and (with
+# claim_id embedding the angle) makes the id scheme stable. Changing this order is a
+# NEW estimand for the investigator, never a silent edit.
+ANGLE_ORDER: tuple[str, ...] = (
+    "evidence",
+    "flow",
+    "tape",
+    "structure",
+    "attention",
+    "catalyst",
+    "context",
+    "portfolio",
+    "history",
+)
+
+# Freshness horizons (labeled, deliberately simple). Intraday angles carry
+# event-driven prints; session angles are current-state reads; catalyst/history are
+# mechanical facts that don't stale on this timescale.
+FRESH_INTRADAY_MINUTES = 30
+_INTRADAY_ANGLES = frozenset({"evidence", "flow", "tape"})
+_SESSION_ANGLES = frozenset({"structure", "attention", "context", "portfolio"})
+_ALWAYS_FRESH_ANGLES = frozenset({"catalyst", "history"})
+
+# Social buzz below this ratio is not worth an attention claim (matches the intake's
+# spike gate spirit — a boring reading is silence, not a dot).
+_ATTENTION_MIN_RATIO = 1.0
+
+_DIRECTIONAL = frozenset({"bull", "bear"})
+
+
+# --------------------------------------------------------------------------- utils
+
+
+def _as_float(value: Any) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return result if result == result else 0.0  # NaN guard
+
+
+def _as_float_or_none(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result == result else None
+
+
+def _parse_ts(ts: Any) -> datetime | None:
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:  # stores emit UTC ISO; a missing offset means UTC
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _et_date(ts: Any) -> str:
+    dt = _parse_ts(ts)
+    return dt.astimezone(_ET).date().isoformat() if dt is not None else ""
+
+
+def _is_fresh(angle: str, ts: Any, now: datetime) -> bool:
+    """Value's ts within the angle's staleness horizon (see the constants above)."""
+    if angle in _ALWAYS_FRESH_ANGLES:
+        return True
+    dt = _parse_ts(ts)
+    if dt is None:
+        return False
+    if angle in _INTRADAY_ANGLES:
+        return (now - dt).total_seconds() <= FRESH_INTRADAY_MINUTES * 60
+    # session angles: fresh if read within the current ET session
+    return dt.astimezone(_ET).date() == now.astimezone(_ET).date()
+
+
+def _value_sort(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
+def _trading_days_between(from_date: str, to_date: str) -> int:
+    """Trading days from ``from_date`` (exclusive) to ``to_date`` (inclusive),
+    NYSE-calendar-aware. ``-1`` on unparseable input, ``0`` when to<=from. Local
+    stand-in for the earnings-drift counter, kept here so the dossier never pulls
+    the research feature chain (INERT)."""
+    from datetime import date, timedelta
+
+    try:
+        start = date.fromisoformat(from_date[:10])
+        end = date.fromisoformat(to_date[:10])
+    except ValueError:
+        return -1
+    if end <= start:
+        return 0
+    days = 0
+    cur = start
+    while cur < end:
+        cur += timedelta(days=1)
+        if is_trading_day(cur):
+            days += 1
+    return days
+
+
+def _size_bucket(shares: float) -> str:
+    magnitude = abs(shares)
+    if magnitude < 100:
+        return "small"
+    if magnitude < 1000:
+        return "medium"
+    return "large"
+
+
+# ------------------------------------------------------------------- angle builders
+# Each returns a list of proto-claims (no claim_id yet) — dicts with keys
+# statement / value / ts / direction. An angle with nothing to say returns [].
+
+
+def _evidence_protos(episode_id: str, db_path: Path) -> list[dict[str, Any]]:
+    """The episode's own dots — one claim per dot, its group/direction/points."""
+    protos: list[dict[str, Any]] = []
+    for dot in fusion_db.episode_dots(episode_id, db_path=db_path):
+        component = str(dot.get("component") or "")
+        group = str(dot.get("actor_group") or "")
+        direction = str(dot.get("direction") or "none")
+        points = _as_float(dot.get("points"))
+        statement = f"{component} · {group} · {direction} · {points:g} pts"
+        raw = _as_float_or_none(dot.get("raw_value"))
+        if raw is not None and group in ("options_actor", "equity_actor"):
+            statement += f" · ${raw:,.0f}"
+        protos.append(
+            {
+                "statement": statement,
+                "value": points,
+                "ts": str(dot.get("ts") or ""),
+                "direction": direction,
+            }
+        )
+    return protos
+
+
+def _flow_protos(symbol: str, market_day: str, db_path: Path) -> list[dict[str, Any]]:
+    """Symbol-day options-flow aggregates: total premium by direction + largest print."""
+    options_flow_db.init_db(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT ts, right, direction, premium_usd "
+            "FROM options_flow_events WHERE underlying = ?",
+            (symbol,),
+        ).fetchall()
+
+    sums = {"bull": 0.0, "bear": 0.0}
+    counts = {"bull": 0, "bear": 0}
+    last_ts = {"bull": "", "bear": ""}
+    largest: dict[str, Any] | None = None
+    largest_prem = -1.0
+    for row in rows:
+        ts = str(row["ts"] or "")
+        if _et_date(ts) != market_day:
+            continue
+        prem = _as_float(row["premium_usd"])
+        direction = options_direction(row["right"], row["direction"])
+        if direction in sums:
+            sums[direction] += prem
+            counts[direction] += 1
+            last_ts[direction] = max(last_ts[direction], ts)
+        if prem > largest_prem:
+            largest_prem, largest = prem, dict(row)
+
+    protos: list[dict[str, Any]] = []
+    for direction in ("bull", "bear"):
+        if counts[direction]:
+            side = "ask/bull" if direction == "bull" else "bid/bear"
+            protos.append(
+                {
+                    "statement": (
+                        f"options {side} premium ${sums[direction]:,.0f} across "
+                        f"{counts[direction]} print(s)"
+                    ),
+                    "value": sums[direction],
+                    "ts": last_ts[direction] or market_day,
+                    "direction": direction,
+                }
+            )
+    if largest is not None and largest_prem > 0:
+        ld = options_direction(largest["right"], largest["direction"])
+        protos.append(
+            {
+                "statement": (
+                    f"largest options print ${largest_prem:,.0f} "
+                    f"{str(largest['right'] or '?').upper()} {ld}"
+                ),
+                "value": largest_prem,
+                "ts": str(largest["ts"] or ""),
+                "direction": ld,
+            }
+        )
+    return protos
+
+
+def _tape_protos(symbol: str, market_day: str, db_path: Path) -> list[dict[str, Any]]:
+    """Symbol-day equity-tape aggregates: block/dark-pool notional by direction + largest."""
+    equity_tape_db.init_db(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT ts, event_type, direction, notional_usd "
+            "FROM equity_tape_events WHERE symbol = ?",
+            (symbol,),
+        ).fetchall()
+
+    sums = {"bull": 0.0, "bear": 0.0}
+    counts = {"bull": 0, "bear": 0}
+    last_ts = {"bull": "", "bear": ""}
+    largest: dict[str, Any] | None = None
+    largest_notional = -1.0
+    for row in rows:
+        ts = str(row["ts"] or "")
+        if _et_date(ts) != market_day:
+            continue
+        notional = _as_float(row["notional_usd"])
+        direction = tape_direction(row["direction"])
+        if direction in sums:
+            sums[direction] += notional
+            counts[direction] += 1
+            last_ts[direction] = max(last_ts[direction], ts)
+        if notional > largest_notional:
+            largest_notional, largest = notional, dict(row)
+
+    protos: list[dict[str, Any]] = []
+    for direction in ("bull", "bear"):
+        if counts[direction]:
+            protos.append(
+                {
+                    "statement": (
+                        f"equity {direction} tape notional ${sums[direction]:,.0f} "
+                        f"across {counts[direction]} print(s)"
+                    ),
+                    "value": sums[direction],
+                    "ts": last_ts[direction] or market_day,
+                    "direction": direction,
+                }
+            )
+    if largest is not None and largest_notional > 0:
+        ld = tape_direction(largest["direction"])
+        protos.append(
+            {
+                "statement": (
+                    f"largest tape print ${largest_notional:,.0f} "
+                    f"{str(largest['event_type'] or 'block')} {ld}"
+                ),
+                "value": largest_notional,
+                "ts": str(largest["ts"] or ""),
+                "direction": ld,
+            }
+        )
+    return protos
+
+
+def _active_alert_prices(symbol: str, db_path: Path) -> list[float]:
+    """Active founder price-alert levels for ``symbol`` on ``db_path`` (store read).
+
+    Reuses the ``list_price_alerts`` active predicate (``triggered = 0 OR
+    repeat = 1``) but honors ``db_path`` — the public accessor pins DEFAULT_DB_PATH,
+    which would read the wrong DB under a test tmp path (mirrors intake's helper)."""
+    prices: list[float] = []
+    with _connect(db_path) as conn:
+        try:
+            rows = conn.execute(
+                "SELECT price FROM price_alerts "
+                "WHERE symbol = ? AND (triggered = 0 OR repeat = 1)",
+                (symbol,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    for row in rows:
+        value = _as_float_or_none(row["price"])
+        if value is not None:
+            prices.append(value)
+    return prices
+
+
+def _structure_protos(
+    episode: dict[str, Any], symbol: str, state_ts: str, db_path: Path
+) -> list[dict[str, Any]]:
+    """Nearest cached session level + active price alerts (structure context)."""
+    init_chart_features(db_path)
+    levels = fusion_db.get_session_levels(symbol, db_path=db_path)
+    alerts = _active_alert_prices(symbol, db_path)
+    ref = _as_float_or_none(episode.get("anchor_price"))
+
+    protos: list[dict[str, Any]] = []
+    if levels:
+        priced = [
+            (level, _as_float_or_none(level.get("price")))
+            for level in levels
+            if _as_float_or_none(level.get("price")) is not None
+        ]
+        if ref is not None and priced:
+            nearest, price = min(priced, key=lambda item: abs(item[1] - ref))
+            name = str(nearest.get("name") or "level")
+            protos.append(
+                {
+                    "statement": (
+                        f"nearest session level {name} @ {price:g} "
+                        f"({abs(price - ref):.2f} from {ref:g})"
+                    ),
+                    "value": price,
+                    "ts": state_ts,
+                    "direction": "none",
+                }
+            )
+        else:
+            names = ", ".join(str(level.get("name") or "level") for level in levels)
+            protos.append(
+                {
+                    "statement": f"{len(levels)} cached session level(s): {names}",
+                    "value": len(levels),
+                    "ts": state_ts,
+                    "direction": "none",
+                }
+            )
+    if alerts:
+        if ref is not None:
+            nearest_alert = min(alerts, key=lambda price: abs(price - ref))
+            protos.append(
+                {
+                    "statement": (
+                        f"{len(alerts)} active price alert(s); nearest @ {nearest_alert:g}"
+                    ),
+                    "value": nearest_alert,
+                    "ts": state_ts,
+                    "direction": "none",
+                }
+            )
+        else:
+            protos.append(
+                {
+                    "statement": f"{len(alerts)} active price alert(s)",
+                    "value": len(alerts),
+                    "ts": state_ts,
+                    "direction": "none",
+                }
+            )
+    return protos
+
+
+def _attention_protos(
+    symbol: str, state_ts: str, now: datetime, db_path: Path
+) -> list[dict[str, Any]]:
+    """Social buzz vs baseline — OMITTED entirely while the store reports warming."""
+    buzz = get_buzz(symbol, db_path=db_path, now=now)
+    if buzz.get("state") != "ready":
+        return []  # thin history stays silent
+    ratio = buzz.get("anomaly_ratio")
+    if ratio is None or float(ratio) < _ATTENTION_MIN_RATIO:
+        return []
+    return [
+        {
+            "statement": (
+                f"social buzz {float(ratio):.1f}x same-hour baseline "
+                f"({int(buzz.get('today_total') or 0)} mentions today, "
+                f"{buzz.get('day_part')})"
+            ),
+            "value": float(ratio),
+            "ts": state_ts,
+            "direction": "none",
+        }
+    ]
+
+
+def _catalyst_protos(
+    symbol: str, market_day: str, state_ts: str, db_path: Path
+) -> list[dict[str, Any]]:
+    """Earnings proximity in trading days (next preferred, else most-recent).
+
+    Dates only — never the bmo/amc hour (directionally biased, per the earnings
+    store's own warning). No parsing of 8-K timestamps here, so the UTC->ET / CIK
+    traps don't apply: the calendar store already holds normalized ISO dates."""
+    nxt = next_earnings_date(symbol, market_day, db_path=db_path)
+    if nxt:
+        td = _trading_days_between(market_day, nxt)
+        if td >= 0:
+            return [
+                {
+                    "statement": f"next earnings in {td} trading day(s) ({nxt})",
+                    "value": td,
+                    "ts": state_ts,
+                    "direction": "none",
+                }
+            ]
+    last = last_earnings_date(symbol, market_day, db_path=db_path)
+    if last:
+        since = _trading_days_between(last, market_day)
+        if since >= 0:
+            return [
+                {
+                    "statement": f"most recent earnings {since} trading day(s) ago ({last})",
+                    "value": since,
+                    "ts": state_ts,
+                    "direction": "none",
+                }
+            ]
+    return []
+
+
+def _context_protos(
+    episode: dict[str, Any], symbol: str, market_day: str, state_ts: str, db_path: Path
+) -> list[dict[str, Any]]:
+    """Regime tag + index-pressure state + market-shock flag (riders — never directional)."""
+    protos: list[dict[str, Any]] = []
+    as_of = market_day or None
+    vix = latest_observation("VIXCLS", as_of=as_of, db_path=db_path)
+    if vix is not None:
+        vix_val = vix[1]
+        vol_tag = "elevated-vol" if vix_val >= 20 else "calm-vol"
+        statement = f"regime: VIX {vix_val:.1f} ({vol_tag})"
+        dgs10 = latest_observation("DGS10", as_of=as_of, db_path=db_path)
+        dgs2 = latest_observation("DGS2", as_of=as_of, db_path=db_path)
+        if dgs10 is not None and dgs2 is not None:
+            term = dgs10[1] - dgs2[1]
+            curve = "inverted" if term < 0 else "normal"
+            statement += f", term spread {term:+.2f} ({curve} curve)"
+        protos.append(
+            {
+                "statement": statement,
+                "value": vix_val,
+                "ts": state_ts,
+                "direction": "none",
+            }
+        )
+
+    if market_day:
+        try:
+            pressure = day_summary(market_day, db_path=db_path)
+        except sqlite3.OperationalError:
+            pressure = []
+        for entry in pressure:
+            if str(entry.get("underlying") or "").upper() == symbol:
+                net = _as_float(entry.get("net_usd"))
+                lean = "bull-lean" if net > 0 else ("bear-lean" if net < 0 else "flat")
+                protos.append(
+                    {
+                        "statement": f"index-pressure {symbol}: net ${net:,.0f} ({lean})",
+                        "value": net,
+                        "ts": state_ts,
+                        "direction": "none",
+                    }
+                )
+                break
+
+    if int(episode.get("market_shock") or 0):
+        protos.append(
+            {
+                "statement": "market-shock window active (broad SPY/VIX move stamped on this episode)",
+                "value": 1,
+                "ts": state_ts,
+                "direction": "none",
+            }
+        )
+    return protos
+
+
+def _portfolio_protos(
+    symbol: str, state_ts: str, db_path: Path
+) -> list[dict[str, Any]]:
+    """Held position: yes/no + direction/size bucket — NEVER dollar amounts.
+
+    Managed positions are execution long-only, so held == long. Kept out of the
+    contradiction graph (direction ``none``): it's exposure context, not a
+    market-read signal — v1 scoping."""
+    held = [
+        position
+        for position in list_open_positions(db_path=db_path)
+        if str(position.get("symbol") or "").upper() == symbol
+    ]
+    if not held:
+        return []
+    shares = sum(_as_float(position.get("qty")) for position in held)
+    bucket = _size_bucket(shares)
+    return [
+        {
+            "statement": f"holding {symbol}: long, {bucket} size",
+            "value": "long",
+            "ts": state_ts,
+            "direction": "none",
+        }
+    ]
+
+
+def _history_protos(
+    symbol: str, state_ts: str, now: datetime, db_path: Path
+) -> list[dict[str, Any]]:
+    """The symbol's own GRADED idea history — mechanical facts, no win% language."""
+    with _connect(db_path) as conn:
+        try:
+            rows = conn.execute(
+                "SELECT status, resolved_at FROM idea_outcomes "
+                "WHERE symbol = ? AND status IN ('won', 'lost', 'expired') "
+                "AND synthetic = 0 ORDER BY resolved_at DESC",
+                (symbol,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    if not rows:
+        return []
+    won = sum(1 for row in rows if row["status"] == "won")
+    lost = sum(1 for row in rows if row["status"] == "lost")
+    expired = sum(1 for row in rows if row["status"] == "expired")
+    total = len(rows)
+    recent = rows[0]
+    days = _calendar_days_ago(recent["resolved_at"], now)
+    recency = f"{days} day(s) ago" if days is not None else "recently"
+    statement = (
+        f"{total} graded idea(s) for {symbol}: {won} won, {lost} lost, "
+        f"{expired} expired; most recent {recent['status']} {recency}"
+    )
+    return [
+        {
+            "statement": statement,
+            "value": total,
+            "ts": state_ts,
+            "direction": "none",
+        }
+    ]
+
+
+def _calendar_days_ago(resolved_at: Any, now: datetime) -> int | None:
+    dt = _parse_ts(resolved_at)
+    if dt is None:
+        return None
+    delta = now.astimezone(_ET).date() - dt.astimezone(_ET).date()
+    return max(0, delta.days)
+
+
+# ------------------------------------------------------------------------- assembly
+
+
+def _link_contradictions(claims: list[dict[str, Any]]) -> None:
+    """v1 contradictions (deterministic, minimal): opposing DIRECTIONS between
+    directional claims ACROSS angles get reciprocal ``contradicts`` links. Only
+    evidence/flow/tape ever carry bull|bear, so this naturally links exactly the
+    market-read angles (e.g. flow bull vs tape bear). Nothing fancier — v1."""
+    for i, left in enumerate(claims):
+        for right in claims[i + 1 :]:
+            if left["angle"] == right["angle"]:
+                continue
+            if {left["direction"], right["direction"]} == _DIRECTIONAL:
+                left["contradicts"].append(right["claim_id"])
+                right["contradicts"].append(left["claim_id"])
+    for claim in claims:
+        claim["contradicts"] = sorted(set(claim["contradicts"]))
+
+
+def _render_summary(claims: list[dict[str, Any]]) -> str:
+    """Deterministic plain-text matrix, one line per claim, grouped by angle order,
+    hard-capped at ``DOSSIER_SUMMARY_MAX_CHARS``. Truncation drops WHOLE trailing
+    claims (never mid-line) and appends the "(+N claims truncated)" marker."""
+    if not claims:
+        return ""
+    lines: list[str] = []
+    for claim in claims:
+        line = f"[{claim['angle']}] {claim['statement']}"
+        if not claim["fresh"]:
+            line += " [stale]"
+        if claim["contradicts"]:
+            line += f" [contradicts {', '.join(claim['contradicts'])}]"
+        lines.append(line)
+
+    full = "\n".join(lines)
+    if len(full) <= DOSSIER_SUMMARY_MAX_CHARS:
+        return full
+
+    # Reserve worst-case marker room so appending it can never breach the cap.
+    max_marker = len(f"\n… (+{len(lines)} claims truncated)")
+    kept: list[str] = []
+    for line in lines:
+        candidate = "\n".join(kept + [line])
+        if len(candidate) + max_marker <= DOSSIER_SUMMARY_MAX_CHARS:
+            kept.append(line)
+        else:
+            break
+    dropped = len(lines) - len(kept)
+    if not kept:
+        return f"… (+{dropped} claims truncated)"
+    text = "\n".join(kept)
+    if dropped:
+        text += f"\n… (+{dropped} claims truncated)"
+    return text
+
+
+def build_dossier(
+    episode: dict[str, Any],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Assemble the deterministic claim matrix for an admitted Fusion episode.
+
+    Returns ``{episode_id, symbol, market_day, claims: [...], summary: str}``. Each
+    claim is ``{claim_id, angle, statement, value, ts, direction, fresh,
+    contradicts}``. Pure: same episode state + same ``now`` in -> identical out
+    (``now`` defaults to the wall clock; freshness is the only ``now``-dependent
+    field, and it never affects ids or ordering).
+    """
+    now = now or datetime.now(timezone.utc)
+    episode_id = str(episode["id"])
+    symbol = str(episode.get("symbol") or "").strip().upper()
+    market_day = str(episode.get("market_day") or "")
+    state_ts = now.isoformat()  # state-angle reads are as-of build time (deterministic)
+
+    by_angle: dict[str, list[dict[str, Any]]] = {
+        "evidence": _evidence_protos(episode_id, db_path),
+        "flow": _flow_protos(symbol, market_day, db_path),
+        "tape": _tape_protos(symbol, market_day, db_path),
+        "structure": _structure_protos(episode, symbol, state_ts, db_path),
+        "attention": _attention_protos(symbol, state_ts, now, db_path),
+        "catalyst": _catalyst_protos(symbol, market_day, state_ts, db_path),
+        "context": _context_protos(episode, symbol, market_day, state_ts, db_path),
+        "portfolio": _portfolio_protos(symbol, state_ts, db_path),
+        "history": _history_protos(symbol, state_ts, now, db_path),
+    }
+
+    claims: list[dict[str, Any]] = []
+    for angle in ANGLE_ORDER:
+        protos = by_angle.get(angle) or []
+        # Fixed intra-angle sort (ts, then value); statement is a stable final
+        # tiebreak so same-ts/same-value state claims still get deterministic ids.
+        ordered = sorted(
+            protos,
+            key=lambda proto: (
+                str(proto["ts"]),
+                _value_sort(proto["value"]),
+                str(proto["statement"]),
+            ),
+        )
+        for index, proto in enumerate(ordered):
+            claims.append(
+                {
+                    "claim_id": f"{angle}:{index}",
+                    "angle": angle,
+                    "statement": proto["statement"],
+                    "value": proto["value"],
+                    "ts": proto["ts"],
+                    "direction": proto.get("direction", "none"),
+                    "fresh": _is_fresh(angle, proto["ts"], now),
+                    "contradicts": [],
+                }
+            )
+
+    _link_contradictions(claims)
+    return {
+        "episode_id": episode_id,
+        "symbol": symbol,
+        "market_day": market_day,
+        "claims": claims,
+        "summary": _render_summary(claims),
+    }
+
+
+def build_and_store_dossier(
+    episode: dict[str, Any],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Build the dossier and persist it (upsert on episode_id) via db/idea_dossiers."""
+    dossier = build_dossier(episode, db_path=db_path, now=now)
+    put_dossier(dossier, db_path=db_path)
+    return dossier

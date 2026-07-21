@@ -38,10 +38,12 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
   provider verified equities→Alpaca). **OPEN:** (1) ⏳ session-2 verify Tue 07-21: shadow
   gate counts (`fusion_investigations` / `fusion_would_investigate`), first levels drain
   (`levels_stamped` vs `levels_refresh_failed` — watch Alpaca rate pressure), storm
-  behavior at the open; (2) then C2 dossier → C3 T1+REASON v1
-  (`REASON_EMIT_ENABLED=False`) → C4 minute-bar grading → C5 delivery/arming (adversarial
-  Opus review) → C6 flip (cards on, legacy convergence pushes retire only at founder ARM —
-  no-blackout rule). REASON v2 A/B stays founder-gated (multi-angle card below)
+  behavior at the open; (2) C2 dossier builder SHIPPED (deterministic 9-angle claim
+  matrix, `signals/dossier.py` + `db/idea_dossiers.py`, INERT until C3 calls it) →
+  next C3 T1+REASON v1 (`REASON_EMIT_ENABLED=False`) → C4 minute-bar grading → C5
+  delivery/arming (adversarial Opus review) → C6 flip (cards on, legacy convergence
+  pushes retire only at founder ARM — no-blackout rule). REASON v2 A/B stays
+  founder-gated (multi-angle card below)
 - ▶ **Multi-angle reasoning A/B — design ready, awaiting founder go** (2026-07-19):
   `References/MULTI_ANGLE_REASONING_AB_2026-07-19.md`, board `multi-angle-reasoning-ab`
   (founder lane). Bull/bear/judge panel vs the single veto-grade voice; paired shadow +
