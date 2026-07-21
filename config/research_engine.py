@@ -11,6 +11,11 @@ ROLES: tuple[str, ...] = (
     "extraction",
     "critic",
     "editor",
+    # Fusion Phase C3 investigation lane (research/reason.py): T1 batch triage and
+    # REASON v1. Per-role model pinning resolves from settings.research.model_roles;
+    # unpinned falls back to the app default model.
+    "triage",
+    "reason",
 )
 
 DEFAULT_EFFORT = "standard"

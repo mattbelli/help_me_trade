@@ -151,6 +151,29 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 widened INTEGER NOT NULL DEFAULT 0,
                 computed_at TEXT NOT NULL
             );
+
+            -- Phase C3 investigation lane (research/reason.py). Sibling of
+            -- fusion_investigations, same episode key: ONE row = this episode has
+            -- been picked up by the reason lane (the processed marker — pending =
+            -- shadow_investigate rows with no reason_runs row). Carries the T1
+            -- triage verdict + null hypothesis and the v1 outcome; detail_json holds
+            -- the full v1 output (never surfaced — dark until C5 arms).
+            CREATE TABLE IF NOT EXISTS reason_runs (
+                episode_id TEXT PRIMARY KEY,
+                market_day TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                t1_status TEXT,
+                t1_investigate INTEGER,
+                null_hypothesis TEXT,
+                angle_to_check TEXT,
+                v1_status TEXT,
+                idea_id INTEGER,
+                no_idea INTEGER NOT NULL DEFAULT 0,
+                detail_json TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_reason_runs_day
+                ON reason_runs(market_day);
             """
         )
         group_rows = (
@@ -398,3 +421,95 @@ def conservation_counts(*, db_path: Path = DEFAULT_DB_PATH) -> dict[str, int]:
 
 def serialize_detail(value: dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+# --------------------------------------------------------------- reason_runs (C3)
+
+
+def list_pending_reason_episodes(
+    market_day: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict]:
+    """Episodes admitted by C1 that the reason lane has not yet processed.
+
+    Pending = ``fusion_investigations`` rows with decision ``shadow_investigate`` for
+    ``market_day`` that have no ``reason_runs`` row. Returns the full episode rows,
+    highest score first (budget spends on the best stacks). One row per episode.
+    """
+    init_fusion_tables(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT e.* FROM fusion_episodes e
+            JOIN fusion_investigations fi ON fi.episode_id = e.id
+            WHERE fi.market_day = ?
+              AND fi.decision = 'shadow_investigate'
+              AND e.id NOT IN (SELECT episode_id FROM reason_runs)
+            ORDER BY e.score DESC, e.updated_at DESC, e.id ASC
+            """,
+            (str(market_day),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def put_reason_run(run: dict[str, Any], *, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Upsert one reason-lane processed marker (keyed on episode_id)."""
+    init_fusion_tables(db_path)
+    detail = run.get("detail_json")
+    if isinstance(detail, (dict, list)):
+        detail = json.dumps(detail, default=str)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO reason_runs (
+                episode_id, market_day, symbol, created_at, t1_status,
+                t1_investigate, null_hypothesis, angle_to_check, v1_status,
+                idea_id, no_idea, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(episode_id) DO UPDATE SET
+                market_day = excluded.market_day,
+                symbol = excluded.symbol,
+                created_at = excluded.created_at,
+                t1_status = excluded.t1_status,
+                t1_investigate = excluded.t1_investigate,
+                null_hypothesis = excluded.null_hypothesis,
+                angle_to_check = excluded.angle_to_check,
+                v1_status = excluded.v1_status,
+                idea_id = excluded.idea_id,
+                no_idea = excluded.no_idea,
+                detail_json = excluded.detail_json
+            """,
+            (
+                str(run["episode_id"]),
+                str(run.get("market_day") or ""),
+                str(run.get("symbol") or ""),
+                str(run.get("created_at") or now_iso()),
+                run.get("t1_status"),
+                None if run.get("t1_investigate") is None else int(run["t1_investigate"]),
+                run.get("null_hypothesis"),
+                run.get("angle_to_check"),
+                run.get("v1_status"),
+                None if run.get("idea_id") is None else int(run["idea_id"]),
+                int(run.get("no_idea") or 0),
+                str(detail or "{}"),
+            ),
+        )
+        conn.commit()
+
+
+def get_reason_run(
+    episode_id: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> dict[str, Any] | None:
+    """The reason-lane row for ``episode_id`` (detail parsed back), or None."""
+    init_fusion_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM reason_runs WHERE episode_id = ?", (str(episode_id),)
+        ).fetchone()
+    if row is None:
+        return None
+    out = dict(row)
+    try:
+        out["detail"] = json.loads(out.get("detail_json") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        out["detail"] = {}
+    return out

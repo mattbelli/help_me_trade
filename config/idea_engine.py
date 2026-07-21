@@ -87,6 +87,29 @@ REASON_SHADOW_ONLY = True
 # investigator, never an env override.
 DOSSIER_SUMMARY_MAX_CHARS = 4000
 
+# Fusion Phase C3 — the LLM INVESTIGATION lane (Unified §4 + "LLM invocation design"
+# + Phase 3). Ships DARK: REASON_EMIT_ENABLED is the C3↔C5 arming seam — the runner
+# (research/reason.py) returns a counted no-op while it is False, and NOTHING in
+# production imports the lane yet (the intake hook + alarm rules are C5). C5 flips
+# this one flag to arm. NOTE: never assert its value here — C5 must be able to set it
+# True without tripping config validation. (REASON_SHADOW_ONLY, the C1 intake gate's
+# assertion, is a DIFFERENT seam and is left untouched.)
+REASON_EMIT_ENABLED = False
+# Lane ceilings — defense in depth OVER C1's 5/day investigation gate (a runaway
+# poll can never exceed these). T1 triages ≤8 candidates/call; v1 is one call per
+# investigate=True candidate. REASON_V1_DAILY_BUDGET must not undercut the C1 gate
+# (asserted below), else a valid investigation would be budget-denied at the door.
+T1_DAILY_BUDGET = 150
+REASON_V1_DAILY_BUDGET = 40
+REASON_T1_BATCH_MAX = 8
+# One structured completion per call, wrapped in asyncio.wait_for(timeout) → status
+# `timeout`. Token caps are generous on purpose (DeepSeek lesson: reasoning tokens
+# eat max_tokens — a length-truncated completion must persist as parse_fail, never
+# be silently dropped; zero and dead are different numbers).
+REASON_CALL_TIMEOUT_S = 90
+REASON_V1_MAX_TOKENS = 2048
+REASON_T1_MAX_TOKENS = 1024
+
 
 def validate_config() -> None:
     """Assert the invariants the rest of the engine relies on (config-rot defense)."""
@@ -122,3 +145,12 @@ def validate_config() -> None:
     assert INVESTIGATE_MIN_POOL >= 1
     # Fusion C2 dossier invariant.
     assert DOSSIER_SUMMARY_MAX_CHARS > 0
+    # Fusion C3 LLM-lane invariants. REASON_EMIT_ENABLED is deliberately NOT asserted
+    # (C5 flips it True). The lane v1 ceiling must not undercut C1's 5/day gate.
+    assert T1_DAILY_BUDGET > 0
+    assert REASON_V1_DAILY_BUDGET > 0
+    assert 1 <= REASON_T1_BATCH_MAX <= 16
+    assert REASON_CALL_TIMEOUT_S > 0
+    assert REASON_V1_MAX_TOKENS > 0
+    assert REASON_T1_MAX_TOKENS > 0
+    assert REASON_V1_DAILY_BUDGET >= REASON_DAILY_BUDGET

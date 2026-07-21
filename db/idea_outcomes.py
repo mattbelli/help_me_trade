@@ -494,6 +494,8 @@ def register_idea(
     regime_at_entry: str | None = None,
     entry_ref_price: str | None = None,
     synthetic: int = 0,
+    episode_id: str | None = None,
+    dossier_ref: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int | None:
     """The narrow write path for non-artifact idea sources (spec §2).
@@ -593,6 +595,10 @@ def register_idea(
         "user_action": str(user_action or "skipped").strip() or "skipped",
         "source_ref": json.dumps(source_ref) if source_ref is not None else None,
         "bear_case": str(bear_case or ""),
+        # Fusion Phase C3 provenance: the investigated episode + its dossier. Columns
+        # already exist (migration above); no writer populated them before C3.
+        "episode_id": (str(episode_id).strip() or None) if episode_id else None,
+        "dossier_ref": (str(dossier_ref).strip() or None) if dossier_ref else None,
         "dedup_key": dedup_key,
         "cluster_key": _cluster_key(as_of, direction),
         "grading_basis": grading_basis,
