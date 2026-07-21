@@ -81,24 +81,12 @@ Zero-context composition audit of hmt-backend verified claim-by-claim and archiv
 - ▶ **Rank-2 exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent →
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)
-- ⚠️ **SOLVED root-cause, fix in flight: the FULL pytest suite run on serv KILLS the live
-  backend** (was "unexplained targeted TERM"; detail: BUILD_LOG 2026-07-21 morning row).
-  Overnight 07-21: EIGHT graceful backend TERMs, each 2–6 min after a push — 8/8 correlation
-  with the self-hosted CI runs (`python -m pytest -q`, full suite). Reproduced 3× locally from
-  the CI checkout (no runner involved): backend dies mid-suite (~80%, `test_session_node_levels`
-  zone; state-dependent — the module batch alone does NOT kill). uvicorn logs a REAL graceful
-  SIGTERM ("Shutting down"); no OOM/oomd/earlyoom, no kill-syscall code anywhere in tests/ (grep
-  + partial strace), unit file plain. CI has been RED since 07-18 (masking this): 2 stale tests —
-  `test_la_content_state_includes_win_prob_when_scored` (asserted the PRE-honesty-gate leaking
-  shape; fixture had no `sufficient: True`) and `test_paper_book_shape_and_unrealized_math`
-  (hardcoded days_held rots with the calendar) — BOTH FIXED in tree. **Culprit NAMED + FIXED**
-  (strace smoking gun — detail: BUILD_LOG endgame): `test_reauth_no_skip_if_fresh_runs_flow`
-  ran the reauth script's REAL main() with the flow mocked but `_restart_backend` NOT mocked —
-  the mocked "mint" live-fired the production restart (`os.kill(MainPID, SIGTERM)`). Fixed
-  deny-by-default: `--restart-backend` opt-in flag (crontab updated + verified — the 07-08
-  stale-token fix preserved), tests mock the restart + pin the flag semantics. OPEN: full-suite
-  local proof (running) → commit + push → verify CI goes GREEN with the backend ALIVE (the
-  end-to-end close-out)
+- ✅ 07-21 CLOSED: the week of "unexplained backend TERMs" = CI's full pytest suite live-firing
+  the reauth script's backend restart on every push (strace-confirmed culprit
+  `test_reauth_no_skip_if_fresh_runs_flow`; fix `f47e0df` = deny-by-default `--restart-backend`
+  flag + crontab + test mocks + CI un-redded). End-to-end verified: CI run for `f47e0df` GREEN
+  with backend PID unchanged through it — first clean push since the runner landed. Detail:
+  BUILD_LOG 2026-07-21 morning row + memory `script-mains-deny-by-default`
 - Schwab jobs stay in-process behind config gates (founder leaning: Schwab is personal, not product —
   Rank-3 tier, no action now)
 

@@ -16,7 +16,7 @@
       "type": "build",
       "priority": "high",
       "owner": "agent",
-      "notes": "8/8 overnight push-to-TERM correlation; reproduced locally; strace smoking gun: test_reauth_no_skip_if_fresh_runs_flow ran the reauth script's real main() with _restart_backend unmocked. Fix: --restart-backend opt-in flag (cron updated), tests mock + pin flag semantics; plus CI un-redded (winProb honesty-stale test rewritten, days_held time-rot fixed). Close-out = CI green with backend alive.",
+      "notes": "8/8 overnight push-to-TERM correlation; reproduced locally; strace smoking gun: test_reauth_no_skip_if_fresh_runs_flow ran the reauth script's real main() with _restart_backend unmocked. Fix: --restart-backend opt-in flag (cron updated), tests mock + pin flag semantics; plus CI un-redded (winProb honesty-stale test rewritten, days_held time-rot fixed). Close-out = CI green with backend alive. \u2705 CLOSED: f47e0df CI run GREEN, backend PID unchanged through it.",
       "created_at": "2026-07-21",
       "updated_at": "2026-07-21",
       "status": "done",
