@@ -49,13 +49,21 @@ import config.idea_engine as _cfg  # patchable seam (REASON_EMIT_ENABLED, budget
 from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import extract_json_object, parse_json_object
+from ai.research.ideas import _has_fabricated_probability
 from config.research_engine import resolve_role_model
 from db import fusion as fusion_db
 from db.base import DEFAULT_DB_PATH
-from db.idea_outcomes import _validate_long_plan, _validate_short_plan, register_idea
+from db.idea_outcomes import (
+    _validate_long_plan,
+    _validate_short_plan,
+    find_ideas_by_episode,
+    register_idea,
+)
 from db.lane_stats import bump
-from db.llm_spend import lane_spent, record_spend
+from db.llm_spend import episode_attempts, lane_spent, record_spend
 from signals.dossier import build_and_store_dossier
+from signals.notify import notify
+from signals.push_budget import mark_push_slot, peek_push_slot
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +437,219 @@ def _flush_counters(counters: dict[str, float], market_day: str, db_path: Path) 
             bump(_LANE_STATS, key, value, date=market_day, db_path=db_path)
 
 
+# ------------------------------------------------------- crash-window recovery (C5)
+
+# Origins that mean "this episode was already registered" — the point-of-no-return
+# rows a crashed pass may have written before its reason_runs marker landed.
+_RECOVERY_ORIGINS = frozenset(
+    {"reason_v1", "t1_dismissal", "reason_v1_failed_template"}
+)
+
+
+def _recovery_marker(
+    episode: dict[str, Any],
+    survivors: list[dict[str, Any]],
+    market_day: str,
+    as_of_iso: str,
+) -> dict[str, Any] | None:
+    """Reconstruct the reason_runs marker a crashed pass never wrote.
+
+    ``survivors`` are ``find_ideas_by_episode`` rows (id + origin). Returns the row
+    to upsert into ``reason_runs``, or None when no recovery-class idea survives.
+    None does NOT mean safe-to-reprocess by itself: a crash in the spend→register
+    window leaves no idea row — ``_spend_recovery_marker`` (anchor #2, the
+    persist-before-use llm_spend row) covers that window. Only an episode with
+    neither an idea row nor a v1 spend row is truly safe to reprocess
+    (budget_denied, or a crash before the v1 call ever landed).
+    """
+    by_origin: dict[str, dict[str, Any]] = {}
+    for row in survivors:
+        origin = str(row.get("origin") or "")
+        if origin in _RECOVERY_ORIGINS:
+            by_origin.setdefault(origin, row)  # oldest row per origin
+    if not by_origin:
+        return None
+    base: dict[str, Any] = {
+        "episode_id": str(episode["id"]),
+        "market_day": market_day,
+        "symbol": str(episode.get("symbol") or ""),
+        "created_at": as_of_iso,
+        "null_hypothesis": None,
+        "angle_to_check": None,
+    }
+    # Priority: a real idea (reason_v1) outranks a failure/dismissal shadow. Only one
+    # registration ever happens per episode before a crash, but the ordering keeps the
+    # reconstructed marker deterministic if a replay somehow left more than one row.
+    if "reason_v1" in by_origin:
+        row, v1_status, t1_inv, origin = by_origin["reason_v1"], "ok", 1, "reason_v1"
+    elif "reason_v1_failed_template" in by_origin:
+        row = by_origin["reason_v1_failed_template"]
+        v1_status, t1_inv, origin = "recovered", 1, "reason_v1_failed_template"
+    else:
+        row, v1_status, t1_inv, origin = by_origin["t1_dismissal"], None, 0, "t1_dismissal"
+    base.update(
+        t1_status="ok",
+        t1_investigate=t1_inv,
+        v1_status=v1_status,
+        idea_id=int(row["id"]),
+        no_idea=0,
+        detail_json={
+            "stage": "recovered",
+            "recovered_after_crash": True,
+            "origin": origin,
+        },
+    )
+    return base
+
+
+def _spend_recovery_marker(
+    episode: dict[str, Any],
+    attempts: list[dict[str, Any]],
+    market_day: str,
+    as_of_iso: str,
+) -> dict[str, Any] | None:
+    """Recovery anchor #2: the v1 ``llm_spend`` row (persist-before-use).
+
+    The spend row commits BEFORE the idea/shadow/marker, so a crash in the
+    spend→register window leaves ONLY this row — and the ``no_idea`` outcome never
+    registers anything, so for it that window spans the whole tail of the call.
+    Reconstruct conservatively and never re-call: a spend ``ok`` with no idea row is
+    ambiguous between a genuine no_idea and a crash before register — treated as
+    no_idea (loses at most one idea; never double-spends, never delivers a phantom
+    push). A failure status lost its template shadow (flagged in detail), never
+    re-spends. ``attempts`` come from ``episode_attempts`` (budget_denied excluded —
+    a denial left no spend and is safe to reprocess)."""
+    if not attempts:
+        return None
+    status = str(attempts[-1].get("status") or "")
+    detail: dict[str, Any] = {
+        "stage": "recovered",
+        "recovered_after_crash": True,
+        "anchor": "llm_spend",
+        "spend_status": status,
+    }
+    base: dict[str, Any] = {
+        "episode_id": str(episode["id"]),
+        "market_day": market_day,
+        "symbol": str(episode.get("symbol") or ""),
+        "created_at": as_of_iso,
+        "null_hypothesis": None,
+        "angle_to_check": None,
+        "t1_status": "ok",
+        "t1_investigate": 1,
+        "idea_id": None,
+        "detail_json": detail,
+    }
+    if status == "ok":
+        detail["ambiguous_ok"] = True
+        base.update(v1_status="no_idea", no_idea=1)
+    else:
+        detail["shadow_lost"] = True
+        base.update(v1_status=status, no_idea=0)
+    return base
+
+
+# --------------------------------------------------------------- idea delivery (C5)
+
+_CONFIDENCE_WORD = {
+    "low": "low-confidence",
+    "medium": "medium-confidence",
+    "high": "high-confidence",
+}
+# A period ends a sentence only when followed by whitespace/EOL — theses quote
+# decimal prices ("the 452.5 strike") and a bare-period split truncates mid-number
+# in founder-facing push copy.
+_SENTENCE_END_RE = re.compile(r"\.(?=\s|$)|\n")
+
+
+def _first_sentence(text: str) -> str:
+    """The first sentence of free text (through the first period/newline)."""
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    match = _SENTENCE_END_RE.search(value)
+    return (value[: match.start() + 1] if match else value).strip()
+
+
+def _build_idea_message(episode: dict[str, Any], plan: V1Plan) -> tuple[str, str]:
+    """Phone-tier idea copy. HONESTY LAW (spec §2.7): no win%, probability, or score
+    number — only the plan's own price geometry, a qualitative confidence WORD, and
+    the thesis' first sentence; the idea is explicitly labelled 'unproven' so a phone
+    glance can never mistake a perception angle for a validated edge."""
+    symbol = str(episode.get("symbol") or "").upper()
+    side = plan.direction.upper()
+    conf = _CONFIDENCE_WORD.get(plan.confidence, plan.confidence)
+    entry = f"{plan.entry_zone.low}-{plan.entry_zone.high}"
+    targets = ", ".join(str(t) for t in plan.targets)
+    thesis = _first_sentence(plan.thesis)
+    title = f"{symbol} {side} idea — {conf}, unproven"
+    body = (
+        f"Unproven {plan.direction} idea over {plan.horizon}. "
+        f"Entry {entry}, stop {plan.stop}, targets {targets}. {thesis}"
+    ).strip()
+    return title, body
+
+
+async def _deliver_idea(
+    episode: dict[str, Any], plan: V1Plan, idea_id: int, ctx: _PassCtx
+) -> None:
+    """Fail-soft phone-tier delivery of a REAL v1 idea (shadows never deliver).
+
+    Draws from the ONE shared daily push budget (signals/push_budget) so the flow
+    lane and the idea lane can't jointly blow the founder's phone budget. Delivery
+    NEVER fails the pass: a persist/transport error is counted (delivery_error) and
+    swallowed. ``delivered`` counts the persisted card; ``push_denied`` the subset
+    whose phone push the budget suppressed. Inert today — runs only when armed."""
+    counters = ctx.counters
+    try:
+        slot = await asyncio.to_thread(
+            peek_push_slot, ctx.market_day, db_path=ctx.db_path
+        )
+        allow_push = slot is not None
+        title, body = _build_idea_message(episode, plan)
+        # The registration wall checks thesis/bear_case only — this is the one
+        # DELIVERED free-text field that never passes it. Withhold rather than
+        # ship a fabricated number to a user surface (honesty red-team 07-08).
+        nh_result = plan.null_hypothesis_result
+        if _has_fabricated_probability(nh_result):
+            nh_result = "[withheld: contained a fabricated probability]"
+        row = await notify(
+            kind="fusion_idea",
+            title=title,
+            body=body,
+            severity="info",
+            ref_type="idea",
+            ref_id=str(idea_id),
+            group_key=f"fusion_idea:{episode['id']}",
+            data={
+                "idea_id": int(idea_id),
+                "symbol": str(episode.get("symbol") or ""),
+                "direction": plan.direction,
+                "entry_zone": {"low": plan.entry_zone.low, "high": plan.entry_zone.high},
+                "stop": plan.stop,
+                "targets": list(plan.targets),
+                "horizon": plan.horizon,
+                "confidence": plan.confidence,
+                "null_hypothesis_result": nh_result,
+            },
+            push=allow_push,
+            db_path=ctx.db_path,
+        )
+    except Exception:
+        logger.exception("fusion idea delivery failed for %s", episode.get("id"))
+        counters["delivery_error"] += 1
+        return
+    if not row:
+        counters["delivery_error"] += 1
+        return
+    counters["delivered"] += 1
+    if allow_push and slot is not None:
+        # Consume the slot ONLY after a successful persist (mirror convergence).
+        await asyncio.to_thread(mark_push_slot, slot, db_path=ctx.db_path)
+    else:
+        counters["push_denied"] += 1
+
+
 # ---------------------------------------------------------------- candidate processing
 
 
@@ -562,6 +783,10 @@ async def _process_candidate(
             ),
             db_path=ctx.db_path,
         )
+        # Phone-tier delivery AFTER the marker: registration + marker are the point
+        # of no return; delivery is best-effort on top (a crash here loses only a
+        # push, never a row — the inbox card persists in this same notify call).
+        await _deliver_idea(episode, parsed, idea_id, ctx)
         return
 
     # register_idea refused a shape-valid plan — the only remaining causes are a fabricated
@@ -620,6 +845,47 @@ async def run_reason_pass(
     counters: dict[str, float] = defaultdict(float)
     if not pending:
         return {"disabled": False, "market_day": market_day, "pending": 0, "counters": {}}
+
+    # ---- Crash-window recovery. The v1 SPEND ROW is the point of no return
+    # (persist-before-use — it commits before the idea/shadow/marker), so everything
+    # after it must be recoverable from the DB alone. A prior pass may have spent
+    # and/or registered for an episode and then crashed BEFORE writing its
+    # reason_runs marker; on restart the episode reads pending again. Two anchors,
+    # checked in order: (1) a surviving idea/shadow row (register→marker window),
+    # (2) a surviving v1 spend row (spend→register window — the only trace a
+    # crashed no_idea leaves). Either one drops the episode from this pass — no
+    # LLM call, no second registration, no double spend, no phantom delivery.
+    # Runs before dossier-build and any LLM client. ----
+    recovered: set[str] = set()
+    for episode in pending:
+        survivors = await asyncio.to_thread(
+            find_ideas_by_episode, str(episode["id"]), db_path=db_path
+        )
+        marker = _recovery_marker(episode, survivors, market_day, as_of_iso)
+        if marker is None:
+            attempts = await asyncio.to_thread(
+                episode_attempts,
+                market_day,
+                _LANE_V1,
+                str(episode["id"]),
+                db_path=db_path,
+            )
+            marker = _spend_recovery_marker(episode, attempts, market_day, as_of_iso)
+        if marker is None:
+            continue
+        await asyncio.to_thread(fusion_db.put_reason_run, marker, db_path=db_path)
+        counters["recovered_after_crash"] += 1
+        recovered.add(str(episode["id"]))
+    if recovered:
+        pending = [e for e in pending if str(e["id"]) not in recovered]
+    if not pending:
+        await asyncio.to_thread(_flush_counters, dict(counters), market_day, db_path)
+        return {
+            "disabled": False,
+            "market_day": market_day,
+            "pending": 0,
+            "counters": dict(counters),
+        }
 
     if llm_triage is None:
         llm_triage = get_llm(model=resolve_role_model("triage"))

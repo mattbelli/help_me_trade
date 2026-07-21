@@ -114,6 +114,28 @@ def lane_spent(market_day: str, lane: str, *, db_path: Path = DEFAULT_DB_PATH) -
         )
 
 
+def episode_attempts(
+    market_day: str, lane: str, episode_id: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict[str, Any]]:
+    """ATTEMPTED spend rows for one episode (budget_denied excluded), oldest first.
+
+    The crash-recovery anchor (Fusion C5): the spend row is the persist-before-use
+    record — it commits BEFORE the idea/shadow/marker, so a crash in the
+    spend→register window is detectable from it ALONE, never from idea_outcomes."""
+    init_llm_spend(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM llm_spend
+            WHERE market_day = ? AND lane = ? AND episode_id = ?
+              AND status != 'budget_denied'
+            ORDER BY id ASC
+            """,
+            (str(market_day), str(lane), str(episode_id)),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def day_spend(market_day: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
     """All spend rows for a market day (dev/debug read; oldest first)."""
     init_llm_spend(db_path)

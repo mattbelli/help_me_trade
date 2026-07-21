@@ -196,6 +196,12 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         _add_column_if_missing(
             conn, "idea_outcomes", "user_action", "TEXT NOT NULL DEFAULT 'skipped'"
         )
+        # Founder take/skip decision (Fusion C5). Grading is UNAFFECTED by these —
+        # an idea is outcome-tracked whether taken or skipped (calibration counts
+        # everything); they record only WHAT the founder chose to do and WHY he
+        # passed, feeding the skip-reason mix, never the win-rate.
+        _add_column_if_missing(conn, "idea_outcomes", "skip_reason", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "user_action_at", "TEXT")
         _add_column_if_missing(conn, "idea_outcomes", "source_ref", "TEXT")
         _add_column_if_missing(conn, "idea_outcomes", "dossier_ref", "TEXT")
         _add_column_if_missing(
@@ -235,6 +241,8 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                     json_extract(source_ref, '$.kind'),
                     json_extract(source_ref, '$.id')
                 );
+            CREATE INDEX IF NOT EXISTS idx_idea_episode
+                ON idea_outcomes(episode_id) WHERE episode_id IS NOT NULL;
             """
         )
         conn.commit()
@@ -627,6 +635,70 @@ def register_idea(
         if int(cur.rowcount or 0) == 0:
             return None  # deduped by the open-row wall
         return int(cur.lastrowid)
+
+
+def find_ideas_by_episode(
+    episode_id: str, *, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict[str, Any]]:
+    """Ideas (real or synthetic) already registered against a fusion episode.
+
+    The Fusion C5 crash-window recovery read: ``register_idea`` is the point of no
+    return, so a reason-lane pass that registered a row and then crashed BEFORE
+    writing its ``reason_runs`` marker must be detectable from the DB alone — the
+    episode would otherwise read pending again and double-register on restart.
+    Returns ``id`` + ``origin`` per matching row, oldest first. Covers shadows too
+    (C3's template registrations pass ``episode_id``)."""
+    init_idea_outcomes_tables(db_path)
+    ep = str(episode_id or "").strip()
+    if not ep:
+        return []
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, origin FROM idea_outcomes WHERE episode_id = ? ORDER BY id ASC",
+            (ep,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+# Founder take/skip decision surface (Fusion C5). Validated against these frozen
+# sets — never raw SQL from the route.
+USER_ACTIONS = frozenset({"taken", "skipped"})
+SKIP_REASONS = frozenset(
+    {"already_exposed", "wrong_horizon", "disliked_thesis", "no_capital", "timing"}
+)
+
+
+def set_user_action(
+    idea_id: int,
+    action: str,
+    *,
+    skip_reason: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> str:
+    """Record the founder's take/skip decision on an idea (forward-only).
+
+    Returns ``'ok'`` | ``'not_found'`` | ``'bad_action'`` | ``'bad_reason'``.
+    ``skip_reason`` is only valid with ``action='skipped'`` and must be one of
+    ``SKIP_REASONS``; a 'taken' action clears any prior skip_reason. Grading is
+    UNAFFECTED — ideas grade whether taken or not (calibration counts everything).
+    """
+    action = str(action or "").strip().lower()
+    if action not in USER_ACTIONS:
+        return "bad_action"
+    reason = str(skip_reason).strip() if skip_reason else None
+    if reason is not None and (action != "skipped" or reason not in SKIP_REASONS):
+        return "bad_reason"
+    stored_reason = reason if action == "skipped" else None
+    init_idea_outcomes_tables(db_path)
+    now = _now()
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE idea_outcomes SET user_action = ?, skip_reason = ?, "
+            "user_action_at = ?, updated_at = ? WHERE id = ?",
+            (action, stored_reason, now, now, int(idea_id)),
+        )
+        conn.commit()
+    return "ok" if int(cur.rowcount or 0) > 0 else "not_found"
 
 
 def list_open(*, db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:

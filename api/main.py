@@ -1741,6 +1741,32 @@ async def _fusion_levels_refresh_once() -> None:
     await asyncio.gather(*(_stamp_one(symbol) for symbol in symbols))
 
 
+async def _fusion_reason_once() -> None:
+    """Fusion C5 reason lane (research/reason.run_reason_pass), wired but DARK.
+
+    REASON_EMIT_ENABLED gates the whole lane; while it is False this is a cheap
+    no-op that never even builds an LLM client (the poll fires every 120s in market
+    hours). The ARM commit flips the flag — see the ARMING CHECKLIST in
+    config/idea_engine.py. run_reason_pass re-checks the flag as a belt-and-braces
+    guard, but the check here is what keeps the dark poll free of client construction."""
+    import config.idea_engine as _idea_cfg
+
+    if not _idea_cfg.REASON_EMIT_ENABLED:
+        return
+    from ai.llm.factory import get_llm
+    from config.research_engine import resolve_role_model
+    from research.reason import run_reason_pass
+
+    llm_triage = get_llm(model=resolve_role_model("triage"))
+    llm_reason = get_llm(model=resolve_role_model("reason"))
+    await run_reason_pass(
+        db_path=DEFAULT_DB_PATH,
+        now=datetime.now(_ET),
+        llm_triage=llm_triage,
+        llm_reason=llm_reason,
+    )
+
+
 def _register_background_jobs() -> None:
     global _background_jobs_registered
     if _background_jobs_registered:
@@ -1867,6 +1893,14 @@ def _register_background_jobs() -> None:
             name="fusion_levels_refresh",
             fn=_fusion_levels_refresh_once,
             interval_s=300.0,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="fusion_reason",
+            fn=_fusion_reason_once,
+            interval_s=120.0,
+            market_hours_only=True,
         )
     )
     register_job(
@@ -3449,6 +3483,42 @@ def api_fusion_episode(episode_id: str):
     return {
         "episode": dict(row),
         "dots": episode_dots(episode_id, db_path=DEFAULT_DB_PATH),
+    }
+
+
+@app.post("/api/fusion/ideas/{idea_id}/action")
+def api_fusion_idea_action(idea_id: int, request: Request, body: dict = Body(...)):
+    """Record the founder's take/skip decision on a fusion idea (forward-only).
+
+    Body: ``{"action": "taken"|"skipped", "skip_reason"?: <one of the frozen set>}``.
+    Grading is UNAFFECTED — an idea is outcome-tracked whether taken or not
+    (calibration counts everything); this only records what the founder chose."""
+    verify_mutation_token(request)
+    from db.idea_outcomes import set_user_action
+
+    action = str(body.get("action") or "").strip().lower()
+    skip_reason = body.get("skip_reason")
+    result = set_user_action(idea_id, action, skip_reason=skip_reason)
+    if result == "not_found":
+        return JSONResponse({"error": "Idea not found"}, status_code=404)
+    if result == "bad_action":
+        return JSONResponse(
+            {"error": "action must be 'taken' or 'skipped'"}, status_code=400
+        )
+    if result == "bad_reason":
+        return JSONResponse(
+            {
+                "error": (
+                    "skip_reason must be one of already_exposed/wrong_horizon/"
+                    "disliked_thesis/no_capital/timing and only with action=skipped"
+                )
+            },
+            status_code=400,
+        )
+    return {
+        "ok": True,
+        "action": action,
+        "skip_reason": skip_reason if action == "skipped" else None,
     }
 
 

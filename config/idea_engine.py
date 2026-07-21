@@ -40,6 +40,12 @@ ALARM_SCAN_ZERO_REGISTERED_DAYS = 3
 ALARM_TRACKER_ZERO_DAYS = 2
 ALARM_MAX_OPEN_AGE_SLACK_DAYS = 3
 ALARM_NEVER_WORKED_GRACE_DAYS = 3
+# Fusion C5 reason-lane parse-fail ceiling: fraction of today's v1 attempts that
+# may be parse_fail+refusal before pipeline_audit pages (mirrored module-local in
+# signals/pipeline_audit as REASON_PARSE_FAIL_RATE_MAX, the house pattern). Only
+# armed with the lane — the rule short-circuits to None while REASON_EMIT_ENABLED
+# is False, so a dark lane never pages.
+ALARM_REASON_PARSE_FAIL_RATE = 0.2
 ALARM_EXPECTED_LANES = frozenset(
     {"setup_scan", "conviction_pass", "idea_tracker", "path_a_register"}
 )
@@ -66,8 +72,9 @@ FUSION_CARD_TRAILING_PERCENTILE = 0.75
 # Fusion Phase C1 — SHADOW-MODE investigation gate (spec §2.6 LLM tier, §3 C).
 # The deterministic "this evidence stack would be investigated by the LLM lane
 # right now" decision — counted, never acted on. Zero LLM calls. REASON_SHADOW_ONLY
-# is the C1↔C3 seam: the gate asserts it and does nothing but count; C3 flips it in
-# this one place to arm real investigation. B=5/day total with a 25% opening reserve
+# is the C1↔ARM seam: the gate asserts it and does nothing but count. C3 did NOT flip
+# it (C3 shipped the lane dark); the future ARM commit flips it — see the ARMING
+# CHECKLIST beside REASON_EMIT_ENABLED below. B=5/day total with a 25% opening reserve
 # (ceil(0.25×5)=2 investigations during the first 30 min, so the open can't drain
 # the day). The threshold is the (B×S)-th highest day-final score over the trailing
 # S≤7 sessions, so ~B stacks clear on an average day; below INVESTIGATE_MIN_POOL the
@@ -88,12 +95,24 @@ REASON_SHADOW_ONLY = True
 DOSSIER_SUMMARY_MAX_CHARS = 4000
 
 # Fusion Phase C3 — the LLM INVESTIGATION lane (Unified §4 + "LLM invocation design"
-# + Phase 3). Ships DARK: REASON_EMIT_ENABLED is the C3↔C5 arming seam — the runner
-# (research/reason.py) returns a counted no-op while it is False, and NOTHING in
-# production imports the lane yet (the intake hook + alarm rules are C5). C5 flips
-# this one flag to arm. NOTE: never assert its value here — C5 must be able to set it
-# True without tripping config validation. (REASON_SHADOW_ONLY, the C1 intake gate's
-# assertion, is a DIFFERENT seam and is left untouched.)
+# + Phase 3). Ships DARK: REASON_EMIT_ENABLED is the arming seam — the runner
+# (research/reason.py) returns a counted no-op while it is False. C5 wired the lane
+# into production (the fusion_reason job, delivery, crash recovery, alarm rules) but
+# left it DARK; the flag is still False. NOTE: never assert its value here — the ARM
+# commit must be able to set it True without tripping config validation.
+#
+# ═══ ARMING CHECKLIST — the future ARM commit is exactly these four edits ═══
+#   1. REASON_SHADOW_ONLY = True → False        (the C1 intake gate stops shadowing)
+#   2. REASON_EMIT_ENABLED = False → True       (the reason lane + alarms go live)
+#   3. drop `assert REASON_SHADOW_ONLY is True` from validate_config below
+#   4. add "fusion_reason" to ALARM_EXPECTED_LANES (and its validate_config assert)
+#      so the never-worked rule guards the now-live lane. Its counters-map entry in
+#      signals/pipeline_audit._EXPECTED_LANE_COUNTERS is ALREADY pre-staged by C5 —
+#      without it, edit 4 alone would KeyError and silently kill never-worked
+#      coverage for every lane (adversarial review 07-21).
+# Nothing else — then DEPLOY (a backend restart is required: these flags are read
+# at import time). Everything C5 shipped keys off REASON_EMIT_ENABLED, so flipping
+# (2) arms delivery + both new alarm rules in one move. Do NOT edit any of this now.
 REASON_EMIT_ENABLED = False
 # Lane ceilings — defense in depth OVER C1's 5/day investigation gate (a runaway
 # poll can never exceed these). T1 triages ≤8 candidates/call; v1 is one call per
@@ -119,6 +138,7 @@ def validate_config() -> None:
     assert {"earnings_drift", "momentum_sp500"} <= set(STRATEGY_HORIZONS)
     assert all(v for v in STRATEGY_HORIZONS.values())
     assert 0.0 < ALARM_CONVICTION_PARSE_FAIL_RATE < 1.0
+    assert 0.0 < ALARM_REASON_PARSE_FAIL_RATE < 1.0
     assert ALARM_RATE_MEDIAN_DAYS >= 1
     assert ALARM_CONVICTION_PARSE_FAIL_DAYS >= 1
     assert ALARM_SCAN_ZERO_REGISTERED_DAYS >= 1

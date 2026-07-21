@@ -28,6 +28,12 @@ from signals.options_flow.constants import (
     SOLO_PUSH_PREMIUM_USD,
 )
 from signals.options_flow.detect import _fmt_premium
+
+# The daily push budget now lives in a shared module (Fusion C5) so the fusion
+# idea lane draws from the SAME pool. Aliased to the historical private names so
+# the call sites below (and their monkeypatch seams) are unchanged.
+from signals.push_budget import mark_push_slot as _mark_push_slot
+from signals.push_budget import peek_push_slot as _peek_push_slot
 from signals.session_node_strategy import compute_session_levels
 from signals.volume_profile import load_profile
 
@@ -294,38 +300,6 @@ def _solo_dedup_key(underlying: str, event_type: str, today_et: str) -> str:
     # Per (underlying, event_type, day) — design §5 dedup contract. Raw event ids
     # (which embed ts_ms for blocks) would let one busy name drain the daily budget.
     return f"of_solo:{underlying.strip().upper()}:{event_type}:{today_et}"
-
-
-def _peek_push_slot(today_et: str, *, db_path: Path) -> str | None:
-    """First free daily-budget slot key, or None. Deny-by-default: any error → None."""
-    try:
-        from config.settings import alerts_config
-        from db.earnings_alerts import was_sent
-
-        for n in range(1, alerts_config()["max_push_per_day"] + 1):
-            key = f"of_push:{today_et}:{n}"
-            if not was_sent(key, db_path=db_path):
-                return key
-        return None
-    except Exception:
-        logger.debug(
-            "options_flow convergence: push budget peek failed",
-            exc_info=True,
-        )
-        return None
-
-
-def _mark_push_slot(key: str, *, db_path: Path) -> None:
-    try:
-        from db.earnings_alerts import mark_sent
-
-        mark_sent(key, db_path=db_path)
-    except Exception:
-        logger.debug(
-            "options_flow convergence: push budget mark failed for %s",
-            key,
-            exc_info=True,
-        )
 
 
 def _daily_bars_to_ohlc(bars: list[Any]) -> tuple[list[float], list[float], list[float]]:

@@ -21,6 +21,7 @@ from pathlib import Path
 from statistics import median
 from zoneinfo import ZoneInfo
 
+import config.idea_engine as _idea_cfg  # patchable seam (REASON_EMIT_ENABLED)
 from config.idea_engine import (
     ALARM_EXPECTED_LANES,
     ALARM_NEVER_WORKED_GRACE_DAYS,
@@ -45,6 +46,10 @@ SILENCE_LIFE_LOOKBACK = 15  # a silent lane only alarms if it was alive this rec
 RATE_BASELINE_MIN_DAYS = 3
 RATE_COLLAPSE_FRACTION = 0.5
 _MAX_BASELINE_CALENDAR_DAYS = 3650
+# Fusion C5 reason-lane thresholds (module-local mirror of config, house pattern).
+REASON_PARSE_FAIL_RATE_MAX = 0.2  # mirror of ALARM_REASON_PARSE_FAIL_RATE
+REASON_PARSE_FAIL_MIN_ATTEMPTS = 5  # don't page on a thin sample
+REASON_CONSECUTIVE_FAIL_STREAK = 3  # last-N attempted t1/reason_v1 rows all failed
 
 # attempt counters (the lane tried) → output counters (ANY >0 proves wiring).
 # setup_scan's vetoed shadows count as output — a healthy scan can qualify zero
@@ -60,6 +65,14 @@ _EXPECTED_LANE_COUNTERS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "path_a_register": (
         ("registered", "deduped_or_rejected", "failures"),
         ("registered",),
+    ),
+    # Fusion C5 pre-staged: INERT until the ARM commit adds "fusion_reason" to
+    # ALARM_EXPECTED_LANES (config). Without this entry that edit would KeyError
+    # inside _never_worked_lanes / _engine_deploy_proxy — swallowed by the rule
+    # runner's try/except — and silently kill never-worked coverage for EVERY lane.
+    "fusion_reason": (
+        ("t1_calls", "v1_calls"),
+        ("t1_dismissed", "t1_investigate", "v1_ok", "v1_no_idea"),
     ),
 }
 
@@ -394,12 +407,75 @@ def conservation_gap(today: date, db_path: Path) -> str | None:
     )
 
 
+def rule_reason_parse_fail(today: date, db_path: Path) -> str | None:
+    """fusion_reason v1 UNUSABLE-output rate above threshold, today.
+
+    Armed with the lane: a dark lane must never page, so this short-circuits to None
+    while REASON_EMIT_ENABLED is False (arms alongside the lane in the ARM commit).
+    Healthy = v1_ok + v1_no_idea (both clean completions). Failing = parse_fail +
+    refusal + timeout + register_rejected: a wall-rejected plan and a timed-out call
+    are as unusable as a parse failure — a lane systematically tripping the honesty
+    wall or flaking on timeouts is dead even though its calls "parse" (adversarial
+    review 07-21: both evaded the original parse_fail+refusal-only numerator).
+    Needs a real sample (>= REASON_PARSE_FAIL_MIN_ATTEMPTS) before it can conclude —
+    a couple of early fails are noise, not rot."""
+    if not _idea_cfg.REASON_EMIT_ENABLED:
+        return None
+    counters = lane_stats.day("fusion_reason", today.isoformat(), db_path=db_path)
+    healthy = counters.get("v1_ok", 0.0) + counters.get("v1_no_idea", 0.0)
+    fails = (
+        counters.get("v1_parse_fail", 0.0)
+        + counters.get("v1_refusal", 0.0)
+        + counters.get("v1_timeout", 0.0)
+        + counters.get("v1_register_rejected", 0.0)
+    )
+    total = healthy + fails
+    if total < REASON_PARSE_FAIL_MIN_ATTEMPTS:
+        return None
+    rate = fails / total
+    if rate <= REASON_PARSE_FAIL_RATE_MAX:
+        return None
+    return (
+        f"fusion_reason unusable-output rate {rate:.0%} over {total:.0f} v1 "
+        f"attempts today (> {REASON_PARSE_FAIL_RATE_MAX:.0%}) — the investigator "
+        "lane is failing (parse/refusal/timeout/honesty-wall rejections)"
+    )
+
+
+def rule_reason_consecutive_failures(today: date, db_path: Path) -> str | None:
+    """The investigator failing in a row: today's last N attempted t1/reason_v1 spend
+    rows are ALL parse_fail/timeout/refusal (armed only).
+
+    Reads llm_spend directly (a sync read, allowed under to_thread). budget_denied
+    rows are not attempts and are skipped. Catches a model/config break the rate rule
+    can miss (e.g. a wrong endpoint timing out every call)."""
+    if not _idea_cfg.REASON_EMIT_ENABLED:
+        return None
+    from db.llm_spend import day_spend
+
+    attempted = [
+        row
+        for row in day_spend(today.isoformat(), db_path=db_path)
+        if str(row.get("lane")) in ("t1", "reason_v1")
+        and str(row.get("status")) != "budget_denied"
+    ]
+    if len(attempted) < REASON_CONSECUTIVE_FAIL_STREAK:
+        return None
+    bad = {"parse_fail", "timeout", "refusal"}
+    last = attempted[-REASON_CONSECUTIVE_FAIL_STREAK:]
+    if all(str(row.get("status")) in bad for row in last):
+        return "the investigator is failing in a row — check model/config"
+    return None
+
+
 RATE_RULES: list[tuple[str, object]] = [
     ("conviction_parse_fail", rule_conviction_parse_fail),
     ("setup_scan_silent", rule_setup_scan_silent),
     ("idea_tracker_silent", rule_idea_tracker_silent),
     ("path_a_register_failures", rule_path_a_register_failures),
     ("max_open_age", rule_max_open_age),
+    ("reason_parse_fail", rule_reason_parse_fail),
+    ("reason_consecutive_failures", rule_reason_consecutive_failures),
 ]
 
 
