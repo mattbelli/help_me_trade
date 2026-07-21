@@ -161,15 +161,32 @@ def test_clear_for_proposal(tmp_path: Path) -> None:
 
 
 def test_la_content_state_includes_win_prob_when_scored() -> None:
-    state = _la_content_state(_sample_proposal_row(), status="pending")
+    # winProb ships ONLY with a sufficient sample, and its qualifiers (ci_low,
+    # n_samples) travel inseparably with it — the 07-08 honesty red-team rule.
+    # (This test predated the sufficiency gate and asserted the leaking shape.)
+    row = _sample_proposal_row(
+        score={"win_prob": 0.62, "sufficient": True, "ci_low": 0.55, "n_samples": 40}
+    )
+    state = _la_content_state(row, status="pending")
     assert state["proposalId"] == "paper_abc123"
     assert state["symbol"] == "AAPL"
     assert state["side"] == "buy"
     assert state["qty"] == 10
     assert state["orderType"] == "market"
     assert state["winProb"] == 0.62
+    assert state["ciLow"] == 0.55
+    assert state["nSamples"] == 40
     assert state["status"] == "pending"
     assert "statusReason" not in state
+
+
+def test_la_content_state_insufficient_sample_ships_unproven_no_number() -> None:
+    # A bare win_prob with no sufficiency verdict must NOT reach the phone —
+    # only the "unproven" flag does.
+    state = _la_content_state(_sample_proposal_row(), status="pending")
+    assert "winProb" not in state
+    assert "evPct" not in state
+    assert state["calibration"] == "unproven"
 
 
 def test_la_content_state_omits_win_prob_when_unscored() -> None:

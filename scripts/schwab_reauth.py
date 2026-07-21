@@ -613,6 +613,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=True,
         help="Skip reauth when the on-disk token is <5 days old (default: on)",
     )
+    parser.add_argument(
+        "--restart-backend",
+        action="store_true",
+        default=False,
+        help=(
+            "After a successful mint, SIGTERM hmt-backend's MainPID so systemd "
+            "respawns it with the fresh token (the 07-08 stale-in-memory fix). "
+            "DENY-BY-DEFAULT: this flag is how the cron opts in — nothing that "
+            "merely imports/calls main() may kill a live service. (Found the hard "
+            "way 07-21: a pytest test exercising main() TERM'd the production "
+            "backend on every full-suite CI run.)"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -645,7 +658,8 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         _notify_reauth_failure(f"Schwab re-auth failed: {exc}")
         raise
-    _restart_backend()
+    if args.restart_backend:
+        _restart_backend()
     return 0
 
 

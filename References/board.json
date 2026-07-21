@@ -10,6 +10,19 @@
   ],
   "cards": [
     {
+      "id": "ci-full-suite-kills-backend",
+      "title": "CI full pytest suite was killing the live backend on every push \u2014 root-caused + fixed",
+      "lane": "done",
+      "type": "build",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "8/8 overnight push-to-TERM correlation; reproduced locally; strace smoking gun: test_reauth_no_skip_if_fresh_runs_flow ran the reauth script's real main() with _restart_backend unmocked. Fix: --restart-backend opt-in flag (cron updated), tests mock + pin flag semantics; plus CI un-redded (winProb honesty-stale test rewritten, days_held time-rot fixed). Close-out = CI green with backend alive.",
+      "created_at": "2026-07-21",
+      "updated_at": "2026-07-21",
+      "status": "done",
+      "updated": "2026-07-21"
+    },
+    {
       "id": "fusion-phase-c-investigation",
       "title": "Fusion Phase C \u2014 investigation tiers + pushes (one archetype: options-actor + structure)",
       "lane": "in_progress",

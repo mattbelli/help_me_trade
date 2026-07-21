@@ -331,6 +331,9 @@ def test_reauth_skip_if_fresh_exits_without_playwright(
         raise AssertionError("should not run reauth")
 
     monkeypatch.setattr("scripts.schwab_reauth.run_headless_reauth", _boom)
+    # Never let a test reach the REAL restart (07-21: this module's main() calls
+    # live-fired os.kill at the production backend on every full-suite CI run).
+    monkeypatch.setattr("scripts.schwab_reauth._restart_backend", lambda: None)
 
     from scripts.schwab_reauth import main
 
@@ -351,9 +354,39 @@ def test_reauth_no_skip_if_fresh_runs_flow(
     def _ok():
         called["reauth"] = True
 
+    restarted = {"called": False}
     monkeypatch.setattr("scripts.schwab_reauth.run_headless_reauth", _ok)
+    monkeypatch.setattr(
+        "scripts.schwab_reauth._restart_backend",
+        lambda: restarted.__setitem__("called", True),
+    )
 
     from scripts.schwab_reauth import main
 
     assert main(["--no-skip-if-fresh"]) == 0
     assert called["reauth"] is True
+    # DENY-BY-DEFAULT: without --restart-backend the script must never touch the
+    # live service (07-21: the unconditional restart made THIS test TERM the
+    # production backend on every full-suite CI run).
+    assert restarted["called"] is False
+
+
+def test_reauth_restart_backend_is_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token_file = tmp_path / "token.json"
+    _write_token(token_file, creation_timestamp=int(time.time()) - 86400)
+
+    monkeypatch.setenv("SCHWAB_TOKEN_PATH", str(token_file))
+
+    restarted = {"called": False}
+    monkeypatch.setattr("scripts.schwab_reauth.run_headless_reauth", lambda: None)
+    monkeypatch.setattr(
+        "scripts.schwab_reauth._restart_backend",
+        lambda: restarted.__setitem__("called", True),
+    )
+
+    from scripts.schwab_reauth import main
+
+    assert main(["--no-skip-if-fresh", "--restart-backend"]) == 0
+    assert restarted["called"] is True  # the cron's opt-in path still restarts

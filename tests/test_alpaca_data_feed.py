@@ -78,6 +78,10 @@ def test_bar_params_use_resolved_feed() -> None:
 def test_market_stream_url_uses_resolved_feed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # serv's live .env routes the stream at the equity-collector proxy — scrub
+    # it or this test asserts Alpaca URLs against the proxy override (fails
+    # locally, passes in env-less CI).
+    monkeypatch.delenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", raising=False)
     monkeypatch.setattr(
         "brokers.market_stream.effective_alpaca_feed",
         lambda **kwargs: "iex",

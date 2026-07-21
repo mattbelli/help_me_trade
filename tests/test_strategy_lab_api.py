@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -249,7 +250,10 @@ def test_paper_book_shape_and_unrealized_math(
         "entry_price": "100.00",
         "mark": 105.5,
         "unrealized_pct": pytest.approx(5.5),
-        "days_held": pytest.approx(3, abs=1),
+        # Computed from the fixed 2026-07-15 entry against the REAL today — a
+        # hardcoded expected value rots as the calendar advances (this test sat
+        # red in CI from 07-19 on for exactly that reason).
+        "days_held": (datetime.now(timezone.utc).date() - date(2026, 7, 15)).days,
     }
 
 
