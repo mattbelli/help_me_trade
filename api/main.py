@@ -1669,6 +1669,78 @@ async def _fusion_atr_refresh_once() -> None:
     await asyncio.to_thread(_fusion_atr_store_sync, bars_by_symbol, as_of)
 
 
+def _fusion_levels_pending_symbols_sync(as_of: str) -> list[str]:
+    """Event-store ∪ watchlist symbols still missing today's cached session levels.
+
+    The UNION walks both event tables end to end — sync SQLite, thread-only. Same
+    universe as the ATR pending set (fusion_atr_cache's sibling), so a symbol that
+    earns an ATR stamp earns session levels: pending == universe minus stamped-today
+    (a symbol whose as_of_date is still < today stays pending)."""
+    from db.base import DEFAULT_DB_PATH, connect
+    from db.equity_tape import init_db as init_equity_tape
+    from db.options_flow import init_db as init_options_flow
+
+    init_options_flow(DEFAULT_DB_PATH)
+    init_equity_tape(DEFAULT_DB_PATH)
+    with connect(DEFAULT_DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT underlying AS symbol FROM options_flow_events
+            UNION
+            SELECT symbol FROM equity_tape_events
+            """
+        ).fetchall()
+        cached_today = {
+            str(row["symbol"])
+            for row in conn.execute(
+                "SELECT symbol FROM fusion_session_levels WHERE as_of_date = ?",
+                (as_of,),
+            ).fetchall()
+        }
+    return sorted(
+        ({str(row["symbol"]).upper() for row in rows} | set(_all_watchlist_symbols()))
+        - cached_today
+    )
+
+
+async def _fusion_levels_refresh_once() -> None:
+    """Once-daily external work, deliberately separate from trigger intake.
+
+    Structure sibling of _fusion_atr_refresh_once: stamps each pending symbol's latest
+    completed session nodes into fusion_session_levels so the hot intake path only ever
+    READS them (never a live compute during a burst). compute_session_levels fetches
+    through get_market_data_provider() — the Alpaca-backed source, same lane as the ATR
+    producer — so this never bursts Schwab. Bounded fan-out under a small semaphore;
+    per-symbol failures are counted and skipped, the job never raises."""
+    from db.fusion import put_session_levels
+    from db.lane_stats import bump
+
+    as_of = datetime.now(_ET).date().isoformat()
+    symbols = await asyncio.to_thread(_fusion_levels_pending_symbols_sync, as_of)
+    if not symbols:
+        return
+    sem = asyncio.Semaphore(6)
+
+    async def _stamp_one(symbol: str) -> None:
+        async with sem:
+            try:
+                payload = await compute_session_levels(symbol=symbol)
+                levels = (
+                    list(payload.get("levels") or [])
+                    if isinstance(payload, dict)
+                    else []
+                )
+                if not levels:
+                    return
+                await asyncio.to_thread(put_session_levels, symbol, as_of, levels)
+                await asyncio.to_thread(bump, "fusion_intake", "levels_stamped")
+            except Exception:
+                logger.exception("fusion levels refresh failed for %s", symbol)
+                await asyncio.to_thread(bump, "fusion_intake", "levels_refresh_failed")
+
+    await asyncio.gather(*(_stamp_one(symbol) for symbol in symbols))
+
+
 def _register_background_jobs() -> None:
     global _background_jobs_registered
     if _background_jobs_registered:
@@ -1787,6 +1859,13 @@ def _register_background_jobs() -> None:
         jobs_mod.Job(
             name="fusion_atr_refresh",
             fn=_fusion_atr_refresh_once,
+            interval_s=300.0,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="fusion_levels_refresh",
+            fn=_fusion_levels_refresh_once,
             interval_s=300.0,
         )
     )
