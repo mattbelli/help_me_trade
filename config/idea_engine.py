@@ -6,6 +6,7 @@ are calibration law. Only true deployment toggles ever belong in the environment
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
 # Per-origin dedup cooldown window in minutes (spec §1). A defaultdict so an
@@ -62,6 +63,22 @@ FUSION_SHOCK_WINDOW_MINUTES = 60
 FUSION_CARD_DAILY_CAP = 50
 FUSION_CARD_TRAILING_PERCENTILE = 0.75
 
+# Fusion Phase C1 — SHADOW-MODE investigation gate (spec §2.6 LLM tier, §3 C).
+# The deterministic "this evidence stack would be investigated by the LLM lane
+# right now" decision — counted, never acted on. Zero LLM calls. REASON_SHADOW_ONLY
+# is the C1↔C3 seam: the gate asserts it and does nothing but count; C3 flips it in
+# this one place to arm real investigation. B=5/day total with a 25% opening reserve
+# (ceil(0.25×5)=2 investigations during the first 30 min, so the open can't drain
+# the day). The threshold is the (B×S)-th highest day-final score over the trailing
+# S≤7 sessions, so ~B stacks clear on an average day; below INVESTIGATE_MIN_POOL the
+# archetype pool widens, then reads no_baseline until sessions accrue.
+REASON_DAILY_BUDGET = 5
+REASON_OPENING_RESERVE_FRAC = 0.25
+REASON_OPENING_WINDOW_MIN = 30
+INVESTIGATE_TRAILING_SESSIONS = 7
+INVESTIGATE_MIN_POOL = 20
+REASON_SHADOW_ONLY = True
+
 
 def validate_config() -> None:
     """Assert the invariants the rest of the engine relies on (config-rot defense)."""
@@ -87,3 +104,11 @@ def validate_config() -> None:
     assert FUSION_CARDS_ENABLED is False
     assert 0 < FUSION_STORM_KEEP_EVENTS <= FUSION_STORM_BATCH_EVENTS
     assert 0 < FUSION_CARD_TRAILING_PERCENTILE < 1
+    # Fusion C1 shadow-investigation invariants.
+    assert REASON_SHADOW_ONLY is True
+    assert REASON_DAILY_BUDGET >= 1
+    assert 0.0 < REASON_OPENING_RESERVE_FRAC <= 1.0
+    assert math.ceil(REASON_OPENING_RESERVE_FRAC * REASON_DAILY_BUDGET) <= REASON_DAILY_BUDGET
+    assert REASON_OPENING_WINDOW_MIN > 0
+    assert INVESTIGATE_TRAILING_SESSIONS >= 1
+    assert INVESTIGATE_MIN_POOL >= 1

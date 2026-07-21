@@ -104,6 +104,39 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 scoring_mode TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1
             );
+
+            -- Phase C1 shadow-investigation gate (signals/fusion/investigate.py).
+            -- A SEPARATE ledger from fusion_dispositions on purpose: dispositions
+            -- carry the bus conservation law (one terminal row per consumed event,
+            -- inputs == dispositions in conservation_counts), so an investigation
+            -- decision must never add a row there.
+            CREATE TABLE IF NOT EXISTS fusion_investigations (
+                episode_id TEXT PRIMARY KEY,
+                market_day TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                decided_at TEXT NOT NULL,
+                decision TEXT NOT NULL CHECK (decision IN (
+                    'shadow_investigate', 'dropped_budget',
+                    'reserve_deferred', 'no_baseline'
+                )),
+                score REAL NOT NULL,
+                threshold REAL
+            );
+            CREATE INDEX IF NOT EXISTS idx_fusion_investigation_day
+                ON fusion_investigations(market_day, decision);
+
+            -- Per-market-day threshold cache: the bar derives only from PAST
+            -- sessions (< market_day), so it is stable within the day — computed
+            -- once on first use and read thereafter, never per-dot.
+            CREATE TABLE IF NOT EXISTS fusion_investigation_baseline (
+                market_day TEXT PRIMARY KEY,
+                decision TEXT NOT NULL,
+                threshold REAL,
+                pool_size INTEGER NOT NULL,
+                sessions INTEGER NOT NULL,
+                widened INTEGER NOT NULL DEFAULT 0,
+                computed_at TEXT NOT NULL
+            );
             """
         )
         group_rows = (

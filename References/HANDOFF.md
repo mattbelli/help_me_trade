@@ -29,6 +29,15 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
   Follow-ups on `fusion-phase-a-substrate` (A1b restamp/dirty queues, retention, contested
   scoring F10). **Phase B widgets SHIPPED** (Idea Ledger + Evidence Stack, card
   `fusion-phase-b-widgets`) — founder in-browser check pending after deploy
+- ▶ **Phase C build OPENED 07-21** (founder go; board `fusion-phase-c-investigation`, detail:
+  BUILD_LOG 2026-07-21): C1 shadow investigation gate SHIPPED (`signals/fusion/investigate.py`
+  — archetype `options_actor`+`structure`, 5/day budget + opening reserve, counts only).
+  **OPEN:** (1) ⚠️ intake mints NO structure dots yet — the archetype matches zero live
+  episodes; **C1b (session-levels/price-alerts state-dot attachment) must ship before the
+  session-2 shadow verify means anything**; (2) then C2 dossier → C3 T1+REASON v1
+  (`REASON_EMIT_ENABLED=False`) → C4 minute-bar grading → C5 delivery/arming (adversarial
+  Opus review) → C6 flip (cards on, legacy convergence pushes retire only at founder ARM —
+  no-blackout rule). REASON v2 A/B stays founder-gated (multi-angle card below)
 - ▶ **Multi-angle reasoning A/B — design ready, awaiting founder go** (2026-07-19):
   `References/MULTI_ANGLE_REASONING_AB_2026-07-19.md`, board `multi-angle-reasoning-ab`
   (founder lane). Bull/bear/judge panel vs the single veto-grade voice; paired shadow +
@@ -61,12 +70,16 @@ Zero-context composition audit of hmt-backend verified claim-by-claim and archiv
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)
 - ⏳ **loop-lag: VERDICT IN 07-21 — 30–41s overnight class EXTINCT; auditor 5s class found + fixed,
-  verify pending** (detail: BUILD_LOG 2026-07-21): zero stalls >7.2s across 3 days of probe data
-  (07-18→07-21); the surviving class = `pipeline_audit` rate rules running sync SQLite sweeps
-  inline on the loop — uniform ~5s every 15 min, 186 occurrences, MainThread stack proof. Fixed
-  via `asyncio.to_thread` (rules + never-worked + conservation). OPEN: confirm post-restart audit
-  cycles show no 15-min stall line, and re-grep the full overnight window Tue morning before
-  closing this thread
+  post-restart cycles CONFIRMED clean** (detail: BUILD_LOG 2026-07-21): zero stalls >7.2s across 3
+  days of probe data (07-18→07-21); the surviving class = `pipeline_audit` rate rules running sync
+  SQLite sweeps inline on the loop — uniform ~5s every 15 min, 186 occurrences, MainThread stack
+  proof. Fixed via `asyncio.to_thread` (rules + never-worked + conservation). Verified 01:28/01:43Z
+  audit passes (health `last_success_at`, zero probe lines — pre-fix EVERY pass stalled). OPEN:
+  re-grep the full overnight window Tue morning, then close this thread
+- ⚠️ **unexplained targeted TERM of hmt-backend** — 07-21 01:13:21Z and 07-20 03:40:26Z: clean
+  graceful shutdown of the backend ALONE (collectors untouched → not serv-deploy), no cron/ssh/
+  session/API-endpoint/OOM actor found; zero impact (Restart=always, ~3s gap). WATCH: if it
+  recurs, next probe = process accounting (auditd/forkstat) to catch the killer's PID
 - Schwab jobs stay in-process behind config gates (founder leaning: Schwab is personal, not product —
   Rank-3 tier, no action now)
 

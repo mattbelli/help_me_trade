@@ -553,6 +553,9 @@ def intake_once(
                     ).fetchone()
                 )
             update_stack_card(current_episode, state, db_path=db_path)
+            from signals.fusion.investigate import evaluate_investigation
+
+            evaluate_investigation(current_episode, state, db_path=db_path)
             counters[disposition] += 1
             fusion_db.set_cursor(store, int(event["ingest_seq"]), db_path=db_path)
 

@@ -10,6 +10,19 @@
   ],
   "cards": [
     {
+      "id": "fusion-phase-c-investigation",
+      "title": "Fusion Phase C \u2014 investigation tiers + pushes (one archetype: options-actor + structure)",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Build started 2026-07-21 (founder: 'lets start building phase c'). Spec = FUSION_EVIDENCE_BUS_SPEC \u00a73-C deltas over IDEA_ENGINE_UNIFIED_DESIGN Phases 3+5 (dossier \u2192 T1 null-hypothesis \u2192 REASON v1; v2 hash-A/B folds in when founder greenlights MULTI_ANGLE_REASONING_AB). Order: C1 investigation bar+budget SHADOW-first (verify would-investigate counts on session 2 before any LLM spend) \u2192 C2 dossier builder \u2192 C3 T1+REASON v1 behind REASON_EMIT_ENABLED \u2192 C4 minute-bar grading \u2192 C5 delivery/arming/skip-reasons (adversarial Opus review, split mandates) \u2192 C6 flip (FUSION_CARDS_ENABLED=True, already built dark; legacy convergence pushes retire only at founder arm \u2014 no-push-blackout rule). Gate on flip: sessions 2-3 observe clean. || 07-21 C1 SHIPPED (reviewed, tests green): investigate.py shadow gate + fusion_investigations/baseline tables + intake hook. DISCOVERY: intake mints no structure dots \u2014 archetype matches zero live episodes; C1b (structure state-dot attachment from session levels + price alerts) required before session-2 shadow counts mean anything.",
+      "created_at": "2026-07-21",
+      "updated_at": "2026-07-21",
+      "status": "",
+      "updated": "2026-07-21"
+    },
+    {
       "id": "dolthub-options-history",
       "title": "Options corpus captured: DoltHub 7yr snapshot local + verified; forward arm = our Alpaca sampler (build open)",
       "lane": "in_progress",
