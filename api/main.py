@@ -4033,6 +4033,11 @@ async def _bars_prewarm_once() -> None:
     if not symbols or not specs:
         return
     for sym in symbols:
+        # Heartbeat per symbol, not per cycle: a cold full warm (post-restart)
+        # legitimately runs many minutes, and an end-of-cycle-only mark would
+        # false-stale the watchdog every restart. Progress = alive; a genuinely
+        # wedged fetch still stops the marks.
+        mark_alive("bars_prewarm")
         for timeframe, days in specs:
             # MUST mirror _get_bars_cached's 4-tuple cache key (incl. the ext
             # default). A 3-tuple here never matched, so this skip-check was

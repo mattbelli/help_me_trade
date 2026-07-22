@@ -67,8 +67,13 @@ async def test_prewarm_skip_check_matches_the_real_cache_key(monkeypatch) -> Non
     # Warm entry under the REAL key shape (incl. the ext default for 1Day).
     _warm(("SPY", "1Day", 1825, api_main._bars_extended_default("1Day")), {"bars": []})
 
+    marks: list[str] = []
+    monkeypatch.setattr(api_main, "mark_alive", lambda name: marks.append(name))
     await api_main._bars_prewarm_once()
     assert provider.calls == []  # warm → no refetch; 3-tuple lookup would refetch
+    # Heartbeat is per-symbol progress, not per completed cycle — a multi-minute
+    # cold warm must not false-stale the watchdog.
+    assert marks == ["bars_prewarm"]
 
 
 @pytest.mark.asyncio
