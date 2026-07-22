@@ -413,3 +413,86 @@ def test_options_chain_alpaca_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
         resp = client.get("/api/options-chain?symbol=NVDA")
 
     assert resp.status_code == 501
+
+
+# --- Index option roots (SPX/SPXW) — no contracts API, generated picker ---------
+
+
+def test_index_expirations_spxw_horizons() -> None:
+    from datetime import date
+
+    from brokers.options_chain import _index_expirations
+
+    exps = _index_expirations("SPXW", date(2026, 7, 22))
+    assert exps == sorted(set(exps))
+    # Dailies: next 15 weekdays, starting tomorrow.
+    assert "2026-07-23" in exps and "2026-08-11" in exps
+    assert "2026-07-22" not in exps  # never today
+    assert "2026-07-26" not in exps  # never a weekend (Sunday)
+    # Friday weeklies past the daily window, monthlies far out.
+    assert "2026-09-04" in exps
+    assert "2026-12-18" in exps
+
+
+def test_index_expirations_spx_is_third_fridays_only() -> None:
+    from datetime import date, timedelta
+
+    from brokers.options_chain import _index_expirations
+
+    exps = _index_expirations("SPX", date(2026, 7, 22))
+    assert "2026-08-21" in exps and "2027-02-19" in exps
+    for e in exps:
+        d = date.fromisoformat(e)
+        assert d.weekday() == 4
+        assert 15 <= d.day <= 21  # third Friday
+        assert d - timedelta(days=7) < date(d.year, d.month, 15)
+
+
+def test_parity_spot_prefers_tightest_call_put_pair() -> None:
+    from brokers.options_chain import _parity_spot
+
+    def side(bp: float, ap: float) -> tuple[str, dict]:
+        return ("OCC", {"latestQuote": {"bp": bp, "ap": ap}})
+
+    strike_map = {
+        # C-P = +40 at 7400 (call rich: spot above strike)
+        7400.0: {"call": side(50.0, 52.0), "put": side(10.0, 12.0)},
+        # tightest pair: C-P = +2 → S ≈ 7442
+        7440.0: {"call": side(20.0, 22.0), "put": side(18.0, 20.0)},
+        # one-sided rows never contribute
+        7500.0: {"call": side(5.0, 6.0)},
+    }
+    assert _parity_spot(strike_map) == 7442.0
+
+
+def test_options_chain_spxw_uses_generated_picker_and_parity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from brokers.options_chain import build_options_chain_sync
+    from trading.market_hours import _ET
+
+    class FrozenDatetime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 7, 22, 15, 0, 0, tzinfo=tz or _ET)
+
+    monkeypatch.setattr("brokers.options_chain.datetime", FrozenDatetime)
+    broker = MagicMock(spec=AlpacaAdapter)
+    broker.get_option_chain_snapshot.return_value = {
+        "SPXW260723C07440000": {"latestQuote": {"bp": 20.0, "ap": 22.0}},
+        "SPXW260723P07440000": {"latestQuote": {"bp": 18.0, "ap": 20.0}},
+        "SPXW260723C07450000": {"latestQuote": {"bp": 15.0, "ap": 16.0}},
+        "SPXW260723P07450000": {"latestQuote": {"bp": 23.0, "ap": 24.0}},
+    }
+    result = build_options_chain_sync(broker, "SPXW", "2026-07-23", "all")
+
+    # No trading-API calls for an index root — contracts/stock quote don't exist.
+    broker.get_option_contracts.assert_not_called()
+    broker.get_stock_snapshot_fields.assert_not_called()
+    assert result["expiry"] == "2026-07-23"
+    assert len(result["expirations"]) > 10
+    assert [r["strike"] for r in result["rows"]] == [7440.0, 7450.0]
+    assert result["underlying_price"] == 7442.0
+    assert result["underlying_price_source"] == "options_parity"
+    # OI has no source for index roots.
+    assert result["rows"][0]["call"]["oi"] is None

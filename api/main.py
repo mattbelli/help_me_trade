@@ -3363,6 +3363,16 @@ async def api_symbol_search(q: str = "", limit: int = 10):
         results = await broker.asearch_symbols(q, limit=limit)
     except BrokerError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
+    # Index option roots aren't Alpaca assets so the broker search never
+    # surfaces them, but the options chain serves them (INDEX_OPTION_ROOTS).
+    qn = q.strip().upper()
+    if qn:
+        from brokers.options_chain import INDEX_OPTION_ROOTS
+
+        idx = sorted(s for s in INDEX_OPTION_ROOTS if s.startswith(qn))
+        if idx:
+            results = idx + [r for r in results if r not in idx]
+            results = results[:limit]
     return {"query": q, "symbols": results}
 
 

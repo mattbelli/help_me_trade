@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "options-chain-index-roots",
+      "title": "Options chain + search support SPX/SPXW index roots",
+      "lane": "done",
+      "type": "feature",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Founder 07-22: couldn't select SPX/SPXW in the options-chain widget. Root cause: the expirations picker is built from Alpaca's TRADING-API contracts endpoint (equity options only) -> index roots produced zero expirations and dead-ended before any snapshot fetch, and symbol search (equity assets) never suggested them. Built: INDEX_OPTION_ROOTS={SPX,SPXW} in brokers/options_chain.py -- generated expiration picker (horizons MEASURED live 07-22: SPXW dailies ~3wk + Friday weeklies ~7wk + 3rd-Friday monthlies; SPX root = 3rd Fridays 8+mo; unlisted generated dates fail soft to an empty chain), no contracts/stock-quote calls for index roots (OI has no source -> null), underlying level inferred from put-call parity at the tightest call/put midpoint (underlying_price_source='options_parity' -- centering+header label, never a tradable quote); /api/symbols/search prepends SPX/SPXW on prefix match. VERIFIED LIVE pre-deploy: SPXW default expiry 07-23, 25 exps, parity spot 7507.35; SPX -> 08-21 monthly, 7 exps, 7526.55 (both ~ SPY x10). WATCHLIST expressly NOT wired: Alpaca has no index quotes/bars so a watchlist row would be all dashes -- needs an index-quote source decision (Schwab $SPX = personal/fragile) if wanted; SPY/QQQ rows carry index-level watching today."
+    },
+    {
       "id": "ci-full-suite-kills-backend",
       "title": "CI full pytest suite was killing the live backend on every push \u2014 root-caused + fixed",
       "lane": "done",
