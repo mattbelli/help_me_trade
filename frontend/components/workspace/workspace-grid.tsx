@@ -789,6 +789,90 @@ function EvidenceStackHeaderControls({
 /** Notifications header: unread count + one ⚙ dropdown holding the category
     filter, the new-card sound toggle, and mark-all-read — replacing the old
     in-widget filter/button row (widgets don't get a second header bar). */
+const NEWS_SCOPES = [
+  { value: "ticker", label: "ticker" },
+  { value: "watchlist", label: "watchlist" },
+  { value: "sp500", label: "s&p 500" },
+  { value: "all", label: "all" },
+] as const;
+
+/** News header: feed-scope dropdown (one click, chart-timeframe idiom) + the
+ * new-headline sound toggle. Unset scope mirrors the widget's fallback —
+ * ticker when on a channel, else watchlist. */
+function NewsHeaderControls({
+  config,
+  onConfigChange,
+  channel,
+}: {
+  config: WidgetInstanceConfig;
+  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
+  channel: ChannelId;
+}) {
+  const scope =
+    config.newsScope ?? (channel !== "none" ? "ticker" : "watchlist");
+  const current = NEWS_SCOPES.find((s) => s.value === scope) ?? NEWS_SCOPES[1];
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          type="button"
+          {...dragSafeControlProps}
+          className="workspace-no-drag inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+          aria-label="News feed scope"
+          title="News feed scope"
+        >
+          <span className="[text-box:trim-both_cap_alphabetic]">
+            {current.label}
+          </span>
+          <ChevronDown className="size-2.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="min-w-28 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+        >
+          {NEWS_SCOPES.map((option) => (
+            <DropdownMenuItem
+              key={option.value}
+              onClick={() => onConfigChange({ newsScope: option.value })}
+              className={cn(
+                "flex items-center justify-between gap-3 px-2 py-1 lowercase",
+                scope === option.value
+                  ? "text-foreground"
+                  : "text-[var(--fg-dim)]",
+              )}
+            >
+              {option.label}
+              {scope === option.value ? <Check className="size-3" /> : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onConfigChange({ bloop: config.bloop === false });
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label={
+          config.bloop === false
+            ? "Unmute new-headline sound"
+            : "Mute new-headline sound"
+        }
+        title="Sound on new headline"
+        className="workspace-no-drag inline-flex items-center justify-center rounded p-1 text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+      >
+        {config.bloop === false ? (
+          <BellOff className="size-3.5 text-[var(--fg-faint)]" />
+        ) : (
+          <Bell className="size-3.5" />
+        )}
+      </button>
+    </>
+  );
+}
+
 function NotificationsHeaderControls({
   config,
   onConfigChange,
@@ -989,27 +1073,11 @@ function WidgetHeader({
         />
       ) : null}
       {widgetType === "news" && config && onConfigChange ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onConfigChange({ bloop: config.bloop === false });
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          aria-label={
-            config.bloop === false
-              ? "Unmute new-headline sound"
-              : "Mute new-headline sound"
-          }
-          title="Sound on new headline"
-          className="workspace-no-drag inline-flex items-center justify-center rounded p-1 text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
-        >
-          {config.bloop === false ? (
-            <BellOff className="size-3.5 text-[var(--fg-faint)]" />
-          ) : (
-            <Bell className="size-3.5" />
-          )}
-        </button>
+        <NewsHeaderControls
+          config={config}
+          onConfigChange={onConfigChange}
+          channel={channel}
+        />
       ) : null}
       {widgetType === "idea-ledger" && config && onConfigChange ? (
         <IdeaLedgerHeaderControls

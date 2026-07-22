@@ -95,12 +95,15 @@ async def fetch_watchlist_news(
     *,
     limit: int = 50,
     symbol: str | None = None,
+    scope: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Recent headlines across watchlist symbols (or one symbol), newest-first.
+    """Recent headlines newest-first, scoped by ``symbol`` > ``scope`` > watchlist.
 
-    Items carry ``{headline, source, datetime, url, summary, image, symbol}``
-    — ``symbol`` is the first watchlist symbol the story mentions (or the
-    requested one). Deduped by story id in the store.
+    ``scope="all"`` is the unfiltered firehose (the stream subscribes ``*`` so
+    the store already holds it); ``scope="sp500"`` filters to the S&P 500
+    universe. Items carry ``{headline, source, datetime, url, summary, image,
+    symbol}`` — ``symbol`` is the first in-scope symbol the story mentions (or
+    the requested one). Deduped by story id in the store.
     """
     from db.news import recent_news
 
@@ -110,6 +113,37 @@ async def fetch_watchlist_news(
             return []
         items = await afetch_company_news(sym, days=7, limit=min(limit, 15))
         return [{**item, "symbol": sym} for item in items]
+
+    if scope == "all":
+        rows = await asyncio.to_thread(recent_news, limit=limit)
+        if not rows:
+            await _rest_topup(None, limit)
+            rows = await asyncio.to_thread(recent_news, limit=limit)
+        return [
+            {**_ui_item(row), "symbol": next(iter(row.get("symbols", [])), None)}
+            for row in rows
+        ]
+
+    if scope == "sp500":
+        from signals.strategy_universe import resolve_universe_spec
+
+        # No REST top-up here: 500 symbols won't fit a request, and the ``*``
+        # stream feeds the store for this scope anyway.
+        universe = set(resolve_universe_spec("sp500"))
+        if not universe:
+            return []
+        rows = await asyncio.to_thread(
+            recent_news, symbols=sorted(universe), limit=limit
+        )
+        return [
+            {
+                **_ui_item(row),
+                "symbol": next(
+                    (s for s in row.get("symbols", []) if s in universe), None
+                ),
+            }
+            for row in rows
+        ]
 
     eligible = _watchlist_symbols()
     wanted = sorted(eligible)

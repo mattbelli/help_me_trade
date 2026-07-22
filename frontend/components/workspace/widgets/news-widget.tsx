@@ -59,11 +59,12 @@ function itemKey(item: WatchlistNewsItem): string {
 export function NewsWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const channelSymbol = useChannelSymbol(channel);
-  // On a channel the feed follows the channel's symbol; off-channel it's the
-  // whole-watchlist feed (the founder's "watchlist or ticker" switch IS the
-  // channel selector).
-  const symbol = channel !== "none" ? channelSymbol : undefined;
-  const watchlistMode = channel === "none";
+  // Scope comes from the header dropdown; unset falls back to the original
+  // behavior — follow the channel's ticker when on one, else the watchlist.
+  const scope =
+    config.newsScope ?? (channel !== "none" ? "ticker" : "watchlist");
+  const symbol =
+    scope === "ticker" && channel !== "none" ? channelSymbol : undefined;
   const { publish, linked } = usePublishSymbol(channel);
   const bloopOn = config.bloop !== false;
 
@@ -78,16 +79,20 @@ export function NewsWidget({ config }: WidgetProps) {
   const bloopRef = useRef(bloopOn);
   bloopRef.current = bloopOn;
 
-  const scopeKey = watchlistMode ? "~watchlist" : (symbol ?? "");
+  const scopeKey = scope === "ticker" ? `ticker:${symbol ?? ""}` : scope;
 
   const load = useCallback(async () => {
-    if (!watchlistMode && !symbol) {
+    if (scope === "ticker" && !symbol) {
       setItems([]);
       setLoading(false);
       return;
     }
     try {
-      const res = await fetchWatchlistNews(50, symbol);
+      const res = await fetchWatchlistNews(
+        50,
+        symbol,
+        scope === "all" || scope === "sp500" ? scope : undefined,
+      );
       setError(null);
       const fresh = new Set<string>();
       if (seenRef.current === null) {
@@ -111,7 +116,7 @@ export function NewsWidget({ config }: WidgetProps) {
     } finally {
       setLoading(false);
     }
-  }, [watchlistMode, symbol]);
+  }, [scope, symbol]);
 
   useEffect(() => {
     seenRef.current = null; // new scope: seed silently, never a bloop storm
@@ -127,9 +132,15 @@ export function NewsWidget({ config }: WidgetProps) {
 
   const entrance = useMotionSafe(motionStd);
 
-  if (!watchlistMode && !symbol) {
+  if (scope === "ticker" && !symbol) {
     return (
-      <WidgetEmpty message="Click a ticker to follow its news — or set the channel to none for all watchlists" />
+      <WidgetEmpty
+        message={
+          channel !== "none"
+            ? "Click a ticker to follow its news"
+            : "Ticker scope follows a channel — set one, or pick another scope"
+        }
+      />
     );
   }
   if (loading && items.length === 0) {
@@ -139,11 +150,13 @@ export function NewsWidget({ config }: WidgetProps) {
     return <WidgetError message={error} />;
   }
   if (items.length === 0) {
-    return (
-      <WidgetEmpty
-        message={watchlistMode ? "No watchlist news yet" : `No recent news for ${symbol}`}
-      />
-    );
+    const emptyByScope = {
+      ticker: `No recent news for ${symbol}`,
+      watchlist: "No watchlist news yet",
+      sp500: "No S&P 500 news yet",
+      all: "No news yet",
+    } as const;
+    return <WidgetEmpty message={emptyByScope[scope]} />;
   }
 
   return (

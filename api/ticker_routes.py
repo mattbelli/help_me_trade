@@ -27,18 +27,24 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/watchlist/news")
-async def api_watchlist_news(limit: int = 50, symbol: str | None = None) -> dict[str, Any]:
+async def api_watchlist_news(
+    limit: int = 50, symbol: str | None = None, scope: str | None = None
+) -> dict[str, Any]:
     """Recent news aggregated across the union of symbols in ALL watchlists —
-    or, with ``symbol``, one ticker's feed in the same shape.
+    or, with ``symbol``, one ticker's feed; ``scope=all`` (firehose) and
+    ``scope=sp500`` widen it, all in the same shape.
 
     Served from the websocket-fed news store (Alpaca/Benzinga) — one query,
     newest-first, deduped by story id in the store; a cold store falls back to
-    one REST page. Each item is tagged with the first watchlist symbol it
+    one REST page. Each item is tagged with the first in-scope symbol it
     mentions (or the requested symbol).
     """
     from signals.news import _watchlist_symbols, fetch_watchlist_news
 
-    news = await fetch_watchlist_news(limit=limit, symbol=(symbol or None))
+    wanted_scope = scope if scope in ("all", "sp500") else None
+    news = await fetch_watchlist_news(
+        limit=limit, symbol=(symbol or None), scope=wanted_scope
+    )
     symbols_with_news = len({item.get("symbol") for item in news if item.get("symbol")})
 
     return {

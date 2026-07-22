@@ -124,3 +124,64 @@ def test_watchlist_news_empty_watchlists(monkeypatch) -> None:
     resp = TestClient(_app()).get("/api/ticker/watchlist/news")
     assert resp.status_code == 200
     assert resp.json() == {"news": [], "symbol_count": 0, "symbols_with_news": 0}
+
+
+def test_news_scope_all_is_unfiltered(monkeypatch) -> None:
+    """scope=all serves the whole store — including non-watchlist symbols."""
+    _seed_store()
+    monkeypatch.setattr(
+        "config.settings.get_watchlists_state",
+        lambda: _WATCHLISTS_STATE,
+    )
+    monkeypatch.setattr(
+        "signals.news._rest_topup",
+        AsyncMock(side_effect=AssertionError("store is warm — no REST call")),
+    )
+
+    resp = TestClient(_app()).get("/api/ticker/watchlist/news?scope=all&limit=250")
+    assert resp.status_code == 200
+    urls = [item["url"] for item in resp.json()["news"]]
+    assert "https://x/other" in urls  # WNOTHER is off-watchlist but in scope
+    # Tag = first symbol on the story, whatever it is.
+    by_url = {item["url"]: item for item in resp.json()["news"]}
+    assert by_url["https://x/other"]["symbol"] == "WNOTHER"
+
+
+def test_news_scope_sp500_filters_to_universe(monkeypatch) -> None:
+    """scope=sp500 keeps only stories mentioning a universe symbol, tags in-set."""
+    _seed_store()
+    monkeypatch.setattr(
+        "config.settings.get_watchlists_state",
+        lambda: _WATCHLISTS_STATE,
+    )
+    monkeypatch.setattr(
+        "signals.strategy_universe.resolve_universe_spec",
+        lambda spec: ["WNOTHER", "WNMSFT"] if spec == "sp500" else [],
+    )
+    monkeypatch.setattr(
+        "signals.news._rest_topup",
+        AsyncMock(side_effect=AssertionError("sp500 scope never tops up")),
+    )
+
+    resp = TestClient(_app()).get("/api/ticker/watchlist/news?scope=sp500&limit=250")
+    assert resp.status_code == 200
+    news = resp.json()["news"]
+    urls = {item["url"] for item in news}
+    assert urls == {"https://x/other", "https://x/msft", "https://x/shared"}
+    by_url = {item["url"]: item for item in news}
+    # The shared story mentions WNAAPL first — the tag must be the IN-SET one.
+    assert by_url["https://x/shared"]["symbol"] == "WNMSFT"
+
+
+def test_news_scope_unknown_falls_back_to_watchlist(monkeypatch) -> None:
+    _seed_store()
+    monkeypatch.setattr(
+        "config.settings.get_watchlists_state",
+        lambda: _WATCHLISTS_STATE,
+    )
+    monkeypatch.setattr("signals.news._rest_topup", AsyncMock())
+
+    resp = TestClient(_app()).get("/api/ticker/watchlist/news?scope=bogus")
+    assert resp.status_code == 200
+    urls = [item["url"] for item in resp.json()["news"]]
+    assert "https://x/other" not in urls  # watchlist behavior, not firehose

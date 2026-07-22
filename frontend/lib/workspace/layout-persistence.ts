@@ -45,6 +45,8 @@ export type WidgetInstanceConfig = {
   notifFilter?: string;
   /** News: bloop on new headline arrival. Undefined = on. */
   bloop?: boolean;
+  /** News: feed scope. Undefined = ticker when on a channel, else watchlist. */
+  newsScope?: "ticker" | "watchlist" | "sp500" | "all";
 };
 
 /** Options-flow event kinds, filterable from the widget's ⚙ menu. */

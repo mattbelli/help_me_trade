@@ -331,7 +331,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "news",
     title: "news",
     description:
-      "Realtime headlines as cards — follows a channel's ticker; all-watchlist on none",
+      "Realtime headlines as cards — scope to a ticker, your watchlists, the S&P 500, or everything",
     multiInstance: true,
     channelAware: true,
     component: NewsWidget,
