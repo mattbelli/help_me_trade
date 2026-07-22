@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -33,9 +33,13 @@ from imports.option_symbol import parse_occ_symbol  # noqa: E402
 
 _ET = ZoneInfo("America/New_York")
 
-# Indexes by fetch root (SPXW rides SPX) + a megacap slice for the founder's
-# "carry this over to large caps" extension. DTE≤1 only — the study's subject.
-SAMPLE_UNDERLYINGS = ("SPY", "QQQ", "IWM", "DIA", "SPX", "TSLA", "NVDA", "AAPL")
+# Fetch by OCC ROOT — the snapshots endpoint's path symbol is the root, not the
+# underlying (measured 2026-07-22: /snapshots/SPX serves ONLY SPX-root AM
+# monthlies; the PM dailies live under /snapshots/SPXW). "SPXW rides SPX" holds
+# for the OPRA websocket trade lane, NOT here. SPX stays for the OpEx-cell AM
+# monthlies; SPXW is the everyday 0-1DTE index subject. + a megacap slice for
+# the founder's "carry this over to large caps" extension. DTE≤1 only.
+SAMPLE_UNDERLYINGS = ("SPY", "QQQ", "IWM", "DIA", "SPX", "SPXW", "TSLA", "NVDA", "AAPL")
 MAX_DTE = 1
 SAMPLE_SECONDS = 15  # quote-timeline resolution for back-pairing tests (prereg)
 # 5-min shoulders around the gauge windows so deltas exist at the edges.
@@ -69,12 +73,24 @@ def _sample_once(broker, today_et: str, out) -> int:
                 spot = float(snap["last_price"])
         except Exception:
             pass  # index roots (SPX) have no stock snapshot — moneyness from strike/spot of SPY proxy is NOT used; strike is stored raw
+        # Fetch per-expiry (today + tomorrow), NEVER the unfiltered chain: the
+        # vendor pages alphabetically, and on the dual-root SPX chain every
+        # far-dated SPX-root monthly sorts before every SPXW daily ('2' < 'W'),
+        # so the page cap starved SPX of its 0-1DTE rows on non-OpEx days
+        # (dark 07-20..07-22; the 07-16 smoke passed only because OpEx week put
+        # the July monthly at dte<=1). Single-root chains sort nearest-first and
+        # were never at risk; the expiry filter just makes them cheaper.
+        chain: dict = {}
         try:
-            chain = broker.get_option_chain_snapshot(u, limit=250, max_pages=8)
+            for offset in range(MAX_DTE + 1):
+                exp = (datetime.now(_ET).date() + timedelta(days=offset)).isoformat()
+                page = broker.get_option_chain_snapshot(
+                    u, expiration_date=exp, limit=250, max_pages=8
+                )
+                if isinstance(page, dict):
+                    chain.update(page)
         except Exception as exc:
             out.write(json.dumps({"ts": ts, "u": u, "error": str(exc)[:200]}) + "\n")
-            continue
-        if not isinstance(chain, dict):
             continue
         for occ, csnap in chain.items():
             if not isinstance(csnap, dict):
