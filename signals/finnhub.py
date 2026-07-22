@@ -7,10 +7,9 @@ the whole universe's quarter. Free tier is 60 req/min — a daily refresh uses o
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -23,10 +22,9 @@ FINNHUB_BASE = "https://finnhub.io/api/v1"
 _TIMEOUT = 30.0
 
 # --- Tiny in-process TTL cache (respect the free-tier rate limit) --------------
-# Profile + metrics change slowly (~daily); company news is refreshed every few
-# minutes. Keyed by (kind, symbol); only successful, non-empty results are cached
+# Profile + metrics change slowly (~daily). Keyed by (kind, symbol); only successful, non-empty results are cached
 # so a missing key or transient failure is retried on the next call.
-_CACHE_TTL_SECONDS = {"profile": 86_400.0, "metrics": 86_400.0, "news": 900.0}
+_CACHE_TTL_SECONDS = {"profile": 86_400.0, "metrics": 86_400.0}
 _company_cache: dict[tuple[str, str], tuple[float, Any]] = {}
 
 
@@ -366,151 +364,6 @@ async def afetch_company_metrics(
     return metrics
 
 
-async def afetch_company_news(
-    symbol: str,
-    *,
-    days: int = 7,
-    limit: int = 15,
-    token: str | None = None,
-    timeout: float = _TIMEOUT,
-) -> list[dict[str, Any]]:
-    """Recent company news from ``/company-news`` (last ``days``), newest-first.
-
-    Returns up to ``limit`` items of ``{headline, source, url, datetime (ISO),
-    summary, image}`` or ``[]`` on missing key / any error. Cached ~15min per symbol.
-    """
-    if not token and not finnhub_is_configured():
-        return []
-    token = token or finnhub_api_key()
-    sym = symbol.strip().upper()
-
-    cached = _cache_get("news", sym)
-    if cached is not None:
-        return cached[:limit]
-
-    today = date.today()
-    from_date = (today - timedelta(days=days)).isoformat()
-    to_date = today.isoformat()
-
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(
-                f"{FINNHUB_BASE}/company-news",
-                params={"symbol": sym, "from": from_date, "to": to_date, "token": token},
-            )
-            resp.raise_for_status()
-            raw = resp.json()
-    except Exception as exc:  # noqa: BLE001 — fail-soft for endpoint
-        logger.warning("Finnhub company news fetch for %s failed: %s", sym, exc)
-        return []
-
-    if not isinstance(raw, list):
-        return []
-
-    items: list[dict[str, Any]] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        headline = str(entry.get("headline") or "").strip()
-        url = str(entry.get("url") or "").strip()
-        if not headline or not url:
-            continue
-        epoch = entry.get("datetime")
-        dt_iso: str | None = None
-        if isinstance(epoch, (int, float)) and epoch > 0:
-            try:
-                dt_iso = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
-            except (OverflowError, OSError, ValueError):
-                dt_iso = None
-        items.append(
-            {
-                "headline": headline,
-                "source": str(entry.get("source") or "").strip(),
-                "url": url,
-                "datetime": dt_iso,
-                "summary": str(entry.get("summary") or "").strip(),
-                "image": str(entry.get("image") or "").strip(),
-            }
-        )
-
-    items.sort(key=lambda e: e["datetime"] or "", reverse=True)
-    if items:
-        _cache_set("news", sym, items)
-    return items[:limit]
-
-
-async def fetch_watchlist_news(
-    *,
-    limit: int = 50,
-    symbol: str | None = None,
-) -> list[dict[str, Any]]:
-    """Recent headlines across watchlist symbols (or one symbol), deduped by url.
-
-    Same aggregation ``/api/ticker/watchlist/news`` uses — bounded concurrency,
-    fail-soft per symbol, Finnhub cache reused via ``afetch_company_news``.
-    """
-    from config.settings import get_watchlists_state
-
-    if symbol:
-        sym = symbol.strip().upper()
-        if " " in sym or sym.startswith("/"):
-            return []
-        items = await afetch_company_news(sym, days=7, limit=min(limit, 15))
-        return [
-            {
-                "headline": item.get("headline"),
-                "source": item.get("source"),
-                "datetime": item.get("datetime"),
-                "url": item.get("url"),
-                "symbol": sym,
-            }
-            for item in items
-        ]
-
-    state = get_watchlists_state()
-    symbols: set[str] = set()
-    for lst in state.get("lists", []):
-        for s in lst.get("symbols", []):
-            if isinstance(s, str) and s.strip():
-                symbols.add(s.strip().upper())
-
-    eligible = sorted(s for s in symbols if " " not in s and not s.startswith("/"))
-    if not eligible:
-        return []
-
-    sem = asyncio.Semaphore(8)
-
-    async def _fetch(sym: str) -> list[dict[str, Any]]:
-        async with sem:
-            try:
-                items = await afetch_company_news(sym, days=7, limit=8)
-            except Exception:  # noqa: BLE001 — fail-soft per symbol
-                logger.warning("Watchlist news fetch failed for %s", sym, exc_info=True)
-                return []
-            return [{**item, "symbol": sym} for item in items]
-
-    results = await asyncio.gather(*(_fetch(sym) for sym in eligible))
-
-    seen_urls: set[str] = set()
-    all_items: list[dict[str, Any]] = []
-    for items in results:
-        for item in items:
-            url = item.get("url")
-            if not url or url in seen_urls:
-                continue
-            seen_urls.add(url)
-            all_items.append(
-                {
-                    "headline": item.get("headline"),
-                    "source": item.get("source"),
-                    "datetime": item.get("datetime"),
-                    "url": url,
-                    "symbol": item.get("symbol"),
-                }
-            )
-
-    all_items.sort(key=lambda item: item.get("datetime") or "", reverse=True)
-    return all_items[:limit]
 
 
 def finnhub_is_configured() -> bool:

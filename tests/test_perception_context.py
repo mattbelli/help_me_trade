@@ -197,7 +197,7 @@ async def test_build_symbol_context_news_fail_soft(
     async def boom(*_a, **_k):
         raise RuntimeError("news down")
 
-    monkeypatch.setattr("signals.finnhub.afetch_company_news", boom)
+    monkeypatch.setattr("signals.news.afetch_company_news", boom)
 
     ctx = await build_symbol_context("NVDA", db_path=perception_db)
     assert ctx["news"] == {"unavailable": True}
@@ -226,7 +226,7 @@ async def test_build_symbol_context_strategy_signals(
         lambda **_: [],
     )
     monkeypatch.setattr(
-        "signals.finnhub.afetch_company_news",
+        "signals.news.afetch_company_news",
         AsyncMock(return_value=[]),
     )
 

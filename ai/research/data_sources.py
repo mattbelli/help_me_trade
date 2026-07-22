@@ -19,7 +19,6 @@ from signals.finnhub import (
     afetch_company_metrics,
     afetch_company_profile,
     afetch_eps_surprises,
-    fetch_watchlist_news,
     finnhub_is_configured,
 )
 from signals.indicators import (
@@ -32,6 +31,7 @@ from signals.indicators import (
     volume_vs_avg,
     volumes,
 )
+from signals.news import fetch_watchlist_news
 from signals.regime import market_regime, regime_is_fresh
 from signals.volume_profile import load_profile, rvol_now
 
@@ -324,7 +324,7 @@ def fetch_fundamentals_source(symbol: str) -> dict[str, Any] | None:
 @_fail_soft
 def fetch_news_source(symbol: str) -> dict[str, Any] | None:
     sym = normalize_research_symbol(symbol)
-    if not sym or not finnhub_is_configured():
+    if not sym or not broker_is_configured("alpaca"):
         return None
 
     raw = _run_async(fetch_watchlist_news(symbol=sym, limit=15))
@@ -347,7 +347,7 @@ def fetch_news_source(symbol: str) -> dict[str, Any] | None:
     return {
         "id": _next_source_id("news"),
         "type": "news_api",
-        "title": f"{sym} recent news (Finnhub)",
+        "title": f"{sym} recent news (Alpaca)",
         "url": None,
         "snippet": f"{len(items)} recent headlines",
         "content": items,

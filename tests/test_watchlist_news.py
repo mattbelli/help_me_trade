@@ -1,9 +1,9 @@
 """Route-level smoke for the aggregated watchlist-news endpoint (wiring only).
 
-Mounts the ticker_router on a fresh FastAPI app and mocks the watchlist state +
-Finnhub news fetch so the test touches no network / broker: it confirms the
-symbol union across lists, the options/futures skip rule, url-dedup, and
-newest-first ordering — never a 500 on a bad symbol.
+Mounts the ticker_router on a fresh FastAPI app, seeds the (test-redirected)
+news store, and mocks the watchlist state so the test touches no network /
+broker: it confirms the symbol union across lists, the options/futures skip
+rule, story-id dedup, newest-first ordering, and symbol tagging.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import api.ticker_routes as ticker_routes
+from db.news import init_db, upsert_news_item
 
 
 def _app() -> FastAPI:
@@ -22,91 +23,92 @@ def _app() -> FastAPI:
     return app
 
 
+# Unique symbols per test module — the suite shares one throwaway DEFAULT_DB
+# (see conftest), so distinctive names keep other tests' rows out of the query.
 _WATCHLISTS_STATE = {
     "active_id": "main",
     "lists": [
-        {"id": "main", "name": "Main", "symbols": ["AAPL", "msft "]},
-        {"id": "swing", "name": "Swing", "symbols": ["MSFT", "TSLA", "/ES"]},
+        {"id": "main", "name": "Main", "symbols": ["WNAAPL", "wnmsft "]},
+        {"id": "swing", "name": "Swing", "symbols": ["WNMSFT", "WNTSLA", "/ES"]},
     ],
 }
 
 
-async def _fake_news(symbol: str, *, days: int = 7, limit: int = 8):
-    if symbol == "AAPL":
-        return [
-            {
-                "headline": "Apple news",
-                "source": "Reuters",
-                "url": "https://x/apple",
-                "datetime": "2026-07-01T12:00:00+00:00",
-                "summary": "",
-                "image": "",
-            },
-            {
-                "headline": "Shared headline",
-                "source": "Reuters",
-                "url": "https://x/shared",
-                "datetime": "2026-06-30T09:00:00+00:00",
-                "summary": "",
-                "image": "",
-            },
-        ]
-    if symbol == "MSFT":
-        return [
-            {
-                "headline": "Microsoft news",
-                "source": "Bloomberg",
-                "url": "https://x/msft",
-                "datetime": "2026-07-02T08:00:00+00:00",
-                "summary": "",
-                "image": "",
-            },
-            {
-                # Same url as the AAPL item above — must be deduped.
-                "headline": "Shared headline",
-                "source": "Reuters",
-                "url": "https://x/shared",
-                "datetime": "2026-06-30T09:00:00+00:00",
-                "summary": "",
-                "image": "",
-            },
-        ]
-    if symbol == "TSLA":
-        return []
-    raise AssertionError(f"unexpected symbol fetched: {symbol}")
+def _seed_store() -> None:
+    init_db()
+    rows = [
+        {
+            "id": "wn-apple-1",
+            "headline": "Apple news",
+            "source": "benzinga",
+            "url": "https://x/apple",
+            "symbols": ["WNAAPL"],
+            "published_at": "2026-07-01T12:00:00Z",
+        },
+        {
+            # One story mentioning BOTH symbols — must appear exactly once.
+            "id": "wn-shared-1",
+            "headline": "Shared headline",
+            "source": "benzinga",
+            "url": "https://x/shared",
+            "symbols": ["WNAAPL", "WNMSFT"],
+            "published_at": "2026-06-30T09:00:00Z",
+        },
+        {
+            "id": "wn-msft-1",
+            "headline": "Microsoft news",
+            "source": "benzinga",
+            "url": "https://x/msft",
+            "symbols": ["WNMSFT"],
+            "published_at": "2026-07-02T08:00:00Z",
+        },
+        {
+            # Unrelated symbol — must never surface for this watchlist.
+            "id": "wn-other-1",
+            "headline": "Other story",
+            "source": "benzinga",
+            "url": "https://x/other",
+            "symbols": ["WNOTHER"],
+            "published_at": "2026-07-03T08:00:00Z",
+        },
+    ]
+    for row in rows:
+        upsert_news_item(row)
 
 
 def test_watchlist_news_aggregates_and_dedupes(monkeypatch) -> None:
+    _seed_store()
     monkeypatch.setattr(
         "config.settings.get_watchlists_state",
         lambda: _WATCHLISTS_STATE,
     )
     monkeypatch.setattr(
-        "signals.finnhub.afetch_company_news",
-        AsyncMock(side_effect=_fake_news),
+        "signals.news._rest_topup",
+        AsyncMock(side_effect=AssertionError("store is warm — no REST call")),
     )
 
     resp = TestClient(_app()).get("/api/ticker/watchlist/news?limit=50")
     assert resp.status_code == 200
     data = resp.json()
 
-    # /ES is a futures-style symbol and must never reach afetch_company_news
-    # (AssertionError above would have surfaced as a 500 otherwise); union of
-    # AAPL/MSFT/TSLA (case/space-normalized) = 3 eligible symbols scanned.
+    # /ES (futures-style) is skipped; union of WNAAPL/WNMSFT/WNTSLA
+    # (case/space-normalized) = 3 eligible symbols.
     assert data["symbol_count"] == 3
-    assert data["symbols_with_news"] == 2  # AAPL, MSFT had news; TSLA had none
+    assert data["symbols_with_news"] == 2  # WNAAPL, WNMSFT; WNTSLA had none
 
     urls = [item["url"] for item in data["news"]]
-    assert urls.count("https://x/shared") == 1  # deduped across AAPL/MSFT
+    assert "https://x/other" not in urls
+    assert urls.count("https://x/shared") == 1  # one story, two symbols
 
     # Newest-first ordering across all symbols.
     datetimes = [item["datetime"] for item in data["news"]]
     assert datetimes == sorted(datetimes, reverse=True)
 
-    # Each item carries the symbol it was tagged with.
+    # Each item carries a watchlist symbol it mentions.
     by_url = {item["url"]: item for item in data["news"]}
-    assert by_url["https://x/apple"]["symbol"] == "AAPL"
-    assert by_url["https://x/msft"]["symbol"] == "MSFT"
+    assert by_url["https://x/apple"]["symbol"] == "WNAAPL"
+    assert by_url["https://x/msft"]["symbol"] == "WNMSFT"
+    assert by_url["https://x/shared"]["symbol"] in ("WNAAPL", "WNMSFT")
 
 
 def test_watchlist_news_empty_watchlists(monkeypatch) -> None:
@@ -115,7 +117,7 @@ def test_watchlist_news_empty_watchlists(monkeypatch) -> None:
         lambda: {"active_id": "main", "lists": [{"id": "main", "name": "Main", "symbols": []}]},
     )
     monkeypatch.setattr(
-        "signals.finnhub.afetch_company_news",
+        "signals.news._rest_topup",
         AsyncMock(side_effect=AssertionError("should not be called")),
     )
 

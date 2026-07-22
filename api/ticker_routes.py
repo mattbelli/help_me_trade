@@ -30,29 +30,19 @@ logger = logging.getLogger(__name__)
 async def api_watchlist_news(limit: int = 50) -> dict[str, Any]:
     """Recent news aggregated across the union of symbols in ALL watchlists.
 
-    Fetches Finnhub company news per symbol with bounded concurrency and is
-    fail-soft per symbol — a single bad symbol / Finnhub error never 500s the
-    whole feed, it's just dropped. Items are deduped by url and returned
-    newest-first, capped at ``limit``.
+    Served from the websocket-fed news store (Alpaca/Benzinga) — one query,
+    newest-first, deduped by story id in the store; a cold store falls back to
+    one REST page. Each item is tagged with the first watchlist symbol it
+    mentions.
     """
-    from signals.finnhub import fetch_watchlist_news
+    from signals.news import _watchlist_symbols, fetch_watchlist_news
 
     news = await fetch_watchlist_news(limit=limit)
     symbols_with_news = len({item.get("symbol") for item in news if item.get("symbol")})
-    from config.settings import get_watchlists_state
-
-    state = get_watchlists_state()
-    eligible: set[str] = set()
-    for lst in state.get("lists", []):
-        for s in lst.get("symbols", []):
-            if isinstance(s, str) and s.strip():
-                sym = s.strip().upper()
-                if " " not in sym and not sym.startswith("/"):
-                    eligible.add(sym)
 
     return {
         "news": news,
-        "symbol_count": len(eligible),
+        "symbol_count": len(_watchlist_symbols()),
         "symbols_with_news": symbols_with_news,
     }
 
@@ -64,12 +54,9 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
     # (optional) Finnhub client — same pattern as api/scan_routes.
     from ai.perception.context import build_symbol_context
     from db.base import DEFAULT_DB_PATH
-    from signals.finnhub import (
-        afetch_company_metrics,
-        afetch_company_news,
-        afetch_company_profile,
-    )
+    from signals.finnhub import afetch_company_metrics, afetch_company_profile
     from signals.finra import afetch_short_interest
+    from signals.news import afetch_company_news
 
     sym = symbol.strip().upper()
 
@@ -84,7 +71,7 @@ async def api_ticker_info(symbol: str) -> dict[str, Any]:
     profile, metrics, news, facts, short_interest = await asyncio.gather(
         afetch_company_profile(sym),
         afetch_company_metrics(sym),
-        afetch_company_news(sym),
+        afetch_company_news(sym, limit=15),
         _facts(),
         afetch_short_interest(sym),
     )

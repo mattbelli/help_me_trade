@@ -10,6 +10,24 @@
   ],
   "cards": [
     {
+      "id": "news-catalyst-dots",
+      "title": "News \u2192 fusion catalyst dots (event source, own attributable round)",
+      "lane": "next",
+      "type": "feature",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder 07-22: news 'should certainly be an event source.' Deliberately split from the alpaca-newsfeed round per FUSION_EVIDENCE_BUS_SPEC 2.9 + the one-component-at-a-time rule (a new scoring input must land alone so its lane effect is attributable, and every scoring change ships as a founder-visible diff). Substrate is ready: news_items carries ingest_seq per the bus cursor contract \u2014 the intake job adds a 'news' cursor and mints catalyst-group EVENT dots (headline at a moment, symbol-tagged) for stack-attached symbols; state-dot rules mean news attaches context, never creates a stack (spec 2.2). Design the dot value/decay before wiring (headline count? source-weighted? no sentiment scoring \u2014 headlines are facts)."
+    },
+    {
+      "id": "alpaca-newsfeed",
+      "title": "Alpaca newsfeed replaces Finnhub \u2014 realtime WS + store + UI + perception resource",
+      "lane": "done",
+      "type": "feature",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "Founder 07-22: 'replace the Finnhub feed with the Alpaca feed... the real time web socket would be more effective. And yes, it should certainly be an event source.' Scope this round: news_items store (bus-ready ingest_seq per the evidence-bus cursor contract) + WS consumer (v1beta2/news, subscribe *) + REST backfill + /api/ticker news endpoints rewired off Finnhub + perception resource. The BUS catalyst-dot wiring is deliberately the NEXT round (spec 2.9 one-component-at-a-time; scoring-input change = founder-visible diff). || DONE 2026-07-22 (verified live pre-deploy): db/news.py store (news_items + news_symbols join, bus-ready ingest_seq seq-stable across upserts) + signals/news_stream.py WS consumer in hmt-backend (subscribe *, reconnect backoff, heartbeat job news_stream marked on every recv INCL idle ticks \u2014 socket-liveness, not news-arrival; \u26a0 WS path = v1beta1/news, v1beta2+v2 404 MEASURED) + REST backfill (brokers/alpaca.get_news, 50/page) + signals/news.py drop-in fetchers keeping the Finnhub call shapes. ALL consumers flipped: /api/ticker/{sym}, /api/ticker/watchlist/news, ai/perception/context news block, perception resource 'news', ai/research fetch_news_source (gate now alpaca not finnhub). Finnhub news functions DELETED (profile/metrics stay Finnhub). Live smoke: backfill 50 rows + 3 WS headlines in 90s (earnings evening), heartbeats ticking. Frontend untouched (shape-compatible)."
+    },
+    {
       "id": "options-chain-index-roots",
       "title": "Options chain + search support SPX/SPXW index roots",
       "lane": "done",

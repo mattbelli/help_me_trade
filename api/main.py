@@ -203,6 +203,11 @@ _FILINGS_FEED_ENABLED = os.environ.get("FILINGS_FEED_ENABLED", "1").strip() not 
     "no",
 )
 FILINGS_INSIDER_MIN_USD = float(os.environ.get("FILINGS_INSIDER_MIN_USD", "100000"))
+_NEWS_STREAM_ENABLED = os.environ.get("NEWS_STREAM_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
+)
 _OPTIONS_FLOW_STREAM_ENABLED = os.environ.get("OPTIONS_FLOW_STREAM_ENABLED", "0").strip() not in (
     "0",
     "false",
@@ -1853,6 +1858,9 @@ def _register_background_jobs() -> None:
         ("equity_tape_flush", _EQUITY_TAPE_FLUSH_SECONDS, None),
         ("regime_sleeves", float(REGIME_SLEEVES_SCAN_INTERVAL_SECONDS), None),
         ("social_buzz", float(_SOCIAL_BUZZ_INTERVAL_SECONDS), None),
+        # Marked alive by the news websocket on every receive/idle tick — a
+        # stale heartbeat means the socket is actually dead, not quiet news.
+        ("news_stream", 300.0, lambda: _NEWS_STREAM_ENABLED),
     ]
     for name, interval_s, enabled in heartbeat_jobs:
         register_job(
@@ -2030,6 +2038,9 @@ async def lifespan(app: FastAPI):
     from db.fusion import init_fusion_tables
 
     init_fusion_tables()
+    from db.news import init_db as init_news_tables
+
+    init_news_tables()
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()
@@ -2094,6 +2105,16 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_bars_prewarm_loop()),
         asyncio.create_task(_equity_tape_flush_loop()),
     ]
+    if _NEWS_STREAM_ENABLED:
+        from signals.news_stream import news_stream_loop
+
+        background_tasks.append(
+            asyncio.create_task(
+                news_stream_loop(
+                    mark_alive=lambda: mark_alive("news_stream")
+                )
+            )
+        )
     if _OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED:
         if _OPTIONS_FLOW_EXTERNAL_COLLECTOR:
             logger.info(

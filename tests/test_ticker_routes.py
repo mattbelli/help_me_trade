@@ -31,7 +31,7 @@ def test_ticker_info_aggregates_sources(monkeypatch) -> None:
         AsyncMock(return_value={"pe_ttm": 28.5}),
     )
     monkeypatch.setattr(
-        "signals.finnhub.afetch_company_news",
+        "signals.news.afetch_company_news",
         AsyncMock(return_value=[{"headline": "News", "url": "https://x"}]),
     )
     monkeypatch.setattr(
@@ -63,7 +63,7 @@ def test_ticker_info_fail_soft_when_sources_empty(monkeypatch) -> None:
         "signals.finnhub.afetch_company_metrics", AsyncMock(return_value={})
     )
     monkeypatch.setattr(
-        "signals.finnhub.afetch_company_news", AsyncMock(return_value=[])
+        "signals.news.afetch_company_news", AsyncMock(return_value=[])
     )
     monkeypatch.setattr(
         "ai.perception.context.build_symbol_context",

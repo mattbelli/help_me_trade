@@ -475,7 +475,7 @@ async def build_symbol_context(
         ctx["active_alerts"] = []
 
     try:
-        from signals.finnhub import afetch_company_news
+        from signals.news import afetch_company_news
 
         news_items = await afetch_company_news(sym, days=7, limit=5)
         compact = _compact_news_items(news_items)

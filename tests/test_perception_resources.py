@@ -274,7 +274,7 @@ async def test_query_news_resource(monkeypatch: pytest.MonkeyPatch) -> None:
         return []
 
     monkeypatch.setattr(
-        "signals.finnhub.fetch_watchlist_news",
+        "signals.news.fetch_watchlist_news",
         fake_fetch,
     )
     result = await query("news", {"symbol": "AAPL", "limit": 5})

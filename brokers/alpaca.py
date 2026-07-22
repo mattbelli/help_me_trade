@@ -1610,3 +1610,32 @@ class AlpacaAdapter:
         except Exception:
             return out
         return out
+
+    def get_news(
+        self,
+        symbols: list[str] | None = None,
+        *,
+        limit: int = 50,
+        start: str | None = None,
+    ) -> list[dict]:
+        """Recent news items (Benzinga via ``/v1beta1/news``), newest-first.
+
+        Fail-soft ``[]``. ``limit`` is capped at the vendor's 50-per-page max —
+        callers needing history walk ``start`` themselves.
+        """
+        params: dict[str, Any] = {
+            "limit": max(1, min(int(limit), 50)),
+            "sort": "desc",
+        }
+        if symbols:
+            cleaned = sorted({s.strip().upper() for s in symbols if s and s.strip()})
+            if cleaned:
+                params["symbols"] = ",".join(cleaned)
+        if start:
+            params["start"] = start
+        try:
+            data = self._get_data("/v1beta1/news", params=params)
+        except Exception:
+            return []
+        items = data.get("news") if isinstance(data, dict) else None
+        return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []

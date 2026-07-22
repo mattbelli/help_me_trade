@@ -587,7 +587,7 @@ def _read_flow_report(filters: dict[str, Any], *, db_path: Path) -> list[dict[st
 
 async def _read_news(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del db_path
-    from signals.finnhub import fetch_watchlist_news
+    from signals.news import fetch_watchlist_news
 
     limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
     symbol = filters.get("symbol")
@@ -822,8 +822,9 @@ RESOURCES: dict[str, dict[str, Any]] = {
     },
     "news": {
         "description": (
-            "Recent watchlist headlines (Finnhub company news, deduped by url). "
-            "Headlines only — no sentiment scores."
+            "Recent watchlist headlines (Alpaca/Benzinga news store, realtime "
+            "websocket-fed, deduped by story id). Headlines only — no "
+            "sentiment scores."
         ),
         "filters": {
             "symbol": "optional — filter to one ticker",

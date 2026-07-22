@@ -40,8 +40,9 @@ class TestFetcherFailSoft:
         with patch("ai.research.data_sources.finnhub_is_configured", return_value=False):
             assert fetch_fundamentals_source("AAPL") is None
 
-    def test_news_unconfigured_finnhub(self) -> None:
-        with patch("ai.research.data_sources.finnhub_is_configured", return_value=False):
+    def test_news_unconfigured_alpaca(self) -> None:
+        # News moved to the Alpaca store — its gate is the alpaca broker config.
+        with patch("ai.research.data_sources.broker_is_configured", return_value=False):
             assert fetch_news_source("AAPL") is None
 
     def test_market_regime_empty(self) -> None:

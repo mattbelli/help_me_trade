@@ -52,6 +52,7 @@ AUDIT_LOOP_NAMES = [
     "pipeline_audit",
     "regime_sleeves",
     "social_buzz",
+    "news_stream",
 ]
 
 
