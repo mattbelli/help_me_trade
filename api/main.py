@@ -710,6 +710,13 @@ async def _notify_idea_transition(t: dict) -> None:
     inbox-only via INBOX_ONLY_KINDS."""
     from signals.notify import notify
 
+    # fusion_mech is the silent-journal lane: registered for calibration only,
+    # so its transitions never mint bell rows (founder 07-21 — 11 leaked cards
+    # in one shadow day). Delivery for fusion ideas arrives via the reason lane
+    # at the swing-lane ARM round, not tracker bells.
+    if str(t.get("origin") or "") == "fusion_mech":
+        return
+
     symbol = str(t.get("symbol") or "?")
     status = str(t.get("status") or "")
     zone = f"{t.get('entry_low')}–{t.get('entry_high')}"

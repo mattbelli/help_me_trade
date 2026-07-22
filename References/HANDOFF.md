@@ -29,27 +29,34 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
   Follow-ups on `fusion-phase-a-substrate` (A1b restamp/dirty queues, retention, contested
   scoring F10). **Phase B widgets SHIPPED** (Idea Ledger + Evidence Stack, card
   `fusion-phase-b-widgets`) — founder in-browser check pending after deploy
-- ▶ **Phase C build OPENED 07-21** (founder go; board `fusion-phase-c-investigation`, detail:
-  BUILD_LOG 2026-07-21): C1 shadow investigation gate SHIPPED (`signals/fusion/investigate.py`
-  — archetype `options_actor`+`structure`, 5/day budget + opening reserve, counts only).
-  C1b SHIPPED same night (structure state dots: `price_alert` component fully live;
-  `session_level` wired end-to-end reading new `fusion_session_levels` cache).
-  C1c producer SHIPPED same night (`fusion_levels_refresh` job, twin of ATR's; hybrid
-  provider verified equities→Alpaca). **OPEN:** (1) ⏳ session-2 verify Tue 07-21: shadow
-  gate counts (`fusion_investigations` / `fusion_would_investigate`), first levels drain
-  (`levels_stamped` vs `levels_refresh_failed` — watch Alpaca rate pressure), storm
-  behavior at the open; (2) C2 dossier + C3 T1/REASON v1 + C4 minute grading + **C5 delivery/arming ALL
-  SHIPPED** (detail: BUILD_LOG 2026-07-21; C5 passed line-by-line + two split-mandate
-  adversarial Opus reviews, 5 confirmed findings fixed pre-commit incl. the
-  spend-anchor crash window and the arming-checklist KeyError). The ENTIRE lane is
-  still DARK (`REASON_EMIT_ENABLED=False`) — **C6 = the flip**: founder ARM = the
-  4-edit ARMING CHECKLIST beside `REASON_EMIT_ENABLED` in `config/idea_engine.py`
-  + deploy (flags are import-time), plus `FUSION_CARDS_ENABLED` for the inbox
-  cards; legacy convergence pushes retire only at ARM (no-blackout rule). Gate:
-  sessions 2–3 shadow-verify clean + founder eyeballs the widgets. Deferred to
-  post-ARM: `_stamp_last_price` on the minute path; push-slot TOCTOU dies with
-  convergence retirement. REASON v2 A/B stays founder-gated (multi-angle card
-  below)
+- ▶ **Phase C: C1–C5 ALL SHIPPED dark 07-21; then the PIVOT — C6-as-specced is SUPERSEDED**
+  (detail: BUILD_LOG 2026-07-21/22; C5 passed two split-mandate Opus reviews). Founder called
+  the contested disease on the first live shadow session ("everything goes contested… you
+  can't accept everything into one idea window") → the 3-pass converged **Fusion Horizon
+  Redesign is BLESSED** (`FUSION_HORIZON_REDESIGN_2026-07-21.md`: decayed bull/bear masses +
+  conviction ratio, thesis-vs-trigger evidence roles, swing-only product lane,
+  armed→triggered→expired/invalidated lifecycle; Desk+Ledger two-widget UI target §7).
+  Build = 5 rounds; arming (old C6) is Round 5. The lane stays DARK
+  (`REASON_EMIT_ENABLED=False`) throughout. **OPEN:**
+  (a) ⏳ this round's commit + deploy (noise-kill: convergence/solo notification rows dead at
+  the writer + `fusion_mech` bell-leak gate; scorer v2 `score_decayed` + replay harness;
+  specs) — full-suite gate in flight. Post-deploy verify: notifications widget actually
+  quiet; first levels drain (`levels_stamped` vs `levels_refresh_failed`) + weekly PWH/PWL
+  enter the cache at the next pre-market;
+  (b) founder T pick — fresh cut-lines exist (`research/fusion_rescore/`) but are ONE-day
+  thin; re-run `tools/fusion_rescore_replay.py` after a few shadow days under the new scorer,
+  then present the table;
+  (c) founder dials: thesis/trigger half-lives, conviction bar, trigger TTLs — every change
+  lands as a diff, never silent;
+  (d) intake must stamp DTE onto option dots at mint time — live role-routing is blind
+  without it (replay recovers DTE via the `options_flow_events` join; live can't);
+  (e) Round 3 build after (b) — spec: `FUSION_LIFECYCLE_ROUND3_SPEC_2026-07-22.md`
+  (adversarial review before its build round commits) → Round 4 attention tiers → Round 5
+  ARM (ARMING CHECKLIST rewrite + push-restore decision live there);
+  (f) ⚠️ the full pytest suite live-fires outbound HTTPS from tests (incl. Akamai-fronted
+  hosts) — the suite-hang class AND a WAF risk; needs a network-marking round.
+  Deferred to post-ARM: `_stamp_last_price` on the minute path. REASON v2 A/B stays
+  founder-gated (multi-angle card below)
 - ▶ **Multi-angle reasoning A/B — design ready, awaiting founder go** (2026-07-19):
   `References/MULTI_ANGLE_REASONING_AB_2026-07-19.md`, board `multi-angle-reasoning-ab`
   (founder lane). Bull/bear/judge panel vs the single veto-grade voice; paired shadow +

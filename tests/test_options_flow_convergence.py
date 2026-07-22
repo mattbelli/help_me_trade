@@ -1,8 +1,10 @@
-"""Hermetic tests for options-flow convergence watch + push budget."""
+"""Hermetic tests for options-flow convergence detection + dedup bookkeeping.
+
+Since 07-21 (founder order) process_events emits NO notification rows and NO
+pushes — the observable contract is counters + dedup marks only."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -256,17 +258,7 @@ def test_is_solo_push_threshold_boundary() -> None:
     assert is_solo_push({**ev, "event_type": "directional_pressure"}) is False
 
 
-# --- process_events: budget + dedup + I/O -----------------------------------------
-
-
-@dataclass
-class _NotifyCall:
-    kind: str
-    title: str
-    body: str
-    push: bool
-    data: dict | None
-    ref_id: str | None
+# --- process_events: dedup + I/O (no notification rows since 07-21) ----------------
 
 
 class FakeAdapter:
@@ -330,27 +322,6 @@ def dedup_store(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
     return store
 
 
-@pytest.fixture
-def notify_recorder(monkeypatch: pytest.MonkeyPatch) -> list[_NotifyCall]:
-    calls: list[_NotifyCall] = []
-
-    async def _fake_notify(**kwargs: Any) -> dict:
-        calls.append(
-            _NotifyCall(
-                kind=str(kwargs.get("kind") or ""),
-                title=str(kwargs.get("title") or ""),
-                body=str(kwargs.get("body") or ""),
-                push=bool(kwargs.get("push", True)),
-                data=kwargs.get("data"),
-                ref_id=kwargs.get("ref_id"),
-            )
-        )
-        return {"id": f"n{len(calls)}"}
-
-    monkeypatch.setattr("signals.options_flow.convergence.notify", _fake_notify)
-    return calls
-
-
 def _process_env(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -358,7 +329,6 @@ def _process_env(
     session_levels: dict | None,
     adapter: FakeAdapter,
     alert_prices: list[float] | None = None,
-    max_push_per_day: int = 5,
 ) -> None:
     monkeypatch.setattr(
         "signals.options_flow.convergence.load_profile",
@@ -383,12 +353,6 @@ def _process_env(
         _alerts,
     )
 
-    # Hermetic push budget — never read the real data/settings.json in tests.
-    monkeypatch.setattr(
-        "config.settings.alerts_config",
-        lambda: {"max_push_per_day": max_push_per_day},
-    )
-
     # Hermetic day-memory: the cross-source backfill must not touch the real DB.
     monkeypatch.setattr(
         "signals.options_flow.convergence._today_flow_lead",
@@ -408,14 +372,12 @@ async def _run_process(
     profile,
     session_levels: dict | None = None,
     minutes_since_open: int = 50,
-    max_push_per_day: int = 5,
 ) -> dict[str, int]:
     _process_env(
         monkeypatch,
         profile=profile,
         session_levels=session_levels,
         adapter=adapter,
-        max_push_per_day=max_push_per_day,
     )
     return await process_events(
         adapter,
@@ -426,9 +388,8 @@ async def _run_process(
 
 
 @pytest.mark.asyncio
-async def test_process_convergence_persists_and_marks_dedup(
+async def test_process_convergence_counts_and_marks_dedup_no_rows(
     monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
     dedup_store: dict[str, bool],
 ) -> None:
     cumfrac = _linear_cumfrac()
@@ -449,24 +410,13 @@ async def test_process_convergence_persists_and_marks_dedup(
         profile=profile,
         session_levels={"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]},
     )
-    assert summary["convergence"] == 1
-    assert len(notify_recorder) == 1
-    call = notify_recorder[0]
-    assert call.kind == "convergence"
-    assert call.push is True
-    assert call.data is not None
-    assert call.data["reason"] == ev["reason"]
-    assert call.data["caveat"] == ev["caveat"]
-    assert "win_prob" not in call.data
-    assert "ev" not in call.data
-    assert "confidence" not in call.data
+    assert summary == {"convergence": 1, "solo": 0, "pushes": 0}
     assert dedup_store[f"of_conv:NVDA:{TODAY}"] is True
 
 
 @pytest.mark.asyncio
 async def test_process_per_underlying_day_dedup_second_call_noops(
     monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
     dedup_store: dict[str, bool],
 ) -> None:
     cumfrac = _linear_cumfrac()
@@ -476,128 +426,57 @@ async def test_process_per_underlying_day_dedup_second_call_noops(
         bars=[_StockBar(2, 1, 100)] * 20,
     )
     ev = _sample_event(premium_usd=500_000)
-    await _run_process(
+    summary1 = await _run_process(
         adapter,
         [ev],
         monkeypatch,
         profile=profile,
         session_levels={"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]},
     )
-    await _run_process(
+    summary2 = await _run_process(
         adapter,
         [ev],
         monkeypatch,
         profile=profile,
         session_levels={"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]},
     )
-    assert len(notify_recorder) == 1
+    assert summary1["convergence"] == 1
+    assert summary2["convergence"] == 0
+    assert dedup_store[f"of_conv:NVDA:{TODAY}"] is True
 
 
 @pytest.mark.asyncio
-async def test_process_budget_fifth_push_true_sixth_push_false(
+async def test_process_mark_sent_failure_still_counts(
     monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
     dedup_store: dict[str, bool],
 ) -> None:
+    # Dedup-store failure degrades soft: the detection is still counted.
     cumfrac = _linear_cumfrac()
     profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": cumfrac})()
     adapter = FakeAdapter(
         snapshot={"last_price": 188.0, "day_volume": cumfrac[10] * 100_000 * 2.0},
         bars=[_StockBar(2, 1, 100)] * 20,
     )
-    session = {"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]}
-
-    for i in range(6):
-        ev = _sample_event(
-            id=f"of_{TODAY}_SYM{i}_blk",
-            underlying=f"SYM{i}",
-        )
-        await _run_process(
-            adapter,
-            [ev],
-            monkeypatch,
-            profile=profile,
-            session_levels=session,
-        )
-
-    assert len(notify_recorder) == 6
-    assert [c.push for c in notify_recorder].count(True) == 5
-    assert notify_recorder[-1].push is False
-    assert notify_recorder[-1].ref_id is not None
-
-
-@pytest.mark.asyncio
-async def test_process_budget_honors_alerts_setting(
-    monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
-    dedup_store: dict[str, bool],
-) -> None:
-    cumfrac = _linear_cumfrac()
-    profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": cumfrac})()
-    adapter = FakeAdapter(
-        snapshot={"last_price": 188.0, "day_volume": cumfrac[10] * 100_000 * 2.0},
-        bars=[_StockBar(2, 1, 100)] * 20,
-    )
-    session = {"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]}
-
-    for i in range(3):
-        ev = _sample_event(
-            id=f"of_{TODAY}_SYM{i}_blk",
-            underlying=f"SYM{i}",
-        )
-        await _run_process(
-            adapter,
-            [ev],
-            monkeypatch,
-            profile=profile,
-            session_levels=session,
-            max_push_per_day=2,
-        )
-
-    assert len(notify_recorder) == 3
-    assert [c.push for c in notify_recorder].count(True) == 2
-    assert notify_recorder[-1].push is False
-
-
-@pytest.mark.asyncio
-async def test_process_budget_store_exception_still_persists_push_false(
-    monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
-    dedup_store: dict[str, bool],
-) -> None:
-    cumfrac = _linear_cumfrac()
-    profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": cumfrac})()
-    adapter = FakeAdapter(
-        snapshot={"last_price": 188.0, "day_volume": cumfrac[10] * 100_000 * 2.0},
-        bars=[_StockBar(2, 1, 100)] * 20,
-    )
-
-    def flaky_was_sent(key: str, *, db_path: Path | None = None) -> bool:
-        del db_path
-        if str(key).startswith("of_push:"):
-            raise RuntimeError("budget store down")
-        return dedup_store.get(key, False)
-
-    monkeypatch.setattr("db.earnings_alerts.was_sent", flaky_was_sent)
-
-    ev = _sample_event()
-    summary = await _run_process(
-        adapter,
-        [ev],
+    _process_env(
         monkeypatch,
         profile=profile,
         session_levels={"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]},
+        adapter=adapter,
+    )
+
+    def boom(key: str, *, db_path: Path | None = None) -> None:
+        raise RuntimeError("dedup store down")
+
+    monkeypatch.setattr("signals.options_flow.convergence.mark_sent", boom)
+    summary = await process_events(
+        adapter, [_sample_event()], today_et=TODAY, minutes_since_open=50
     )
     assert summary["convergence"] == 1
-    assert summary["pushes"] == 0
-    assert len(notify_recorder) == 1
-    assert notify_recorder[0].push is False
 
 
 @pytest.mark.asyncio
 async def test_process_solo_dedup_per_underlying_type_day(
     monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
     dedup_store: dict[str, bool],
 ) -> None:
     profile = None
@@ -608,23 +487,22 @@ async def test_process_solo_dedup_per_underlying_type_day(
         id="of_solo_once",
     )
     # Distinct block print (different ts-based id) on the SAME underlying/day must
-    # dedup against the first — one busy name can't drain the daily push budget.
+    # dedup against the first — one busy name is bookkept once per day.
     ev2 = _sample_event(
         event_type="block",
         premium_usd=C.SOLO_PUSH_PREMIUM_USD,
         id="of_solo_twice",
     )
-    await _run_process(adapter, [ev1], monkeypatch, profile=profile)
-    await _run_process(adapter, [ev2], monkeypatch, profile=profile)
-    solo_calls = [c for c in notify_recorder if c.kind == "options_flow_solo"]
-    assert len(solo_calls) == 1
+    summary1 = await _run_process(adapter, [ev1], monkeypatch, profile=profile)
+    summary2 = await _run_process(adapter, [ev2], monkeypatch, profile=profile)
+    assert summary1["solo"] == 1
+    assert summary2["solo"] == 0
     assert dedup_store[f"of_solo:NVDA:block:{TODAY}"] is True
 
 
 @pytest.mark.asyncio
 async def test_process_solo_skipped_when_convergence_covers_underlying(
     monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
     dedup_store: dict[str, bool],
 ) -> None:
     cumfrac = _linear_cumfrac()
@@ -634,22 +512,20 @@ async def test_process_solo_skipped_when_convergence_covers_underlying(
         bars=[_StockBar(2, 1, 100)] * 20,
     )
     ev = _sample_event(premium_usd=C.SOLO_PUSH_PREMIUM_USD)
-    await _run_process(
+    summary = await _run_process(
         adapter,
         [ev],
         monkeypatch,
         profile=profile,
         session_levels={"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]},
     )
-    kinds = [c.kind for c in notify_recorder]
-    assert kinds == ["convergence"]
-    assert "options_flow_solo" not in kinds
+    assert summary["convergence"] == 1
+    assert summary["solo"] == 0
 
 
 @pytest.mark.asyncio
-async def test_process_adapter_failure_no_crash_missing_components(
+async def test_process_adapter_failure_no_crash_solo_still_counts(
     monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
     dedup_store: dict[str, bool],
 ) -> None:
     profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": _linear_cumfrac()})()
@@ -662,44 +538,13 @@ async def test_process_adapter_failure_no_crash_missing_components(
         profile=profile,
         session_levels=None,
     )
-    assert summary == {"convergence": 0, "solo": 1, "pushes": 1}
-    assert notify_recorder[0].kind == "options_flow_solo"
-
-
-@pytest.mark.asyncio
-async def test_process_mark_sent_only_after_successful_notify(
-    monkeypatch: pytest.MonkeyPatch,
-    dedup_store: dict[str, bool],
-) -> None:
-    cumfrac = _linear_cumfrac()
-    profile = type("P", (), {"median_daily_total": 100_000.0, "cumfrac": cumfrac})()
-    adapter = FakeAdapter(
-        snapshot={"last_price": 188.0, "day_volume": cumfrac[10] * 100_000 * 2.0},
-        bars=[_StockBar(2, 1, 100)] * 20,
-    )
-
-    async def _empty_notify(**kwargs: Any) -> dict:
-        del kwargs
-        return {}
-
-    monkeypatch.setattr("signals.options_flow.convergence.notify", _empty_notify)
-
-    ev = _sample_event()
-    summary = await _run_process(
-        adapter,
-        [ev],
-        monkeypatch,
-        profile=profile,
-        session_levels={"levels": [{"name": "VAH", "price": 188.0, "kind": "r"}]},
-    )
-    assert summary["convergence"] == 0
-    assert f"of_conv:NVDA:{TODAY}" not in dedup_store
+    assert summary == {"convergence": 0, "solo": 1, "pushes": 0}
+    assert dedup_store[f"of_solo:NVDA:block:{TODAY}"] is True
 
 
 @pytest.mark.asyncio
 async def test_process_tape_event_converges_with_days_stored_flow(
     monkeypatch: pytest.MonkeyPatch,
-    notify_recorder: list[_NotifyCall],
     dedup_store: dict[str, bool],
 ) -> None:
     """Morning sweep (already in the DB) + afternoon dark-pool print → confluence."""
@@ -723,9 +568,4 @@ async def test_process_tape_event_converges_with_days_stored_flow(
     )
 
     assert summary["convergence"] == 1
-    call = notify_recorder[0]
-    assert call.kind == "convergence"
-    assert call.data is not None
-    assert set(call.data["components"]) == {"flow", "tape"}
-    assert "dark-pool print" in call.body
     assert f"of_conv:NVDA:{TODAY}" in dedup_store

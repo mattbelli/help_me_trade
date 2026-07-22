@@ -1,4 +1,4 @@
-"""Confluence watch + budgeted phone pushes (design §6b / §5, generalized).
+"""Confluence watch (design §6b / §5, generalized) — detection + bookkeeping only.
 
 Fires when ≥2 independently watched things line up on one underlying the same
 day: options flow, equity tape (blocks / dark-pool prints), underlying RVOL,
@@ -7,8 +7,10 @@ tape components accumulate across the day via the event stores, so a morning
 sweep plus an afternoon dark-pool print still converge.
 
 Pure detection helpers are hermetic (no I/O). ``process_events`` orchestrates
-read-only market data, persist-first ``notify``, and deny-by-default push budget.
-Every failure path degrades to no phone push — never raises.
+read-only market data and dedup bookkeeping. Since 07-21 (founder order) it
+emits NO notification rows and NO pushes — detections are counted and deduped
+for pipeline health; the notifications stream carries investigated ideas only.
+Every failure path degrades silently — never raises.
 """
 
 from __future__ import annotations
@@ -21,19 +23,12 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.chart_features import list_price_alerts
 from signals.indicators import atr
-from signals.notify import notify
 from signals.options_flow.constants import (
     CONV_LEVEL_ATR,
     CONV_RVOL_MIN,
     SOLO_PUSH_PREMIUM_USD,
 )
 from signals.options_flow.detect import _fmt_premium
-
-# The daily push budget now lives in a shared module (Fusion C5) so the fusion
-# idea lane draws from the SAME pool. Aliased to the historical private names so
-# the call sites below (and their monkeypatch seams) are unchanged.
-from signals.push_budget import mark_push_slot as _mark_push_slot
-from signals.push_budget import peek_push_slot as _peek_push_slot
 from signals.session_node_strategy import compute_session_levels
 from signals.volume_profile import load_profile
 
@@ -535,49 +530,20 @@ async def process_events(
         if built is None:
             continue
 
-        slot = _peek_push_slot(today_et, db_path=resolved_db)
-        allow_push = slot is not None
+        # Founder order 07-21: convergence detections mint NO notification rows
+        # (and therefore no pushes) — the raw events already feed the fusion bus
+        # and the evidence-stack view; the notifications stream carries ideas
+        # only. Detection + dedup bookkeeping stay so counters remain comparable.
         try:
-            row = await notify(
-                kind="convergence",
-                title=built["title"],
-                body=built["body"],
-                severity="info",
-                ref_type="options_flow",
-                ref_id=built["event_id"],
-                group_key=f"options_flow:{u}",
-                data={
-                    "underlying": u,
-                    "components": list(built["components"]),
-                    "score": built["score"],
-                    "drivers": list(built["drivers"]),
-                    "reason": (flow_lead or tape_lead or {}).get("reason"),
-                    "caveat": (flow_lead or tape_lead or {}).get("caveat"),
-                },
-                push=allow_push,
-                db_path=resolved_db,
-            )
+            mark_sent(conv_key, db_path=resolved_db)
         except Exception:
-            logger.exception(
-                "options_flow convergence: notify failed for %s", u
+            logger.debug(
+                "options_flow convergence: mark_sent failed for %s",
+                conv_key,
+                exc_info=True,
             )
-            continue
-
-        if row:
-            if allow_push and slot is not None:
-                _mark_push_slot(slot, db_path=resolved_db)
-            try:
-                mark_sent(conv_key, db_path=resolved_db)
-            except Exception:
-                logger.debug(
-                    "options_flow convergence: mark_sent failed for %s",
-                    conv_key,
-                    exc_info=True,
-                )
-            counters["convergence"] += 1
-            convergence_covered.add(u)
-            if allow_push:
-                counters["pushes"] += 1
+        counters["convergence"] += 1
+        convergence_covered.add(u)
 
     for ev in events:
         if not isinstance(ev, dict):
@@ -604,47 +570,16 @@ async def process_events(
             )
             continue
 
-        slot = _peek_push_slot(today_et, db_path=resolved_db)
-        allow_push = slot is not None
-        title = f"{u}: large options flow"
-        body = str(ev.get("reason") or title)
+        # Same founder order 07-21: solo large-flow detections are bookkept,
+        # never surfaced as notification rows.
         try:
-            row = await notify(
-                kind="options_flow_solo",
-                title=title,
-                body=body,
-                severity="info",
-                ref_type="options_flow",
-                ref_id=event_id,
-                group_key=f"options_flow:{u}",
-                data={
-                    "underlying": u,
-                    "components": ["flow"],
-                    "reason": ev.get("reason"),
-                    "caveat": ev.get("caveat"),
-                },
-                push=allow_push,
-                db_path=resolved_db,
-            )
+            mark_sent(solo_key, db_path=resolved_db)
         except Exception:
-            logger.exception(
-                "options_flow convergence: solo notify failed for %s", event_id
+            logger.debug(
+                "options_flow convergence: solo mark_sent failed for %s",
+                solo_key,
+                exc_info=True,
             )
-            continue
-
-        if row:
-            if allow_push and slot is not None:
-                _mark_push_slot(slot, db_path=resolved_db)
-            try:
-                mark_sent(solo_key, db_path=resolved_db)
-            except Exception:
-                logger.debug(
-                    "options_flow convergence: solo mark_sent failed for %s",
-                    solo_key,
-                    exc_info=True,
-                )
-            counters["solo"] += 1
-            if allow_push:
-                counters["pushes"] += 1
+        counters["solo"] += 1
 
     return counters
