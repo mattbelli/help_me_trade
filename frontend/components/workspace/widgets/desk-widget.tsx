@@ -97,7 +97,8 @@ function RadarTable({
           <th className={cn(TH, "text-left")}>Symbol</th>
           <th className={cn(TH, "text-left")}>Bull / Bear</th>
           <th className={cn(TH, "text-right")}>Conv</th>
-          <th className={cn(TH, "text-right")}>Mat</th>
+          <th className={cn(TH, "text-right")}>Z</th>
+          <th className={cn(TH, "text-right")}>Net</th>
           <th className={cn(TH, "text-left")} />
           <th className={cn(TH, "text-right")}>Age</th>
         </tr>
@@ -118,8 +119,12 @@ function RadarTable({
             <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
               {row.thesis.conviction.toFixed(2)}
             </td>
+            <td className={cn(TD, "text-right tabular-nums font-medium text-foreground")}>
+              {row.thesis.z.toFixed(1)}
+            </td>
             <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-              {row.maturity.toFixed(2)}
+              {row.thesis.net > 0 ? "+" : ""}
+              {row.thesis.net.toFixed(1)}
             </td>
             <td className={cn(TD, "whitespace-nowrap")}>
               {row.thesis.contested ? (
@@ -186,7 +191,7 @@ export function DeskWidget({ config }: WidgetProps) {
       </Zone>
       <Zone title="warming">
         {loading && !data ? (
-          <WidgetLoading rows={3} cols={[1, 4, 1, 1]} className="p-2" />
+          <WidgetLoading rows={3} cols={[1, 4, 1, 1, 1]} className="p-2" />
         ) : error && !data ? (
           <WidgetError message={error} onRetry={() => void load(false)} />
         ) : rows.length === 0 ? (

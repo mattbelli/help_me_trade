@@ -411,6 +411,19 @@ def _conviction(bull: float, bear: float, *, prior_mass: float = CONVICTION_PRIO
     return abs(bull - bear) / denom if denom > 0 else 0.0
 
 
+def _z(bull: float, bear: float, *, prior_mass: float = CONVICTION_PRIOR_MASS) -> float:
+    """Significance of the lean: |bull − bear| / sqrt(gross + prior_mass).
+
+    The RANKING statistic (FUSION_SCORING_NORMALIZATION_2026-07-22): multiples
+    of the bull–bear drift undirected flow would produce given this much gross
+    mass (null drift ~ √gross). Self-normalizing across symbols with no baseline
+    history; the shrinkage prior in the denominator kills the thin-name
+    divide-by-nearly-zero spike. NOT a Gaussian σ / p-value — dots are
+    log-premium collapsed bursty prints; T is calibrated from replay ranks."""
+    denom = math.sqrt(bull + bear + max(0.0, prior_mass))
+    return abs(bull - bear) / denom if denom > 0 else 0.0
+
+
 def score_decayed(
     dots: list[dict],
     now: Any,
@@ -430,10 +443,13 @@ def score_decayed(
     (gross + conviction_prior_mass)`` — the prior mass shrinks a thin one-sided
     read (INTC 9:33 artifact; see the dial); ``contested`` = gross at/above the
     floor AND conviction below the bar,
-    evaluated CONTEMPORANEOUSLY at ``now``. Maturity = thesis_gross ×
-    thesis_conviction — trigger masses are computed and returned but NEVER mixed
-    in (fast evidence times an entry, never carries a thesis; §2.2/§5, no
-    cross-role score mixing).
+    evaluated CONTEMPORANEOUSLY at ``now``. ``z`` (per role) is THE ranking
+    statistic (see ``_z``); arming eligibility is the DUAL gate — z ≥ T AND
+    conviction ≥ bar — never z alone (z ≈ lean·√gross, so z alone re-admits
+    megacap dominance). Maturity = thesis_gross × thesis_conviction is kept for
+    continuity but superseded as the ranking stat. Trigger masses are computed
+    and returned but NEVER mixed into thesis (fast evidence times an entry,
+    never carries a thesis; §2.2/§5, no cross-role score mixing).
 
     Filtering mirrors score_dots exactly: only stamped, directional
     (bull/bear) actor-group dots that survive the 5-minute collapse contribute.
@@ -476,6 +492,7 @@ def score_decayed(
             "gross": round(gross, 4),
             "net": round(bull - bear, 4),
             "conviction": round(conviction, 4),
+            "z": round(_z(bull, bear, prior_mass=conviction_prior_mass), 4),
             "contested": gross >= noise_floor and conviction < conviction_bar,
         }
 

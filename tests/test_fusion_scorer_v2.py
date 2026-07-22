@@ -149,6 +149,58 @@ def test_conviction_prior_mass_zero_recovers_pure_ratio():
     assert pure["thesis"]["conviction"] == 1.0
 
 
+# ------------------------------------------------- z ranking statistic (norm)
+
+
+def test_z_math_and_cancellation():
+    """z = |bull − bear| / √(gross + prior) — the ranking statistic
+    (FUSION_SCORING_NORMALIZATION_2026-07-22). Four aligned point-1.0 dots:
+    z = 4/√(4+2); balanced masses net to 0 → z exactly 0 (cancellation is
+    EXPOSED by z, not hidden); no dots → z 0."""
+    ts = _utc(2026, 7, 21, 14, 0)
+    aligned = [_dot(f"a{i}", ts, direction="bull", dte=30) for i in range(4)]
+    state = score_decayed(aligned, ts)["thesis"]
+    assert abs(state["z"] - 4.0 / (4.0 + CONVICTION_PRIOR_MASS) ** 0.5) < 1e-3
+
+    balanced = score_decayed(
+        [
+            _dot("a", ts, direction="bull", dte=30),
+            _dot("b", ts, direction="bear", dte=30),
+        ],
+        ts,
+    )
+    assert balanced["thesis"]["z"] == 0.0
+    assert score_decayed([], ts)["thesis"]["z"] == 0.0
+
+
+def test_z_prior_mass_tames_thin_names():
+    """A lone point-1.0 dot: with the prior z = 1/√3 ≈ 0.577; with prior=0 it
+    would read 1/√1 = 1.0 — the shrinkage prior is what stops three thin prints
+    spiking the board (symptom 3 of the disease)."""
+    ts = _utc(2026, 7, 21, 14, 0)
+    thin = [_dot("a", ts, direction="bull", dte=30)]
+    with_prior = score_decayed(thin, ts)["thesis"]["z"]
+    no_prior = score_decayed(thin, ts, conviction_prior_mass=0.0)["thesis"]["z"]
+    assert abs(with_prior - 1.0 / 3.0**0.5) < 1e-3
+    assert abs(no_prior - 1.0) < 1e-3
+    assert with_prior < no_prior
+
+
+def test_z_high_on_ocean_lean_but_contested_for_dual_gate():
+    """The Grok catch the dual gate exists for: z ≈ lean·√gross, so a modest
+    proportional lean on ocean flow still posts a big z (ranked, visible) while
+    conviction sits under the bar (contested → NOT armable). 60 bull / 40 bear
+    point-1.0 dots: z = 20/√102 ≈ 1.98, conviction = 20/102 ≈ 0.196 < 0.4."""
+    ts = _utc(2026, 7, 21, 14, 0)
+    ocean = [_dot(f"b{i}", ts, direction="bull", dte=30) for i in range(60)] + [
+        _dot(f"s{i}", ts, direction="bear", dte=30) for i in range(40)
+    ]
+    state = score_decayed(ocean, ts)["thesis"]
+    assert state["z"] > 1.9
+    assert state["conviction"] < 0.4
+    assert state["contested"] is True
+
+
 # ------------------------------------------------------------ contested heals
 
 
@@ -256,4 +308,9 @@ def test_replay_smoke_on_tmp_db(tmp_path):
     assert rec["thesis_bull"] > 0
     assert abs(rec["conviction"] - 1.0 / (1.0 + CONVICTION_PRIOR_MASS)) < 1e-3
     assert rec["maturity"] > 0
-    assert rec["peak_ts"] is not None
+    # z = 1/√(1+2) ≈ 0.577 at decision; the peak instant is the dot's own ts.
+    assert abs(rec["z"] - 1.0 / 3.0**0.5) < 1e-2
+    assert rec["peak_z"] >= rec["z"]
+    assert rec["peak_z_ts"] is not None
+    # conviction 1/3 < CONVICTION_BAR → never armable → peak_armable_z stays 0.
+    assert rec["peak_armable_z"] == 0.0

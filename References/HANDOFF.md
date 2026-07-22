@@ -55,10 +55,14 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
   spec header, detail BUILD_LOG 2026-07-22). ⏳ verify next trading session: migration rebuilds
   the live table clean on deploy-restart (legacy rows → closed/migrated), `fusion_lifecycle` +
   `fusion_lifecycle_eod` appear in /health, first sweep closes nothing wrongly (episodes are
-  all fresh). NEXT: **scoring-normalization round** (SETTLED 07-22,
-  `FUSION_SCORING_NORMALIZATION_2026-07-22.md`: rank by z=|net|/√(gross+prior), arm on DUAL
-  gate z≥T AND conviction≥bar; T re-derived on z scale) → Round 4 attention tiers → Round 5
-  ARM (ARMING CHECKLIST rewrite + push-restore decision live there);
+  all fresh). **Scoring-normalization Stage 1 + Stage-2 backfill BUILT 07-22** (z on
+  radar/Desk, dual-gate T tables, `fusion_z_baseline` 3,310 rows — as-built header of
+  `FUSION_SCORING_NORMALIZATION_2026-07-22.md`). ⏳ post-deploy live check: Desk shows Z+Net,
+  radar ranks by z, QQQ-contested/XLE-armable behavior holds on the next session. **FOUNDER:
+  pick T from the z-scale tables** (`research/fusion_rescore/z_baseline_2026-07-16_2026-07-21.md`;
+  live-parity days: T=3 arms ~4–13 sym-days/day, T=4 ~3–4) — gate rewiring lands with that
+  pick, as a diff. NEXT: Round 4 attention tiers → Round 5 ARM (ARMING CHECKLIST rewrite +
+  push-restore decision live there);
   (f) ⚠️ the full pytest suite live-fires outbound HTTPS from tests (incl. Akamai-fronted
   hosts) — the suite-hang class AND a WAF risk; needs a network-marking round.
   Deferred to post-ARM: `_stamp_last_price` on the minute path. REASON v2 A/B stays

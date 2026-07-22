@@ -1,12 +1,14 @@
 """Replay the v2 decayed-mass scorer over stored fusion investigations.
 
 Read-only against the DB (writes only its markdown report). For every
-``fusion_investigations`` row in a date range it recomputes the NEW maturity
-score (signals.fusion.scorer.score_decayed) at the row's decision instant, using
-only the dots that existed then, plus the symbol-day's PEAK maturity and when it
-peaked. It emits a per-day table + a cut-line table (candidate T → how many
-symbol-days qualify) so the founder can pick a fresh maturity threshold T — the
-07-21 cut-line is void under decay+conviction scoring (redesign §4/§6 step 2).
+``fusion_investigations`` row in a date range it recomputes the scorer state
+(signals.fusion.scorer.score_decayed) at the row's decision instant, using
+only the dots that existed then, plus the symbol-day's PEAK z / maturity and
+when they peaked. It emits a per-day table + a cut-line table on the z scale
+(candidate T → ranked symbol-days, and DUAL-GATE armable symbol-days: z ≥ T
+AND conviction ≥ CONVICTION_BAR) so the founder can pick T — z is THE ranking
+statistic per FUSION_SCORING_NORMALIZATION_2026-07-22; maturity cut-lines
+(and the 07-21 maturity table) are void.
 
 DB timestamps are UTC; the report displays ET (America/New_York) explicitly.
 
@@ -30,14 +32,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from db.base import DEFAULT_DB_PATH  # noqa: E402
 from db.fusion import episode_dots  # noqa: E402
-from signals.fusion.scorer import _parse_ts, score_decayed  # noqa: E402
+from signals.fusion.scorer import CONVICTION_BAR, _parse_ts, score_decayed  # noqa: E402
 
 _ET = ZoneInfo("America/New_York")
 _REPORT_DIR = Path("research/fusion_rescore")
-# Candidate maturity thresholds for the cut-line sweep. Maturity here is
-# thesis_gross × thesis_conviction (= |net decayed thesis mass|); a lone
-# meaningful one-sided dot is O(1), so the sweep spans noise → strong.
-CUT_LINE_T = (0.0, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
+# Candidate z thresholds for the cut-line sweep (z = |net|/√(gross+prior), the
+# ranking statistic). Live 07-22 anchors: XLE 3.0 armable, QQQ 6.2 contested —
+# the sweep spans noise → strong on that scale. T is an interpretable dial,
+# NOT a Gaussian σ (spec: never present z as a p-value).
+CUT_LINE_T = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0)
 
 
 def _et(ts: str) -> str:
@@ -79,21 +82,31 @@ def _load_dots(conn: sqlite3.Connection, episode_id: str, db_path: Path) -> list
     return dots
 
 
-def _peak(dots: list[dict]) -> tuple[float, str | None]:
-    """Max maturity across the day and its timestamp. Maturity only rises at a
-    dot arrival (masses decay between arrivals), so candidate instants are the
-    dot timestamps themselves."""
-    best = 0.0
-    best_ts: str | None = None
+def _peak(dots: list[dict]) -> dict:
+    """Day peaks in one pass: max maturity, max thesis z (+ its instant), and
+    max ARMABLE z — the peak z among instants where the dual gate's effect-size
+    leg held (conviction ≥ CONVICTION_BAR), 0.0 if it never did. Scores only
+    rise at a dot arrival (masses decay between arrivals), so candidate
+    instants are the dot timestamps themselves."""
+    out = {
+        "peak_maturity": 0.0,
+        "peak_z": 0.0,
+        "peak_z_ts": None,
+        "peak_armable_z": 0.0,
+    }
     instants = sorted({str(dot["ts"]) for dot in dots}, key=lambda ts: _parse_ts(ts))
     for now_ts in instants:
         cutoff = _parse_ts(now_ts)
         visible = [dot for dot in dots if _parse_ts(dot["ts"]) <= cutoff]
-        maturity = score_decayed(visible, now_ts)["maturity"]
-        if maturity > best:
-            best = maturity
-            best_ts = now_ts
-    return best, best_ts
+        state = score_decayed(visible, now_ts)
+        thesis = state["thesis"]
+        out["peak_maturity"] = max(out["peak_maturity"], state["maturity"])
+        if thesis["z"] > out["peak_z"]:
+            out["peak_z"] = thesis["z"]
+            out["peak_z_ts"] = now_ts
+        if thesis["conviction"] >= CONVICTION_BAR:
+            out["peak_armable_z"] = max(out["peak_armable_z"], thesis["z"])
+    return out
 
 
 def rescore_range(
@@ -129,7 +142,7 @@ def rescore_range(
             decided = _parse_ts(str(row["decided_at"]))
             at_decision = [dot for dot in dots if _parse_ts(dot["ts"]) <= decided]
             state = score_decayed(at_decision, str(row["decided_at"]))
-            peak_maturity, peak_ts = _peak(dots)
+            peaks = _peak(dots)
             records.append(
                 {
                     "market_day": str(row["market_day"]),
@@ -138,12 +151,15 @@ def rescore_range(
                     "decision": str(row["decision"]),
                     "old_score": row["score"],
                     "maturity": state["maturity"],
+                    "z": state["thesis"]["z"],
                     "thesis_bull": state["thesis"]["bull_mass"],
                     "thesis_bear": state["thesis"]["bear_mass"],
                     "conviction": state["thesis"]["conviction"],
                     "contested": state["thesis"]["contested"],
-                    "peak_maturity": peak_maturity,
-                    "peak_ts": peak_ts,
+                    "peak_maturity": peaks["peak_maturity"],
+                    "peak_z": peaks["peak_z"],
+                    "peak_z_ts": peaks["peak_z_ts"],
+                    "peak_armable_z": peaks["peak_armable_z"],
                 }
             )
         return {"records": records}
@@ -167,10 +183,12 @@ def _render(report: dict) -> str:
     )
     lines.append("")
     lines.append(
-        "New **maturity** = thesis_gross × thesis_conviction (signed decayed "
-        "thesis mass magnitude); trigger masses never enter it. Old score = the "
-        "undecayed all-day sum stored at decision. Peak = the day's max maturity "
-        "and the ET instant it peaked."
+        "**z** = |bull − bear| / √(gross + prior) — THE ranking statistic "
+        "(FUSION_SCORING_NORMALIZATION_2026-07-22). Armable = the DUAL gate: "
+        "z ≥ T AND conviction ≥ "
+        f"{CONVICTION_BAR:.2f} (z alone re-admits megacap dominance). Maturity "
+        "kept for side-by-side only; old score = the undecayed all-day sum "
+        "stored at decision. Peak = the day's max and the ET instant z peaked."
     )
     lines.append("")
 
@@ -179,46 +197,56 @@ def _render(report: dict) -> str:
         lines.append(f"## {day}")
         lines.append("")
         lines.append(
-            "| symbol | decision time (ET) | old score | new maturity | "
-            "thesis bull | thesis bear | conviction | contested | peak maturity | "
-            "peak (ET) | decision |"
+            "| symbol | decision time (ET) | old score | z | maturity | "
+            "thesis bull | thesis bear | conviction | contested | peak z | "
+            "peak armable z | peak z (ET) | decision |"
         )
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
-        for rec in sorted(rows, key=lambda r: r["maturity"], reverse=True):
-            peak_et = _et(rec["peak_ts"]) if rec["peak_ts"] else "—"
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+        for rec in sorted(rows, key=lambda r: r["z"], reverse=True):
+            peak_et = _et(rec["peak_z_ts"]) if rec["peak_z_ts"] else "—"
             old = "—" if rec["old_score"] is None else f"{rec['old_score']:.2f}"
             lines.append(
                 f"| {rec['symbol']} | {_et(rec['decided_at'])} | {old} | "
-                f"{rec['maturity']:.3f} | {rec['thesis_bull']:.3f} | "
+                f"{rec['z']:.3f} | {rec['maturity']:.3f} | {rec['thesis_bull']:.3f} | "
                 f"{rec['thesis_bear']:.3f} | {rec['conviction']:.3f} | "
                 f"{'yes' if rec['contested'] else 'no'} | "
-                f"{rec['peak_maturity']:.3f} | {peak_et} | {rec['decision']} |"
+                f"{rec['peak_z']:.3f} | {rec['peak_armable_z']:.3f} | "
+                f"{peak_et} | {rec['decision']} |"
             )
         lines.append("")
 
-    # Cut-line: how many symbol-days clear each candidate T (per day + total),
-    # scored at the decision instant and — separately — at the day's peak.
-    lines.append("## Cut-line — candidate maturity threshold T")
+    # Cut-line on the z scale: per candidate T, how many symbol-days RANK at/
+    # above it (peak z) vs how many could ARM under the dual gate (peak armable
+    # z — z at an instant where conviction also held the bar).
+    lines.append("## Cut-line — candidate z threshold T (dual gate)")
     lines.append("")
     lines.append(
-        "At-decision maturity is what a live gate would see the moment it fired; "
-        "peak is whether the symbol-day EVER cleared T. Counts are symbol-days."
+        "'ranked' = peak z ≥ T (visible at the top of the board); 'armable' = "
+        "peak ARMABLE z ≥ T (dual gate: conviction ≥ "
+        f"{CONVICTION_BAR:.2f} at that instant). The gap between the columns is "
+        "the contested set the gate exists to hold back. Counts are symbol-days."
     )
     lines.append("")
-    header = "| T | " + " | ".join(f"{d} (dec / peak)" for d in days) + " | total (dec / peak) |"
+    header = (
+        "| T | "
+        + " | ".join(f"{d} (ranked / armable)" for d in days)
+        + " | total (ranked / armable) |"
+    )
     lines.append(header)
     lines.append("|" + "---|" * (len(days) + 2))
     for threshold in CUT_LINE_T:
         cells = []
-        tot_dec = tot_peak = 0
+        tot_ranked = tot_armable = 0
         for day in days:
-            dec = sum(1 for r in by_day[day] if r["maturity"] >= threshold)
-            peak = sum(1 for r in by_day[day] if r["peak_maturity"] >= threshold)
-            tot_dec += dec
-            tot_peak += peak
-            cells.append(f"{dec} / {peak}")
+            ranked = sum(1 for r in by_day[day] if r["peak_z"] >= threshold)
+            armable = sum(1 for r in by_day[day] if r["peak_armable_z"] >= threshold)
+            tot_ranked += ranked
+            tot_armable += armable
+            cells.append(f"{ranked} / {armable}")
         lines.append(
-            f"| {threshold:.2f} | " + " | ".join(cells) + f" | {tot_dec} / {tot_peak} |"
+            f"| {threshold:.2f} | "
+            + " | ".join(cells)
+            + f" | {tot_ranked} / {tot_armable} |"
         )
     lines.append("")
     return "\n".join(lines)

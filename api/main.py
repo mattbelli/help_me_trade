@@ -3545,7 +3545,8 @@ def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
     Read-only, no writes/caching (dot volumes are small). DTE is recovered from
     options_flow_events for option dots exactly like tools/fusion_rescore_replay
     so pre-stamp historical dots route thesis-vs-trigger correctly (newer dots
-    also carry dte in their detail). Rows sort by maturity desc, capped at 30."""
+    also carry dte in their detail). Rows sort by thesis z desc (the ranking
+    statistic — FUSION_SCORING_NORMALIZATION_2026-07-22), capped at 30."""
     from signals.fusion.scorer import score_decayed
 
     with connect(DEFAULT_DB_PATH) as conn:
@@ -3605,7 +3606,9 @@ def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
                 "thesis": {
                     "bull_mass": state["thesis"]["bull_mass"],
                     "bear_mass": state["thesis"]["bear_mass"],
+                    "net": state["thesis"]["net"],
                     "conviction": state["thesis"]["conviction"],
+                    "z": state["thesis"]["z"],
                     "contested": state["thesis"]["contested"],
                 },
                 "trigger": {
@@ -3616,14 +3619,14 @@ def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
                 "dot_count": len(dots),
             }
         )
-    rows.sort(key=lambda row: row["maturity"], reverse=True)
+    rows.sort(key=lambda row: row["thesis"]["z"], reverse=True)
     return rows[:30]
 
 
 @app.get("/api/fusion/radar")
 async def api_fusion_radar(sessions: int = Query(5, ge=1, le=30)):
     """Live warming radar: v2 decayed masses per recently-active symbol,
-    ranked by maturity. Read-only compute-on-read (offloaded off the loop)."""
+    ranked by thesis z. Read-only compute-on-read (offloaded off the loop)."""
     now_iso_str = datetime.now(timezone.utc).isoformat()
     rows = await asyncio.to_thread(_fusion_radar_sync, sessions, now_iso_str)
     return {"rows": rows, "now": now_iso_str, "sessions": sessions}

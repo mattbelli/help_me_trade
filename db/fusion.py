@@ -233,6 +233,28 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 computed_at TEXT NOT NULL
             );
 
+            -- Stage-2 baseline lens history (FUSION_SCORING_NORMALIZATION
+            -- 2026-07-22): one row per symbol × market day of thesis z.
+            -- DERIVED + rebuildable via tools/fusion_z_baseline.py — never a
+            -- source of truth; recompute at will. FROZEN summary rule lives in
+            -- that tool's docstring (5-min ET grid; peak-vs-peak for the
+            -- intraday percentile, close_z for EOD/grading). source = 'dots'
+            -- (evidence_dots replay, live parity) or 'raw_events' (pre-dot
+            -- days reshaped from the native stores through current intake
+            -- shaping — labeled fidelity gap: no storm-shed/unstampable drops).
+            CREATE TABLE IF NOT EXISTS fusion_z_baseline (
+                symbol TEXT NOT NULL,
+                market_day TEXT NOT NULL,
+                peak_z REAL NOT NULL,
+                peak_z_ts TEXT,
+                peak_armable_z REAL NOT NULL DEFAULT 0,
+                close_z REAL NOT NULL,
+                dot_count INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                computed_at TEXT NOT NULL,
+                PRIMARY KEY (symbol, market_day)
+            );
+
             -- Phase C3 investigation lane (research/reason.py). Sibling of
             -- fusion_investigations, same episode key: ONE row = this episode has
             -- been picked up by the reason lane (the processed marker — pending =

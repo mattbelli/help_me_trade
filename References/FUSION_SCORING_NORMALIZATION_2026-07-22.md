@@ -1,9 +1,31 @@
 # Fusion Scoring Normalization — the liquidity-bias fix (2026-07-22)
 
-**Status: SETTLED DESIGN** — 3-pass converged (orchestrator + founder + zero-context Grok cross-check,
-07-22). Builds as its own small round immediately after Round 3 (lifecycle) lands — same files, one
-tree-writer. Delta ON `FUSION_HORIZON_REDESIGN_2026-07-21.md` §maturity; supersedes
+**Status: STAGE 1 BUILT 2026-07-22** (was: SETTLED DESIGN, 3-pass converged — orchestrator + founder +
+zero-context Grok cross-check). Delta ON `FUSION_HORIZON_REDESIGN_2026-07-21.md` §maturity; supersedes
 `maturity = thesis_gross × conviction` as the ranking statistic.
+
+## As built (07-22) — deltas on the slice below
+
+- Build slice 1–4 shipped: `z` in `score_decayed()` (both role blocks, `_z()` beside `_conviction()`),
+  `/api/fusion/radar` sorts by thesis z (+ `net`/`z` in rows), Desk = Z primary + Net beside (Mat dropped
+  from the widget, kept in the payload), replay tool is z-native — its cut-line is now the DUAL-GATE
+  table (per T: ranked = peak z ≥ T vs armable = peak z ≥ T at an instant where conviction ≥ bar).
+- **Stage-2 backfill harness shipped in-round** (founder ask, Grok-cross-checked): `fusion_z_baseline`
+  table (DERIVED, rebuildable) + `tools/fusion_z_baseline.py`. Pre-dot days replay the RAW stores through
+  the SAME intake shaping + scorer — one code path, no live-vs-backfill drift. **Floor = 2026-07-16,
+  a LATCH** (pre-break collection poisons baselines: alphabetical sub clip, SPY/TSLA unwatched; bump on
+  any future collection change — shaping changes never move it, raw days re-replay through current code).
+  **Frozen summary rule**: 5-min ET grid instants; `peak_z` (peak-vs-peak feeds the intraday Stage-2
+  percentile), `close_z` (EOD/grading), `peak_armable_z` (T-table fuel); `source` labels dots vs
+  raw_events fidelity (raw = flow+tape only, no storm-shed/unstampable drops). **Stage-2 percentiles stay
+  ADVISORY below MIN_BASELINE_DAYS=10 rows/symbol** — a percentile over 4 values is a rank, not a
+  distribution. 3,310 symbol-days live (07-16..21; false after-hours-only zero-rows are skipped, not written).
+- T tables for the founder pick: `research/fusion_rescore/z_baseline_2026-07-16_2026-07-21.md` (full
+  universe, 4 sessions) + `rescore_2026-07-21_2026-07-21.md` (at-decision lens, investigated subset).
+  Live-parity dot days: T=3.0 arms ~4–13 symbol-days/day, T=4.0 ~3–4. 07-17 QQQ = the design working:
+  peak z 5.0 ranked, armable 0.0 (contested all day).
+- The LIVE investigate gate still runs `score_dots` — rewiring to z lands with the founder T pick
+  (Round-5 ARM at the earliest), never silently.
 
 ## The disease (founder-called, live-confirmed)
 

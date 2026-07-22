@@ -1815,7 +1815,9 @@ export type FusionRadarRow = {
   thesis: {
     bull_mass: number;
     bear_mass: number;
+    net: number;
     conviction: number;
+    z: number;
     contested: boolean;
   };
   trigger: {
