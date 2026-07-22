@@ -1,0 +1,228 @@
+"""v2 decayed-mass scorer (Fusion Horizon Redesign §2.1/§2.2).
+
+Covers the two bugs the redesign kills: the no-decay all-day sum and the
+binary contested-if-ever bit. score_dots and the live shadow gate are untouched
+and out of scope here.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime, timedelta, timezone
+
+from db.fusion import init_fusion_tables
+from db.options_flow import init_db as init_options
+from signals.fusion.scorer import (
+    NOISE_FLOOR,
+    ROLE_THESIS,
+    ROLE_TRIGGER,
+    SESSION_SECONDS,
+    THESIS_HALF_LIFE_TD,
+    evidence_role,
+    score_decayed,
+    session_seconds_between,
+)
+
+_UTC = timezone.utc
+
+
+def _utc(y: int, mo: int, d: int, h: int, mi: int = 0) -> datetime:
+    return datetime(y, mo, d, h, mi, tzinfo=_UTC)
+
+
+def _dot(
+    dot_id: str,
+    ts: datetime,
+    *,
+    direction: str = "bull",
+    group: str = "options_actor",
+    component: str = "option_block",
+    raw: float = 500_000.0,  # log2(500k / 250k base) = 1.0 point per dot
+    dte: int | None = None,
+    stamped: int = 1,
+) -> dict:
+    dot: dict = {
+        "id": dot_id,
+        "actor_group": group,
+        "component": component,
+        "direction": direction,
+        "ts": ts.isoformat(),
+        "raw_value": str(raw),
+        "stamped": stamped,
+        "detail": {},
+    }
+    if dte is not None:
+        dot["dte"] = dte
+    return dot
+
+
+# --------------------------------------------------------------------- decay
+
+
+def test_thesis_mass_halves_after_one_session_half_life():
+    # Half-life dial cut to 0.5 td (11,700 session-seconds = 3h15m) so it fits
+    # inside one RTH session — no boundary crossing to obscure the arithmetic.
+    ts = _utc(2026, 7, 21, 14, 0)  # Tue 10:00 ET
+    now = _utc(2026, 7, 21, 17, 15)  # Tue 13:15 ET → exactly 11,700 session-s
+    dot = _dot("thesis", ts, component="option_block", dte=30)
+    assert session_seconds_between(ts, now) == 0.5 * SESSION_SECONDS
+    m0 = score_decayed([dot], ts, thesis_half_life_td=0.5)
+    m1 = score_decayed([dot], now, thesis_half_life_td=0.5)
+    assert m0["thesis"]["bull_mass"] == 1.0
+    assert abs(m1["thesis"]["bull_mass"] - 0.5) < 1e-6
+
+
+def test_thesis_decay_ignores_overnight_and_weekend():
+    # A pure weekend elapses zero session time.
+    assert session_seconds_between(_utc(2026, 7, 18, 12, 0), _utc(2026, 7, 19, 12, 0)) == 0.0
+    # Fri 15:00 ET → Mon 11:00 ET: only the 1h Friday tail + 1.5h Monday head
+    # count; the ~64h overnight/weekend gap is invisible to the thesis clock.
+    fri = _utc(2026, 7, 17, 19, 0)  # 15:00 ET Fri
+    mon = _utc(2026, 7, 20, 15, 0)  # 11:00 ET Mon
+    assert session_seconds_between(fri, mon) == 3600 + 5400  # 1h + 1.5h
+    dot = _dot("thesis", fri, component="option_block", dte=30)
+    # Thesis barely decays across the weekend; a same-span TRIGGER dot (wall
+    # clock, overnight counts) is stone dead by Monday.
+    thesis = score_decayed([dot], mon)["thesis"]["bull_mass"]
+    trig_dot = _dot("trig", fri, component="option_sweep", dte=0)
+    trigger = score_decayed([trig_dot], mon)["trigger"]["bull_mass"]
+    assert thesis > 0.8  # 0.5 ** (9000 / (2.5*23400)) ≈ 0.898
+    assert trigger < 1e-3  # ~64h wall clock at a 60-min half-life → ~0
+
+
+def test_trigger_mass_halves_after_60_wall_minutes_and_counts_overnight():
+    ts = _utc(2026, 7, 21, 14, 0)
+    dot = _dot("trig", ts, component="option_sweep", dte=0)
+    m0 = score_decayed([dot], ts)
+    m1 = score_decayed([dot], ts + timedelta(minutes=60))
+    assert m0["trigger"]["bull_mass"] == 1.0
+    assert abs(m1["trigger"]["bull_mass"] - 0.5) < 1e-6
+    # Overnight is real time for a trigger: 12h later it is gone.
+    overnight = score_decayed([dot], ts + timedelta(hours=12))["trigger"]["bull_mass"]
+    assert overnight < 1e-3
+
+
+# ---------------------------------------------------------------- conviction
+
+
+def test_conviction_one_sided_is_one_and_balanced_is_zero():
+    ts = _utc(2026, 7, 21, 14, 0)
+    one = score_decayed([_dot("a", ts, direction="bull", dte=30)], ts)
+    assert one["thesis"]["conviction"] == 1.0
+    balanced = score_decayed(
+        [
+            _dot("a", ts, direction="bull", dte=30),
+            _dot("b", ts, direction="bear", dte=30),
+        ],
+        ts,
+    )
+    assert balanced["thesis"]["conviction"] == 0.0
+    assert balanced["maturity"] == 0.0  # gross × 0 conviction
+
+
+# ------------------------------------------------------------ contested heals
+
+
+def test_contested_heals_as_thesis_evidence_ages_below_floor():
+    """The core disease fix. A near-balanced two-sided symbol is contested while
+    its evidence is fresh, and — with NO new dots — heals as the day's mass
+    decays below the noise floor. (Within one role, uniform decay preserves the
+    bull/bear ratio, so conviction is time-invariant; healing therefore comes
+    from the CONTEMPORANEOUS gross floor, not from the old absorbing-till-
+    midnight bit.)"""
+    ts = _utc(2026, 7, 21, 14, 0)  # Tue 10:00 ET, both sides fresh
+    dots = [
+        _dot("bull", ts, direction="bull", raw=500_000, dte=30),  # point 1.0
+        _dot("bear", ts, direction="bear", raw=570_000, dte=30),  # point ~1.19
+    ]
+    fresh = score_decayed(dots, ts)["thesis"]
+    assert fresh["gross"] >= NOISE_FLOOR
+    assert fresh["conviction"] < 0.4
+    assert fresh["contested"] is True
+
+    later = _utc(2026, 7, 24, 14, 0)  # Fri 10:00 ET → > 1 half-life of sessions
+    assert session_seconds_between(ts, later) > THESIS_HALF_LIFE_TD * SESSION_SECONDS
+    healed = score_decayed(dots, later)["thesis"]
+    assert healed["gross"] < NOISE_FLOOR  # aged into noise
+    assert healed["contested"] is False  # heals
+    assert abs(healed["conviction"] - fresh["conviction"]) < 1e-6  # ratio invariant
+
+
+# --------------------------------------------------------------- role routing
+
+
+def test_role_routing_and_maturity_ignores_trigger_dots():
+    ts = _utc(2026, 7, 21, 14, 0)
+    sweep_0dte = _dot("s", ts, component="option_sweep", dte=0)
+    flow_30dte = _dot("f", ts, component="option_block", dte=30)
+    assert evidence_role(sweep_0dte) == ROLE_TRIGGER
+    assert evidence_role(flow_30dte) == ROLE_THESIS
+
+    trig_only = score_decayed([sweep_0dte], ts)
+    assert trig_only["trigger"]["bull_mass"] > 0
+    assert trig_only["thesis"]["bull_mass"] == 0.0
+    assert trig_only["maturity"] == 0.0  # a trigger dot never builds maturity
+
+    thesis_only = score_decayed([flow_30dte], ts)
+    assert thesis_only["thesis"]["bull_mass"] > 0
+    assert thesis_only["trigger"]["bull_mass"] == 0.0
+
+    # Adding the trigger dot to the thesis dot leaves maturity byte-identical:
+    # no cross-role mixing (§2.2/§5).
+    both = score_decayed([flow_30dte, sweep_0dte], ts)
+    assert both["maturity"] == thesis_only["maturity"]
+    assert both["trigger"]["bull_mass"] == trig_only["trigger"]["bull_mass"]
+
+
+# -------------------------------------------------------------- replay smoke
+
+
+def test_replay_smoke_on_tmp_db(tmp_path):
+    from tools.fusion_rescore_replay import rescore_range
+
+    db_path = tmp_path / "t.db"
+    init_fusion_tables(db_path)
+    init_options(db_path)
+
+    episode_id = "ep_smoke"
+    day = "2026-07-21"
+    conn = sqlite3.connect(db_path)
+    # One 30-DTE bullish block, sourced from options_flow_events so the replay's
+    # DTE-recovery join is exercised (evidence_dots don't persist DTE).
+    conn.execute(
+        """INSERT INTO options_flow_events(id, ts, underlying, occ_symbol,
+               event_type, dte, premium_usd, created_at)
+           VALUES ('ev1','2026-07-21T14:00:00+00:00','ZZZ','ZZZ260821C1',
+               'block', 30, 500000, '2026-07-21T14:00:00+00:00')"""
+    )
+    conn.execute(
+        """INSERT INTO evidence_dots(id, episode_id, source_store,
+               source_event_id, source_ingest_seq, symbol, ts, component,
+               actor_group, dot_kind, direction, raw_value, points, stamped,
+               created_at)
+           VALUES ('d1', ?, 'options_flow', 'ev1', 1, 'ZZZ',
+               '2026-07-21T14:00:00+00:00', 'option_block', 'options_actor',
+               'event', 'bull', '500000', 0, 1, '2026-07-21T14:00:00+00:00')""",
+        (episode_id,),
+    )
+    conn.execute(
+        """INSERT INTO fusion_investigations(episode_id, market_day, symbol,
+               decided_at, decision, score, threshold)
+           VALUES (?, ?, 'ZZZ', '2026-07-21T14:05:00+00:00',
+               'shadow_investigate', 1.8, 1.0)""",
+        (episode_id, day),
+    )
+    conn.commit()
+    conn.close()
+
+    report = rescore_range(db_path)
+    assert len(report["records"]) == 1
+    rec = report["records"][0]
+    assert rec["symbol"] == "ZZZ"
+    assert rec["decision"] == "shadow_investigate"
+    assert rec["old_score"] == 1.8
+    # 30-DTE block → thesis; one-sided → maturity = gross × 1.0 > 0.
+    assert rec["thesis_bull"] > 0
+    assert rec["conviction"] == 1.0
+    assert rec["maturity"] > 0
+    assert rec["peak_ts"] is not None

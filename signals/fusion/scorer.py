@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from signals.confluence_score import (
     FLOW_PREMIUM_BASE_USD,
@@ -218,4 +219,255 @@ def score_dots(dots: list[dict]) -> dict[str, Any]:
         "contested": contested,
         "contested_groups": sorted(contested_groups),
         "direction_state": direction_state,
+    }
+
+
+# ============================================================================
+# v2 decayed masses + conviction (Fusion Horizon Redesign 2026-07-21, §2.1/§2.2)
+#
+# ADDED ALONGSIDE score_dots — score_dots and the live shadow gate are unchanged.
+# This layer replaces the disease measured 07-21: undecayed all-day sums and a
+# binary "contested-if-ever" bit (§1). Here direction is a SIGNED, exponentially
+# DECAYED sum, so afternoon evidence no longer carries morning noise and a
+# contested symbol HEALS as its evidence ages below the noise floor.
+#
+# Pure functions only: inputs are dot rows + an explicit ``now`` + dial
+# overrides. No DB, no datetime.now() inside the math (so a replay at any past
+# instant is exact). Stamp/collapse filtering mirrors score_dots exactly.
+# ============================================================================
+
+ROLE_THESIS = "thesis"
+ROLE_TRIGGER = "trigger"
+
+_ET = ZoneInfo("America/New_York")
+_SESSION_OPEN = (9, 30)
+_SESSION_CLOSE = (16, 0)
+# Regular RTH session length, 09:30–16:00 ET = 6.5h. Half-days (early closes)
+# are ignored in v1 — they over-count ~3.25h of decay time a few days a year;
+# a NYSE-calendar-aware version is a later dial (comment kept deliberately).
+SESSION_SECONDS = 23_400
+
+# --- FOUNDER DIALs (changes surfaced as diffs, never silent — CLAUDE.md) -----
+# THESIS half-life, in TRADING DAYS, measured in session-seconds: overnight and
+# weekend gaps contribute ZERO decay (a thesis doesn't age while the market is
+# shut). 2.5 td ≈ the swing horizon the product arms on (§2.3).
+THESIS_HALF_LIFE_TD = 2.5  # FOUNDER DIAL
+# TRIGGER half-life, in WALL-CLOCK MINUTES: immediacy dies in real time,
+# overnight included — a fired trigger is stale by the next session.
+TRIGGER_HALF_LIFE_MIN = 60.0  # FOUNDER DIAL
+# Options print at/below this DTE is TRIGGER fuel; above it is THESIS fuel. The
+# 3–6 DTE band routes THESIS by default (DTE ≥ 3 → thesis) — bump this dial to 6
+# to pull that band into the trigger window.
+TRIGGER_DTE_MAX = 2  # FOUNDER DIAL (the 3–6 band lives just above it)
+# Conviction below this, with gross mass at/above the floor, = contested.
+CONVICTION_BAR = 0.4  # FOUNDER DIAL
+# Minimum gross decayed mass for a role to count as "real" — the gate that lets
+# contested HEAL: once the day's evidence decays below this, it is noise, not a
+# live disagreement.
+NOISE_FLOOR = 1.0  # FOUNDER DIAL
+
+# Role by component MECHANISM, DTE-independent. Options-actor components are
+# deliberately absent — they route by DTE in evidence_role (see the report note:
+# live sweeps span DTE 0–879, so "sweeps are always trigger" would decay a
+# 2-year sweep in 60 minutes; the spec's governing rule is "DTE routes a print's
+# role", §2.2/§4, so options flow — sweeps included — is DTE-routed).
+_TRIGGER_COMPONENTS = frozenset(
+    {
+        "session_level",  # intraday level touch = a moment
+        "price_alert",  # founder level touch = a moment
+        "rvol_ex_prints",  # RVOL burst
+    }
+)
+_THESIS_COMPONENTS = frozenset(
+    {
+        "dark_pool",  # institutional accumulation
+        "equity_block",  # institutional accumulation
+        "equity_sweep",  # excluded from v1 scoring, mapped for completeness
+        "earnings_proximity",  # catalyst proximity
+        "reddit_buzz",  # attention builds over hours/days (non-directional)
+        "stocktwits_buzz",
+        "regime",  # context riders (non-directional)
+        "index_pressure",
+        "market_shock",
+    }
+)
+_OPTIONS_COMPONENTS = frozenset(
+    {"option_sweep", "option_block", "unusual_option_volume", "directional_pressure"}
+)
+
+
+def _dte(dot: dict) -> int | None:
+    """A dot's days-to-expiry, if carried. Looked up top-level first (what the
+    replay stamps from options_flow_events) then in ``detail``. Live
+    evidence_dots do NOT persist DTE today — see the report; absent DTE routes an
+    options dot to THESIS (positioning) by default."""
+    for source in (dot, dot.get("detail")):
+        if isinstance(source, dict) and source.get("dte") is not None:
+            try:
+                return int(float(source["dte"]))
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def evidence_role(dot: dict, *, trigger_dte_max: int = TRIGGER_DTE_MAX) -> str:
+    """Classify one dot as THESIS (slow) or TRIGGER (fast) fuel (§2.2).
+
+    Mechanism-driven components resolve directly; options flow routes by DTE.
+    Only directional actor dots ever enter a mass — state/context/attention dots
+    are classified for completeness and never contribute (mirrors score_dots,
+    which sums only ACTOR_GROUPS)."""
+    component = str(dot.get("component") or "")
+    if component in _TRIGGER_COMPONENTS:
+        return ROLE_TRIGGER
+    if component in _THESIS_COMPONENTS:
+        return ROLE_THESIS
+    group = str(dot.get("actor_group") or "")
+    if component in _OPTIONS_COMPONENTS or group == "options_actor":
+        dte = _dte(dot)
+        if dte is not None and dte <= trigger_dte_max:
+            return ROLE_TRIGGER
+        return ROLE_THESIS  # DTE ≥ 3 (3–6 band is a dial) or unknown → thesis
+    if group == "equity_actor":
+        return ROLE_THESIS  # block/dark-pool accumulation
+    # Unknown dot kind: default THESIS (slow) so nothing unseen masquerades as a
+    # hot trigger. Any dot that lands here is flagged in the migration report.
+    return ROLE_THESIS
+
+
+def _parse_ts(ts: Any) -> datetime:
+    """UTC-aware datetime from an ISO string (or passthrough datetime)."""
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def session_seconds_between(start: datetime, end: datetime) -> float:
+    """Regular-session seconds elapsed between two instants (§2.2 thesis clock).
+
+    Counts only RTH overlap (09:30–16:00 ET, Mon–Fri); overnight and weekend
+    gaps contribute zero. Half-days are treated as full sessions in v1 (a small
+    over-count a few days a year — noted at SESSION_SECONDS). O(days) — dot ages
+    here are hours to a handful of sessions."""
+    if end <= start:
+        return 0.0
+    start_et = start.astimezone(_ET)
+    end_et = end.astimezone(_ET)
+    total = 0.0
+    day = start_et.date()
+    last = end_et.date()
+    while day <= last:
+        if day.weekday() < 5:  # Mon–Fri
+            open_dt = datetime(
+                day.year, day.month, day.day, _SESSION_OPEN[0], _SESSION_OPEN[1], tzinfo=_ET
+            )
+            close_dt = datetime(
+                day.year, day.month, day.day, _SESSION_CLOSE[0], _SESSION_CLOSE[1], tzinfo=_ET
+            )
+            lo = max(start_et, open_dt)
+            hi = min(end_et, close_dt)
+            if hi > lo:
+                total += (hi - lo).total_seconds()
+        day += timedelta(days=1)
+    return total
+
+
+def _decay_factor(
+    role: str,
+    dot_ts: datetime,
+    now: datetime,
+    thesis_half_life_td: float,
+    trigger_half_life_min: float,
+) -> float:
+    """Exponential decay in [0, 1] for a dot of ``role`` observed at ``dot_ts``."""
+    if role == ROLE_TRIGGER:
+        elapsed_min = max(0.0, (now - dot_ts).total_seconds() / 60.0)
+        half_life = max(1e-9, trigger_half_life_min)
+        return 0.5 ** (elapsed_min / half_life)
+    elapsed = session_seconds_between(dot_ts, now)
+    half_life = max(1e-9, thesis_half_life_td * SESSION_SECONDS)
+    return 0.5 ** (elapsed / half_life)
+
+
+def _conviction(bull: float, bear: float) -> float:
+    gross = bull + bear
+    return abs(bull - bear) / gross if gross > 0 else 0.0
+
+
+def score_decayed(
+    dots: list[dict],
+    now: Any,
+    *,
+    thesis_half_life_td: float = THESIS_HALF_LIFE_TD,
+    trigger_half_life_min: float = TRIGGER_HALF_LIFE_MIN,
+    conviction_bar: float = CONVICTION_BAR,
+    noise_floor: float = NOISE_FLOOR,
+    trigger_dte_max: int = TRIGGER_DTE_MAX,
+) -> dict[str, Any]:
+    """Signed, decayed thesis/trigger masses for one symbol's dots at ``now``.
+
+    Per (role, direction) the decayed sum of per-dot points (each dot's own
+    capped log-magnitude, so options premium and equity notional are normalised
+    to their own bases before summing). ``conviction = |bull − bear| / gross``;
+    ``contested`` = gross at/above the floor AND conviction below the bar,
+    evaluated CONTEMPORANEOUSLY at ``now``. Maturity = thesis_gross ×
+    thesis_conviction — trigger masses are computed and returned but NEVER mixed
+    in (fast evidence times an entry, never carries a thesis; §2.2/§5, no
+    cross-role score mixing).
+
+    Filtering mirrors score_dots exactly: only stamped, directional
+    (bull/bear) actor-group dots that survive the 5-minute collapse contribute.
+    ``now`` and each dot ``ts`` are UTC ISO strings or datetimes.
+    """
+    now_dt = _parse_ts(now)
+    collapsed = _collapse_ids(dots)
+    masses: dict[str, dict[str, float]] = {
+        ROLE_THESIS: {"bull": 0.0, "bear": 0.0},
+        ROLE_TRIGGER: {"bull": 0.0, "bear": 0.0},
+    }
+    for dot in dots:
+        if dot.get("actor_group") not in ACTOR_GROUPS:
+            continue
+        direction = dot.get("direction")
+        if direction not in ("bull", "bear"):
+            continue
+        if not bool(dot.get("stamped", 1)):
+            continue
+        if str(dot.get("id")) in collapsed:
+            continue
+        point = _log_score(_value(dot), _base(dot))
+        if point <= 0:
+            continue
+        role = evidence_role(dot, trigger_dte_max=trigger_dte_max)
+        decay = _decay_factor(
+            role, _parse_ts(dot["ts"]), now_dt, thesis_half_life_td, trigger_half_life_min
+        )
+        masses[role][direction] += point * decay
+
+    roles_out: dict[str, Any] = {}
+    for role, sides in masses.items():
+        bull = sides["bull"]
+        bear = sides["bear"]
+        gross = bull + bear
+        conviction = _conviction(bull, bear)
+        roles_out[role] = {
+            "bull_mass": round(bull, 4),
+            "bear_mass": round(bear, 4),
+            "gross": round(gross, 4),
+            "net": round(bull - bear, 4),
+            "conviction": round(conviction, 4),
+            "contested": gross >= noise_floor and conviction < conviction_bar,
+        }
+
+    thesis = roles_out[ROLE_THESIS]
+    maturity = thesis["gross"] * thesis["conviction"]
+    return {
+        "now": now_dt.isoformat(),
+        "thesis": thesis,
+        "trigger": roles_out[ROLE_TRIGGER],
+        "maturity": round(maturity, 4),
     }
