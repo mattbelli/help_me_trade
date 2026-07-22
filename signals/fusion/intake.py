@@ -804,6 +804,25 @@ def intake_once(
                 db_path,
             )
             price = _decimal(lookup(shape["symbol"]))
+            if price is None and store == "equity_tape":
+                # Off-cache tape names (the ASTS case: 64/64 dots unstampable,
+                # $70-130M/day of one-sided prints invisible to the live lane)
+                # stamp from the print's own execution price. This flips their
+                # dots into the MASS (magnitude still comes from notional) and
+                # also becomes the only price lifecycle sees for them (anchor
+                # latch, 1.5×ATR price_invalidation, level triggers via the
+                # _latest_price DB fallback). Dark prints can report late or
+                # off-NBBO, so a rogue print CAN falsely invalidate — accepted
+                # noise: the lane is observe-only, episodes self-heal on the
+                # next dot, and it beats the alternative (price-blind, forever
+                # inert). Auditable via close_reason='price_invalidation' on
+                # print-stamped symbols; robustify (median-of-recent-prints)
+                # only if the ledger shows it. Labeled for the honesty trail.
+                # Options events carry no underlying price — no fallback there.
+                fallback = _decimal(event.get("price"))
+                if fallback is not None and fallback > 0:
+                    price = fallback
+                    shape["detail"]["price_source"] = "print"
             atr14 = fusion_db.get_atr(shape["symbol"], db_path=db_path)
             dot_id = _insert_dot(
                 episode_id=episode["id"],

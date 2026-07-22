@@ -196,6 +196,44 @@ def test_unstampable_is_stored_and_conservation_balances(fusion_db: Path) -> Non
     assert conservation_counts(db_path=fusion_db) == {"inputs": 1, "dispositions": 1}
 
 
+def test_tape_dot_stamps_from_print_price_when_cache_misses(fusion_db: Path) -> None:
+    """The ASTS fix: an off-cache tape name stamps from the print's own
+    execution price (labeled price_source='print') instead of dying
+    unstampable — with ATR present the dot is scored and carries mass."""
+    insert_tape(_tape("tape-offcache"), fusion_db)
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    counters = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: None)
+    assert counters["scored"] == 1
+    assert counters["unstampable"] == 0
+    with connect(fusion_db) as conn:
+        dot = conn.execute(
+            """SELECT stamped, trigger_price, detail_json FROM evidence_dots
+               WHERE source_event_id = 'tape-offcache'"""
+        ).fetchone()
+    assert dot["stamped"] == 1
+    assert Decimal(dot["trigger_price"]) == Decimal("320")
+    assert json.loads(dot["detail_json"])["price_source"] == "print"
+
+
+def test_options_dot_stays_unstampable_without_cached_price(fusion_db: Path) -> None:
+    """No fallback for options events. The boundary is enforced by the schema
+    (options_flow_events has no price column, so there is nothing to fall back
+    to) with the store guard as belt-and-braces against a future price-ish
+    column; this pins the observable outcome — unstampable, and no
+    price_source label ever written on the flow dot."""
+    insert_flow(_flow("flow-nocache"), fusion_db)
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    counters = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: None)
+    assert counters["unstampable"] == 1
+    with connect(fusion_db) as conn:
+        dot = conn.execute(
+            """SELECT stamped, detail_json FROM evidence_dots
+               WHERE source_event_id = 'flow-nocache'"""
+        ).fetchone()
+    assert dot["stamped"] == 0
+    assert "price_source" not in json.loads(dot["detail_json"])
+
+
 def test_storm_shedding_accounts_every_event(fusion_db: Path) -> None:
     put_atr("TSLA", "2026-07-16", Decimal("10"), db_path=fusion_db)
     for number in range(4):
