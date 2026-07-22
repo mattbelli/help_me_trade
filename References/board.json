@@ -1747,20 +1747,20 @@
     {
       "id": "fr-1783787090",
       "title": "trading calendar widget doesn't resize vertically",
-      "lane": "inbox",
+      "lane": "done",
       "type": "bug",
       "priority": "normal",
-      "notes": "2026-07-11 founder: calendar widget grows fine horizontally but the day grid doesn't get any bigger when resized vertically \u2014 wants it to resize on both axes and keep a roughly square cell/grid shape at any size.",
+      "notes": "2026-07-11 founder: calendar widget grows fine horizontally but the day grid doesn't get any bigger when resized vertically \u2014 wants it to resize on both axes and keep a roughly square cell/grid shape at any size. || DONE 2026-07-22: the day grid had content-sized rows (tiles min-h-38px) so vertical resize left dead space. Grid now min-h-full with gridTemplateRows auto + repeat(weeks+1, minmax(38px, 1fr)) \u2014 week rows split the widget height evenly, 38px floor keeps short widgets scrollable. Typecheck green; pending in-browser check.",
       "owner": "founder",
       "updated_at": "2026-07-11"
     },
     {
       "id": "fr-1783787091",
       "title": "orders: show exact fill time next to the date",
-      "lane": "inbox",
+      "lane": "done",
       "type": "idea",
       "priority": "normal",
-      "notes": "2026-07-11 founder: wants the exact time shown next to the date on orders. Likely the same gap as [[fill-time-on-orders]] (fill time truncated to date-only at import) \u2014 check that card before scoping new work.",
+      "notes": "2026-07-11 founder: wants the exact time shown next to the date on orders. Likely the same gap as [[fill-time-on-orders]] (fill time truncated to date-only at import) \u2014 check that card before scoping new work. || CLOSED 2026-07-22 as DUPLICATE of [[fill-time-on-orders]] (done): the 07-12 fix is on main \u2014 raw_json COALESCE($.time,$.transaction_time) -> fill_time -> orders-widget FilledTab renders the clock next to the date ('2:48p'). Verified in code: orders-widget.tsx formatFillClock(e.fill_time).",
       "owner": "founder",
       "updated_at": "2026-07-11"
     },

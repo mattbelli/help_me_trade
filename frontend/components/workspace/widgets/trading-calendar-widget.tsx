@@ -408,9 +408,13 @@ export function TradingCalendarWidget() {
           </div>
         ) : (
           <div
-            className="grid gap-[3px]"
+            className="grid min-h-full gap-[3px]"
             style={{
               gridTemplateColumns: "repeat(7, minmax(0, 1fr)) minmax(40px, 0.85fr)",
+              // Header row hugs; week + day-of-week rollup rows split the widget
+              // height evenly so the grid grows vertically with the widget
+              // (min 38px keeps short widgets scrollable instead of crushed).
+              gridTemplateRows: `auto repeat(${weeks.length + 1}, minmax(38px, 1fr))`,
             }}
           >
             {WEEKDAY_LABELS.map((label) => (
