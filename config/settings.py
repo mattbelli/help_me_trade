@@ -589,6 +589,17 @@ def normalize_watchlists_state(state: dict) -> dict:
         name = str(item.get("name", list_id)).strip() or list_id
         symbols = normalize_watchlist(item.get("symbols", []))
         entry = {"id": list_id, "name": name, "symbols": symbols}
+        max_slots = item.get("max_slots")
+        if isinstance(max_slots, (int, float)) and int(max_slots) > 0:
+            entry["max_slots"] = min(500, int(max_slots))
+        pinned_in = item.get("pinned")
+        if isinstance(pinned_in, list):
+            # Pins only mean anything for list MEMBERS — a symbol removed from
+            # the list sheds its pin rather than haunting the state.
+            members = set(symbols)
+            pinned = [s for s in normalize_watchlist(pinned_in) if s in members]
+            if pinned:
+                entry["pinned"] = pinned
         list_settings = normalize_watchlist_settings(item.get("settings"))
         if list_settings is not None:
             entry["settings"] = list_settings
@@ -606,6 +617,35 @@ def normalize_watchlists_state(state: dict) -> dict:
         active_id = lists[0]["id"]
 
     return {"active_id": active_id, "lists": lists}
+
+
+def watchlist_capacity_error(entry: dict) -> str | None:
+    """Slot-cap check for a normalized list entry, or None when it fits.
+
+    Pinned symbols ride ABOVE the cap (founder 07-22: names pinned "no matter
+    what" are added on top of the slots), so capacity counts unpinned members
+    only. Enforced at the EDIT seams (update/add), never at load — a normalize
+    must not silently drop symbols from an over-full list that already exists
+    on disk.
+    """
+    max_slots = entry.get("max_slots")
+    if not isinstance(max_slots, int):
+        return None
+    pinned = set(entry.get("pinned", []))
+    unpinned = [s for s in entry.get("symbols", []) if s not in pinned]
+    if len(unpinned) <= max_slots:
+        return None
+    label = entry.get("name") or entry.get("id") or "watchlist"
+    return (
+        f"“{label}” is full ({len(unpinned)}/{max_slots} slots) — "
+        "remove a symbol first (pinned symbols don't use slots)"
+    )
+
+
+def _normalize_single_watchlist(entry: dict) -> dict:
+    return normalize_watchlists_state({"active_id": entry.get("id", ""), "lists": [entry]})[
+        "lists"
+    ][0]
 
 
 def get_watchlists_state() -> dict:
@@ -707,6 +747,8 @@ def update_watchlist(
     name: str | None = None,
     symbols: list[str] | None = None,
     settings: dict | None = None,
+    max_slots: int | None = None,
+    pinned: list[str] | None = None,
 ) -> dict:
     state = get_watchlists_state()
     if not _find_watchlist(state, list_id):
@@ -728,6 +770,17 @@ def update_watchlist(
                 updated["settings"] = clean
             else:
                 updated.pop("settings", None)
+        if max_slots is not None:
+            if int(max_slots) > 0:
+                updated["max_slots"] = min(500, int(max_slots))
+            else:
+                updated.pop("max_slots", None)  # 0 clears the cap
+        if pinned is not None:
+            updated["pinned"] = normalize_watchlist(pinned)
+        if symbols is not None or max_slots is not None or pinned is not None:
+            err = watchlist_capacity_error(_normalize_single_watchlist(updated))
+            if err:
+                raise ValueError(err)
         lists.append(updated)
 
     return _save_watchlists_state({**state, "lists": lists})
@@ -760,10 +813,16 @@ def add_watchlist_symbol(symbol: str, *, list_id: str | None = None) -> list[str
             lists.append(item)
             continue
         symbols = list(item["symbols"])
-        if sym not in symbols:
+        added = sym not in symbols
+        if added:
             symbols.append(sym)
+        candidate = {**item, "symbols": symbols}
+        if added:  # re-adding a member is a no-op, never a capacity error
+            err = watchlist_capacity_error(_normalize_single_watchlist(candidate))
+            if err:
+                raise ValueError(err)
         updated_symbols = symbols
-        lists.append({**item, "symbols": symbols})
+        lists.append(candidate)
     if not updated_symbols:
         raise ValueError(f"Unknown watchlist {target_id!r}")
     _save_watchlists_state({**state, "lists": lists})

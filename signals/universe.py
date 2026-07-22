@@ -38,6 +38,43 @@ def all_watchlist_symbols_fresh() -> list[str]:
     return all_watchlist_symbols()
 
 
+FLOW_WATCHLIST_ID = "flow"
+
+
+def flow_watch_symbols() -> list[str]:
+    """Underlyings the options-flow watcher covers.
+
+    The dedicated ``flow`` watchlist (founder-curated, slot-capped — 07-22
+    game plan) when it exists: pinned symbols ride FIRST so a downstream
+    underlying cap clips unpinned tail before it ever touches a pin. Falls
+    back to the union of all lists so the watcher never goes dark if the flow
+    list is missing.
+    """
+    state = get_watchlists_state()
+    for lst in state.get("lists", []):
+        if lst.get("id") != FLOW_WATCHLIST_ID:
+            continue
+        symbols = [
+            s.strip().upper()
+            for s in lst.get("symbols", [])
+            if isinstance(s, str) and s.strip()
+        ]
+        pinned = {
+            s.strip().upper() for s in lst.get("pinned", []) if isinstance(s, str)
+        }
+        return [s for s in symbols if s in pinned] + [
+            s for s in symbols if s not in pinned
+        ]
+    return all_watchlist_symbols()
+
+
+def flow_watch_symbols_fresh() -> list[str]:
+    """Out-of-process variant of :func:`flow_watch_symbols` — see
+    :func:`all_watchlist_symbols_fresh` for why the cache is dropped."""
+    reload_settings()
+    return flow_watch_symbols()
+
+
 def liquid_core_symbols() -> list[str]:
     syms: set[str] = set()
     for fname in LIQUID_CORE_FILES:

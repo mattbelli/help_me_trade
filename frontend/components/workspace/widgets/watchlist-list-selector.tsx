@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Menu as MenuIcon, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import {
   createWatchlist,
   deleteWatchlist,
   fetchWatchlists,
+  type Watchlist,
   type WatchlistsState,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -23,9 +24,24 @@ type Props = {
   onSelect: (watchlistId: string) => void;
 };
 
+// "27/30" for slot-capped lists (pins ride above the cap, so they don't count).
+function slotsLabel(list: Watchlist): string | null {
+  if (!list.max_slots) return null;
+  const pinned = new Set(list.pinned ?? []);
+  const used = list.symbols.filter((s) => !pinned.has(s)).length;
+  return `${used}/${list.max_slots}`;
+}
+
+// The watchlist widget's title IS the switcher: the list's name renders in the
+// title slot of the grid header with a chevron, and clicking it drops the
+// list menu (founder 07-22 — replaced the separate hamburger menu on the
+// right side of the header).
 export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
   const [state, setState] = useState<WatchlistsState | null>(null);
+  const [open, setOpen] = useState(false);
 
+  // Refetch on every menu open (cheap, local API) so symbol counts and lists
+  // added elsewhere are current; the mount fetch covers the trigger label.
   useEffect(() => {
     let cancelled = false;
     fetchWatchlists()
@@ -38,7 +54,7 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [open]);
 
   const activeList = useMemo(() => {
     if (!state) return null;
@@ -48,20 +64,33 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
 
   if (!state || !activeList) return null;
 
+  const activeSlots = slotsLabel(activeList);
+
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         type="button"
-        aria-label="Watchlist options"
-        className="workspace-no-drag inline-flex items-center rounded p-1 text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        aria-label={`Watchlist: ${activeList.name} — switch list`}
+        className="workspace-no-drag inline-flex min-w-0 items-center gap-1 rounded px-0.5 outline-none hover:bg-[var(--bg-hover)]"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <MenuIcon className="size-3.5" />
+        <span
+          className="min-w-0 truncate pb-[0.3em] -mb-[0.3em] text-[length:var(--fs-widget-title)] font-semibold text-[var(--fg-widget-title)] [text-box:trim-both_cap_alphabetic]"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          {activeList.name}
+        </span>
+        {activeSlots ? (
+          <span className="shrink-0 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
+            {activeSlots}
+          </span>
+        ) : null}
+        <ChevronDown className="size-3 shrink-0 text-[var(--fg-faint)]" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        align="end"
-        className="min-w-32 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
+        align="start"
+        className="min-w-40 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
       >
         {state.lists.map((list) => (
           <DropdownMenuItem
@@ -74,8 +103,11 @@ export function WatchlistListSelector({ watchlistId, onSelect }: Props) {
                 : "text-[var(--fg-dim)]",
             )}
           >
-            {list.name}
-            {list.id === activeList.id ? <Check className="size-3" /> : null}
+            <span className="min-w-0 truncate">{list.name}</span>
+            <span className="flex shrink-0 items-center gap-1.5 text-[length:var(--fs-table)] text-[var(--fg-faint)]">
+              {slotsLabel(list) ?? list.symbols.length}
+              {list.id === activeList.id ? <Check className="size-3" /> : null}
+            </span>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />

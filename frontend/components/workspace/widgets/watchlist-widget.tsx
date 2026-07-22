@@ -12,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Reorder, useDragControls } from "motion/react";
-import { Check, GripVertical } from "lucide-react";
+import { Check, GripVertical, Pin } from "lucide-react";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
   WidgetEmpty,
@@ -110,6 +110,8 @@ function WatchlistAddRow({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  // Server-rejected add (a slot-capped list that's full) — surfaced, not silent.
+  const [error, setError] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const onList = useMemo(
@@ -157,6 +159,7 @@ function WatchlistAddRow({
     setSuggestions([]);
     setOpen(false);
     setActiveIndex(-1);
+    setError(null);
     inputRef.current?.focus();
   }, []);
 
@@ -180,6 +183,8 @@ function WatchlistAddRow({
         });
         onAdded(next);
         resetForNext();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to add symbol");
       } finally {
         setSubmitting(false);
       }
@@ -207,6 +212,7 @@ function WatchlistAddRow({
           const next = e.target.value.toUpperCase();
           setQuery(next);
           setActiveIndex(-1);
+          setError(null);
           if (!next.trim()) {
             setSuggestions([]);
             setOpen(false);
@@ -288,6 +294,11 @@ function WatchlistAddRow({
           })}
         </ul>
       ) : null}
+      {error ? (
+        <div className="absolute right-0 left-0 top-full z-50 mt-0.5 rounded border border-[var(--c-red)] bg-[var(--panel)] px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
+          {error}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -327,6 +338,9 @@ function WatchlistSymbolRow({
   linked,
   selected,
   confirming,
+  pinnable,
+  pinned,
+  onTogglePin,
   onPublish,
   onSelect,
   onDragStart,
@@ -348,6 +362,10 @@ function WatchlistSymbolRow({
   linked: boolean;
   selected: boolean;
   confirming: boolean;
+  // Slot-capped lists only (the flow list): pinned symbols ride above the cap.
+  pinnable: boolean;
+  pinned: boolean;
+  onTogglePin: () => void;
   onPublish: () => void;
   onSelect: () => void;
   onDragStart: () => void;
@@ -607,6 +625,30 @@ function WatchlistSymbolRow({
             // centered on the ticker at any --fs size, not low toward the baseline.
             className="truncate font-medium leading-none"
           />
+          {pinnable ? (
+            <button
+              type="button"
+              aria-label={pinned ? `Unpin ${symbol}` : `Pin ${symbol}`}
+              aria-pressed={pinned}
+              title={
+                pinned
+                  ? "Pinned — always watched, doesn't use a slot"
+                  : "Pin — always watched, doesn't use a slot"
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePin();
+              }}
+              className={cn(
+                "shrink-0 rounded p-0.5 leading-none",
+                pinned
+                  ? "text-[var(--c-accent)]"
+                  : "text-[var(--fg-faint)] opacity-0 transition-opacity hover:text-foreground group-hover/row:opacity-100",
+              )}
+            >
+              <Pin className={cn("size-3", pinned && "fill-current")} />
+            </button>
+          ) : null}
           {/* ml-auto pins the earnings badge to the cell's right edge so
               badges form a tidy right-aligned column instead of zig-zagging
               after tickers of varying width. */}
@@ -861,6 +903,14 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   );
 
   const symbolsKey = useMemo(() => symbols.join(","), [symbols]);
+
+  // Slot-capped lists (the flow list) get the per-row pin toggle; pinned
+  // symbols are always watched and ride above the slot cap.
+  const pinnable = Boolean(displayList?.max_slots);
+  const pinnedSet = useMemo(
+    () => new Set(displayList?.pinned ?? []),
+    [displayList?.pinned],
+  );
 
   // ── Column settings (per-watchlist, persisted via the settings blob) ───────
   const [localSettings, setLocalSettings] = useState<
@@ -1251,6 +1301,21 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     listRef.current?.focus();
   }, []);
 
+  const togglePin = useCallback(async (symbol: string) => {
+    const list = displayListRef.current;
+    if (!list) return;
+    const cur = list.pinned ?? [];
+    const next = cur.includes(symbol)
+      ? cur.filter((s) => s !== symbol)
+      : [...cur, symbol];
+    try {
+      setState(await updateWatchlist(list.id, { pinned: next }));
+    } catch {
+      // Fail-soft: the server rejects an unpin that would overflow the slots
+      // (the symbol needs a free slot to land in); state stays as-is.
+    }
+  }, []);
+
   const persistReorder = useCallback(
     async (reordered: string[]) => {
       setSortState(null);
@@ -1611,6 +1676,9 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 linked={linked}
                 selected={selectedSymbol === symbol}
                 confirming={confirmDelete === symbol}
+                pinnable={pinnable}
+                pinned={pinnedSet.has(symbol)}
+                onTogglePin={() => void togglePin(symbol)}
                 onPublish={() => publish(symbol)}
                 onSelect={() => setSelectedSymbol(symbol)}
                 onDragStart={handleDragStart}

@@ -27,13 +27,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# config.settings loads .env on import — everything below sees the same
-# environment the API does.
-from config.settings import (  # noqa: E402
-    get_watchlists_state,
-    reload_settings,
-)
+# signals.universe imports config.settings, which loads .env on import —
+# everything below sees the same environment the API does.
 from signals.options_flow.runner import OptionsFlowRunner  # noqa: E402
+from signals.universe import flow_watch_symbols_fresh  # noqa: E402
 
 logger = logging.getLogger("flow_collector")
 
@@ -45,21 +42,16 @@ def _flag(name: str) -> bool:
 
 
 def watchlist_symbols() -> list[str]:
-    # The API owns settings writes; drop our cache each call so watchlist
-    # edits made there are picked up without a collector restart.
-    reload_settings()
-    state = get_watchlists_state()
-    syms: set[str] = set()
-    for lst in state.get("lists", []):
-        for s in lst.get("symbols", []):
-            if isinstance(s, str) and s.strip():
-                syms.add(s.strip().upper())
+    # The API owns settings writes; the _fresh variant drops our settings
+    # cache each call so flow-list edits made there are picked up without a
+    # collector restart. Source = the dedicated "flow" list (pinned-first,
+    # slot-capped; union-of-all-lists fallback) — 07-22 game plan.
+    base = flow_watch_symbols_fresh()
     # Round 4: hot-lane promotions ride AFTER the watchlist, so the downstream
     # underlying cap clips promotions first and the founder's list is never
     # evicted (FUSION_ATTENTION_TIERS_ROUND4_SPEC). Import inside the guard:
     # this process owns the OPRA socket — even a broken attention module must
     # never cost it the watchlist it already had.
-    base = sorted(syms)
     try:
         from signals.fusion.attention import merge_hot_lane
 

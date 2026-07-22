@@ -446,6 +446,9 @@ export type Watchlist = {
   name: string;
   symbols: string[];
   settings?: WatchlistSettings;
+  // Slot-capped lists (the "flow" list): pinned symbols ride above the cap.
+  max_slots?: number;
+  pinned?: string[];
 };
 
 export type WatchlistsState = {
@@ -526,7 +529,13 @@ export async function createWatchlist(
 
 export async function updateWatchlist(
   id: string,
-  patch: { name?: string; symbols?: string[]; settings?: WatchlistSettings },
+  patch: {
+    name?: string;
+    symbols?: string[];
+    settings?: WatchlistSettings;
+    max_slots?: number;
+    pinned?: string[];
+  },
 ): Promise<WatchlistsState> {
   const res = await apiFetch(`${API_BASE}/api/watchlists/${encodeURIComponent(id)}`, {
     method: "PUT",

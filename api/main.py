@@ -164,6 +164,7 @@ from signals.strategy_kinds import strategy_kind
 from signals.strategy_scan import run_strategy_scan
 from signals.strategy_universe import resolve_universe_spec
 from signals.universe import all_watchlist_symbols as _all_watchlist_symbols
+from signals.universe import flow_watch_symbols as _flow_watch_symbols
 from signals.volume_profile import build_profile, load_profile, profile_dir, rvol_now
 from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
@@ -1053,13 +1054,14 @@ async def _rvol_alert_once() -> None:
 # (tools/flow_collector.py) can host it instead of this event loop --
 # ownership flips via OPTIONS_FLOW_EXTERNAL_COLLECTOR in the shared .env.
 def _flow_universe() -> list[str]:
-    """Watchlist + Round-4 hot-lane promotions (lane names ride last so the
-    underlying cap clips them first — the founder's list is never evicted).
+    """Flow watchlist (dedicated "flow" list, pinned-first; union fallback)
+    + Round-4 hot-lane promotions (lane names ride last so the underlying cap
+    clips them first — the founder's list is never evicted).
     Scoped to the FLOW runner only; other _all_watchlist_symbols consumers
     (earnings warm, ext quotes) stay watchlist-pure. Import inside the guard:
     even a broken attention module must never cost the flow lane its
     watchlist."""
-    base = _all_watchlist_symbols()
+    base = _flow_watch_symbols()
     try:
         from signals.fusion.attention import merge_hot_lane
 
@@ -2498,18 +2500,26 @@ def api_update_watchlist(list_id: str, body: dict = Body(...)):
     name = body.get("name")
     symbols = body.get("symbols")
     settings = body.get("settings")
+    max_slots = body.get("max_slots")
+    pinned = body.get("pinned")
     if name is not None and not isinstance(name, str):
         return JSONResponse({"error": "name must be a string"}, status_code=400)
     if symbols is not None and not isinstance(symbols, list):
         return JSONResponse({"error": "symbols must be a list"}, status_code=400)
     if settings is not None and not isinstance(settings, dict):
         return JSONResponse({"error": "settings must be an object"}, status_code=400)
+    if max_slots is not None and not isinstance(max_slots, int):
+        return JSONResponse({"error": "max_slots must be an integer"}, status_code=400)
+    if pinned is not None and not isinstance(pinned, list):
+        return JSONResponse({"error": "pinned must be a list"}, status_code=400)
     try:
         state = update_watchlist(
             list_id,
             name=name if isinstance(name, str) else None,
             symbols=symbols if isinstance(symbols, list) else None,
             settings=settings if isinstance(settings, dict) else None,
+            max_slots=max_slots if isinstance(max_slots, int) else None,
+            pinned=pinned if isinstance(pinned, list) else None,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)

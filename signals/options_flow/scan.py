@@ -32,9 +32,10 @@ def eligible_underlyings(symbols: list[str]) -> list[str]:
 
     Shared by the nightly scan and the intraday poll. Two traps this closes:
     futures roots (/ES, /CL, /NQ) 400 on the options endpoints, so each one burned an
-    underlying slot AND a REST call per cycle for nothing; and callers pass a *sorted*
-    watchlist, so a silent truncation drops whatever sorts last (SPY, TSLA, XLE) rather
-    than whatever matters least. Going over the cap is now a warning, not a quiet drop.
+    underlying slot AND a REST call per cycle for nothing; and a silent truncation
+    drops whatever the caller ordered LAST — input order is meaningful (the flow
+    list arrives pinned-first, hot-lane promotions last), so the clip preserves it
+    and drops the tail. Going over the cap is a warning, not a quiet drop.
     """
     eligible = [
         s.strip().upper()

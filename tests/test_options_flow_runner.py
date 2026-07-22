@@ -85,21 +85,25 @@ def test_collector_refuses_without_pipeline_flags(monkeypatch) -> None:
     assert asyncio.run(fc.main()) == 2
 
 
-def test_collector_watchlist_symbols_dedupes_and_sorts(monkeypatch) -> None:
+def test_collector_watchlist_symbols_uses_flow_list_pinned_first(monkeypatch) -> None:
+    # The collector sources the dedicated "flow" list (pinned-first) via the
+    # settings-cache-dropping fresh variant — 07-22 flow-list round.
+    import signals.universe as universe
     import tools.flow_collector as fc
 
-    monkeypatch.setattr(fc, "reload_settings", lambda: None)
+    monkeypatch.setattr(universe, "reload_settings", lambda: None)
     monkeypatch.setattr(
-        fc,
+        universe,
         "get_watchlists_state",
         lambda: {
+            "active_id": "flow",
             "lists": [
-                {"symbols": ["tsla", "SPY", " aapl "]},
-                {"symbols": ["SPY", None, ""]},
-            ]
+                {"id": "main", "symbols": ["ZZZT"]},
+                {"id": "flow", "symbols": ["TSLA", "SPY", "AAPL"], "pinned": ["SPY"]},
+            ],
         },
     )
-    assert fc.watchlist_symbols() == ["AAPL", "SPY", "TSLA"]
+    assert fc.watchlist_symbols() == ["SPY", "TSLA", "AAPL"]
 
 
 @pytest.mark.parametrize("flag", ["0", "false", "no"])

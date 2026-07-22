@@ -82,7 +82,12 @@ DAILY_PRUNE_DAYS = 400  # design §4; options_flow_daily retention
 # design §4; watchlist cap. Raised 25→30 (2026-07-14): the cap took the
 # alphabetically-first N of a sorted watchlist, so SPY/TSLA/XLE/XLF/SLV were
 # silently never watched. Over the cap is now a loud warning, not a quiet drop.
-OPTIONS_FLOW_MAX_UNDERLYINGS = 30
+# Raised 30→40 (2026-07-22, flow-list round): the user-facing budget is now the
+# dedicated "flow" watchlist's 30 slots; the extra 10 here are headroom so
+# pinned names (ride above the slots) and Round-4 hot-lane promotions (ride
+# last) are not auto-starved the moment the list is full. Worst-case contract
+# budget stays sane: (1000 − 130 gauge) / 40 ≈ 21 per name.
+OPTIONS_FLOW_MAX_UNDERLYINGS = 40
 # Cap contracts fetched per underlying for EOD bars (rank by OI desc). Keeps the
 # nightly scan bounded: ~25 × 800 ≪ Alpaca's practical request budget; most
 # liquid contracts win so UV-1 still sees the names that can clear MIN_OI.
