@@ -23,6 +23,10 @@ def _runner() -> OptionsFlowRunner:
 
 def test_subscription_set_empty_outside_regular_session(monkeypatch) -> None:
     monkeypatch.setattr(runner_mod, "_market_session", lambda: "pre")
+    # Pin the warm window OFF: "pre + inside the warm window" legitimately
+    # serves actives (#71's OI pre-seed) — this test means "pre, before it".
+    # Unpinned, the real clock made this fail on any 09:15–09:30 ET suite run.
+    monkeypatch.setattr(runner_mod, "_in_preopen_warm", lambda *a: False)
     monkeypatch.setitem(_default_state.active, "AAPL260918C00200000", {"x": 1})
     try:
         assert _runner().subscription_set() == []

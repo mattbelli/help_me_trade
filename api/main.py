@@ -2524,6 +2524,26 @@ def api_delete_watchlist(list_id: str):
 # execution paths keep their own always-fresh fetches.
 _wl_bars_cache: dict[tuple[str, str], tuple[float, list]] = {}
 _WL_BARS_TTL_S = {"1Day": 300.0, "5Min": 90.0}
+# A stale-by-shape override may force a refetch at most once a minute per
+# symbol — bounds the halted/no-today-bar retry rate (the retry-storm shape).
+_WL_STALE_RECHECK_S = 60.0
+
+
+def _wl_daily_series_stale(bars: list) -> bool:
+    """True when a 1Day series is missing TODAY's developing bar during the
+    regular session. TTL alone is blind to the open boundary: an entry cached
+    at 09:29 serves until 09:34, and pre-open the series legitimately ends at
+    YESTERDAY — so at the open every %chg it feeds shows yesterday's move as
+    current (seen live 07-22 09:33 ET: SPY displayed +0.83, tape read −0.14)."""
+    if not bars or _market_session() != "regular":
+        return False
+    try:
+        last = datetime.fromisoformat(str(bars[-1].time).replace("Z", "+00:00"))
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return False
+    return last.astimezone(_ET).date() < datetime.now(_ET).date()
 
 
 async def _wl_cached_bars_batch(
@@ -2536,7 +2556,14 @@ async def _wl_cached_bars_batch(
     for sym in symbols:
         hit = _wl_bars_cache.get((sym, timeframe))
         if hit is not None and now - hit[0] < ttl:
-            out[sym] = hit[1]
+            if (
+                timeframe == "1Day"
+                and now - hit[0] > _WL_STALE_RECHECK_S
+                and _wl_daily_series_stale(hit[1])
+            ):
+                missing.append(sym)
+            else:
+                out[sym] = hit[1]
         else:
             missing.append(sym)
     if missing:
