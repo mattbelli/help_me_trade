@@ -1811,6 +1811,7 @@ export async function getFusionEpisode(
 
 export type FusionRadarRow = {
   symbol: string;
+  tier: "live" | "poll" | "scan";
   maturity: number;
   thesis: {
     bull_mass: number;

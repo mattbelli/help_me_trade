@@ -1052,7 +1052,24 @@ async def _rvol_alert_once() -> None:
 # signals/options_flow/runner.py so the standalone collector process
 # (tools/flow_collector.py) can host it instead of this event loop --
 # ownership flips via OPTIONS_FLOW_EXTERNAL_COLLECTOR in the shared .env.
-_flow_runner = OptionsFlowRunner(watchlist_symbols=_all_watchlist_symbols)
+def _flow_universe() -> list[str]:
+    """Watchlist + Round-4 hot-lane promotions (lane names ride last so the
+    underlying cap clips them first — the founder's list is never evicted).
+    Scoped to the FLOW runner only; other _all_watchlist_symbols consumers
+    (earnings warm, ext quotes) stay watchlist-pure. Import inside the guard:
+    even a broken attention module must never cost the flow lane its
+    watchlist."""
+    base = _all_watchlist_symbols()
+    try:
+        from signals.fusion.attention import merge_hot_lane
+
+        return merge_hot_lane(base)
+    except Exception:
+        logger.warning("flow universe: hot-lane merge unavailable", exc_info=True)
+        return base
+
+
+_flow_runner = OptionsFlowRunner(watchlist_symbols=_flow_universe)
 
 
 def _upcoming_earnings_date(symbol: str, today_iso: str) -> str | None:
@@ -3595,6 +3612,19 @@ def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
             dot["dte"] = dte_by_id[event_id]
         by_symbol.setdefault(str(dot["symbol"]), []).append(dot)
 
+    from signals.fusion.attention import attention_tier
+    from signals.fusion.scorer import NOISE_FLOOR
+
+    try:
+        from signals.fusion.attention import hot_lane_rows
+
+        hot_by_symbol = {
+            row["symbol"]: row["reason"] for row in hot_lane_rows(DEFAULT_DB_PATH)
+        }
+    except Exception:
+        # A broken lane read degrades tier to poll/scan — never a radar 500.
+        logger.warning("radar: hot-lane read failed", exc_info=True)
+        hot_by_symbol = {}
     rows: list[dict] = []
     for symbol, dots in by_symbol.items():
         state = score_decayed(dots, now_iso_str)
@@ -3602,6 +3632,11 @@ def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
         rows.append(
             {
                 "symbol": symbol,
+                "tier": attention_tier(
+                    hot_reason=hot_by_symbol.get(symbol),
+                    thesis_gross=state["thesis"]["gross"],
+                    noise_floor=NOISE_FLOOR,
+                ),
                 "maturity": state["maturity"],
                 "thesis": {
                     "bull_mass": state["thesis"]["bull_mass"],

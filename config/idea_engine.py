@@ -80,6 +80,7 @@ FUSION_EPISODE_TTL_SESSIONS = 15  # FOUNDER DIAL — hard-TTL in trading days; m
 FUSION_REHYDRATE_SESSIONS = 10  # FOUNDER DIAL — cold-storage rehydration window (trading days) for a returning symbol
 FUSION_TRIGGER_TTL_IMPULSE_HOURS = 4  # FOUNDER DIAL — impulse-class trigger TTL (wall-clock hours)
 FUSION_TRIGGER_TTL_THESIS_SESSIONS = 3  # FOUNDER DIAL — thesis-confirmation-class trigger TTL (trading days)
+FUSION_HOT_LANE_DEMOTE_SESSIONS = 3  # FOUNDER DIAL — quiet trading days before a hot-lane symbol demotes (Round 4)
 
 # Fusion Phase C1 — SHADOW-MODE investigation gate (spec §2.6 LLM tier, §3 C).
 # The deterministic "this evidence stack would be investigated by the LLM lane
@@ -180,6 +181,7 @@ def validate_config() -> None:
     assert FUSION_REHYDRATE_SESSIONS >= 1
     assert FUSION_TRIGGER_TTL_IMPULSE_HOURS > 0
     assert FUSION_TRIGGER_TTL_THESIS_SESSIONS >= 1
+    assert FUSION_HOT_LANE_DEMOTE_SESSIONS >= 1
     # Fusion C1 shadow-investigation invariants.
     assert REASON_SHADOW_ONLY is True
     assert REASON_DAILY_BUDGET >= 1

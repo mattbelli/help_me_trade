@@ -342,7 +342,8 @@ def test_mechanically_resolved_row_retires_untouched(db: Path) -> None:
     # And it has left the sweep cohort for good.
     counts = sweep_lifecycle(datetime(2026, 7, 22, 16, 0, tzinfo=_UTC), db)
     assert counts == {"episodes_closed": 0, "ideas_trigger_fired": 0,
-                      "ideas_expired": 0, "ideas_invalidated": 0}
+                      "ideas_expired": 0, "ideas_invalidated": 0,
+                      "hot_promoted": 0, "hot_requalified": 0, "hot_demoted": 0}
 
 
 def test_entry_touched_row_promotes_to_live_never_counterfactual(db: Path, monkeypatch) -> None:

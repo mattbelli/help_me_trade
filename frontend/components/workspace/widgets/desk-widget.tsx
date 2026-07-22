@@ -127,6 +127,9 @@ function RadarTable({
               {row.thesis.net.toFixed(1)}
             </td>
             <td className={cn(TD, "whitespace-nowrap")}>
+              {row.tier === "live" ? (
+                <span className="mr-2 text-[var(--c-green)]">hot</span>
+              ) : null}
               {row.thesis.contested ? (
                 <span className="text-[var(--c-amber)]">contested</span>
               ) : null}

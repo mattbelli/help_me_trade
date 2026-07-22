@@ -54,7 +54,21 @@ def watchlist_symbols() -> list[str]:
         for s in lst.get("symbols", []):
             if isinstance(s, str) and s.strip():
                 syms.add(s.strip().upper())
-    return sorted(syms)
+    # Round 4: hot-lane promotions ride AFTER the watchlist, so the downstream
+    # underlying cap clips promotions first and the founder's list is never
+    # evicted (FUSION_ATTENTION_TIERS_ROUND4_SPEC). Import inside the guard:
+    # this process owns the OPRA socket — even a broken attention module must
+    # never cost it the watchlist it already had.
+    base = sorted(syms)
+    try:
+        from signals.fusion.attention import merge_hot_lane
+
+        return merge_hot_lane(base)
+    except Exception:
+        logging.getLogger("hmt.flow_collector").warning(
+            "hot-lane merge unavailable — serving watchlist only", exc_info=True
+        )
+        return base
 
 
 async def _poll_loop(runner: OptionsFlowRunner) -> None:

@@ -391,6 +391,15 @@ def sweep_lifecycle(
                 "fusion lifecycle: idea %s evaluation failed", idea.get("id"),
                 exc_info=True,
             )
+
+    # 3. Flow hot lane reconciliation (Round 4) — same cadence, fail-soft: a
+    #    broken lane sweep must never block episode closes or idea grading.
+    try:
+        from signals.fusion.attention import sweep_hot_lane
+
+        counters.update(sweep_hot_lane(now_dt, db_path))
+    except Exception:
+        logger.warning("fusion lifecycle: hot-lane sweep failed", exc_info=True)
     return counters
 
 

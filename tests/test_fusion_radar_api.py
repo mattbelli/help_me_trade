@@ -88,12 +88,15 @@ def test_radar_sorts_by_thesis_z_and_flags_contested(tmp_path: Path, monkeypatch
     top = rows[0]
     assert set(top) == {
         "symbol",
+        "tier",
         "maturity",
         "thesis",
         "trigger",
         "last_evidence_at",
         "dot_count",
     }
+    # No hot-lane rows in this fixture: tier derives from gross vs noise floor.
+    assert top["tier"] in {"poll", "scan"}
     assert set(top["thesis"]) == {
         "bull_mass",
         "bear_mass",

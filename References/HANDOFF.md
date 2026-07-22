@@ -61,8 +61,7 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
   radar ranks by z, QQQ-contested/XLE-armable behavior holds on the next session. **FOUNDER:
   pick T from the z-scale tables** (`research/fusion_rescore/z_baseline_2026-07-16_2026-07-21.md`;
   live-parity days: T=3 arms ~4–13 sym-days/day, T=4 ~3–4) — gate rewiring lands with that
-  pick, as a diff. NEXT: Round 4 attention tiers → Round 5 ARM (ARMING CHECKLIST rewrite +
-  push-restore decision live there);
+  pick, as a diff. Unstampable tape blind spot FIXED 07-22 (print-price stamping — BUILD_LOG; ⏳ verify ASTS appears on the live radar next session). **Round 4 SHIPPED 07-22** (attention tiers + flow hot lane — founder directive 1 built; spec + BUILD_LOG). Lane is EMPTY until ideas arm (engine dark) — ⏳ verify post-deploy: radar rows carry tier, hot-lane sweep counters in lifecycle logs, collector serves watchlist-only merge clean. NEXT: **position-watch round** (founder directive 2: entry-snapshot divergence alerts — reversal/contested/evaporated/continuation — surfacing in Desk needs-you; phone rides Round-5 push restore) → Round 5 ARM (ARMING CHECKLIST rewrite + T-pick gate rewiring + push-restore decision live there);
   (f) ⚠️ the full pytest suite live-fires outbound HTTPS from tests (incl. Akamai-fronted
   hosts) — the suite-hang class AND a WAF risk; needs a network-marking round.
   Deferred to post-ARM: `_stamp_last_price` on the minute path. REASON v2 A/B stays

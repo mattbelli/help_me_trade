@@ -255,6 +255,21 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 PRIMARY KEY (symbol, market_day)
             );
 
+            -- Round-4 flow hot lane (FUSION_ATTENTION_TIERS_ROUND4_SPEC
+            -- 2026-07-22): symbols promoted into the options-flow sub universe
+            -- by the trade lifecycle (positions/live > triggered > armed).
+            -- Written ONLY by signals/fusion/attention.sweep_hot_lane (60s
+            -- lifecycle sweep); read by the flow hosts' watchlist merge.
+            -- promoted_at is the symbol's per-symbol flow-baseline floor —
+            -- never rewritten while the row lives.
+            CREATE TABLE IF NOT EXISTS flow_hot_lane (
+                symbol TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                promoted_at TEXT NOT NULL,
+                last_qualified_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             -- Phase C3 investigation lane (research/reason.py). Sibling of
             -- fusion_investigations, same episode key: ONE row = this episode has
             -- been picked up by the reason lane (the processed marker — pending =
