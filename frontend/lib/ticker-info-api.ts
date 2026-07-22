@@ -131,9 +131,12 @@ export type WatchlistNewsItem = TickerNewsItem & {
 
 export async function fetchWatchlistNews(
   limit = 50,
+  symbol?: string,
 ): Promise<WatchlistNewsItem[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (symbol) params.set("symbol", symbol);
   const res = await apiFetch(
-    `${API_BASE}/api/ticker/watchlist/news?limit=${encodeURIComponent(limit)}`,
+    `${API_BASE}/api/ticker/watchlist/news?${params}`,
     { cache: "no-store" },
   );
   if (!res.ok) {

@@ -988,6 +988,29 @@ function WidgetHeader({
           onConfigChange={onConfigChange}
         />
       ) : null}
+      {widgetType === "news" && config && onConfigChange ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onConfigChange({ bloop: config.bloop === false });
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label={
+            config.bloop === false
+              ? "Unmute new-headline sound"
+              : "Mute new-headline sound"
+          }
+          title="Sound on new headline"
+          className="workspace-no-drag inline-flex items-center justify-center rounded p-1 text-[var(--fg-dim)] outline-none hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          {config.bloop === false ? (
+            <BellOff className="size-3.5 text-[var(--fg-faint)]" />
+          ) : (
+            <Bell className="size-3.5" />
+          )}
+        </button>
+      ) : null}
       {widgetType === "idea-ledger" && config && onConfigChange ? (
         <IdeaLedgerHeaderControls
           config={config}

@@ -13,27 +13,11 @@ import {
   WidgetError,
   WidgetLoading,
 } from "@/components/workspace/widget-states";
-import {
-  fetchTickerInfo,
-  fetchWatchlistNews,
-  type TickerInfo,
-  type WatchlistNewsItem,
-} from "@/lib/ticker-info-api";
-import { cn } from "@/lib/utils";
+import { fetchTickerInfo, type TickerInfo } from "@/lib/ticker-info-api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
-
-type Mode = "symbol" | "watchlist-news";
-
-const modeButtonClass = (active: boolean) =>
-  cn(
-    "rounded px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
-    active
-      ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
-      : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
-  );
 
 export function CompanyInfoWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
@@ -41,15 +25,12 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
   const symbol = channel !== "none" ? channelSymbol : config.symbol;
   const { publish, linked } = usePublishSymbol(channel);
 
-  const [mode, setMode] = useState<Mode>("symbol");
-
-  // Symbol mode state.
   const [data, setData] = useState<TickerInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mode !== "symbol" || !symbol) return;
+    if (!symbol) return;
     let cancelled = false;
     setData(null);
     setError(null);
@@ -69,105 +50,44 @@ export function CompanyInfoWidget({ config }: WidgetProps) {
     return () => {
       cancelled = true;
     };
-  }, [mode, symbol]);
-
-  // Watchlist-news mode state — fetched lazily, once, the first time the mode is opened.
-  const [newsLoaded, setNewsLoaded] = useState(false);
-  const [newsItems, setNewsItems] = useState<WatchlistNewsItem[]>([]);
-  const [newsLoading, setNewsLoading] = useState(false);
-  const [newsError, setNewsError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (mode !== "watchlist-news" || newsLoaded) return;
-    let cancelled = false;
-    setNewsError(null);
-    setNewsLoading(true);
-    fetchWatchlistNews()
-      .then((res) => {
-        if (!cancelled) {
-          setNewsItems(res);
-          setNewsLoaded(true);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setNewsError(err instanceof Error ? err.message : "Failed to load watchlist news");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setNewsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, newsLoaded]);
+  }, [symbol]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden font-mono">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--line-divider)] px-3 py-1.5">
-        <span className="truncate text-[length:var(--fs-body)] text-[var(--fg-dim)]">
-          {mode === "symbol" ? (symbol ?? "Company info") : "All watchlists"}
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setMode("symbol")}
-            className={modeButtonClass(mode === "symbol")}
-          >
-            Symbol
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("watchlist-news")}
-            className={modeButtonClass(mode === "watchlist-news")}
-          >
-            Watchlist news
-          </button>
-        </div>
-      </div>
-
       <div className="min-h-0 flex-1 overflow-auto p-3 scroll-shadow-y">
-        {mode === "symbol" ? (
-          !symbol ? (
-            <WidgetEmpty
-              message={
-                channel !== "none"
-                  ? "Click a ticker to load its company info"
-                  : "Link a channel or pick a symbol"
-              }
-              className="p-0"
-            />
-          ) : loading ? (
-            <WidgetLoading rows={4} cols={[1]} className="p-0" />
-          ) : error ? (
-            <WidgetError message={error} className="p-0" />
-          ) : data ? (
-            <div className="flex flex-col gap-4">
-              <HeaderSection
-                symbol={data.symbol}
-                profile={data.profile}
-                metrics={data.metrics}
-                facts={data.facts}
-                linked={linked}
-                onPublish={() => publish(data.symbol)}
-              />
-              <FundamentalsSection
-                profile={data.profile}
-                metrics={data.metrics}
-                shortInterest={data.short_interest}
-                price={data.facts.quote?.price}
-              />
-              <FactsSection facts={data.facts} />
-              <NewsSection news={data.news} />
-            </div>
-          ) : null
-        ) : newsLoading && newsItems.length === 0 ? (
+        {!symbol ? (
+          <WidgetEmpty
+            message={
+              channel !== "none"
+                ? "Click a ticker to load its company info"
+                : "Link a channel or pick a symbol"
+            }
+            className="p-0"
+          />
+        ) : loading ? (
           <WidgetLoading rows={4} cols={[1]} className="p-0" />
-        ) : newsError ? (
-          <WidgetError message={newsError} className="p-0" />
-        ) : (
-          <NewsSection news={newsItems} title="Watchlist news" showSymbol />
-        )}
+        ) : error ? (
+          <WidgetError message={error} className="p-0" />
+        ) : data ? (
+          <div className="flex flex-col gap-4">
+            <HeaderSection
+              symbol={data.symbol}
+              profile={data.profile}
+              metrics={data.metrics}
+              facts={data.facts}
+              linked={linked}
+              onPublish={() => publish(data.symbol)}
+            />
+            <FundamentalsSection
+              profile={data.profile}
+              metrics={data.metrics}
+              shortInterest={data.short_interest}
+              price={data.facts.quote?.price}
+            />
+            <FactsSection facts={data.facts} />
+            <NewsSection news={data.news} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

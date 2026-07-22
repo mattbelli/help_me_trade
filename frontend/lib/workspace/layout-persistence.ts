@@ -43,6 +43,8 @@ export type WidgetInstanceConfig = {
   ding?: boolean;
   /** Notifications: header ⚙ filter — "all" | "unread" | a category. */
   notifFilter?: string;
+  /** News: bloop on new headline arrival. Undefined = on. */
+  bloop?: boolean;
 };
 
 /** Options-flow event kinds, filterable from the widget's ⚙ menu. */

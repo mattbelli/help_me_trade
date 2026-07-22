@@ -30,6 +30,7 @@ import { PnlScatterWidget } from "@/components/workspace/widgets/pnl-scatter-wid
 import { OutcomeDistributionWidget } from "@/components/workspace/widgets/outcome-distribution-widget";
 import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend-widget";
 import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
+import { NewsWidget } from "@/components/workspace/widgets/news-widget";
 import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
 import { IdeaLedgerWidget } from "@/components/workspace/widgets/idea-ledger-widget";
 import { EvidenceStackWidget } from "@/components/workspace/widgets/evidence-stack-widget";
@@ -320,11 +321,21 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   {
     id: "company-info",
     title: "company info",
-    description: "Profile, fundamentals, facts & news — follows a channel; all-watchlist news mode",
+    description: "Profile, fundamentals, facts & news — follows a channel",
     multiInstance: true,
     channelAware: true,
     component: CompanyInfoWidget,
     defaultSize: { w: 12, h: 9, minW: 6, minH: 5 },
+  },
+  {
+    id: "news",
+    title: "news",
+    description:
+      "Realtime headlines as cards — follows a channel's ticker; all-watchlist on none",
+    multiInstance: true,
+    channelAware: true,
+    component: NewsWidget,
+    defaultSize: { w: 8, h: 7, minW: 4, minH: 3 },
   },
   {
     id: "chat",
