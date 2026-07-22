@@ -3835,6 +3835,9 @@ async def api_generate_report(body: dict = Body(...), push: bool = False):
 # instead of waiting on a fresh Schwab per-symbol round-trip (the live price rides the
 # WS stream on the frontend, so a few-minutes-stale historical window is invisible).
 _BARS_CACHE: dict[tuple, tuple[float, dict]] = {}
+# In-flight fetch tasks by cache key — concurrent identical requests await the
+# same task instead of multiplying paginated upstream walks.
+_BARS_INFLIGHT: dict[tuple, "asyncio.Task[dict | None]"] = {}
 _BARS_CACHE_TTL = {
     "1Min": 60.0,
     "5Min": 180.0,
@@ -3911,26 +3914,49 @@ async def api_bars(
 async def _get_bars_cached(
     sym: str, timeframe: str, days: int, extended: bool | None = None
 ) -> dict | None:
-    """Cache-read → Schwab fetch (→ Alpaca fallback) → cache-write for chart bars.
+    """Cache-read → coalesced fetch → cache-write for chart bars.
 
     Returns the response dict, or None on total failure. Shared by the /api/bars
     endpoint and the prewarm loop — the loop must NOT record request-recency (else a
     prewarmed symbol would keep refreshing its own recency and never age out), so the
     fetch core lives here, separate from the endpoint's recency bookkeeping.
+
+    Concurrent identical requests (double-mounted widget, prewarm racing an
+    interactive load) share ONE upstream fetch: a cold long-range intraday series
+    is a 10–30-page sequential pagination walk at Alpaca, so N callers must never
+    multiply it. The fetch runs as its own task, deliberately decoupled from the
+    caller — a frontend timeout/disconnect no longer abandons a half-done walk;
+    the result lands in cache for the retry.
     """
     ext = extended if extended is not None else _bars_extended_default(timeframe)
     # ext is part of the cache key: an ext-inclusive and an RTH-only series for the
     # same (symbol, timeframe, days) are different payloads and must not alias.
     cache_key = (sym, timeframe, int(days), ext)
-    now = time.monotonic()
     cached = _BARS_CACHE.get(cache_key)
-    if cached is not None and cached[0] > now:
+    if cached is not None and cached[0] > time.monotonic():
         return cached[1]
+    task = _BARS_INFLIGHT.get(cache_key)
+    if task is None:
+        task = asyncio.create_task(_fetch_bars(sym, timeframe, int(days), ext, cache_key))
+        _BARS_INFLIGHT[cache_key] = task
+        task.add_done_callback(lambda _t, k=cache_key: _BARS_INFLIGHT.pop(k, None))
+    return await task
 
+
+def _stale_bars_or_none(cache_key: tuple) -> dict | None:
+    """Stale-if-error: an expired cached series beats an empty chart (expired
+    entries stay in _BARS_CACHE until overwritten or evicted)."""
+    entry = _BARS_CACHE.get(cache_key)
+    return entry[1] if entry is not None else None
+
+
+async def _fetch_bars(
+    sym: str, timeframe: str, days: int, ext: bool, cache_key: tuple
+) -> dict | None:
     try:
         provider = get_market_data_provider()
     except BrokerError:
-        return None
+        return _stale_bars_or_none(cache_key)
 
     try:
         bars = await provider.aget_stock_bars(
@@ -3939,14 +3965,21 @@ async def _get_bars_cached(
     except Exception as exc:
         # Any provider failure (BrokerError, Schwab outage, httpx error) falls back
         # to Alpaca so charts never hard-break — resilience is the point of the path.
+        from brokers.symbol_class import classify_symbol
+
+        if classify_symbol(sym) == "future":
+            # Alpaca has no futures data — the fallback hop can only fail. Serve the
+            # last-good series through a Schwab WAF cooldown instead of an empty chart.
+            logger.warning("/api/bars futures provider failed (%s), serving stale", exc)
+            return _stale_bars_or_none(cache_key)
         logger.warning("/api/bars provider failed (%s), falling back to Alpaca", exc)
         broker = _require_alpaca()
         if isinstance(broker, JSONResponse):
-            return None
+            return _stale_bars_or_none(cache_key)
         try:
             bars = await broker.aget_stock_bars(sym, timeframe=timeframe, days=days)
         except BrokerError:
-            return None
+            return _stale_bars_or_none(cache_key)
 
     from brokers.bars_hygiene import sanitize_bar_dicts
 
@@ -3970,6 +4003,7 @@ async def _get_bars_cached(
     }
     if ext and timeframe not in _NON_INTRADAY_TIMEFRAMES and _overnight_delayed_flag():
         response["overnight_delayed"] = True
+    now = time.monotonic()
     _BARS_CACHE[cache_key] = (now + _BARS_CACHE_TTL.get(timeframe, 120.0), response)
     if len(_BARS_CACHE) > 256:
         for k in [k for k, (exp, _) in list(_BARS_CACHE.items()) if exp <= now]:
@@ -4000,7 +4034,12 @@ async def _bars_prewarm_once() -> None:
         return
     for sym in symbols:
         for timeframe, days in specs:
-            key = (sym, timeframe, int(days))
+            # MUST mirror _get_bars_cached's 4-tuple cache key (incl. the ext
+            # default). A 3-tuple here never matched, so this skip-check was
+            # dead and the loop refetched EVERY symbol × spec EVERY 15s — a
+            # standing request storm that starved interactive chart loads and
+            # fed the Schwab WAF 429 cycle (found 07-22, founder-reported).
+            key = (sym, timeframe, int(days), _bars_extended_default(timeframe))
             entry = _BARS_CACHE.get(key)
             now = time.monotonic()
             if entry is not None and entry[0] > now + _BARS_PREWARM_REFRESH_LEAD:
