@@ -3875,7 +3875,12 @@ def _overnight_delayed_flag() -> bool:
 # spec = (timeframe, days) the frontend actually requests — capturing it avoids
 # hardcoding the frontend's per-timeframe `days` here (they must match the cache key).
 _BARS_SEEN_SYMBOLS: dict[str, float] = {}  # symbol -> last-requested monotonic
-_BARS_SEEN_SPECS: dict[tuple[str, int], float] = {}  # (timeframe, days) -> last-requested monotonic
+# (symbol, timeframe, days) -> last-requested monotonic. Keyed by the full
+# COMBO, not (timeframe, days) alone: a global spec key made the prewarm warm
+# every seen timeframe for EVERY watchlist symbol — 40 symbols × one long
+# intraday spec = a 10+-minute cycle, longer than the TTLs it refreshes, i.e.
+# a permanent slow-motion refetch storm (07-22 round 2, watchdog-caught).
+_BARS_SEEN_SPECS: dict[tuple[str, str, int], float] = {}
 _BARS_SEEN_TTL = 30 * 60.0  # forget a symbol/spec 30 min after last request
 _BARS_PREWARM_REFRESH_LEAD = 25.0  # refetch when <25s of cache TTL remains (never go cold mid-use)
 _BARS_PREWARM_MAX_SYMBOLS = 40  # cap Schwab load for big watchlists
@@ -3903,7 +3908,7 @@ async def api_bars(
     # Record what's actually viewed so the prewarm loop keeps it warm. Real requests
     # only — the loop calls _get_bars_cached directly so it can't self-refresh recency.
     _BARS_SEEN_SYMBOLS[sym] = now
-    _BARS_SEEN_SPECS[(timeframe, int(days))] = now
+    _BARS_SEEN_SPECS[(sym, timeframe, int(days))] = now
 
     response = await _get_bars_cached(sym, timeframe, int(days), ext)
     if response is None:
@@ -4013,9 +4018,6 @@ async def _fetch_bars(
 
 async def _bars_prewarm_once() -> None:
     now = time.monotonic()
-    # Specs (timeframe, days) seen recently, plus the default view — only warm what's in use.
-    specs = {s for s, ts in _BARS_SEEN_SPECS.items() if now - ts < _BARS_SEEN_TTL}
-    specs |= _BARS_PREWARM_DEFAULT_SPECS
     # Symbols likely to be switched to: the whole watchlist (always) + the most-recently
     # viewed non-watchlist symbols, up to the cap (watchlist is never evicted).
     watch = list(_all_watchlist_symbols())
@@ -4030,32 +4032,47 @@ async def _bars_prewarm_once() -> None:
     )
     extra = max(0, _BARS_PREWARM_MAX_SYMBOLS - len(watch))
     symbols = watch + recent[:extra]
-    if not symbols or not specs:
-        return
-    for sym in symbols:
-        # Heartbeat per symbol, not per cycle: a cold full warm (post-restart)
-        # legitimately runs many minutes, and an end-of-cycle-only mark would
+    allowed = set(symbols)
+    # Warm queue: the cheap one-page default view for every symbol, plus the
+    # EXACT (symbol, timeframe, days) combos actually viewed recently. Never
+    # the seen-specs × symbols cross-product — with 40 symbols and one long
+    # intraday spec (a 10–30-page walk each) that cycle runs LONGER than the
+    # TTLs it refreshes, i.e. a permanent slow-motion refetch storm that also
+    # starves interactive loads (07-22 round 2, watchdog-caught).
+    queue: list[tuple[str, str, int]] = [
+        (sym, timeframe, days)
+        for sym in symbols
+        for timeframe, days in _BARS_PREWARM_DEFAULT_SPECS
+    ]
+    queue += [
+        (sym, timeframe, days)
+        for (sym, timeframe, days), ts in _BARS_SEEN_SPECS.items()
+        if now - ts < _BARS_SEEN_TTL
+        and sym in allowed
+        and (timeframe, days) not in _BARS_PREWARM_DEFAULT_SPECS
+    ]
+    for sym, timeframe, days in queue:
+        # Heartbeat per queue item, not per cycle: a cold full warm (post-restart)
+        # legitimately runs minutes, and an end-of-cycle-only mark would
         # false-stale the watchdog every restart. Progress = alive; a genuinely
         # wedged fetch still stops the marks.
         mark_alive("bars_prewarm")
-        for timeframe, days in specs:
-            # MUST mirror _get_bars_cached's 4-tuple cache key (incl. the ext
-            # default). A 3-tuple here never matched, so this skip-check was
-            # dead and the loop refetched EVERY symbol × spec EVERY 15s — a
-            # standing request storm that starved interactive chart loads and
-            # fed the Schwab WAF 429 cycle (found 07-22, founder-reported).
-            key = (sym, timeframe, int(days), _bars_extended_default(timeframe))
-            entry = _BARS_CACHE.get(key)
-            now = time.monotonic()
-            if entry is not None and entry[0] > now + _BARS_PREWARM_REFRESH_LEAD:
-                continue  # still warm enough — skip
-            try:
-                # Shared fetch core — refetches (cache miss/expiring) + writes _BARS_CACHE
-                # with the exact same key/shape, WITHOUT recording request-recency.
-                await _get_bars_cached(sym, timeframe, int(days))
-            except Exception:
-                logger.debug("bars prewarm failed for %s %s", sym, timeframe, exc_info=True)
-            await asyncio.sleep(_BARS_PREWARM_PACE)
+        # MUST mirror _get_bars_cached's 4-tuple cache key (incl. the ext
+        # default). A 3-tuple here never matched, so this skip-check was
+        # dead and the loop refetched EVERY symbol × spec EVERY 15s — a
+        # standing request storm that starved interactive chart loads and
+        # fed the Schwab WAF 429 cycle (found 07-22, founder-reported).
+        key = (sym, timeframe, int(days), _bars_extended_default(timeframe))
+        entry = _BARS_CACHE.get(key)
+        if entry is not None and entry[0] > time.monotonic() + _BARS_PREWARM_REFRESH_LEAD:
+            continue  # still warm enough — skip
+        try:
+            # Shared fetch core — refetches (cache miss/expiring) + writes _BARS_CACHE
+            # with the exact same key/shape, WITHOUT recording request-recency.
+            await _get_bars_cached(sym, timeframe, int(days))
+        except Exception:
+            logger.debug("bars prewarm failed for %s %s", sym, timeframe, exc_info=True)
+        await asyncio.sleep(_BARS_PREWARM_PACE)
 
 
 async def _bars_prewarm_loop() -> None:

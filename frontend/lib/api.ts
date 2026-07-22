@@ -273,9 +273,16 @@ export async function fetchBars(
     params.set("extended", options.extended ? "true" : "false");
   }
 
-  const res = await apiFetch(`${API_BASE}/api/bars?${params}`, {
-    cache: "no-store",
-  });
+  // 60s, not the 20s default: a first-ever load of a long-range intraday
+  // series is a legitimate 10–30s paginated walk server-side (~50 bars/page).
+  // A 20s abort turned every cold chart into a flash/timeout loop — the
+  // server finishes and caches the walk regardless, so waiting it out once
+  // is strictly better than aborting into a retry.
+  const res = await apiFetch(
+    `${API_BASE}/api/bars?${params}`,
+    { cache: "no-store" },
+    60_000,
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(

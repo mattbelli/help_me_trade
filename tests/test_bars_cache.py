@@ -77,6 +77,29 @@ async def test_prewarm_skip_check_matches_the_real_cache_key(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_prewarm_warms_viewed_combos_not_the_cross_product(monkeypatch) -> None:
+    """Round 2 (watchdog-caught): seen specs are per-(symbol, timeframe, days)
+    combo. One symbol viewed on 4Hour must NOT drag every watchlist symbol
+    through its own 10–30-page 4Hour walk — that cycle runs longer than the
+    TTLs it refreshes, i.e. a permanent slow-motion refetch storm."""
+    import time as _time
+
+    provider = _Provider()
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: ["SPY", "QQQ"])
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", set())
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(
+        api_main, "_BARS_SEEN_SPECS", {("SPY", "4Hour", 365): _time.monotonic()}
+    )
+    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {})
+    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+
+    await api_main._bars_prewarm_once()
+    assert provider.calls == ["SPY"]  # QQQ never dragged through 4Hour
+
+
+@pytest.mark.asyncio
 async def test_concurrent_identical_requests_share_one_fetch(monkeypatch) -> None:
     provider = _Provider(delay=0.05)
     monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
