@@ -56,7 +56,7 @@ _SPY_SYMBOL = "SPY"
 # never add one casually.
 MINUTE_GRADED_ORIGINS = frozenset({"reason_v1"})
 
-__all__ = ["sweep_open_ideas"]
+__all__ = ["sweep_open_ideas", "grade_counterfactual"]
 
 
 def _parse_decimal(value: Any) -> Decimal | None:
@@ -586,6 +586,83 @@ def _stamp_benchmark(
     patch["alpha_pct"] = (
         (ret - benchmark) if (ret is not None and benchmark is not None) else None
     )
+
+
+def grade_counterfactual(
+    row: dict[str, Any],
+    now: datetime,
+    *,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    """Expire an armed idea as an always-filled counterfactual (Fusion §4).
+
+    The trigger TTL lapsed before the gate ever fired. Per the Grading Law, this
+    does not merely stamp no_fill — it records what the plan WOULD have returned
+    from ``armed_at`` to now, entered at the entry reference (always filled),
+    marked at the resolved-day close (the exit is the TTL boundary, not a stop/
+    target, hence exit_reason='trigger_ttl'). The ARMING outcome stays
+    ``expired``; ret/spy/alpha carry the counterfactual P&L. Because
+    ``expired ∈ _GRADED_STATUSES`` and ``fill_status='counterfactual' != 'no_fill'``,
+    the benchmark leg is stamped — so armed-and-fired vs armed-and-expired cohorts
+    are comparable (slice on fill_status='counterfactual'). Mirrors the
+    _process_horizon filled-counterfactual pattern (entry = entry_ref)."""
+    db_kwargs = {} if db_path is None else {"db_path": db_path}
+    now_dt = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+    now_date = now_dt.date()
+    outcome_id = int(row["id"])
+    direction = str(row.get("direction") or "long").strip().lower() or "long"
+    origin = str(row.get("origin") or "")
+    grading_basis = str(row.get("grading_basis") or "plan").strip() or "plan"
+    armed_at = str(row.get("armed_at") or row.get("as_of") or "")
+
+    first_evaluable = _first_evaluable_date(armed_at, origin=origin)
+    entry_low = _parse_decimal(row.get("entry_low"))
+    entry_high = _parse_decimal(row.get("entry_high"))
+    if grading_basis == "horizon_return":
+        entry_ref = entry_low
+    elif entry_low is not None and entry_high is not None:
+        entry_ref = _entry_mid(entry_low, entry_high)
+    else:
+        entry_ref = None
+
+    bars = fetch_daily_bars_since(str(row["symbol"]), first_evaluable) or []
+    spy_by_date = _fetch_spy_series([{"as_of": armed_at, "origin": origin}])
+
+    resolution_price = _resolution_close(bars, now_date)
+    patch: dict[str, Any] = {
+        "status": "expired",
+        "resolved_at": now_date.isoformat(),
+        "resolution_price": str(resolution_price) if resolution_price is not None else None,
+        "exit_reason": "trigger_ttl",
+        "fill_status": "counterfactual",
+    }
+    _stamp_benchmark(
+        patch,
+        entry_ref=entry_ref,
+        direction=direction,
+        first_evaluable=first_evaluable,
+        bars=bars,
+        spy_by_date=spy_by_date,
+    )
+    # CAS on the grader-active statuses: this full-field write must lose to a
+    # mechanical outcome resolved between the sweep's read and this call
+    # (Round-3 review finding 2). `applied=False` = the guard missed; the
+    # sweep's next pass mirrors the row out of the armed cohort instead.
+    patch["applied"] = update_outcome(
+        outcome_id,
+        status="expired",
+        lifecycle_state="expired",
+        resolved_at=patch["resolved_at"],
+        resolution_price=patch["resolution_price"],
+        exit_reason=patch["exit_reason"],
+        fill_status=patch["fill_status"],
+        ret_pct=patch.get("ret_pct"),
+        spy_ret_pct=patch.get("spy_ret_pct"),
+        alpha_pct=patch.get("alpha_pct"),
+        expect_status=("pending", "data_gap"),
+        **db_kwargs,
+    )
+    return patch
 
 
 # --------------------------------------------------------------------------- #

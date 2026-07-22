@@ -1520,6 +1520,7 @@ async def _filings_initial_fill() -> None:
 # worker can own it after the R1b split.
 _background_jobs_registered = False
 _fusion_shock_until_mono = 0.0
+_fusion_lifecycle_eod_last_date: dict = {}
 
 
 def _fusion_price_from_cache(symbol: str):
@@ -1774,6 +1775,35 @@ async def _fusion_reason_once() -> None:
     )
 
 
+async def _fusion_lifecycle_once() -> None:
+    """Consolidated episode + armed-idea lifecycle sweep (signals/fusion/lifecycle).
+
+    Mirrors _fusion_intake_once: offloaded to a thread, passing the same intake
+    price cache the dots are stamped from. Runs every 60s in market hours."""
+    from signals.fusion.lifecycle import sweep_lifecycle
+
+    await asyncio.to_thread(
+        sweep_lifecycle, datetime.now(_ET), price_lookup=_fusion_price_from_cache
+    )
+
+
+async def _fusion_lifecycle_eod_once() -> None:
+    """One unconditional post-close lifecycle sweep so hard-TTL / decay-to-noise
+    stamp at EOD — the 60s market-hours job stops at 16:00 ET. Self-gates to
+    after-close, once per trading day (the _schwab_snapshot_once idiom)."""
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+    after_close = now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 5)
+    if not after_close:
+        return
+    today = now_et.date()
+    if _fusion_lifecycle_eod_last_date.get("date") == today:
+        return
+    await _fusion_lifecycle_once()
+    _fusion_lifecycle_eod_last_date["date"] = today
+
+
 def _register_background_jobs() -> None:
     global _background_jobs_registered
     if _background_jobs_registered:
@@ -1908,6 +1938,21 @@ def _register_background_jobs() -> None:
             fn=_fusion_reason_once,
             interval_s=120.0,
             market_hours_only=True,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="fusion_lifecycle",
+            fn=_fusion_lifecycle_once,
+            interval_s=60.0,
+            market_hours_only=True,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="fusion_lifecycle_eod",
+            fn=_fusion_lifecycle_eod_once,
+            interval_s=300.0,
         )
     )
     register_job(

@@ -9,8 +9,80 @@ from typing import Any
 
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.base import connect as _connect
+from db.schema_helpers import _table_columns
 
 STORES = ("options_flow", "equity_tape")
+
+# Round-3 fusion_episodes shape (Fusion Horizon Redesign §2.4). Shared by the
+# fresh-install CREATE and the one-time rebuild migration so the two never drift.
+_FUSION_EPISODES_COLUMNS = """
+    id TEXT PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    market_day TEXT NOT NULL,            -- OPENING session only, no longer a key
+    opened_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'open',  -- open | closed
+    closed_at TEXT,
+    close_reason TEXT,                   -- decay_to_noise|price_invalidation|hard_ttl|migrated
+    last_evidence_at TEXT,               -- ts of most recent scored actor dot
+    anchor_dot_id TEXT,
+    anchor_price TEXT,
+    anchor_atr14 TEXT,
+    anchor_direction TEXT,
+    registration_called INTEGER NOT NULL DEFAULT 0,
+    score REAL NOT NULL DEFAULT 0,
+    bull_mass REAL NOT NULL DEFAULT 0,       -- decayed thesis-class mass (cold-storage summary)
+    bear_mass REAL NOT NULL DEFAULT 0,
+    conviction REAL NOT NULL DEFAULT 0,
+    key_levels_json TEXT NOT NULL DEFAULT '[]',
+    seed_bull_mass REAL NOT NULL DEFAULT 0,  -- rehydration seed at open (§2.4); _rescore folds it
+    seed_bear_mass REAL NOT NULL DEFAULT 0,  -- forward-decayed, so the seed survives rescores
+    direction_state TEXT NOT NULL DEFAULT 'mixed',
+    contested INTEGER NOT NULL DEFAULT 0,
+    signature TEXT NOT NULL DEFAULT '',
+    market_shock INTEGER NOT NULL DEFAULT 0
+"""
+
+
+def _migrate_fusion_episodes(conn: Any) -> None:
+    """One-time rebuild of the pre-Horizon symbol-day ``fusion_episodes`` table.
+
+    SQLite cannot ``ALTER TABLE ... DROP`` a table-level UNIQUE, so when the
+    legacy shape is detected — guarded by "does the ``state`` column exist?" —
+    rebuild to the Round-3 shape. Legacy symbol-day rows become
+    ``state='closed', close_reason='migrated'`` (they were day buckets that are,
+    by definition, over); **ids are preserved** so every child row
+    (``evidence_dots``, ``fusion_investigations``, ``reason_runs``,
+    ``fusion_score_history``, ``idea_outcomes.episode_id``) stays linked. Fresh
+    installs already have ``state`` (via the CREATE above) and skip this."""
+    if "state" in _table_columns(conn, "fusion_episodes"):
+        return
+    # BEGIN IMMEDIATE: executescript autocommits each statement otherwise — a
+    # crash between DROP and RENAME would let the next boot's CREATE IF NOT
+    # EXISTS re-materialize an EMPTY live table with the data stranded in
+    # fusion_episodes_new, silently detaching every child row.
+    conn.executescript(
+        f"""
+        BEGIN IMMEDIATE;
+        CREATE TABLE fusion_episodes_new ({_FUSION_EPISODES_COLUMNS});
+        INSERT INTO fusion_episodes_new (
+            id, symbol, market_day, opened_at, updated_at, state, closed_at,
+            close_reason, last_evidence_at, anchor_dot_id, anchor_price,
+            anchor_atr14, anchor_direction, registration_called, score,
+            bull_mass, bear_mass, conviction, key_levels_json, direction_state,
+            contested, signature, market_shock
+        )
+        SELECT
+            id, symbol, market_day, opened_at, updated_at, 'closed', updated_at,
+            'migrated', updated_at, anchor_dot_id, anchor_price, anchor_atr14,
+            anchor_direction, registration_called, score, 0, 0, 0, '[]',
+            direction_state, contested, signature, market_shock
+        FROM fusion_episodes;
+        DROP TABLE fusion_episodes;
+        ALTER TABLE fusion_episodes_new RENAME TO fusion_episodes;
+        COMMIT;
+        """
+    )
 DISPOSITIONS = frozenset({"scored", "collapsed", "shed", "unstampable", "ignored_by_rule"})
 
 
@@ -30,17 +102,26 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 market_day TEXT NOT NULL,
                 opened_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'open',
+                closed_at TEXT,
+                close_reason TEXT,
+                last_evidence_at TEXT,
                 anchor_dot_id TEXT,
                 anchor_price TEXT,
                 anchor_atr14 TEXT,
                 anchor_direction TEXT,
                 registration_called INTEGER NOT NULL DEFAULT 0,
                 score REAL NOT NULL DEFAULT 0,
+                bull_mass REAL NOT NULL DEFAULT 0,
+                bear_mass REAL NOT NULL DEFAULT 0,
+                conviction REAL NOT NULL DEFAULT 0,
+                key_levels_json TEXT NOT NULL DEFAULT '[]',
+                seed_bull_mass REAL NOT NULL DEFAULT 0,
+                seed_bear_mass REAL NOT NULL DEFAULT 0,
                 direction_state TEXT NOT NULL DEFAULT 'mixed',
                 contested INTEGER NOT NULL DEFAULT 0,
                 signature TEXT NOT NULL DEFAULT '',
-                market_shock INTEGER NOT NULL DEFAULT 0,
-                UNIQUE(symbol, market_day)
+                market_shock INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS evidence_dots (
@@ -174,6 +255,20 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_reason_runs_day
                 ON reason_runs(market_day);
+            """
+        )
+        # Rebuild a legacy symbol-day fusion_episodes table (drops the dead
+        # UNIQUE(symbol, market_day)) BEFORE the partial index below — the index
+        # references the `state` column the migration adds.
+        _migrate_fusion_episodes(conn)
+        conn.executescript(
+            """
+            -- One OPEN episode per symbol = the new dedup key (replaces the
+            -- dropped UNIQUE(symbol, market_day)); closed rows are unconstrained.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fusion_episode_open
+                ON fusion_episodes(symbol) WHERE state = 'open';
+            CREATE INDEX IF NOT EXISTS idx_fusion_episode_state
+                ON fusion_episodes(state, symbol);
             """
         )
         group_rows = (

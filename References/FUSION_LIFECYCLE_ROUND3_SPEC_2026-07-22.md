@@ -1,10 +1,54 @@
 # Round-3 Implementation Spec — Episode & Idea Lifecycle (2026-07-22)
 
-**Status: REVIEWED DRAFT.** Drafted by a read-only Opus pass against live code; orchestrator
-spot-verified the cited code anchors 07-22 (all held, incl. exact line numbers). Build order:
-lands AFTER Round 1–2 of `FUSION_HORIZON_REDESIGN_2026-07-21.md` (decayed-mass scorer + founder
-T pick). Adversarial review required before the build round commits — this touches the idea
-ledger + Grading Law.
+**Status: BUILT 07-22 — with the post-review amendments below.** Drafted by a read-only Opus
+pass against live code; orchestrator spot-verified the cited code anchors 07-22 (all held,
+incl. exact line numbers). Built same day; two split-mandate Opus adversarial reviews ran
+before commit (ledger/Grading-Law + state-machine/migration mandates) and their confirmed
+findings were fixed pre-commit.
+
+## ⚠ Post-review amendments (the as-built deltas — these override the body below)
+
+1. **`trigger_fired`, not `triggered`** (pre-build amendment): the lifecycle state is named
+   `trigger_fired` everywhere — `triggered` collides with the grader's mechanical
+   `status='triggered'` (= entry-zone touched), a different axis and meaning.
+2. **Two-axis reconciliation is explicit** (review finding 1/2 — the sweep selects rows by
+   `lifecycle_state` while the mechanical grader advances `status` on the SAME rows,
+   concurrently): `sweep_lifecycle` mirrors first — mechanically-terminal rows
+   (`won|lost|expired|invalidated`) retire to `lifecycle_state='closed'` with every grade
+   field untouched; `status='triggered'` promotes to `'live'` (no longer cascade/TTL-eligible).
+   Every outcome-bearing sweep write is compare-and-swap via `update_outcome(...,
+   expect_status=…)` (`WHERE status IN (…)`) so a mechanical outcome resolved between the
+   sweep's read and write always wins. `grade_counterfactual` returns `applied` and its write
+   is guarded the same way.
+3. **The invalidation cascade fires ONLY on `close_reason='price_invalidation'`** (§3 as
+   written — the build initially generalized to any close, which would censor counted rows):
+   an aged-out close (`decay_to_noise`/`hard_ttl`/`migrated`) is a dead-but-UNBROKEN thesis —
+   born rows ride on to their mechanical grade, armed rows run out their trigger TTL into a
+   COUNTED counterfactual. No new trigger fires against a closed episode.
+4. **`born` is stamped at reason-lane registration** (`_register_v1_idea` →
+   `register_idea(lifecycle_state="born")`; registration validates born-only). The synthetic
+   class-template shadow deliberately does NOT enter the lifecycle — the cascade must never
+   censor the measurement-control cohort.
+5. **The rehydration seed is persisted separately** (`seed_bull_mass`/`seed_bear_mass`) and
+   `_rescore` folds it forward-decayed from `opened_at` — as first built the first rescore
+   overwrote the seed and §2.4 was a dead feature. Close rules still recompute from
+   `evidence_dots` only (an all-seed episode with no fresh dots decays to noise).
+6. **Closed episodes are immutable**: `_rescore` and `_ensure_episode`'s open-reuse bump carry
+   `AND state='open'` — the replay path hands `_rescore` a closed row on purpose, and the
+   sweep runs in a genuinely CONCURRENT thread (the body's "single-writer, no race" claim is
+   false: intake and lifecycle are separate `asyncio.to_thread` jobs).
+7. **The migration rebuild is wrapped in `BEGIN IMMEDIATE … COMMIT`** — `executescript`
+   autocommits per statement otherwise; a crash between DROP and RENAME would let the next
+   boot re-create an empty table with the data stranded in `fusion_episodes_new`.
+8. **Pre-anchor price-invalidation is dropped** (accepted deviation): before the anchor
+   latches there is no thesis direction to invalidate against; decay/TTL still bound the
+   un-anchored window (it lasts until the first stamped scored dot).
+9. `sweep_lifecycle(now, db_path, *, price_lookup=None)` — the price cache is injected like
+   `intake_once`; absent, it falls back to the latest stamped dot's `trigger_price`.
+
+**Build order:** lands AFTER Round 1–2 of `FUSION_HORIZON_REDESIGN_2026-07-21.md` (decayed-mass
+scorer + founder T pick). Adversarial review required before the build round commits — this
+touches the idea ledger + Grading Law. [Both done 07-22.]
 
 **Scope:** Horizon Redesign §2.4 (episode lifecycle), §2.5 (idea lifecycle), §6 step 3.
 Shadow-first: nothing user-facing, phone stays dark, no ARMING CHECKLIST rewrite (Round 5).

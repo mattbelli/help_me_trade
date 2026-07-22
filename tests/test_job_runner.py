@@ -47,6 +47,8 @@ AUDIT_LOOP_NAMES = [
     "fusion_atr_refresh",
     "fusion_levels_refresh",
     "fusion_reason",
+    "fusion_lifecycle",
+    "fusion_lifecycle_eod",
     "pipeline_audit",
     "regime_sleeves",
     "social_buzz",

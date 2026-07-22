@@ -403,9 +403,14 @@ def _register_v1_idea(
     episode: dict[str, Any], plan: V1Plan, null_hyp: str, as_of_iso: str, db_path: Path
 ) -> int | None:
     """Register a full REASON v1 plan. Symbol is the EPISODE's (ground truth), never the
-    LLM's echoed field. thesis/bear_case pass register_idea's fabricated-probability wall."""
+    LLM's echoed field. thesis/bear_case pass register_idea's fabricated-probability wall.
+
+    Enters the arming lifecycle at `born` (Round 3 §3) — the class-template shadow does
+    NOT: it is a synthetic measurement control, and letting the episode-close cascade
+    invalidate it would censor the control cohort."""
     return register_idea(
         origin="reason_v1",
+        lifecycle_state="born",
         signal_family="fusion",
         symbol=str(episode.get("symbol") or ""),
         direction=plan.direction,

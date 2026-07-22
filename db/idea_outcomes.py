@@ -227,6 +227,16 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         _add_column_if_missing(conn, "idea_outcomes", "alpha_pct", "REAL")
         _add_column_if_missing(conn, "idea_outcomes", "exit_reason", "TEXT")
 
+        # Fusion Horizon Round 3 (spec §3): the arming/delivery axis layered on
+        # the mechanical `status` axis — no second ledger. Non-arming lanes
+        # (fusion_mech journal, setup_scan, Path A) leave all four NULL and behave
+        # exactly as today. lifecycle_state ∈ born|armed|trigger_fired|live|closed|
+        # expired|invalidated; trigger_class lives inside trigger_json.
+        _add_column_if_missing(conn, "idea_outcomes", "lifecycle_state", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "armed_at", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "trigger_json", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "trigger_expires_at", "TEXT")
+
         # Calibration-cell index + the open-row dedup wall (partial unique over
         # the cooldown key). Created after the columns exist.
         conn.executescript(
@@ -243,6 +253,9 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 );
             CREATE INDEX IF NOT EXISTS idx_idea_episode
                 ON idea_outcomes(episode_id) WHERE episode_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_idea_armed
+                ON idea_outcomes(trigger_expires_at)
+                WHERE lifecycle_state = 'armed';
             """
         )
         conn.commit()
@@ -504,6 +517,7 @@ def register_idea(
     synthetic: int = 0,
     episode_id: str | None = None,
     dossier_ref: str | None = None,
+    lifecycle_state: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int | None:
     """The narrow write path for non-artifact idea sources (spec §2).
@@ -531,6 +545,13 @@ def register_idea(
     label = str(confidence_label).strip().lower() if confidence_label else None
     if label is not None and label not in _CONFIDENCE_VALUES:
         logger.warning("register_idea: invalid confidence_label %r", confidence_label)
+        return None
+
+    # Fusion Horizon Round 3 (§3): registration can only mint `born` — every
+    # later state (armed, trigger_fired, …) is a sweep/ARM-round transition,
+    # never a registration input. Non-arming lanes leave it NULL.
+    if lifecycle_state is not None and lifecycle_state != "born":
+        logger.warning("register_idea: invalid lifecycle_state %r", lifecycle_state)
         return None
 
     # Honesty wall — never persist an LLM-authored numeric probability (the
@@ -607,6 +628,7 @@ def register_idea(
         # already exist (migration above); no writer populated them before C3.
         "episode_id": (str(episode_id).strip() or None) if episode_id else None,
         "dossier_ref": (str(dossier_ref).strip() or None) if dossier_ref else None,
+        "lifecycle_state": lifecycle_state,
         "dedup_key": dedup_key,
         "cluster_key": _cluster_key(as_of, direction),
         "grading_basis": grading_basis,
@@ -795,6 +817,8 @@ def update_outcome(
     exit_reason: str | None = None,
     fill_status: str | None = None,
     grading_resolution: str | None = None,
+    lifecycle_state: str | None = None,
+    expect_status: tuple[str, ...] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> bool:
     """Apply a forward-only update. Returns True if a row was modified.
@@ -805,6 +829,13 @@ def update_outcome(
     fetch failure) is written by simply not passing the field, so the column
     stays NULL — never zero-filled. ``grading_resolution`` is stamped 'minute' by
     the minute-bar grader; the daily path leaves it at the schema default 'daily'.
+
+    ``expect_status`` makes the write compare-and-swap (`WHERE status IN (...)`):
+    the caller's read of the row and this write are separate transactions, so a
+    writer that selected the row by a NON-status key (the lifecycle sweep keys on
+    ``lifecycle_state``) MUST pass the statuses it believes the row still holds —
+    otherwise it can silently clobber an outcome the mechanical grader resolved
+    in between (Round-3 review finding 1). Returns False when the guard misses.
     """
     init_idea_outcomes_tables(db_path)
     fields: list[str] = ["updated_at = ?"]
@@ -864,11 +895,18 @@ def update_outcome(
     if grading_resolution is not None:
         fields.append("grading_resolution = ?")
         values.append(grading_resolution)
+    if lifecycle_state is not None:
+        fields.append("lifecycle_state = ?")
+        values.append(lifecycle_state)
 
     values.append(int(outcome_id))
+    where = "id = ?"
+    if expect_status:
+        where += f" AND status IN ({','.join('?' * len(expect_status))})"
+        values.extend(expect_status)
     with _connect(db_path) as conn:
         cur = conn.execute(
-            f"UPDATE idea_outcomes SET {', '.join(fields)} WHERE id = ?",
+            f"UPDATE idea_outcomes SET {', '.join(fields)} WHERE {where}",
             values,
         )
         conn.commit()

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from config.idea_engine import (
+    FUSION_REHYDRATE_SESSIONS,
     FUSION_SOCIAL_SPIKE_RATIO,
     FUSION_STORM_BATCH_EVENTS,
     FUSION_STORM_KEEP_EVENTS,
@@ -22,7 +23,16 @@ from db.chart_features import init_chart_features
 from db.lane_stats import bump
 from db.social_mentions import SOURCES, get_source_buzz
 from signals.fusion import registrar
-from signals.fusion.scorer import options_direction, score_dots, tape_direction
+from signals.fusion.scorer import (
+    CONVICTION_PRIOR_MASS,
+    SESSION_SECONDS,
+    THESIS_HALF_LIFE_TD,
+    options_direction,
+    score_decayed,
+    score_dots,
+    session_seconds_between,
+    tape_direction,
+)
 from signals.options_flow.constants import CONV_LEVEL_ATR
 from trading.market_hours import _ET
 
@@ -134,25 +144,130 @@ def _event_shape(store: str, event: dict) -> dict[str, Any] | None:
     }
 
 
+def _parse_iso(ts: str) -> datetime:
+    """UTC-aware datetime from an ISO string (naive = UTC, house convention)."""
+    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _rehydrate_seed(conn: Any, symbol: str, opened_ts: str) -> dict[str, Any]:
+    """Cold-storage rehydration seed for a NEW episode (§2.4).
+
+    Seed the new row's mass summary from the most recent CLOSED episode for this
+    symbol within FUSION_REHYDRATE_SESSIONS trading days, **decayed forward** from
+    its ``last_evidence_at`` to now by the thesis half-life — so a returning name
+    resumes with attenuated prior mass, not zero. Beyond the window (or with no
+    prior) → empty."""
+    empty = {"bull_mass": 0.0, "bear_mass": 0.0, "conviction": 0.0, "key_levels_json": "[]"}
+    prior = conn.execute(
+        """
+        SELECT bull_mass, bear_mass, conviction, key_levels_json,
+               last_evidence_at, closed_at
+        FROM fusion_episodes
+        WHERE symbol = ? AND state = 'closed'
+        ORDER BY COALESCE(last_evidence_at, closed_at, updated_at) DESC
+        LIMIT 1
+        """,
+        (symbol,),
+    ).fetchone()
+    if prior is None:
+        return empty
+    last_ev = prior["last_evidence_at"] or prior["closed_at"]
+    if not last_ev:
+        return empty
+    try:
+        elapsed = session_seconds_between(_parse_iso(last_ev), _parse_iso(opened_ts))
+    except (TypeError, ValueError):
+        return empty
+    if elapsed / SESSION_SECONDS > FUSION_REHYDRATE_SESSIONS:
+        return empty  # off-watchlist too long — context has gone cold
+    decay = 0.5 ** (elapsed / (THESIS_HALF_LIFE_TD * SESSION_SECONDS))
+    bull = round(float(prior["bull_mass"] or 0.0) * decay, 4)
+    bear = round(float(prior["bear_mass"] or 0.0) * decay, 4)
+    denom = bull + bear + CONVICTION_PRIOR_MASS
+    conviction = round(abs(bull - bear) / denom, 4) if denom > 0 else 0.0
+    return {
+        "bull_mass": bull,
+        "bear_mass": bear,
+        "conviction": conviction,
+        "key_levels_json": prior["key_levels_json"] or "[]",
+    }
+
+
 def _ensure_episode(
     symbol: str, market_day: str, ts: str, shock: bool, db_path: Path
 ) -> dict[str, Any]:
-    episode_id = _stable_id("episode", symbol, market_day)
+    """Return the OPEN episode for *symbol* (one per symbol — the new dedup key).
+
+    Reuse the open episode if one exists (bump updated_at + shock, keep its
+    OPENING market_day); otherwise open a NEW episode whose id is keyed on the
+    opening dot's ts (one-open-at-a-time makes it collision-free), seeding its
+    mass summary from cold storage (§2.4). A replayed first dot whose episode has
+    since CLOSED finds that closed row by id and reuses it (the dot re-attaches
+    via evidence_dots.ON CONFLICT) rather than reopening it."""
+    now = now_iso()
     with _connect(db_path) as conn:
+        open_row = conn.execute(
+            "SELECT * FROM fusion_episodes WHERE symbol = ? AND state = 'open'",
+            (symbol,),
+        ).fetchone()
+        if open_row is not None:
+            # AND state='open': the lifecycle sweep runs in a CONCURRENT thread
+            # and can close this episode between our SELECT and this UPDATE — a
+            # closed row is immutable (its summary is the cold-storage record).
+            conn.execute(
+                """
+                UPDATE fusion_episodes SET
+                    updated_at = ?,
+                    market_shock = MAX(market_shock, ?)
+                WHERE id = ? AND state = 'open'
+                """,
+                (now, int(shock), open_row["id"]),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM fusion_episodes WHERE id = ?", (open_row["id"],)
+            ).fetchone()
+            return dict(row)
+
+        episode_id = _stable_id("episode", symbol, ts)
+        existing = conn.execute(
+            "SELECT * FROM fusion_episodes WHERE id = ?", (episode_id,)
+        ).fetchone()
+        if existing is not None:
+            return dict(existing)  # closed replay — never reopen a closed episode
+
+        seed = _rehydrate_seed(conn, symbol, ts)
+        # The seed is stored TWICE: in bull/bear_mass (the live summary, valid
+        # until the first _rescore) and in seed_bull/bear_mass (immutable at
+        # open) so _rescore can fold it forward-decayed instead of erasing it —
+        # without the dedicated columns the first rescore overwrote the seed
+        # and §2.4 rehydration was a dead feature (review finding).
         conn.execute(
             """
             INSERT INTO fusion_episodes(
-                id, symbol, market_day, opened_at, updated_at, market_shock
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(symbol, market_day) DO UPDATE SET
-                updated_at = excluded.updated_at,
-                market_shock = MAX(fusion_episodes.market_shock, excluded.market_shock)
+                id, symbol, market_day, opened_at, updated_at, state, market_shock,
+                bull_mass, bear_mass, conviction, key_levels_json,
+                seed_bull_mass, seed_bear_mass
+            ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
             """,
-            (episode_id, symbol, market_day, ts, now_iso(), int(shock)),
+            (
+                episode_id,
+                symbol,
+                market_day,
+                ts,
+                now,
+                int(shock),
+                seed["bull_mass"],
+                seed["bear_mass"],
+                seed["conviction"],
+                seed["key_levels_json"],
+                seed["bull_mass"],
+                seed["bear_mass"],
+            ),
         )
         row = conn.execute(
-            "SELECT * FROM fusion_episodes WHERE symbol = ? AND market_day = ?",
-            (symbol, market_day),
+            "SELECT * FROM fusion_episodes WHERE id = ?", (episode_id,)
         ).fetchone()
         conn.commit()
     return dict(row)
@@ -469,20 +584,59 @@ def _rescore(episode_id: str, db_path: Path) -> dict[str, Any]:
     state = score_dots(dots)
     signature = ",".join(sorted({str(dot["component"]) for dot in dots}))
     collapsed = set(state["collapsed_dot_ids"])
+    now = now_iso()
+    # Persist the v2 decayed thesis mass summary alongside the legacy undecayed
+    # score (§2). The sweep re-derives masses from evidence_dots for its close
+    # decisions (never from these columns — an all-seed episode with no fresh
+    # dots still decays to noise); this summary is what rehydration reads later,
+    # so the §2.4 seed is folded in forward-decayed from open rather than erased.
+    thesis = score_decayed(dots, now)["thesis"]
+    bull, bear, conviction = (
+        thesis["bull_mass"],
+        thesis["bear_mass"],
+        thesis["conviction"],
+    )
     with _connect(db_path) as conn:
+        ep = conn.execute(
+            "SELECT opened_at, seed_bull_mass, seed_bear_mass FROM fusion_episodes WHERE id = ?",
+            (episode_id,),
+        ).fetchone()
+    seed_bull = float(ep["seed_bull_mass"] or 0.0) if ep is not None else 0.0
+    seed_bear = float(ep["seed_bear_mass"] or 0.0) if ep is not None else 0.0
+    if seed_bull or seed_bear:
+        try:
+            elapsed = session_seconds_between(_parse_iso(str(ep["opened_at"])), _parse_iso(now))
+        except (TypeError, ValueError):
+            elapsed = 0.0
+        seed_decay = 0.5 ** (elapsed / (THESIS_HALF_LIFE_TD * SESSION_SECONDS))
+        bull = round(bull + seed_bull * seed_decay, 4)
+        bear = round(bear + seed_bear * seed_decay, 4)
+        denom = bull + bear + CONVICTION_PRIOR_MASS
+        conviction = round(abs(bull - bear) / denom, 4) if denom > 0 else 0.0
+    last_evidence_at = max((str(dot["ts"]) for dot in dots), default=None)
+    with _connect(db_path) as conn:
+        # AND state='open': a closed episode is immutable — this UPDATE can race
+        # the lifecycle sweep's close, and the replay path hands _rescore a
+        # closed episode on purpose (review finding: without the guard, replays
+        # rewrote closed episodes' cold-storage summaries).
         conn.execute(
             """
             UPDATE fusion_episodes SET
                 score = ?, direction_state = ?, contested = ?,
-                signature = ?, updated_at = ?
-            WHERE id = ?
+                signature = ?, bull_mass = ?, bear_mass = ?, conviction = ?,
+                last_evidence_at = ?, updated_at = ?
+            WHERE id = ? AND state = 'open'
             """,
             (
                 state["score"],
                 state["direction_state"],
                 int(state["contested"]),
                 signature,
-                now_iso(),
+                bull,
+                bear,
+                conviction,
+                last_evidence_at,
+                now,
                 episode_id,
             ),
         )

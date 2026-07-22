@@ -69,6 +69,18 @@ FUSION_SHOCK_WINDOW_MINUTES = 60
 FUSION_CARD_DAILY_CAP = 50
 FUSION_CARD_TRAILING_PERCENTILE = 0.75
 
+# Fusion Horizon Round 3 — episode & idea lifecycle dials (spec §2/§3). Every
+# value here is a FOUNDER DIAL (changes surfaced as diffs, never silent). The
+# sweep (signals/fusion/lifecycle.py) reads them at call time so a diff'd change
+# takes effect on the next pass.
+FUSION_EPISODE_INVAL_ATR = 1.5  # FOUNDER DIAL — price-invalidation K (× ATR14 from the latched anchor); wider than the idea's 1× stop on purpose
+FUSION_EPISODE_DECAY_FLOOR = 0.5  # FOUNDER DIAL — thesis gross decayed mass below this = noise (one stale small print can't hold an episode open)
+FUSION_EPISODE_DECAY_SESSIONS = 2  # FOUNDER DIAL — N_DECAY: consecutive first-of-session readings below the floor before decay_to_noise closes
+FUSION_EPISODE_TTL_SESSIONS = 15  # FOUNDER DIAL — hard-TTL in trading days; matches the swing ceiling (§2.3)
+FUSION_REHYDRATE_SESSIONS = 10  # FOUNDER DIAL — cold-storage rehydration window (trading days) for a returning symbol
+FUSION_TRIGGER_TTL_IMPULSE_HOURS = 4  # FOUNDER DIAL — impulse-class trigger TTL (wall-clock hours)
+FUSION_TRIGGER_TTL_THESIS_SESSIONS = 3  # FOUNDER DIAL — thesis-confirmation-class trigger TTL (trading days)
+
 # Fusion Phase C1 — SHADOW-MODE investigation gate (spec §2.6 LLM tier, §3 C).
 # The deterministic "this evidence stack would be investigated by the LLM lane
 # right now" decision — counted, never acted on. Zero LLM calls. REASON_SHADOW_ONLY
@@ -160,6 +172,14 @@ def validate_config() -> None:
     assert FUSION_CARDS_ENABLED is False
     assert 0 < FUSION_STORM_KEEP_EVENTS <= FUSION_STORM_BATCH_EVENTS
     assert 0 < FUSION_CARD_TRAILING_PERCENTILE < 1
+    # Fusion Horizon Round 3 lifecycle dials.
+    assert FUSION_EPISODE_INVAL_ATR > 0
+    assert FUSION_EPISODE_DECAY_FLOOR >= 0
+    assert FUSION_EPISODE_DECAY_SESSIONS >= 1
+    assert FUSION_EPISODE_TTL_SESSIONS >= 1
+    assert FUSION_REHYDRATE_SESSIONS >= 1
+    assert FUSION_TRIGGER_TTL_IMPULSE_HOURS > 0
+    assert FUSION_TRIGGER_TTL_THESIS_SESSIONS >= 1
     # Fusion C1 shadow-investigation invariants.
     assert REASON_SHADOW_ONLY is True
     assert REASON_DAILY_BUDGET >= 1

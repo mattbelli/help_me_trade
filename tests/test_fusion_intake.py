@@ -279,6 +279,59 @@ def test_market_day_naive_timestamp_is_utc() -> None:
     assert _market_day("2026-07-17T14:30:00-04:00") == "2026-07-17"
 
 
+def test_ensure_episode_keys_on_open_episode_per_symbol(
+    fusion_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One OPEN episode per symbol is the new dedup key: two dots on different
+    market days flow into the SAME open episode (spans days), and the partial
+    unique index rejects a hand-inserted second open row."""
+    import sqlite3
+
+    from signals.fusion.intake import _ensure_episode
+
+    first = _ensure_episode("TSLA", "2026-07-17", "2026-07-17T14:30:00+00:00", False, fusion_db)
+    second = _ensure_episode("TSLA", "2026-07-20", "2026-07-20T14:30:00+00:00", False, fusion_db)
+    assert first["id"] == second["id"]
+    assert second["market_day"] == "2026-07-17"  # opening session preserved across days
+    with connect(fusion_db) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM fusion_episodes WHERE symbol='TSLA'"
+        ).fetchone()[0]
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO fusion_episodes(id, symbol, market_day, opened_at, "
+                "updated_at, state) VALUES ('dup','TSLA','2026-07-21','t','t','open')"
+            )
+            conn.commit()
+    assert count == 1
+
+
+def test_rescore_persists_masses_and_last_evidence(fusion_db: Path) -> None:
+    """_rescore stamps the v2 decayed thesis mass summary + last_evidence_at
+    alongside the legacy undecayed score."""
+    from datetime import datetime, timezone
+
+    # A fresh-ts bull option print so the thesis mass is materially non-zero at
+    # the wall-clock instant _rescore evaluates score_decayed.
+    ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    event = _flow("flow-mass")
+    event["ts"] = ts
+    event["dte"] = 30  # thesis-class routing
+    insert_flow(event, fusion_db)
+    counters = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320.25"))
+    assert counters["scored"] == 1
+    with connect(fusion_db) as conn:
+        row = conn.execute(
+            "SELECT bull_mass, bear_mass, conviction, last_evidence_at "
+            "FROM fusion_episodes WHERE symbol='TSLA'"
+        ).fetchone()
+    assert row["bull_mass"] > 0
+    assert row["bear_mass"] == 0
+    assert row["conviction"] > 0
+    assert row["last_evidence_at"] == ts
+
+
 def test_crash_replay_restamps_dot_and_registers(
     fusion_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

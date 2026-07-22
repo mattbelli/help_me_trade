@@ -5,7 +5,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from db.base import connect
-from db.idea_outcomes import list_ledger_rows, register_idea, update_outcome
+from db.idea_outcomes import (
+    get_summary,
+    init_idea_outcomes_tables,
+    list_ledger_rows,
+    register_idea,
+    update_outcome,
+)
 
 
 def _register(
@@ -115,6 +121,88 @@ def test_list_ledger_rows_includes_journal_origins(tmp_path: Path) -> None:
         "fusion_mech",
         "structure_vetoed",
     }
+
+
+def test_lifecycle_state_column_present(tmp_path: Path) -> None:
+    db = tmp_path / "ledger.db"
+    init_idea_outcomes_tables(db)
+    with connect(db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(idea_outcomes)")}
+    assert {"lifecycle_state", "armed_at", "trigger_json", "trigger_expires_at"} <= cols
+    # The partial armed index is present.
+    with connect(db) as conn:
+        idx = {r[1] for r in conn.execute("PRAGMA index_list(idea_outcomes)")}
+    assert "idx_idea_armed" in idx
+
+
+def test_register_idea_lifecycle_state_born_only(tmp_path: Path) -> None:
+    """Registration can mint `born` (the reason-lane dossier path, §3) and ONLY
+    born — later states are sweep/ARM transitions, never registration inputs.
+    Default (every non-arming lane) stays NULL."""
+    db = tmp_path / "ledger.db"
+    plain = _register(db, origin="setup_scan", symbol="AAPL", as_of="2026-07-17T14:00:00+00:00")
+    born = register_idea(
+        origin="reason_v1",
+        signal_family="fusion",
+        symbol="MSFT",
+        entry_zone={"low": "99", "high": "100"},
+        stop="95",
+        targets=["105"],
+        as_of="2026-07-17T15:00:00+00:00",
+        lifecycle_state="born",
+        db_path=db,
+    )
+    assert born is not None
+    rejected = register_idea(
+        origin="reason_v1",
+        signal_family="fusion",
+        symbol="NVDA",
+        entry_zone={"low": "99", "high": "100"},
+        stop="95",
+        targets=["105"],
+        as_of="2026-07-17T15:00:00+00:00",
+        lifecycle_state="armed",
+        db_path=db,
+    )
+    assert rejected is None
+    with connect(db) as conn:
+        states = {
+            row["id"]: row["lifecycle_state"]
+            for row in conn.execute("SELECT id, lifecycle_state FROM idea_outcomes")
+        }
+    assert states[plain] is None
+    assert states[born] == "born"
+
+
+def test_counterfactual_expired_row_leaves_headline_unchanged(tmp_path: Path) -> None:
+    """A counterfactual-expired arming row (fill_status='counterfactual') is a
+    graded 'expired' row in the ONE ledger; it must not move the headline
+    win-rate (which counts only won/lost) nor pollute the journal filters."""
+    db = tmp_path / "ledger.db"
+    won = _register(db, origin="setup_scan", symbol="AAPL", as_of="2026-07-17T14:00:00+00:00")
+    assert update_outcome(won, status="won", ret_pct=3.0, db_path=db)
+
+    baseline = get_summary(db_path=db)
+    assert baseline["win_rate"] == 1.0
+
+    armed = _register(db, origin="setup_scan", symbol="MSFT", as_of="2026-07-17T15:00:00+00:00")
+    assert update_outcome(
+        armed,
+        status="expired",
+        lifecycle_state="expired",
+        exit_reason="trigger_ttl",
+        fill_status="counterfactual",
+        ret_pct=-2.0,
+        spy_ret_pct=1.0,
+        alpha_pct=-3.0,
+        db_path=db,
+    )
+
+    after = get_summary(db_path=db)
+    # Win-rate unchanged (expired is neither won nor lost); resolved count grows.
+    assert after["win_rate"] == 1.0
+    assert after["counts"].get("expired") == 1
+    assert after["resolved"] == baseline["resolved"] + 1
 
 
 def test_idea_ledger_route_shape(monkeypatch) -> None:

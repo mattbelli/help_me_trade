@@ -10,6 +10,7 @@ import pytest
 
 from config.idea_engine import GRADING_TIEBREAK
 from db.ai_tables import init_ai_tables, save_research_artifact
+from db.base import connect
 from db.idea_outcomes import (
     get_summary,
     init_idea_outcomes_tables,
@@ -1141,3 +1142,104 @@ def test_alpha_benchmark_is_direction_consistent() -> None:
         spy_by_date=spy,
     )
     assert patch_long["alpha_pct"] == pytest.approx(0.0)
+
+
+# --------------------------------------------------------------------------- #
+# Counterfactual expiry (Fusion §4) — armed-never-triggered → graded into the
+# ONE existing ledger; invalidated stays out of _GRADED_STATUSES.
+# --------------------------------------------------------------------------- #
+def test_grade_counterfactual_stamps_benchmark_leg(idea_db) -> None:
+    from research.idea_tracker import grade_counterfactual
+
+    idea_id = register_idea(
+        origin="reason_v1",
+        signal_family="fusion",
+        symbol="AAPL",
+        direction="long",
+        entry_zone={"low": "100", "high": "100"},
+        stop="95",
+        targets=["110"],
+        plan_horizon="9d",
+        as_of="2026-01-06T15:00:00+00:00",
+        db_path=idea_db,
+    )
+    assert idea_id is not None
+    row = {
+        "id": idea_id,
+        "symbol": "AAPL",
+        "direction": "long",
+        "origin": "reason_v1",
+        "grading_basis": "plan",
+        "as_of": "2026-01-06T15:00:00+00:00",
+        "armed_at": "2026-01-06T15:00:00+00:00",
+        "entry_low": "100",
+        "entry_high": "100",
+    }
+    symbol_bars = [_bar(date(2026, 1, d), low=100 + d, high=101 + d, close=100.5 + d) for d in (7, 8, 9)]
+    spy_bars = [_bar(date(2026, 1, d), low=400 + d, high=401 + d, close=400.5 + d) for d in (7, 8, 9)]
+    with patch(
+        "research.idea_tracker.fetch_daily_bars_since",
+        side_effect=_split_fetch(symbol_bars, spy_bars),
+    ):
+        patch_out = grade_counterfactual(row, datetime(2026, 1, 9, 20, 0, 0), db_path=idea_db)
+
+    assert patch_out["exit_reason"] == "trigger_ttl"
+    assert patch_out["fill_status"] == "counterfactual"
+    resolved = list_recent_resolved(db_path=idea_db)[0]
+    assert resolved["status"] == "expired"
+    assert resolved["lifecycle_state"] == "expired"
+    assert resolved["exit_reason"] == "trigger_ttl"
+    assert resolved["fill_status"] == "counterfactual"
+    # expired ∈ _GRADED_STATUSES + fill_status != no_fill → benchmark leg stamped.
+    assert resolved["ret_pct"] is not None
+    assert resolved["spy_ret_pct"] is not None
+    assert resolved["alpha_pct"] is not None
+
+
+def test_invalidated_stays_out_of_graded_statuses() -> None:
+    from research.idea_tracker import _GRADED_STATUSES
+
+    assert "invalidated" not in _GRADED_STATUSES
+    assert "expired" in _GRADED_STATUSES
+
+
+def test_grade_counterfactual_creates_no_new_table(idea_db) -> None:
+    from research.idea_tracker import grade_counterfactual
+
+    def _tables() -> set[str]:
+        with connect(idea_db) as conn:
+            return {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+
+    idea_id = register_idea(
+        origin="reason_v1",
+        signal_family="fusion",
+        symbol="MSFT",
+        direction="long",
+        entry_zone={"low": "100", "high": "100"},
+        stop="95",
+        targets=["110"],
+        plan_horizon="9d",
+        as_of="2026-01-06T15:00:00+00:00",
+        db_path=idea_db,
+    )
+    before = _tables()
+    row = {
+        "id": idea_id,
+        "symbol": "MSFT",
+        "direction": "long",
+        "origin": "reason_v1",
+        "grading_basis": "plan",
+        "as_of": "2026-01-06T15:00:00+00:00",
+        "armed_at": "2026-01-06T15:00:00+00:00",
+        "entry_low": "100",
+        "entry_high": "100",
+    }
+    bars = [_bar(date(2026, 1, d), low=100 + d, high=101 + d, close=100.5 + d) for d in (7, 8, 9)]
+    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+        grade_counterfactual(row, datetime(2026, 1, 9, 20, 0, 0), db_path=idea_db)
+    assert _tables() == before  # one ledger, no bypass table

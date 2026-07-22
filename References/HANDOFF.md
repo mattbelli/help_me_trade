@@ -50,8 +50,14 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
   lands as a diff, never silent;
   (d) intake must stamp DTE onto option dots at mint time — live role-routing is blind
   without it (replay recovers DTE via the `options_flow_events` join; live can't);
-  (e) Round 3 build after (b) — spec: `FUSION_LIFECYCLE_ROUND3_SPEC_2026-07-22.md`
-  (adversarial review before its build round commits) → Round 4 attention tiers → Round 5
+  (e) **Round 3 SHIPPED 07-22** (lifecycle + armed-idea machine; 2 split-mandate Opus reviews,
+  both CONFIRMED ledger-corruption classes fixed pre-commit — as-built amendments live in the
+  spec header, detail BUILD_LOG 2026-07-22). ⏳ verify next trading session: migration rebuilds
+  the live table clean on deploy-restart (legacy rows → closed/migrated), `fusion_lifecycle` +
+  `fusion_lifecycle_eod` appear in /health, first sweep closes nothing wrongly (episodes are
+  all fresh). NEXT: **scoring-normalization round** (SETTLED 07-22,
+  `FUSION_SCORING_NORMALIZATION_2026-07-22.md`: rank by z=|net|/√(gross+prior), arm on DUAL
+  gate z≥T AND conviction≥bar; T re-derived on z scale) → Round 4 attention tiers → Round 5
   ARM (ARMING CHECKLIST rewrite + push-restore decision live there);
   (f) ⚠️ the full pytest suite live-fires outbound HTTPS from tests (incl. Akamai-fronted
   hosts) — the suite-hang class AND a WAF risk; needs a network-marking round.
