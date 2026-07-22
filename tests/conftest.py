@@ -19,6 +19,13 @@ os.environ["TRADING_DB_PATH"] = _TEST_DEFAULT_DB
 # read-only Schwab broker: 'blocked'/'rejected'). Tests that want schwab set it
 # explicitly via monkeypatch.setenv.
 os.environ["BROKER"] = "alpaca"
+# Minimal app lifespan under TestClient: schema init + job registration only —
+# no market_hub, no broker reconciliation, no inline network poll, no
+# background loops. The full production lifespan is the suite-hang class
+# (startup does real network; shutdown awaits cancels that can't interrupt
+# asyncio.to_thread). Forced, not setdefault — read lazily in api.main so a
+# test that truly needs the full lifespan can monkeypatch it away.
+os.environ["HMT_TEST_LIFESPAN"] = "minimal"
 # Hermetic Ollama: point the base URL at a dead port so provider auto-resolution
 # (maybe_upgrade_default_llm probes localhost:11434 for live models — no key
 # needed) gets connection-refused on every box. Without this, running the suite

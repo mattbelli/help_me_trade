@@ -2042,6 +2042,16 @@ async def lifespan(app: FastAPI):
         delete_rule("session_node_spy")
     except Exception:
         logger.exception("Failed to remove migrated session_node_spy rule")
+    if os.getenv("HMT_TEST_LIFESPAN", "").strip().lower() == "minimal":
+        # Test-mode lifespan (set by tests/conftest.py, never by a unit file):
+        # schema init + job REGISTRATION only. The full startup runs a real
+        # network _poll_once inline and spawns ~17 loops whose shutdown
+        # cancel cannot interrupt sync work inside asyncio.to_thread — the
+        # TestClient suite-hang class. Read lazily so a test can opt back
+        # into the full lifespan by clearing the env before TestClient(app).
+        _register_background_jobs()
+        yield
+        return
     await market_hub.start()
     for account in list_accounts(enabled_only=True):
         if str(account["broker"]).strip().lower() != "alpaca":
