@@ -261,6 +261,15 @@ TRIGGER_HALF_LIFE_MIN = 60.0  # FOUNDER DIAL
 TRIGGER_DTE_MAX = 2  # FOUNDER DIAL (the 3–6 band lives just above it)
 # Conviction below this, with gross mass at/above the floor, = contested.
 CONVICTION_BAR = 0.4  # FOUNDER DIAL
+# The z dual-gate cut (scoring-normalization spec): a stack is gate-eligible
+# (investigate now; ARM at Round 5) only when thesis z ≥ T AND conviction ≥
+# CONVICTION_BAR, both on the SEEDLESS score_decayed math the fusion_z_baseline
+# T tables were computed from. Founder picked 3.5 on 2026-07-22 from those
+# tables (live-parity days armed ~3-5 symbol-days/day); revisit ~10 trading
+# days out (≈2026-08-05) once MIN_BASELINE_DAYS of clean print-price-era data
+# accrues — recount the T tables before moving it. Not a Gaussian σ; never
+# present as a p-value.
+FUSION_Z_GATE_T = 3.5  # FOUNDER DIAL (picked 2026-07-22; revisit ≈2026-08-05)
 # Conviction shrinkage prior — a prior mass added to the conviction denominator
 # so a THIN one-sided read can't post full conviction. Measured artifact
 # (founder-approved fix): INTC read conviction 1.0 at 9:33 ET on ~30 min of

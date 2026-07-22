@@ -203,52 +203,18 @@ def test_unstamped_atr_skip_is_counted(fusion_db: Path) -> None:
     assert _meter(fusion_db, "structure_dots") == 0.0
 
 
-def _seed_baseline_episode(
-    db: Path, episode_id: str, market_day: str, score: float, groups: list[str]
+def test_options_actor_plus_structure_triggers_c1_investigation(
+    fusion_db: Path, monkeypatch
 ) -> None:
-    ts = f"{market_day}T14:00:00+00:00"
-    state = {
-        "score": score,
-        "group_scores": {g: score for g in groups},
-        "contested": False,
-    }
-    with connect(db) as conn:
-        conn.execute(
-            """
-            INSERT INTO fusion_episodes(
-                id, symbol, market_day, opened_at, updated_at, score, contested, signature
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                episode_id,
-                "S" + episode_id,
-                market_day,
-                ts,
-                ts,
-                float(score),
-                0,
-                ",".join(sorted(groups)),
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO fusion_score_history(episode_id, score, score_json, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (episode_id, float(score), json.dumps(state), ts),
-        )
-        conn.commit()
+    # This test pins the intake→C1 PLUMBING (a live co-fire reaches the gate and
+    # stamps a row). The real cut-line — the z dual gate at the founder's T,
+    # where one print correctly does NOT clear — is pinned in
+    # tests/test_fusion_investigate.py; here both gate legs are opened wide so a
+    # single synthetic print exercises the wiring.
+    import signals.fusion.investigate as investigate_mod
 
-
-def test_options_actor_plus_structure_triggers_c1_investigation(fusion_db: Path) -> None:
-    # Synthetic baseline: 20 past-day archetype (options_actor + structure) episodes
-    # at a low score so the day's investigation threshold exists and is easily
-    # cleared by a genuine live co-fire.
-    days = ["2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16"]
-    for k in range(20):
-        _seed_baseline_episode(
-            fusion_db, f"base{k}", days[k % 4], 0.1, ["options_actor", "structure"]
-        )
+    monkeypatch.setattr(investigate_mod, "FUSION_Z_GATE_T", 0.0)
+    monkeypatch.setattr(investigate_mod, "CONVICTION_BAR", 0.0)
 
     live_ts = "2026-07-20T18:00:00+00:00"  # → 14:00 ET 2026-07-20 (a Monday)
     put_atr("TSLA", "2026-07-17", Decimal("12.50"), db_path=fusion_db)

@@ -2,9 +2,14 @@
 
 The deterministic decision "this evidence stack would be investigated by the LLM
 lane right now" — counted, never acted on. Zero LLM calls anywhere in this layer.
-It reads the trailing-session score distribution to set today's investigation bar,
-applies the daily budget (with the opening reserve so the bell can't drain the
-day), and stamps one row per candidate episode into ``fusion_investigations``.
+The cut-line is the z DUAL GATE (scoring-normalization spec, founder T pick
+2026-07-22): thesis z ≥ FUSION_Z_GATE_T AND conviction ≥ CONVICTION_BAR, both on
+the seedless ``score_decayed`` math the fusion_z_baseline T tables were computed
+from. It then applies the daily budget (with the opening reserve so the bell
+can't drain the day) and stamps one row per candidate episode into
+``fusion_investigations``. (The pre-z trailing-percentile baseline machinery —
+``fusion_investigation_baseline`` — was removed with the T pick; the table and
+its historical rows remain for audit.)
 
 ``REASON_SHADOW_ONLY`` is the C1↔C3 seam: the gate asserts it and does nothing but
 count. C3 flips the flag in one place (``config/idea_engine``) to arm real
@@ -18,7 +23,6 @@ the only new work on that path.
 
 from __future__ import annotations
 
-import json
 import math
 from datetime import datetime
 from pathlib import Path
@@ -26,8 +30,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from config.idea_engine import (
-    INVESTIGATE_MIN_POOL,
-    INVESTIGATE_TRAILING_SESSIONS,
     REASON_DAILY_BUDGET,
     REASON_OPENING_RESERVE_FRAC,
     REASON_OPENING_WINDOW_MIN,
@@ -36,6 +38,7 @@ from config.idea_engine import (
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.base import connect as _connect
 from db.lane_stats import bump
+from signals.fusion.scorer import CONVICTION_BAR, FUSION_Z_GATE_T
 from trading.market_calendar import is_trading_day
 from trading.market_hours import _SESSION_OPEN
 
@@ -50,138 +53,6 @@ ARCHETYPE_GROUPS = frozenset({"options_actor", "structure"})
 _OPENING_RESERVE = math.ceil(REASON_OPENING_RESERVE_FRAC * REASON_DAILY_BUDGET)
 
 _ET = ZoneInfo("America/New_York")
-
-_NO_BASELINE: dict[str, Any] = {
-    "has_baseline": False,
-    "threshold": None,
-    "pool_size": 0,
-    "sessions": 0,
-    "widened": False,
-}
-
-
-def _scored_groups(score_json: Any) -> set[str]:
-    """The set of groups the scorer actually scored, from a persisted state row."""
-    if not score_json:
-        return set()
-    try:
-        payload = json.loads(score_json)
-    except (TypeError, ValueError):
-        return set()
-    groups = payload.get("group_scores")
-    return set(groups) if isinstance(groups, dict) else set()
-
-
-def _compute_baseline(market_day: str, db_path: Path) -> dict[str, Any]:
-    """Today's investigation bar from the trailing sessions (all strictly < today).
-
-    Pool = day-final scores of archetype-eligible non-contested episodes over the
-    trailing ``INVESTIGATE_TRAILING_SESSIONS`` distinct market days. Threshold =
-    the (B×S)-th highest score (B = daily budget, S = distinct days in the pool),
-    so ~B stacks clear an average day; a pool smaller than B×S falls back to its
-    minimum. Cold start: an archetype pool under ``INVESTIGATE_MIN_POOL`` widens
-    to ALL non-contested episodes over the same window; still under the floor →
-    no baseline exists today (self-heals as sessions accrue).
-    """
-    with _connect(db_path) as conn:
-        days = [
-            str(row[0])
-            for row in conn.execute(
-                """
-                SELECT DISTINCT market_day FROM fusion_episodes
-                WHERE market_day < ?
-                ORDER BY market_day DESC
-                LIMIT ?
-                """,
-                (market_day, INVESTIGATE_TRAILING_SESSIONS),
-            ).fetchall()
-        ]
-        if not days:
-            return dict(_NO_BASELINE)
-        placeholders = ",".join("?" for _ in days)
-        rows = conn.execute(
-            f"""
-            SELECT e.market_day AS market_day, e.score AS score,
-                   (SELECT h.score_json FROM fusion_score_history h
-                    WHERE h.episode_id = e.id
-                    ORDER BY h.id DESC LIMIT 1) AS score_json
-            FROM fusion_episodes e
-            WHERE e.contested = 0 AND e.market_day IN ({placeholders})
-            """,
-            days,
-        ).fetchall()
-
-    all_pool: list[tuple[str, float]] = []
-    archetype_pool: list[tuple[str, float]] = []
-    for row in rows:
-        entry = (str(row["market_day"]), float(row["score"]))
-        all_pool.append(entry)
-        if ARCHETYPE_GROUPS <= _scored_groups(row["score_json"]):
-            archetype_pool.append(entry)
-
-    if len(archetype_pool) >= INVESTIGATE_MIN_POOL:
-        pool, widened = archetype_pool, False
-    elif len(all_pool) >= INVESTIGATE_MIN_POOL:
-        pool, widened = all_pool, True
-    else:
-        return {
-            **_NO_BASELINE,
-            "pool_size": len(all_pool),
-            "sessions": len({day for day, _ in all_pool}),
-        }
-
-    scores = sorted((score for _, score in pool), reverse=True)
-    sessions = len({day for day, _ in pool})
-    rank = REASON_DAILY_BUDGET * sessions
-    threshold = scores[-1] if len(scores) < rank else scores[rank - 1]
-    return {
-        "has_baseline": True,
-        "threshold": float(threshold),
-        "pool_size": len(scores),
-        "sessions": sessions,
-        "widened": widened,
-    }
-
-
-def _baseline(market_day: str, *, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
-    """Cached per-day baseline — compute once on first use, read the row after."""
-    with _connect(db_path) as conn:
-        row = conn.execute(
-            """
-            SELECT decision, threshold, pool_size, sessions, widened
-            FROM fusion_investigation_baseline WHERE market_day = ?
-            """,
-            (market_day,),
-        ).fetchone()
-    if row is not None:
-        return {
-            "has_baseline": row["decision"] == "ok",
-            "threshold": None if row["threshold"] is None else float(row["threshold"]),
-            "pool_size": int(row["pool_size"]),
-            "sessions": int(row["sessions"]),
-            "widened": bool(row["widened"]),
-        }
-    result = _compute_baseline(market_day, db_path)
-    with _connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO fusion_investigation_baseline(
-                market_day, decision, threshold, pool_size, sessions, widened, computed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                market_day,
-                "ok" if result["has_baseline"] else "no_baseline",
-                result["threshold"],
-                int(result["pool_size"]),
-                int(result["sessions"]),
-                int(result["widened"]),
-                now_iso(),
-            ),
-        )
-        conn.commit()
-    return result
-
 
 def _shadow_spent(market_day: str, db_path: Path) -> int:
     """Budget spent today = COUNT of shadow_investigate rows (the table is the
@@ -265,7 +136,6 @@ def evaluate_investigation(
     episode_id = str(episode["id"])
     market_day = str(episode["market_day"])
     symbol = str(episode.get("symbol") or "")
-    score = float(score_state.get("score") or 0.0)
     when = (now or datetime.now(_ET)).astimezone(_ET)
 
     with _connect(db_path) as conn:
@@ -276,14 +146,19 @@ def evaluate_investigation(
     if existing is not None and existing["decision"] == "shadow_investigate":
         return "shadow_investigate"  # sticky/terminal — never re-decided or re-bumped
 
-    baseline = _baseline(market_day, db_path=db_path)
-    if not baseline["has_baseline"]:
-        _record(episode_id, market_day, symbol, "no_baseline", score, None, db_path)
-        return "no_baseline"
-
-    threshold = float(baseline["threshold"])
-    if score < threshold:
-        return None  # below the day's investigation bar — a non-decision, no row
+    # The z DUAL GATE (founder T pick 2026-07-22): significance AND effect
+    # size, read from the seedless decayed thesis _rescore stashes in the
+    # state — the same math the fusion_z_baseline T tables were computed
+    # from, so T stays on one scale. A missing thesis (legacy caller) gates
+    # closed, never open. Below either leg = a non-decision, no row. The
+    # recorded score is the z (the value compared against the threshold).
+    thesis = score_state.get("decayed_thesis") or {}
+    z = float(thesis.get("z") or 0.0)
+    conviction = float(thesis.get("conviction") or 0.0)
+    if z < FUSION_Z_GATE_T or conviction < CONVICTION_BAR:
+        return None
+    threshold = FUSION_Z_GATE_T
+    score = z
 
     spent = _shadow_spent(market_day, db_path)
     if spent >= REASON_DAILY_BUDGET:

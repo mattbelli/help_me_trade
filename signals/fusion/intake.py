@@ -591,6 +591,11 @@ def _rescore(episode_id: str, db_path: Path) -> dict[str, Any]:
     # dots still decays to noise); this summary is what rehydration reads later,
     # so the §2.4 seed is folded in forward-decayed from open rather than erased.
     thesis = score_decayed(dots, now)["thesis"]
+    # The z dual-gate (investigate now; ARM at Round 5) reads this SEEDLESS
+    # decayed thesis — the exact math the fusion_z_baseline T tables were
+    # computed from, so the founder's T pick stays on one scale (seed folding
+    # below applies only to the persisted episode summary).
+    state["decayed_thesis"] = thesis
     bull, bear, conviction = (
         thesis["bull_mass"],
         thesis["bear_mass"],
