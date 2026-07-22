@@ -1809,6 +1809,43 @@ export async function getFusionEpisode(
   return res.json();
 }
 
+export type FusionRadarRow = {
+  symbol: string;
+  maturity: number;
+  thesis: {
+    bull_mass: number;
+    bear_mass: number;
+    conviction: number;
+    contested: boolean;
+  };
+  trigger: {
+    bull_mass: number;
+    bear_mass: number;
+  };
+  last_evidence_at: string | null;
+  dot_count: number;
+};
+
+export type FusionRadarResponse = {
+  rows: FusionRadarRow[];
+  now: string;
+  sessions: number;
+};
+
+export async function getFusionRadar(
+  params?: { sessions?: number },
+): Promise<FusionRadarResponse> {
+  const query =
+    params?.sessions != null
+      ? `?${new URLSearchParams({ sessions: String(params.sessions) })}`
+      : "";
+  const res = await apiFetch(`${API_BASE}/api/fusion/radar${query}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Fusion radar error ${res.status}`);
+  return res.json();
+}
+
 export type FilingKind = "insider_buy" | "stake_13d" | "congress_trade";
 
 export type FilingEvent = {

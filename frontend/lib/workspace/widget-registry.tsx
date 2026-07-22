@@ -33,6 +33,7 @@ import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-w
 import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
 import { IdeaLedgerWidget } from "@/components/workspace/widgets/idea-ledger-widget";
 import { EvidenceStackWidget } from "@/components/workspace/widgets/evidence-stack-widget";
+import { DeskWidget } from "@/components/workspace/widgets/desk-widget";
 import { FilingsWidget } from "@/components/workspace/widgets/filings-widget";
 import { ChatWidget } from "@/components/workspace/widgets/chat-widget";
 
@@ -185,6 +186,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: EvidenceStackWidget,
     defaultSize: { w: 10, h: 6, minW: 5, minH: 3 },
+  },
+  {
+    id: "desk",
+    title: "desk",
+    description:
+      "Live desk — needs-you / armed / warming radar (fusion decayed masses × conviction)",
+    channelAware: true,
+    component: DeskWidget,
+    defaultSize: { w: 12, h: 8, minW: 6, minH: 4 },
   },
   {
     id: "filings",

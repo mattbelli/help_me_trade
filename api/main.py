@@ -3493,6 +3493,97 @@ def api_fusion_episode(episode_id: str):
     }
 
 
+def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
+    """Compute-on-read fusion radar: per symbol with evidence in the last
+    ``sessions`` market-days, the v2 decayed thesis/trigger masses at ``now``.
+
+    Read-only, no writes/caching (dot volumes are small). DTE is recovered from
+    options_flow_events for option dots exactly like tools/fusion_rescore_replay
+    so pre-stamp historical dots route thesis-vs-trigger correctly (newer dots
+    also carry dte in their detail). Rows sort by maturity desc, capped at 30."""
+    from signals.fusion.scorer import score_decayed
+
+    with connect(DEFAULT_DB_PATH) as conn:
+        day_rows = conn.execute(
+            "SELECT DISTINCT market_day FROM fusion_episodes "
+            "ORDER BY market_day DESC LIMIT ?",
+            (int(sessions),),
+        ).fetchall()
+        days = [row["market_day"] for row in day_rows]
+        if not days:
+            return []
+        placeholders = ",".join("?" * len(days))
+        dot_rows = conn.execute(
+            f"""
+            SELECT d.* FROM evidence_dots d
+            JOIN fusion_episodes e ON e.id = d.episode_id
+            WHERE e.market_day IN ({placeholders})
+            ORDER BY d.symbol, d.ts, d.id
+            """,
+            days,
+        ).fetchall()
+        option_ids = [
+            str(row["source_event_id"])
+            for row in dot_rows
+            if row["source_store"] == "options_flow"
+        ]
+        dte_by_id: dict[str, int] = {}
+        for start in range(0, len(option_ids), 400):
+            chunk = option_ids[start : start + 400]
+            ph = ",".join("?" * len(chunk))
+            for row in conn.execute(
+                f"SELECT id, dte FROM options_flow_events WHERE id IN ({ph})", chunk
+            ).fetchall():
+                if row["dte"] is not None:
+                    dte_by_id[str(row["id"])] = int(row["dte"])
+
+    by_symbol: dict[str, list[dict]] = {}
+    for row in dot_rows:
+        dot = dict(row)
+        try:
+            dot["detail"] = json.loads(dot.pop("detail_json"))
+        except (TypeError, json.JSONDecodeError):
+            dot["detail"] = {}
+        event_id = str(dot.get("source_event_id"))
+        if event_id in dte_by_id:
+            dot["dte"] = dte_by_id[event_id]
+        by_symbol.setdefault(str(dot["symbol"]), []).append(dot)
+
+    rows: list[dict] = []
+    for symbol, dots in by_symbol.items():
+        state = score_decayed(dots, now_iso_str)
+        last_evidence_at = max((str(dot["ts"]) for dot in dots), default=None)
+        rows.append(
+            {
+                "symbol": symbol,
+                "maturity": state["maturity"],
+                "thesis": {
+                    "bull_mass": state["thesis"]["bull_mass"],
+                    "bear_mass": state["thesis"]["bear_mass"],
+                    "conviction": state["thesis"]["conviction"],
+                    "contested": state["thesis"]["contested"],
+                },
+                "trigger": {
+                    "bull_mass": state["trigger"]["bull_mass"],
+                    "bear_mass": state["trigger"]["bear_mass"],
+                },
+                "last_evidence_at": last_evidence_at,
+                "dot_count": len(dots),
+            }
+        )
+    rows.sort(key=lambda row: row["maturity"], reverse=True)
+    return rows[:30]
+
+
+@app.get("/api/fusion/radar")
+async def api_fusion_radar(sessions: int = Query(5, ge=1, le=30)):
+    """Live warming radar: v2 decayed masses per recently-active symbol,
+    ranked by maturity. Read-only compute-on-read (offloaded off the loop)."""
+    now_iso_str = datetime.now(timezone.utc).isoformat()
+    rows = await asyncio.to_thread(_fusion_radar_sync, sessions, now_iso_str)
+    return {"rows": rows, "now": now_iso_str, "sessions": sessions}
+
+
 @app.post("/api/fusion/ideas/{idea_id}/action")
 def api_fusion_idea_action(idea_id: int, request: Request, body: dict = Body(...)):
     """Record the founder's take/skip decision on a fusion idea (forward-only).

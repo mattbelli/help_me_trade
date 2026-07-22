@@ -101,6 +101,11 @@ def _event_shape(store: str, event: dict) -> dict[str, Any] | None:
                 "event_type": event_type,
                 "right": event.get("right"),
                 "execution_side": event.get("direction"),
+                # Persist DTE so the v2 scorer routes this dot's role (thesis vs
+                # trigger) live — evidence_dots have no DTE column, so scorer._dte
+                # reads it from detail (the replay recovers historical dots via
+                # the options_flow_events join instead).
+                "dte": event.get("dte"),
                 "reason": event.get("reason"),
                 "caveat": event.get("caveat"),
             },

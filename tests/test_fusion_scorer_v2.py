@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from db.fusion import init_fusion_tables
 from db.options_flow import init_db as init_options
 from signals.fusion.scorer import (
+    CONVICTION_PRIOR_MASS,
     NOISE_FLOOR,
     ROLE_THESIS,
     ROLE_TRIGGER,
@@ -105,10 +106,28 @@ def test_trigger_mass_halves_after_60_wall_minutes_and_counts_overnight():
 # ---------------------------------------------------------------- conviction
 
 
-def test_conviction_one_sided_is_one_and_balanced_is_zero():
+def test_conviction_shrinks_with_prior_mass_small_below_one_large_approaches_one():
+    """The INTC-artifact fix: a thin one-sided read no longer posts full
+    conviction. With the prior in the denominator, a lone dot is well below 1 and
+    conviction only approaches 1 as real one-sided mass accumulates — asymptotic,
+    never exactly 1. Balanced masses stay exactly 0."""
     ts = _utc(2026, 7, 21, 14, 0)
-    one = score_decayed([_dot("a", ts, direction="bull", dte=30)], ts)
-    assert one["thesis"]["conviction"] == 1.0
+
+    # Small one-sided mass (one point-1.0 dot): 1 / (1 + prior) — well below 1.
+    small = score_decayed([_dot("a", ts, direction="bull", dte=30)], ts)
+    assert small["thesis"]["conviction"] < 0.5
+    # scorer rounds conviction to 4dp, so compare with a 4dp-scale tolerance.
+    assert abs(small["thesis"]["conviction"] - 1.0 / (1.0 + CONVICTION_PRIOR_MASS)) < 1e-3
+
+    # Large one-sided mass (20 aligned point-2.0 dots → gross 40): approaches 1.
+    big_dots = [
+        _dot(f"b{i}", ts, direction="bull", raw=1_000_000, dte=30) for i in range(20)
+    ]
+    big = score_decayed(big_dots, ts)
+    assert big["thesis"]["conviction"] > 0.9
+    assert big["thesis"]["conviction"] < 1.0  # asymptotic — the prior never lets it hit 1
+
+    # Balanced two-sided → exactly 0 (the prior only touches the denominator).
     balanced = score_decayed(
         [
             _dot("a", ts, direction="bull", dte=30),
@@ -120,16 +139,27 @@ def test_conviction_one_sided_is_one_and_balanced_is_zero():
     assert balanced["maturity"] == 0.0  # gross × 0 conviction
 
 
+def test_conviction_prior_mass_zero_recovers_pure_ratio():
+    """The dial is threaded through score_decayed: prior_mass=0 restores the old
+    |bull−bear|/gross, so a lone one-sided dot reads exactly 1.0."""
+    ts = _utc(2026, 7, 21, 14, 0)
+    pure = score_decayed(
+        [_dot("a", ts, direction="bull", dte=30)], ts, conviction_prior_mass=0.0
+    )
+    assert pure["thesis"]["conviction"] == 1.0
+
+
 # ------------------------------------------------------------ contested heals
 
 
 def test_contested_heals_as_thesis_evidence_ages_below_floor():
     """The core disease fix. A near-balanced two-sided symbol is contested while
     its evidence is fresh, and — with NO new dots — heals as the day's mass
-    decays below the noise floor. (Within one role, uniform decay preserves the
-    bull/bear ratio, so conviction is time-invariant; healing therefore comes
-    from the CONTEMPORANEOUS gross floor, not from the old absorbing-till-
-    midnight bit.)"""
+    decays below the noise floor. Healing comes from the CONTEMPORANEOUS gross
+    floor, not the old absorbing-till-midnight bit. (Under the conviction prior
+    the ratio is no longer perfectly time-invariant: uniform decay shrinks gross
+    while the prior stays fixed, so conviction drifts DOWN as evidence ages — it
+    never spuriously rises, which is all the heal needs.)"""
     ts = _utc(2026, 7, 21, 14, 0)  # Tue 10:00 ET, both sides fresh
     dots = [
         _dot("bull", ts, direction="bull", raw=500_000, dte=30),  # point 1.0
@@ -144,8 +174,8 @@ def test_contested_heals_as_thesis_evidence_ages_below_floor():
     assert session_seconds_between(ts, later) > THESIS_HALF_LIFE_TD * SESSION_SECONDS
     healed = score_decayed(dots, later)["thesis"]
     assert healed["gross"] < NOISE_FLOOR  # aged into noise
-    assert healed["contested"] is False  # heals
-    assert abs(healed["conviction"] - fresh["conviction"]) < 1e-6  # ratio invariant
+    assert healed["contested"] is False  # heals via the gross floor
+    assert healed["conviction"] < fresh["conviction"]  # prior shrinks it further as mass ages
 
 
 # --------------------------------------------------------------- role routing
@@ -221,8 +251,9 @@ def test_replay_smoke_on_tmp_db(tmp_path):
     assert rec["symbol"] == "ZZZ"
     assert rec["decision"] == "shadow_investigate"
     assert rec["old_score"] == 1.8
-    # 30-DTE block → thesis; one-sided → maturity = gross × 1.0 > 0.
+    # 30-DTE block → thesis; one-sided point-1.0 mass → conviction shrunk by the
+    # prior to 1/(1+2) and maturity = gross × that > 0.
     assert rec["thesis_bull"] > 0
-    assert rec["conviction"] == 1.0
+    assert abs(rec["conviction"] - 1.0 / (1.0 + CONVICTION_PRIOR_MASS)) < 1e-3
     assert rec["maturity"] > 0
     assert rec["peak_ts"] is not None

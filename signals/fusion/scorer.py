@@ -261,6 +261,14 @@ TRIGGER_HALF_LIFE_MIN = 60.0  # FOUNDER DIAL
 TRIGGER_DTE_MAX = 2  # FOUNDER DIAL (the 3–6 band lives just above it)
 # Conviction below this, with gross mass at/above the floor, = contested.
 CONVICTION_BAR = 0.4  # FOUNDER DIAL
+# Conviction shrinkage prior — a prior mass added to the conviction denominator
+# so a THIN one-sided read can't post full conviction. Measured artifact
+# (founder-approved fix): INTC read conviction 1.0 at 9:33 ET on ~30 min of
+# one-sided prints; over the full day it was 80/79 two-sided. With a prior of
+# 2.0 that early thin read shrinks — conviction = |bull−bear|/(gross + prior) —
+# and only APPROACHES 1 as real one-sided mass accumulates, never reaching it on
+# a handful of prints.
+CONVICTION_PRIOR_MASS = 2.0  # FOUNDER DIAL
 # Minimum gross decayed mass for a role to count as "real" — the gate that lets
 # contested HEAL: once the day's evidence decays below this, it is noise, not a
 # live disagreement.
@@ -393,9 +401,14 @@ def _decay_factor(
     return 0.5 ** (elapsed / half_life)
 
 
-def _conviction(bull: float, bear: float) -> float:
-    gross = bull + bear
-    return abs(bull - bear) / gross if gross > 0 else 0.0
+def _conviction(bull: float, bear: float, *, prior_mass: float = CONVICTION_PRIOR_MASS) -> float:
+    """|bull − bear| shrunk toward 0 by a prior mass in the denominator.
+
+    ``prior_mass`` (the CONVICTION_PRIOR_MASS dial) is added to the gross so a
+    thin one-sided read is asymptotic to 1, not equal to it; prior_mass=0
+    recovers the pure ratio. Balanced masses stay exactly 0 (zero numerator)."""
+    denom = bull + bear + max(0.0, prior_mass)
+    return abs(bull - bear) / denom if denom > 0 else 0.0
 
 
 def score_decayed(
@@ -405,6 +418,7 @@ def score_decayed(
     thesis_half_life_td: float = THESIS_HALF_LIFE_TD,
     trigger_half_life_min: float = TRIGGER_HALF_LIFE_MIN,
     conviction_bar: float = CONVICTION_BAR,
+    conviction_prior_mass: float = CONVICTION_PRIOR_MASS,
     noise_floor: float = NOISE_FLOOR,
     trigger_dte_max: int = TRIGGER_DTE_MAX,
 ) -> dict[str, Any]:
@@ -412,8 +426,10 @@ def score_decayed(
 
     Per (role, direction) the decayed sum of per-dot points (each dot's own
     capped log-magnitude, so options premium and equity notional are normalised
-    to their own bases before summing). ``conviction = |bull − bear| / gross``;
-    ``contested`` = gross at/above the floor AND conviction below the bar,
+    to their own bases before summing). ``conviction = |bull − bear| /
+    (gross + conviction_prior_mass)`` — the prior mass shrinks a thin one-sided
+    read (INTC 9:33 artifact; see the dial); ``contested`` = gross at/above the
+    floor AND conviction below the bar,
     evaluated CONTEMPORANEOUSLY at ``now``. Maturity = thesis_gross ×
     thesis_conviction — trigger masses are computed and returned but NEVER mixed
     in (fast evidence times an entry, never carries a thesis; §2.2/§5, no
@@ -453,7 +469,7 @@ def score_decayed(
         bull = sides["bull"]
         bear = sides["bear"]
         gross = bull + bear
-        conviction = _conviction(bull, bear)
+        conviction = _conviction(bull, bear, prior_mass=conviction_prior_mass)
         roles_out[role] = {
             "bull_mass": round(bull, 4),
             "bear_mass": round(bear, 4),

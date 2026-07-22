@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -149,6 +150,29 @@ def test_cursor_resume_has_no_gap_or_replay(
     assert anchor["anchor_direction"] == "bull"
     assert dots[0]["component"] == "option_sweep"
     assert score["signature"] == "option_sweep"
+
+
+def test_option_dot_carries_dte_in_detail(
+    fusion_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The minted option dot persists the source event's DTE into detail_json so
+    the v2 scorer routes its role (thesis vs trigger) live — evidence_dots have
+    no DTE column, and scorer._dte reads it from detail."""
+    monkeypatch.setattr(
+        "signals.fusion.registrar.register_stack",
+        lambda *args, **kwargs: None,
+    )
+    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    event = _flow("flow-dte")
+    event["dte"] = 30
+    insert_flow(event, fusion_db)
+    counters = intake_once(db_path=fusion_db, price_lookup=lambda _symbol: Decimal("320.25"))
+    assert counters["scored"] == 1
+    with connect(fusion_db) as conn:
+        detail_json = conn.execute(
+            "SELECT detail_json FROM evidence_dots WHERE source_event_id = 'flow-dte'"
+        ).fetchone()[0]
+    assert json.loads(detail_json)["dte"] == 30
 
 
 def test_unstampable_is_stored_and_conservation_balances(fusion_db: Path) -> None:
