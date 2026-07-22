@@ -1954,6 +1954,16 @@
       "created_at": "2026-07-17T17:11:38.834489+00:00",
       "notes": "Founder 2026-07-17: 'be nice in positions to see when the position was entered... I don't know exactly' + avg entry price + fix the header alignment lottery. Built: db/order_executions.entry_dates_by_symbol(account_id) (read-only flat->long walk over filled executions; re-entry resets, partial sells keep; 2 unit tests), enrichment in _combined_snapshot_response per ledger account_id (exec + poll_runs verified same acct_* id space), paper table reordered Symbol/Qty/Side/Entered/Entry/Price/Value/Unrealized with one alignment rule (Symbol left, rest right), Entered renders 07/16/2026 09:33 local w/ ISO hover, pre-ledger rows show em-dash (honest, no fabricated dates). Real/Schwab table unchanged. Deployed 07-17; pending founder in-browser check -> move to done.\n\n2026-07-19 board review: shipped + deployed 07-17; founder in-browser check pending (tracked on HANDOFF 07-17 UI round).",
       "updated_at": "2026-07-19"
+    },
+    {
+      "id": "flow-watch-allocation-decision",
+      "title": "Decide: flow-watch overflow \u2014 bump underlying cap to 40, or set a priority order",
+      "lane": "founder",
+      "type": "decision",
+      "priority": "high",
+      "owner": "founder",
+      "notes": "07-22: watchlist grew to 36 option-eligible names vs OPTIONS_FLOW_MAX_UNDERLYINGS=30; the alphabetical tail clip is dropping SPY/TSLA/XLE/XLF/SPCX/VIXM from the options-flow watch every cycle, and hot-lane promotions (ride last by design) are fully starved while watchlist > cap. Mechanics verified: contract slots (STREAM_TRADES_MAX=1000; gauge lane 130 pre-budgeted) allocate ROUND-ROBIN across underlyings ranked by traded activity/OI, so more underlyings thins each name's tail, never starves a name: 30 names ~29 top contracts each -> 40 names ~22 each. Orchestrator recommendation: bump cap to 40 (pure add \u2014 no reordering of founder names; one-line dial + collector bounce); alphabetical clip stays as the loud >40 backstop. If/when the watchlist nears 40: activity-priority ordering replaces alphabetical (decides WHICH founder names lose coverage \u2014 founder call). Related: options-data-plan-decision (vendor acked 1,500+ trade subs when the 1,000 cap was measured \u2014 probe-able headroom to buy depth back). Founder 07-22: 'I need to think on flow watchlist' \u2014 no action until he decides.",
+      "updated_at": "2026-07-22"
     }
   ]
 }
