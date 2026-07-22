@@ -10,12 +10,16 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from research.strategy_features import _trading_days_until
-from trading.market_hours import is_after_close, is_market_open
+from trading.market_hours import is_after_close, is_market_open, session_close_time
 
 _ET = ZoneInfo("America/New_York")
-# Earliest ET wall-clock at which the final-session exit may fire. Late enough to
-# fill near the close the backtest models, early enough to leave ~45 loop passes.
-_EXIT_WINDOW_OPEN_ET = (15, 45)
+# The final-session exit fires inside the LAST N minutes of the session — late
+# enough to fill near the close the backtest models, early enough to leave ~45
+# loop passes. SESSION-RELATIVE, not a fixed 15:45: on a half-day (13:00 ET
+# close) a fixed window opens 2h45m AFTER the close, the day-TIF order queues to
+# the NEXT open — the print day for a bmo reporter — and the position holds
+# through the announcement (board: market-hours-half-day-early-close).
+_EXIT_WINDOW_LEAD_MIN = 15
 
 
 @dataclass(frozen=True)
@@ -181,9 +185,10 @@ def evaluate_earnings_exit(
       close, so the position holds through it and the `day` order the broker queues fills
       at the report day's OPEN, capturing the overnight gap that carries most of the edge
       (PC 2010-2026: +0.227%/trade conditional on `amc`).
-    * `td == 1`, anything else — EXIT only inside 15:45-16:00 ET, filling near the close as
-      the backtest does. It must NOT fire after the close: a queued `day` order releases at
-      the report day's open, which for a `bmo` reporter is AFTER its print.
+    * `td == 1`, anything else — EXIT only inside the LAST 15 MINUTES of the session
+      (15:45-16:00 ET on a full day, 12:45-13:00 on a half-day close), filling near the
+      close as the backtest does. It must NOT fire after the close: a queued `day` order
+      releases at the report day's open, which for a `bmo` reporter is AFTER its print.
     * `td > 1` — hold.
 
     FAILS CLOSED: anything that is not exactly `"amc"` (None, other sessions, an unknown
@@ -221,10 +226,12 @@ def evaluate_earnings_exit(
                 rule, should_exit = "amc_after_close", is_after_close(et_now)
             else:
                 rule = "lead_td_close"
-                should_exit = is_market_open(et_now) and (
-                    et_now.hour,
-                    et_now.minute,
-                ) >= _EXIT_WINDOW_OPEN_ET
+                close_h, close_m = session_close_time(et_now.date())
+                window_open = close_h * 60 + close_m - _EXIT_WINDOW_LEAD_MIN
+                should_exit = (
+                    is_market_open(et_now)
+                    and et_now.hour * 60 + et_now.minute >= window_open
+                )
         else:
             rule, should_exit = "hold_until_lead", False
 

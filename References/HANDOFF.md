@@ -134,3 +134,8 @@ Shipped 07-14 (PRs #65–68) — detail: BUILD_LOG 2026-07-14. **Open:** founder
 
 Fixed #91 (dead since D3) — detail: BUILD_LOG 2026-07-16. **Open:** 7 earnings_drift positions must
 auto-sell on 2026-07-29; sibling unguarded fallbacks recorded on `data-correctness-m-tail`.
+Also open (07-22 half-day review, P1 — pre-existing, no regression): the amc `td==1` exit's docstring
+says the after-close day-TIF order "queues to the report-day open", but RiskEngine's no-live-quote gate
+REJECTS after-close submissions — the fill actually happens via next-cycle retries once the report-day
+open has a quote. Same destination, different mechanism; verify against the 07-29 proof (throttle marks
+at exit_engine.py:390 must not delay the open fill) and fix the docstring to match reality.

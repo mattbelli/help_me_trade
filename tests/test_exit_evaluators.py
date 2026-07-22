@@ -361,3 +361,53 @@ def test_vix_exit_boundary_vix_exactly_20_holds():
     d = evaluate_vix_exit(current_vix=20.0, holding_days=10, params={})
     assert d.action == "hold"
     assert d.reason == "hold"
+
+
+# --- half-day early close (board: market-hours-half-day-early-close) --------------
+# 2026-11-27 (Friday after Thanksgiving) closes 13:00 ET; a bmo reporter prints
+# Monday 2026-11-30, so Friday is td == 1. The fixed 15:45 window opened 2h45m
+# AFTER the close: the exit never fired in-session, the day-TIF order queued to
+# Monday's open — the print itself. The window is now session-relative (12:45).
+# November ET is -05:00, so UTC = ET + 5h.
+# A past distractor + the Monday print date (neither is itself a half-day; the
+# half-day is "today", 11-27).
+_EARNINGS_AROUND_HALF_DAY = ["2026-08-27", "2026-11-30"]
+_FRI_1240 = "2026-11-27T17:40:00+00:00"  # 12:40 ET — before the 12:45 window
+_FRI_1245 = "2026-11-27T17:45:00+00:00"  # 12:45 ET — exact window open (>=)
+_FRI_1250 = "2026-11-27T17:50:00+00:00"  # 12:50 ET — inside the final 15 min
+_FRI_1400 = "2026-11-27T19:00:00+00:00"  # 14:00 ET — the old phantom-open window
+
+
+def _half_day(today):
+    return evaluate_earnings_exit(
+        today=today,
+        earnings_dates=_EARNINGS_AROUND_HALF_DAY,
+        params={},
+        hour_for=lambda _d: "bmo",
+    )
+
+
+def test_earnings_half_day_holds_before_relative_window():
+    d = _half_day(_FRI_1240)
+    assert d.action == "hold"
+    assert d.detail["exit_rule"] == "lead_td_close"
+
+
+def test_earnings_half_day_exits_in_final_15_min_before_1300():
+    d = _half_day(_FRI_1250)
+    assert d.action == "exit"
+    assert d.reason == "earnings"
+    assert d.detail["exit_rule"] == "lead_td_close"
+
+
+def test_earnings_half_day_window_opens_exactly_at_1245():
+    assert _half_day(_FRI_1245).action == "exit"
+
+
+def test_earnings_half_day_never_fires_in_the_closed_afternoon():
+    # THE catastrophic case: 14:00 ET reads closed now, so no day-TIF order can
+    # queue into Monday's open (the print). Missing the window falls to the
+    # report-day backstop, never to a queued order through the announcement.
+    d = _half_day(_FRI_1400)
+    assert d.action == "hold"
+    assert d.detail["exit_rule"] == "lead_td_close"

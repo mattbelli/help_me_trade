@@ -70,3 +70,49 @@ def test_is_after_close_true_on_holiday() -> None:
 def test_last_session_close_walks_back_over_holiday() -> None:
     # Tue 2026-01-20 pre-open → skips MLK Mon 01-19 back to Fri 01-16 close.
     assert last_session_close(_et(2026, 1, 20, 8, 0)) == _et(2026, 1, 16, 16)
+
+
+# Half-day early closes — 2026-11-27 (Friday after Thanksgiving) closes 13:00 ET.
+# The board card market-hours-half-day-early-close: a phantom-open afternoon let
+# the earnings exit fire post-close and queue a day-TIF order into the print day.
+
+
+def test_session_close_time_half_day_vs_full_day() -> None:
+    from datetime import date
+
+    from trading.market_hours import session_close_time
+
+    assert session_close_time(date(2026, 11, 27)) == (13, 0)
+    assert session_close_time(date(2026, 12, 24)) == (13, 0)  # Christmas Eve, a Thursday
+    assert session_close_time(date(2026, 11, 30)) == (16, 0)  # the following Monday
+
+
+def test_is_market_open_half_day_afternoon_is_closed() -> None:
+    assert is_market_open(_et(2026, 11, 27, 12, 59))
+    assert not is_market_open(_et(2026, 11, 27, 13, 0))
+    assert not is_market_open(_et(2026, 11, 27, 14, 30))  # the phantom-open window
+
+
+def test_is_after_close_flips_at_1300_on_half_day() -> None:
+    assert not is_after_close(_et(2026, 11, 27, 12, 59))
+    assert is_after_close(_et(2026, 11, 27, 13, 0))
+
+
+def test_last_session_close_on_half_day_is_1300() -> None:
+    assert last_session_close(_et(2026, 11, 27, 14, 0)) == _et(2026, 11, 27, 13)
+    # Monday pre-open walks back to Friday's EARLY close, not a phantom 16:00.
+    assert last_session_close(_et(2026, 11, 30, 8, 0)) == _et(2026, 11, 27, 13)
+
+
+def test_market_session_half_day_afternoon_is_post_not_regular() -> None:
+    """market_clock must stay in lockstep with is_market_open — a "regular"
+    label 13:00-16:00 on a half-day strands equity price alerts (the ext-quote
+    backstop only engages outside "regular")."""
+    from brokers.market_clock import market_session
+
+    assert market_session(_et(2026, 11, 27, 12, 59)) == "regular"
+    assert market_session(_et(2026, 11, 27, 13, 0)) == "post"
+    assert market_session(_et(2026, 11, 27, 14, 30)) == "post"
+    # Full days keep the 16:00 boundary.
+    assert market_session(_et(2026, 11, 30, 14, 30)) == "regular"
+    assert market_session(_et(2026, 11, 30, 16, 0)) == "post"
