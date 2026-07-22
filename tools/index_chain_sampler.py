@@ -40,6 +40,11 @@ _ET = ZoneInfo("America/New_York")
 # monthlies; SPXW is the everyday 0-1DTE index subject. + a megacap slice for
 # the founder's "carry this over to large caps" extension. DTE≤1 only.
 SAMPLE_UNDERLYINGS = ("SPY", "QQQ", "IWM", "DIA", "SPX", "SPXW", "TSLA", "NVDA", "AAPL")
+# Roots with a listed expiry EVERY trading day — zero 0-1DTE rows from one of
+# these is a collection failure, never a calendar quirk. ABSENCE MUST BE LOUD:
+# the SPXW outage sat invisible for 3 sessions because files kept landing and
+# only the per-root composition was wrong (07-22 postmortem).
+ALWAYS_EXPECTED = ("SPY", "QQQ", "IWM", "SPXW")
 MAX_DTE = 1
 SAMPLE_SECONDS = 15  # quote-timeline resolution for back-pairing tests (prereg)
 # 5-min shoulders around the gauge windows so deltas exist at the edges.
@@ -62,10 +67,11 @@ def _next_window_start(now: datetime) -> int | None:
     return min(starts) if starts else None
 
 
-def _sample_once(broker, today_et: str, out) -> int:
+def _sample_once(broker, today_et: str, out) -> dict[str, int]:
     ts = datetime.now(_ET).isoformat(timespec="seconds")
-    rows = 0
+    per_root: dict[str, int] = {}
     for u in SAMPLE_UNDERLYINGS:
+        per_root[u] = 0
         spot = None
         try:
             snap = broker.get_stock_snapshot_fields(u)
@@ -132,14 +138,19 @@ def _sample_once(broker, today_et: str, out) -> int:
                 )
                 + "\n"
             )
-            rows += 1
+            per_root[u] += 1
+    for u in ALWAYS_EXPECTED:
+        if per_root.get(u, 0) == 0:
+            print(f"ERROR {ts} zero 0-1DTE rows for {u} — it lists dailies "
+                  "every session, so this is a COLLECTION failure", flush=True)
     out.flush()
-    return rows
+    return per_root
 
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     broker = get_broker("alpaca")
+    day_totals: dict[str, int] = {}
     print(f"index_chain_sampler: sampling {SAMPLE_UNDERLYINGS} DTE<=1 every "
           f"{SAMPLE_SECONDS}s in ET windows {WINDOWS_ET}", flush=True)
     while True:
@@ -148,14 +159,22 @@ def main() -> None:
         if _in_window(now):
             path = OUT_DIR / f"{today_et}.jsonl"
             with path.open("a") as out:
-                n = _sample_once(broker, today_et, out)
-            print(f"{now.isoformat(timespec='seconds')} sampled {n} rows", flush=True)
+                per_root = _sample_once(broker, today_et, out)
+            for u, c in per_root.items():
+                day_totals[u] = day_totals.get(u, 0) + c
+            print(f"{now.isoformat(timespec='seconds')} sampled "
+                  f"{sum(per_root.values())} rows", flush=True)
             time.sleep(SAMPLE_SECONDS)
             continue
         nxt = _next_window_start(now)
         if nxt is None:
             print("index_chain_sampler: past the close window — done for the day",
                   flush=True)
+            print(f"day per-root totals: {day_totals}", flush=True)
+            missing = [u for u in ALWAYS_EXPECTED if not day_totals.get(u)]
+            if missing:
+                print(f"ERROR day ended with ZERO rows for {missing} — the "
+                      "study lost a session for those roots", flush=True)
             return
         wait_s = (nxt - _now_min(now)) * 60 - now.second
         print(f"index_chain_sampler: sleeping {wait_s}s until next window", flush=True)
