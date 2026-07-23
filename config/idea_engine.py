@@ -18,6 +18,22 @@ IDEA_COOLDOWN_MIN: dict[str, int] = defaultdict(lambda: IDEA_COOLDOWN_MIN_DEFAUL
 # registration_called guard is the primary wall); the day-wide cooldown is the
 # dedup_key backstop for replay/restart races.
 IDEA_COOLDOWN_MIN["fusion_mech"] = 1440
+# LLM paper-book lanes (References/LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md §4):
+# one nightly cycle per book, so the day-wide cooldown is the same replay/restart
+# backstop. tests/test_llm_books.py fails if a book lane is missing here (the
+# defaultdict would silently hand it 30 min).
+for _book_origin in (
+    "book:deepseek",
+    "book:deepseek/considered",
+    "book:fable",
+    "book:fable/considered",
+    "book:panel",
+    "book:panel/bull",
+    "book:panel/bear",
+    "book:panel/macro",
+    "book:panel/risk",
+):
+    IDEA_COOLDOWN_MIN[_book_origin] = 1440
 
 # Path A horizon templates (spec §3), literal trading-day horizons so the grader
 # never needs call-time strategy-param resolution. earnings_drift enters at

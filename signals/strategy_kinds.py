@@ -159,6 +159,10 @@ def strategy_kind(strategy_id: str) -> str | None:
     """Infer kind from id. NOTE: trading/exit_engine._strategy_kind covers only dip/earnings
     (it's reached only AFTER is_portfolio_kind filters momentum out) — they diverge by design."""
     sid = (strategy_id or "").lower()
+    # LLM paper books (book_*) are driven by their own nightly pipeline
+    # (research/books.py), never the generic scan or the exit engine.
+    if sid.startswith("book_"):
+        return "book"
     if sid.startswith("momentum"):
         return "momentum"
     # Regime sleeves BEFORE the substring checks ("generals_dip" must not match "dip").

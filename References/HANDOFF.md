@@ -34,19 +34,26 @@ amendments override its body; detail: BUILD_LOG 2026-07-21/22 rows). Lane stays 
 - acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
   broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 
-## ▶ Chart load perf — all 3 audit fixes in draft PR; deploy + verify open
+## ▶ Chart load perf — PR #102 DEPLOYED + machine-verified; founder eyeballs open
 
-From the chart-perf audit (watchlist charts loaded slowly on non-default timeframes: only the 1Day view
-was prewarmed; other timeframes were cold on first view). Draft PR (card `chart-bars-incremental-refresh`;
-BUILD_LOG 2026-07-23 rows) ships all three: **#1 incremental fetch-since-last-bar refresh** (warm refreshes
-merge a small trailing window, no full re-walk), **#2 broadened prewarm** (broadcast the K most-recent
-timeframes across the whole watchlist — bounded by K + `_BARS_PREWARM_MAX_ENTRIES`; safe only because #1
-made warm refreshes cheap), **#3 reload-persistent frontend cache** (sessionStorage mirror so a full reload
-rehydrates instead of going cold). **Open — deploy + verify only:**
-- ⏳ deploy: `tools/serv-deploy.sh backend` for #1/#2, **frontend build+deploy** for #3 (build first, verify
-  BUILD_ID mtime — see `serv-deploy-procedure`). Founder verifies charts in-browser.
-- ⏳ watch `/health` bars_prewarm `lag_s` stays well under the shortest TTL after #2 goes live (storm
+Merged (double adversarial pass, 3 review fixes) + deployed 07-23 16:07 ET; machine verify green
+(bars_prewarm lag 5.5s on the 15s interval, WAF journal quiet, futures 1Week + SPY 1Day zero dupes).
+Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental-refresh`. **Open:**
+- founder verifies charts in-browser (timeframe switches on not-yet-viewed symbols should paint warm)
+- ⏳ next few sessions: `/health` bars_prewarm `lag_s` stays well under the shortest TTL (storm
   invariant, `chart-bars-prewarm-storms`); `_BARS_HOT_SPECS_MAX` / `_BARS_PREWARM_MAX_ENTRIES` are the dials.
+
+## ▶ LLM paper books — increment 1 live; increments 2–6 open
+
+Spec + amendments: `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body); card
+`llm-books-program`; increment-1 detail in BUILD_LOG 2026-07-23. Plumbing is live: 9 ledger lanes,
+3 book strategy records (disabled/propose), `research/books.py` + pack CLI verified against live
+paper state. **Open:**
+- increment 2 next: Deep Seek book e2e (nightly job → pack → DeepSeek → report + lane rows + batched
+  push held until armed); then 3 (Matt+LLM snapshot), 4 (Fable/Panel sessions + dead-man), 5 (shorts
+  unlock — own adversarially-reviewed round), 6 (Lab lane wiring)
+- founder-lane (spec §9): execution style (market-at-approval vs MOO), panel cadence (nightly vs
+  Tue/Thu), per-book notional caps at arming
 
 ## ▶ Waiting on founder
 

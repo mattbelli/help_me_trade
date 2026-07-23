@@ -55,7 +55,21 @@ VETOED_ORIGIN = "structure_vetoed"
 # calibration but are excluded from the headline win-rate, recent lists, and
 # the founder 5b grading queue — the VETOED_ORIGIN precedent, generalized.
 # Every summary/list/grading filter uses this set, never the single string.
-JOURNAL_ORIGINS = frozenset({VETOED_ORIGIN, "fusion_mech"})
+# book:* journal lanes are the LLM paper books' considered-not-advanced
+# candidates + panel seats (LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md §4); the books'
+# ADVANCED lanes (book:deepseek/fable/panel) stay headline-class on purpose.
+JOURNAL_ORIGINS = frozenset(
+    {
+        VETOED_ORIGIN,
+        "fusion_mech",
+        "book:deepseek/considered",
+        "book:fable/considered",
+        "book:panel/bull",
+        "book:panel/bear",
+        "book:panel/macro",
+        "book:panel/risk",
+    }
+)
 _JOURNAL_SQL = ",".join("?" * len(JOURNAL_ORIGINS))
 _JOURNAL_PARAMS = tuple(sorted(JOURNAL_ORIGINS))
 

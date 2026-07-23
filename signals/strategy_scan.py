@@ -332,8 +332,11 @@ async def _run_strategy(
         return await _run_portfolio_strategy(strategy, db_path=db_path)
 
     # Regime-local sleeves are scanned by their own post-close loop
-    # (signals.regime_sleeves) — silently skip them here.
-    if strategy_kind(strategy["id"]) in REGIME_SLEEVE_KINDS:
+    # (signals.regime_sleeves) — silently skip them here. LLM books ("book")
+    # are driven by their own nightly pipeline (research/books.py) — same deal.
+    if strategy_kind(strategy["id"]) in REGIME_SLEEVE_KINDS or (
+        strategy_kind(strategy["id"]) == "book"
+    ):
         return []
 
     spec = kind_spec(strategy["id"])

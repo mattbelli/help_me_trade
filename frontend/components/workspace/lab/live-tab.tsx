@@ -101,7 +101,9 @@ function MechanicalRoster({ onRoute }: { onRoute: (r: LabRoute) => void }) {
   useEffect(() => {
     let cancelled = false;
     fetchLabStrategies()
-      .then((r) => !cancelled && setRows(r))
+      // book_* strategy records belong to the llm-books family (rendered from
+      // accounts on the llm sub-tab), never the mechanical roster.
+      .then((r) => !cancelled && setRows(r.filter((s) => !s.id.startsWith("book_"))))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "load failed"));
     return () => {
       cancelled = true;

@@ -103,6 +103,16 @@ _EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
     "max_holding_days": 15,
 }
 
+# LLM paper books (References/LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md): free-rein
+# nightly-driver books, NOT scan strategies — the generic scan and the exit
+# engine both skip the "book" kind. DISABLED + propose; founder arms manually
+# and sets notional caps at arming (spec §9). Account ids verified live 07-23.
+_BOOK_STRATEGIES = (
+    ("book_deepseek", "Deep Seek (LLM book)", "acct_alpaca_deepseek"),
+    ("book_fable", "Fable (LLM book)", "acct_alpaca_fable"),
+    ("book_panel", "Claude Panel (LLM book)", "acct_alpaca_open"),
+)
+
 _VALID_EXIT_MODES = frozenset({"auto", "propose"})
 _VALID_ENTRY_MODES = frozenset({"auto", "propose"})
 _VALID_ALERT_STYLES = frozenset({"per_trade", "summary"})
@@ -442,6 +452,11 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
     need_momentum = get_strategy("momentum_sp500", db_path=db_path) is None
     need_generals = get_strategy("generals_dip", db_path=db_path) is None
     need_vol_event = get_strategy("vol_event", db_path=db_path) is None
+    need_books = [
+        (sid, name, account_id)
+        for sid, name, account_id in _BOOK_STRATEGIES
+        if get_strategy(sid, db_path=db_path) is None
+    ]
     if (
         not need_dip_buy
         and not need_dip_refined
@@ -452,6 +467,7 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
         and not need_momentum
         and not need_generals
         and not need_vol_event
+        and not need_books
     ):
         return
 
@@ -622,6 +638,20 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 "UPDATE strategies SET entry_mode = 'auto', alert_style = 'summary' "
                 "WHERE id = ?",
                 ("momentum_sp500",),
+            )
+
+        for sid, name, account_id in need_books:
+            _insert_strategy(
+                conn,
+                strategy_id=sid,
+                name=name,
+                enabled=False,
+                account_id=account_id,
+                notional=500.0,
+                params={},
+                now=now,
+                exit_mode="propose",
+                universe=None,
             )
 
         conn.commit()

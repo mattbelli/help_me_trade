@@ -6,6 +6,18 @@ authorized); this doc turns them into buildable increments. Companion surfaces: 
 book pages (shipped 07-23, `frontend/components/workspace/lab/`) already carry honest-empty seams
 waiting on the origins defined in §4.*
 
+> **Amendments (2026-07-23, increment 1 build — these override the body where they conflict):**
+> 1. §4's "direct-index map, unknown origin KeyErrors" is wrong: `IDEA_COOLDOWN_MIN` is a
+>    defaultdict with a 30-minute fallback — an unlisted origin silently gets 30 min, it never
+>    KeyErrors. Entries are still REQUIRED so book lanes get the 1440-min nightly backstop;
+>    `tests/test_llm_books.py::test_origin_law_consistency` fails the build if one is missing.
+> 2. §4 adds two journal-class lanes: `book:deepseek/considered` + `book:fable/considered` —
+>    a solo book's considered-but-not-advanced candidates (calibration-counts-everything; the
+>    panel already had seat lanes for this, solo books had nowhere). An advanced panel idea
+>    registers in BOTH its seat lane and `book:panel`.
+> 3. Lane registry + registration helper + pack builder live in `research/books.py` (the
+>    reason-lane precedent); the CLI wrapper is `tools/book_context_pack.py`.
+
 ## 1. What this is (and is not)
 
 A **forward-test study**: can an LLM given a nightly, deterministic information pack run a paper
