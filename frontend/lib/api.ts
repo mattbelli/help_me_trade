@@ -499,6 +499,29 @@ export async function fetchWatchlists(): Promise<WatchlistsState> {
   return res.json();
 }
 
+export type WatchlistAggregate = {
+  list_id: string;
+  name: string;
+  days: number;
+  /** Equal-weight cumulative return curve; pct is % from the window start. */
+  points: { date: string; pct: number }[];
+  return_pct: number | null;
+  per_symbol: { symbol: string; return_pct: number }[];
+  symbols_missing: string[];
+};
+
+export async function fetchWatchlistAggregate(
+  listId: string,
+  days: number,
+): Promise<WatchlistAggregate> {
+  const params = new URLSearchParams({ list_id: listId, days: String(days) });
+  const res = await apiFetch(`${API_BASE}/api/watchlist/aggregate?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Watchlist aggregate error ${res.status}`);
+  return res.json();
+}
+
 export async function setActiveWatchlist(id: string): Promise<WatchlistsState> {
   const res = await apiFetch(`${API_BASE}/api/watchlists/active`, {
     method: "PUT",

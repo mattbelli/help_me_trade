@@ -10,6 +10,16 @@
   ],
   "cards": [
     {
+      "id": "watchlist-aggregate-panel",
+      "title": "Watchlist aggregate return: equal-weight index curve in a floating panel",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "agent",
+      "updated_at": "2026-07-23",
+      "notes": "Founder 07-23: 'take a watchlist and produce an aggregate chart \u2014 overall return of the group over any given time', UI instinct = a popup like company-info. Shipped exactly that: GET /api/watchlist/aggregate (id-or-name, default active; equal-weight daily-rebalanced price-return index via new signals/watchlist_index.py, per-symbol window returns, symbols_missing honesty) fed by ONE aget_stock_bars_batch call for cache-misses (365d dailies cached 300s \u2014 range switches are cache hits; never a per-symbol fan-out, Schwab WAF). Panel = FloatingPanel off the watchlist header's new \u2197 toggle (config.aggregateOpen): hoverable SVG curve (zero-line, area fill, crosshair), 1m/3m/6m/ytd/1y words, per-symbol leaders/laggards grid (ClickableSymbol\u2192chart), footer caveat 'equal-weight \u00b7 rebalanced daily \u00b7 price return, no dividends'. Follows list switches (refetch, not close). Live-verified on the AI Power/Energy list (3m \u22128.09%, ET best +7.3%, OKLO worst \u221240.2%). Deferred: intraday ranges; rendering inside the main chart engine as a compare series."
+    },
+    {
       "id": "chat-watchlist-write-tools",
       "title": "Chat agent can create/edit watchlists \u2014 4 curated write tools (founder ask)",
       "lane": "done",

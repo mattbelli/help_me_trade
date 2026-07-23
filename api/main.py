@@ -166,6 +166,7 @@ from signals.strategy_universe import resolve_universe_spec
 from signals.universe import all_watchlist_symbols as _all_watchlist_symbols
 from signals.universe import flow_watch_symbols as _flow_watch_symbols
 from signals.volume_profile import build_profile, load_profile, profile_dir, rvol_now
+from signals.watchlist_index import equal_weight_index
 from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.market_hours import _ET, _SESSION_CLOSE, _SESSION_OPEN
@@ -2680,6 +2681,113 @@ async def _wl_baselines_batch(provider, symbols: list[str]) -> dict[str, dict | 
             _wl_baseline_cache[sym] = (now, baseline)
             out[sym] = baseline
     return out
+
+
+# ---- Watchlist aggregate (equal-weight return index) ----
+
+_WL_AGG_BARS_TTL = 300.0  # matches the 1Day chart-bars TTL
+_wl_agg_closes_cache: dict[str, tuple[float, list[tuple[str, float]]]] = {}
+
+
+async def _wl_agg_closes(symbols: list[str]) -> dict[str, list[tuple[str, float]]]:
+    """Daily (date, close) series per symbol — ONE batched provider call for the
+    cache misses (never a per-symbol fan-out; the provider may be Schwab and its
+    WAF treats bursts as abuse). A year of dailies serves every panel range, so
+    range switches are pure cache hits."""
+    now = time.monotonic()
+    out: dict[str, list[tuple[str, float]]] = {}
+    missing: list[str] = []
+    for sym in symbols:
+        entry = _wl_agg_closes_cache.get(sym)
+        if entry is not None and now - entry[0] < _WL_AGG_BARS_TTL:
+            out[sym] = entry[1]
+        else:
+            missing.append(sym)
+    if missing:
+        try:
+            provider = get_market_data_provider()
+            fetched = await provider.aget_stock_bars_batch(
+                missing, timeframe="1Day", days=365
+            )
+        except BrokerError:
+            logger.warning("Watchlist aggregate bars fetch failed", exc_info=True)
+            fetched = {}
+        for sym in missing:
+            closes = [
+                (str(b.time)[:10], float(b.close)) for b in (fetched.get(sym) or [])
+            ]
+            _wl_agg_closes_cache[sym] = (now, closes)
+            out[sym] = closes
+    if len(_wl_agg_closes_cache) > 512:
+        for k in [
+            k
+            for k, (ts, _) in list(_wl_agg_closes_cache.items())
+            if now - ts >= _WL_AGG_BARS_TTL
+        ]:
+            _wl_agg_closes_cache.pop(k, None)
+    return out
+
+
+@app.get("/api/watchlist/aggregate")
+async def api_watchlist_aggregate(list_id: str = "", days: int = 90):
+    """Equal-weight daily-rebalanced price-return index over a watchlist.
+
+    `list_id` accepts an id or a (case-insensitive) name; empty = active list.
+    """
+    if days < 2 or days > 365:
+        return JSONResponse({"error": "days must be 2–365"}, status_code=400)
+    state = get_watchlists_state()
+    lists = state.get("lists", [])
+    entry = None
+    if list_id:
+        wanted = list_id.strip()
+        entry = next(
+            (
+                item
+                for item in lists
+                if item.get("id") == wanted
+                or str(item.get("name", "")).casefold() == wanted.casefold()
+            ),
+            None,
+        )
+        if entry is None:
+            return JSONResponse(
+                {"error": f"unknown watchlist {list_id!r}"}, status_code=404
+            )
+    else:
+        entry = next(
+            (item for item in lists if item.get("id") == state.get("active_id")),
+            lists[0] if lists else None,
+        )
+        if entry is None:
+            return JSONResponse({"error": "no watchlists"}, status_code=404)
+
+    symbols = [str(s).strip().upper() for s in entry.get("symbols", []) if str(s).strip()]
+    closes_by_symbol = await _wl_agg_closes(symbols)
+    today = datetime.now(timezone.utc).date()
+    cutoff = date.fromordinal(today.toordinal() - int(days)).isoformat()
+    windowed = {
+        sym: [(d, c) for d, c in closes if d >= cutoff]
+        for sym, closes in closes_by_symbol.items()
+    }
+    # A symbol needs two closes inside the window to ever contribute a return.
+    no_data = sorted(sym for sym, closes in windowed.items() if len(closes) < 2)
+    points, per_symbol = equal_weight_index(
+        {sym: closes for sym, closes in windowed.items() if len(closes) >= 2}
+    )
+    return {
+        "list_id": entry.get("id", ""),
+        "name": entry.get("name", ""),
+        "days": int(days),
+        "points": [{"date": d, "pct": round(p, 4)} for d, p in points],
+        "return_pct": round(points[-1][1], 4) if points else None,
+        "per_symbol": sorted(
+            ({"symbol": s, "return_pct": round(p, 4)} for s, p in per_symbol.items()),
+            key=lambda r: r["return_pct"],
+            reverse=True,
+        ),
+        "symbols_missing": no_data,
+    }
 
 
 @app.get("/api/watchlist/market")

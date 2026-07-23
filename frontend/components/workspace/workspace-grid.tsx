@@ -12,7 +12,7 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { Bell, BellOff, Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, SlidersHorizontal, X } from "lucide-react";
+import { Bell, BellOff, Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, SlidersHorizontal, TrendingUp, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -490,14 +490,37 @@ function WatchlistHeaderControls({
   onToggleAdding,
   settingsOpen,
   onToggleSettings,
+  aggregateOpen,
+  onToggleAggregate,
 }: {
   adding: boolean;
   onToggleAdding: () => void;
   settingsOpen: boolean;
   onToggleSettings: () => void;
+  aggregateOpen: boolean;
+  onToggleAggregate: () => void;
 }) {
   return (
     <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleAggregate();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label="Aggregate return"
+        title="Aggregate return"
+        aria-pressed={aggregateOpen}
+        className={cn(
+          "workspace-no-drag inline-flex items-center justify-center rounded p-1 outline-none hover:bg-[var(--bg-hover)]",
+          aggregateOpen
+            ? "text-[var(--c-accent)]"
+            : "text-[var(--fg-dim)] hover:text-foreground",
+        )}
+      >
+        <TrendingUp className="size-3.5" />
+      </button>
       <button
         type="button"
         onClick={(e) => {
@@ -1037,6 +1060,10 @@ function WidgetHeader({
           settingsOpen={config.settingsOpen ?? false}
           onToggleSettings={() =>
             onConfigChange({ settingsOpen: !config.settingsOpen })
+          }
+          aggregateOpen={config.aggregateOpen ?? false}
+          onToggleAggregate={() =>
+            onConfigChange({ aggregateOpen: !config.aggregateOpen })
           }
         />
       ) : null}

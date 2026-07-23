@@ -14,6 +14,7 @@ import {
 import { Reorder, useDragControls } from "motion/react";
 import { Check, GripVertical, Pin } from "lucide-react";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import { WatchlistAggregatePanel } from "@/components/workspace/widgets/watchlist-aggregate-panel";
 import {
   WidgetEmpty,
   WidgetError,
@@ -1506,6 +1507,17 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           onSetDensity={handleSetDensity}
           onReset={handleResetColumns}
           onClose={() => onConfigChange({ settingsOpen: false })}
+        />
+      ) : null}
+
+      {/* Floating aggregate-return panel — follows the displayed list (a list
+          switch refetches rather than closing, unlike the settings panel). */}
+      {config.aggregateOpen && displayList ? (
+        <WatchlistAggregatePanel
+          listId={displayList.id}
+          linked={linked}
+          onSymbolClick={publish}
+          onClose={() => onConfigChange({ aggregateOpen: false })}
         />
       ) : null}
 

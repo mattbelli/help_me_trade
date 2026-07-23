@@ -14,6 +14,8 @@ export type WidgetInstanceConfig = {
   editing?: boolean;
   /** Watchlist: header ⚙ toggles the columns & display settings overlay panel. */
   settingsOpen?: boolean;
+  /** Watchlist: header ↗ toggles the floating aggregate-return panel. */
+  aggregateOpen?: boolean;
   /** Chart studies toggled from the frame toolbar's Studies dropdown. */
   showSessionNodes?: boolean;
   studies?: string[];
