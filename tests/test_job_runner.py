@@ -64,6 +64,7 @@ def _reset_jobs_registry() -> None:
     jobs._name_index.clear()
     jobs._watchdog_stale_last_date.clear()
     jobs._watchdog_backup_last_date = None
+    jobs._watchdog_last_closed_mono = None
     main_mod._background_jobs_registered = False
 
 
@@ -251,6 +252,80 @@ async def test_watchdog_skips_fresh_job(
     monkeypatch.setattr("signals.notify.notify", fake_notify)
     await jobs._watchdog_once()
     assert notify_calls == []
+
+
+@pytest.mark.asyncio
+async def test_watchdog_market_hours_job_not_paged_at_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The overnight gap is not lag: last success yesterday + market just
+    opened must NOT page (the 07-20/07-23 false CRITICALs)."""
+    job = register_job(
+        Job(name="mh_job", fn=AsyncMock(), interval_s=60.0, market_hours_only=True)
+    )
+    register_job(Job(name="watchdog", fn=jobs._watchdog_once, interval_s=600.0))
+    job.last_success = time.monotonic() - 35_000
+    # Watchdog saw the market closed one tick ago; it is open now.
+    jobs._watchdog_last_closed_mono = time.monotonic() - 300
+    monkeypatch.setattr(jobs, "is_market_open", lambda: True)
+
+    notify_calls: list[dict] = []
+
+    async def fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "none"}
+
+    monkeypatch.setattr("signals.notify.notify", fake_notify)
+    await jobs._watchdog_once()
+    assert notify_calls == []
+
+
+@pytest.mark.asyncio
+async def test_watchdog_market_hours_job_pages_when_stale_intra_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A job dead well INTO the open session still pages."""
+    job = register_job(
+        Job(name="mh_job", fn=AsyncMock(), interval_s=60.0, market_hours_only=True)
+    )
+    register_job(Job(name="watchdog", fn=jobs._watchdog_once, interval_s=600.0))
+    job.last_success = time.monotonic() - 5_000
+    jobs._watchdog_last_closed_mono = time.monotonic() - 5_000
+    monkeypatch.setattr(jobs, "is_market_open", lambda: True)
+
+    notify_calls: list[dict] = []
+
+    async def fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "page"}
+
+    monkeypatch.setattr("signals.notify.notify", fake_notify)
+    await jobs._watchdog_once()
+    assert len(notify_calls) == 1
+    assert notify_calls[0]["group_key"] == "job_stale_mh_job"
+
+
+@pytest.mark.asyncio
+async def test_watchdog_closed_pass_stamps_clock_and_skips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job = register_job(
+        Job(name="mh_job", fn=AsyncMock(), interval_s=60.0, market_hours_only=True)
+    )
+    register_job(Job(name="watchdog", fn=jobs._watchdog_once, interval_s=600.0))
+    job.last_success = time.monotonic() - 35_000
+    monkeypatch.setattr(jobs, "is_market_open", lambda: False)
+
+    notify_calls: list[dict] = []
+
+    async def fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "none"}
+
+    monkeypatch.setattr("signals.notify.notify", fake_notify)
+    await jobs._watchdog_once()
+    assert notify_calls == []
+    assert jobs._watchdog_last_closed_mono is not None
 
 
 @pytest.mark.asyncio

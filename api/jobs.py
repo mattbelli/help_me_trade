@@ -21,6 +21,14 @@ WATCHDOG_INTERVAL_S = 600.0
 
 _watchdog_stale_last_date: dict[str, date] = {}
 _watchdog_backup_last_date: date | None = None
+# Last watchdog pass that saw the market CLOSED. Staleness for a
+# market_hours_only job is measured from here, never across a closed session:
+# its last success is yesterday's tape (or a boot baseline after an overnight
+# restart), so an unclamped lag pages CRITICAL at the first tick after 9:30 —
+# seconds before the job's first eligible run of the day (fired 07-20
+# fusion_intake 26,997s / 07-23 fusion_lifecycle 35,007s; which mornings page
+# was a race between the 600s watchdog tick and the job's first success).
+_watchdog_last_closed_mono: float | None = None
 
 
 @dataclass
@@ -134,8 +142,13 @@ def newest_backup_age_s() -> float | None:
 async def _watchdog_once() -> None:
     from signals.notify import notify
 
+    global _watchdog_last_closed_mono
+
     today_et = datetime.now(_ET).date()
     now_mono = time.monotonic()
+    market_open = is_market_open()
+    if not market_open:
+        _watchdog_last_closed_mono = now_mono
 
     for job in JOBS:
         if job.name == "watchdog":
@@ -144,11 +157,17 @@ async def _watchdog_once() -> None:
             continue
         # A market-hours-only job is legitimately idle overnight/weekends —
         # never page it as stale while the market is closed.
-        if job.market_hours_only and not is_market_open():
+        if job.market_hours_only and not market_open:
             continue
         baseline = job.last_success if job.last_success is not None else job.started
         if baseline is None:
             continue
+        if job.market_hours_only and _watchdog_last_closed_mono is not None:
+            # Closed-market time never counts as lag (see the clock's comment).
+            # The clamp is at most one watchdog interval before the open, and
+            # threshold > interval, so the first open tick can't false-page; a
+            # job still dead ~11 min into the session pages legitimately.
+            baseline = max(baseline, _watchdog_last_closed_mono)
         lag_s = now_mono - baseline
         threshold = max(3 * job.interval_s, job.interval_s + 600)
         if lag_s <= threshold:
