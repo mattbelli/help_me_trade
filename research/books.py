@@ -400,6 +400,32 @@ def _earnings_section(book: Book, db_path: Path) -> str:
     return "\n".join(lines)
 
 
+def _mandate_section(book: Book, db_path: Path) -> str:
+    """The book's actual operating constraints — without this the analyst
+    invents sizing untethered from the caps the chokepoint will enforce
+    (founder caught Fable writing $12k plans against a $500 clamp)."""
+    from db.strategies import get_strategy
+
+    s = get_strategy(book.strategy_id, db_path=db_path) if book.strategy_id else None
+    if s is None:
+        return "_no strategy record — cycles run dry_"
+    lines = [
+        (
+            "- status: ARMED — advanced longs become phone proposals for founder approval"
+            if s.get("enabled")
+            else "- status: DRY (proving period) — nothing you advance is executed yet"
+        ),
+        f"- per-trade notional cap: ${float(s['notional_usd']):,.0f} — proposals are CLAMPED to"
+        " this at intake; size your advanced ideas within it",
+    ]
+    if s.get("max_deployed_usd"):
+        lines.append(f"- max deployed: ${float(s['max_deployed_usd']):,.0f}")
+    if s.get("max_concurrent_positions"):
+        lines.append(f"- max concurrent positions: {int(s['max_concurrent_positions'])}")
+    lines.append("- shorts: tracked in your lanes for calibration, NOT executable yet")
+    return "\n".join(lines)
+
+
 def _journal_section(book: Book, db_path: Path) -> str:
     """The analyst's own desk journal from its last cycle — its only narrative
     memory between nights (book-analyst-charter). Lanes above are the
@@ -451,8 +477,9 @@ def build_book_pack(book_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> str:
         _section("Account", lambda: _account_section(book, db_path)),
         _section("Pending proposals", lambda: _proposals_section(book, db_path)),
     ]
-    # Matt + LLM is advisory-only (spec §5): no lanes or journal exist for it.
+    # Matt + LLM is advisory-only (spec §5): no mandate/lanes/journal for it.
     if book.headline_origin:
+        parts.append(_section("Your mandate", lambda: _mandate_section(book, db_path)))
         parts.append(_section("Your ledger lanes", lambda: _lanes_section(book, db_path)))
         parts.append(_section("Your desk journal", lambda: _journal_section(book, db_path)))
     parts.append(_section("Market frame", lambda: _market_frame_section(db_path)))

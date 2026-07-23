@@ -150,9 +150,11 @@ def test_pack_renders_on_empty_db_without_fabricating(tmp_path: Path) -> None:
         assert pack.startswith(f"# Context pack — {BOOKS[book_id].name}")
         assert "no snapshot for this account yet" in pack
         assert "## Market frame" in pack
-    # Matt + LLM is snapshot-only — its pack must not carry a lanes section.
-    assert "Your ledger lanes" not in build_book_pack("matt", db_path=tmp_path / "t.db")
-    assert "Your ledger lanes" in build_book_pack("panel", db_path=tmp_path / "t.db")
+    # Matt + LLM is snapshot-only — its pack must not carry lanes or a mandate.
+    matt_pack = build_book_pack("matt", db_path=tmp_path / "t.db")
+    panel_pack = build_book_pack("panel", db_path=tmp_path / "t.db")
+    assert "Your ledger lanes" not in matt_pack and "Your mandate" not in matt_pack
+    assert "Your ledger lanes" in panel_pack and "Your mandate" in panel_pack
 
 
 def test_origin_law_consistency() -> None:
