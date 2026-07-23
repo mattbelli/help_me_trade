@@ -69,6 +69,16 @@ async def _replay(book_id: str) -> int:
     return 0
 
 
+async def _run_all(book_ids: list[str]) -> int:
+    # ONE event loop for every book: provider HTTP clients cache per-process
+    # and a second asyncio.run would hand them a closed loop (seen live 07-23:
+    # fable priced `no_price` purely from the dead client).
+    rc = 0
+    for book_id in book_ids:
+        rc |= await _replay(book_id)
+    return rc
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -79,10 +89,7 @@ def main() -> int:
         help="book id to replay (repeatable)",
     )
     args = parser.parse_args()
-    rc = 0
-    for book_id in dict.fromkeys(args.book):
-        rc |= asyncio.run(_replay(book_id))
-    return rc
+    return asyncio.run(_run_all(list(dict.fromkeys(args.book))))
 
 
 if __name__ == "__main__":
