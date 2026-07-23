@@ -83,6 +83,9 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
         "momentum_sp500",
         "generals_dip",
         "vol_event",
+        "book_deepseek",
+        "book_fable",
+        "book_panel",
     }
 
     seed_default_strategies(db_path=db)
@@ -96,6 +99,9 @@ def test_seed_idempotent(tmp_path: Path, monkeypatch) -> None:
         "momentum_sp500",
         "generals_dip",
         "vol_event",
+        "book_deepseek",
+        "book_fable",
+        "book_panel",
     }
 
 

@@ -53,6 +53,10 @@ AUDIT_LOOP_NAMES = [
     "regime_sleeves",
     "social_buzz",
     "news_stream",
+    # LLM paper books (research/book_driver.py) — nightly analyst cycles + dead-man.
+    "book_deepseek",
+    "book_matt",
+    "book_deadman",
 ]
 
 
