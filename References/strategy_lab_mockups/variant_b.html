@@ -1,0 +1,1005 @@
+<!--
+  STRATEGY LAB — variant B  ("Instrument Panel")
+  ================================================================
+  Visual system chosen: a dark, dense trading-terminal / instrument panel.
+  Rationale (annotated inline throughout):
+   - The user reads TABLES. So the primary object on every screen is a tight,
+     right-aligned, tabular-numeral table, not cards. Cards are used only for the
+     debate report (prose that must be READ, not scanned).
+   - Honesty is a first-class visual layer, never fine print:
+        * SIMULATED backtest numbers wear a diagonal hatch (▨) — "not solid ground".
+        * A win% appears ONLY on a calibrated lane, tagged ·cal· with its Wilson bound.
+          Uncalibrated lanes show a letter GRADE + sample count and literally cannot
+          render a headline win% (there is no code path that does).
+        * Unvalidated signals are stamped  perception  — never dressed as edge.
+   - State semantics are colour-coded by STAKES, hottest = most autonomous:
+        ● auto (amber, spends money on its own within caps)
+        ● propose (blue, asks the phone)
+        ◐ human-directed (Matt+LLM — never proposes)
+        ○ disarmed (grey)
+   - "Arming is an explicit human act": the arm control is a deliberate two-state
+     switch with a confirm affordance, never a silent toggle.
+  Views (single file, JS view-swap): Roster · Live Look-In · Backtest Lab,
+  plus drill-in Strategy Detail (Earnings Drift) and Book Detail (Claude Panel).
+-->
+<title>Strategy Lab · help_me_trade</title>
+<style>
+  :root{
+    --bg:#0a0d12; --bg2:#0e131b; --panel:#121824; --panel2:#0f141d; --panelhi:#161d2b;
+    --line:#1f2735; --line2:#2b3547; --line3:#3a465b;
+    --tx:#e7eef7; --tx2:#93a2b6; --tx3:#5e6d82; --tx4:#44505f;
+    --pos:#41d07f; --posdim:#215e3c; --neg:#ff6b74; --negdim:#7a3236;
+    --auto:#f2a33c; --autodim:#5a3f19; --propose:#5aa9ff; --proposedim:#1f3a5c;
+    --human:#c69bff; --disarm:#6b7688; --valid:#b98cff; --park:#525d6d;
+    --warn:#f2c14e; --accent:#5aa9ff; --accent2:#41d07f;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    --hatch:repeating-linear-gradient(-45deg,transparent 0 5px,rgba(242,193,78,.13) 5px 6px);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--tx); font-family:var(--sans);
+    font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  .num{font-family:var(--mono); font-variant-numeric:tabular-nums; letter-spacing:-.2px}
+  .pos{color:var(--pos)} .neg{color:var(--neg)} .warn{color:var(--warn)}
+  .mut{color:var(--tx2)} .mut3{color:var(--tx3)}
+  a{color:var(--accent); text-decoration:none}
+  h1,h2,h3,h4{margin:0; font-weight:600}
+  .wrap{max-width:1400px; margin:0 auto; padding:0 22px}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:40; background:linear-gradient(180deg,#0c1017,#0a0d12);
+    border-bottom:1px solid var(--line2);
+  }
+  .topbar .wrap{display:flex; align-items:center; gap:20px; height:56px}
+  .brand{display:flex; align-items:baseline; gap:9px}
+  .brand b{font-size:15px; letter-spacing:.3px}
+  .brand .sub{color:var(--tx3); font-size:11px; letter-spacing:.14em; text-transform:uppercase}
+  .topbar .spacer{flex:1}
+  .statchip{display:flex; flex-direction:column; gap:1px; padding:0 14px; border-left:1px solid var(--line)}
+  .statchip .k{font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--tx3)}
+  .statchip .v{font-size:14px}
+  .kill{display:flex; align-items:center; gap:8px; padding:6px 11px; border:1px solid var(--posdim);
+        background:rgba(65,208,127,.07); border-radius:4px}
+  .kill .dot{width:8px;height:8px;border-radius:50%;background:var(--pos);box-shadow:0 0 8px var(--pos)}
+  .kill small{color:var(--tx2); font-size:10.5px; letter-spacing:.06em}
+  .paperflag{font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--warn);
+             border:1px solid var(--autodim); padding:3px 7px; border-radius:3px; background:rgba(242,193,78,.06)}
+  .waiting{display:flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid var(--proposedim);
+           background:rgba(90,169,255,.09); border-radius:4px; cursor:pointer}
+  .waiting b{color:var(--propose)} .waiting small{color:var(--tx2);font-size:10.5px}
+
+  /* ---------- tabs ---------- */
+  nav.tabs{background:var(--bg2); border-bottom:1px solid var(--line)}
+  nav.tabs .wrap{display:flex; gap:2px; height:42px; align-items:stretch}
+  .tab{display:flex;align-items:center; gap:8px; padding:0 16px; cursor:pointer; color:var(--tx2);
+       font-size:12.5px; letter-spacing:.02em; border-bottom:2px solid transparent}
+  .tab:hover{color:var(--tx)}
+  .tab.active{color:var(--tx); border-bottom-color:var(--accent)}
+  .tab .cnt{font-family:var(--mono); font-size:11px; color:var(--tx3)}
+  .breadcrumb{display:flex;align-items:center;gap:10px; color:var(--tx3); font-size:12px}
+  .breadcrumb a{color:var(--tx2)} .breadcrumb a:hover{color:var(--tx)}
+
+  /* ---------- views ---------- */
+  .view{display:none; padding:22px 0 90px}
+  .view.active{display:block}
+  .seclabel{font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--tx3);
+            display:flex; align-items:center; gap:9px; margin:26px 0 10px}
+  .seclabel::before{content:""; width:5px; height:5px; background:var(--accent); border-radius:1px; transform:rotate(45deg)}
+  .seclabel .rt{margin-left:auto; text-transform:none; letter-spacing:normal; font-size:11px}
+
+  /* ---------- cockpit tiles ---------- */
+  .tiles{display:grid; grid-template-columns:repeat(6,1fr); gap:1px; background:var(--line);
+         border:1px solid var(--line); border-radius:6px; overflow:hidden}
+  .tile{background:var(--panel); padding:13px 15px}
+  .tile .k{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3)}
+  .tile .v{font-size:22px; margin-top:3px}
+  .tile .v small{font-size:12px; color:var(--tx2)}
+  .tile .sub{font-size:11px;color:var(--tx3);margin-top:2px}
+
+  /* ---------- tables ---------- */
+  .tbl{width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line);
+       border-radius:6px; overflow:hidden}
+  .tbl thead th{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--tx3);
+    text-align:right; padding:9px 12px; border-bottom:1px solid var(--line2); font-weight:600; white-space:nowrap}
+  .tbl thead th:first-child, .tbl td.l{text-align:left}
+  .tbl tbody td{padding:10px 12px; text-align:right; border-bottom:1px solid var(--line); vertical-align:middle}
+  .tbl tbody tr:last-child td{border-bottom:none}
+  .tbl tbody tr.click{cursor:pointer}
+  .tbl tbody tr.click:hover{background:var(--panelhi)}
+  .tbl .actor{display:flex; align-items:center; gap:10px}
+  .tbl .actor .nm{font-weight:600; font-size:13px}
+  .tbl .actor .ty{font-size:10.5px; color:var(--tx3); letter-spacing:.02em}
+  .chev{color:var(--tx4)}
+  tr.click:hover .chev{color:var(--accent)}
+  .probrow{background:rgba(242,193,78,.045)}
+  .probrow:hover{background:rgba(242,193,78,.075)!important}
+
+  /* ---------- state + tags (squared, dense — NOT rounded pills) ---------- */
+  .st{display:inline-flex;align-items:center;gap:6px; font-size:11px; letter-spacing:.04em; white-space:nowrap}
+  .st .d{width:7px;height:7px;border-radius:50%}
+  .st.auto{color:var(--auto)} .st.auto .d{background:var(--auto);box-shadow:0 0 7px rgba(242,163,60,.6)}
+  .st.propose{color:var(--propose)} .st.propose .d{background:var(--propose)}
+  .st.human{color:var(--human)} .st.human .d{background:var(--human);border-radius:1px;transform:rotate(45deg)}
+  .st.disarm{color:var(--disarm)} .st.disarm .d{background:transparent;border:1.5px solid var(--disarm)}
+  .tag{font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:2px 6px; border-radius:3px;
+       border:1px solid var(--line2); color:var(--tx2); white-space:nowrap; font-family:var(--mono)}
+  .tag.live{color:var(--pos);border-color:var(--posdim);background:rgba(65,208,127,.06)}
+  .tag.valid{color:var(--valid);border-color:#3a2b57;background:rgba(185,140,255,.06)}
+  .tag.park{color:var(--park);border-color:var(--line2)}
+  .tag.prob{color:var(--warn);border-color:var(--autodim);background:rgba(242,193,78,.08)}
+  .tag.perc{color:#7fd0e8;border-color:#25444f;background:rgba(127,208,232,.06);text-transform:none;letter-spacing:.02em}
+  /* honesty marks */
+  .sim{background:var(--hatch); padding:1px 5px; border-radius:2px; border:1px dashed var(--autodim)}
+  .simtag{color:var(--warn); font-family:var(--mono); font-size:10px}
+  .cal{color:var(--pos); font-family:var(--mono); font-size:10px; border:1px solid var(--posdim);
+       padding:0 4px; border-radius:2px; margin-left:5px}
+  .uncal{color:var(--tx3); font-family:var(--mono); font-size:10px; border-bottom:1px dotted var(--tx4); cursor:help}
+  .grade{font-family:var(--mono); font-weight:700; font-size:13px}
+  .gA{color:var(--pos)} .gB{color:#8fd694} .gC{color:var(--warn)} .gD{color:#f2905a} .gF{color:var(--neg)}
+
+  /* sparkline */
+  svg.spark{display:block}
+  .sparkcell{width:118px}
+
+  /* ---------- detail layout ---------- */
+  .dhead{display:flex; align-items:flex-start; gap:18px; padding:18px 20px; background:var(--panel);
+         border:1px solid var(--line); border-radius:6px}
+  .dhead .idn h2{font-size:19px; letter-spacing:.01em}
+  .dhead .idn .desc{color:var(--tx2); font-size:12.5px; margin-top:5px; max-width:640px}
+  .dhead .idn .rule{color:var(--tx3); font-size:11.5px; margin-top:8px; font-family:var(--mono)}
+  .dhead .ctrls{margin-left:auto; display:flex; flex-direction:column; gap:9px; align-items:flex-end}
+  .armbtn{display:flex;align-items:center;gap:9px; border:1px solid var(--line2); border-radius:5px;
+          background:var(--panel2); padding:7px 12px; cursor:pointer; user-select:none}
+  .armbtn .lbl{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--tx2)}
+  .armbtn .sw{width:34px;height:18px;border-radius:10px;background:#232c3a;position:relative;transition:.15s}
+  .armbtn .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+                     background:var(--disarm);transition:.15s}
+  .armbtn.on .sw{background:rgba(242,163,60,.25)} .armbtn.on .sw::after{left:18px;background:var(--auto)}
+  .armnote{font-size:10px;color:var(--tx3);letter-spacing:.03em}
+  .killstate{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--tx2)}
+  .killstate .d{width:7px;height:7px;border-radius:50%;background:var(--pos)}
+
+  .grid2{display:grid; grid-template-columns:1.55fr 1fr; gap:14px}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:15px 16px}
+  .card .ct{font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--tx3); margin-bottom:12px;
+            display:flex; align-items:center; gap:8px}
+  .card .ct .rt{margin-left:auto; text-transform:none; letter-spacing:normal; font-size:11px; color:var(--tx3)}
+
+  .statrow{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line);
+           border:1px solid var(--line); border-radius:5px; overflow:hidden}
+  .statrow .s{background:var(--panel); padding:10px 12px}
+  .statrow .s .k{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3)}
+  .statrow .s .v{font-size:17px; margin-top:3px}
+
+  .chartwrap{position:relative}
+  .chartwrap .lgd{position:absolute; top:2px; right:4px; display:flex; gap:14px; font-size:10.5px}
+  .lgd i{display:inline-block;width:10px;height:2px;vertical-align:middle;margin-right:5px}
+  .ddlabel{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);margin:8px 0 3px}
+
+  /* mini table variant */
+  .mtbl{width:100%; border-collapse:collapse}
+  .mtbl th{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx3);text-align:right;
+           padding:6px 9px;border-bottom:1px solid var(--line2); font-weight:600; white-space:nowrap}
+  .mtbl th:first-child,.mtbl td.l{text-align:left}
+  .mtbl td{padding:7px 9px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap}
+  .mtbl tr:last-child td{border-bottom:none}
+  .mtbl tr.exp{cursor:pointer}
+  .mtbl tr.exp:hover{background:var(--panelhi)}
+  .exprow{display:none}
+  .exprow.open{display:table-row}
+  .exprow td{background:var(--panel2); padding:0}
+  .exppad{padding:12px 14px}
+
+  /* honesty key strip */
+  .keystrip{display:flex; flex-wrap:wrap; gap:18px; padding:12px 15px; background:var(--panel2);
+            border:1px solid var(--line); border-radius:6px; font-size:11px; color:var(--tx2); margin-top:16px}
+  .keystrip .ki{display:flex;align-items:center;gap:7px}
+
+  /* debate report */
+  .rpthead{display:flex; gap:22px; flex-wrap:wrap; padding:14px 16px; background:var(--panel2);
+           border:1px solid var(--line); border-radius:6px; margin-bottom:12px}
+  .rpthead .m{display:flex;flex-direction:column}
+  .rpthead .m .k{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3)}
+  .rpthead .m .v{font-size:14px;margin-top:2px}
+  .cand{border:1px solid var(--line); border-radius:6px; margin-bottom:10px; overflow:hidden; background:var(--panel)}
+  .candhd{display:flex; align-items:center; gap:14px; padding:12px 15px; cursor:pointer}
+  .candhd:hover{background:var(--panelhi)}
+  .candhd .tk{font-family:var(--mono); font-weight:700; font-size:15px; width:64px}
+  .verdict{font-size:11px; letter-spacing:.08em; text-transform:uppercase; padding:3px 8px; border-radius:3px; font-family:var(--mono)}
+  .verdict.appr{color:var(--pos); background:rgba(65,208,127,.09); border:1px solid var(--posdim)}
+  .verdict.rej{color:var(--neg); background:rgba(255,107,116,.08); border:1px solid var(--negdim)}
+  .verdict.hold{color:var(--tx2); background:var(--panel2); border:1px solid var(--line2)}
+  .score{font-family:var(--mono); font-size:13px}
+  .candbody{display:none; padding:4px 15px 16px; border-top:1px solid var(--line)}
+  .candbody.open{display:block}
+  .seat{padding:12px 0; border-bottom:1px dashed var(--line)}
+  .seat:last-child{border-bottom:none}
+  .seat .sh{display:flex;align-items:center;gap:9px; margin-bottom:5px}
+  .seat .sh .role{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase; font-weight:600}
+  .seat .sh .who{font-size:10.5px; color:var(--tx3); font-family:var(--mono)}
+  .seat p{margin:0; color:var(--tx); font-size:12.5px; line-height:1.55}
+  .seat.bull .role{color:var(--pos)} .seat.bear .role{color:var(--neg)}
+  .seat.macro .role{color:#7fd0e8} .seat.social .role{color:var(--human)}
+  .seat.risk .role{color:var(--auto)} .seat.judge .role{color:var(--accent)}
+  .veto{color:var(--neg); font-family:var(--mono); font-size:10px; border:1px solid var(--negdim);
+        padding:1px 6px; border-radius:2px; margin-left:auto}
+  .rubric{display:grid; grid-template-columns:repeat(3,1fr); gap:8px 22px; margin:10px 0}
+  .rubric .rr{display:flex; align-items:center; gap:8px; font-size:11.5px}
+  .rubric .rr .bar{flex:1; height:5px; background:#1a2231; border-radius:3px; overflow:hidden}
+  .rubric .rr .bar i{display:block;height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  .rubric .rr .sc{font-family:var(--mono); width:34px; text-align:right; color:var(--tx2)}
+  .jverdict{margin-top:8px; padding:10px 12px; background:rgba(90,169,255,.05); border-left:2px solid var(--accent); border-radius:0 4px 4px 0}
+  .jverdict .fd{font-size:12.5px}
+
+  /* backtest */
+  .form{display:grid; grid-template-columns:repeat(4,1fr); gap:12px 14px}
+  .fld{display:flex;flex-direction:column;gap:5px}
+  .fld label{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--tx3)}
+  .fld input,.fld select{background:var(--panel2); border:1px solid var(--line2); color:var(--tx);
+    border-radius:4px; padding:7px 9px; font-size:12px; font-family:var(--mono)}
+  .fld input:focus,.fld select:focus{outline:none;border-color:var(--accent)}
+  .btn{background:var(--accent); color:#04121f; border:none; border-radius:4px; padding:8px 15px;
+       font-size:12px; font-weight:600; cursor:pointer; letter-spacing:.02em}
+  .btn.ghost{background:transparent;border:1px solid var(--line2);color:var(--tx2)}
+  .simbanner{display:flex; align-items:flex-start; gap:11px; padding:12px 15px; border-radius:6px;
+    background:var(--hatch),var(--panel); border:1px solid var(--autodim); margin-bottom:14px}
+  .simbanner .ic{font-size:16px}
+  .simbanner b{color:var(--warn)}
+  .simbanner p{margin:3px 0 0; font-size:12px; color:var(--tx2)}
+  .qrow{display:flex;align-items:center;gap:12px; padding:9px 12px; border-bottom:1px solid var(--line)}
+  .qrow:last-child{border-bottom:none}
+  .qrow .qs{font-size:10px;letter-spacing:.07em;text-transform:uppercase;font-family:var(--mono);width:88px}
+  .qs.run{color:var(--propose)} .qs.queue{color:var(--tx3)} .qs.done{color:var(--pos)}
+  .prog{flex:1; height:5px; background:#1a2231; border-radius:3px; overflow:hidden; max-width:220px}
+  .prog i{display:block;height:100%;background:var(--propose)}
+  .killline{color:var(--neg); font-family:var(--mono); font-size:11px}
+
+  .foot{color:var(--tx4); font-size:10.5px; text-align:center; padding:26px 0 10px; letter-spacing:.04em}
+  .tip{position:relative}
+</style>
+
+<!-- ============================ TOP BAR ============================ -->
+<header class="topbar"><div class="wrap">
+  <div class="brand"><b>Strategy Lab</b><span class="sub">help_me_trade</span></div>
+  <span class="paperflag">Paper only · live blocked</span>
+  <div class="kill"><span class="dot"></span><div><div style="font-size:11.5px">Global kill-switch: ARMED</div><small>guardrails active · deny-by-default</small></div></div>
+  <div class="spacer"></div>
+  <div class="waiting" onclick="show('live')">
+    <div><b class="num">3</b> <span style="font-size:11px">on your phone</span><br><small>2 proposals · 1 panel report</small></div>
+  </div>
+  <div class="statchip"><span class="k">Equity · all books</span><span class="v num">$524,690</span></div>
+  <div class="statchip"><span class="k">Today P&L</span><span class="v num pos">+$3,912</span></div>
+</div></header>
+
+<!-- ============================ TABS ============================ -->
+<nav class="tabs"><div class="wrap" id="tabbar">
+  <div class="tab active" data-view="roster" onclick="show('roster')">Roster</div>
+  <div class="tab" data-view="live" onclick="show('live')">Live Look-In <span class="cnt">3</span></div>
+  <div class="tab" data-view="backtest" onclick="show('backtest')">Backtest Lab <span class="cnt">3</span></div>
+  <span style="flex:1"></span>
+  <div id="crumb" class="breadcrumb" style="display:none"></div>
+</div></nav>
+
+<main class="wrap">
+
+<!-- ==================================================================== -->
+<!-- VIEW: ROSTER                                                          -->
+<!-- ==================================================================== -->
+<section id="view-roster" class="view active">
+
+  <!-- Cockpit tiles: the 10-second read -->
+  <div class="tiles">
+    <div class="tile"><div class="k">Armed (auto)</div><div class="v num">1</div><div class="sub">Residual-Momentum</div></div>
+    <div class="tile"><div class="k">Proposing</div><div class="v num">5</div><div class="sub">asking the phone</div></div>
+    <div class="tile"><div class="k">Disarmed / parked</div><div class="v num">4</div><div class="sub">2 in validation</div></div>
+    <div class="tile"><div class="k">On probation</div><div class="v num warn">1</div><div class="sub">near kill line</div></div>
+    <div class="tile"><div class="k">Waiting on you</div><div class="v num" style="color:var(--propose)">3</div><div class="sub">2 orders · 1 report</div></div>
+    <div class="tile"><div class="k">Net P&L · all</div><div class="v num pos">+$24,460</div><div class="sub">net-cash realized</div></div>
+  </div>
+
+  <!-- ---- MECHANICAL STRATEGIES ---- -->
+  <div class="seclabel">Mechanical strategies <span class="rt mut3">deterministic scanners · fixed rules · bound to Alpaca-Paper-Main</span></div>
+  <table class="tbl">
+    <thead><tr>
+      <th>Actor</th><th>30d</th><th>State</th><th>Stage</th><th>Today P&L</th><th>Net P&L</th>
+      <th>α vs SPY</th><th>Max DD</th><th>Open</th><th>Quality</th><th class="l" style="width:250px">Did today</th><th></th>
+    </tr></thead>
+    <tbody>
+      <tr class="click" onclick="openStrategy()">
+        <td class="l"><div class="actor"><div><div class="nm">Earnings Drift</div><div class="ty">enter T-10 · exit pre-print</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="7" data-drift="0.004" data-vol="0.05"></svg></td>
+        <td><span class="st propose"><span class="d"></span>propose</span></td>
+        <td><span class="tag live">live</span></td>
+        <td class="num pos">+$4,210</td><td class="num pos">+$8,050</td><td class="num pos">+2.1%</td>
+        <td class="num neg">-6.0%</td><td class="num">7</td>
+        <td><span class="num">57%</span><span class="cal tip" title="Wilson-bounded on n=94 graded ideas">·cal ±8·</span></td>
+        <td class="l mut">entered CRM, ADBE (T-10) · 2 proposals sent</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click" onclick="openStrategy()">
+        <td class="l"><div class="actor"><div><div class="nm">Residual-Momentum Portfolio</div><div class="ty">monthly S&P-500 rebalance · 10×10%</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="21" data-drift="0.006" data-vol="0.04"></svg></td>
+        <td><span class="st auto"><span class="d"></span>auto</span></td>
+        <td><span class="tag live">live</span></td>
+        <td class="num pos">+$1,180</td><td class="num pos">+$8,940</td><td class="num pos">+3.4%</td>
+        <td class="num neg">-9.1%</td><td class="num">10</td>
+        <td><span class="uncal tip" title="Lane not yet calibrated (n=14 rebalances < threshold). Grade shown; no headline win%.">B · uncal</span></td>
+        <td class="l mut">holding 10 · next rebalance Aug 1</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click probrow" onclick="openStrategy()">
+        <td class="l"><div class="actor"><div><div class="nm">Session-Node Reversion (SPY)</div><div class="ty">intraday VWAP-node fade</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="55" data-drift="-0.003" data-vol="0.06"></svg></td>
+        <td><span class="st propose"><span class="d"></span>propose</span></td>
+        <td><span class="tag prob">probation</span></td>
+        <td class="num mut">$0</td><td class="num neg">-$2,180</td><td class="num neg">-4.8%</td>
+        <td class="num neg">-22.0%</td><td class="num">0</td>
+        <td><span class="uncal tip" title="n=21 graded ideas, below calibration threshold">C · uncal</span></td>
+        <td class="l warn">no signal · -22% vs -30% kill line</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click" onclick="openStrategy()">
+        <td class="l"><div class="actor"><div><div class="nm">Turn-of-Month Breadth</div><div class="ty">calendar + breadth thrust</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="88" data-drift="0.0" data-vol="0.02"></svg></td>
+        <td><span class="st disarm"><span class="d"></span>disarmed</span></td>
+        <td><span class="tag valid">validation</span></td>
+        <td class="num mut3">—</td><td class="num mut3">—</td><td class="num mut3">—</td>
+        <td class="num mut3">—</td><td class="num mut3">—</td>
+        <td><span class="tag perc">perception</span></td>
+        <td class="l mut3">awaiting backtest · in validation queue</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click" onclick="openStrategy()">
+        <td class="l"><div class="actor"><div><div class="nm">PEAD-Confirmed Drift</div><div class="ty">post-earnings drift, confirmed</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="103" data-drift="0.001" data-vol="0.03"></svg></td>
+        <td><span class="st disarm"><span class="d"></span>disarmed</span></td>
+        <td><span class="tag valid">validation</span></td>
+        <td class="num mut3">—</td><td class="num mut3">—</td><td class="num mut3">—</td>
+        <td class="num mut3">—</td><td class="num mut3">—</td>
+        <td><span class="tag perc">perception</span></td>
+        <td class="l mut3">candidate · not wired live</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click" onclick="openStrategy()">
+        <td class="l"><div class="actor"><div><div class="nm">Overnight Gap Fade</div><div class="ty">retired 2026-05</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="140" data-drift="-0.004" data-vol="0.04"></svg></td>
+        <td><span class="st disarm"><span class="d"></span>disarmed</span></td>
+        <td><span class="tag park">parked</span></td>
+        <td class="num mut3">—</td><td class="num mut">-$3,410</td><td class="num neg">-6.2%</td>
+        <td class="num neg">-28.4%</td><td class="num">0</td>
+        <td><span class="grade gD">D</span></td>
+        <td class="l mut3">underperformed · archived</td>
+        <td class="chev">›</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ---- LLM-MANAGED BOOKS ---- -->
+  <div class="seclabel">LLM-managed books <span class="rt mut3">AI portfolio managers · each on its own $100k paper account</span></div>
+  <table class="tbl">
+    <thead><tr>
+      <th>Actor</th><th>30d</th><th>State</th><th>Account</th><th>Today P&L</th><th>Net P&L</th>
+      <th>α vs SPY</th><th>Max DD</th><th>Open</th><th>Quality</th><th class="l" style="width:250px">Did today</th><th></th>
+    </tr></thead>
+    <tbody>
+      <tr class="click" onclick="openBook('panel')">
+        <td class="l"><div class="actor"><div><div class="nm">Claude Panel</div><div class="ty">multi-agent · bull/bear/macro/social/risk/judge</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="311" data-drift="0.005" data-vol="0.05"></svg></td>
+        <td><span class="st propose"><span class="d"></span>propose</span></td>
+        <td class="num mut" style="text-align:right">Panel-Paper</td>
+        <td class="num pos">+$1,540</td><td class="num pos">+$5,110</td><td class="num pos">+1.9%</td>
+        <td class="num neg">-7.3%</td><td class="num">6</td>
+        <td><span class="uncal tip" title="Per-seat + book grades; n too small to publish a win%">B+ · uncal</span></td>
+        <td class="l mut">3-candidate debate · 2 orders proposed</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click" onclick="openBook('fable')">
+        <td class="l"><div class="actor"><div><div class="nm">Fable</div><div class="ty">frontier single agent</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="404" data-drift="0.007" data-vol="0.05"></svg></td>
+        <td><span class="st propose"><span class="d"></span>propose</span></td>
+        <td class="num mut" style="text-align:right">Fable-Paper</td>
+        <td class="num pos">+$980</td><td class="num pos">+$6,720</td><td class="num pos">+2.6%</td>
+        <td class="num neg">-8.0%</td><td class="num">5</td>
+        <td><span class="uncal tip" title="n=61 graded ideas, below threshold">A- · uncal</span></td>
+        <td class="l mut">proposed NVDA add · snapshot ready</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click" onclick="openBook('deepseek')">
+        <td class="l"><div class="actor"><div><div class="nm">Deep Seek</div><div class="ty">cheap single model</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="507" data-drift="-0.002" data-vol="0.06"></svg></td>
+        <td><span class="st propose"><span class="d"></span>propose</span></td>
+        <td class="num mut" style="text-align:right">DeepSeek-Paper</td>
+        <td class="num neg">-$240</td><td class="num neg">-$1,340</td><td class="num neg">-3.1%</td>
+        <td class="num neg">-11.4%</td><td class="num">4</td>
+        <td><span class="uncal tip" title="n=58 graded ideas, below threshold">C+ · uncal</span></td>
+        <td class="l mut">proposed 1 · snapshot ready</td>
+        <td class="chev">›</td>
+      </tr>
+      <tr class="click" onclick="openBook('matt')">
+        <td class="l"><div class="actor"><div><div class="nm">Matt + LLM</div><div class="ty">human-directed · AI implements</div></div></div></td>
+        <td class="sparkcell"><svg class="spark" data-seed="609" data-drift="0.004" data-vol="0.035"></svg></td>
+        <td><span class="st human"><span class="d"></span>human-directed</span></td>
+        <td class="num mut" style="text-align:right">Matt+LLM-Paper</td>
+        <td class="num pos">+$452</td><td class="num pos">+$3,300</td><td class="num pos">+0.9%</td>
+        <td class="num neg">-5.1%</td><td class="num">8</td>
+        <td><span class="mut3" style="font-size:11px">n/a — you decide</span></td>
+        <td class="l mut">awaiting your direction · snapshot written</td>
+        <td class="chev">›</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Honesty key: part of the design, always visible on the roster -->
+  <div class="keystrip">
+    <div class="ki"><span class="st auto"><span class="d"></span>auto</span> executes within caps</div>
+    <div class="ki"><span class="st propose"><span class="d"></span>propose</span> asks your phone</div>
+    <div class="ki"><span class="st human"><span class="d"></span>human-directed</span> never proposes alone</div>
+    <div class="ki"><span class="cal">·cal·</span> calibrated win% (Wilson-bounded)</div>
+    <div class="ki"><span class="uncal">uncal</span> grade/counts only — no headline win%</div>
+    <div class="ki"><span class="tag perc">perception</span> unvalidated signal, not proven edge</div>
+    <div class="ki"><span class="sim num" style="font-size:11px">▨ sim</span> backtest levels approximate</div>
+  </div>
+</section>
+
+<!-- ==================================================================== -->
+<!-- VIEW: STRATEGY DETAIL  (Earnings Drift)                               -->
+<!-- ==================================================================== -->
+<section id="view-strategy" class="view">
+  <div class="dhead">
+    <div class="idn">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h2>Earnings Drift</h2>
+        <span class="tag live">live</span>
+        <span class="st propose"><span class="d"></span>propose</span>
+      </div>
+      <div class="desc">Mechanical scanner. Enters a long 10 trading days before a confirmed earnings date and exits before the print — capturing pre-announcement drift, never holding through the event.</div>
+      <div class="rule">universe: S&P-500 w/ EDGAR-confirmed dates · bound: Alpaca-Paper-Main · Decimal-safe sizing</div>
+    </div>
+    <div class="ctrls">
+      <div class="armbtn on" onclick="this.classList.toggle('on')" title="Arming is an explicit human action">
+        <span class="lbl">Armed</span><span class="sw"></span>
+      </div>
+      <div class="killstate"><span class="d"></span>kill-switch: clear</div>
+      <div class="armnote">entry mode: propose · caps below</div>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:14px">
+    <div class="card">
+      <div class="ct">Equity curve <span class="rt">net-cash · vs SPY</span></div>
+      <div class="chartwrap">
+        <div class="lgd"><span><i style="background:var(--accent2)"></i>strategy</span><span><i style="background:var(--tx3)"></i>SPY</span></div>
+        <svg id="chart-strategy" viewBox="0 0 720 210" style="width:100%;height:auto"></svg>
+      </div>
+      <div class="ddlabel">Drawdown</div>
+      <svg id="dd-strategy" viewBox="0 0 720 56" style="width:100%;height:auto"></svg>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="statrow">
+        <div class="s"><div class="k">Net P&L</div><div class="v num pos">+$8,050</div></div>
+        <div class="s"><div class="k">Realized</div><div class="v num pos">+$6,240</div></div>
+        <div class="s"><div class="k">α vs SPY</div><div class="v num pos">+2.1%</div></div>
+        <div class="s"><div class="k">Max DD</div><div class="v num neg">-6.0%</div></div>
+      </div>
+      <div class="card" style="flex:1">
+        <div class="ct">Open positions <span class="rt">live P&L</span></div>
+        <table class="mtbl">
+          <thead><tr><th>Sym</th><th>Qty</th><th>Entry</th><th>Last</th><th>P&L</th><th>Days→earn</th></tr></thead>
+          <tbody>
+            <tr><td class="l num">CRM</td><td class="num">120</td><td class="num">262.40</td><td class="num">268.10</td><td class="num pos">+$684</td><td class="num">9</td></tr>
+            <tr><td class="l num">ADBE</td><td class="num">45</td><td class="num">548.20</td><td class="num">551.05</td><td class="num pos">+$128</td><td class="num">10</td></tr>
+            <tr><td class="l num">LULU</td><td class="num">80</td><td class="num">301.10</td><td class="num">297.30</td><td class="num neg">-$304</td><td class="num">6</td></tr>
+            <tr><td class="l num">ORCL</td><td class="num">95</td><td class="num">141.60</td><td class="num">145.20</td><td class="num pos">+$342</td><td class="num">4</td></tr>
+            <tr><td class="l num">FDX</td><td class="num">60</td><td class="num">248.90</td><td class="num">246.00</td><td class="num neg">-$174</td><td class="num">7</td></tr>
+            <tr><td class="l num">NKE</td><td class="num">150</td><td class="num">76.40</td><td class="num">78.05</td><td class="num pos">+$248</td><td class="num">3</td></tr>
+            <tr><td class="l num">COST</td><td class="num">18</td><td class="num">905.10</td><td class="num">912.40</td><td class="num pos">+$131</td><td class="num">8</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:14px">
+    <!-- Idea ledger: every idea graded, taken or not -->
+    <div class="card">
+      <div class="ct">Idea ledger — graded <span class="rt tip" title="Every idea this scanner generates is outcome-graded whether taken or not.">taken & not-taken · calibration counts everything</span></div>
+      <table class="mtbl">
+        <thead><tr><th>Idea</th><th>Generated</th><th>Signal</th><th>Taken</th><th>Outcome</th><th>P&L</th><th>Grade</th></tr></thead>
+        <tbody>
+          <tr class="exp" onclick="tog(this)"><td class="l num">CRM · T-10</td><td class="l mut">07-21</td><td class="num">0.71</td><td>yes</td><td class="mut">open</td><td class="num pos">+$684</td><td><span class="grade gB">B</span></td></tr>
+          <tr class="exprow"><td colspan="7"><div class="exppad mut" style="font-size:12px">Confirmed EDGAR date 08-06 (T-10 = 07-21). Sized 120sh at $262.40, 2.4% of book, below concurrency cap (7/10). Exit scheduled T-1 pre-print. Grade B: entry timing on-model, mild adverse-selection vs sector.</div></td></tr>
+          <tr class="exp" onclick="tog(this)"><td class="l num">PANW · T-10</td><td class="l mut">07-18</td><td class="num">0.66</td><td class="neg">no</td><td class="mut">would-be +2.1%</td><td class="num mut3">— (not taken)</td><td><span class="grade gB">B</span></td></tr>
+          <tr class="exprow"><td colspan="7"><div class="exppad mut" style="font-size:12px">Skipped: concurrency cap full at generation time (10/10 that day). Graded on the hypothetical fill anyway — this is why the win% is honest: not-taken winners and losers both count.</div></td></tr>
+          <tr class="exp" onclick="tog(this)"><td class="l num">LULU · T-10</td><td class="l mut">07-17</td><td class="num">0.58</td><td>yes</td><td class="mut">open</td><td class="num neg">-$304</td><td><span class="grade gC">C</span></td></tr>
+          <tr class="exprow"><td colspan="7"><div class="exppad mut" style="font-size:12px">Weak signal (0.58, near floor). Drifting against; still inside plan. Grade C reflects sub-threshold conviction that should arguably have been skipped.</div></td></tr>
+          <tr class="exp" onclick="tog(this)"><td class="l num">MU · T-10</td><td class="l mut">07-14</td><td class="num">0.69</td><td>yes</td><td class="pos">+3.4% → exited</td><td class="num pos">+$512</td><td><span class="grade gA">A</span></td></tr>
+          <tr class="exprow"><td colspan="7"><div class="exppad mut" style="font-size:12px">Clean cycle: entered T-10, exited T-1 at +3.4%, never held the print. Textbook.</div></td></tr>
+          <tr class="exp" onclick="tog(this)"><td class="l num">DG · T-10</td><td class="l mut">07-11</td><td class="num">0.62</td><td class="neg">no</td><td class="mut">would-be -1.8%</td><td class="num mut3">— (not taken)</td><td><span class="grade gC">C</span></td></tr>
+          <tr class="exprow"><td colspan="7"><div class="exppad mut" style="font-size:12px">Not taken (cap). Hypothetical outcome negative — counted as a graded loss so the lane isn't flattered by only scoring taken trades.</div></td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:11px;display:flex;gap:22px;font-size:11.5px" class="mut">
+        <span>Graded ideas: <b class="num" style="color:var(--tx)">94</b></span>
+        <span>Win% <b class="num pos">57%</b> <span class="cal">·cal ±8·</span></span>
+        <span>Grade mix: <span class="grade gA">A</span>18 · <span class="grade gB">B</span>39 · <span class="grade gC">C</span>27 · <span class="grade gD">D</span>10</span>
+      </div>
+    </div>
+
+    <!-- Proposal history -->
+    <div class="card">
+      <div class="ct">Proposal history <span class="rt">asked → decided → outcome</span></div>
+      <table class="mtbl">
+        <thead><tr><th>Proposed</th><th>Idea</th><th>Sent</th><th>Decision</th><th>Latency</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <tr><td class="l mut">Today 09:34</td><td class="l num">ADBE T-10</td><td>phone</td><td class="pos">approved</td><td class="num">2m10s</td><td class="mut">open +$128</td></tr>
+          <tr><td class="l mut">Today 09:34</td><td class="l num">CRM T-10</td><td>phone</td><td class="pos">approved</td><td class="num">2m10s</td><td class="mut">open +$684</td></tr>
+          <tr><td class="l mut">07-17</td><td class="l num">LULU T-10</td><td>phone</td><td class="pos">approved</td><td class="num">44s</td><td class="neg">open -$304</td></tr>
+          <tr><td class="l mut">07-16</td><td class="l num">WMT T-10</td><td>phone</td><td class="neg">rejected</td><td class="num">6m</td><td class="mut">would-be +0.4%</td></tr>
+          <tr><td class="l mut">07-14</td><td class="l num">MU T-10</td><td>phone</td><td class="pos">approved</td><td class="num">1m52s</td><td class="pos">+$512 exited</td></tr>
+          <tr><td class="l mut">07-10</td><td class="l num">TGT T-10</td><td>phone</td><td class="mut3">expired</td><td class="num">—</td><td class="mut3">no fill</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:11px;display:flex;gap:22px;font-size:11.5px" class="mut">
+        <span>Approve rate <b class="num" style="color:var(--tx)">71%</b></span>
+        <span>Median latency <b class="num" style="color:var(--tx)">2m01s</b></span>
+        <span>Expired <b class="num warn">1</b></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Caps & controls -->
+  <div class="card" style="margin-top:14px">
+    <div class="ct">Caps & controls <span class="rt">changes take effect next scan · arming is a human act</span></div>
+    <div class="form">
+      <div class="fld"><label>Entry mode</label><select><option>propose (human approves each)</option><option>auto (execute within caps)</option></select></div>
+      <div class="fld"><label>Max concurrent positions</label><input value="10"></div>
+      <div class="fld"><label>Max deployed $</label><input value="50,000"></div>
+      <div class="fld"><label>Bound account</label><select><option>Alpaca-Paper-Main</option></select></div>
+      <div class="fld"><label>Per-position cap %</label><input value="3.0"></div>
+      <div class="fld"><label>Universe</label><select><option>S&P 500 (EDGAR-confirmed)</option></select></div>
+      <div class="fld"><label>Kill-switch</label><input value="clear" style="color:var(--pos)"></div>
+      <div class="fld" style="justify-content:flex-end"><button class="btn ghost">Save (founder-visible diff)</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================== -->
+<!-- VIEW: BOOK DETAIL  (Claude Panel — with debate report)               -->
+<!-- ==================================================================== -->
+<section id="view-book" class="view">
+  <div class="dhead">
+    <div class="idn">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h2 id="book-name">Claude Panel</h2>
+        <span class="st propose"><span class="d"></span>propose</span>
+        <span class="tag" style="color:var(--human);border-color:#3a2b57">multi-agent</span>
+      </div>
+      <div class="desc" id="book-desc">A panel of AI advocates: a bull and a bear cross-examine the same candidates, macro and social seats supply context, a portfolio/risk seat sizes, and a judge scores a fixed rubric and issues the final call. Nightly output is a readable report plus proposed orders.</div>
+      <div class="rule">account: Panel-Paper $100,000 · rubric v3 · nightly 20:10 ET · never auto-executes</div>
+    </div>
+    <div class="ctrls">
+      <div class="armbtn" onclick="this.classList.toggle('on')" title="Arming is an explicit human action">
+        <span class="lbl">Arm auto</span><span class="sw"></span>
+      </div>
+      <div class="killstate"><span class="d"></span>kill-switch: clear · propose-only</div>
+      <div class="armnote">2 orders proposed tonight → your phone</div>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:14px">
+    <div class="card">
+      <div class="ct">Equity curve <span class="rt">$100k paper · vs SPY</span></div>
+      <div class="chartwrap">
+        <div class="lgd"><span><i style="background:var(--accent2)"></i>book</span><span><i style="background:var(--tx3)"></i>SPY</span></div>
+        <svg id="chart-book" viewBox="0 0 720 210" style="width:100%;height:auto"></svg>
+      </div>
+      <div class="ddlabel">Drawdown</div>
+      <svg id="dd-book" viewBox="0 0 720 56" style="width:100%;height:auto"></svg>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="statrow">
+        <div class="s"><div class="k">Net P&L</div><div class="v num pos">+$5,110</div></div>
+        <div class="s"><div class="k">Equity</div><div class="v num">$105,110</div></div>
+        <div class="s"><div class="k">α vs SPY</div><div class="v num pos">+1.9%</div></div>
+        <div class="s"><div class="k">Max DD</div><div class="v num neg">-7.3%</div></div>
+      </div>
+      <!-- Per-seat grading — the Panel's distinctive evidence layer -->
+      <div class="card" style="flex:1">
+        <div class="ct">Per-seat grading <span class="rt tip" title="Do the seats earn their place? Uncalibrated — directional reads, not published win%.">does each seat add value?</span></div>
+        <table class="mtbl">
+          <thead><tr><th>Seat</th><th>Acts</th><th>Signal</th><th>Read</th><th>Grade</th></tr></thead>
+          <tbody>
+            <tr><td class="l" style="color:var(--pos)">Bull advocate</td><td class="num">61</td><td class="l mut">advanced ideas</td><td class="mut">+edge, small n</td><td><span class="grade gB">B</span></td></tr>
+            <tr><td class="l" style="color:var(--neg)">Bear advocate</td><td class="num">17</td><td class="l mut">veto precision</td><td><span class="num">71%</span> <span class="uncal tip" title="17 vetoes; below calibration threshold — directional only">dodged · uncal</span></td><td><span class="grade gA">A</span></td></tr>
+            <tr><td class="l" style="color:#7fd0e8">Macro seat</td><td class="num">30</td><td class="l mut">context flags</td><td class="mut">2 regime calls right</td><td><span class="grade gB">B</span></td></tr>
+            <tr><td class="l" style="color:var(--human)">Social seat</td><td class="num">30</td><td class="l mut">crowding flags</td><td class="mut">noisy, low weight</td><td><span class="grade gC">C</span></td></tr>
+            <tr><td class="l" style="color:var(--auto)">Portfolio/risk</td><td class="num">30</td><td class="l mut">sizing discipline</td><td class="mut">0 cap breaches</td><td><span class="grade gA">A</span></td></tr>
+            <tr><td class="l" style="color:var(--accent)">Judge</td><td class="num">30</td><td class="l mut">beats own inputs?</td><td><span class="num pos">+1.8%</span> <span class="uncal tip" title="Judge decisions vs naive seat-consensus; n=30, directional">vs consensus · uncal</span></td><td><span class="grade gB">B</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- The nightly debate report as a first-class readable artifact -->
+  <div class="seclabel">Nightly panel report <span class="rt mut3">2026-07-22 · rubric v3 · read WHY in one click</span></div>
+  <div class="rpthead">
+    <div class="m"><div class="k">Run</div><div class="v num">20:10 ET · 4m18s</div></div>
+    <div class="m"><div class="k">Screened</div><div class="v num">41</div></div>
+    <div class="m"><div class="k">Debated</div><div class="v num">3</div></div>
+    <div class="m"><div class="k">Approved</div><div class="v num pos">1</div></div>
+    <div class="m"><div class="k">Orders proposed</div><div class="v num" style="color:var(--propose)">2</div></div>
+    <div class="m"><div class="k">→ delivered</div><div class="v">your phone</div></div>
+  </div>
+
+  <!-- Candidate 1: NVDA — APPROVE -->
+  <div class="cand">
+    <div class="candhd" onclick="togc(this)">
+      <span class="tk">NVDA</span>
+      <span class="mut" style="font-size:12px">long · add to 5.0% → 7.0%</span>
+      <span style="flex:1"></span>
+      <span class="score mut">rubric 78/100</span>
+      <span class="verdict appr">approve</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="candbody">
+      <div class="seat bull">
+        <div class="sh"><span class="role">Bull case</span><span class="who">bull-advocate</span></div>
+        <p>Data-center demand guide raised twice this quarter; hyperscaler capex commentary corroborates. Options flow shows persistent upside call accumulation into the next print, and the stock is holding above the 20-day node on a pullback. Risk/reward favors adding on this dip rather than chasing.</p>
+      </div>
+      <div class="seat bear">
+        <div class="sh"><span class="role">Bear attack</span><span class="who">bear-advocate</span><span class="veto">no veto</span></div>
+        <p>Crowding is the real risk — this is a consensus long and position sizing across the book is already elevated. A single guide-down unwinds fast. I withhold veto but cap the add: the incremental edge is thinner than the bull implies, and correlation with existing semis names is high.</p>
+      </div>
+      <div class="seat macro">
+        <div class="sh"><span class="role">Macro context</span><span class="who">macro-seat</span></div>
+        <p>Rates stable, no CPI print inside the holding window. AI-capex regime intact; no macro reason to fade. Neutral-to-supportive.</p>
+      </div>
+      <div class="seat social">
+        <div class="sh"><span class="role">Social / flow context</span><span class="who">social-seat</span></div>
+        <p><span class="tag perc">perception</span> Retail sentiment elevated but not euphoric (no blow-off signature). Treat as context, not signal — unvalidated lane.</p>
+      </div>
+      <div class="seat risk">
+        <div class="sh"><span class="role">Portfolio & risk</span><span class="who">risk-seat</span></div>
+        <p>Add sized to keep single-name ≤ 7% and semis-sector ≤ 22%. Post-add book beta 1.06. Within all caps; no breach. Proposed: BUY 6 sh to reach 7.0%.</p>
+      </div>
+      <div class="seat judge">
+        <div class="sh"><span class="role">Judge verdict</span><span class="who">judge · rubric v3</span></div>
+        <div class="rubric">
+          <div class="rr"><span style="width:96px">Thesis</span><span class="bar"><i style="width:82%"></i></span><span class="sc">16/20</span></div>
+          <div class="rr"><span style="width:96px">Risk/reward</span><span class="bar"><i style="width:70%"></i></span><span class="sc">14/20</span></div>
+          <div class="rr"><span style="width:96px">Catalyst</span><span class="bar"><i style="width:80%"></i></span><span class="sc">12/15</span></div>
+          <div class="rr"><span style="width:96px">Crowding</span><span class="bar"><i style="width:53%"></i></span><span class="sc">8/15</span></div>
+          <div class="rr"><span style="width:96px">Downside asym</span><span class="bar"><i style="width:75%"></i></span><span class="sc">15/20</span></div>
+          <div class="rr"><span style="width:96px">Portfolio fit</span><span class="bar"><i style="width:110%"></i></span><span class="sc">11/10</span></div>
+        </div>
+        <div class="jverdict"><div class="fd"><b class="pos">APPROVE — capped add.</b> Bull thesis is well-supported and macro is clean; I discount the score for crowding exactly as the bear argues and accept the risk seat's smaller sizing. Net 78/100 clears the 70 bar. Proposing the reduced add, not the full position.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 2: SMCI — REJECT (bear veto) -->
+  <div class="cand">
+    <div class="candhd" onclick="togc(this)">
+      <span class="tk">SMCI</span>
+      <span class="mut" style="font-size:12px">long · new 4.0%</span>
+      <span style="flex:1"></span>
+      <span class="score mut">rubric 41/100</span>
+      <span class="verdict rej">reject</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="candbody">
+      <div class="seat bull">
+        <div class="sh"><span class="role">Bull case</span><span class="who">bull-advocate</span></div>
+        <p>Momentum and AI-server tailwind; cheap on forward earnings if guidance holds. Technicals reclaimed the 50-day. A tactical long into strength.</p>
+      </div>
+      <div class="seat bear">
+        <div class="sh"><span class="role">Bear attack</span><span class="who">bear-advocate</span><span class="veto">VETO</span></div>
+        <p>Hard veto. Unresolved accounting-quality flags and a delayed filing history mean the "cheap on earnings" premise rests on numbers I don't trust. Forward multiple is meaningless if the E is in question. This is a headline-risk landmine, not a thesis — do not open.</p>
+      </div>
+      <div class="seat macro">
+        <div class="sh"><span class="role">Macro context</span><span class="who">macro-seat</span></div>
+        <p>Idiosyncratic; macro not the driver. Defers to the accounting objection.</p>
+      </div>
+      <div class="seat risk">
+        <div class="sh"><span class="role">Portfolio & risk</span><span class="who">risk-seat</span></div>
+        <p>Fat-tail single-name risk incompatible with book DD budget. No size I'd endorse. Agrees with veto.</p>
+      </div>
+      <div class="seat judge">
+        <div class="sh"><span class="role">Judge verdict</span><span class="who">judge · rubric v3</span></div>
+        <div class="jverdict" style="border-left-color:var(--neg);background:rgba(255,107,116,.05)">
+          <div class="fd"><b class="neg">REJECT — bear veto upheld.</b> When the disagreement is about whether the inputs are real (accounting integrity), the bear wins by default under rubric v3. Thesis clarity is moot if the earnings base is untrustworthy. Score 41/100; no order.</div>
+        </div>
+        <p class="mut" style="font-size:11.5px;margin-top:8px">Follow-up (graded 07-22 close): SMCI -6.4% since the report. The bear veto dodged a loser — logged to the idea ledger as a not-taken avoided-loss, feeding the bear seat's 71% veto precision above.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 3: XLE — HOLD -->
+  <div class="cand">
+    <div class="candhd" onclick="togc(this)">
+      <span class="tk">XLE</span>
+      <span class="mut" style="font-size:12px">long · new 3.0%</span>
+      <span style="flex:1"></span>
+      <span class="score mut">rubric 58/100</span>
+      <span class="verdict hold">hold / pass</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="candbody">
+      <div class="seat bull">
+        <div class="sh"><span class="role">Bull case</span><span class="who">bull-advocate</span></div>
+        <p>Energy as an inflation hedge; sector breadth improving and crude basing. A diversifier vs the book's tech tilt.</p>
+      </div>
+      <div class="seat bear">
+        <div class="sh"><span class="role">Bear attack</span><span class="who">bear-advocate</span><span class="veto">no veto</span></div>
+        <p>No landmine, but no catalyst inside our window either. This is a "maybe someday" macro bet, not an edge. I'd pass on opportunity-cost grounds, not risk.</p>
+      </div>
+      <div class="seat judge">
+        <div class="sh"><span class="role">Judge verdict</span><span class="who">judge · rubric v3</span></div>
+        <div class="jverdict" style="border-left-color:var(--tx2);background:var(--panel2)">
+          <div class="fd"><b>HOLD — no order.</b> Sound but catalyst-light; 58/100 sits below the 70 action bar. Watchlist it; revisit if crude breaks the range. No proposal sent.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================== -->
+<!-- VIEW: LIVE LOOK-IN                                                    -->
+<!-- ==================================================================== -->
+<section id="view-live" class="view">
+  <div class="seclabel">Waiting on you — on the phone right now <span class="rt mut3">approvals happen on the phone; this is the cockpit read-back</span></div>
+  <table class="tbl">
+    <thead><tr><th>Sent</th><th>Actor</th><th class="l">Proposal</th><th>Size</th><th>Notional</th><th>Rationale</th><th class="l">Status</th></tr></thead>
+    <tbody>
+      <tr><td class="l mut">09:34</td><td class="l"><span class="st propose"><span class="d"></span></span> Earnings Drift</td><td class="l num">BUY ADBE</td><td class="num">45</td><td class="num">$24,797</td><td><a href="#" onclick="openStrategy();return false">T-10 entry ›</a></td><td class="l" style="color:var(--propose)">awaiting phone · 12m</td></tr>
+      <tr><td class="l mut">20:11</td><td class="l"><span class="st propose"><span class="d"></span></span> Claude Panel</td><td class="l num">BUY NVDA</td><td class="num">6</td><td class="num">$7,140</td><td><a href="#" onclick="openBook('panel');return false">judge 78/100 ›</a></td><td class="l" style="color:var(--propose)">awaiting phone</td></tr>
+      <tr><td class="l mut">20:14</td><td class="l"><span class="st propose"><span class="d"></span></span> Fable</td><td class="l num">BUY NVDA</td><td class="num">4</td><td class="num">$4,760</td><td><a href="#" onclick="openBook('fable');return false">snapshot ›</a></td><td class="l" style="color:var(--propose)">awaiting phone</td></tr>
+    </tbody>
+  </table>
+
+  <div class="grid2" style="margin-top:6px">
+    <div>
+      <div class="seclabel">Today's fills <span class="rt mut3">executed via the chokepoint</span></div>
+      <table class="tbl">
+        <thead><tr><th>Time</th><th>Actor</th><th class="l">Fill</th><th>Qty</th><th>Price</th><th>P&L now</th></tr></thead>
+        <tbody>
+          <tr><td class="l mut">09:36</td><td class="l">Earnings Drift</td><td class="l num">BUY CRM</td><td class="num">120</td><td class="num">262.40</td><td class="num pos">+$684</td></tr>
+          <tr><td class="l mut">09:36</td><td class="l">Earnings Drift</td><td class="l num">BUY ADBE</td><td class="num">45</td><td class="num">551.05</td><td class="num pos">+$128</td></tr>
+          <tr><td class="l mut">09:31</td><td class="l">Matt + LLM</td><td class="l num">SELL AAPL</td><td class="num">40</td><td class="num">231.20</td><td class="num pos">+$310</td></tr>
+          <tr><td class="l mut">Overnight</td><td class="l">Residual-Momentum</td><td class="l num">no rebalance</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <div class="seclabel">Daily P&L per book</div>
+      <table class="tbl">
+        <thead><tr><th>Book / strategy</th><th>Day</th><th>Open pos</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td class="l">Earnings Drift</td><td class="num pos">+$4,210</td><td class="num">7</td><td><span class="st propose"><span class="d"></span>propose</span></td></tr>
+          <tr><td class="l">Residual-Momentum</td><td class="num pos">+$1,180</td><td class="num">10</td><td><span class="st auto"><span class="d"></span>auto</span></td></tr>
+          <tr><td class="l">Claude Panel</td><td class="num pos">+$1,540</td><td class="num">6</td><td><span class="st propose"><span class="d"></span>propose</span></td></tr>
+          <tr><td class="l">Fable</td><td class="num pos">+$980</td><td class="num">5</td><td><span class="st propose"><span class="d"></span>propose</span></td></tr>
+          <tr><td class="l">Deep Seek</td><td class="num neg">-$240</td><td class="num">4</td><td><span class="st propose"><span class="d"></span>propose</span></td></tr>
+          <tr><td class="l">Matt + LLM</td><td class="num pos">+$452</td><td class="num">8</td><td><span class="st human"><span class="d"></span>human</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="seclabel">Ran today <span class="rt mut3">click into any actor's artifact</span></div>
+  <table class="tbl">
+    <thead><tr><th>Actor</th><th>Ran</th><th class="l" style="width:340px">What it produced</th><th>Result</th><th class="l">Artifact</th></tr></thead>
+    <tbody>
+      <tr><td class="l">Claude Panel</td><td class="mut">20:10 ET</td><td class="l mut">3-candidate debate · 1 approve, 1 reject (bear veto), 1 hold</td><td class="num" style="color:var(--propose)">2 orders</td><td class="l"><a href="#" onclick="openBook('panel');return false">read report ›</a></td></tr>
+      <tr><td class="l">Fable</td><td class="mut">20:14 ET</td><td class="l mut">nightly snapshot · 1 add proposed</td><td class="num" style="color:var(--propose)">1 order</td><td class="l"><a href="#" onclick="openBook('fable');return false">snapshot ›</a></td></tr>
+      <tr><td class="l">Deep Seek</td><td class="mut">20:12 ET</td><td class="l mut">nightly snapshot · 1 rotation proposed</td><td class="num" style="color:var(--propose)">1 order</td><td class="l"><a href="#" onclick="openBook('deepseek');return false">snapshot ›</a></td></tr>
+      <tr><td class="l">Earnings Drift</td><td class="mut">09:30 ET</td><td class="l mut">T-10 scan · 2 entries proposed & approved</td><td class="num pos">2 fills</td><td class="l"><a href="#" onclick="openStrategy();return false">ledger ›</a></td></tr>
+      <tr><td class="l">Matt + LLM</td><td class="mut">on demand</td><td class="l mut">wrote nightly snapshot from your directions</td><td class="mut">—</td><td class="l"><a href="#" onclick="openBook('matt');return false">snapshot ›</a></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================================================================== -->
+<!-- VIEW: BACKTEST LAB                                                    -->
+<!-- ==================================================================== -->
+<section id="view-backtest" class="view">
+  <!-- Honesty banner — the whole point of this view's design -->
+  <div class="simbanner">
+    <span class="ic">▨</span>
+    <div><b>Backtest LEVELS are approximate.</b>
+      <p>Simulated fills, costs and slippage mean the P&L numbers below are <b>directional, not achievable truth</b> — every level wears the hatch. What you can trust is <b>RANKINGS</b>: which strategy beats which, and whether a curve breaches its pre-registered kill line. Read the order, not the dollars.</p>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <!-- Configure + run -->
+    <div class="card">
+      <div class="ct">Configure a run</div>
+      <div class="form" style="grid-template-columns:1fr 1fr">
+        <div class="fld"><label>Strategy</label><select><option>Earnings Drift</option><option>Turn-of-Month Breadth</option><option>PEAD-Confirmed Drift</option><option>Session-Node Reversion</option></select></div>
+        <div class="fld"><label>Universe</label><select><option>S&P 500</option><option>S&P 500 + Russell 1000</option><option>Liquid optionable</option></select></div>
+        <div class="fld"><label>Start</label><input value="2015-01-02"></div>
+        <div class="fld"><label>End</label><input value="2026-06-30"></div>
+        <div class="fld"><label>Entry offset (TD)</label><input value="10"></div>
+        <div class="fld"><label>Exit rule</label><select><option>T-1 pre-print</option><option>T+0 close</option></select></div>
+        <div class="fld"><label>Train / validation split</label><select><option>70 / 30 (out-of-sample tail)</option></select></div>
+        <div class="fld"><label>Pre-registered kill line</label><input value="-30% = dead" style="color:var(--neg)"></div>
+      </div>
+      <div style="margin-top:13px;display:flex;gap:9px"><button class="btn">Queue backtest</button><button class="btn ghost">Save config</button></div>
+    </div>
+
+    <!-- Run queue + validation queue -->
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="ct">Run queue</div>
+        <div class="qrow"><span class="qs run">running</span><span class="num" style="width:150px">PEAD-Confirmed</span><div class="prog"><i style="width:64%"></i></div><span class="num mut">64% · ~2m</span></div>
+        <div class="qrow"><span class="qs queue">queued</span><span class="num" style="width:150px">Turn-of-Month</span><div class="prog"><i style="width:0%"></i></div><span class="num mut3">position 2</span></div>
+        <div class="qrow"><span class="qs done">done</span><span class="num" style="width:150px">Earnings Drift</span><div class="prog"><i style="width:100%;background:var(--pos)"></i></div><span class="num mut">2m ago</span></div>
+      </div>
+      <div class="card" style="flex:1">
+        <div class="ct">Validation queue <span class="rt tip" title="Candidates must clear a backtest before they can be armed live.">must pass before going live</span></div>
+        <table class="mtbl">
+          <thead><tr><th>Candidate</th><th class="l">Status</th><th>Label</th></tr></thead>
+          <tbody>
+            <tr><td class="l num">turn_of_month</td><td class="l mut">queued for backtest</td><td><span class="tag perc">perception</span></td></tr>
+            <tr><td class="l num">pead_confirmed</td><td class="l mut">running now</td><td><span class="tag perc">perception</span></td></tr>
+            <tr><td class="l num">residual_momentum</td><td class="l pos">passed · pending founder arm</td><td><span class="tag valid">validation</span></td></tr>
+            <tr><td class="l num">session_node_rev</td><td class="l warn">live but on probation (-22%)</td><td><span class="tag prob">probation</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="seclabel">Results — Earnings Drift <span class="rt mut3">2015→2026 · 70/30 split · all levels simulated ▨</span></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="ct">Equity vs benchmark <span class="rt"><span class="sim simtag">▨ simulated levels</span></span></div>
+      <div class="chartwrap">
+        <div class="lgd"><span><i style="background:var(--accent2)"></i>strategy ▨</span><span><i style="background:var(--tx3)"></i>SPY ▨</span><span><i style="background:var(--valid)"></i>OOS split</span></div>
+        <svg id="chart-backtest" viewBox="0 0 720 210" style="width:100%;height:auto"></svg>
+      </div>
+      <div class="ddlabel">Drawdown · kill line at -30%</div>
+      <svg id="dd-backtest" viewBox="0 0 720 62" style="width:100%;height:auto"></svg>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="statrow">
+        <div class="s"><div class="k">CAGR <span class="simtag">▨</span></div><div class="v num sim">11.4%</div></div>
+        <div class="s"><div class="k">Sharpe <span class="simtag">▨</span></div><div class="v num sim">0.94</div></div>
+        <div class="s"><div class="k">Max DD <span class="simtag">▨</span></div><div class="v num sim neg">-14.8%</div></div>
+        <div class="s"><div class="k">Rank vs field</div><div class="v num pos">2 / 6</div></div>
+      </div>
+      <div class="card" style="flex:1">
+        <div class="ct">Split integrity <span class="rt">trust the ordering, not the level</span></div>
+        <table class="mtbl">
+          <thead><tr><th>Segment</th><th>CAGR ▨</th><th>Sharpe ▨</th><th>MaxDD ▨</th><th>Kill line</th></tr></thead>
+          <tbody>
+            <tr><td class="l">Train (70%)</td><td class="num sim">12.1%</td><td class="num sim">1.02</td><td class="num sim">-13.2%</td><td class="pos">clear</td></tr>
+            <tr><td class="l">Validation (30% OOS)</td><td class="num sim">9.6%</td><td class="num sim">0.78</td><td class="num sim">-14.8%</td><td class="pos">clear</td></tr>
+            <tr><td class="l mut">Degradation</td><td class="num warn">-2.5pt</td><td class="num warn">-0.24</td><td class="num mut">—</td><td class="mut3">acceptable</td></tr>
+          </tbody>
+        </table>
+        <p class="mut" style="font-size:11.5px;margin-top:9px">OOS holds up: modest decay, no kill-line breach. Ranking (2/6) is the trustworthy takeaway — the <span class="sim num" style="font-size:11px">▨ 11.4%</span> CAGR is not a promise.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="ct">Per-trade table <span class="rt"><span class="sim simtag">▨ fills & costs simulated</span></span></div>
+    <table class="mtbl">
+      <thead><tr><th>Entry</th><th>Sym</th><th>Exit</th><th>Hold (TD)</th><th>Ret ▨</th><th>P&L ▨</th><th>Segment</th></tr></thead>
+      <tbody>
+        <tr><td class="l mut">2026-06-02</td><td class="l num">AVGO</td><td class="l mut">2026-06-11</td><td class="num">9</td><td class="num sim pos">+3.1%</td><td class="num sim pos">+$430</td><td class="mut">OOS</td></tr>
+        <tr><td class="l mut">2026-05-19</td><td class="l num">CRM</td><td class="l mut">2026-05-28</td><td class="num">10</td><td class="num sim pos">+2.4%</td><td class="num sim pos">+$318</td><td class="mut">OOS</td></tr>
+        <tr><td class="l mut">2026-05-05</td><td class="l num">DIS</td><td class="l mut">2026-05-13</td><td class="num">8</td><td class="num sim neg">-1.9%</td><td class="num sim neg">-$236</td><td class="mut">OOS</td></tr>
+        <tr><td class="l mut">2026-04-21</td><td class="l num">NKE</td><td class="l mut">2026-04-30</td><td class="num">9</td><td class="num sim pos">+1.6%</td><td class="num sim pos">+$198</td><td class="mut">OOS</td></tr>
+        <tr><td class="l mut">2026-04-07</td><td class="l num">COST</td><td class="l mut">2026-04-16</td><td class="num">10</td><td class="num sim pos">+2.8%</td><td class="num sim pos">+$372</td><td class="mut">OOS</td></tr>
+        <tr><td class="l mut">2026-03-24</td><td class="l num">MU</td><td class="l mut">2026-04-02</td><td class="num">9</td><td class="num sim neg">-2.2%</td><td class="num sim neg">-$281</td><td class="mut">train</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<div class="foot">Strategy Lab · variant B · mockup with fabricated data — no number here is a live claim. Honesty marks (▨ sim · cal/uncal · perception) are load-bearing.</div>
+
+<script>
+/* ---------- deterministic pseudo-random walks for realistic curves ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function walk(seed,n,drift,vol,start){var r=mulberry32(seed),v=start,out=[v];for(var i=1;i<n;i++){v=v*(1+drift+(r()-0.5)*vol);out.push(v);}return out;}
+function extent(a){return [Math.min.apply(null,a),Math.max.apply(null,a)];}
+
+function linePath(vals,w,h,pt,pb,ex){
+  var mn=ex[0],mx=ex[1],rng=(mx-mn)||1,d='';
+  for(var i=0;i<vals.length;i++){
+    var x=(i/(vals.length-1))*w;
+    var y=pt+(1-(vals[i]-mn)/rng)*(h-pt-pb);
+    d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';
+  }
+  return d.trim();
+}
+
+/* small roster sparklines */
+function renderSparks(){
+  document.querySelectorAll('svg.spark').forEach(function(svg){
+    var seed=+svg.dataset.seed, drift=+svg.dataset.drift, vol=+svg.dataset.vol;
+    var v=walk(seed,40,drift,vol,100), ex=extent(v), w=112,h=30;
+    var up=v[v.length-1]>=v[0], col=up?'var(--pos)':'var(--neg)';
+    var p=linePath(v,w,h,3,3,ex);
+    svg.setAttribute('viewBox','0 0 '+w+' '+h); svg.setAttribute('width',w); svg.setAttribute('height',h);
+    svg.innerHTML='<path d="'+p+'" fill="none" stroke="'+col+'" stroke-width="1.3" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>'+
+      '<circle cx="'+w+'" cy="'+(linePath([v[v.length-1]],1,h,3,3,ex).split(' ')[1])+'" r="1.8" fill="'+col+'"/>';
+  });
+}
+
+/* big equity chart + benchmark + drawdown lane */
+function bigChart(mainId,ddId,opt){
+  var main=document.getElementById(mainId); if(!main)return;
+  var v=walk(opt.seed,opt.n||220,opt.drift,opt.vol,opt.start||100);
+  var b=walk(opt.seed+999,opt.n||220,opt.benchDrift,opt.benchVol,opt.start||100);
+  var W=720,H=210,pt=10,pb=18, ex=extent(v.concat(b));
+  // grid
+  var grid=''; for(var g=0;g<=4;g++){var y=pt+g/4*(H-pt-pb); grid+='<line x1="0" y1="'+y.toFixed(1)+'" x2="'+W+'" y2="'+y.toFixed(1)+'" stroke="var(--line)" stroke-width="1"/>';}
+  var area=linePath(v,W,H,pt,pb,ex)+' L'+W+' '+(H-pb)+' L0 '+(H-pb)+' Z';
+  var stratP=linePath(v,W,H,pt,pb,ex), benchP=linePath(b,W,H,pt,pb,ex);
+  var oos=''; if(opt.oos){var ox=opt.oos*W; oos='<line x1="'+ox+'" y1="0" x2="'+ox+'" y2="'+(H-pb)+'" stroke="var(--valid)" stroke-width="1" stroke-dasharray="4 3"/><text x="'+(ox+4)+'" y="14" fill="var(--valid)" font-size="9" font-family="var(--mono)">OOS →</text>';}
+  main.innerHTML=grid+
+    '<defs><linearGradient id="g'+mainId+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent2)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent2)" stop-opacity="0"/></linearGradient></defs>'+
+    '<path d="'+area+'" fill="url(#g'+mainId+')"/>'+
+    '<path d="'+benchP+'" fill="none" stroke="var(--tx3)" stroke-width="1.2" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>'+
+    '<path d="'+stratP+'" fill="none" stroke="var(--accent2)" stroke-width="1.7" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>'+oos;
+  // drawdown
+  if(ddId){
+    var dd=document.getElementById(ddId); if(!dd)return;
+    var peak=-1e9, ddv=v.map(function(x){peak=Math.max(peak,x);return x/peak-1;});
+    var isBt=ddId.indexOf('backtest')>-1;
+    var dW=720,dH=(isBt?62:56),dpt=4,dpb=4,
+        dex=isBt?[-0.35,0]:[Math.min.apply(null,ddv),0]; // backtest: fixed axis so the -30% kill line is always in-frame
+    var ddArea=linePath(ddv,dW,dH,dpt,dpb,dex)+' L'+dW+' '+dpt+' L0 '+dpt+' Z';
+    var killLn=''; if(isBt){var ky=dpt+(1-(-0.30-dex[0])/((0-dex[0])||1))*(dH-dpt-dpb); killLn='<line x1="0" y1="'+ky.toFixed(1)+'" x2="'+dW+'" y2="'+ky.toFixed(1)+'" stroke="var(--neg)" stroke-width="1" stroke-dasharray="3 3"/><text x="4" y="'+(ky-3).toFixed(1)+'" fill="var(--neg)" font-size="8.5" font-family="var(--mono)">kill -30%</text>';}
+    dd.innerHTML='<path d="'+ddArea+'" fill="rgba(255,107,116,.16)"/><path d="'+linePath(ddv,dW,dH,dpt,dpb,dex)+'" fill="none" stroke="var(--neg)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>'+killLn;
+  }
+}
+
+/* ---------- view switching ---------- */
+function show(v){
+  document.querySelectorAll('.view').forEach(function(e){e.classList.remove('active');});
+  var map={roster:'view-roster',live:'view-live',backtest:'view-backtest',strategy:'view-strategy',book:'view-book'};
+  document.getElementById(map[v]).classList.add('active');
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.view===v);});
+  var crumb=document.getElementById('crumb');
+  if(v==='strategy'||v==='book'){crumb.style.display='flex'; crumb.innerHTML='<a onclick="show(\'roster\')">‹ Roster</a> / '+(v==='strategy'?'Strategy detail':'Book detail');}
+  else{crumb.style.display='none';}
+  window.scrollTo(0,0);
+}
+function openStrategy(){show('strategy');}
+function openBook(which){
+  var meta={
+    panel:['Claude Panel','A panel of AI advocates: a bull and a bear cross-examine the same candidates, macro and social seats supply context, a portfolio/risk seat sizes, and a judge scores a fixed rubric and issues the final call. Nightly output is a readable report plus proposed orders.'],
+    fable:['Fable','Single frontier agent managing a $100k paper book. Nightly it writes one reasoned snapshot and may propose orders. (Mockup: shows the shared book layout; a single agent renders a single-voice snapshot rather than a multi-seat debate.)'],
+    deepseek:['Deep Seek','Cheap single model managing a $100k paper book — the low-cost baseline in the bake-off. Same snapshot format as Fable, weaker grades so far.'],
+    matt:['Matt + LLM','Human-directed book: YOU decide, the AI implements and writes a nightly snapshot. It never proposes on its own — state is human-directed, not armed.']
+  };
+  var m=meta[which]||meta.panel;
+  document.getElementById('book-name').textContent=m[0];
+  document.getElementById('book-desc').textContent=m[1];
+  show('book');
+}
+/* expandable rows */
+function tog(tr){var n=tr.nextElementSibling; if(n&&n.classList.contains('exprow'))n.classList.toggle('open');}
+function togc(hd){var b=hd.nextElementSibling; b.classList.toggle('open'); var c=hd.querySelector('.chev'); c.textContent=b.classList.contains('open')?'▴':'▾';}
+
+/* init */
+renderSparks();
+bigChart('chart-strategy','dd-strategy',{seed:7,drift:0.0018,vol:0.02,benchDrift:0.0011,benchVol:0.014});
+bigChart('chart-book','dd-book',{seed:311,drift:0.0016,vol:0.024,benchDrift:0.0011,benchVol:0.014});
+bigChart('chart-backtest','dd-backtest',{seed:42,drift:0.0018,vol:0.05,benchDrift:0.0011,benchVol:0.016,oos:0.7});
+</script>

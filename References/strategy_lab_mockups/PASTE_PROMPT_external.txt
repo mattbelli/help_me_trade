@@ -1,0 +1,23 @@
+Design one page — the "Strategy Lab" — for a personal autonomous-trading cockpit. Produce ONE single self-contained HTML file (inline CSS/JS, no external assets, no frameworks) with realistic fake data, desktop-first at ~1440px. It is a mockup: static data hardcoded, but interactive where cheap (tab switches, expanding rows). Do not ask questions; make the calls and annotate notable design decisions in HTML comments. Reply with the complete HTML document and nothing else.
+
+THE PRODUCT IN ONE PARAGRAPH: This app is an autonomous trading agent for one user: it watches markets in the background, proposes trades to the user's phone for approve/reject, and — within hard guardrails — will eventually execute on its own. The cockpit is where the user configures and supervises the agents and reviews what they did — it is NOT a manual trading terminal. The Strategy Lab is the page where every trading strategy and every AI-managed portfolio lives: what's running, what it did, whether it's any good, and the evidence behind those judgments.
+
+CONTENT INVENTORY — two families of actors, clearly typed:
+
+1. MECHANICAL STRATEGIES — deterministic scanners with fixed rules. Examples: "Earnings Drift" (enters 10 trading days before earnings, exits before the print), "Residual-Momentum Portfolio" (monthly S&P-500 rebalance, 10 slots x 10%), "Session-Node Reversion (SPY)", plus several disabled/experimental ones. Each has: enabled/disabled, entry mode (propose = human approves each trade / auto = executes within caps), bound account, caps (max concurrent positions, max deployed $), universe, lifecycle state (live / validation-pending / parked).
+
+2. LLM-MANAGED BOOKS — AI portfolio managers, each on its own $100k paper account:
+- "Deep Seek" — a cheap single model.
+- "Fable" — a frontier single agent.
+- "Claude Panel" — a multi-agent panel: bull and bear advocates cross-examining the same candidates, macro + social context seats, a portfolio/risk seat, and a judge that scores a fixed rubric and issues final decisions. Its nightly output is a REPORT (bull case, bear attack per candidate, judge verdict with reasoning) plus proposed orders.
+- "Matt + LLM" — human-directed: the USER decides, the AI implements and writes a nightly snapshot; it never proposes on its own.
+
+PER STRATEGY/BOOK the lab must show: equity curve, realized P&L, open positions with live P&L, alpha vs SPY, drawdown; IDEA LEDGER GRADES (every idea any actor generates is recorded and outcome-graded whether taken or not; win-rates are per-lane and shown ONLY when calibrated/statistically bounded — uncalibrated lanes show grades/counts, never a headline win%; for the Panel: per-seat grading — did the bear's vetoes dodge losers? does the judge beat its own inputs?); proposal history (asked / approved / rejected / outcome); for LLM books the nightly report as a first-class readable artifact; controls (arm/disarm — arming is always an explicit human act, entry mode, caps editing, visible kill-switch state).
+
+3. BACKTESTING — the evidence layer: configure + run (strategy, universe, date range, params) + a run queue; results (equity curve vs benchmark, drawdown, per-trade table, summary stats, train/validation split, pre-registered kill lines e.g. "-30% = strategy is dead"); a VALIDATION QUEUE of candidate strategies awaiting backtests before going live. Honesty rule baked into the UI: backtest LEVELS are approximate (simulated fills/costs) — RANKINGS are the trustworthy part; the UI must label this rather than present backtest P&L as achievable truth. Unvalidated signals are labeled as perception, never dressed as validated edge.
+
+4. LIVE LOOK-IN (the "right now" layer) across ALL accounts: current positions, pending proposals awaiting the phone, today's fills, daily P&L per book, which agents ran today (with links into their artifacts).
+
+DESIGN LANGUAGE: bring your own visual system — best ideas win. The only hard rules: information density must serve a user who reads tables; and numbers the system cannot honestly claim (uncalibrated win%, simulated backtest levels) must be visibly hedged — honesty labels are part of the design, not fine print.
+
+WHAT GOOD LOOKS LIKE: The user opens the page and in ten seconds knows: what's armed, what each actor did today, who's making money, who's on probation, and what's waiting on him. In two clicks he can read WHY any actor did what it did. Deliver: an overview (the roster), a strategy detail view, an LLM-book detail view (the Panel, with its debate report), and a backtest view — as tabs or drill-ins within the one file.

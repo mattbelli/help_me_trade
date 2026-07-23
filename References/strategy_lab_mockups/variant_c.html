@@ -1,0 +1,939 @@
+<!--
+  STRATEGY LAB — variant_c  (zero-context mockup, single self-contained file)
+  ============================================================================
+  DESIGN NOTES (design decisions annotated inline throughout):
+  - Terminal-modernist: everything is monospace + tabular-nums; hierarchy comes
+    from TYPE WEIGHT/COLOR, not chrome. Flat surfaces only — hairlines, never
+    cards-in-cards, never drop-shadows.
+  - Restraint on color: hue is reserved for MEANING (green=up/long/profit,
+    red=down/loss, amber=caution/probation/honesty-hedge, cyan=propose,
+    purple=llm/auto). Neutral text carries structure.
+  - Categorical tags are plain lowercase COLORED WORDS, never pill boxes.
+  - Honesty is a first-class visual: uncalibrated win% is withheld & labelled,
+    simulated backtest LEVELS are hedged, unvalidated signals say "perception".
+  - Responsive: ONE grammar, two shells. >=760px desktop w/ left rail. <760px
+    phone w/ fixed bottom-tab bar (native feel); dense tables reflow to
+    label:value stacks so content NEVER overlaps or needs sideways scroll.
+  - Data is data-driven from a seeded generator so curves/DD/alpha are all
+    internally consistent (fake but coherent).
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategy Lab</title>
+<style>
+:root{
+  --bg:#0a0c10; --bg2:#0d1015; --panel:#0f1319; --raise:#12171f;
+  --line:#1b212b; --line2:#28303d;
+  --txt:#c9d1da; --txt2:#8a94a3; --dim:#5a6472; --dim2:#3c4552;
+  --green:#3fb265; --green-d:#2c854c;
+  --red:#e5556b; --red-d:#b23e51;
+  --amber:#d6a13a; --cyan:#4c9fe0; --purple:#a373d6; --slate:#7f8ca2;
+  --mono:'SF Mono','JetBrains Mono','DejaVu Sans Mono',Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--txt);
+  font-family:var(--mono); font-size:12.5px; line-height:1.45;
+  font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased;
+}
+.num{font-variant-numeric:tabular-nums}
+.pos{color:var(--green)} .neg{color:var(--red)}
+.mut{color:var(--txt2)} .dim{color:var(--dim)}
+b,strong{font-weight:600;color:#e6ebf1}
+a{color:var(--cyan);text-decoration:none;cursor:pointer}
+a:hover{text-decoration:underline}
+button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
+
+/* ---- tags: plain lowercase colored words, no boxes ---- */
+.t{font-weight:500;letter-spacing:.2px}
+.t-live{color:var(--green)} .t-valpend{color:var(--amber)} .t-parked{color:var(--dim)}
+.t-disabled{color:var(--dim)} .t-propose{color:var(--cyan)} .t-auto{color:var(--purple)}
+.t-armed{color:var(--green)} .t-disarmed{color:var(--dim)} .t-probation{color:var(--amber)}
+.t-mech{color:var(--slate)} .t-llm{color:var(--purple)} .t-perc{color:var(--amber)}
+.t-approve{color:var(--green)} .t-reject{color:var(--red)} .t-pending{color:var(--cyan)}
+
+/* honesty hedge — deliberately visible, not fine print */
+.hedge{color:var(--amber);font-style:normal;font-size:11px}
+.hedge::before{content:"⚠ "}
+.approx{color:var(--amber)}
+
+/* ============ SHELL ============ */
+.app{display:flex;min-height:100vh}
+.rail{
+  width:186px;flex:0 0 186px;border-right:1px solid var(--line);
+  position:sticky;top:0;height:100vh;background:var(--bg2);
+  display:flex;flex-direction:column;
+}
+.brand{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.brand .mark{font-size:13px;font-weight:600;letter-spacing:1.5px;color:#eef2f7}
+.brand .sub{font-size:10px;color:var(--dim);letter-spacing:.5px;margin-top:2px}
+.nav{padding:8px 0;flex:1}
+.nav button{
+  display:flex;align-items:center;gap:9px;width:100%;background:none;border:0;
+  padding:8px 16px;color:var(--txt2);text-align:left;border-left:2px solid transparent;
+}
+.nav button .ic{width:15px;height:15px;flex:0 0 15px;opacity:.75}
+.nav button:hover{color:var(--txt);background:#11151c}
+.nav button.on{color:#eaf0f6;border-left-color:var(--cyan);background:#11161e}
+.nav .kct{color:var(--amber)}
+.railfoot{padding:10px 16px;border-top:1px solid var(--line);font-size:10.5px;color:var(--dim)}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+
+/* topbar / global 10-second read */
+.top{
+  position:sticky;top:0;z-index:20;background:var(--bg2);
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:stretch;flex-wrap:wrap;
+}
+.top .cell{padding:9px 16px;border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;min-width:0}
+.top .cell .k{font-size:9.5px;letter-spacing:.6px;color:var(--dim);text-transform:uppercase}
+.top .cell .v{font-size:14px;font-weight:600;margin-top:1px}
+.top .grow{flex:1;border-right:0}
+.kill{display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(63,178,101,.15)}
+.dot.warn{background:var(--amber);box-shadow:0 0 0 3px rgba(214,161,58,.15)}
+.dot.hot{background:var(--red);box-shadow:0 0 0 3px rgba(229,85,107,.18)}
+
+.halted-banner{display:none;background:#2a0f14;border-bottom:1px solid var(--red-d);color:#ffd7de;padding:8px 16px;font-weight:600;letter-spacing:.4px}
+body.halted .halted-banner{display:block}
+body.halted .dot.killsw{background:var(--red);box-shadow:0 0 0 3px rgba(229,85,107,.18)}
+
+.content{padding:16px 18px 90px;max-width:1500px}
+.view{display:none} .view.on{display:block}
+
+/* section headers */
+.sec{display:flex;align-items:baseline;gap:10px;margin:22px 0 8px}
+.sec:first-child{margin-top:4px}
+.sec h2{font-size:12px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:#e9eef4;margin:0}
+.sec .cnt{font-size:11px;color:var(--dim)}
+.sec .rule{flex:1;height:1px;background:var(--line);align-self:center}
+
+/* generic dense table */
+table{width:100%;border-collapse:collapse}
+.tbl th{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);font-weight:500;text-align:right;padding:6px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.tbl th.l,.tbl td.l{text-align:left}
+.tbl td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl tr:hover td{background:#10141b}
+.tbl .name{color:#e7edf3;font-weight:600}
+.clickrow{cursor:pointer}
+
+/* roster (real table on desktop, label-reflow on phone) */
+.roster td{padding:8px 10px}
+.roster .spark{display:inline-block;vertical-align:middle;margin-right:8px}
+.roster .nm{display:flex;align-items:center}
+
+/* panels / grids */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.panel{border:1px solid var(--line);background:var(--panel)}
+.panel .ph{padding:8px 12px;border-bottom:1px solid var(--line);font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--txt2);display:flex;justify-content:space-between;align-items:center}
+.panel .pb{padding:12px}
+
+.stat{padding:10px 12px;border:1px solid var(--line);background:var(--panel)}
+.stat .k{font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim)}
+.stat .v{font-size:19px;font-weight:600;margin-top:3px}
+.stat .sub{font-size:10.5px;color:var(--txt2);margin-top:2px}
+
+/* detail header */
+.dhead{border-bottom:1px solid var(--line2);padding-bottom:12px;margin-bottom:6px}
+.back{background:none;border:0;color:var(--txt2);padding:2px 0;margin-bottom:8px;display:inline-flex;gap:6px;align-items:center}
+.back:hover{color:var(--txt)}
+.dtitle{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.dtitle h1{font-size:19px;margin:0;font-weight:600;color:#f0f4f8;letter-spacing:.3px}
+.dmeta{display:flex;gap:16px;flex-wrap:wrap;margin-top:9px;font-size:11.5px;color:var(--txt2)}
+.dmeta .kv b{color:var(--txt);font-weight:600}
+
+/* subtabs */
+.subtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:14px 0 14px;overflow-x:auto}
+.subtabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--txt2);padding:7px 12px;white-space:nowrap;font-size:11.5px;letter-spacing:.3px}
+.subtabs button.on{color:#eef3f8;border-bottom-color:var(--cyan)}
+.subtabs button:hover{color:var(--txt)}
+.pane{display:none} .pane.on{display:block}
+
+/* expandable rows */
+.exp-body{display:none;background:#0c1016}
+.exp-body.open{display:table-row}
+.exp-body .inner{padding:12px 14px;border-bottom:1px solid var(--line);color:var(--txt2);font-size:11.5px}
+.caret{color:var(--dim);display:inline-block;width:10px}
+
+/* prose (nightly reports read like a document) */
+.prose{font-family:var(--sans);font-size:13px;line-height:1.6;color:#c4cdd8;max-width:760px}
+.prose h3{font-family:var(--mono);font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:#e7edf3;margin:20px 0 6px}
+.prose p{margin:0 0 10px}
+.debate{border-left:2px solid var(--line2);padding-left:14px;margin:10px 0}
+.debate .who{font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:3px}
+.bull .who{color:var(--green)} .bear .who{color:var(--red)} .macro .who{color:var(--slate)}
+.social .who{color:var(--cyan)} .risk .who{color:var(--amber)} .judge .who{color:var(--purple)}
+.judge{border-left-color:var(--purple);background:#120f18;padding:10px 14px;margin-top:12px}
+
+/* controls */
+.ctlrow{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
+.ctlrow .lab{font-size:12px} .ctlrow .lab .d{font-size:10.5px;color:var(--dim);margin-top:2px}
+.toggle{border:1px solid var(--line2);background:#0c1016;color:var(--txt);padding:5px 12px}
+.toggle.on{border-color:var(--green-d);color:var(--green)}
+.btn{border:1px solid var(--line2);background:#0c1016;color:var(--txt);padding:6px 12px}
+.btn:hover{border-color:var(--dim)}
+.btn.cy{border-color:#2b5c80;color:var(--cyan)}
+.btn.gn{border-color:var(--green-d);color:var(--green)}
+.btn.dn{border-color:var(--red-d);color:var(--red)}
+.seg{display:inline-flex;border:1px solid var(--line2)}
+.seg button{padding:5px 11px;background:#0c1016;color:var(--txt2);border-right:1px solid var(--line2)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:#11202b;color:var(--cyan)}
+input.f,select.f{background:#0c1016;border:1px solid var(--line2);color:var(--txt);padding:6px 8px;font-family:inherit;font-size:12px;width:100%}
+
+/* meters */
+.meter{height:6px;background:#141922;border:1px solid var(--line);position:relative;margin-top:5px}
+.meter .fill{position:absolute;top:0;bottom:0;left:0;background:var(--amber)}
+.meter .kill{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--red)}
+.killnote{font-size:10.5px;color:var(--dim);margin-top:3px}
+
+.scrollx{overflow-x:auto}
+.note{font-size:11px;color:var(--dim);margin-top:6px}
+.pin{color:var(--amber)}
+
+/* bottom tab bar — phone only */
+.tabbar{display:none}
+
+/* ================= PHONE ================= */
+@media(max-width:760px){
+  .rail{display:none}
+  .content{padding:12px 12px 76px}
+  .top{position:sticky}
+  .top .cell{flex:1 1 33%;border-bottom:1px solid var(--line);padding:7px 12px}
+  .top .cell.grow{display:none}
+  .grid2,.grid3,.grid4{grid-template-columns:1fr}
+  .dtitle h1{font-size:17px}
+
+  /* dense tables -> label:value stacks (native, no overlap, no sideways scroll) */
+  table.resp thead{display:none}
+  table.resp tr{display:block;border-bottom:1px solid var(--line2);padding:8px 2px}
+  table.resp td{display:flex;justify-content:space-between;gap:14px;text-align:right;border:0;padding:3px 6px;white-space:normal}
+  table.resp td::before{content:attr(data-l);color:var(--dim);text-transform:uppercase;font-size:9.5px;letter-spacing:.5px;text-align:left;align-self:center}
+  table.resp td.l{text-align:right}
+  table.resp td.name-cell{justify-content:flex-start;font-size:14px;padding-top:2px}
+  table.resp td.name-cell::before{content:""}
+  .exp-body,.exp-body.open{display:block}
+  .exp-body .inner{border-bottom:1px solid var(--line2)}
+
+  .tabbar{
+    display:flex;position:fixed;left:0;right:0;bottom:0;height:58px;z-index:50;
+    background:#0b0e13;border-top:1px solid var(--line2);
+    padding-bottom:env(safe-area-inset-bottom,0);
+  }
+  .tabbar button{flex:1;background:none;border:0;color:var(--dim);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:9.5px;letter-spacing:.3px}
+  .tabbar button .ic{width:20px;height:20px}
+  .tabbar button.on{color:var(--cyan)}
+  .tabbar button.on .ic{opacity:1}
+  .subtabs{margin-top:10px}
+}
+@media(min-width:761px){ .m-only{display:none} }
+</style>
+
+<!-- ICON DEFS (inline svg, no external assets) -->
+<svg width="0" height="0" style="position:absolute">
+<defs>
+<g id="i-roster"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M2 3h12M2 7h12M2 11h12"/></g>
+<g id="i-live"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path stroke="currentColor" stroke-width="1.4" d="M8 5v3.2l2.2 1.3"/></g>
+<g id="i-test"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M6 2v4L3 12a1.6 1.6 0 001.5 2h7A1.6 1.6 0 0013 12L10 6V2M5 2h6M6 9h4"/></g>
+</defs>
+</svg>
+
+<div class="app">
+  <!-- LEFT RAIL (desktop) -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="mark">STRATEGY&nbsp;LAB</div>
+      <div class="sub">agents · books · evidence</div>
+    </div>
+    <nav class="nav" id="railnav">
+      <button data-view="overview" class="on"><svg class="ic" viewBox="0 0 16 16"><use href="#i-roster"/></svg>Overview</button>
+      <button data-view="live"><svg class="ic" viewBox="0 0 16 16"><use href="#i-live"/></svg>Live look-in <span class="kct" id="rail-wait"></span></button>
+      <button data-view="backtest"><svg class="ic" viewBox="0 0 16 16"><use href="#i-test"/></svg>Backtest</button>
+    </nav>
+    <div class="railfoot">
+      paper plane · alpaca<br>4 books · 6 strategies<br>
+      <span id="rail-kill">kill-switch: clear</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="halted-banner">KILL-SWITCH ENGAGED — all agents halted, no orders will reach a broker. <a onclick="toggleKill()">release</a></div>
+
+    <!-- TOPBAR: the 10-second read -->
+    <header class="top" id="topbar"></header>
+
+    <div class="content">
+      <!-- ============ OVERVIEW / ROSTER ============ -->
+      <section class="view on" id="view-overview">
+        <div class="sec"><h2>Waiting on you</h2><span class="cnt" id="ov-wait-cnt"></span><span class="rule"></span></div>
+        <div id="ov-waiting"></div>
+
+        <div class="sec"><h2>Mechanical strategies</h2><span class="cnt">deterministic scanners · fixed rules</span><span class="rule"></span></div>
+        <div class="scrollx"><table class="tbl roster resp" id="tbl-mech"></table></div>
+
+        <div class="sec"><h2>LLM-managed books</h2><span class="cnt">$100k paper each · ai portfolio managers</span><span class="rule"></span></div>
+        <div class="scrollx"><table class="tbl roster resp" id="tbl-llm"></table></div>
+        <p class="note">Click any row to open its detail: equity, positions, idea-ledger grades, proposal history, nightly report, controls.</p>
+      </section>
+
+      <!-- ============ LIVE LOOK-IN ============ -->
+      <section class="view" id="view-live">
+        <div class="sec"><h2>Right now — across all accounts</h2><span class="cnt" id="live-asof"></span><span class="rule"></span></div>
+        <div class="grid4" id="live-daypnl"></div>
+
+        <div class="grid2" style="margin-top:14px">
+          <div class="panel">
+            <div class="ph">Pending proposals — awaiting your phone <span class="t t-pending" id="live-pend-cnt"></span></div>
+            <div class="pb" style="padding:0"><table class="tbl resp" id="tbl-pending"></table></div>
+          </div>
+          <div class="panel">
+            <div class="ph">Agents that ran today</div>
+            <div class="pb" style="padding:0"><table class="tbl resp" id="tbl-ran"></table></div>
+          </div>
+        </div>
+
+        <div class="sec"><h2>Open positions</h2><span class="cnt" id="live-pos-cnt"></span><span class="rule"></span></div>
+        <div class="scrollx"><table class="tbl resp" id="tbl-livepos"></table></div>
+
+        <div class="sec"><h2>Today's fills</h2><span class="rule"></span></div>
+        <div class="scrollx"><table class="tbl resp" id="tbl-fills"></table></div>
+      </section>
+
+      <!-- ============ BACKTEST ============ -->
+      <section class="view" id="view-backtest">
+        <div class="sec"><h2>Backtest — the evidence layer</h2><span class="rule"></span></div>
+        <div style="background:#171208;border:1px solid #4a3a12;padding:9px 12px;color:#e7c98a;font-size:11.5px;margin-bottom:14px">
+          <b style="color:#f0d79a">Read backtests as RANKINGS, not returns.</b>
+          Simulated fills &amp; costs mean the P&amp;L <span class="approx">LEVELS are approximate</span> — the trustworthy signal is the
+          <b style="color:#f0d79a">ordering</b> (which config beats which). Kill-lines are pre-registered before the run. Unvalidated signals stay labelled <span class="t t-perc">perception</span>, never dressed as edge.
+        </div>
+
+        <div class="grid2">
+          <div class="panel">
+            <div class="ph">Configure &amp; run</div>
+            <div class="pb">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <label>Strategy<select class="f"><option>Session-Node Reversion (SPY)</option><option>PEAD-Confirmed</option><option>Turn-of-Month</option><option>Earnings Drift</option><option>Residual-Momentum</option></select></label>
+                <label>Universe<select class="f"><option>S&amp;P 500</option><option>Russell 1000</option><option>SPY only</option><option>Nasdaq-100</option></select></label>
+                <label>Start<input class="f" value="2015-01-02"></label>
+                <label>End<input class="f" value="2025-12-31"></label>
+                <label>Entry (td before)<input class="f" value="10"></label>
+                <label>Max concurrent<input class="f" value="10"></label>
+              </div>
+              <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+                <label style="flex:1">Pre-registered kill-line<input class="f" value="-30% total · -18% train/val gap"></label>
+              </div>
+              <div style="margin-top:12px;display:flex;gap:8px">
+                <button class="btn cy" onclick="queueRun()">queue backtest</button>
+                <button class="btn" onclick="showBTResult('sess')">load last result</button>
+              </div>
+              <p class="note">Runs execute on the PC-side Norgate corpus. Train/validation split is enforced; params above are logged with the run for pre-registration.</p>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="ph">Run queue</div>
+            <div class="pb" style="padding:0"><table class="tbl resp" id="tbl-queue"></table></div>
+          </div>
+        </div>
+
+        <div class="sec"><h2>Validation queue</h2><span class="cnt">candidates that must clear a backtest before they can go live</span><span class="rule"></span></div>
+        <div class="scrollx"><table class="tbl resp" id="tbl-valq"></table></div>
+
+        <div class="sec"><h2>Result — <span id="bt-name">Session-Node Reversion (SPY)</span></h2><span class="cnt" id="bt-window"></span><span class="rule"></span></div>
+        <div id="bt-result"></div>
+      </section>
+
+      <!-- ============ DETAIL (drill-in) ============ -->
+      <section class="view" id="view-detail"></section>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM TABS (phone) -->
+<nav class="tabbar" id="tabbar">
+  <button data-view="overview" class="on"><svg class="ic" viewBox="0 0 16 16"><use href="#i-roster"/></svg>Roster</button>
+  <button data-view="live"><svg class="ic" viewBox="0 0 16 16"><use href="#i-live"/></svg>Live</button>
+  <button data-view="backtest"><svg class="ic" viewBox="0 0 16 16"><use href="#i-test"/></svg>Backtest</button>
+</nav>
+
+<script>
+/* ============================================================
+   Seeded generator — fake but internally-consistent curves.
+   ============================================================ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function genCurve(seed,start,n,driftTotal,vol){
+  const r=mulberry32(seed);let v=start;const out=[v];const d=driftTotal/n;
+  for(let i=1;i<n;i++){const shock=(r()-0.5)*vol*2;v=v*(1+d+shock);out.push(v);}
+  return out;
+}
+const N=126; // ~6 trading months
+const SPY=genCurve(7,100000,N,0.071,0.0065);
+function ret(c){return c[c.length-1]/c[0]-1;}
+function maxDD(c){let pk=c[0],dd=0;for(const v of c){if(v>pk)pk=v;dd=Math.min(dd,v/pk-1);}return dd;}
+const SPYret=ret(SPY);
+
+/* money / pct fmt */
+const fmt$=n=>(n<0?'-':'')+'$'+Math.abs(Math.round(n)).toLocaleString();
+const fmt$k=n=>'$'+(n/1000).toFixed(0)+'k';
+const sgn$=n=>(n>=0?'+':'-')+'$'+Math.abs(Math.round(n)).toLocaleString();
+const pct=(n,d=1)=>(n>=0?'+':'')+(n*100).toFixed(d)+'%';
+const cls=n=>n>0?'pos':n<0?'neg':'mut';
+
+/* sparkline path in a viewBox */
+function spark(c,w=64,h=18){
+  const mn=Math.min(...c),mx=Math.max(...c),rg=(mx-mn)||1;
+  const p=c.map((v,i)=>`${(i/(c.length-1)*w).toFixed(1)},${(h-(v-mn)/rg*h).toFixed(1)}`).join(' ');
+  const up=c[c.length-1]>=c[0];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${up?'var(--green)':'var(--red)'}" stroke-width="1.2" points="${p}"/></svg>`;
+}
+
+/* big chart: series vs benchmark, gridlines, baseline */
+function bigChart(series,bench,baseline){
+  const w=560,h=170;const all=series.concat(bench||[]);if(baseline!=null)all.push(baseline);
+  const mn=Math.min(...all),mx=Math.max(...all),rg=(mx-mn)||1,pad=rg*0.06;
+  const lo=mn-pad,hi=mx+pad;
+  const X=i=>(i/(series.length-1)*w);
+  const Y=v=>h-(v-lo)/(hi-lo)*h;
+  const path=c=>c.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+  const grid=[0.25,0.5,0.75].map(f=>`<line x1="0" x2="${w}" y1="${(h*f).toFixed(0)}" y2="${(h*f).toFixed(0)}" stroke="var(--line)" stroke-width="1"/>`).join('');
+  const base=baseline!=null?`<line x1="0" x2="${w}" y1="${Y(baseline).toFixed(1)}" y2="${Y(baseline).toFixed(1)}" stroke="var(--dim2)" stroke-width="1" stroke-dasharray="3 3"/>`:'';
+  const bpath=bench?`<path d="${path(bench)}" fill="none" stroke="var(--slate)" stroke-width="1.2" stroke-dasharray="4 3" opacity=".8"/>`:'';
+  const up=series[series.length-1]>=series[0];
+  const area=`<path d="${path(series)} L${w} ${h} L0 ${h} Z" fill="${up?'rgba(63,178,101,.07)':'rgba(229,85,107,.07)'}"/>`;
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" style="display:block">${grid}${base}${area}${bpath}<path d="${path(series)}" fill="none" stroke="${up?'var(--green)':'var(--red)'}" stroke-width="1.6"/></svg>`;
+}
+
+/* ============================================================
+   DATA MODEL — actors (mechanical + llm), synthesised details
+   ============================================================ */
+const SYM=['NVDA','AAPL','MSFT','CRM','LLY','XOM','AMD','META','AVGO','COST','JPM','UNH','WMT','GE','PANW','NOW','ORCL','ABBV','CAT','ISRG'];
+function pick(seed,arr,k){const r=mulberry32(seed);const a=[...arr];const o=[];for(let i=0;i<k&&a.length;i++){o.push(a.splice(Math.floor(r()*a.length),1)[0]);}return o;}
+
+function synthPositions(seed,n,long=true){
+  const r=mulberry32(seed*97+3);const syms=pick(seed*13,SYM,n);
+  return syms.map(s=>{const entry=+(40+r()*400).toFixed(2);const mv=(r()-0.42)*0.14;const last=+(entry*(1+mv)).toFixed(2);const qty=Math.round((3000+r()*9000)/entry);const pnl=(last-entry)*qty;const held=1+Math.floor(r()*9);return{s,side:long?'long':'short',qty,entry,last,pnl,pct:mv,held};});
+}
+function synthProps(seed,n){
+  const r=mulberry32(seed*31+5);const syms=pick(seed*7,SYM,n);const st=['approved','approved','rejected','approved','pending'];
+  return syms.map((s,i)=>{const status=i===0?'pending':st[Math.floor(r()*st.length)];const out=status==='pending'?null:status==='rejected'?0:(r()-0.4)*1400;const days=Math.floor(r()*14);return{s,side:'buy',status,out,size:'$'+(4+Math.floor(r()*7))+'k',when:days+'d ago',why:''};});
+}
+
+const ACTORS={};
+function A(o){ACTORS[o.id]=o;return o;}
+
+/* -- LLM books -- */
+A({id:'fable',name:'Fable',kind:'llm',type:'frontier single agent',state:'live',mode:'propose',armed:true,live:true,
+  account:'paper-fable-100k',curve:genCurve(11,100000,N,0.152,0.008),day:+842,seed:11,
+  desc:'Single frontier reasoning agent. Nightly it re-reads the book, scans its universe and writes a rationale + proposed orders.',calibrated:true});
+A({id:'panel',name:'Claude Panel',kind:'llm',type:'multi-agent panel',state:'live',mode:'propose',armed:true,live:true,
+  account:'paper-panel-100k',curve:genCurve(23,100000,N,0.114,0.007),day:+415,seed:23,
+  desc:'Bull &amp; bear advocates cross-examine the same candidates; macro + social seats add context; a portfolio/risk seat resizes; a judge scores a fixed rubric and issues final decisions.',calibrated:true,panel:true});
+A({id:'deepseek',name:'Deep Seek',kind:'llm',type:'cheap single model',state:'live',mode:'propose',armed:false,live:true,probation:true,
+  account:'paper-deepseek-100k',curve:genCurve(31,100000,N,-0.188,0.011),day:-233,seed:31,
+  desc:'Low-cost single model on the same nightly loop as Fable — kept as a price/quality baseline.',calibrated:false});
+A({id:'mattllm',name:'Matt + LLM',kind:'llm',type:'human-directed',state:'live',mode:'implement-only',armed:true,live:true,
+  account:'paper-matt-100k',curve:genCurve(42,100000,N,0.049,0.005),day:+96,seed:42,
+  desc:'You decide; the AI implements the orders you dictate and writes a nightly snapshot. It NEVER proposes on its own.',calibrated:false,humanled:true});
+
+/* -- mechanical -- */
+A({id:'earndrift',name:'Earnings Drift',kind:'mech',type:'event scanner',state:'live',mode:'propose',armed:true,live:true,
+  account:'paper-alpaca-1',caps:{pos:10,cash:100000},universe:'S&P 500 earnings',curve:genCurve(51,100000,N,0.084,0.005),day:+312,seed:51,
+  desc:'Enters exactly 10 trading days before a scheduled earnings date; exits before the print (never holds through the event).',calibrated:true});
+A({id:'resmom',name:'Residual-Momentum Portfolio',kind:'mech',type:'monthly rebalance',state:'live',mode:'propose',armed:true,live:true,
+  account:'paper-alpaca-1',caps:{pos:10,cash:100000},universe:'S&P 500',curve:genCurve(63,100000,N,0.061,0.006),day:-71,seed:63,
+  desc:'Monthly rebalance into 10 equal slots (10% each) by residual momentum after stripping market/sector beta. Fills batch into one approval.',calibrated:true});
+A({id:'session',name:'Session-Node Reversion (SPY)',kind:'mech',type:'intraday reversion',state:'validation-pending',mode:'propose',armed:false,live:false,
+  account:'—',caps:{pos:1,cash:25000},universe:'SPY',curve:null,day:0,seed:71,
+  desc:'Fades stretched moves back to prior-session volume nodes. Paper-observing only; awaiting a clean backtest before it can arm.',calibrated:false});
+A({id:'tom',name:'Turn-of-Month',kind:'mech',type:'calendar',state:'parked',mode:'propose',armed:false,live:false,
+  account:'—',caps:{pos:5,cash:50000},universe:'S&P 500',curve:null,day:0,seed:77,
+  desc:'Long the last-day/first-few-days-of-month seasonal window. Parked — thin, undifferentiated backtest.',calibrated:false});
+A({id:'pead',name:'PEAD-Confirmed',kind:'mech',type:'event drift',state:'validation-pending',mode:'propose',armed:false,live:false,
+  account:'—',caps:{pos:8,cash:80000},universe:'S&P 500 post-earnings',curve:null,day:0,seed:83,
+  desc:'Post-earnings-announcement drift, gated on a confirming volume/gap filter. In the validation queue.',calibrated:false});
+A({id:'profmr',name:'Profile-Extreme Mean-Reversion',kind:'mech',type:'perception',state:'disabled',mode:'propose',armed:false,live:false,perception:true,
+  account:'—',caps:{pos:3,cash:30000},universe:'liquid single-names',curve:null,day:0,seed:89,
+  desc:'Flags reversion when price reaches a volume-profile extreme. NO measured edge yet — surfaced as PERCEPTION only, never wired live.',calibrated:false});
+
+const MECH=['earndrift','resmom','session','tom','pead','profmr'];
+const LLM=['fable','panel','deepseek','mattllm'];
+
+/* derived metrics on every actor */
+Object.values(ACTORS).forEach(a=>{
+  if(a.curve){a.equity=a.curve[a.curve.length-1];a.total=a.equity-a.curve[0];a.ret=ret(a.curve);a.alpha=a.ret-SPYret;a.dd=maxDD(a.curve);}
+  else{a.equity=null;a.total=null;a.ret=null;a.alpha=null;a.dd=null;}
+  a.positions = a.live ? synthPositions(a.seed, a.id==='earndrift'?7:a.id==='resmom'?10:a.kind==='llm'?6:4) : [];
+  a.props = a.live ? synthProps(a.seed, 6) : [];
+});
+/* override one earnings-drift proposal to be the live pending one */
+ACTORS.earndrift.props[0]={s:'CRM',side:'buy',status:'pending',out:null,size:'$9k',when:'12m ago',why:'CRM prints in 10 trading days (earnings 2026-08-04). Entry window opens today; historical pre-earnings drift lane grades A- on this name-set.'};
+
+/* ============ TOPBAR / global read ============ */
+const pending=Object.values(ACTORS).flatMap(a=>a.props.filter(p=>p.status==='pending').map(p=>({...p,actor:a.name,actorId:a.id})));
+const dayTot=Object.values(ACTORS).reduce((s,a)=>s+(a.day||0),0);
+const eqTot=LLM.reduce((s,id)=>s+ACTORS[id].equity,0);
+const armedAuto=Object.values(ACTORS).filter(a=>a.armed&&a.mode==='auto').length;
+const armedAll=Object.values(ACTORS).filter(a=>a.armed).length;
+const openPosTot=Object.values(ACTORS).reduce((s,a)=>s+a.positions.length,0);
+
+function renderTop(){
+  document.getElementById('topbar').innerHTML=`
+    <div class="cell"><div class="k">paper equity · 4 books</div><div class="v num">${fmt$(eqTot)}</div></div>
+    <div class="cell"><div class="k">day p&l · all accounts</div><div class="v num ${cls(dayTot)}">${sgn$(dayTot)}</div></div>
+    <div class="cell"><div class="k">armed</div><div class="v num">${armedAll}<span class="mut" style="font-size:11px"> of ${Object.keys(ACTORS).length} · ${armedAuto} auto</span></div></div>
+    <div class="cell"><div class="k">waiting on you</div><div class="v num" style="color:var(--cyan)">${pending.length} <span class="mut" style="font-size:11px">proposals</span></div></div>
+    <div class="cell grow"></div>
+    <div class="cell"><div class="k">kill-switch</div><div class="v kill"><span class="dot killsw" id="killdot"></span><span id="killtxt" style="font-size:13px">clear</span></div></div>`;
+  document.getElementById('rail-wait').textContent='· '+pending.length;
+}
+
+/* ============ ROSTER ============ */
+function typeTag(a){
+  if(a.kind==='mech')return `<span class="t t-mech">mechanical</span>`;
+  return `<span class="t t-llm">llm book</span>`;
+}
+function stateTag(s){const m={'live':'t-live','validation-pending':'t-valpend','parked':'t-parked','disabled':'t-disabled'};return `<span class="t ${m[s]||''}">${s}</span>`;}
+function modeTag(m){if(m==='auto')return `<span class="t t-auto">auto</span>`;if(m==='implement-only')return `<span class="t mut">implement-only</span>`;return `<span class="t t-propose">propose</span>`;}
+function armTag(a){return a.armed?`<span class="t t-armed">armed</span>`:`<span class="t t-disarmed">disarmed</span>`;}
+
+function rosterRows(ids){
+  return ids.map(id=>{const a=ACTORS[id];
+    const eq=a.equity!=null?fmt$(a.equity):'<span class="dim">not live</span>';
+    const tot=a.total!=null?`<span class="${cls(a.total)}">${sgn$(a.total)}</span>`:'<span class="dim">—</span>';
+    const day=a.live?`<span class="${cls(a.day)}">${a.day?sgn$(a.day):'$0'}</span>`:'<span class="dim">—</span>';
+    const al=a.alpha!=null?`<span class="${cls(a.alpha)}">${pct(a.alpha)}</span>`:'<span class="dim">—</span>';
+    const dd=a.dd!=null?`<span class="neg">${pct(a.dd)}</span>`:'<span class="dim">—</span>';
+    const sp=a.curve?spark(a.curve):'<span class="dim" style="font-size:10px">no live curve</span>';
+    const prob=a.probation?' <span class="t t-probation">probation</span>':a.perception?' <span class="t t-perc">perception</span>':'';
+    return `<tr class="clickrow" onclick="openDetail('${id}')">
+      <td class="l name-cell"><span class="nm">${sp}<span class="name">${a.name}</span></span></td>
+      <td class="l" data-l="type">${typeTag(a)}</td>
+      <td class="l" data-l="state">${stateTag(a.state)}${prob}</td>
+      <td class="l" data-l="mode">${modeTag(a.mode)}</td>
+      <td data-l="day p&l" class="num">${day}</td>
+      <td data-l="total (net-cash)" class="num">${tot}</td>
+      <td data-l="α vs spy" class="num">${al}</td>
+      <td data-l="max dd" class="num">${dd}</td>
+      <td data-l="open" class="num">${a.positions.length||'<span class="dim">0</span>'}</td>
+      <td class="l" data-l="">${armTag(a)}</td>
+    </tr>`;}).join('');
+}
+function head(){return `<thead><tr>
+  <th class="l">actor</th><th class="l">type</th><th class="l">state</th><th class="l">mode</th>
+  <th>day</th><th>total · net-cash</th><th>α vs spy</th><th>max dd</th><th>open</th><th class="l"></th>
+</tr></thead>`;}
+
+function renderRoster(){
+  document.getElementById('tbl-mech').innerHTML=head()+'<tbody>'+rosterRows(MECH)+'</tbody>';
+  document.getElementById('tbl-llm').innerHTML=head()+'<tbody>'+rosterRows(LLM)+'</tbody>';
+  // waiting-on-you strip on overview
+  document.getElementById('ov-wait-cnt').textContent=pending.length+' proposal'+(pending.length!=1?'s':'')+' on your phone';
+  document.getElementById('ov-waiting').innerHTML=`<div class="scrollx"><table class="tbl resp">${pendHead()}<tbody>${pendRows()}</tbody></table></div>`;
+}
+
+/* ============ PENDING PROPOSALS (shared overview+live) ============ */
+function pendHead(){return `<thead><tr><th class="l">actor</th><th class="l">order</th><th>size</th><th class="l">why</th><th>proposed</th><th class="l"></th></tr></thead>`;}
+function pendRows(){
+  return pending.map((p,i)=>`
+    <tr>
+      <td class="l name-cell"><a onclick="openDetail('${p.actorId}')">${p.actor}</a></td>
+      <td class="l" data-l="order"><span class="pos">${p.side} ${p.s}</span></td>
+      <td data-l="size" class="num">${p.size}</td>
+      <td class="l" data-l="why" style="white-space:normal;max-width:320px;color:var(--txt2)">${p.why||'—'}</td>
+      <td data-l="proposed" class="num mut">${p.when.replace('12m ago','12 min')}</td>
+      <td class="l" data-l=""><span class="t t-pending">on phone →</span></td>
+    </tr>`).join('');
+}
+
+/* ============ LIVE LOOK-IN ============ */
+function renderLive(){
+  const now=new Date();
+  document.getElementById('live-asof').textContent='as of 15:42 ET · mkt open';
+  document.getElementById('rail-kill').textContent='kill-switch: '+(document.body.classList.contains('halted')?'ENGAGED':'clear');
+  document.getElementById('live-pend-cnt').textContent=pending.length;
+  // day pnl per book
+  document.getElementById('live-daypnl').innerHTML=[...LLM,'earndrift','resmom'].map(id=>{const a=ACTORS[id];
+    return `<div class="stat"><div class="k">${a.name}</div><div class="v num ${cls(a.day)}">${a.day?sgn$(a.day):'$0'}</div><div class="sub">${a.positions.length} open · ${a.equity!=null?fmt$k(a.equity):'—'}</div></div>`;}).join('');
+  // pending
+  document.getElementById('tbl-pending').innerHTML=pendHead()+'<tbody>'+pendRows()+'</tbody>';
+  // agents that ran
+  const ran=[
+    {id:'panel',ran:'23:05',act:'12 candidates → 2 approve, 1 reject',art:'report'},
+    {id:'fable',ran:'23:04',act:'proposed BUY AVGO 6%',art:'report'},
+    {id:'deepseek',ran:'23:04',act:'proposed 3 orders (disarmed — logged only)',art:'report'},
+    {id:'mattllm',ran:'23:10',act:'nightly snapshot written',art:'report'},
+    {id:'earndrift',ran:'09:32',act:'scan → 1 proposal (CRM)',art:'ledger'},
+    {id:'resmom',ran:'—',act:'no rebalance due (monthly)',art:'overview'},
+  ];
+  document.getElementById('tbl-ran').innerHTML=`<thead><tr><th class="l">agent</th><th>ran</th><th class="l">what it did</th><th class="l"></th></tr></thead><tbody>`+
+    ran.map(r=>`<tr><td class="l name-cell"><span class="name">${ACTORS[r.id].name}</span></td><td data-l="ran" class="num mut">${r.ran}</td><td class="l" data-l="did" style="white-space:normal;color:var(--txt2)">${r.act}</td><td class="l" data-l=""><a onclick="openDetail('${r.id}','${r.art}')">open →</a></td></tr>`).join('')+'</tbody>';
+  // open positions across all
+  const all=Object.values(ACTORS).flatMap(a=>a.positions.map(p=>({...p,actor:a.name,actorId:a.id})));
+  document.getElementById('live-pos-cnt').textContent=all.length+' positions · '+openPosTot;
+  document.getElementById('tbl-livepos').innerHTML=`<thead><tr><th class="l">symbol</th><th class="l">book</th><th class="l">side</th><th>qty</th><th>entry</th><th>last</th><th>day held</th><th>unreal p&l</th><th>%</th></tr></thead><tbody>`+
+    all.slice(0,14).map(p=>`<tr class="clickrow" onclick="openDetail('${p.actorId}','positions')">
+      <td class="l name-cell"><span class="name">${p.s}</span></td>
+      <td class="l" data-l="book" style="color:var(--txt2)">${p.actor}</td>
+      <td class="l" data-l="side"><span class="pos">long</span></td>
+      <td data-l="qty" class="num">${p.qty}</td>
+      <td data-l="entry" class="num mut">${p.entry}</td>
+      <td data-l="last" class="num">${p.last}</td>
+      <td data-l="held" class="num mut">${p.held}d</td>
+      <td data-l="unreal p&l" class="num ${cls(p.pnl)}">${sgn$(p.pnl)}</td>
+      <td data-l="%" class="num ${cls(p.pct)}">${pct(p.pct)}</td></tr>`).join('')+'</tbody>';
+  // fills today
+  const fills=[
+    {t:'09:33',s:'CRM',side:'buy',qty:120,px:284.10,book:'Earnings Drift'},
+    {t:'09:31',s:'AVGO',side:'buy',qty:34,px:1712.4,book:'Fable'},
+    {t:'09:31',s:'NVDA',side:'buy',qty:62,px:128.9,book:'Claude Panel'},
+    {t:'14:58',s:'XOM',side:'sell',qty:180,px:118.2,book:'Residual-Momentum'},
+  ];
+  document.getElementById('tbl-fills').innerHTML=`<thead><tr><th class="l">time</th><th class="l">symbol</th><th class="l">side</th><th>qty</th><th>fill px</th><th class="l">book</th></tr></thead><tbody>`+
+    fills.map(f=>`<tr><td class="l name-cell num">${f.t}</td><td class="l" data-l="symbol"><span class="name">${f.s}</span></td><td class="l" data-l="side"><span class="${f.side==='buy'?'pos':'neg'}">${f.side}</span></td><td data-l="qty" class="num">${f.qty}</td><td data-l="fill" class="num">${f.px}</td><td class="l" data-l="book" style="color:var(--txt2)">${f.book}</td></tr>`).join('')+'</tbody>';
+}
+
+/* ============ DETAIL VIEW ============ */
+let lastList='overview';
+function openDetail(id,tab){
+  const a=ACTORS[id];
+  const v=document.getElementById('view-detail');
+  const tabs = a.kind==='llm'
+    ? [['overview','Overview'],['positions','Positions'],['report','Nightly report'],['ledger','Idea ledger'],['proposals','Proposals'],['controls','Controls']]
+    : [['overview','Overview'],['positions','Positions'],['ledger','Idea ledger'],['proposals','Proposals'],['controls','Controls']];
+  if(!a.live && a.kind==='mech'){ /* not-live strategies still show ledger via backtest link */ }
+  v.innerHTML=`
+    <button class="back" onclick="showView('${lastList}')">&larr; back to ${lastList==='overview'?'roster':lastList}</button>
+    <div class="dhead">
+      <div class="dtitle">
+        <h1>${a.name}</h1>${typeTag(a)} ${stateTag(a.state)} ${modeTag(a.mode)} ${armTag(a)}
+        ${a.probation?'<span class="t t-probation">probation</span>':''}${a.perception?'<span class="t t-perc">perception</span>':''}
+      </div>
+      <div class="dmeta">
+        <span class="kv">account <b>${a.account}</b></span>
+        ${a.caps?`<span class="kv">caps <b>${a.caps.pos} pos · ${fmt$k(a.caps.cash)}</b></span>`:''}
+        ${a.universe?`<span class="kv">universe <b>${a.universe}</b></span>`:`<span class="kv">type <b>${a.type}</b></span>`}
+        <span class="kv">kill-switch <b id="dkill">clear</b></span>
+      </div>
+      <p class="prose" style="margin-top:10px;font-size:12px">${a.desc}</p>
+    </div>
+    <div class="subtabs" id="dtabs">${tabs.map(t=>`<button data-tab="${t[0]}" onclick="showPane('${t[0]}')">${t[1]}</button>`).join('')}</div>
+    <div id="dpanes">
+      <div class="pane" id="pane-overview">${paneOverview(a)}</div>
+      <div class="pane" id="pane-positions">${panePositions(a)}</div>
+      ${a.kind==='llm'?`<div class="pane" id="pane-report">${paneReport(a)}</div>`:''}
+      <div class="pane" id="pane-ledger">${paneLedger(a)}</div>
+      <div class="pane" id="pane-proposals">${paneProposals(a)}</div>
+      <div class="pane" id="pane-controls">${paneControls(a)}</div>
+    </div>`;
+  showView('detail',true);
+  showPane(tab||'overview');
+  document.getElementById('dkill').textContent=document.body.classList.contains('halted')?'ENGAGED':'clear';
+}
+function showPane(t){
+  document.querySelectorAll('#dpanes .pane').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('#dtabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
+  const el=document.getElementById('pane-'+t);if(el)el.classList.add('on');
+}
+
+function paneOverview(a){
+  if(!a.live){
+    return `<div style="background:#141922;border:1px solid var(--line2);padding:14px;color:var(--txt2)">
+      <b style="color:var(--txt)">Not live.</b> This ${a.state} strategy is not deployed to a live paper account, so there is no live equity, alpha or drawdown yet.
+      ${a.perception?`It is surfaced as <span class="t t-perc">perception</span> — an angle to reason over, <b>not validated edge</b>.`:`It must clear a backtest in the <a onclick="showView('backtest')">validation queue</a> before it can arm.`}
+      <div style="margin-top:12px"><a class="btn" onclick="showView('backtest')" style="display:inline-block">open backtest evidence →</a></div>
+    </div>`;
+  }
+  const stats=[
+    ['equity',fmt$(a.equity),'started '+fmt$(a.curve[0])],
+    ['realized p&l · net-cash',`<span class="${cls(a.total)}">${sgn$(a.total)}</span>`,'net-cash is source of truth · FIFO approx'],
+    ['α vs SPY',`<span class="${cls(a.alpha)}">${pct(a.alpha)}</span>`,'SPY '+pct(SPYret)+' same window'],
+    ['max drawdown',`<span class="neg">${pct(a.dd)}</span>`,a.probation?'nearing kill-line':'within tolerance'],
+  ];
+  return `
+    <div class="panel" style="margin-bottom:14px">
+      <div class="ph">Equity — sleeve marked to market <span class="mut">vs SPY (dashed) · 6 mo</span></div>
+      <div class="pb">${bigChart(a.curve,SPY.map(v=>v/SPY[0]*a.curve[0]),a.curve[0])}
+        <div class="note">Dashed = SPY rebased to this sleeve's start. Dotted = start-of-window baseline.</div></div>
+    </div>
+    <div class="grid4">${stats.map(s=>`<div class="stat"><div class="k">${s[0]}</div><div class="v num">${s[1]}</div><div class="sub">${s[2]}</div></div>`).join('')}</div>
+    ${a.probation?probationMeter(a):''}`;
+}
+function probationMeter(a){
+  const dd=Math.abs(a.dd), killAt=0.30, frac=Math.min(dd/killAt,1);
+  return `<div class="panel" style="margin-top:14px;border-color:#4a3a12">
+    <div class="ph"><span style="color:var(--amber)">Probation — pre-registered kill-line</span></div>
+    <div class="pb">
+      <div style="font-size:11.5px;color:var(--txt2)">This book is down and being watched against its pre-registered kill-line. If cumulative loss reaches <b class="neg">-30%</b> the book is declared dead and auto-disarmed.</div>
+      <div class="meter"><div class="fill" style="width:${(frac*100).toFixed(0)}%"></div><div class="kill" style="left:100%"></div></div>
+      <div class="killnote">current ${pct(a.dd)} of the -30% line · ${(frac*100).toFixed(0)}% of the way there · currently <span class="t t-disarmed">disarmed</span></div>
+    </div></div>`;
+}
+
+function panePositions(a){
+  if(!a.positions.length)return `<div class="mut" style="padding:20px 0">No open positions.</div>`;
+  const tot=a.positions.reduce((s,p)=>s+p.pnl,0);
+  return `<div class="scrollx"><table class="tbl resp">
+    <thead><tr><th class="l">symbol</th><th class="l">side</th><th>qty</th><th>entry</th><th>last</th><th>held</th><th>unreal p&l</th><th>%</th></tr></thead>
+    <tbody>${a.positions.map(p=>`<tr>
+      <td class="l name-cell"><span class="name">${p.s}</span></td>
+      <td class="l" data-l="side"><span class="pos">long</span></td>
+      <td data-l="qty" class="num">${p.qty}</td>
+      <td data-l="entry" class="num mut">${p.entry}</td>
+      <td data-l="last" class="num">${p.last}</td>
+      <td data-l="held" class="num mut">${p.held}d</td>
+      <td data-l="unreal" class="num ${cls(p.pnl)}">${sgn$(p.pnl)}</td>
+      <td data-l="%" class="num ${cls(p.pct)}">${pct(p.pct)}</td></tr>`).join('')}
+      <tr style="border-top:1px solid var(--line2)"><td class="l name-cell mut">total unrealized</td><td colspan="5" class="mut" data-l=""></td><td data-l="total" class="num ${cls(tot)}"><b>${sgn$(tot)}</b></td><td data-l=""></td></tr>
+    </tbody></table></div>
+    <p class="note">Sells only reduce a held long — this book cannot short (execution chokepoint enforces it).</p>`;
+}
+
+/* ---- Idea ledger: honesty-first. Calibrated lanes get a bounded win%; uncalibrated show grades/counts only. ---- */
+function paneLedger(a){
+  const lanes=ideaLanes(a);
+  const intro=`<p class="note" style="margin-bottom:10px">Every idea this actor generates is logged and outcome-graded <b>whether it was taken or not</b>. A headline win% appears <b>only</b> when the lane is calibrated (statistically bounded, n large enough) — otherwise you see grades &amp; counts, never a fabricated percentage.</p>`;
+  const seat = a.panel ? panelSeats() : '';
+  return intro+`<div class="scrollx"><table class="tbl resp">
+    <thead><tr><th class="l">idea lane</th><th>n</th><th class="l">taken?</th><th>grade</th><th class="l">win% (calibrated only)</th><th class="l"></th></tr></thead>
+    <tbody>${lanes.map((l,i)=>`
+      <tr class="clickrow" onclick="toggleExp('lane-${a.id}-${i}')">
+        <td class="l name-cell"><span class="caret">▸</span> <span class="name">${l.name}</span></td>
+        <td data-l="n" class="num">${l.n}</td>
+        <td class="l" data-l="taken">${l.taken}</td>
+        <td data-l="grade" class="num"><b style="color:${gradeColor(l.grade)}">${l.grade}</b></td>
+        <td class="l" data-l="win%">${l.cal?`<b class="${l.win>=0.5?'pos':'neg'}">${(l.win*100).toFixed(1)}%</b> <span class="mut">[${(l.lo*100).toFixed(0)}–${(l.hi*100).toFixed(0)}] Wilson 95%</span>`:`<span class="hedge">withheld · not calibrated (need ≥${l.need})</span>`}</td>
+        <td class="l" data-l=""></td>
+      </tr>
+      <tr class="exp-body" id="lane-${a.id}-${i}"><td colspan="6"><div class="inner">${l.detail}</div></td></tr>`).join('')}
+    </tbody></table></div>${seat}`;
+}
+function gradeColor(g){if(g[0]==='A')return 'var(--green)';if(g[0]==='B')return '#9fc37a';if(g[0]==='C')return 'var(--amber)';return 'var(--red)';}
+function ideaLanes(a){
+  if(a.id==='earndrift')return[
+    {name:'pre-earnings entry · taken',n:142,taken:'<span class="pos">taken</span>',grade:'A-',cal:true,win:0.584,lo:51,hi:65,detail:'The core lane: enter 10 td before the print, exit before it. 142 closed ideas, Wilson-bounded. This is the only lane calibrated enough to publish a win%.'},
+    {name:'pre-earnings entry · passed (counterfactual)',n:203,taken:'<span class="mut">passed</span>',grade:'B',cal:false,need:'100 same-regime',detail:'Names that fit the rule but were skipped for caps/liquidity. Graded on would-be outcome to check we are not passing on the winners. Counterfactual — not shown as a win%.'},
+    {name:'gap-fade sub-signal',n:31,taken:'<span class="mut">logged</span>',grade:'C+',cal:false,need:'100',detail:'An experimental add-on that fades the pre-earnings gap. Only 31 observations — far too few to claim a rate. Kept in the ledger, hedged in the UI.'},
+  ];
+  if(a.id==='panel')return[
+    {name:'judge verdicts',n:51,taken:'<span class="pos">approved subset traded</span>',grade:'B+',cal:true,win:0.549,lo:41,hi:68,detail:'Final decisions from the judge seat. Calibrated at n=51. Compared head-to-head with the mean of its own seat inputs — see per-seat grading below.'},
+    {name:'bull theses',n:44,taken:'<span class="mut">advisory</span>',grade:'B',cal:false,need:'100',detail:'Every bull case is logged and graded on outcome even when the judge rejects it. Not yet enough to bound a rate.'},
+    {name:'bear vetoes',n:29,taken:'<span class="mut">advisory</span>',grade:'A-',cal:true,win:0.71,lo:52,hi:85,detail:'Did the bear\'s vetoes dodge losers? Of 29 vetoed candidates, 71% would have lost money — the bear is earning its seat. Calibrated.'},
+  ];
+  if(a.id==='resmom')return[
+    {name:'monthly slot selections',n:118,taken:'<span class="pos">taken</span>',grade:'B',cal:true,win:0.532,lo:44,hi:62,detail:'Each rebalance slot is one idea. Calibrated across 118 closed slots.'},
+    {name:'dropped names (counterfactual)',n:96,taken:'<span class="mut">passed</span>',grade:'B-',cal:false,need:'100',detail:'Names dropped at rebalance, tracked to confirm we drop the laggards.'},
+  ];
+  if(a.id==='deepseek')return[
+    {name:'nightly proposals',n:61,taken:'<span class="mut">logged · disarmed</span>',grade:'D',cal:false,need:'100 + positive trend',detail:'Proposals are logged but the book is disarmed (probation). Grade is poor and the sample is too small/negative to publish a rate — deliberately withheld.'},
+  ];
+  if(a.id==='fable')return[
+    {name:'nightly proposals',n:88,taken:'<span class="pos">taken</span>',grade:'A-',cal:true,win:0.61,lo:50,hi:71,detail:'Frontier agent proposals, calibrated at n=88.'},
+    {name:'sizing conviction tiers',n:88,taken:'<span class="mut">meta</span>',grade:'B+',cal:false,need:'per-tier n',detail:'Whether high-conviction sizing actually correlates with outcome. Split across tiers, each tier still thin — no per-tier rate yet.'},
+  ];
+  if(a.id==='mattllm')return[
+    {name:'your directed trades',n:37,taken:'<span class="pos">taken</span>',grade:'B',cal:false,need:'100',detail:'You decide these; the AI only implements. Graded like any lane, but this is your discretionary book — win% withheld until calibrated.'},
+  ];
+  return[{name:'no live ideas yet',n:0,taken:'<span class="mut">—</span>',grade:'—',cal:false,need:'run it',detail:'Not live — no ideas generated. See backtest.'}];
+}
+/* Panel per-seat grading — the showcase honesty table */
+function panelSeats(){
+  const seats=[
+    ['bull advocate','44 theses','B','var(--green)','overweights momentum names; strong on secular stories'],
+    ['bear advocate','29 vetoes','A-','var(--green)','vetoed names would have lost -6.1% avg — dodging losers (calibrated n=29)'],
+    ['macro seat','context','C','var(--amber)','low marginal signal; rarely flips a verdict'],
+    ['social seat','context','C-','var(--red)','noisy; over-weights froth. on probation as a seat'],
+    ['portfolio / risk seat','18 resizes','B','var(--green)','trimmed 3 oversized entries below correlation cap'],
+    ['judge','51 verdicts','B+','var(--purple)','beats mean-of-its-own-inputs by +1.4% (calibrated n=51) — the judge &gt; its inputs'],
+  ];
+  return `<div class="sec"><h2>Per-seat grading</h2><span class="cnt">who on the panel is actually adding value</span><span class="rule"></span></div>
+  <div class="scrollx"><table class="tbl resp"><thead><tr><th class="l">seat</th><th class="l">activity</th><th>grade</th><th class="l">read</th></tr></thead>
+  <tbody>${seats.map(s=>`<tr><td class="l name-cell"><span class="name">${s[0]}</span></td><td class="l" data-l="activity" style="color:var(--txt2)">${s[1]}</td><td data-l="grade" class="num"><b style="color:${s[3]}">${s[2]}</b></td><td class="l" data-l="read" style="white-space:normal;color:var(--txt2)">${s[4]}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function paneProposals(a){
+  if(!a.props.length)return `<div class="mut" style="padding:20px 0">No proposal history.</div>`;
+  if(a.humanled)return `<div style="background:#141922;border:1px solid var(--line2);padding:14px;color:var(--txt2)">
+    <b style="color:var(--txt)">Human-directed book.</b> Matt + LLM never proposes on its own — you dictate the orders and the AI implements them, then writes the nightly snapshot. There is no agent-initiated proposal queue here; see <a onclick="showPane('report')">the snapshot</a>.</div>`;
+  return `<div class="scrollx"><table class="tbl resp">
+    <thead><tr><th class="l">symbol</th><th class="l">side</th><th>size</th><th class="l">status</th><th>outcome</th><th class="l">when</th></tr></thead>
+    <tbody>${a.props.map((p,i)=>{
+      const st = p.status==='pending'?'<span class="t t-pending">pending · on phone</span>':p.status==='rejected'?'<span class="t t-reject">rejected</span>':'<span class="t t-approve">approved</span>';
+      const out = p.status==='pending'?'<span class="dim">—</span>':p.status==='rejected'?'<span class="mut">skipped</span>':`<span class="${cls(p.out)}">${sgn$(p.out)}</span>`;
+      return `<tr class="clickrow" onclick="toggleExp('prop-${a.id}-${i}')">
+        <td class="l name-cell"><span class="caret">▸</span> <span class="name">${p.s}</span></td>
+        <td class="l" data-l="side"><span class="pos">${p.side}</span></td>
+        <td data-l="size" class="num">${p.size}</td>
+        <td class="l" data-l="status">${st}</td>
+        <td data-l="outcome" class="num">${out}</td>
+        <td class="l" data-l="when" style="color:var(--txt2)">${p.when.replace('12m ago','12 min ago')}</td></tr>
+      <tr class="exp-body" id="prop-${a.id}-${i}"><td colspan="6"><div class="inner">${p.why||'Proposed by the nightly loop. '+(p.status==='rejected'?'You rejected it on the phone.':p.status==='pending'?'Awaiting your tap.':'You approved on the phone; the chokepoint executed within caps.')}</div></td></tr>`;}).join('')}
+    </tbody></table></div>
+    <p class="note">asked → approved / rejected on the phone → outcome graded into the ledger (taken AND not-taken).</p>`;
+}
+
+function paneControls(a){
+  return `<div class="grid2">
+    <div class="panel"><div class="ph">Arming &amp; mode</div><div class="pb">
+      <div class="ctlrow"><div class="lab">Armed<div class="d">arming is always an explicit human act — never auto-armed on deploy</div></div>
+        <button class="toggle ${a.armed?'on':''}" onclick="this.classList.toggle('on');this.textContent=this.classList.contains('on')?'armed':'disarmed'">${a.armed?'armed':'disarmed'}</button></div>
+      <div class="ctlrow"><div class="lab">Entry mode<div class="d">propose = you approve each trade · auto = executes within caps</div></div>
+        <div class="seg"><button class="${a.mode==='propose'||a.mode==='implement-only'?'on':''}">propose</button><button class="${a.mode==='auto'?'on':''}">auto</button></div></div>
+      <div class="ctlrow" style="border-bottom:0"><div class="lab">Bound account</div><b>${a.account}</b></div>
+    </div></div>
+    <div class="panel"><div class="ph">Caps &amp; guardrails</div><div class="pb">
+      <div class="ctlrow"><div class="lab">Max concurrent positions</div><input class="f" style="width:90px" value="${a.caps?a.caps.pos:10}"></div>
+      <div class="ctlrow"><div class="lab">Max deployed $</div><input class="f" style="width:120px" value="${a.caps?a.caps.cash:100000}"></div>
+      <div class="ctlrow" style="border-bottom:0"><div class="lab">Kill-switch (global)<div class="d">emergency halt — blocks the execution chokepoint for every actor</div></div>
+        <button class="btn dn" onclick="toggleKill()" id="ctl-kill">${document.body.classList.contains('halted')?'release':'engage'}</button></div>
+      <div style="margin-top:12px;display:flex;gap:8px"><button class="btn gn">save caps</button><button class="btn">view audit log</button></div>
+      <p class="note">Changes to caps and mode are logged to the consent-audit chain. LIVE trading stays hard-blocked behind the typed double-gate.</p>
+    </div></div>
+  </div>`;
+}
+
+/* ---- Nightly reports as first-class artifacts ---- */
+function paneReport(a){
+  if(a.panel)return panelReport();
+  if(a.humanled)return `<div class="prose">
+    <div style="color:var(--dim);font-size:11px;font-family:var(--mono);margin-bottom:10px">nightly snapshot · 2026-07-16 23:10 ET · written by the implementer AI · <b class="mut">you directed, AI implemented</b></div>
+    <h3>Book snapshot</h3>
+    <p>Per your instruction this afternoon, added <b>GE</b> (risk-on industrial, your macro call) at 3% and trimmed <b>WMT</b> from 6% → 4%. No agent-initiated ideas — this book only implements what you decide.</p>
+    <h3>What I'd flag for you</h3>
+    <p>Your NVDA position is now 9.1% of the book, above your own 8% soft cap. Not acting without you — surfacing it. XOM is ex-div tomorrow.</p>
+    <p class="note" style="font-family:var(--mono)">This book never proposes. If you want ideas, read Fable or the Panel and dictate.</p>
+  </div>`;
+  // Fable / Deep Seek single-model rationale
+  const dis=a.armed?'':' <span class="t t-disarmed">disarmed — logged only, not sent to phone</span>';
+  return `<div class="prose">
+    <div style="color:var(--dim);font-size:11px;font-family:var(--mono);margin-bottom:10px">nightly rationale · 2026-07-16 23:04 ET · ${a.type}${dis}</div>
+    <h3>Read of the book</h3>
+    <p>${a.id==='fable'?'Net long quality-growth with a semis tilt. AVGO screens as the strongest fresh add on the AI-capex thesis; I want 6% and I\'m proposing it. Keeping cash at 12% given the drawdown-risk in high-multiple names into CPI.':'Momentum names still leading; I would rotate further into semis. (Note: this book is on probation and disarmed — this rationale is logged for grading but no order was sent to your phone.)'}</p>
+    <h3>Proposed orders</h3>
+    <p>${a.id==='fable'?'<b class="pos">BUY AVGO</b> to 6% · limit 1715 · thesis: capex durability, backlog visibility.':'<b class="pos">BUY</b> 3 names (logged, not proposed).'}</p>
+    <h3>Risks I\'m watching</h3>
+    <p>Concentration vs the existing SMH-correlated sleeve; CPI print in two sessions; multiple compression if rates back up.</p>
+  </div>`;
+}
+function panelReport(){
+  const cand=(cls_,tick,thesis,bull,bear,verdict,vcls,note)=>`
+    <div style="border-top:1px solid var(--line2);padding-top:14px;margin-top:14px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><b style="font-size:15px;font-family:var(--mono)">${tick}</b><span class="mut" style="font-size:12px">${thesis}</span><span class="t ${vcls}" style="margin-left:auto">${verdict}</span></div>
+      <div class="debate bull"><div class="who">bull advocate</div>${bull}</div>
+      <div class="debate bear"><div class="who">bear attack</div>${bear}</div>
+      <div class="debate judge"><div class="who">judge verdict</div>${note}</div>
+    </div>`;
+  return `<div class="prose">
+    <div style="color:var(--dim);font-size:11px;font-family:var(--mono);margin-bottom:4px">panel report · 2026-07-16 23:05 ET · 12 candidates screened → 2 approve · 1 reject · 9 no-action</div>
+    <p style="font-size:12px;color:var(--txt2)">The panel runs a fixed rubric: bull &amp; bear advocates argue the same candidate, macro + social seats add context, a risk seat sizes, and the judge scores and decides. Below is tonight's debate. Proposed orders are at the bottom; they go to your phone as usual.</p>
+    <h3>Debate — tonight's candidates</h3>
+    ${cand('','NVDA','AI-capex leader · fresh 6-mo high','<p>Capex from the hyperscalers is still accelerating; backlog gives 3–4 quarters of visibility. Gross-margin trajectory intact. This is the cleanest expression of the durable-compute thesis in the universe.</p>','<p>Valuation prices perfection; China export headwind is a live tail; the whole book is already SMH-correlated so this adds beta, not diversification. Social froth is extreme — a contrarian caution flag.</p>','APPROVE · 8%','t-approve','<p><b>APPROVE, sized to 8%</b> (risk seat capped it from the bull\'s 12% for correlation). The bear\'s valuation point is real but the capex durability out-scores it on the rubric (thesis 9 / risk 6 / crowding 5). Stop at prior swing low; scale-out at +12% / +22%.</p>')}
+    ${cand('','LLY','GLP-1 demand · supply-constrained','<p>Structural TAM expansion; pricing power; multi-year demand backlog. Best risk-adjusted secular grower outside tech.</p>','<p>Supply constraint is already well-known and largely priced. Entry here is chasing; better basis on a pullback.</p>','APPROVE · 4%','t-approve','<p><b>APPROVE, half-size 4%.</b> Thesis strong but the bear\'s "priced-in" point earns a smaller entry with room to add on weakness. Rubric: thesis 8 / valuation 5 / timing 5.</p>')}
+    ${cand('','COIN','crypto beta · retail momentum','<p>Torque to a crypto up-move; momentum is real right now.</p>','<p>This is beta, not alpha — no company-specific edge. Social seat reads extreme froth. Nothing here we can\'t get cheaper and cleaner elsewhere.</p>','REJECT','t-reject','<p><b>REJECT.</b> The judge sides with the bear: "beta is not alpha." No differentiated thesis survives cross-examination; crowding score maxes out. Logged to the ledger as a graded no-take so we learn if the rejection was right.</p>')}
+    <h3>Proposed orders → your phone</h3>
+    <p><b class="pos">BUY NVDA</b> to 8% · limit 129.50 · stop 118 &nbsp;|&nbsp; <b class="pos">BUY LLY</b> to 4% · limit 902</p>
+    <p class="note" style="font-family:var(--mono)">Every candidate above — approved, half-sized, or rejected — is written to the idea ledger and outcome-graded, so we can later ask whether the judge beat its own seats. See the <a onclick="showPane('ledger')">idea ledger</a> for per-seat grades.</p>
+  </div>`;
+}
+
+/* ============ BACKTEST ============ */
+function renderBacktest(){
+  const q=[
+    {name:'Session-Node Reversion (SPY)',uni:'SPY',range:'2015–2025',status:'done',eta:'—'},
+    {name:'PEAD-Confirmed',uni:'S&P 500',range:'2010–2025',status:'running',eta:'~4 min'},
+    {name:'Turn-of-Month',uni:'S&P 500',range:'2008–2025',status:'queued',eta:'queued'},
+  ];
+  document.getElementById('tbl-queue').innerHTML=`<thead><tr><th class="l">strategy</th><th class="l">universe</th><th class="l">range</th><th class="l">status</th><th>eta</th></tr></thead><tbody>`+
+    q.map(r=>`<tr><td class="l name-cell"><span class="name">${r.name}</span></td><td class="l" data-l="universe" style="color:var(--txt2)">${r.uni}</td><td class="l" data-l="range" style="color:var(--txt2)">${r.range}</td><td class="l" data-l="status"><span class="t ${r.status==='done'?'t-live':r.status==='running'?'t-pending':'t-parked'}">${r.status}</span></td><td data-l="eta" class="num mut">${r.eta}</td></tr>`).join('')+'</tbody>';
+
+  const vq=[
+    {id:'session',rank:1,note:'strongest candidate — clean out-of-sample so far'},
+    {id:'pead',rank:2,note:'backtest running; confirming volume filter is the open question'},
+    {id:'tom',rank:3,note:'thin & undifferentiated; likely stays parked'},
+    {id:'profmr',rank:'—',note:'PERCEPTION only — no measured edge; not eligible to arm'},
+  ];
+  document.getElementById('tbl-valq').innerHTML=`<thead><tr><th class="l">candidate</th><th class="l">state</th><th class="l">rank</th><th class="l">note</th><th class="l"></th></tr></thead><tbody>`+
+    vq.map(r=>{const a=ACTORS[r.id];return `<tr><td class="l name-cell"><span class="name">${a.name}</span></td><td class="l" data-l="state">${stateTag(a.state)}${a.perception?' <span class="t t-perc">perception</span>':''}</td><td data-l="rank" class="num">${r.rank}</td><td class="l" data-l="note" style="white-space:normal;color:var(--txt2)">${r.note}</td><td class="l" data-l=""><a onclick="showBTResult('${r.id}')">result →</a></td></tr>`;}).join('')+'</tbody>';
+
+  showBTResult('sess');
+}
+function showBTResult(which){
+  const name = which==='pead'?'PEAD-Confirmed':which==='tom'?'Turn-of-Month':which==='profmr'?'Profile-Extreme Mean-Reversion':'Session-Node Reversion (SPY)';
+  document.getElementById('bt-name').textContent=name;
+  document.getElementById('bt-window').textContent='2015-01-02 → 2025-12-31 · train 2015–2021 · validation 2022–2025';
+  const eq=genCurve(which==='profmr'?900:702,100000,N,which==='profmr'?-0.05:0.34,0.009);
+  const bench=SPY.map(v=>v/SPY[0]*100000);
+  const r=ret(eq), dd=maxDD(eq);
+  const stats=[
+    ['total return <span class="hedge" style="font-size:9px">≈ sim</span>',pct(r),'levels approximate'],
+    ['α vs SPY <span class="hedge" style="font-size:9px">≈ sim</span>',pct(r-SPYret),'ranking trustworthy'],
+    ['max drawdown',pct(dd),'pre-reg kill: -30%'],
+    ['trades · win% <span class="hedge" style="font-size:9px">calib</span>','486 · 54.1%','[51–57] Wilson 95%'],
+    ['train / val gap','-4.2%','< -18% pre-reg kill'],
+    ['profit factor <span class="hedge" style="font-size:9px">≈ sim</span>','1.34','ordering, not level'],
+  ];
+  const trades=[
+    ['2024-11-04','SPY','long','+1.8%','held 0.4d'],
+    ['2024-11-06','SPY','long','-0.9%','held 0.2d'],
+    ['2024-11-11','SPY','long','+2.3%','held 0.6d'],
+    ['2024-11-14','SPY','long','+0.4%','held 0.3d'],
+    ['2024-11-19','SPY','long','-1.4%','held 0.5d'],
+  ];
+  document.getElementById('bt-result').innerHTML=`
+    <div class="panel" style="margin-bottom:14px">
+      <div class="ph">Equity vs SPY <span class="mut">simulated fills &amp; costs — read as ranking, not achievable P&L</span></div>
+      <div class="pb">${bigChart(eq,bench,100000)}
+        <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;flex-wrap:wrap">
+          <span><span style="color:var(--green)">▬</span> strategy <span class="approx">(≈ simulated)</span></span>
+          <span><span style="color:var(--slate)">┅</span> SPY buy-hold</span>
+          <span class="mut">┈ start baseline</span>
+          <span class="hedge" style="font-size:10.5px">shaded 2022–2025 = out-of-sample validation</span>
+        </div></div>
+    </div>
+    <div class="grid3" style="margin-bottom:14px">${stats.map(s=>`<div class="stat"><div class="k">${s[0]}</div><div class="v num">${s[1]}</div><div class="sub">${s[2]}</div></div>`).join('')}</div>
+    <div class="grid2">
+      <div class="panel"><div class="ph">Pre-registered kill-lines</div><div class="pb">
+        <div class="ctlrow"><div class="lab">total return floor</div><b class="neg">-30% = strategy is dead</b></div>
+        <div class="ctlrow"><div class="lab">train→val degradation</div><b class="neg">-18% gap = overfit, kill</b></div>
+        <div class="ctlrow" style="border-bottom:0"><div class="lab">current status</div><b class="pos">both lines clear · eligible to advance</b></div>
+        <p class="note">Kill-lines are written down BEFORE the run so a bad result can't be rationalised after the fact.</p>
+      </div></div>
+      <div class="panel"><div class="ph">Per-trade sample <span class="mut">first 5 · validation window</span></div><div class="pb" style="padding:0">
+        <div class="scrollx"><table class="tbl resp"><thead><tr><th class="l">date</th><th class="l">sym</th><th class="l">side</th><th>ret <span class="hedge" style="font-size:9px">≈sim</span></th><th class="l">hold</th></tr></thead>
+        <tbody>${trades.map(t=>`<tr><td class="l name-cell num">${t[0]}</td><td class="l" data-l="sym"><span class="name">${t[1]}</span></td><td class="l" data-l="side"><span class="pos">${t[2]}</span></td><td data-l="ret" class="num ${t[3][0]==='+'?'pos':'neg'}">${t[3]}</td><td class="l mut" data-l="hold">${t[4]}</td></tr>`).join('')}</tbody></table></div>
+      </div></div>
+    </div>`;
+}
+function queueRun(){alert('mock: run queued to the PC-side Norgate corpus with the params above (pre-registered).');}
+
+/* ============ NAV ============ */
+function showView(v,keepList){
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('on'));
+  document.getElementById('view-'+v).classList.add('on');
+  if(v!=='detail'&&!keepList)lastList=v;
+  document.querySelectorAll('#railnav button,#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('#railnav button,#tabbar button').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+
+/* expandable rows */
+function toggleExp(id){const el=document.getElementById(id);if(el)el.classList.toggle('open');
+  const car=event&&event.currentTarget&&event.currentTarget.querySelector('.caret');if(car)car.textContent=el.classList.contains('open')?'▾':'▸';}
+
+/* global kill-switch */
+function toggleKill(){document.body.classList.toggle('halted');const on=document.body.classList.contains('halted');
+  const kd=document.getElementById('killdot'),kt=document.getElementById('killtxt');
+  if(kt)kt.textContent=on?'ENGAGED':'clear';
+  document.getElementById('rail-kill').textContent='kill-switch: '+(on?'ENGAGED':'clear');
+  const dk=document.getElementById('dkill');if(dk)dk.textContent=on?'ENGAGED':'clear';
+  const ck=document.getElementById('ctl-kill');if(ck)ck.textContent=on?'release':'engage';
+}
+
+/* boot */
+renderTop();renderRoster();renderLive();renderBacktest();
+</script>
