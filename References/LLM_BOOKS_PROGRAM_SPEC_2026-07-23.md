@@ -53,7 +53,7 @@ different substrate; neither gates the other.)
 | Deep Seek | `acct_alpaca_deepseek` | app LLM seam (DeepSeek key already configured) — nightly job in-process | propose |
 | Fable | `acct_alpaca_fable` | scheduled Claude Code session, Fable solo | propose |
 | Claude Panel | `acct_alpaca_open` | scheduled Claude Code session: Opus seats + Fable judge | propose |
-| Matt + LLM | `acct_fc78907f4bda` | **no LLM proposals** — executes founder instructions only; nightly informational snapshot | manual |
+| Matt + LLM | `acct_fc78907f4bda` | nightly ADVISORY analyst cycle (DeepSeek seam) — report to inbox, **never proposals** | manual |
 
 Panel design (settled): bull + bear **cross-examine the same candidates** (not parallel monologues),
 plus a portfolio/risk seat; **Fable judges** against a pre-registered rubric — evidence quality,
@@ -86,13 +86,19 @@ output is "which book/seat lanes deserve to keep running," not a win% headline.
    markdown pack per book (markdown, not JSON — deepseek-llm-lessons). Packs are archived to disk
    per date (`data/book_packs/`, gitignored) so every decision is auditable against exactly what the
    model saw.
-2. **Session**: the book's driver reads the pack, may READ app endpoints (read-only bearer), and
-   emits a structured decision block: proposals (symbol, side, qty/notional, thesis, falsifier→stop,
-   horizon) + a hold/trim review of existing positions + its full candidate list for lane
-   registration.
-3. **Registration**: every candidate → its lane (§4); advanced proposals → the existing proposal
-   intake (`trading/proposal_intake.py`) with book provenance; nightly report (markdown) stored and
-   surfaced in the Lab book page.
+2. **Session (founder 07-23: agentic, after hours)**: the driver is a **senior analyst at the
+   founder's firm** (charter: *create wealth without losing it — swing for home runs when they
+   present themselves, never sized to go belly up*). It runs a bounded **read-only tool loop**
+   (`research/book_tools.py` allowlist over the chat tool registry: get_context, query,
+   list_capabilities, get_earnings_dates, web_search — our data + outside data; mutating tools and
+   start_research structurally excluded) and files a markdown report ending in a structured
+   decision block: candidates + hold/trim review + a **desk journal** (≤4000 chars, rewritten each
+   cycle, fed back verbatim in the next pack — the book's ONLY narrative memory; lanes/reports are
+   the mechanical memory; deliberately NOT the app chat-memory store).
+3. **Registration & delivery**: every candidate → its lane (§4); advanced proposals → the existing
+   proposal intake (`trading/proposal_intake.py`) with book provenance; nightly report stored AND
+   delivered to the founder's **app/web inbox** (founder 07-23 — NOT email: a `report_ready`
+   notification row via `signals.notify`, push=False, linking `/reports/<id>`).
 4. **One batched push** per book: "Fable book: 2 proposals, 1 trim — review by open."
 5. **Morning**: founder approves on phone (existing biometric approvals flow) → chokepoint executes.
    **DECIDED (founder 07-23): MOO by default** — approval before the ~9:28 ET auction cutoff submits
@@ -102,8 +108,10 @@ output is "which book/seat lanes deserve to keep running," not a win% headline.
    TOMORROW's open — worse than a slightly-off-auction fill). VWAP/TWAP stay DEAD for paper
    (Elite-gated + not simulated — alpaca-algo-orders-elite-gated).
 
-Matt + LLM variant: steps 1 + a snapshot render ONLY (positions, P&L, concentration, upcoming
-earnings for held names). Explicitly no proposals, no candidate lists, no lane rows.
+Matt + LLM variant (upgraded, founder 07-23): the SAME nightly analyst session and inbox report —
+"repeat this step with each book, including my co-managed one" — but **advisory-only,
+structurally**: no decision block demanded, no proposals, no candidate lists, no lane rows. The
+driver enforces this in code, not just prompt.
 
 ## 6. Scheduling & ops
 

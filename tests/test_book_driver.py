@@ -1,4 +1,4 @@
-"""Deep Seek book nightly driver (research/book_driver.py) — gates, parse, lanes, arming."""
+"""Book analyst driver (research/book_driver.py) — gates, tool loop, lanes, arming, inbox."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from db.base import connect
 from db.idea_outcomes import list_ledger_rows
 from db.reports import recent_reports_by_kind
 from db.strategies import seed_default_strategies, update_strategy
 from research.book_driver import run_book_cycle
+from research.books import build_book_pack
 
 _ET = ZoneInfo("America/New_York")
 NOW = datetime(2026, 7, 23, 17, 30, tzinfo=_ET)  # Thursday, post-window
@@ -54,36 +56,65 @@ GOOD_DECISION = {
         },
     ],
     "holds_review": "flat book, nothing to review",
+    "journal": "stalking AAPL 200 retest; NVDA still too hot to chase",
 }
 
 GOOD_RESPONSE = "## Nightly report\n\nMarkdown body.\n\n```json\n" + json.dumps(GOOD_DECISION) + "\n```\n"
 
 
 class FakeLLM:
+    """No complete_tools attr → run_chat_loop degrades to plain complete()."""
+
     provider = "deepseek"
 
     def __init__(self, responses: list[str]) -> None:
         self.responses = list(responses)
         self.calls: list[Any] = []
 
-    async def acomplete(self, messages: list[Any], *, max_tokens: int = 1024) -> str:
+    def complete(self, messages: list[Any], *, max_tokens: int = 1024) -> str:
         self.calls.append(messages)
         return self.responses.pop(0)
+
+
+class FakeToolLLM:
+    """Native tool-calling: pops queued ToolCallResults per model turn."""
+
+    provider = "deepseek"
+
+    def __init__(self, turns: list[Any]) -> None:
+        self.turns = list(turns)
+        self.calls: list[Any] = []
+
+    def complete_tools(
+        self, messages: list[Any], tools: list[Any], *, tool_choice: str = "auto",
+        max_tokens: int = 1024,
+    ) -> Any:
+        self.calls.append((messages, tools))
+        return self.turns.pop(0)
+
+    def complete(self, messages: list[Any], *, max_tokens: int = 1024) -> str:
+        raise AssertionError("plain complete should not be reached in the tool test")
 
 
 def _run(db: Path, **kwargs: Any) -> dict[str, Any]:
     seed_default_strategies(db_path=db)
     kwargs.setdefault("now_et", NOW)
     kwargs.setdefault("db_path", db)
-    return asyncio.run(run_book_cycle("deepseek", **kwargs))
+    return asyncio.run(run_book_cycle(kwargs.pop("book_id", "deepseek"), **kwargs))
 
 
-def test_dry_cycle_registers_lanes_and_saves_report_without_proposals(tmp_path: Path) -> None:
+def _notification_count(db: Path) -> int:
+    with connect(db) as conn:
+        try:
+            return conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
+        except Exception:
+            return 0
+
+
+def test_dry_cycle_registers_lanes_saves_report_and_inbox_row(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
     out = _run(db, llm=FakeLLM([GOOD_RESPONSE]))
     assert out["status"] == "ok" and out["armed"] is False and out["proposals"] == []
-    # All three candidates land in lanes: advanced long + advanced short →
-    # headline, considered → /considered (shorts ARE measured).
     heads = list_ledger_rows(origin="book:deepseek", db_path=db)["rows"]
     assert {r["symbol"] for r in heads} == {"AAPL", "IWM"}
     considered = list_ledger_rows(origin="book:deepseek/considered", db_path=db)["rows"]
@@ -92,6 +123,64 @@ def test_dry_cycle_registers_lanes_and_saves_report_without_proposals(tmp_path: 
     assert len(reports) == 1
     payload = reports[0]["payload"]
     assert payload["dry"] is True and payload["registered"] == 3
+    assert payload["journal"].startswith("stalking AAPL")
+    assert _notification_count(db) == 1  # the app/web inbox row
+
+
+def test_journal_feeds_back_into_next_pack(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    assert _run(db, llm=FakeLLM([GOOD_RESPONSE]))["status"] == "ok"
+    pack = build_book_pack("deepseek", db_path=db)
+    assert "Your handoff from last cycle" in pack
+    assert "stalking AAPL 200 retest" in pack
+
+
+def test_matt_advisory_cycle_report_only(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    out = _run(db, book_id="matt", llm=FakeLLM(["## Advisory\n\nno json block needed"]))
+    assert out == {"status": "ok", "advisory": True, "report_id": out["report_id"]}
+    reports = recent_reports_by_kind("book_matt", db_path=db)
+    assert len(reports) == 1 and reports[0]["payload"]["advisory"] is True
+    # Structurally no machine ideas: zero rows in ANY lane, one inbox row.
+    assert list_ledger_rows(db_path=db)["rows"] == []
+    assert _notification_count(db) == 1
+
+
+def test_tool_loop_executes_allowlisted_and_blocks_others(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from ai.llm.base import ToolCall, ToolCallResult
+
+    executed: list[tuple[str, dict[str, Any]]] = []
+
+    async def fake_execute(name: str, args: dict[str, Any]) -> Any:
+        executed.append((name, args))
+        return {"ok": True}
+
+    import ai.chat.tools as chat_tools
+
+    monkeypatch.setattr(chat_tools, "execute_tool", fake_execute)
+
+    fake = FakeToolLLM(
+        [
+            ToolCallResult(
+                text="",
+                tool_calls=(
+                    ToolCall(id="1", name="query", arguments={"resource": "strategies"}),
+                    ToolCall(id="2", name="propose_order", arguments={"symbol": "AAPL"}),
+                ),
+            ),
+            ToolCallResult(text=GOOD_RESPONSE, tool_calls=()),
+        ]
+    )
+    db = tmp_path / "t.db"
+    out = _run(db, llm=fake)
+    assert out["status"] == "ok"
+    # query ran; propose_order never reached the chat executor (allowlist wall).
+    assert executed == [("query", {"resource": "strategies"})]
+    # The blocked call's error went back to the model as a tool result and the
+    # loop continued to the final report.
+    assert len(fake.calls) == 2
 
 
 def test_second_run_same_day_dedups(tmp_path: Path) -> None:
@@ -114,7 +203,7 @@ def test_parse_repair_retry_recovers(tmp_path: Path) -> None:
     fake = FakeLLM(["no json block here", "```json\n" + json.dumps(GOOD_DECISION) + "\n```"])
     out = _run(db, llm=fake)
     assert out["status"] == "ok"
-    assert len(fake.calls) == 2  # original + one repair retry
+    assert len(fake.calls) == 2  # analysis + one repair retry
     assert len(list_ledger_rows(origin="book:deepseek", db_path=db)["rows"]) == 2
 
 
@@ -158,6 +247,28 @@ def test_armed_cycle_proposes_longs_blocks_shorts_clamps_notional(
     assert captured[0].source == "book_deepseek"
     statuses = {p["symbol"]: p["status"] for p in out["proposals"]}
     assert statuses == {"AAPL": "proposed", "IWM": "short_blocked"}
+
+
+def test_analysis_crash_retries_then_stamps_error_report(tmp_path: Path) -> None:
+    class ExplodingLLM:
+        provider = "deepseek"
+
+        def complete(self, messages: list[Any], *, max_tokens: int = 1024) -> str:
+            raise RuntimeError("api down")
+
+    db = tmp_path / "t.db"
+    seed_default_strategies(db_path=db)
+    for attempt in (1, 2):
+        out = asyncio.run(run_book_cycle("deepseek", now_et=NOW, db_path=db, llm=ExplodingLLM()))
+        assert out["status"] == "retry" and out["attempt"] == attempt
+        assert recent_reports_by_kind("book_deepseek", db_path=db) == []
+    out = asyncio.run(run_book_cycle("deepseek", now_et=NOW, db_path=db, llm=ExplodingLLM()))
+    assert out["status"] == "error"
+    reports = recent_reports_by_kind("book_deepseek", db_path=db)
+    assert len(reports) == 1 and reports[0]["payload"]["status"] == "error"
+    # The error report stamps the day — the fourth tick skips.
+    again = asyncio.run(run_book_cycle("deepseek", now_et=NOW, db_path=db, llm=ExplodingLLM()))
+    assert again == {"status": "skipped", "reason": "already_ran_today"}
 
 
 def test_unconfigured_llm_skips(tmp_path: Path, monkeypatch: Any) -> None:

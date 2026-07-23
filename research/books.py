@@ -400,6 +400,26 @@ def _earnings_section(book: Book, db_path: Path) -> str:
     return "\n".join(lines)
 
 
+def _journal_section(book: Book, db_path: Path) -> str:
+    """The analyst's own desk journal from its last cycle — its only narrative
+    memory between nights (book-analyst-charter). Lanes above are the
+    mechanical memory; this is the handoff it wrote to tomorrow's self."""
+    from db.reports import recent_reports_by_kind
+
+    reports = recent_reports_by_kind(f"book_{book.book_id}", limit=5, db_path=db_path)
+    if not reports:
+        return "_first cycle — no prior reports_"
+    latest = reports[0]
+    journal = str((latest.get("payload") or {}).get("journal") or "").strip()
+    lines = [f"- prior reports on file: {len(reports)} (latest {latest.get('generated_at')})"]
+    if journal:
+        lines.append("\n### Your handoff from last cycle\n")
+        lines.append(journal)
+    else:
+        lines.append("- no desk journal carried from the last cycle")
+    return "\n".join(lines)
+
+
 def archive_book_pack(book_id: str, pack: str, *, root: Path | None = None) -> Path:
     """Write a rendered pack to data/book_packs/<ET-date>/<book>.md (audit trail:
     every decision reviewable against exactly what the model saw). Shared by the
@@ -431,9 +451,10 @@ def build_book_pack(book_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> str:
         _section("Account", lambda: _account_section(book, db_path)),
         _section("Pending proposals", lambda: _proposals_section(book, db_path)),
     ]
-    # Matt + LLM is snapshot-only (spec §5): no lanes exist and none may render.
+    # Matt + LLM is advisory-only (spec §5): no lanes or journal exist for it.
     if book.headline_origin:
         parts.append(_section("Your ledger lanes", lambda: _lanes_section(book, db_path)))
+        parts.append(_section("Your desk journal", lambda: _journal_section(book, db_path)))
     parts.append(_section("Market frame", lambda: _market_frame_section(db_path)))
     parts.append(_section("Upcoming earnings (held names)", lambda: _earnings_section(book, db_path)))
     return "\n".join(parts)

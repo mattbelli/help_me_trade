@@ -1265,16 +1265,26 @@ _db_retention_last_date: dict = {}
 
 
 async def _book_deepseek_once() -> None:
-    """Deep Seek paper-book nightly cycle (research/book_driver.py increment 2).
+    """Deep Seek paper-book nightly analyst cycle (research/book_driver.py).
 
     Self-gates: weekday post-17:05-ET, once per ET day, skips when the DeepSeek
     key is unconfigured. Disabled strategy record = DRY cycle (pack + report +
-    lane rows, no proposals) — the shipped state until the founder arms it."""
+    lane rows + inbox, no proposals) — the shipped state until the founder arms it."""
     from research.book_driver import run_book_cycle
 
     result = await run_book_cycle("deepseek")
     if result.get("status") != "skipped":
         logger.info("Deep Seek book cycle: %s", result)
+
+
+async def _book_matt_once() -> None:
+    """Matt + LLM co-managed book — nightly ADVISORY analyst cycle: same research
+    session and inbox report, structurally zero proposals and zero lane rows."""
+    from research.book_driver import run_book_cycle
+
+    result = await run_book_cycle("matt")
+    if result.get("status") != "skipped":
+        logger.info("Matt+LLM book cycle: %s", result)
 
 
 async def _db_retention_once() -> None:
@@ -1953,6 +1963,13 @@ def _register_background_jobs() -> None:
         jobs_mod.Job(
             name="book_deepseek",
             fn=_book_deepseek_once,
+            interval_s=300.0,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="book_matt",
+            fn=_book_matt_once,
             interval_s=300.0,
         )
     )

@@ -41,6 +41,15 @@ BOOK_CYCLE_AFTER_ET_MINUTE = 5
 # purpose; a length-truncated reply persists as parse_fail, never silently drops.
 BOOK_MAX_TOKENS = 8000
 BOOK_CALL_TIMEOUT_S = 240
+# The research session: iterations of the tool loop (each may carry several
+# tool calls) and the hard wall-clock ceiling for the whole session.
+BOOK_MAX_TOOL_ITERATIONS = 12
+BOOK_CYCLE_TIMEOUT_S = 900
+# A crashed session retries on later job ticks, but only this many times before
+# the day is stamped with an error report — never an all-night retry storm.
+# In-memory on purpose: a backend restart resetting the count is acceptable.
+_MAX_ANALYSIS_ATTEMPTS = 3
+_ANALYSIS_FAILURES: dict[tuple[str, str, str], int] = {}
 
 _JSON_BLOCK_RE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
@@ -84,29 +93,57 @@ class BookCandidate(BaseModel):
 class BookDecision(BaseModel):
     candidates: list[BookCandidate] = Field(default_factory=list)
     holds_review: str = ""
+    # The analyst's self-maintained desk journal: rewritten every cycle, fed
+    # back verbatim in the next night's pack — the book's narrative memory
+    # (bounded; lanes + reports remain the mechanical memory).
+    journal: str = Field(default="", max_length=4000)
 
 
-def _system_prompt(book_name: str) -> str:
-    return (
-        f"You manage '{book_name}', a real paper-trading book in a forward-test study. "
-        "You receive a nightly context pack (your account, your open ledger lanes, the market "
-        "frame). Write a concise markdown report: what you see, what you considered, your "
-        "hold/trim review of existing positions, and what (if anything) you advance to propose.\n\n"
-        "Rules:\n"
-        "- Every thesis must name its falsifier — the level or date that kills it; for full plans "
-        "that falsifier IS the stop.\n"
-        "- Never state a numeric win probability. Use confidence_label low/medium/high only.\n"
-        "- Shorts may appear as candidates for tracking, but must have advanced=false (short "
-        "execution is not yet unlocked for this book).\n"
-        "- List EVERY candidate you seriously weighed, not just what you advance — considered "
-        "candidates are tracked too. Advancing nothing is a perfectly good night.\n"
-        "- Prices are strings; plan_horizon is trading days like '5d' or '15d' (no intraday).\n\n"
-        "End the report with EXACTLY ONE fenced ```json block:\n"
-        '{"candidates": [{"symbol", "direction", "thesis", "bear_case", "entry_low", '
-        '"entry_high", "stop", "targets", "entry_ref_price", "plan_horizon", '
-        '"confidence_label", "advanced", "notional_usd"}], "holds_review": "..."}\n'
-        "Give either a full plan (entry_low/entry_high/stop/targets) or entry_ref_price alone."
-    )
+# The founder's charter (book-analyst-charter, 07-23) — shared by every book.
+_CHARTER = (
+    "You are a senior analyst at the founder's elite trading firm, personally responsible "
+    "for the '{book_name}' book. Our goal is to create wealth without losing it — not merely "
+    "preserve it. We swing for home runs when they present themselves, but never size large "
+    "enough to go belly up.\n\n"
+    "It is after hours. Tonight's context pack is below. RESEARCH FIRST: use your tools — "
+    "the firm's own data (get_context on symbols, query across app resources, earnings dates, "
+    "list_capabilities to see what's readable) and outside data (web_search) — to pressure-test "
+    "anything you're considering before you write. Then file your nightly report in markdown: "
+    "what you see, what you dug into, your hold/trim review, and your conclusions.\n\n"
+    "House rules:\n"
+    "- Every thesis must name its falsifier — the level or date that kills it.\n"
+    "- Never state a numeric win probability. Confidence is low/medium/high only.\n"
+    "- End your report with a '## Desk journal' handoff to tomorrow's you inside the json "
+    "block: open theses you're stalking, levels you're waiting on, lessons — max ~3500 chars. "
+    "It is the ONLY narrative memory you carry between cycles.\n"
+)
+
+_DECISION_CONTRACT = (
+    "\nAfter the report, end with EXACTLY ONE fenced ```json block:\n"
+    '{"candidates": [{"symbol", "direction", "thesis", "bear_case", "entry_low", '
+    '"entry_high", "stop", "targets", "entry_ref_price", "plan_horizon", '
+    '"confidence_label", "advanced", "notional_usd"}], "holds_review": "...", '
+    '"journal": "..."}\n'
+    "Rules for the block:\n"
+    "- List EVERY candidate you seriously weighed, not just what you advance — considered "
+    "candidates are tracked too. Advancing nothing is a perfectly good night.\n"
+    "- advanced=true ONLY for what you actually propose for entry.\n"
+    "- Shorts may appear as candidates for tracking, but must have advanced=false (short "
+    "execution is not yet unlocked for this book).\n"
+    "- Prices are strings; plan_horizon is trading days like '5d' or '15d' (no intraday).\n"
+    "- Give either a full plan (entry_low/entry_high/stop/targets) or entry_ref_price alone."
+)
+
+_ADVISORY_CONTRACT = (
+    "\nThis book is CO-MANAGED: the founder makes every trade decision himself. Your report is "
+    "advisory only — review his positions, flag risks and opportunities, but produce NO order "
+    "proposals and no candidate list. Do not end with a json block."
+)
+
+
+def _system_prompt(book_name: str, *, advisory: bool) -> str:
+    charter = _CHARTER.format(book_name=book_name)
+    return charter + (_ADVISORY_CONTRACT if advisory else _DECISION_CONTRACT)
 
 
 def _extract_decision(raw: str) -> tuple[BookDecision | None, str]:
@@ -124,11 +161,77 @@ def _extract_decision(raw: str) -> tuple[BookDecision | None, str]:
         return None, f"schema error: {exc.errors()[:3]}"
 
 
-async def _acomplete(llm: Any, messages: list[Any]) -> str:
+async def _run_analysis(llm: Any, system: str, pack: str) -> str:
+    """The after-hours research session: an agentic tool loop (read-only
+    analyst toolset over our data + web) driven by the proven chat loop,
+    collected to the final markdown report text."""
+    from ai.chat.loop import LoopError, TextChunk, TextDelta, run_chat_loop
+    from ai.llm.base import LLMMessage
+    from research.book_tools import analyst_execute, analyst_tool_specs
+
+    convo = [
+        LLMMessage(role="system", content=system),
+        LLMMessage(role="user", content=pack),
+    ]
+
+    async def _consume() -> str:
+        parts: list[str] = []
+        async for event in run_chat_loop(
+            llm,
+            convo,
+            analyst_tool_specs(),
+            execute=analyst_execute,
+            approval_tools=frozenset(),  # nothing in the analyst set pauses
+            max_iterations=BOOK_MAX_TOOL_ITERATIONS,
+            max_tokens=BOOK_MAX_TOKENS,
+        ):
+            if isinstance(event, (TextChunk, TextDelta)):
+                parts.append(event.text)
+            elif isinstance(event, LoopError):
+                raise RuntimeError(f"analysis loop failed: {event.message}")
+        return "".join(parts)
+
+    return await asyncio.wait_for(_consume(), timeout=BOOK_CYCLE_TIMEOUT_S)
+
+
+async def _complete_once(llm: Any, messages: list[Any]) -> str:
+    """One plain completion (no tools) — the repair-retry path."""
     return await asyncio.wait_for(
-        llm.acomplete(messages, max_tokens=BOOK_MAX_TOKENS),
+        asyncio.to_thread(llm.complete, messages, max_tokens=BOOK_MAX_TOKENS),
         timeout=BOOK_CALL_TIMEOUT_S,
     )
+
+
+async def _analyze_and_extract(
+    client: Any, book_name: str, advisory: bool, pack: str
+) -> tuple[str, BookDecision | None, str]:
+    """Research session + (for decision books) block extraction with ONE repair
+    retry. Kept in one unit so the caller's retry/stamp backstop covers every
+    LLM call in the cycle — the repair path must not be an unprotected raise."""
+    raw = await _run_analysis(client, _system_prompt(book_name, advisory=advisory), pack)
+    if advisory:
+        return raw, None, ""
+    decision, err = _extract_decision(raw)
+    if decision is None:
+        from ai.llm.base import LLMMessage
+
+        retry = [
+            LLMMessage(role="system", content=_system_prompt(book_name, advisory=False)),
+            LLMMessage(role="user", content=pack),
+            LLMMessage(role="assistant", content=raw or "(empty)"),
+            LLMMessage(
+                role="user",
+                content=(
+                    f"Your decision block failed to parse: {err}. Reply with ONLY the "
+                    "corrected fenced ```json block, nothing else."
+                ),
+            ),
+        ]
+        raw2 = await _complete_once(client, retry)
+        decision, err = _extract_decision(raw2)
+        if decision is not None:
+            raw = f"{raw}\n\n{raw2}"
+    return raw, decision, err
 
 
 def _report_kind(book_id: str) -> str:
@@ -147,6 +250,25 @@ def _gate(now_et: datetime, kind: str, db_path: Path) -> str | None:
     return None
 
 
+async def _deliver_to_inbox(report: dict[str, Any], book_name: str, db_path: Path) -> None:
+    """The founder's app/web inbox: a report_ready notification row linking the
+    report. push=False — inbox delivery, never a phone push from this path."""
+    from signals.notify import notify
+
+    await notify(
+        kind="report_ready",
+        title=report["title"],
+        body=str(report.get("body", ""))[:280],
+        severity="info",
+        ref_type="report",
+        ref_id=report["id"],
+        action_url=f"/reports/{report['id']}",
+        data={"report_id": report["id"], "kind": report["kind"], "book": book_name},
+        push=False,
+        db_path=db_path,
+    )
+
+
 async def run_book_cycle(
     book_id: str = "deepseek",
     *,
@@ -154,15 +276,19 @@ async def run_book_cycle(
     db_path: Path = DEFAULT_DB_PATH,
     llm: Any | None = None,
 ) -> dict[str, Any]:
-    """One nightly cycle. Returns a status dict (every exit is observable)."""
+    """One nightly analyst cycle. Returns a status dict (every exit is observable).
+
+    Books with a strategy record run the full decision pipeline (lanes +
+    proposals-when-armed). The co-managed book (matt) runs the SAME research
+    session but advisory-only: report + inbox, no decision block, no lanes,
+    no proposals — structurally, not by prompt alone."""
     from ai.llm.factory import get_llm_for_provider
     from ai.llm.mock import MockLLM
     from db.reports import save_report
     from db.strategies import get_strategy
 
     book = BOOKS[book_id]
-    if not book.strategy_id:
-        raise ValueError(f"book {book_id!r} has no driver")
+    advisory = not book.strategy_id
     kind = _report_kind(book_id)
     now = now_et or datetime.now(_ET)
 
@@ -170,12 +296,17 @@ async def run_book_cycle(
     if gate:
         return {"status": "skipped", "reason": gate}
 
-    strategy = get_strategy(book.strategy_id, db_path=db_path)
-    if strategy is None:
-        return {"status": "skipped", "reason": "no_strategy_record"}
-    armed = bool(strategy.get("enabled"))
+    strategy = None
+    armed = False
+    if not advisory:
+        strategy = get_strategy(book.strategy_id, db_path=db_path)
+        if strategy is None:
+            return {"status": "skipped", "reason": "no_strategy_record"}
+        armed = bool(strategy.get("enabled"))
 
-    client = llm if llm is not None else get_llm_for_provider(book_id)
+    # In-process driver books run on the pinned DeepSeek seam (the app-default
+    # LLM must never silently switch a book's analyst).
+    client = llm if llm is not None else get_llm_for_provider("deepseek")
     if isinstance(client, MockLLM):
         return {"status": "skipped", "reason": "llm_unconfigured"}
 
@@ -188,37 +319,55 @@ async def run_book_cycle(
         except OSError:
             logger.exception("book %s pack archive failed (cycle continues)", book_id)
 
-    from ai.llm.base import LLMMessage
-
-    messages = [
-        LLMMessage(role="system", content=_system_prompt(book.name)),
-        LLMMessage(role="user", content=pack),
-    ]
-    raw = await _acomplete(client, messages)
-    decision, err = _extract_decision(raw)
-    if decision is None:
-        # ONE repair retry with the specific error echoed (the house pattern).
-        retry = messages + [
-            LLMMessage(role="assistant", content=raw or "(empty)"),
-            LLMMessage(
-                role="user",
-                content=(
-                    f"Your decision block failed to parse: {err}. Reply with ONLY the "
-                    "corrected fenced ```json block, nothing else."
-                ),
-            ),
-        ]
-        raw2 = await _acomplete(client, retry)
-        decision, err = _extract_decision(raw2)
-        if decision is not None:
-            raw = f"{raw}\n\n{raw2}"
-
     et_date = now.date().isoformat()
     title = f"{book.name} book · {et_date}"
 
+    try:
+        raw, decision, err = await _analyze_and_extract(client, book.name, advisory, pack)
+    except Exception as exc:  # noqa: BLE001 — API outage/timeout: bounded retries, then stamp
+        key = (str(db_path), kind, et_date)
+        attempts = _ANALYSIS_FAILURES.get(key, 0) + 1
+        _ANALYSIS_FAILURES[key] = attempts
+        if attempts < _MAX_ANALYSIS_ATTEMPTS:
+            logger.warning(
+                "book %s analysis failed (attempt %d/%d, will retry next tick): %s",
+                book_id, attempts, _MAX_ANALYSIS_ATTEMPTS, exc,
+            )
+            return {"status": "retry", "attempt": attempts, "error": str(exc)}
+        # Third strike stamps the day — an honest failure row beats an all-night
+        # retry storm, and the inbox shows the cycle died instead of silence.
+        _ANALYSIS_FAILURES.pop(key, None)
+        report = save_report(
+            kind,
+            "",
+            title,
+            f"Analyst session failed after {attempts} attempts: {exc}",
+            {"et_date": et_date, "dedup_key": kind, "status": "error", "error": str(exc)},
+            format="markdown",
+            db_path=db_path,
+        )
+        await _deliver_to_inbox(report, book.name, db_path)
+        logger.error("book %s cycle stamped as error after %d attempts", book_id, attempts)
+        return {"status": "error", "error": str(exc)}
+    _ANALYSIS_FAILURES.pop((str(db_path), kind, et_date), None)
+
+    if advisory:
+        report = save_report(
+            kind,
+            "",
+            title,
+            raw or "(empty report)",
+            {"et_date": et_date, "dedup_key": kind, "status": "ok", "advisory": True},
+            format="markdown",
+            db_path=db_path,
+        )
+        await _deliver_to_inbox(report, book.name, db_path)
+        logger.info("book %s advisory cycle: report=%s", book_id, report["id"])
+        return {"status": "ok", "advisory": True, "report_id": report["id"]}
+
     if decision is None:
         # zero and dead are different numbers: a failed cycle still leaves a row.
-        save_report(
+        report = save_report(
             kind,
             "",
             title,
@@ -227,6 +376,7 @@ async def run_book_cycle(
             format="markdown",
             db_path=db_path,
         )
+        await _deliver_to_inbox(report, book.name, db_path)
         logger.warning("book %s cycle parse_fail: %s", book_id, err)
         return {"status": "parse_fail", "error": err}
 
@@ -237,7 +387,7 @@ async def run_book_cycle(
     )
 
     proposals: list[dict[str, Any]] = []
-    if armed:
+    if armed and strategy is not None:
         proposals = await _propose_advanced(book_id, strategy, decision, db_path=db_path)
 
     report = save_report(
@@ -256,10 +406,13 @@ async def run_book_cycle(
             "lane_skipped": registration["skipped"],
             "proposals": proposals,
             "holds_review": decision.holds_review,
+            # Fed back verbatim in tomorrow's pack — the book's narrative memory.
+            "journal": decision.journal,
         },
         format="markdown",
         db_path=db_path,
     )
+    await _deliver_to_inbox(report, book.name, db_path)
     logger.info(
         "book %s cycle: armed=%s candidates=%d registered=%d proposals=%d report=%s",
         book_id, armed, len(decision.candidates),
