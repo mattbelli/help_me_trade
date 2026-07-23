@@ -10,12 +10,17 @@ this table is the *live forward-looking* feed the running scan depends on.
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
+from datetime import date as _date
 from pathlib import Path
 from typing import Any
 
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+
+logger = logging.getLogger(__name__)
 
 
 def init_earnings_calendar_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -75,6 +80,102 @@ def upsert_earnings(
         )
         conn.commit()
     return len(cleaned)
+
+
+# A past-dated vendor row is only a phantom if the vendor abandoned it well BEFORE
+# the event: real dates keep getting restamped up to the event day. 3 days absorbs
+# one missed daily refresh + the UTC-stamp-vs-ET-event-date skew, so a real event
+# whose refresh hiccuped the day before can never be pruned at its own boundary
+# (Alpha Vantage is forward-only and drops a date the moment it becomes today —
+# without this margin an AMC report could vanish on its print day and blind the
+# exit engine).
+_PAST_ABANDON_MARGIN_DAYS = 3
+
+# Blast-radius cap: a normal day withdraws ~1% of in-window vendor rows (first-ever
+# run: the accumulated backlog measured 48%). Anything past 60% means the confirmed
+# set is broken (truncated vendor response), not that half the calendar moved.
+_PRUNE_MAX_FRACTION = 0.6
+_PRUNE_SMALL_COUNT = 25  # tiny universes: absolute counts this small are never a wipe
+
+
+def prune_withdrawn_estimates(
+    symbols: list[str],
+    confirmed: set[tuple[str, str]],
+    *,
+    start: str,
+    end: str,
+    today: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Delete vendor estimate rows that no current fetch asserts anymore.
+
+    Vendors move earnings estimates and silently withdraw stale ones; the
+    append-only upsert fossilized withdrawn dates as phantom events (GOOGL kept
+    showing a Finnhub 07-28 "next earnings" after the real 07-22 report).
+    `confirmed` is every (symbol, date) the CURRENT refresh returned; a non-edgar
+    row inside the fetched [start, end] window that isn't in it was withdrawn:
+      - future rows: deleted (the vendor stopped listing the estimate);
+      - today's rows: never touched (a vendor dropping a same-day date is its
+        forward-only window rolling over, and EDGAR's confirmation lands later);
+      - past rows: deleted only if last asserted ≥ _PAST_ABANDON_MARGIN_DAYS
+        before the event date (abandoned-before-event = phantom; dropped-after
+        = a rolling window forgetting real history, which EDGAR owns).
+
+    edgar rows are never touched. Note the source column can't distinguish
+    vendors (Alpha Vantage rows default to 'finnhub' in the upsert), so callers
+    must build `confirmed` from ALL vendor fetches and skip pruning entirely if
+    any configured vendor failed — an empty-but-200 vendor response must count
+    as a failure, or a broken feed reads as everything-withdrawn.
+    """
+    init_earnings_calendar_tables(db_path)
+    universe = {s.strip().upper() for s in symbols if s and s.strip()}
+    if not universe:
+        return 0
+    confirmed_norm = {
+        (str(s).strip().upper(), str(d).strip()) for s, d in confirmed
+    }
+    today_d = (
+        _date.fromisoformat(today) if today else datetime.now(UTC).date()
+    )
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT symbol, date, fetched_at FROM earnings_calendar "
+            "WHERE source != 'edgar' AND date >= ? AND date <= ?",
+            (start, end),
+        ).fetchall()
+        candidates = [r for r in rows if r["symbol"] in universe]
+        withdrawn: list[tuple[str, str]] = []
+        for r in candidates:
+            if (r["symbol"], r["date"]) in confirmed_norm:
+                continue
+            try:
+                event_d = _date.fromisoformat(str(r["date"])[:10])
+                stamp_d = _date.fromisoformat(str(r["fetched_at"])[:10])
+            except ValueError:
+                continue  # unparsable — keep, never guess a deletion
+            if event_d > today_d or (
+                event_d < today_d
+                and (event_d - stamp_d).days >= _PAST_ABANDON_MARGIN_DAYS
+            ):
+                withdrawn.append((r["symbol"], r["date"]))
+        if (
+            len(withdrawn) > _PRUNE_SMALL_COUNT
+            and len(withdrawn) > _PRUNE_MAX_FRACTION * len(candidates)
+        ):
+            logger.warning(
+                "Earnings prune aborted: %d of %d in-window vendor rows read as "
+                "withdrawn — confirmed set looks broken, keeping everything",
+                len(withdrawn),
+                len(candidates),
+            )
+            return 0
+        if withdrawn:
+            conn.executemany(
+                "DELETE FROM earnings_calendar WHERE symbol = ? AND date = ?",
+                withdrawn,
+            )
+            conn.commit()
+    return len(withdrawn)
 
 
 def earnings_dates_for(

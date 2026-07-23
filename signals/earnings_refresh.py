@@ -18,7 +18,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from db.base import DEFAULT_DB_PATH
-from db.earnings_calendar import upsert_earnings
+from db.earnings_calendar import prune_withdrawn_estimates, upsert_earnings
 from signals.alphavantage import (
     afetch_earnings_calendar as av_afetch_earnings_calendar,
 )
@@ -75,20 +75,41 @@ def _filter_to_universe(
 
 async def _fetch_calendar_rows(
     start: str, end: str, symbols: list[str]
-) -> list[dict[str, str]]:
+) -> tuple[list[dict[str, str]], bool]:
     """Forward calendar + past announce dates. EDGAR runs last so its authoritative
-    (date, hour) wins the upsert's ON CONFLICT against a vendor's guess."""
+    (date, hour) wins the upsert's ON CONFLICT against a vendor's guess.
+
+    Also returns whether every CONFIGURED vendor fetch fully succeeded — the gate
+    for pruning withdrawn estimates. A partial vendor picture must never prune:
+    rows missing because a fetch failed would read as withdrawn.
+    """
     rows: list[dict[str, str]] = []
+    any_vendor = False
+    vendors_ok = True
     if alphavantage_is_configured():
-        rows.extend(await av_afetch_earnings_calendar(horizon="6month"))
+        any_vendor = True
+        av_rows = await av_afetch_earnings_calendar(horizon="6month")
+        rows.extend(av_rows)
+        if not av_rows:
+            # AV fail-softs to [] on throttle/network errors — treat as a failed fetch.
+            vendors_ok = False
     if finnhub_is_configured():
+        any_vendor = True
+        fh_rows: list[dict[str, str]] = []
         try:
             for chunk_start, chunk_end in _chunk_windows(start, end):
-                rows.extend(await afetch_earnings_calendar(chunk_start, chunk_end))
+                fh_rows.extend(await afetch_earnings_calendar(chunk_start, chunk_end))
         except Exception:
+            vendors_ok = False
             logger.warning("Finnhub earnings calendar fetch failed", exc_info=True)
+        if not fh_rows:
+            # A 200 with an empty body (expired/restricted key, malformed payload)
+            # parses to [] without raising — a whole-market multi-month window is
+            # never actually empty, so treat it as a failed fetch too.
+            vendors_ok = False
+        rows.extend(fh_rows)
     rows.extend(await afetch_edgar_earnings(symbols))
-    return rows
+    return rows, any_vendor and vendors_ok
 
 
 def refresh_earnings_calendar(
@@ -141,13 +162,28 @@ async def arefresh_earnings_calendar(
     if not symbols:
         return 0
     start, end = _window(now or datetime.now(UTC), days_back, days_fwd)
-    rows = await _fetch_calendar_rows(start, end, symbols)
+    rows, vendors_ok = await _fetch_calendar_rows(start, end, symbols)
     scoped = _filter_to_universe(rows, symbols)
     upserted = upsert_earnings(scoped, db_path=db_path)
+    pruned = 0
+    if vendors_ok:
+        confirmed = {
+            (str(r["symbol"]).strip().upper(), str(r["date"]).strip()) for r in scoped
+        }
+        pruned = prune_withdrawn_estimates(
+            symbols,
+            confirmed,
+            start=start,
+            end=end,
+            today=(now or datetime.now(UTC)).date().isoformat(),
+            db_path=db_path,
+        )
     logger.info(
-        "Earnings calendar refreshed: %d in window, %d in universe, %d upserted",
+        "Earnings calendar refreshed: %d in window, %d in universe, %d upserted, "
+        "%d withdrawn estimates pruned",
         len(rows),
         len(scoped),
         upserted,
+        pruned,
     )
     return upserted
