@@ -549,3 +549,92 @@ async def test_query_tool_delegates(
     result = await execute_tool("query", {"resource": "strategies"})
     assert result["resource"] == "strategies"
     assert result["count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Watchlist write tools (create / add / remove / rename)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _tmp_watchlist_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Per-test settings file — the conftest default is a SHARED temp path, and
+    these tools WRITE settings (same contamination class as the dedup-store
+    flake)."""
+    import config.settings as settings_mod
+
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", tmp_path / "settings.json")
+    settings_mod.clear_settings_cache()
+    yield
+    settings_mod.clear_settings_cache()
+
+
+@pytest.mark.asyncio
+async def test_watchlist_create_add_remove(_tmp_watchlist_settings) -> None:
+    created = await execute_tool(
+        "create_watchlist", {"name": "Uranium", "symbols": ["ccj", "uec"]}
+    )
+    assert created["status"] == "created"
+    assert created["id"] == "uranium"
+    assert created["symbols"] == ["CCJ", "UEC"]
+
+    added = await execute_tool(
+        "add_watchlist_symbols", {"symbols": ["uuuu", "CCJ"], "list": "Uranium"}
+    )
+    assert added["added"] == ["UUUU"]
+    assert added["already_present"] == ["CCJ"]
+    assert added["symbols"] == ["CCJ", "UEC", "UUUU"]
+
+    removed = await execute_tool(
+        "remove_watchlist_symbols", {"symbols": ["UEC", "XYZ"], "list": "uranium"}
+    )
+    assert removed["removed"] == ["UEC"]
+    assert removed["not_found"] == ["XYZ"]
+    assert removed["symbols"] == ["CCJ", "UUUU"]
+
+
+@pytest.mark.asyncio
+async def test_watchlist_add_defaults_to_active_list(
+    _tmp_watchlist_settings,
+) -> None:
+    result = await execute_tool("add_watchlist_symbols", {"symbols": ["ZZZT"]})
+    assert result["list_id"] == "main"
+    assert "ZZZT" in result["symbols"]
+
+
+@pytest.mark.asyncio
+async def test_watchlist_capacity_error_reported(_tmp_watchlist_settings) -> None:
+    from config.settings import update_watchlist
+
+    await execute_tool(
+        "create_watchlist", {"name": "Capped", "symbols": ["AAA", "BBB"]}
+    )
+    update_watchlist("capped", max_slots=2)
+
+    result = await execute_tool(
+        "add_watchlist_symbols", {"symbols": ["CCC"], "list": "capped"}
+    )
+    assert "full" in result["error"]
+    assert result["added"] == []
+
+    # The list is untouched — the reject is atomic per symbol.
+    state = await execute_tool("add_watchlist_symbols", {"symbols": ["AAA"], "list": "capped"})
+    assert state["already_present"] == ["AAA"]
+    assert state["symbols"] == ["AAA", "BBB"]
+
+
+@pytest.mark.asyncio
+async def test_watchlist_rename_by_name_and_unknown_ref(
+    _tmp_watchlist_settings,
+) -> None:
+    await execute_tool("create_watchlist", {"name": "Old Name"})
+    renamed = await execute_tool(
+        "rename_watchlist", {"list": "old name", "name": "Momentum"}
+    )
+    assert renamed == {"status": "renamed", "id": "old-name", "name": "Momentum"}
+
+    missing = await execute_tool(
+        "add_watchlist_symbols", {"symbols": ["AAPL"], "list": "nope"}
+    )
+    assert "Unknown watchlist" in missing["error"]
+    assert "Momentum" in missing["error"]

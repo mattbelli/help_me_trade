@@ -203,6 +203,38 @@ _PARAMETERS: dict[str, dict] = {
         "properties": {"id": {"type": "integer"}},
         "required": ["id"],
     },
+    "create_watchlist": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "symbols": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["name"],
+    },
+    "add_watchlist_symbols": {
+        "type": "object",
+        "properties": {
+            "symbols": {"type": "array", "items": {"type": "string"}},
+            "list": {"type": "string"},
+        },
+        "required": ["symbols"],
+    },
+    "remove_watchlist_symbols": {
+        "type": "object",
+        "properties": {
+            "symbols": {"type": "array", "items": {"type": "string"}},
+            "list": {"type": "string"},
+        },
+        "required": ["symbols"],
+    },
+    "rename_watchlist": {
+        "type": "object",
+        "properties": {
+            "list": {"type": "string"},
+            "name": {"type": "string"},
+        },
+        "required": ["list", "name"],
+    },
 }
 
 

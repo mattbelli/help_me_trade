@@ -55,6 +55,14 @@ def list_capabilities() -> dict[str, Any]:
             ),
             "update_price_alert": "Edit an existing price alert",
             "delete_price_alert": "Remove a price alert",
+            "create_watchlist": (
+                "Create a new watchlist (becomes the active list)"
+            ),
+            "add_watchlist_symbols": (
+                "Add symbols to a watchlist (list = name or id; default active)"
+            ),
+            "remove_watchlist_symbols": "Remove symbols from a watchlist",
+            "rename_watchlist": "Rename a watchlist",
         },
         "notes": (
             "Use get_context for a single symbol snapshot; use query(resource, filters) "

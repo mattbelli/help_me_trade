@@ -95,6 +95,26 @@ export const CHAT_TOOL_OPTIONS = [
     label: "Delete alert",
     description: "Remove a price alert",
   },
+  {
+    id: "create_watchlist",
+    label: "Create watchlist",
+    description: "New list with optional starting symbols",
+  },
+  {
+    id: "add_watchlist_symbols",
+    label: "Add to watchlist",
+    description: "Add symbols to a list (default: active)",
+  },
+  {
+    id: "remove_watchlist_symbols",
+    label: "Remove from watchlist",
+    description: "Remove symbols from a list",
+  },
+  {
+    id: "rename_watchlist",
+    label: "Rename watchlist",
+    description: "Rename an existing list",
+  },
 ] as const;
 
 export type ChatToolId = (typeof CHAT_TOOL_OPTIONS)[number]["id"];

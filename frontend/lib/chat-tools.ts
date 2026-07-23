@@ -213,6 +213,44 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       }),
       execute: async (input) => executePythonTool("delete_price_alert", input),
     }),
+    create_watchlist: tool({
+      description:
+        "Create a new watchlist (name + optional starting symbols); it becomes the active list. Only symbols the user named or just discussed — never pad a list.",
+      inputSchema: z.object({
+        name: z.string(),
+        symbols: z.array(z.string()).optional(),
+      }),
+      execute: async (input) => executePythonTool("create_watchlist", input),
+    }),
+    add_watchlist_symbols: tool({
+      description:
+        "Add symbols to a watchlist. list = the list's name or id (query('watchlists') to see them); omit for the active list. Slot-capped lists (e.g. the flow list) reject adds when full — report the error, never silently drop.",
+      inputSchema: z.object({
+        symbols: z.array(z.string()).min(1),
+        list: z.string().optional(),
+      }),
+      execute: async (input) =>
+        executePythonTool("add_watchlist_symbols", input),
+    }),
+    remove_watchlist_symbols: tool({
+      description:
+        "Remove symbols from a watchlist. list = the list's name or id; omit for the active list.",
+      inputSchema: z.object({
+        symbols: z.array(z.string()).min(1),
+        list: z.string().optional(),
+      }),
+      execute: async (input) =>
+        executePythonTool("remove_watchlist_symbols", input),
+    }),
+    rename_watchlist: tool({
+      description:
+        "Rename a watchlist. list = the CURRENT name or id (required — never guess).",
+      inputSchema: z.object({
+        list: z.string(),
+        name: z.string(),
+      }),
+      execute: async (input) => executePythonTool("rename_watchlist", input),
+    }),
   };
 
   if (!enabled) return all;

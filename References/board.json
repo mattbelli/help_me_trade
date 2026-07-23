@@ -10,6 +10,17 @@
   ],
   "cards": [
     {
+      "id": "chat-watchlist-write-tools",
+      "title": "Chat agent can create/edit watchlists \u2014 4 curated write tools (founder ask)",
+      "lane": "done",
+      "type": "feature",
+      "priority": "normal",
+      "owner": "agent",
+      "notes": "Founder 07-23: 'can you give the ai access to create/edit watchlists?' Easy by design \u2014 the perception layer's narrow-write-surface seam plus the existing capacity-checked store (config/settings.py) meant zero new storage logic. Tools: create_watchlist (becomes active), add_watchlist_symbols / remove_watchlist_symbols ('list' = name or id, default active; capacity rejects reported honestly with partial state), rename_watchlist. Wired on ALL surfaces per think-both-sides: TOOL_DEFINITIONS + planner prompt + execute_tool (web TS route AND mobile Python loop via chat_tool_specs), Zod mirrors in chat-tools.ts, toolbar entries, list_capabilities write_actions. Deliberately NO delete_watchlist (destructive; UI-only). Slot-capped flow list stays protected by the store's own edit-seam checks. 4 new tests (create/add/remove roundtrip, active-list default, capacity error, rename by case-insensitive name).",
+      "created_at": "2026-07-23",
+      "updated_at": "2026-07-23"
+    },
+    {
       "id": "news-catalyst-dots",
       "title": "News \u2192 fusion catalyst dots (event source, own attributable round)",
       "lane": "next",

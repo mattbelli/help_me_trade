@@ -237,6 +237,38 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "get_context."
         ),
     },
+    "create_watchlist": {
+        "title": "Create watchlist",
+        "description": (
+            "Create a new watchlist (name + optional starting symbols). The new "
+            "list becomes the ACTIVE list. Only include symbols the user named "
+            "or just discussed — never pad a list."
+        ),
+    },
+    "add_watchlist_symbols": {
+        "title": "Add to watchlist",
+        "description": (
+            "Add symbols to a watchlist. 'list' = the list's name or id (see "
+            "query('watchlists')); omit for the active list. Re-adding a member "
+            "is a no-op. Slot-capped lists (e.g. the 'flow' list that feeds the "
+            "options-flow collector) reject adds when full — report that error "
+            "to the user, never silently drop symbols."
+        ),
+    },
+    "remove_watchlist_symbols": {
+        "title": "Remove from watchlist",
+        "description": (
+            "Remove symbols from a watchlist. 'list' = the list's name or id; "
+            "omit for the active list."
+        ),
+    },
+    "rename_watchlist": {
+        "title": "Rename watchlist",
+        "description": (
+            "Rename a watchlist. 'list' = the CURRENT name or id (required — "
+            "never guess which list)."
+        ),
+    },
 }
 
 _TOOL_PLANNER_PROMPT = """You are a tool planner for a trading copilot.
@@ -261,6 +293,10 @@ Available tools:
 - create_price_alert — arguments: {"symbol": string, "price": number, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
 - update_price_alert — arguments: {"id": number, "price": number|null, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
 - delete_price_alert — arguments: {"id": number}
+- create_watchlist — arguments: {"name": string, "symbols": string[]|null}
+- add_watchlist_symbols — arguments: {"symbols": string[], "list": string|null}
+- remove_watchlist_symbols — arguments: {"symbols": string[], "list": string|null}
+- rename_watchlist — arguments: {"list": string, "name": string}
 
 Rules:
 - Return {"tools": []} when no tool is needed (greetings, thanks, small talk).
@@ -277,6 +313,7 @@ Rules:
 - Use delete_price_alert / update_price_alert to remove or change an existing alert (get its id via query('price_alerts') or get_context).
 - When the user says "remember this/that ..." call save_memory with quote = their exact words. Do NOT save risk/config limits (those live in Settings) or one-off requests.
 - When the user says "forget that" / "that's no longer true", call forget_memory with the id (find it first via search_memories).
+- When the user asks to add/remove watchlist symbols or create/rename a list, call the watchlist tools ('list' takes the list's NAME or id; omit for the active list). Only symbols the user named or just discussed.
 """
 
 
@@ -1193,7 +1230,122 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             return {"error": "not found"}
         return {"ok": True}
 
+    if name == "create_watchlist":
+        from config.settings import create_watchlist as settings_create_watchlist
+
+        list_name = str(args.get("name", "")).strip()
+        if not list_name:
+            return {"error": "name is required"}
+        symbols_raw = args.get("symbols")
+        if symbols_raw is not None and not isinstance(symbols_raw, list):
+            return {"error": "symbols must be a list"}
+        state = settings_create_watchlist(
+            list_name, [str(s) for s in symbols_raw] if symbols_raw else []
+        )
+        created = state["lists"][-1]
+        return {
+            "status": "created",
+            "id": created["id"],
+            "name": created["name"],
+            "symbols": created["symbols"],
+            "active": True,
+        }
+
+    if name in ("add_watchlist_symbols", "remove_watchlist_symbols"):
+        from config.settings import (
+            add_watchlist_symbol,
+            get_watchlists_state,
+            remove_watchlist_symbol,
+        )
+
+        symbols_raw = args.get("symbols")
+        if not isinstance(symbols_raw, list) or not symbols_raw:
+            return {"error": "symbols must be a non-empty list"}
+        try:
+            list_id = _resolve_watchlist_id(args.get("list"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        adding = name == "add_watchlist_symbols"
+        members: set[str] = set()
+        for item in get_watchlists_state()["lists"]:
+            if item["id"] == list_id:
+                members = set(item["symbols"])
+        changed: list[str] = []
+        skipped: list[str] = []
+        skip_key = "already_present" if adding else "not_found"
+        for raw in symbols_raw:
+            sym = str(raw).strip().upper()
+            if not sym:
+                continue
+            if adding:
+                if sym in members:
+                    skipped.append(sym)
+                    continue
+                try:
+                    add_watchlist_symbol(sym, list_id=list_id)
+                except ValueError as exc:
+                    # Capacity stop: report the partial state honestly.
+                    return {"error": str(exc), "added": changed, skip_key: skipped}
+                members.add(sym)
+            else:
+                if sym not in members:
+                    skipped.append(sym)
+                    continue
+                remove_watchlist_symbol(sym, list_id=list_id)
+                members.discard(sym)
+            changed.append(sym)
+        final: list[str] = []
+        for item in get_watchlists_state()["lists"]:
+            if item["id"] == list_id:
+                final = list(item["symbols"])
+        return {
+            "status": "ok",
+            "list_id": list_id,
+            ("added" if adding else "removed"): changed,
+            skip_key: skipped,
+            "symbols": final,
+        }
+
+    if name == "rename_watchlist":
+        from config.settings import update_watchlist as settings_update_watchlist
+
+        new_name = str(args.get("name", "")).strip()
+        if not new_name:
+            return {"error": "name is required"}
+        ref = args.get("list")
+        if ref is None or not str(ref).strip():
+            return {"error": "list is required (the current name or id)"}
+        try:
+            list_id = _resolve_watchlist_id(ref)
+            settings_update_watchlist(list_id, name=new_name)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {"status": "renamed", "id": list_id, "name": new_name}
+
     return {"error": f"Unknown tool {name}"}
+
+
+def _resolve_watchlist_id(ref: Any) -> str:
+    """Map a list id or user-facing NAME (case-insensitive) to the list id.
+
+    None/blank targets the active list; an unknown ref raises with the
+    available lists so the model can self-correct.
+    """
+    from config.settings import get_watchlists_state
+
+    state = get_watchlists_state()
+    wanted = str(ref).strip() if ref is not None else ""
+    if not wanted:
+        return state["active_id"]
+    for item in state["lists"]:
+        if item["id"] == wanted:
+            return item["id"]
+    lowered = wanted.lower()
+    for item in state["lists"]:
+        if str(item.get("name", "")).lower() == lowered:
+            return item["id"]
+    names = ", ".join(f"{item['name']} ({item['id']})" for item in state["lists"])
+    raise ValueError(f"Unknown watchlist {wanted!r} — available: {names}")
 
 
 _OPERATOR_SYMBOLS = {
