@@ -10,6 +10,15 @@
   ],
   "cards": [
     {
+      "id": "chart-bars-incremental-refresh",
+      "title": "Chart bars: incremental fetch-since-last-bar refresh (no more full re-walk on every warm refresh)",
+      "lane": "in_progress",
+      "type": "enhancement",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "Draft PR (worktree). Root cause of 'watchlist charts still slow on some timeframes' (chart perf audit): the prewarm loop re-walked the ENTIRE `days` range on every TTL expiry, so keeping a series warm cost as much as a cold load - which is why prewarm scope had to stay pinned to the 1Day default only (storm invariant, see chart-bars-prewarm-storms). Fix: _fetch_bars now dispatches incremental-vs-full. A warm series with a fresh full baseline re-fetches only a small trailing window (_BARS_INCREMENTAL_DAYS, 2-90d by timeframe) and merges it over the cached bars - still-forming last bar overwritten, new bars appended; ascending same-provider ISO times so the concat stays sorted+deduped. Full re-baseline forced hourly (_BARS_FULL_REBASELINE) so split adjustments / history revisions propagate. Empty window / provider error / inc>=days -> fall back to a full walk (which owns the resilience + stale-if-error fallbacks). ENABLER for #2 (prewarm more than the default timeframe) without outrunning the TTLs. tests/test_bars_cache.py +3 (merge, hourly rebaseline, empty->full); 8/8 module + 53 adjacent green; ruff clean. Deploy + founder verify pending."
+    },
+    {
       "id": "strategy-lab-redesign",
       "title": "Strategy Lab redesign: zero-context mockup round (backtesting + live look-in + LLM books)",
       "lane": "in_progress",

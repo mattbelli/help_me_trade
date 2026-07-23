@@ -3998,6 +3998,33 @@ _BARS_CACHE_TTL = {
     "1Month": 300.0,
 }
 
+# Incremental refresh: when a warm cached series is refreshed (by the prewarm loop
+# or an expired interactive miss), re-fetch only this small trailing window and merge
+# it over the cached bars instead of re-walking the whole `days` range. The
+# still-forming last bar is overwritten and any new bars appended. The window is per
+# timeframe, generous enough to bridge a weekend/holiday gap so the overlap always
+# re-captures the last cached bar. This is what keeps a full prewarm cycle cheap
+# enough to stay well under the TTLs it refreshes (the storm invariant — see the
+# chart-bars-prewarm-storms memory).
+_BARS_INCREMENTAL_DAYS = {
+    "1Min": 2,
+    "5Min": 2,
+    "15Min": 4,
+    "1Hour": 5,
+    "4Hour": 7,
+    "1Day": 7,
+    "1Week": 30,
+    "1Month": 90,
+}
+# Incremental merge preserves old history verbatim, so a split adjustment (Alpaca
+# fetches with adjustment=split) would leave the pre-split price scale on the
+# retained bars forever. Force a full re-fetch (re-baseline) at least this often so
+# splits and any upstream history revision propagate. Cheap: a continuously-warm
+# series pays one full walk per hour and serves incremental the rest of the time.
+_BARS_FULL_REBASELINE = 3600.0
+# monotonic timestamp of the last FULL fetch per cache key — gates re-baseline.
+_BARS_FULL_AT: dict[tuple, float] = {}
+
 # Timeframes with no intraday session (daily/weekly/monthly) — pre/post-market data
 # is meaningless for them, so extended-hours defaults OFF. Everything else is intraday
 # and defaults ON so the chart shows pre/post candles (the founder's headline ask).
@@ -4104,7 +4131,104 @@ def _stale_bars_or_none(cache_key: tuple) -> dict | None:
     return entry[1] if entry is not None else None
 
 
+def _stockbars_to_dicts(bars: list) -> list[dict]:
+    """Chart-response bar dicts from provider StockBar objects (pre-sanitize)."""
+    return [
+        {
+            "time": b.time,
+            "open": b.open,
+            "high": b.high,
+            "low": b.low,
+            "close": b.close,
+            "volume": b.volume,
+        }
+        for b in bars
+    ]
+
+
+def _build_bars_response(
+    sym: str, timeframe: str, bar_dicts: list[dict], ext: bool
+) -> dict:
+    """Sanitize + wrap bar dicts into the /api/bars response shape."""
+    from brokers.bars_hygiene import sanitize_bar_dicts
+
+    response = {
+        "symbol": sym,
+        "timeframe": timeframe,
+        "bars": sanitize_bar_dicts(sym, bar_dicts),
+    }
+    if ext and timeframe not in _NON_INTRADAY_TIMEFRAMES and _overnight_delayed_flag():
+        response["overnight_delayed"] = True
+    return response
+
+
+def _store_bars(cache_key: tuple, timeframe: str, response: dict, *, full: bool) -> None:
+    """Write a bars response into the cache with its TTL. ``full`` records a fresh
+    re-baseline timestamp (gates incremental vs full on the next refresh)."""
+    now = time.monotonic()
+    _BARS_CACHE[cache_key] = (now + _BARS_CACHE_TTL.get(timeframe, 120.0), response)
+    if full:
+        _BARS_FULL_AT[cache_key] = now
+    if len(_BARS_CACHE) > 256:
+        for k in [k for k, (exp, _) in list(_BARS_CACHE.items()) if exp <= now]:
+            _BARS_CACHE.pop(k, None)
+            _BARS_FULL_AT.pop(k, None)
+
+
 async def _fetch_bars(
+    sym: str, timeframe: str, days: int, ext: bool, cache_key: tuple
+) -> dict | None:
+    """Refresh a cached series: incremental (a small trailing window merged over the
+    cached bars) when a fresh-enough full baseline exists, else a full range walk.
+    Incremental is what makes the prewarm loop cheap enough to warm more than the
+    default view without outrunning the TTLs it maintains (chart-bars-prewarm-storms)."""
+    existing = _BARS_CACHE.get(cache_key)
+    full_at = _BARS_FULL_AT.get(cache_key)
+    if (
+        existing is not None
+        and existing[1].get("bars")
+        and full_at is not None
+        and (time.monotonic() - full_at) < _BARS_FULL_REBASELINE
+    ):
+        merged = await _fetch_bars_incremental(
+            sym, timeframe, days, ext, cache_key, existing[1]
+        )
+        if merged is not None:
+            return merged
+        # incremental unavailable/failed — fall through to a full re-fetch
+    return await _fetch_bars_full(sym, timeframe, days, ext, cache_key)
+
+
+async def _fetch_bars_incremental(
+    sym: str, timeframe: str, days: int, ext: bool, cache_key: tuple, cached: dict
+) -> dict | None:
+    """Merge a small trailing re-fetch over the cached series. Returns the merged
+    response, or None to signal the caller to fall back to a full walk (no saving
+    possible, a provider error, or an empty window)."""
+    inc_days = _BARS_INCREMENTAL_DAYS.get(timeframe, 7)
+    if inc_days >= days:
+        return None  # window already covers the whole range — no saving, do full
+    try:
+        provider = get_market_data_provider()
+        recent = await provider.aget_stock_bars(
+            sym, timeframe=timeframe, days=inc_days, extended_hours=ext
+        )
+    except Exception:
+        return None  # any hiccup → full re-fetch (which owns the resilience fallbacks)
+    if not recent:
+        return None
+    recent_dicts = _stockbars_to_dicts(recent)
+    cutoff = recent_dicts[0]["time"]
+    # Cached bars strictly before the window + the freshly fetched window. Both are
+    # ascending same-provider ISO times, so the concat stays sorted and the still-
+    # forming boundary bar is replaced (not duplicated) by its fresh copy.
+    kept = [b for b in cached.get("bars", []) if b["time"] < cutoff]
+    response = _build_bars_response(sym, timeframe, kept + recent_dicts, ext)
+    _store_bars(cache_key, timeframe, response, full=False)
+    return response
+
+
+async def _fetch_bars_full(
     sym: str, timeframe: str, days: int, ext: bool, cache_key: tuple
 ) -> dict | None:
     try:
@@ -4135,33 +4259,8 @@ async def _fetch_bars(
         except BrokerError:
             return _stale_bars_or_none(cache_key)
 
-    from brokers.bars_hygiene import sanitize_bar_dicts
-
-    response = {
-        "symbol": sym,
-        "timeframe": timeframe,
-        "bars": sanitize_bar_dicts(
-            sym,
-            [
-                {
-                    "time": b.time,
-                    "open": b.open,
-                    "high": b.high,
-                    "low": b.low,
-                    "close": b.close,
-                    "volume": b.volume,
-                }
-                for b in bars
-            ],
-        ),
-    }
-    if ext and timeframe not in _NON_INTRADAY_TIMEFRAMES and _overnight_delayed_flag():
-        response["overnight_delayed"] = True
-    now = time.monotonic()
-    _BARS_CACHE[cache_key] = (now + _BARS_CACHE_TTL.get(timeframe, 120.0), response)
-    if len(_BARS_CACHE) > 256:
-        for k in [k for k, (exp, _) in list(_BARS_CACHE.items()) if exp <= now]:
-            _BARS_CACHE.pop(k, None)
+    response = _build_bars_response(sym, timeframe, _stockbars_to_dicts(bars), ext)
+    _store_bars(cache_key, timeframe, response, full=True)
     return response
 
 
