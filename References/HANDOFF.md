@@ -49,10 +49,12 @@ Spec + amendments: `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments ove
 `llm-books-program`; detail in BUILD_LOG 2026-07-23 rows. Increments 1 (plumbing) AND 2 (Deep Seek
 driver, `research/book_driver.py` + `book_deepseek` job) are built; execution style DECIDED 07-23
 (MOO default, market fallback after the ~9:28 ET cutoff — spec §5.5). **Open:**
-- ⏳ TONIGHT ~17:05 ET: first real dry cycle (deepseek-v4-pro) — verify report row
-  (`book_deepseek` kind), lane rows in `book:deepseek*`, Lab book page shows them
-- increments 3–6: Matt+LLM snapshot → Fable/Panel sessions + dead-man → shorts unlock (own
-  adversarially-reviewed round) → Lab lane wiring
+- ⏳ TONIGHT: first cycles for ALL FOUR books — deepseek + matt in-process (~17:05+ ET), fable
+  cron 17:20 ET, panel cron 17:40 ET (4 Opus seats + Fable judge). Verify per book: report row +
+  inbox notification + phone push + (decision books) lane rows + journal in payload; dead-man
+  fires 20:00 ET for anything missing. Session logs: `data/book_sessions/`
+- remaining increments: 5 (shorts unlock — own adversarially-reviewed round) → 6 (Lab lane
+  wiring); ALSO session-book research depth v2 (read-only API access beyond the pack)
 - ARMING round prereqs (before any book goes enabled=true): opg-at-approval chokepoint change
   (adversarial review) + verify ONE-batched-push (moot while `alerts.max_push_per_day=0`)
 - founder-lane (spec §9): panel cadence (nightly vs Tue/Thu), per-book notional caps at arming

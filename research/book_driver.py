@@ -68,6 +68,7 @@ class BookCandidate(BaseModel):
     confidence_label: Literal["low", "medium", "high"] | None = None
     advanced: bool = False
     notional_usd: float | None = None  # advanced only; clamped by the strategy record
+    seat: str | None = None  # panel books only: bull|bear|macro|risk
 
     def to_registration(self) -> dict[str, Any]:
         reg: dict[str, Any] = {
@@ -78,6 +79,7 @@ class BookCandidate(BaseModel):
             "confidence_label": self.confidence_label,
             "plan_horizon": self.plan_horizon,
             "advanced": self.advanced,
+            "seat": self.seat,
         }
         if self.entry_low and self.entry_high and self.stop:
             reg["entry_zone"] = {"low": self.entry_low, "high": self.entry_high}
@@ -250,10 +252,16 @@ def _gate(now_et: datetime, kind: str, db_path: Path) -> str | None:
     return None
 
 
-async def _deliver_to_inbox(report: dict[str, Any], book_name: str, db_path: Path) -> None:
-    """The founder's app/web inbox: a report_ready notification row linking the
-    report. push=False — inbox delivery, never a phone push from this path."""
+async def deliver_report(report: dict[str, Any], book_name: str, db_path: Path) -> None:
+    """Deliver one book report: an app/web inbox row + ONE phone push.
+
+    The inbox row is a report_ready notification linking the report (notify
+    forces push=False for that kind). The push goes direct via send_alert_push
+    (founder 07-23: "a phone push for each report") — that seam ignores the
+    flow-lane max_push_per_day kill, which stays untouched. One push per book
+    per night by construction (the cycle runs once per ET day)."""
     from signals.notify import notify
+    from signals.push import send_alert_push
 
     await notify(
         kind="report_ready",
@@ -267,6 +275,19 @@ async def _deliver_to_inbox(report: dict[str, Any], book_name: str, db_path: Pat
         push=False,
         db_path=db_path,
     )
+    try:
+        await send_alert_push(
+            report["title"],
+            str(report.get("body", ""))[:180],
+            data={
+                "type": "report_ready",
+                "report_id": report["id"],
+                "kind": report["kind"],
+            },
+            db_path=db_path,
+        )
+    except Exception:  # noqa: BLE001 — delivery must never kill a completed cycle
+        logger.exception("book report push failed (inbox row already written)")
 
 
 async def run_book_cycle(
@@ -346,7 +367,7 @@ async def run_book_cycle(
             format="markdown",
             db_path=db_path,
         )
-        await _deliver_to_inbox(report, book.name, db_path)
+        await deliver_report(report, book.name, db_path)
         logger.error("book %s cycle stamped as error after %d attempts", book_id, attempts)
         return {"status": "error", "error": str(exc)}
     _ANALYSIS_FAILURES.pop((str(db_path), kind, et_date), None)
@@ -361,7 +382,7 @@ async def run_book_cycle(
             format="markdown",
             db_path=db_path,
         )
-        await _deliver_to_inbox(report, book.name, db_path)
+        await deliver_report(report, book.name, db_path)
         logger.info("book %s advisory cycle: report=%s", book_id, report["id"])
         return {"status": "ok", "advisory": True, "report_id": report["id"]}
 
@@ -376,7 +397,7 @@ async def run_book_cycle(
             format="markdown",
             db_path=db_path,
         )
-        await _deliver_to_inbox(report, book.name, db_path)
+        await deliver_report(report, book.name, db_path)
         logger.warning("book %s cycle parse_fail: %s", book_id, err)
         return {"status": "parse_fail", "error": err}
 
@@ -412,9 +433,94 @@ async def run_book_cycle(
         format="markdown",
         db_path=db_path,
     )
-    await _deliver_to_inbox(report, book.name, db_path)
+    await deliver_report(report, book.name, db_path)
     logger.info(
         "book %s cycle: armed=%s candidates=%d registered=%d proposals=%d report=%s",
+        book_id, armed, len(decision.candidates),
+        len(registration["registered"]), len(proposals), report["id"],
+    )
+    return {
+        "status": "ok",
+        "armed": armed,
+        "registered": registration["registered"],
+        "proposals": proposals,
+        "report_id": report["id"],
+    }
+
+
+async def submit_session_cycle(
+    book_id: str,
+    report_md: str,
+    decision_payload: dict[str, Any],
+    *,
+    now_et: datetime | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Session-driven books (Fable / Claude Panel): the scheduled Claude Code
+    session does its own research and calls this (via tools/book_session_submit.py)
+    as its LAST act — one code path with the in-process driver for validation,
+    lanes, proposals-when-armed, report row, inbox + push delivery, and the
+    once-per-ET-day stamp.
+
+    A schema-invalid decision returns status=invalid WITHOUT stamping the day —
+    the session is expected to fix its JSON and re-run the submit."""
+    from db.reports import save_report
+    from db.strategies import get_strategy
+
+    book = BOOKS[book_id]
+    if not book.strategy_id:
+        raise ValueError(f"book {book_id!r} is advisory-only — nothing to submit")
+    kind = _report_kind(book_id)
+    now = now_et or datetime.now(_ET)
+
+    gate = _gate(now, kind, db_path)
+    if gate:
+        return {"status": "skipped", "reason": gate}
+
+    strategy = get_strategy(book.strategy_id, db_path=db_path)
+    if strategy is None:
+        return {"status": "skipped", "reason": "no_strategy_record"}
+    armed = bool(strategy.get("enabled"))
+
+    try:
+        decision = BookDecision.model_validate(decision_payload)
+    except ValidationError as exc:
+        return {"status": "invalid", "error": f"schema error: {exc.errors()[:5]}"}
+
+    registration = register_book_candidates(
+        book_id,
+        [c.to_registration() for c in decision.candidates],
+        db_path=db_path,
+    )
+    proposals: list[dict[str, Any]] = []
+    if armed:
+        proposals = await _propose_advanced(book_id, strategy, decision, db_path=db_path)
+
+    et_date = now.date().isoformat()
+    report = save_report(
+        kind,
+        "",
+        f"{book.name} book · {et_date}",
+        report_md or "(empty report)",
+        {
+            "et_date": et_date,
+            "dedup_key": kind,
+            "status": "ok",
+            "armed": armed,
+            "dry": not armed,
+            "candidates": len(decision.candidates),
+            "registered": len(registration["registered"]),
+            "lane_skipped": registration["skipped"],
+            "proposals": proposals,
+            "holds_review": decision.holds_review,
+            "journal": decision.journal,
+        },
+        format="markdown",
+        db_path=db_path,
+    )
+    await deliver_report(report, book.name, db_path)
+    logger.info(
+        "book %s session submit: armed=%s candidates=%d registered=%d proposals=%d report=%s",
         book_id, armed, len(decision.candidates),
         len(registration["registered"]), len(proposals), report["id"],
     )

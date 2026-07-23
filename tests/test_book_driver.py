@@ -279,3 +279,80 @@ def test_unconfigured_llm_skips(tmp_path: Path, monkeypatch: Any) -> None:
     db = tmp_path / "t.db"
     out = _run(db)  # no llm injected → factory path → mock → skip
     assert out == {"status": "skipped", "reason": "llm_unconfigured"}
+
+
+PANEL_DECISION = {
+    "candidates": [
+        {
+            "symbol": "NVDA",
+            "seat": "bull",
+            "direction": "long",
+            "thesis": "ai capex supercycle continues",
+            "bear_case": "pre-mortem: guidance finally disappoints",
+            "entry_low": "170",
+            "entry_high": "174",
+            "stop": "162",
+            "targets": ["195"],
+            "plan_horizon": "15d",
+            "confidence_label": "high",
+            "advanced": True,
+        },
+        {
+            "symbol": "XLF",
+            "seat": "bear",
+            "direction": "short",
+            "thesis": "credit stress building",
+            "entry_ref_price": "43",
+            "plan_horizon": "10d",
+            "advanced": False,
+        },
+    ],
+    "holds_review": "flat",
+    "journal": "bear seat keeps losing the credit argument — watch its lane",
+}
+
+
+def test_session_submit_panel_registers_seats_and_delivers(tmp_path: Path) -> None:
+    from research.book_driver import submit_session_cycle
+
+    db = tmp_path / "t.db"
+    seed_default_strategies(db_path=db)
+    out = asyncio.run(
+        submit_session_cycle("panel", "## Panel report", PANEL_DECISION, now_et=NOW, db_path=db)
+    )
+    assert out["status"] == "ok" and out["armed"] is False and out["proposals"] == []
+    # Advanced bull idea → seat lane AND headline; bear candidate → seat lane only.
+    assert [r["symbol"] for r in list_ledger_rows(origin="book:panel/bull", db_path=db)["rows"]] == ["NVDA"]
+    assert [r["symbol"] for r in list_ledger_rows(origin="book:panel", db_path=db)["rows"]] == ["NVDA"]
+    assert [r["symbol"] for r in list_ledger_rows(origin="book:panel/bear", db_path=db)["rows"]] == ["XLF"]
+    reports = recent_reports_by_kind("book_panel", db_path=db)
+    assert len(reports) == 1 and reports[0]["payload"]["journal"].startswith("bear seat")
+    assert _notification_count(db) == 1
+    # Same day re-submit dedups.
+    again = asyncio.run(
+        submit_session_cycle("panel", "## Panel report", PANEL_DECISION, now_et=NOW, db_path=db)
+    )
+    assert again == {"status": "skipped", "reason": "already_ran_today"}
+
+
+def test_session_submit_invalid_schema_does_not_stamp_day(tmp_path: Path) -> None:
+    from research.book_driver import submit_session_cycle
+
+    db = tmp_path / "t.db"
+    seed_default_strategies(db_path=db)
+    bad = {"candidates": [{"symbol": "AAPL"}]}  # missing thesis/plan_horizon
+    out = asyncio.run(submit_session_cycle("fable", "## r", bad, now_et=NOW, db_path=db))
+    assert out["status"] == "invalid"
+    assert recent_reports_by_kind("book_fable", db_path=db) == []
+    # The session fixes its JSON and re-submits successfully.
+    ok = asyncio.run(
+        submit_session_cycle(
+            "fable",
+            "## r",
+            {"candidates": [], "holds_review": "flat", "journal": "quiet night"},
+            now_et=NOW,
+            db_path=db,
+        )
+    )
+    assert ok["status"] == "ok"
+    assert recent_reports_by_kind("book_fable", db_path=db)[0]["payload"]["journal"] == "quiet night"

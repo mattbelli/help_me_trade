@@ -1287,6 +1287,42 @@ async def _book_matt_once() -> None:
         logger.info("Matt+LLM book cycle: %s", result)
 
 
+_book_deadman_last_date: dict = {}
+
+
+async def _book_deadman_once() -> None:
+    """Books dead-man (spec §6): any book with no report by 20:00 ET gets flagged
+    — inbox + push (severity=warning). Once per ET day; the in-memory stamp
+    resetting on restart re-checks, which is the safe direction."""
+    from db.reports import report_exists_for_day
+    from research.books import BOOKS
+    from signals.notify import notify
+
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5 or now_et.hour < 20:
+        return
+    today = now_et.date()
+    if _book_deadman_last_date.get("date") == today:
+        return
+    missing = [
+        b.name
+        for b in BOOKS.values()
+        if not report_exists_for_day(
+            f"book_{b.book_id}", today, dedup_key=f"book_{b.book_id}"
+        )
+    ]
+    _book_deadman_last_date["date"] = today
+    if not missing:
+        return
+    await notify(
+        kind="book_deadman",
+        title=f"Book dead-man: {len(missing)} report(s) missing tonight",
+        body="No nightly report filed by 20:00 ET: " + ", ".join(sorted(missing)),
+        severity="warning",
+    )
+    logger.warning("book dead-man fired: missing=%s", missing)
+
+
 async def _db_retention_once() -> None:
     from db.earnings_alerts import prune_earnings_alerts_sent
     from db.equity_tape import prune as prune_equity_tape
@@ -1970,6 +2006,13 @@ def _register_background_jobs() -> None:
         jobs_mod.Job(
             name="book_matt",
             fn=_book_matt_once,
+            interval_s=300.0,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="book_deadman",
+            fn=_book_deadman_once,
             interval_s=300.0,
         )
     )
